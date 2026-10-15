@@ -7,7 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { CARD_ADMITTED, CARD_MOVED } from '../../../src/commands/intake/index.js'
-import { BACKFILL_ACTOR, recordSet, runBackfill } from '../../bus/backfill.js'
+import { BACKFILL_ACTOR, recordSet, runBackfill, runBackfillCommand, USAGE } from '../../bus/backfill.js'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { cardChain } from '../../bus/card-chain.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
@@ -17,7 +17,7 @@ import { launchCandidates } from '../../bus/launch-candidates.js'
 import { CARD_CLOSED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { replayDifferences } from '../../bus/report.js'
-import { cardVerified } from './merge-bench.js'
+import { cardVerified, mergeBench } from './merge-bench.js'
 
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
 const BACKFILLED_AT = new Date('2026-10-15T09:00:00.000Z')
@@ -205,6 +205,24 @@ describe('the backfill admits every live parked card once, from a fixed set', ()
     expect(withBus(w, lifecycle)).toEqual(before)
   })
 
+  it('a backfill admission without depends leaves the merge queue on the depends of the latest real admission', () => {
+    const bench = mergeBench()
+    try {
+      const pr = 997
+      const card = pr + 100
+      const text = cardText(card)
+      bench.gitHub.open({ number: pr, review: 'success' })
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:test:t1', cardId: card, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:intake:${card}`, payload: { lane: 'lane-7', depends: [card + 1], decision: null, contour: null }, legacy: false })
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: BACKFILL_ACTOR, cardId: card, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:backfill:${card}`, payload: { card: `#${card}`, lane: 'lane-7', source: 'backfill', text, textSha: sha256(text), bodyMatchesAdmission: false, textVerified: false }, legacy: false })
+      bench.tick()
+
+      expect(bench.lease()).toBeNull()
+    }
+    finally {
+      bench.close()
+    }
+  })
+
   it('a set whose file changed since it was recorded writes nothing', () => {
     const w = liveWorld()
     const set = recorded(w)
@@ -212,6 +230,76 @@ describe('the backfill admits every live parked card once, from a fixed set', ()
     park(w, 92, 'lane-7', 'Do the other thing.')
     expect(withBus(w, db => runBackfill(db, set, BACKFILLED_AT))).toEqual([`#92 ${path.join(w.parking, 'lane-7', '92.md')}: its sha is no longer the one the set recorded`])
     expect(withBus(w, eventCount)).toBe(before)
+  })
+})
+
+interface Ran { code: number, out: string[], err: string[] }
+
+function command(w: World, args: string[], parking = path.join(w.root, 'no-parking')): Ran {
+  const out: string[] = []
+  const err: string[] = []
+  const code = runBackfillCommand(args, { bus: w.bus, parking, now: () => BACKFILLED_AT, out: line => out.push(line), err: line => err.push(line) })
+  return { code, out, err }
+}
+
+describe('pnpm bus:backfill records a set and runs it', () => {
+  it('--record writes the set, names every skipped card with its reason and exits 0', () => {
+    const w = liveWorld()
+    for (const card of [93, 94, 95])
+      park(w, card)
+    settle(w)
+    const refused = path.join(w.parking, 'lane-7', '96.md')
+    writeFileSync(refused, 'card: #96 not-a-card\n')
+    const file = path.join(w.root, 'set.json')
+    const ran = command(w, ['--record', file], w.parking)
+    expect(ran.code).toBe(0)
+    expect(ran.err).toEqual([])
+    const set = JSON.parse(readFileSync(file, 'utf8')) as BackfillSet
+    expect(set).toMatchObject({ recordedAt: BACKFILLED_AT.toISOString(), parking: w.parking })
+    expect(set.cards.map(entry => entry.card)).toEqual([90, 91, 92])
+    expect(ran.out.slice(0, 3)).toEqual([93, 94, 95].map(card => `[backfill] skipped #${card} ${path.join(w.parking, 'lane-7', `${card}.md`)}: settled in the bus`))
+    expect(ran.out[3]).toMatch(new RegExp(`^\\[backfill\\] skipped #96 ${refused.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: refused by the card grammar: `))
+    expect(ran.out.slice(4)).toEqual([`[backfill] recorded 3 cards in ${file}`])
+  })
+
+  it('--record --parking reads that directory, not the default parking', () => {
+    const w = liveWorld()
+    const file = path.join(w.root, 'set.json')
+    expect(command(w, ['--record', file, '--parking', w.parking]).code).toBe(0)
+    expect((JSON.parse(readFileSync(file, 'utf8')) as BackfillSet).cards.map(entry => entry.card)).toEqual([90, 91, 92])
+  })
+
+  it('--record refuses a set file that exists, leaves it as it was and exits 1', () => {
+    const w = liveWorld()
+    const file = path.join(w.root, 'set.json')
+    writeFileSync(file, 'kept\n')
+    const ran = command(w, ['--record', file], w.parking)
+    expect(ran).toEqual({ code: 1, out: [], err: [`[backfill] ${file} exists; a recorded set is never overwritten`] })
+    expect(readFileSync(file, 'utf8')).toBe('kept\n')
+  })
+
+  it('--set writes the set, a second --set writes nothing, and both exit 0', () => {
+    const w = liveWorld()
+    const file = path.join(w.root, 'set.json')
+    command(w, ['--record', file], w.parking)
+    expect(command(w, ['--set', file])).toEqual({ code: 0, out: ['[backfill] 3 written, 0 already backfilled, 3 in the set'], err: [] })
+    expect(command(w, ['--set', file])).toEqual({ code: 0, out: ['[backfill] 0 written, 3 already backfilled, 3 in the set'], err: [] })
+    expect(withBus(w, db => backfillEvents(db).map(event => event.card_id))).toEqual([90, 91, 92])
+  })
+
+  it('--set on a set whose file changed names the change, writes nothing and exits 1', () => {
+    const w = liveWorld()
+    const file = path.join(w.root, 'set.json')
+    command(w, ['--record', file], w.parking)
+    const before = withBus(w, eventCount)
+    park(w, 92, 'lane-7', 'Do the other thing.')
+    expect(command(w, ['--set', file])).toEqual({ code: 1, out: [], err: [`[backfill] #92 ${path.join(w.parking, 'lane-7', '92.md')}: its sha is no longer the one the set recorded`, '[backfill] nothing written; record a new set'] })
+    expect(withBus(w, eventCount)).toBe(before)
+  })
+
+  it.each([[[]], [['--record']], [['--set']], [['--set', 'a.json', 'extra']], [['--record', 'a.json', '--parking']], [['--record', 'a.json', '--lane', 'x']], [['--run', 'a.json']]])('%j is refused with the usage and exit 2', (args) => {
+    const w = world()
+    expect(command(w, args)).toEqual({ code: 2, out: [], err: [`[backfill] ${USAGE}`] })
   })
 })
 

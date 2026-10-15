@@ -104,6 +104,26 @@ describe('pnpm card reads a card from card_bodies', () => {
     expect(createHash('sha256').update(ran.out).digest('hex')).toBe(admittedTextSha(bus))
   })
 
+  it('card --chain prints the chain of the admitted card as JSON and exits 0', () => {
+    const { bus, text } = busWithAdmittedCard()
+    const db = openBus(bus)
+    const admission = (db.prepare(`SELECT id FROM events WHERE type = '${CARD_ADMITTED}'`).get() as { id: number }).id
+    db.close()
+    const ran = run(bus, ['#90', '--chain'])
+    expect(ran.code).toBe(0)
+    expect(ran.err).toEqual([])
+    expect(ran.out).not.toBe(text)
+    expect(JSON.parse(ran.out)).toEqual({ card: 90, versions: [admission], decisions: [...new Set(text.match(/\bD-[1-9]\d*\b/g) ?? [])], verdict: null, proof: null })
+  })
+
+  it('card --chain of a card with no admitted text exits 1 with a [card] line', () => {
+    const { bus } = busWithAdmittedCard()
+    const ran = run(bus, ['91', '--chain'])
+    expect(ran.code).toBe(1)
+    expect(ran.out).toBe('')
+    expect(ran.err).toEqual([expect.stringMatching(/^\[card\] card #91 has no admitted text/)])
+  })
+
   it.each(CONTRACTS)('card --contract %s prints the fields its contract names', (contract) => {
     const { bus } = busWithAdmittedCard()
     expect(Object.keys(JSON.parse(run(bus, ['90', '--contract', contract]).out) as object)).toEqual([...CONTRACT_FIELDS[contract]])
@@ -180,7 +200,7 @@ describe('pnpm card reads a card from card_bodies', () => {
     expect(run(path.join(tmpdir(), 'no-such-bus.db'), ['90', '--contract', 'atlas']).err).toEqual([expect.stringMatching(/^\[card\] no contract atlas; usage: pnpm card <N>/)])
   })
 
-  it.each([[[]], [['90']], [['90', '--contract']], [['90', '--contract', 'atlas']], [['x', '--md']], [['90', '--md', 'extra']]])('%j is refused with the usage and exit 2', (args) => {
+  it.each([[[]], [['90']], [['90', '--contract']], [['90', '--contract', 'atlas']], [['x', '--md']], [['90', '--md', 'extra']], [['90', '--chain', 'extra']], [['x', '--chain']]])('%j is refused with the usage and exit 2', (args) => {
     const ran = run(path.join(tmpdir(), 'no-such-bus.db'), args)
     expect(ran.code).toBe(2)
     expect(ran.err).toEqual([expect.stringMatching(/^\[card\] .*usage: pnpm card <N>/)])
