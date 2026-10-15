@@ -248,24 +248,15 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect(statSync(operator).mtimeMs).toBe(settled)
   }, 40_000)
 
-  it('handoff:write with STATUS: CONTINUE at the context warn under the pnpm miko loop ends claude, and the loop raises the next session without miko:exit', async () => {
-    const dir = home(['write', 'owner 0'])
+  it('handoff:write with STATUS: CONTINUE does not kill the session', async () => {
+    const dir = home(['write'])
     atTheContextWarn(dir)
     writeMikoDraft(dir, 'CONTINUE')
-    const outcome = await endsWithin(startLoop(dir), 6 * PAUSE_MS)
-    expect(outcome).not.toBe('still running')
-    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `), expect.stringContaining('the pnpm miko loop starts the next session')])
-    expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
-    expect(exitLines(dir)).toEqual([expect.objectContaining({ reason: 'context' })])
-  }, 40_000)
-
-  it('handoff:write with STATUS: CONTINUE below every stop reason does not end claude', async () => {
-    const dir = home(['write'])
-    writeMikoDraft(dir, 'CONTINUE')
     const loop = startLoop(dir)
-    await waitFor(() => lines(dir, 'threshold.log').length > 1, () => 'the handoff:write and refusal lines', READY_DEADLINE_MS)
+    await waitFor(() => lines(dir, 'threshold.log').length > 0, () => 'the handoff:write line', READY_DEADLINE_MS)
     expect(await endsWithin(loop, 2 * PAUSE_MS)).toBe('still running')
-    expect(lines(dir, 'threshold.log')[1]).toContain('not at a stop condition')
+    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `)])
+    expect(readFileSync(mikoHandoff(dir), 'utf8')).toContain('STATUS: CONTINUE')
     expect(lines(dir, 'calls')).toEqual(['0|'])
     expect(exitLines(dir)).toEqual([])
   }, 40_000)

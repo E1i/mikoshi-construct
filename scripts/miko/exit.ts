@@ -79,7 +79,7 @@ export function stopReasonOf(status: string | null, readings: ExitReadings): Sto
     return 'owner'
   if (status === 'DONE')
     return 'done'
-  if (atOrAbove(readings.context, readings.contextWarn))
+  if (readings.context === UNKNOWN || atOrAbove(readings.context, readings.contextWarn))
     return 'context'
   if (atOrAbove(readings.spent, readings.sessionSpend))
     return 'spend'

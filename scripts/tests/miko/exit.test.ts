@@ -250,6 +250,18 @@ describe('miko:exit ends a session only at a stop reason', () => {
     }
   })
 
+  it.each([
+    { name: 'no session id', env: {} },
+    { name: 'no transcript of the session', env: { CLAUDE_CODE_SESSION_ID: SESSION } },
+  ])('an unread context at the warn ends the session as a context stop and journals its counters as unknown ($name)', ({ env }) => {
+    const dir = scratch()
+    const readings = realExitReadings(env, dir, dir, path.join(dir, 'bus.db'))
+    expect(readings.context).toBe(UNKNOWN)
+    const outcome = exit({ readings: () => readings, recordExit: line => appendExitLine(dir, line) })
+    expect(outcome).toMatchObject({ code: 0, kills: [12] })
+    expect(journal(dir)).toEqual([expect.objectContaining({ reason: 'context', start: UNKNOWN, end: UNKNOWN, spent: UNKNOWN, cards: UNKNOWN, bus_events: UNKNOWN })])
+  })
+
   it('a failed eddies.jsonl write still ends the session at a stop reason and records no zero', () => {
     const outcome = exit({ readings: () => AT_CONTEXT, recordExit: () => {
       throw new Error('disk full')
