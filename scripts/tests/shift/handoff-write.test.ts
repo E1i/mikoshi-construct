@@ -306,6 +306,20 @@ describe('handoff:write', () => {
     expect(readFileSync(handoff, 'utf8')).toContain('queue: none\n')
   })
 
+  it('handoff:write with STATUS: CONTINUE does not kill the session', () => {
+    const { dir, draft: file } = world()
+    const handoff = path.join(dir, 'miko.md')
+    const stub = path.join(dir, 'claude')
+    writeFileSync(file, draft().replace(/queue: .*/, 'queue: none'))
+    writeFileSync(stub, '#!/bin/sh\n"$NODE" --import tsx "$HANDOFF_WRITE" "$HANDOFF" "$DRAFT" --parking "$STUB_DIR/parking" >"$STUB_DIR/write.log" 2>&1\nsleep 2\necho survived > "$STUB_DIR/survived"\n', { mode: 0o755 })
+    const { CLAUDE_CODE_SESSION_ID: _session, CONSTRUCT_HANDOFF: _handoff, CONSTRUCT_CARD: _card, ...env } = process.env
+    const run = spawnSync(stub, [], { encoding: 'utf8', env: { ...env, HOME: dir, STUB_DIR: dir, NODE: process.execPath, HANDOFF_WRITE, HANDOFF: handoff, DRAFT: file, CONSTRUCT_HANDOFF_DIR: dir, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CLAUDE_PROJECT_DIR: dir, NODE_NO_WARNINGS: '1' } })
+    expect({ status: run.status, signal: run.signal }).toEqual({ status: 0, signal: null })
+    expect(readFileSync(path.join(dir, 'write.log'), 'utf8')).toContain(`${handoff}: `)
+    expect(statusOf(readFileSync(handoff, 'utf8'))).toBe('CONTINUE')
+    expect(readFileSync(path.join(dir, 'survived'), 'utf8')).toBe('survived\n')
+  }, 20_000)
+
   it('refuses a bad argv', () => {
     expect(write([]).code).toBe(2)
     expect(write(['a.md']).code).toBe(2)
