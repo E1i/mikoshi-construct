@@ -44,13 +44,16 @@ describe('reviewer', () => {
     expect(prompt).toContain('Walk every mutation over the changed lines and report every finding of this pass in one verdict, not in portions.')
   })
 
-  it('the prompt of the first cheap review asks for every finding of the pass in one verdict too', () => {
-    const prompt = reviewPrompt(lease, { depth: 'cheap', why: 'inside the touches', base: sha('c') }, '/tmp/t', '/tmp/v.json')
+  it('the prompt of a first diff review reads only since..head against the card, its witnesses and touches, and makes each touch finding a finding', () => {
+    const prompt = reviewPrompt(lease, { depth: 'diff', round: 'first', why: 'by rule docs-only', since: sha('c'), touchFindings: ['architecture/window.md is outside the touches of card #1050 (docs/**)'] }, '/tmp/t', '/tmp/v.json')
+    expect(prompt).toContain(`Read only the diff ${sha('c')}..${sha('a')} against the card, its witnesses and its touches; do not walk the modules it touches.`)
+    expect(prompt).toContain('Report as a finding of this review: architecture/window.md is outside the touches of card #1050 (docs/**)')
+    expect(prompt).not.toContain('Review the whole pull request')
     expect(prompt).toContain('report every finding of this pass in one verdict, not in portions')
   })
 
   it('the prompt of a re-review names the earlier findings, the diff since..head and a regression outside the diff the change causes', () => {
-    const prompt = reviewPrompt(lease, { depth: 'diff', why: 'after changes', since: sha('b'), findings: ['a.ts:1 x'] }, '/tmp/t', '/tmp/v.json')
+    const prompt = reviewPrompt(lease, { depth: 'diff', round: 'again', why: 'after changes', since: sha('b'), findings: ['a.ts:1 x'] }, '/tmp/t', '/tmp/v.json')
     expect(prompt).toContain('Earlier finding: a.ts:1 x')
     expect(prompt).toContain(`explore the diff ${sha('b')}..${sha('a')}`)
     expect(prompt).toContain('its callers, the modules that depend on it, its tests, and a regression outside the diff that the change causes')

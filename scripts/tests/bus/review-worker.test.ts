@@ -675,6 +675,30 @@ describe('review worker', () => {
     db.close()
   })
 
+  it('review.recorded carries cache_w and cache_r for the round', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const { repo, head } = oneCommitRepo(roots.at(-1)!)
+    const dir = path.join(roots.at(-1)!, 'reviews')
+    const usage = { input_tokens: 40, cache_creation_input_tokens: 12_000, cache_read_input_tokens: 340_000, output_tokens: 900 }
+    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+      writeFileSync(params.stdoutPath, `${JSON.stringify({ type: 'result', usage })}\n`)
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    })
+    const silent = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    })
+    gitHub.open({ number: 961, head })
+    gitHub.open({ number: 962, head })
+    tick()
+
+    expect(await worker(reviewer).step()).toMatchObject({ kind: 'recorded', verdict: 'pass' })
+    expect(await worker(silent).step()).toMatchObject({ kind: 'recorded', verdict: 'pass' })
+    expect(events(db, 'review.recorded').map(payload => [payload.cache_w, payload.cache_r])).toEqual([[12_000, 340_000], [null, null]])
+    db.close()
+  })
+
   it('a commit made in the review tree gives treeMutated HEAD and a verdict that is not pass', async () => {
     const { db, gitHub, tick, worker } = setUp()
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
@@ -924,7 +948,7 @@ describe('review worker', () => {
 })
 
 const MERGE_BASE = sha('0')
-const READING_MS: Record<ReviewDepth, number> = { full: 20 * 60_000, cheap: 5 * 60_000, diff: 2 * 60_000 }
+const READING_MS: Record<ReviewDepth, number> = { full: 20 * 60_000, diff: 2 * 60_000 }
 
 function edited(file: string, additions = 1, deletions = 1): ChangedFile {
   return { path: file, status: 'M', additions, deletions }
@@ -1015,28 +1039,38 @@ async function changesThenNewHead(pr: number, finding: string, fix: ChangedFile[
 describe('review depth by MORSE', () => {
   const DOCS = [edited('docs/guide.md'), edited('docs/cli.md')]
 
-  it('a cheap PR is reviewed faster than a full review on the same set, timed in the journal', async () => {
-    const cheap = await reviewOnce(961, DOCS, ['docs/**'], 'depth')
+  it('a first review is a diff review, faster than a full review on the same set, timed in the journal', async () => {
+    const diff = await reviewOnce(961, DOCS, ['docs/**'], 'depth')
     const today = await reviewOnce(961, DOCS, ['docs/**'], 'today')
 
-    expect(cheap.world.predictions).toEqual([{ task: review(961), verdict: 'cheap', rule: 'docs-only' }])
-    expect(cheap.seen.map(each => each.plan)).toEqual([{ depth: 'cheap', why: 'MORSE predicts cheap by rule docs-only and every changed file is inside the card\'s touches', base: MERGE_BASE }])
-    expect(reviewPrompt(cheap.seen[0]!.lease, cheap.seen[0]!.plan, '/t', '/v.json')).toContain(`Read only the diff ${MERGE_BASE}..${sha('a')} against the card and its witnesses; do not walk the modules it touches.`)
+    expect(diff.world.predictions).toEqual([{ task: review(961), verdict: 'cheap', rule: 'docs-only' }])
+    expect(diff.seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts cheap by rule docs-only, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [] }])
+    expect(reviewPrompt(diff.seen[0]!.lease, diff.seen[0]!.plan, '/t', '/v.json')).toContain(`Read only the diff ${MERGE_BASE}..${sha('a')} against the card, its witnesses and its touches; do not walk the modules it touches.`)
     expect(today.seen.map(each => each.plan.depth)).toEqual(['full'])
-    const [cheapMs] = recordedMs(cheap.bench.db)
+    const [diffMs] = recordedMs(diff.bench.db)
     const [fullMs] = recordedMs(today.bench.db)
-    expect(cheapMs).toBe(READING_MS.cheap)
+    expect(diffMs).toBe(READING_MS.diff)
     expect(fullMs).toBe(READING_MS.full)
-    expect(cheapMs!).toBeLessThan(fullMs!)
-    cheap.bench.db.close()
+    expect(diffMs!).toBeLessThan(fullMs!)
+    diff.bench.db.close()
     today.bench.db.close()
   })
 
-  it('a ladder PR gets the full review', async () => {
+  it('a ladder PR by any rule but instructions gets the diff review', async () => {
     const { bench, world, seen } = await reviewOnce(962, [edited('scripts/bus/queue.ts'), edited('scripts/tests/bus/queue.test.ts', 4, 0)], ['scripts/bus/**', 'scripts/tests/bus/**'], 'depth')
 
     expect(world.predictions).toEqual([{ task: review(962), verdict: 'ladder', rule: 'doubt' }])
-    expect(seen.map(each => each.plan)).toMatchObject([{ depth: 'full', why: 'MORSE predicts ladder by rule doubt', prediction: { verdict: 'ladder', rule: 'doubt' } }])
+    expect(seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts ladder by rule doubt, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [] }])
+    expect(reviewPrompt(seen[0]!.lease, seen[0]!.plan, '/t', '/v.json')).not.toContain('Review the whole pull request')
+    expect(events(bench.db, 'review.recorded')).toMatchObject([{ depth: 'diff', review_ms: READING_MS.diff }])
+    bench.db.close()
+  })
+
+  it('an instructions PR gets the full review', async () => {
+    const { bench, world, seen } = await reviewOnce(970, [edited('.claude/agents/review.md'), edited('scripts/bus/queue.ts')], ['.claude/agents/review.md', 'scripts/bus/**'], 'depth')
+
+    expect(world.predictions).toEqual([{ task: review(970), verdict: 'ladder', rule: 'instructions' }])
+    expect(seen.map(each => each.plan)).toMatchObject([{ depth: 'full', why: 'MORSE predicts ladder by rule instructions', prediction: { verdict: 'ladder', rule: 'instructions' } }])
     const prompt = reviewPrompt(seen[0]!.lease, seen[0]!.plan, '/t', '/v.json')
     expect(prompt).toContain('Review the whole pull request and walk every module it touches.')
     expect(prompt).toContain('names the reason this change takes the ladder (D-76)')
@@ -1044,12 +1078,13 @@ describe('review depth by MORSE', () => {
     bench.db.close()
   })
 
-  it('a cheap PR that changes a file outside the card touches escalates to the full review', async () => {
+  it('a file outside the card touches stays a diff review and becomes a finding of it', async () => {
     const { bench, world, seen } = await reviewOnce(963, [...DOCS, edited('architecture/window.md')], ['docs/**'], 'depth')
 
     expect(world.predictions).toEqual([{ task: review(963), verdict: 'cheap', rule: 'docs-only' }])
-    expect(seen.map(each => each.plan)).toMatchObject([{ depth: 'full', why: 'MORSE predicts cheap by rule docs-only, but architecture/window.md is outside the card\'s touches' }])
-    expect(events(bench.db, 'review.recorded')).toMatchObject([{ depth: 'full' }])
+    expect(seen.map(each => each.plan)).toMatchObject([{ depth: 'diff', round: 'first', touchFindings: ['architecture/window.md is outside the touches of card #1063 (docs/**)'] }])
+    expect(reviewPrompt(seen[0]!.lease, seen[0]!.plan, '/t', '/v.json')).toContain('Report as a finding of this review: architecture/window.md is outside the touches of card #1063 (docs/**)')
+    expect(events(bench.db, 'review.recorded')).toMatchObject([{ depth: 'diff' }])
     bench.db.close()
   })
 
@@ -1059,14 +1094,14 @@ describe('review depth by MORSE', () => {
     expect(events(bench.db, 'review.recorded')).toEqual([{
       head: sha('a'),
       verdict: 'pass',
-      depth: 'cheap',
-      depth_why: 'MORSE predicts cheap by rule docs-only and every changed file is inside the card\'s touches',
-      review_ms: READING_MS.cheap,
+      depth: 'diff',
+      depth_why: 'MORSE predicts cheap by rule docs-only, and only the instructions rule takes the full review',
+      review_ms: READING_MS.diff,
       reviewer_session: 'reviewer-1',
       findings: [],
     }])
-    expect(stepLine({ kind: 'recorded', taskKey: review(964), verdict: 'pass', depth: 'cheap' })).toContain('pass recorded, review depth cheap')
-    expect(stepLine({ kind: 'recorded', taskKey: review(964), verdict: 'pass', depth: 'cheap' })).toContain('model not reported by the session')
+    expect(stepLine({ kind: 'recorded', taskKey: review(964), verdict: 'pass', depth: 'diff' })).toContain('pass recorded, review depth diff')
+    expect(stepLine({ kind: 'recorded', taskKey: review(964), verdict: 'pass', depth: 'diff' })).toContain('model not reported by the session')
     expectReplayIdentical(bench.db)
     bench.db.close()
   })
@@ -1075,8 +1110,8 @@ describe('review depth by MORSE', () => {
     const finding = 'docs/guide.md: the example names a flag the CLI does not have'
     const { bench, world, seen } = await changesThenNewHead(965, finding, [edited('docs/guide.md')])
 
-    expect(seen.map(each => each.plan.depth)).toEqual(['cheap', 'diff'])
-    expect(seen[1]!.plan).toEqual({ depth: 'diff', why: `${sha('a')}..${sha('b')} changes only files the earlier changes verdict's findings name`, since: sha('a'), findings: [finding] })
+    expect(seen.map(each => each.plan.depth)).toEqual(['diff', 'diff'])
+    expect(seen[1]!.plan).toEqual({ depth: 'diff', round: 'again', why: `${sha('a')}..${sha('b')} changes only files the earlier changes verdict's findings name`, since: sha('a'), findings: [finding] })
     expect(world.asked).toEqual([`${MERGE_BASE}..${sha('a')}`, `${sha('a')}..${sha('b')}`])
     expect(world.predictions).toHaveLength(1)
     const prompt = reviewPrompt(seen[1]!.lease, seen[1]!.plan, '/t', '/v.json')
@@ -1084,7 +1119,7 @@ describe('review depth by MORSE', () => {
     expect(prompt).toContain('a regression outside the diff that the change causes')
     expect(prompt).toContain('a new finding on code the change neither touches nor affects, which the first pass already read, is not allowed')
     expect(prompt).toContain(`Earlier finding: ${finding}`)
-    expect(events(bench.db, 'review.recorded').map(payload => [payload.head, payload.verdict, payload.depth])).toEqual([[sha('a'), 'changes', 'cheap'], [sha('b'), 'pass', 'diff']])
+    expect(events(bench.db, 'review.recorded').map(payload => [payload.head, payload.verdict, payload.depth])).toEqual([[sha('a'), 'changes', 'diff'], [sha('b'), 'pass', 'diff']])
     expectReplayIdentical(bench.db)
     bench.db.close()
   })
@@ -1093,16 +1128,16 @@ describe('review depth by MORSE', () => {
     const finding = 'docs/guide.md: the heading is wrong'
     const { bench, seen } = await changesThenNewHead(966, finding, [edited('docs/guide.md'), edited('docs/cli.md')])
 
-    expect(seen[1]!.plan).toEqual({ depth: 'diff', why: `${sha('a')}..${sha('b')} also changes docs/cli.md, which no finding of the earlier changes verdict names`, since: sha('a'), findings: [finding] })
+    expect(seen[1]!.plan).toEqual({ depth: 'diff', round: 'again', why: `${sha('a')}..${sha('b')} also changes docs/cli.md, which no finding of the earlier changes verdict names`, since: sha('a'), findings: [finding] })
     const prompt = reviewPrompt(seen[1]!.lease, seen[1]!.plan, '/t', '/v.json')
     expect(prompt).toContain(`explore the diff ${sha('a')}..${sha('b')}`)
     expect(prompt).toContain(`Earlier finding: ${finding}`)
     expect(prompt).not.toContain('Review the whole pull request')
-    expect(events(bench.db, 'review.recorded').map(payload => payload.depth)).toEqual(['cheap', 'diff'])
+    expect(events(bench.db, 'review.recorded').map(payload => payload.depth)).toEqual(['diff', 'diff'])
     bench.db.close()
   })
 
-  it('a PR with no earlier verdict gets the full review', async () => {
+  it('a PR whose earlier review was superseded gets a first review, not a re-review', async () => {
     const bench = setUp()
     const world = new DepthWorld()
       .change(MERGE_BASE, sha('b'), [edited('scripts/bus/queue.ts')])
@@ -1114,12 +1149,11 @@ describe('review depth by MORSE', () => {
     bench.gitHub.open({ number: 967, head: sha('b') })
     bench.tick()
 
-    expect(await bench.worker(timedReviewer(bench.clock, seen), undefined, world.planner).step()).toMatchObject({ kind: 'recorded', taskKey: review(967, sha('b')), depth: 'full' })
+    expect(await bench.worker(timedReviewer(bench.clock, seen), undefined, world.planner).step()).toMatchObject({ kind: 'recorded', taskKey: review(967, sha('b')), depth: 'diff' })
     expect(task(bench.db, review(967)).state).toBe('superseded')
     expect(earlierVerdict(bench.db, seen[0]!.lease)).toBeNull()
     expect(world.asked).toEqual([`${MERGE_BASE}..${sha('b')}`])
-    expect(seen[0]!.plan).toMatchObject({ depth: 'full', why: 'MORSE predicts ladder by rule doubt' })
-    expect(reviewPrompt(seen[0]!.lease, seen[0]!.plan, '/t', '/v.json')).toContain('Review the whole pull request')
+    expect(seen[0]!.plan).toMatchObject({ depth: 'diff', round: 'first', since: MERGE_BASE })
     bench.db.close()
   })
 
@@ -1150,10 +1184,10 @@ describe('review depth by MORSE', () => {
     bench.db.close()
   })
 
-  it('a cheap PR whose card cannot be read gets the full review', () => {
+  it('touches that cannot be read stay a diff review and become a finding of it', () => {
     const world = new DepthWorld().change(MERGE_BASE, sha('a'), DOCS)
     const lease = { taskKey: review(970), queue: 'review' as const, cardId: 1070, pr: 970, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
-    expect(planReview(lease, null, world.sources)).toMatchObject({ depth: 'full', why: 'MORSE predicts cheap by rule docs-only, but the touches of card #1070 could not be read' })
+    expect(planReview(lease, null, world.sources)).toMatchObject({ depth: 'diff', round: 'first', touchFindings: ['the touches of card #1070 could not be read, so no changed file is shown inside them'] })
     expect(withinTouches('docs/a/b.md', ['docs/**'])).toBe(true)
     expect(withinTouches('docs.md', ['docs/**'])).toBe(false)
     expect(withinTouches('README.md', ['README.md'])).toBe(true)

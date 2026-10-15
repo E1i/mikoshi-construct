@@ -1,15 +1,17 @@
-import type { Prediction } from '../morse/rules.js'
+import type { Prediction, RuleId } from '../morse/rules.js'
 import type { Lease } from './lease.js'
 import { PREFIX_SUFFIX } from '../../src/card/task-file.js'
 
-export const REVIEW_DEPTHS = ['cheap', 'full', 'diff'] as const
+export const REVIEW_DEPTHS = ['full', 'diff'] as const
 
 export type ReviewDepth = typeof REVIEW_DEPTHS[number]
 
+export const FULL_DEPTH_RULE: RuleId = 'instructions'
+
 export type ReviewPlan
   = | { depth: 'full', why: string, prediction: Prediction | null }
-    | { depth: 'cheap', why: string, base: string }
-    | { depth: 'diff', why: string, since: string, findings: string[] }
+    | { depth: 'diff', round: 'first', why: string, since: string, touchFindings: string[] }
+    | { depth: 'diff', round: 'again', why: string, since: string, findings: string[] }
 
 export interface EarlierVerdict {
   head: string
@@ -51,22 +53,23 @@ function reReview(head: string, earlier: EarlierVerdict, sources: DepthSources):
   const why = outside.length > 0
     ? `${range} also changes ${outside.join(', ')}, which no finding of the earlier ${earlier.verdict} verdict names`
     : `${range} changes only files the earlier ${earlier.verdict} verdict's findings name`
-  return { depth: 'diff', why, since: earlier.head, findings: earlier.findings }
+  return { depth: 'diff', round: 'again', why, since: earlier.head, findings: earlier.findings }
+}
+
+function touchFindings(cardId: number, files: readonly string[], sources: DepthSources): string[] {
+  const touches = sources.touches(cardId)
+  if (touches === null)
+    return [`the touches of card #${cardId} could not be read, so no changed file is shown inside them`]
+  return files.filter(file => !withinTouches(file, touches)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})`)
 }
 
 function firstReview(lease: Lease, head: string, sources: DepthSources): ReviewPlan {
   const base = sources.base(head)
   const { prediction, files } = sources.predict(lease.taskKey, base, head)
   const rule = `MORSE predicts ${prediction.verdict} by rule ${prediction.rule}`
-  if (prediction.verdict === 'ladder')
+  if (prediction.rule === FULL_DEPTH_RULE)
     return fullReview(rule, prediction)
-  const touches = sources.touches(lease.cardId)
-  if (touches === null)
-    return fullReview(`${rule}, but the touches of card #${lease.cardId} could not be read`, prediction)
-  const outside = files.filter(file => !withinTouches(file, touches))
-  if (outside.length > 0)
-    return fullReview(`${rule}, but ${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} outside the card's touches`, prediction)
-  return { depth: 'cheap', why: `${rule} and every changed file is inside the card's touches`, base }
+  return { depth: 'diff', round: 'first', why: `${rule}, and only the ${FULL_DEPTH_RULE} rule takes the full review`, since: base, touchFindings: touchFindings(lease.cardId, files, sources) }
 }
 
 export function planReview(lease: Lease, earlier: EarlierVerdict | null, sources: DepthSources): ReviewPlan {

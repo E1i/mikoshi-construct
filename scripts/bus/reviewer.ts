@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { readResultFields } from '../ghosts/result.js'
 import { reviewModelOf, sessionModelOf, spawnSession } from '../ghosts/session.js'
 
 export interface TreeState {
@@ -31,7 +32,22 @@ export interface Review {
   findings: string[]
   session: string
   model?: string
+  cache?: CacheTokens
   tree?: ReviewedTree
+}
+
+export interface CacheTokens {
+  cache_w: number | null
+  cache_r: number | null
+}
+
+function tokenCount(value: unknown): number | null {
+  return typeof value === 'number' ? value : null
+}
+
+export function cacheTokensOf(usage: unknown): CacheTokens {
+  const fields = usage !== null && typeof usage === 'object' ? usage as Record<string, unknown> : {}
+  return { cache_w: tokenCount(fields.cache_creation_input_tokens), cache_r: tokenCount(fields.cache_read_input_tokens) }
 }
 
 export class ReviewFailed extends Error {
@@ -87,10 +103,17 @@ function reReviewLines(since: string, head: string | null, findings: readonly st
   ]
 }
 
+function firstDiffLines(since: string, head: string | null, touchFindings: readonly string[]): string[] {
+  return [
+    `Read only the diff ${since}..${head} against the card, its witnesses and its touches; do not walk the modules it touches.`,
+    ...touchFindings.map(finding => `Report as a finding of this review: ${finding}`),
+  ]
+}
+
 function depthLines(lease: Lease, plan: ReviewPlan): string[] {
   const depth = `Review depth ${plan.depth}: ${plan.why}.`
-  if (plan.depth === 'cheap')
-    return [depth, `Read only the diff ${plan.base}..${lease.head} against the card and its witnesses; do not walk the modules it touches.`, ONE_PASS]
+  if (plan.depth === 'diff' && plan.round === 'first')
+    return [depth, ...firstDiffLines(plan.since, lease.head, plan.touchFindings), ONE_PASS]
   if (plan.depth === 'diff')
     return [depth, ...reReviewLines(plan.since, lease.head, plan.findings), ONE_PASS]
   const ladder = plan.prediction?.verdict === 'ladder'
@@ -267,7 +290,8 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
       const after = trees.state(tree)
       const mutated = mutatedPaths(before, after)
       const model = existsSync(params.stdoutPath) ? sessionModelOf(readFileSync(params.stdoutPath, 'utf8')) : undefined
-      return { ...review, ...withoutPassOnMutation(review, mutated), model, tree: { ...held, before, after, mutated } }
+      const cache = cacheTokensOf(readResultFields(params.stdoutPath).usage)
+      return { ...review, ...withoutPassOnMutation(review, mutated), model, cache, tree: { ...held, before, after, mutated } }
     }
     catch (error) {
       if (!trees.holds(tree))

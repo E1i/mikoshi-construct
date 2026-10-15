@@ -236,7 +236,7 @@ export class ReviewWorker {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, findings: review.findings, ...treeFields(review) },
+      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review) },
       legacy: false,
     }
   }
