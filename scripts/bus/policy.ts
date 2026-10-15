@@ -128,3 +128,11 @@ export function mergePolicy(facts: MergeFacts): MergeVerdict {
 export function pastRoundLimit(detail: string, decisionId: number, pr: number, head: string): MergeVerdict & { kind: 'allowed' } {
   return { kind: 'allowed', rule: 'owner_after_round_limit', detail: `${detail}; past the review round limit D-${decisionId} names PR #${pr} at ${head}` }
 }
+
+const YIELDS_TO_THE_OWNER_DECISION: ReadonlySet<AuthorityRule> = new Set(['owner_by_risk', 'owner_without_shard', 'r1'])
+
+export function underOwnerDecision(verdict: MergeVerdict, decisionId: number, pr: number, head: string): MergeVerdict {
+  if (verdict.kind === 'denied' && !YIELDS_TO_THE_OWNER_DECISION.has(verdict.rule))
+    return verdict
+  return pastRoundLimit(verdict.detail, decisionId, pr, head)
+}

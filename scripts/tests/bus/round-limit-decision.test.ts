@@ -1,13 +1,12 @@
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
-import { appendEvent } from '../../bus/db.js'
+import { MERGE_DONE } from '../../bus/card-automaton.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { pastRoundLimit } from '../../bus/policy.js'
 import { changesRoundsOf, REVIEW_ROUNDS } from '../../bus/queue.js'
 import { sha } from './github-fake.js'
-import { eventsOf, mergeBench } from './merge-bench.js'
+import { eventsOf, mergeBench, spendReviewRounds } from './merge-bench.js'
 
 const PR = 970
 const HEAD = sha('a')
@@ -23,8 +22,7 @@ function roundLimited(): MergeBench {
   const bench = mergeBench()
   benches.push(bench)
   bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
-  for (let round = 1; round <= REVIEW_ROUNDS; round += 1)
-    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: `worker:review:session-${round}`, cardId: PR + 100, pr: PR, head: HEAD, dedupeKey: `${REVIEW_RECORDED}:round-${round}`, payload: { head: HEAD, verdict: 'changes', reviewer_session: `session-${round}`, findings: [] }, legacy: false })
+  spendReviewRounds(bench, PR, HEAD)
   return bench
 }
 

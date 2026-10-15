@@ -136,14 +136,20 @@ export function inForceBytes(decisions: readonly Decision[]): number {
   return inForce(decisions).reduce((bytes, decision) => bytes + Buffer.byteLength(`${decision.text}\n`, 'utf8'), 0)
 }
 
-export function spendDecisions(text: string, settled: (card: number) => boolean): string {
-  const { decisions } = parseDecisions(text)
+function spentByCards(decisions: readonly Decision[], settled: (card: number) => boolean): Decision[] {
   if (!decisions.some(decision => decision.number === SPENDING_DECISION))
-    return text
-  const spent = new Set(inForce(decisions)
-    .filter(decision => decision.cards.length > 0 && decision.cards.every(settled))
-    .map(decision => decision.line))
-  return markSuperseded(text, new Map([...spent].map(line => [line, SPENDING_DECISION])))
+    return []
+  return inForce(decisions).filter(decision => decision.cards.length > 0 && decision.cards.every(settled))
+}
+
+export function spendDecisions(text: string, settled: (card: number) => boolean): string {
+  const spent = spentByCards(parseDecisions(text).decisions, settled)
+  return markSuperseded(text, new Map(spent.map(decision => [decision.line, SPENDING_DECISION])))
+}
+
+export function outOfForceLines(decisions: readonly Decision[], now: Date, settled: (card: number) => boolean): Set<number> {
+  const termRan = decisions.filter(decision => decision.supersededBy === null && !decision.term.unread && lapsed(decision.term, now))
+  return new Set([...termRan, ...spentByCards(decisions, settled)].map(decision => decision.line))
 }
 
 export function settleSupersedes(text: string, archive = ''): string {

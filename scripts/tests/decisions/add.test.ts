@@ -13,7 +13,7 @@ function decisionsFile(...lines: string[]): string {
   return `${HEADER}${lines.join('\n')}\n`
 }
 
-function add(files: Record<string, string>, args: string[], failingWrite = 0): { code: number, out: string[], err: string[], files: Record<string, string>, writes: number, recorded: OwnerDecision[] } {
+function add(files: Record<string, string>, args: string[], failingWrite = 0, settled: (card: number) => boolean = () => false): { code: number, out: string[], err: string[], files: Record<string, string>, writes: number, recorded: OwnerDecision[] } {
   const state = { ...files }
   const out: string[] = []
   const err: string[] = []
@@ -34,6 +34,7 @@ function add(files: Record<string, string>, args: string[], failingWrite = 0): {
       delete state[file]
     },
     record: decision => recorded.push(decision),
+    settled,
     out: line => out.push(line),
     err: line => err.push(line),
   })
@@ -157,6 +158,30 @@ describe('pnpm decisions:add appends one owner decision', () => {
     expect(result.err).toHaveLength(1)
     expect(result.err[0]).toMatch(new RegExp(`^\\[decisions\\] decisions in force would be \\d+ bytes, over the limit of ${DECISIONS_IN_FORCE_LIMIT} after the superseded ones go to the archive; nothing written$`))
     expect(result.files).toEqual({ [FILE]: before })
+  })
+
+  it('after decisions:add a lapsed decision line is gone from the decisions file and present in the archive', () => {
+    const lapsed = '- D-1 · 2026-10-08 — one. · until 2026-10-09T08:00Z'
+    const before = decisionsFile(lapsed, '- D-2 · 2026-10-08 — two. · until 2026-10-10T08:00Z')
+    const result = add({ [FILE]: before }, ['[owner] three.'])
+    expect(result.code).toBe(0)
+    expect(result.files[ARCHIVE]).toBe(`${ARCHIVE_HEADER}${lapsed}\n`)
+    expect(result.files[FILE]).toBe(decisionsFile('- D-2 · 2026-10-08 — two. · until 2026-10-10T08:00Z', '- D-3 · 2026-10-09 ~09:12Z — [owner] three. · decisions:add'))
+    expect(result.out).toContain(`[decisions] D-1 moved to ${ARCHIVE}`)
+    expect(decisionsRead(result.files)).toMatchObject({ code: 0, err: [] })
+  })
+
+  it('after decisions:add a card-spent decision line is gone from the decisions file and present in the archive', () => {
+    const archived = Array.from({ length: 53 }, (_, index) => `- D-${index + 1} · 2026-10-08 — archived ${index + 1}.\n`).join('')
+    const spent = '- D-55 · 2026-10-08 — five. · card #753'
+    const before = decisionsFile('- D-54 · 2026-10-08 — a decision bound to a card is spent when the card closes.', spent, '- D-56 · 2026-10-08 — six. · card #754')
+    const result = add({ [FILE]: before, [ARCHIVE]: `${ARCHIVE_HEADER}${archived}` }, ['[owner] seven.'], 0, card => card === 753)
+    expect(result.code).toBe(0)
+    expect(result.files[ARCHIVE]).toBe(`${ARCHIVE_HEADER}${archived}${spent}\n`)
+    expect(result.files[FILE]).not.toContain(spent)
+    expect(result.files[FILE]).toContain('- D-56 · 2026-10-08 — six. · card #754\n')
+    expect(result.out[0]).toBe('- D-57 · 2026-10-09 ~09:12Z — [owner] seven. · decisions:add')
+    expect(decisionsRead(result.files)).toMatchObject({ code: 0, err: [] })
   })
 
   it('refuses a flag it does not know, no record, two records and a missing file', () => {
