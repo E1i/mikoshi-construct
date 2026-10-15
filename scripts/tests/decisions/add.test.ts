@@ -171,6 +171,14 @@ describe('pnpm decisions:add appends one owner decision', () => {
     expect(decisionsRead(result.files)).toMatchObject({ code: 0, err: [] })
   })
 
+  it('a decision whose until does not read is never archived by decisions:add: the add is refused and the file stays as it was', () => {
+    const before = decisionsFile('- D-1 · 2026-10-08 — one. · until 2026-10-09T08:00')
+    const result = add({ [FILE]: before }, ['[owner] two.'])
+    expect(result.code).toBe(1)
+    expect(result.files).toEqual({ [FILE]: before })
+    expect(result.err.join('\n')).toContain('D-1 on line')
+  })
+
   it('after decisions:add a card-spent decision line is gone from the decisions file and present in the archive', () => {
     const archived = Array.from({ length: 53 }, (_, index) => `- D-${index + 1} · 2026-10-08 — archived ${index + 1}.\n`).join('')
     const spent = '- D-55 · 2026-10-08 — five. · card #753'

@@ -267,6 +267,31 @@ describe('the merge executor', () => {
     bench.close()
   })
 
+  it('a decided PR that moves, closes or cannot be read after the review status is set puts no merge', () => {
+    const afterTheStatus: Record<string, { change: (bench: MergeBench) => void, reason: string }> = {
+      'head moved': { change: bench => bench.gitHub.open({ number: 997, head: sha('c'), review: 'failure' }), reason: 'stale_head' },
+      'closed': { change: bench => bench.gitHub.close(997, false), reason: 'stale_head' },
+      'GitHub failing': { change: (bench) => { bench.gitHub.failing = true }, reason: 'github_error' },
+    }
+    for (const [name, { change, reason }] of Object.entries(afterTheStatus)) {
+      const bench = mergeBench()
+      bench.gitHub.open({ number: 997, review: 'failure' })
+      spendReviewRounds(bench, 997, sha('a'))
+      allowMerge(bench, 997)
+      bench.tick()
+      const lease = bench.lease()!
+      const published = bench.gitHub.published
+      published.push = (...statuses) => {
+        change(bench)
+        return Array.prototype.push.apply(published, statuses)
+      }
+
+      expect(bench.merge(lease), name).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason } })
+      expect(bench.gitHub.puts.filter(put => put.endpoint.endsWith('/merge')), name).toEqual([])
+      bench.close()
+    }
+  })
+
   it('without a decision an owner-path or review-blocked PR is not merged', () => {
     const blocked = mergeBench()
     blocked.gitHub.open({ number: 994, review: 'failure', mergeable_state: 'blocked', blockedBy: 'review' })
