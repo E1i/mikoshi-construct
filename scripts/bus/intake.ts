@@ -78,7 +78,7 @@ function recordedTextSha(payload: string): string | null {
   }
 }
 
-function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
+export function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
   if (event.type !== CARD_ADMITTED || typeof event.payload.text !== 'string')
     return event
   const previous = db.prepare(PREVIOUS_ADMISSION).get(event.cardId) as { id: number, payload: string } | undefined

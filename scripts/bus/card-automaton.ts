@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
 import { CARD_MOVED } from '../../src/commands/intake/index.js'
+import { isBackfill } from './backfill-source.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, QUESTION_OWNER } from './inbox.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { payloadOf, reject } from './stored.js'
@@ -92,7 +93,7 @@ function mergedInTheJournalBefore(db: DatabaseSync, cardId: number, before: numb
 
 function foldAdmitted(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_ADMITTED} needs a card_id`)
-  if (!ADMITTED_AGAIN.has(stateOf(db, cardId)))
+  if (isBackfill(payloadOf(event)) || !ADMITTED_AGAIN.has(stateOf(db, cardId)))
     return
   moveCard(db, cardId, mergedInTheJournalBefore(db, cardId, event.id) ? MERGED_CARD : QUEUED_CARD, event.id)
 }
