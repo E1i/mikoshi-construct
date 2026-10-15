@@ -32,6 +32,7 @@ export interface FakePull {
   required?: 'pending' | 'success' | 'failure'
   failed?: string[]
   review?: 'success' | 'failure'
+  blockedBy?: 'review'
   body?: string
   ref?: string
   base?: string
@@ -97,11 +98,15 @@ export class FakeGitHub {
       merge_commit_sha: pull.merge_commit_sha ?? null,
       merged_by: pull.merger === undefined ? null : { login: pull.merger.login },
       merged_at: pull.merger?.at ?? null,
-      mergeable_state: pull.mergeable_state,
+      mergeable_state: this.blockedOnlyByTheReview(pull) && this.statuses.get(pull.head) === 'success' ? 'clean' : pull.mergeable_state,
       auto_merge: null,
       base: { ref: pull.base ?? 'main' },
       head: { sha: pull.head, ref: pull.ref ?? `feat/card-${pull.number + 100}` },
     }
+  }
+
+  private blockedOnlyByTheReview(pull: FakePull): boolean {
+    return pull.mergeable_state === 'blocked' && pull.blockedBy === 'review'
   }
 
   readonly put: GitHubPut = (endpoint, fields) => {

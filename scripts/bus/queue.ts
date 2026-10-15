@@ -101,18 +101,18 @@ const A_DEPENDENCY_UNMERGED = `EXISTS (
     AND NOT EXISTS (SELECT 1 FROM events AS legacy WHERE legacy.type = 'merge' AND legacy.legacy = 1 AND legacy.card_id = dependency.card_id)
 )`
 
-function mergeCandidatesWhere(verdict: string): string {
+function mergeCandidatesWhere(verdict: string, mergeable: string): string {
   return `
   SELECT pr, card_id, head FROM prs
-  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND ${verdict} AND mergeable = 'clean' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
+  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND ${verdict} AND ${mergeable} AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT ${A_DEPENDENCY_UNMERGED}
   ORDER BY pr
 `
 }
 
-const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`)
+const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`, `mergeable = 'clean'`)
 
-const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`)
+const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`, `mergeable IN ('clean', 'blocked')`)
 
 const UPDATE_CANDIDATES = `
   SELECT pr, card_id, head, verdict_on_head FROM prs

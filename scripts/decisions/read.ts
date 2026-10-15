@@ -35,7 +35,7 @@ export function journalOf(home: string, handoffDir: string | undefined): string 
   return path.join(handoffDir ?? path.join(home, '.construct', 'handoff'), 'ghosts.jsonl')
 }
 
-function settledCards(journalText: string, bus: BusCardStates): Set<number> {
+export function settledCards(journalText: string, bus: BusCardStates): Set<number> {
   const settled = [...closedTasks(journalText, bus).keys(), ...mergedTasks(journalText, bus)]
   return new Set(settled.filter(task => /^[1-9]\d*$/.test(task)).map(Number))
 }

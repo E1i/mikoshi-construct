@@ -68,6 +68,7 @@ function add(db: ReturnType<typeof openBus>, files: Record<string, string>, args
       delete state[file]
     },
     record: decision => recordDecision(db, decision),
+    settled: () => false,
     out: () => {},
     err: line => err.push(line),
   })

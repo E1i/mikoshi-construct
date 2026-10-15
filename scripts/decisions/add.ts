@@ -5,8 +5,9 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { recordDecision } from '../bus/decisions.js'
-import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, OWNER_SOURCE, parseDecisions, PREFIX, WRITER_MARKER } from './decisions.js'
-import { archiveOf, defaultDecisions } from './read.js'
+import { busCardStates } from '../ghosts/tasks.js'
+import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, WRITER_MARKER } from './decisions.js'
+import { archiveOf, defaultDecisions, journalOf, settledCards } from './read.js'
 
 export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
 export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
@@ -24,6 +25,7 @@ export interface DecisionsAddDeps {
   write: (file: string, text: string) => void
   remove: (file: string) => void
   record: (decision: OwnerDecision) => void
+  settled: (card: number) => boolean
   out: (line: string) => void
   err: (line: string) => void
 }
@@ -100,8 +102,9 @@ function untilTail(until: string | null): string {
   return until === null ? '' : ` · until ${until}`
 }
 
-export function planAdd(text: string, archive: string, { text: record, supersedes, cards, until }: AddArgs, now: Date): AddPlan | string {
+export function planAdd(text: string, archive: string, { text: record, supersedes, cards, until }: AddArgs, now: Date, settled: (card: number) => boolean = () => false): AddPlan | string {
   const { decisions } = parseDecisions(text)
+  const outOfForce = outOfForceLines(decisions, now, settled)
   const archivedNumbers = parseDecisions(archive).decisions.map(decision => decision.number)
   const number = Math.max(0, ...decisions.map(decision => decision.number), ...archivedNumbers) + 1
   const lines = text.split('\n')
@@ -112,7 +115,7 @@ export function planAdd(text: string, archive: string, { text: record, supersede
     if (decision.supersededBy === null)
       lines[decision.line - 1] = `${lines[decision.line - 1]!.trimEnd()} · superseded-by D-${number}`
   }
-  const marked = parseDecisions(lines.join('\n')).decisions.filter(decision => decision.supersededBy !== null)
+  const marked = parseDecisions(lines.join('\n')).decisions.filter(decision => decision.supersededBy !== null || outOfForce.has(decision.line))
   const movedLines = new Set(marked.map(decision => decision.line))
   const kept = lines.filter((_, index) => !movedLines.has(index + 1))
   const line = `- D-${number} · ${stampOf(now)} — ${record}${cardTail(cards)}${untilTail(until)} · ${WRITER_MARKER}`
@@ -151,7 +154,7 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
   const archiveExisted = deps.exists(archiveFile)
   const originalArchive = archiveExisted ? deps.read(archiveFile) : ''
   const now = deps.now()
-  const plan = planAdd(original, originalArchive, parsed, now)
+  const plan = planAdd(original, originalArchive, parsed, now, deps.settled)
   if (typeof plan === 'string') {
     deps.err(plan)
     return 1
@@ -210,6 +213,12 @@ function recordInBus(decision: OwnerDecision): void {
   }
 }
 
+function settledCardsOnThisMachine(): (card: number) => boolean {
+  const journal = journalOf(os.homedir(), process.env.CONSTRUCT_HANDOFF_DIR)
+  const cards = settledCards(existsSync(journal) ? readFileSync(journal, 'utf8') : '', busCardStates(defaultBusPath()))
+  return card => cards.has(card)
+}
+
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = runDecisionsAdd(process.argv.slice(2), {
     home: os.homedir(),
@@ -219,6 +228,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     write: (file, text) => writeFileSync(file, text),
     remove: unlinkSync,
     record: recordInBus,
+    settled: settledCardsOnThisMachine(),
     out: line => console.log(line),
     err: line => console.error(line),
   })
