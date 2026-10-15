@@ -6,6 +6,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { bodySha, bodyShaWithoutTouches, INTAKE_EVENT } from '../../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../../src/commands/intake/move.js'
+import { BACKFILL_SOURCE } from '../../bus/backfill-source.js'
+import { BACKFILL_ACTOR } from '../../bus/backfill.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
@@ -170,6 +172,26 @@ describe('task:start reads the admission from the bus and writes the start to it
     expect(result.stderr).toEqual([`[task:start] card #77 has no ${CARD_ADMITTED} in the bus ${world.bus}: it was not admitted; admit it through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
     expect(existsSync(path.join(world.root, 'mc-77'))).toBe(false)
     expect(starts(world)).toEqual([])
+  })
+
+  it('a card whose only card.admitted is a backfill is refused as not admitted', () => {
+    const world = newWorld()
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: BACKFILL_ACTOR, cardId: 78, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${BACKFILL_SOURCE}:78`, payload: { card: card(78), lane: 'lane-1', source: BACKFILL_SOURCE, text: card(78), textSha: 'f'.repeat(64), bodyMatchesAdmission: false, textVerified: false }, legacy: false })
+    db.close()
+    const result = runTaskStart(['feat/a11', '--card', card(78)], depsOf(world))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`[task:start] card #78 has no ${CARD_ADMITTED} in the bus ${world.bus}: it was not admitted; admit it through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
+    expect(starts(world)).toEqual([])
+  })
+
+  it('a backfill after a real admission leaves the start on the real admission', () => {
+    const world = newWorld()
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: BACKFILL_ACTOR, cardId: 101, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${BACKFILL_SOURCE}:101`, payload: { card: W1_CARD, lane: 'lane-1', source: BACKFILL_SOURCE, text: W1_CARD, textSha: 'f'.repeat(64), bodyMatchesAdmission: false, textVerified: false }, legacy: false })
+    db.close()
+    expect(runTaskStart(['feat/a12', '--card', W1_CARD], depsOf(world)).exitCode).toBe(0)
+    expect(starts(world)).toMatchObject([{ admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:101` } }])
   })
 
   it('a card with no card.admitted is refused even when the journal holds an intake line for the same card', () => {

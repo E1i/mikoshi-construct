@@ -5,6 +5,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
 import { CARD_VERIFIED } from '../ghosts/task-close.js'
+import { BACKFILL_SOURCE } from './backfill-source.js'
 import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
@@ -87,6 +88,7 @@ const LATEST_ADMISSION_DEPENDS = `
   SELECT depends.value AS card_id FROM json_each((
     SELECT admitted.payload FROM events AS admitted
     WHERE admitted.legacy = 0 AND admitted.type = '${CARD_ADMITTED}' AND admitted.card_id = prs.card_id
+      AND json_extract(admitted.payload, '$.source') IS NOT '${BACKFILL_SOURCE}'
     ORDER BY admitted.id DESC LIMIT 1
   ), '$.depends') AS depends
   WHERE depends.type = 'integer'
