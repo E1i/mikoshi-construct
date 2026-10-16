@@ -12,6 +12,7 @@ import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
 import { expireLeasesHeldBy, TASK_EXPIRED } from './lease.js'
 import { CHECK_MS } from './netwatch.js'
+import { LIVE_FLAG } from './node.js'
 import { busShadowProblems } from './review-bg.js'
 import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
@@ -131,12 +132,30 @@ export class BusSupervisor {
 
   async step(): Promise<string[]> {
     try {
-      return await this.advance()
+      const advanced = await this.advance()
+      return [...advanced, ...await this.moveModes()]
     }
     catch (error) {
       const waiting = this.pending === null ? '' : `; main.advanced to ${this.pending} stays pending and is retried on the next tick`
       return [`${PREFIX}supervisor step failed: ${error instanceof Error ? error.message : String(error)}${waiting}`]
     }
+  }
+
+  private async moveModes(): Promise<string[]> {
+    const processes = this.parts.processes()
+    const diverged = this.parts.wanted().flatMap((launch) => {
+      const instance = runningInstance(processes, launch.markers)
+      return instance !== undefined && instance.args.includes(LIVE_FLAG) !== launch.args.includes(LIVE_FLAG) ? [{ launch, instance }] : []
+    })
+    const lines: string[] = []
+    for (const { launch, instance } of diverged) {
+      await this.parts.stop(instance, launch)
+      lines.push(`${PREFIX}${launchName(launch)} runs in the other mode than workers.json lists; restarting it ${launch.args.includes(LIVE_FLAG) ? 'live' : 'in shadow'}`)
+      lines.push(...this.parts.freeLeases?.([launch]) ?? [])
+      const started = this.parts.start(launch)
+      lines.push(...started.stdout, ...started.stderr)
+    }
+    return lines
   }
 
   private async advance(): Promise<string[]> {
