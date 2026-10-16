@@ -1,16 +1,17 @@
 import type { MergeWorkerParts } from '../../bus/merge-worker.js'
+import type { DetectionMode, NodeStep } from '../../bus/node.js'
 import type { ShardDeps } from '../../shift/shard.js'
 import type { FakePull } from './github-fake.js'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { decisionsIntake } from '../../bus/decisions-import.js'
 import { ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { firstLiveVerdict, NoLiveVerdict, runMergeWorker, startMergeWorker } from '../../bus/merge-worker.js'
+import { firstLiveVerdict, MergeNode, NoLiveVerdict, runMergeWorker } from '../../bus/merge-worker.js'
 import { DRY_RUN_ACTOR } from '../../bus/review-worker.js'
 import { decisionsInForceAt, SHARD_ISSUED, SHARD_USED, unspentShard } from '../../bus/shards.js'
 import { runShard } from '../../shift/shard.js'
@@ -20,6 +21,10 @@ import { eventCount, eventsOf, mergeBench } from './merge-bench.js'
 const UNTIL_MS = Date.parse('2026-10-09T13:00:00.000Z')
 const D82 = '# Owner decisions\n\n- D-82 · 2026-10-09 ~11:00Z — Delegation: where the bus refuses on authority, the bus executor merges under a Shard --under this decision. until 2026-10-09T13:00Z\n'
 const roots: string[] = []
+
+beforeEach(() => {
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -72,12 +77,22 @@ function parts(bench: ReturnType<typeof mergeBench>): MergeWorkerParts {
   return { db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, session: 'worker-1', run: null }
 }
 
+function mergeNode(bench: ReturnType<typeof mergeBench>, mode: DetectionMode = 'shadow'): MergeNode {
+  return new MergeNode({ ...parts(bench), mode, env: {} })
+}
+
+async function step(node: MergeNode): Promise<NodeStep | null> {
+  const controller = new AbortController()
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  return node.getState().lastStep
+}
+
 describe('the merge worker', () => {
   it('the merge worker refuses to switch on before the first live review verdict', async () => {
     const bench = mergeBench()
     bench.gitHub.open({ number: 970, review: 'success' })
     bench.tick()
-    expect(() => startMergeWorker(parts(bench))).toThrow(NoLiveVerdict)
+    await expect(step(mergeNode(bench))).rejects.toThrow(NoLiveVerdict)
 
     recorded(bench, 'owner')
     recorded(bench, DRY_RUN_ACTOR)
@@ -90,13 +105,13 @@ describe('the merge worker', () => {
     expect(bench.gitHub.puts).toEqual([])
 
     recorded(bench, 'worker:review:reviewer-1')
-    const worker = startMergeWorker(parts(bench))
-    expect(worker.step()).toMatchObject({ kind: 'merged' })
-    expect(worker.step()).toEqual({ kind: 'idle' })
+    const worker = mergeNode(bench)
+    expect(await step(worker)).toMatchObject({ kind: 'merged' })
+    expect(await step(worker)).toEqual({ kind: 'idle' })
     bench.close()
   })
 
-  it('an owner pull request under an issued shard goes from pass to merge.done with rule owner_under_shard and no owner step', () => {
+  it('an owner pull request under an issued shard goes from pass to merge.done with rule owner_under_shard and no owner step', async () => {
     const bench = mergeBench()
     recorded(bench, 'worker:review:reviewer-1')
     bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'owner') })
@@ -105,8 +120,8 @@ describe('the merge worker', () => {
     expect(runShard(['--card', '826', '--by', 'Eli'], shardDeps(bench, 'shard-826', out))).toBe(0)
     bench.tick()
 
-    const worker = startMergeWorker(parts(bench))
-    const steps = [worker.step(), worker.step()]
+    const worker = mergeNode(bench)
+    const steps = [await step(worker), await step(worker)]
     expect(steps).toMatchObject([{ kind: 'merged', rule: 'owner_under_shard' }, { kind: 'denied', denial: { kind: 'authority', rule: 'owner_without_shard' } }])
     expect(eventsOf(bench.db, MERGE_DONE)).toEqual([{ commit: expect.any(String) as unknown, rule: 'owner_under_shard' }])
     expect(eventsOf(bench.db, SHARD_USED)).toEqual([{ id: 'shard-826', commit: expect.any(String) as unknown }])
@@ -116,32 +131,32 @@ describe('the merge worker', () => {
     bench.close()
   })
 
-  it('a spent shard covers no second owner pull request of its card', () => {
+  it('a spent shard covers no second owner pull request of its card', async () => {
     const bench = mergeBench()
     recorded(bench, 'worker:review:reviewer-1')
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: 726, head: null, dedupeKey: `${SHARD_ISSUED}:shard-726`, payload: { id: 'shard-726', by: 'Eli', run: null }, legacy: false })
     bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'owner') })
     bench.tick()
-    const worker = startMergeWorker(parts(bench))
-    expect(worker.step()).toMatchObject({ kind: 'merged', rule: 'owner_under_shard' })
+    const worker = mergeNode(bench)
+    expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'owner_under_shard' })
     expect(unspentShard(bench.db, 826, 726)).toBeNull()
     bench.close()
   })
 
-  it('an auto pull request of a card that holds a shard merges under auto and leaves the shard unspent', () => {
+  it('an auto pull request of a card that holds a shard merges under auto and leaves the shard unspent', async () => {
     const bench = mergeBench()
     recorded(bench, 'worker:review:reviewer-1')
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: 826, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:shard-826`, payload: { id: 'shard-826', by: 'Eli', run: null }, legacy: false })
     bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'auto') })
     bench.tick()
-    const worker = startMergeWorker(parts(bench))
-    expect(worker.step()).toMatchObject({ kind: 'merged', rule: 'auto' })
+    const worker = mergeNode(bench)
+    expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'auto' })
     expect(eventsOf(bench.db, SHARD_USED)).toEqual([])
     expect(unspentShard(bench.db, 826, null)?.id).toBe('shard-826')
     bench.close()
   })
 
-  it('before its until, a shard --under D-N lifts owner_by_risk, R1 and security-invariants and the pull request gets merge.done with rule owner_under_shard', () => {
+  it('before its until, a shard --under D-N lifts owner_by_risk, R1 and security-invariants and the pull request gets merge.done with rule owner_under_shard', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
     ownerPulls(bench, [
@@ -153,15 +168,15 @@ describe('the merge worker', () => {
       expect(shardUnderD82(bench, pr)).toBe(0)
     bench.tick()
 
-    const worker = startMergeWorker(parts(bench))
-    expect([worker.step(), worker.step(), worker.step()]).toMatchObject([980, 981, 982].map(() => ({ kind: 'merged', rule: 'owner_under_shard' })))
+    const worker = mergeNode(bench)
+    expect([await step(worker), await step(worker), await step(worker)]).toMatchObject([980, 981, 982].map(() => ({ kind: 'merged', rule: 'owner_under_shard' })))
     expect(eventsOf(bench.db, MERGE_DONE).map(done => done.rule)).toEqual(['owner_under_shard', 'owner_under_shard', 'owner_under_shard'])
     expect(eventsOf(bench.db, SHARD_USED).map(used => used.id)).toEqual(['shard-980', 'shard-981', 'shard-982'])
     expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
     bench.close()
   })
 
-  it('after its until, the same shard --under D-N gets policy.denied authority', () => {
+  it('after its until, the same shard --under D-N gets policy.denied authority', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
     ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
@@ -169,7 +184,7 @@ describe('the merge worker', () => {
     bench.clock.ms = UNTIL_MS
     bench.tick()
 
-    expect(startMergeWorker(parts(bench)).step()).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' }, next: 'withdrawn' })
+    expect(await step(mergeNode(bench))).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' }, next: 'withdrawn' })
     expect(eventsOf(bench.db, MERGE_DONE)).toEqual([])
     expect(eventsOf(bench.db, SHARD_USED)).toEqual([])
     expect(bench.gitHub.puts).toEqual([])
@@ -179,7 +194,7 @@ describe('the merge worker', () => {
     bench.close()
   })
 
-  it('an until the decisions file cannot read leaves D-N out of force, and a shard --under it gets policy.denied authority', () => {
+  it('an until the decisions file cannot read leaves D-N out of force, and a shard --under it gets policy.denied authority', async () => {
     for (const unread of ['until 2026-10-09T13:00Z.', '(until 2026-10-09T13:00Z)']) {
       const bench = delegatedBench(D82.replace('until 2026-10-09T13:00Z', unread))
       recorded(bench, 'worker:review:reviewer-1')
@@ -188,13 +203,13 @@ describe('the merge worker', () => {
       const out: string[] = []
       expect(runShard(['--pr', '980', '--under', 'D-82', '--by', 'Eli'], shardDeps(bench, 'shard-unread', out))).toBe(1)
       expect(out).toEqual([expect.stringContaining('D-82 is not in force')])
-      expect(startMergeWorker(parts(bench)).step()).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
+      expect(await step(mergeNode(bench))).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
       expect(eventsOf(bench.db, MERGE_DONE)).toEqual([])
       bench.close()
     }
   })
 
-  it('a corrupted until after a passed import takes the authority away: a shard --under that D-N gets policy.denied authority', () => {
+  it('a corrupted until after a passed import takes the authority away: a shard --under that D-N gets policy.denied authority', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
     ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
@@ -205,52 +220,52 @@ describe('the merge worker', () => {
     writeFileSync(bench.file, D82.replace('until 2026-10-09T13:00Z', 'until 2026-10-09T13:00 Z'))
     bench.tick()
     expect(decisionsInForceAt(bench.db, bench.clock.now())).toEqual([])
-    expect(startMergeWorker(parts(bench)).step()).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
+    expect(await step(mergeNode(bench))).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
     expect(eventsOf(bench.db, MERGE_DONE)).toEqual([])
     expect(bench.gitHub.puts).toEqual([])
     bench.close()
   })
 
-  it('a merge under an active delegation after an authority refusal goes through the bus executor and writes merge.done', () => {
+  it('a merge under an active delegation after an authority refusal goes through the bus executor and writes merge.done', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
     ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
     bench.tick()
-    const worker = startMergeWorker(parts(bench))
-    expect(worker.step()).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' }, next: 'withdrawn' })
+    const worker = mergeNode(bench)
+    expect(await step(worker)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' }, next: 'withdrawn' })
 
     expect(shardUnderD82(bench, 980)).toBe(0)
     bench.tick()
-    expect(worker.step()).toMatchObject({ kind: 'merged', rule: 'owner_under_shard' })
+    expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'owner_under_shard' })
     expect(eventsOf(bench.db, MERGE_DONE)).toEqual([{ commit: expect.any(String) as unknown, rule: 'owner_under_shard' }])
     expect(bench.gitHub.puts.map(put => put.endpoint)).toEqual(['repos/{owner}/{repo}/pulls/980/merge'])
     bench.close()
   })
 
-  it('a merge task withdrawn on authority is requeued once by a shard naming its card or pull request, and a second authority refusal does not bring it back', () => {
+  it('a merge task withdrawn on authority is requeued once by a shard naming its card or pull request, and a second authority refusal does not bring it back', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
     ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
     bench.tick()
-    const worker = startMergeWorker(parts(bench))
-    expect(worker.step()).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
+    const worker = mergeNode(bench)
+    expect(await step(worker)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
     expect(mergeTaskState(bench, 980)).toBe('withdrawn')
 
     expect(runShard(['--card', '1080', '--by', 'Eli'], shardDeps(bench, 'shard-plain'))).toBe(0)
     bench.tick()
     expect(mergeTaskState(bench, 980)).toBe('queued')
-    expect(worker.step()).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
+    expect(await step(worker)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })
     expect(mergeTaskState(bench, 980)).toBe('withdrawn')
 
     expect(shardUnderD82(bench, 980)).toBe(0)
     bench.tick()
     expect(mergeTaskState(bench, 980)).toBe('withdrawn')
-    expect(worker.step()).toEqual({ kind: 'idle' })
+    expect(await step(worker)).toEqual({ kind: 'idle' })
     expect(bench.gitHub.puts).toEqual([])
     bench.close()
   })
 
-  it('a pull request whose card depends on a card with no merge.done is not a merge candidate, and becomes one after that merge.done', () => {
+  it('a pull request whose card depends on a card with no merge.done is not a merge candidate, and becomes one after that merge.done', async () => {
     const bench = mergeBench()
     const ts = bench.clock.now().toISOString()
     appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'reducer', cardId: 826, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:826`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [838] }, legacy: false })

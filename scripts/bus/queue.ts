@@ -110,9 +110,9 @@ function mergeCandidatesWhere(verdict: string, mergeable: string): string {
 `
 }
 
-const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`, `mergeable = 'clean'`)
+export const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`, `mergeable = 'clean'`)
 
-const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`, `mergeable IN ('clean', 'blocked')`)
+export const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`, `mergeable IN ('clean', 'blocked')`)
 
 const UPDATE_CANDIDATES = `
   SELECT pr, card_id, head, verdict_on_head FROM prs
@@ -215,7 +215,7 @@ export function mergeDecidedPastRoundLimit(db: DatabaseSync, ts: string, pr: num
   return roundLimitDecisionOf(decisionsInForceAt(db, new Date(ts)), pr, head)
 }
 
-function closedByRounds(db: DatabaseSync, ts: string, queue: Queue, pr: number | null, head: string | null): boolean {
+export function closedByRounds(db: DatabaseSync, ts: string, queue: Queue, pr: number | null, head: string | null): boolean {
   return outOfRounds(db, queue, pr) && !(queue === 'merge' && mergeDecidedPastRoundLimit(db, ts, pr, head) !== null)
 }
 
@@ -232,18 +232,27 @@ function decidedPastRoundLimit(db: DatabaseSync, ts: string): Admits {
   return row => mergeDecidedPastRoundLimit(db, ts, row.pr, row.head) !== null
 }
 
-function candidates(db: DatabaseSync, ts: string): [Queue, string, Admits][] {
+function candidateRows(db: DatabaseSync, query: string, admits: Admits): Candidate[] {
+  return (db.prepare(query).all() as unknown as Candidate[]).filter(admits)
+}
+
+function mergeRows(db: DatabaseSync, ts: string): Candidate[] {
+  return [...candidateRows(db, MERGE_CANDIDATES, everyRow), ...candidateRows(db, MERGE_CANDIDATES_WITHOUT_PASS, decidedPastRoundLimit(db, ts))]
+}
+
+function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
+  const update = passOrWaitingForOwner(db)
+  const open = (queue: Queue, query: string, admits: Admits = everyRow): (() => QueuedTask[]) => () => openCandidates(db, ts, queue, candidateRows(db, query, admits))
   return [
-    ['review', REVIEW_CANDIDATES, everyRow],
-    ['update', UPDATE_CANDIDATES, passOrWaitingForOwner(db)],
-    ['merge', MERGE_CANDIDATES, everyRow],
-    ['merge', MERGE_CANDIDATES_WITHOUT_PASS, decidedPastRoundLimit(db, ts)],
-    ['restart', RESTART_CANDIDATES, everyRow],
-    ['close', CLOSE_CANDIDATES, everyRow],
-    ['answer', QUESTION_CANDIDATES, everyRow],
-    ['answer', CHANGES_CANDIDATES, everyRow],
-    ['answer', RED_CI_CANDIDATES, everyRow],
-    ['answer', DIRTY_CANDIDATES, everyRow],
+    open('review', REVIEW_CANDIDATES),
+    open('update', UPDATE_CANDIDATES, update),
+    () => mergeCandidates(db, ts),
+    open('restart', RESTART_CANDIDATES),
+    open('close', CLOSE_CANDIDATES),
+    open('answer', QUESTION_CANDIDATES),
+    open('answer', CHANGES_CANDIDATES),
+    open('answer', RED_CI_CANDIDATES),
+    open('answer', DIRTY_CANDIDATES),
   ]
 }
 
@@ -321,13 +330,13 @@ interface StoppedAnswerRow extends StoppedRow {
   fault: number
 }
 
-interface QueuedTask extends TaskIdentity {
+export interface QueuedTask extends TaskIdentity {
   stop?: number
 }
 
 const STOP_SUFFIX = /:stop-([1-9]\d*)$/
 
-function keyOf(task: QueuedTask): string {
+export function keyOf(task: QueuedTask): string {
   const key = taskKey(task)
   return task.stop === undefined ? key : `${key}:stop-${task.stop}`
 }
@@ -335,6 +344,17 @@ function keyOf(task: QueuedTask): string {
 function stopIn(key: unknown): number | undefined {
   const match = typeof key === 'string' ? STOP_SUFFIX.exec(key) : null
   return match === null ? undefined : Number(match[1])
+}
+
+function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows: Candidate[]): QueuedTask[] {
+  return rows.filter(row => !closedByRounds(db, ts, queue, row.pr, row.head)).map((row) => {
+    const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
+    return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input }
+  })
+}
+
+export function mergeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
+  return openCandidates(db, ts, 'merge', mergeRows(db, ts))
 }
 
 export interface Derived {
@@ -516,10 +536,8 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (setAgainAfterItsStop(db, ts, row))
       derived.queued.push(row.task_key)
   }
-  for (const [queue, query, admits] of candidates(db, ts)) {
-    for (const row of (db.prepare(query).all() as unknown as Candidate[]).filter(admits).filter(row => !closedByRounds(db, ts, queue, row.pr, row.head))) {
-      const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
-      const task: QueuedTask = { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input }
+  for (const tasksOf of candidates(db, ts)) {
+    for (const task of tasksOf()) {
       if (queueTask(db, ts, task))
         derived.queued.push(keyOf(task))
     }
