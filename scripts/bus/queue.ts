@@ -247,7 +247,7 @@ function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
     () => updateCandidates(db, ts),
     () => mergeCandidates(db, ts),
     open('restart', RESTART_CANDIDATES),
-    open('close', CLOSE_CANDIDATES),
+    () => closeCandidates(db, ts),
     open('answer', QUESTION_CANDIDATES),
     open('answer', CHANGES_CANDIDATES),
     open('answer', RED_CI_CANDIDATES),
@@ -354,6 +354,10 @@ function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows: Candid
 
 export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'update', candidateRows(db, UPDATE_CANDIDATES, passOrWaitingForOwner(db)))
+}
+
+export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
+  return openCandidates(db, ts, 'close', candidateRows(db, CLOSE_CANDIDATES, everyRow))
 }
 
 export function mergeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
