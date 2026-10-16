@@ -1,4 +1,5 @@
 import type { Lease } from '../../bus/lease.js'
+import type { NodeStep } from '../../bus/node.js'
 import type { UpdateOutcome } from '../../bus/update-executor.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
@@ -9,7 +10,7 @@ import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { NoLiveVerdict } from '../../bus/merge-worker.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../bus/update-executor.js'
-import { runUpdateWorker, startUpdateWorker } from '../../bus/update-worker.js'
+import { runUpdateWorker, UpdateNode } from '../../bus/update-worker.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -218,18 +219,25 @@ describe('the update queue', () => {
   })
 })
 
+async function step(node: UpdateNode): Promise<NodeStep | null> {
+  const controller = new AbortController()
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  return node.getState().lastStep
+}
+
 describe('the update worker', () => {
-  it('refuses to switch on before the first live review verdict, then takes the update queue', () => {
+  it('refuses to switch on before the first live review verdict, then takes the update queue', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
     const bench = updateBench()
     bench.gitHub.open({ number: 995, review: 'success', mergeable_state: 'behind' })
     bench.tick()
-    const parts = { db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, session: 'worker-1' }
-    expect(() => startUpdateWorker(parts)).toThrow(NoLiveVerdict)
+    const parts = { db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, session: 'worker-1', mode: 'shadow' as const, env: {} }
+    await expect(step(new UpdateNode(parts))).rejects.toThrow(NoLiveVerdict)
 
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1095, pr: 995, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:live`, payload: { head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
-    const worker = startUpdateWorker(parts)
-    expect(worker.step()).toMatchObject({ kind: 'updated', taskKey: update(995), carry: { carried: 'pass' } })
-    expect(worker.step()).toEqual({ kind: 'idle' })
+    const worker = new UpdateNode(parts)
+    expect(await step(worker)).toMatchObject({ kind: 'updated', taskKey: update(995), carry: { carried: 'pass' } })
+    expect(await step(worker)).toEqual({ kind: 'idle' })
     bench.close()
   })
 
