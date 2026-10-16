@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
-import { busLaunches, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
+import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
 
@@ -335,6 +335,25 @@ const RUNNING: RunningProcess[] = [
 ]
 
 describe('bus:bg --supervise', () => {
+  it('a worker running with --on while workers.json lists it live is restarted by the supervisor with --live, and back to shadow when it is no longer listed live', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-mode-'), 'bus')
+    switchWorker(busDir, 'review', true)
+    switchWorker(busDir, 'update', true)
+    const s = supervised(r, busDir, RUNNING)
+    expect(await s.supervisor.step()).toEqual([])
+    switchDetection(busDir, 'update', true)
+    const lines = await s.supervisor.step()
+    expect(s.stopped).toEqual([103])
+    expect(s.starts.map(start => start.name)).toEqual(['bus:update --on --live'])
+    expect(lines.join('\n')).toContain('restarting it live')
+    const live = supervised(r, busDir, [{ pid: 103, args: 'node pnpm.cjs --silent bus:update --on --live' }])
+    switchDetection(busDir, 'update', false)
+    await live.supervisor.step()
+    expect(live.stopped).toEqual([103])
+    expect(live.starts.map(start => start.name)).toEqual(['bus:update --on'])
+  })
+
   it('main advancing with a change under scripts/bus restarts every running bus process on the new code', async () => {
     const r = repo()
     const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
