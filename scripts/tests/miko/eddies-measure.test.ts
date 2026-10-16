@@ -89,10 +89,10 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
 describe('the session-exit line', () => {
   it('is appended to .construct/eddies.jsonl of the project root, one line per exit', () => {
     const dir = scratch()
-    appendExitLine(dir, exitLineOf(UNREAD, 'owner', '2026-10-15T00:00:00.000Z'))
+    appendExitLine(dir, exitLineOf(UNREAD, 'context', '2026-10-15T00:00:00.000Z'))
     appendExitLine(dir, exitLineOf(UNREAD, 'done', '2026-10-15T00:00:01.000Z'))
     const lines = readFileSync(path.join(dir, '.construct', 'eddies.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line) as { reason: string, spent: unknown })
-    expect(lines.map(line => [line.reason, line.spent])).toEqual([['owner', UNKNOWN], ['done', UNKNOWN]])
+    expect(lines.map(line => [line.reason, line.spent])).toEqual([['context', UNKNOWN], ['done', UNKNOWN]])
   })
 
   it.each([

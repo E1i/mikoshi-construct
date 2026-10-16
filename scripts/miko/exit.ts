@@ -19,7 +19,7 @@ export const NOT_AT_A_STOP_CONDITION = 'not at a stop condition: wait with pnpm 
 const CLAUDE = 'claude'
 const ARGV_HEAD_NAMING_THE_PROGRAM = 2
 
-export type StopReason = typeof THRESHOLDS[number] | 'owner' | 'done'
+export type StopReason = typeof THRESHOLDS[number] | 'done'
 
 export interface ProcessRow {
   pid: number
@@ -75,8 +75,6 @@ function atOrAbove(value: Reading<number>, limit: Reading<number>): boolean {
 }
 
 export function stopReasonOf(status: string | null, readings: ExitReadings): StopReason | null {
-  if (status === 'OWNER')
-    return 'owner'
   if (status === 'DONE')
     return 'done'
   if (readings.context === UNKNOWN || atOrAbove(readings.context, readings.contextWarn))
@@ -100,7 +98,7 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
   const reason = stopReasonOf(status, readings)
   if (reason === null)
     return { refuse: `${NOT_AT_A_STOP_CONDITION}; nothing ended` }
-  if (reason === 'owner' || reason === 'done')
+  if (reason === 'done')
     return { kill: claude.pid, reason, line: `ending claude ${claude.pid}: ${MIKO_HANDOFF_NAME} says STATUS: ${status}` }
   const above = chain.slice(at + 1)
   const nextClaude = above.findIndex(isClaude)

@@ -7,7 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
-import { CONTINUE_PROMPT, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, MIKO_HANDOFF_NAME, mikoHandoff, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
+import { claudeCommand, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, MIKO_HANDOFF_NAME, mikoHandoff, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -146,7 +146,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect(stderr).toContain('STATUS: CONTINUE: next session')
   }, 20_000)
 
-  it.each(['owner', 'stop'])('a session that exits with STATUS: OWNER or STOP ends the loop, here %s', async (status) => {
+  it.each(['owner', 'stop'])('the loop starts no next session after one that ended itself with STATUS: OWNER or STOP, though the prompt no longer ends a session at OWNER, here %s', async (status) => {
     const dir = home([`${status} 0`, 'continue 0'])
     writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
     const { code, stderr } = await startLoop(dir).done
@@ -279,6 +279,20 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect(CONTINUE_PROMPT).toContain('без pnpm miko:exit')
   })
 
+  it('on STATUS: OWNER the CONTINUE_PROMPT asks the owner in the window and waits in the same session', () => {
+    expect(CONTINUE_PROMPT).toContain('прочитай ~/.construct/handoff/miko.md;')
+    expect(CONTINUE_PROMPT).toContain('если OWNER — задай вопрос владельцу в окне и жди ответа в этой же сессии')
+    expect(CONTINUE_PROMPT).toContain('после ответа pnpm handoff:write со STATUS: CONTINUE, без pnpm miko:exit')
+    expect(CONTINUE_PROMPT).not.toContain('STATUS: OWNER либо DONE')
+    expect(CONTINUE_PROMPT).toMatch(/pnpm miko:exit — только при .* или STATUS: DONE$/)
+  })
+
+  it('the loop starts claude in dontAsk mode unless MIKO_CLAUDE overrides it', () => {
+    expect(DEFAULT_CLAUDE).toBe('claude --permission-mode dontAsk')
+    expect(claudeCommand({})).toBe('claude --permission-mode dontAsk')
+    expect(claudeCommand({ MIKO_CLAUDE: '/opt/other-claude' })).toBe('/opt/other-claude')
+  })
+
   it('handoff:write with STATUS: STOP under the pnpm miko loop does not end claude', async () => {
     const dir = home(['write'])
     writeMikoDraft(dir, 'STOP')
@@ -347,7 +361,7 @@ describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause',
   })
 
   it('continues a STATUS: CONTINUE handoff without asking the owner', () => {
-    expect(CONTINUE_PROMPT).toContain(`прочитай ${MIKO_HANDOFF_NAME}`)
+    expect(CONTINUE_PROMPT).toContain(`прочитай ~/.construct/handoff/${MIKO_HANDOFF_NAME}`)
     expect(CONTINUE_PROMPT).toContain('последняя строка STATUS: в нём — CONTINUE')
     expect(CONTINUE_PROMPT).toContain('не спрашивая владельца')
   })
