@@ -146,7 +146,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect(stderr).toContain('STATUS: CONTINUE: next session')
   }, 20_000)
 
-  it.each(['owner', 'stop'])('a session that exits with STATUS: OWNER or STOP ends the loop, here %s', async (status) => {
+  it.each(['owner', 'stop'])('the loop starts no next session after one that ended itself with STATUS: OWNER or STOP, though the prompt no longer ends a session at OWNER, here %s', async (status) => {
     const dir = home([`${status} 0`, 'continue 0'])
     writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
     const { code, stderr } = await startLoop(dir).done

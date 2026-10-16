@@ -25,7 +25,7 @@ echo "$n" >> "$STUB_DIR/calls"
 set -- $(sed -n "\${n}p" "$STUB_DIR/plan")
 case "$1" in
   write) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md" ;;
-  owner) echo 'STATUS: OWNER' > "$HOME/.construct/handoff/miko.md" ;;
+  end-loop) echo 'STATUS: OWNER' > "$HOME/.construct/handoff/miko.md" ;;
 esac
 case "$2" in
   exit)
@@ -128,8 +128,8 @@ function exit(overrides: Partial<MikoExitDeps>): Outcome {
 }
 
 describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
-  it('ends a stub session at the context warn under the loop, the loop starts the next one, and the exit is journalled', async () => {
-    const dir = home(['write exit', 'owner'])
+  it('ends a stub session at the context warn under the loop, the loop starts the next one, which ends the loop on its own, and the exit is journalled', async () => {
+    const dir = home(['write exit', 'end-loop'])
     const { code, stderr } = await run(dir, TSX, [LOOP])
     expect(code).toBe(0)
     expect(read(dir, 'calls').split('\n').filter(Boolean)).toEqual(['1', '2'])
