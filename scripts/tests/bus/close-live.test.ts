@@ -6,8 +6,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CloseNode } from '../../bus/close-worker.js'
-import { detectionMode } from '../../bus/node.js'
+import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
+import { detectionMode, NODE_DETECTED } from '../../bus/node.js'
 import { CARD_CLOSED, keyOf, TASK_ENQUEUED } from '../../bus/queue.js'
+import { reduce } from '../../bus/reducer.js'
 import { bgCommand, detectionCommand } from '../../bus/supervisor.js'
 import { liveWorkers, switchDetection, switchWorker, wantedLaunches, WORKERS, WORKERS_FILE } from '../../bus/workers.js'
 import { sha } from './github-fake.js'
@@ -112,6 +114,35 @@ describe('close live', () => {
       expect(closeTasks(made, 990), order).toBe(1)
       expect(enqueuedOf(made, 990), order).toBe(1)
       expect(eventsOf(made.db, CARD_CLOSED), order).toEqual([{ verification: 'run' }])
+    }
+  })
+
+  it('a live close node and deriveQueues on one db write one task.enqueued and exactly one node.detected whose outcome matches which of them came first, in both orders', async () => {
+    const expected = { 'node first': 'queued', 'deriveQueues first': 'already' } as const
+    for (const order of ['node first', 'deriveQueues first'] as const) {
+      const made = bench()
+      mergedAndVerified(made, 990)
+      const node = liveNode(made)
+      if (order === 'node first') {
+        new NetWatch(made.db, made.gitHub.client, made.clock.now).poll()
+        reduce(made.db)
+        made.clock.advance(TICK_MS)
+        await once(node)
+        made.tick()
+      }
+      else {
+        made.tick()
+        await once(node)
+      }
+      await once(node)
+      made.tick()
+      await once(node)
+
+      expect(enqueuedOf(made, 990), order).toBe(1)
+      const key = keyOf({ queue: 'close', cardId: 1090, pr: 990, head: sha('a') })
+      const detected = eventsOf(made.db, NODE_DETECTED).filter(payload => payload.key === key)
+      expect(detected, order).toHaveLength(1)
+      expect(detected[0]!.outcome, order).toBe(expected[order])
     }
   })
 
