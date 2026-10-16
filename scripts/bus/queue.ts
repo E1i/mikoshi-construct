@@ -243,7 +243,7 @@ function mergeRows(db: DatabaseSync, ts: string): Candidate[] {
 function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
   const open = (queue: Queue, query: string, admits: Admits = everyRow): (() => QueuedTask[]) => () => openCandidates(db, ts, queue, candidateRows(db, query, admits))
   return [
-    open('review', REVIEW_CANDIDATES),
+    () => reviewCandidates(db, ts),
     () => updateCandidates(db, ts),
     () => mergeCandidates(db, ts),
     open('restart', RESTART_CANDIDATES),
@@ -347,6 +347,10 @@ function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows: Candid
     const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
     return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input }
   })
+}
+
+export function reviewCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
+  return openCandidates(db, ts, 'review', candidateRows(db, REVIEW_CANDIDATES, everyRow))
 }
 
 export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {

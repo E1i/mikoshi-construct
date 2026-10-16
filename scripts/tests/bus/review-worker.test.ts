@@ -544,7 +544,7 @@ describe('review worker', () => {
 
     gitHub.pulls.clear()
     await expect(runReview(['--on'], run)).rejects.toThrow(Stopped)
-    expect(output()).toContain(`${busPath}: the review worker worker:review:main-1-1 takes the review queue`)
+    expect(output()).toContain('the review node worker:review:main-1 takes the review queue')
     expect(existsSync(busPath)).toBe(true)
   })
 
