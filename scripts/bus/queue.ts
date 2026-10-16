@@ -367,6 +367,10 @@ export function mergeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'merge', mergeRows(db, ts))
 }
 
+export function launchTasks(db: DatabaseSync): QueuedTask[] {
+  return launchCandidates(db).map(({ cardId, generation }) => ({ queue: 'launch', cardId, generation }))
+}
+
 export interface Derived {
   queued: string[]
   superseded: string[]
@@ -552,8 +556,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
         derived.queued.push(keyOf(task))
     }
   }
-  for (const { cardId, generation } of launchCandidates(db)) {
-    const task: QueuedTask = { queue: 'launch', cardId, generation }
+  for (const task of launchTasks(db)) {
     if (queueTask(db, ts, task))
       derived.queued.push(keyOf(task))
   }
