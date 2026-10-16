@@ -192,6 +192,34 @@ describe('review queue', () => {
     db.close()
   })
 
+  it('a changes verdict on a head, a card amend and a review on the same head do not lead to a merge of that head', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const verdicts: ('changes' | 'pass')[] = ['changes', 'pass']
+    const worker = new ReviewWorker({
+      db,
+      gitHub: gitHub.client,
+      publish: (status) => {
+        gitHub.pulls.get(931)!.review = status.state
+      },
+      reviewer: async () => ({ verdict: verdicts.shift()!, findings: [], session: 'reviewer-1' }),
+      plan: () => fullReview('a fixed plan'),
+      clock: clock.now,
+      session: 'worker-1',
+    })
+    gitHub.open({ number: 931, body: cardBody(931) })
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
+    tick()
+    importJournal(db, intakeLine(1031, '0123abcd4567ef89'))
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
+    tick()
+    tick()
+    expect(gitHub.pulls.get(931)!.review).toBe('failure')
+    expect(tasks(db).filter(task => task.task_key.startsWith('merge:'))).toEqual([])
+    db.close()
+  })
+
   it('an edit of the pull request body after changes with no new head gives a review within two ticks', async () => {
     const { db, gitHub, clock, tick } = setUp()
     const body = cardBody(930)

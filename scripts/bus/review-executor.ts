@@ -9,6 +9,7 @@ import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
 import { REVIEW_RECORDED } from './card-automaton.js'
 import { ARTIFACT_REMOVED } from './close-executor.js'
 import { appendEvent } from './db.js'
+import { reviewInputOfKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { BOARD_ALARM, changesRoundsOf, REVIEW_ROUNDS } from './queue.js'
@@ -85,6 +86,22 @@ export function recordLeftovers(db: DatabaseSync, actor: string, ts: string, lef
   }
 }
 
+export const AMEND_KEEPS_CHANGES = 'A pass cannot lift a changes verdict on the same head and pull request body: the amend of the card changed no code. Push a new head.'
+
+function changesUnderThePullRequestBody(db: DatabaseSync, lease: Lease): boolean {
+  const prBody = reviewInputOfKey(lease.taskKey)?.prBody
+  if (prBody === undefined || lease.pr === null || lease.head === null)
+    return false
+  const rows = db.prepare(`SELECT dedupe_key FROM events WHERE type = ? AND pr = ? AND head = ? AND legacy = 0 AND json_extract(payload, '$.verdict') = 'changes'`).all(REVIEW_RECORDED, lease.pr, lease.head) as { dedupe_key: string }[]
+  return rows.some(row => reviewInputOfKey(row.dedupe_key.split(':').slice(1, -1).join(':'))?.prBody === prBody)
+}
+
+function keptChanges(db: DatabaseSync, lease: Lease, review: Review): Review {
+  return review.verdict === 'pass' && changesUnderThePullRequestBody(db, lease)
+    ? { ...review, verdict: 'changes', findings: [AMEND_KEEPS_CHANGES] }
+    : review
+}
+
 export function roundLimitLine(pr: number, rounds: number): string {
   return `Review round limit reached (D-104): ${rounds} rounds of changes on PR #${pr}; the bus queues no further review or answer for it and does not merge it. The remaining findings are in the bus event ${REVIEW_ROUNDS_SPENT}.`
 }
@@ -152,12 +169,13 @@ export class ReviewExecutor {
     const { db, gitHub, publish, clock } = this.parts
     if ('kind' in reviewed)
       return this.denied(lease, reviewed)
-    const { review, plan } = reviewed
+    const { plan } = reviewed
+    const review = keptChanges(db, lease, reviewed.review)
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
     const spent = this.roundsSpent(lease, review)
-    completeTask(db, this.ts(), lease, [this.recorded(lease, reviewed), ...(spent === null ? [] : [spent])])
+    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }), ...(spent === null ? [] : [spent])])
     if (spent !== null && lease.pr !== null)
       this.noted(lease.pr, roundLimitLine(lease.pr, REVIEW_ROUNDS))
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
