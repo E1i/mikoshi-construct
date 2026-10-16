@@ -1,15 +1,15 @@
 import type { Scope } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import type { MergeBench } from './merge-bench.js'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CloseNode } from '../../bus/close-worker.js'
 import { detectionMode } from '../../bus/node.js'
 import { CARD_CLOSED, keyOf, TASK_ENQUEUED } from '../../bus/queue.js'
-import { bgCommand } from '../../bus/supervisor.js'
-import { liveWorkers, switchDetection, switchWorker, wantedLaunches, WORKERS } from '../../bus/workers.js'
+import { bgCommand, detectionCommand } from '../../bus/supervisor.js'
+import { liveWorkers, switchDetection, switchWorker, wantedLaunches, WORKERS, WORKERS_FILE } from '../../bus/workers.js'
 import { sha } from './github-fake.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 
@@ -169,6 +169,77 @@ describe('close live', () => {
 
       expect(switchDetection(root, 'close', false)).toEqual([])
       expect(Object.values(modes()).every(mode => mode === 'shadow')).toBe(true)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('workers.json holds exactly the on list and no live key after a worker is switched and detection goes back to shadow', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-close-file-'))
+    try {
+      const file = path.join(root, WORKERS_FILE)
+      switchWorker(root, 'close', true)
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ on: ['close'] })
+      switchDetection(root, 'close', true)
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ on: ['close'], live: ['close'] })
+      switchDetection(root, 'close', false)
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ on: ['close'] })
+      switchWorker(root, 'close', false)
+      expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ on: [] })
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('a worker listed live but switched off gets no launch, and the other on-workers stay without the live flag', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-close-off-'))
+    try {
+      switchWorker(root, 'merge', true)
+      switchWorker(root, 'update', true)
+      switchDetection(root, 'close', true)
+      switchDetection(root, 'merge', true)
+      switchWorker(root, 'merge', false)
+      const launches = wantedLaunches(root, NO_PREFLIGHT).filter(launch => launch.script !== 'bus:run')
+      expect(launches.map(launch => launch.script)).toEqual(['bus:update'])
+      expect(launches.map(launch => launch.args)).toEqual([['--on']])
+      expect(liveWorkers(root)).toEqual(['merge', 'close'])
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('detectionCommand refuses an unknown or empty worker with exit code 1 and answers a valid one with the live list and the restart note', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-close-command-'))
+    try {
+      for (const worker of ['deploy', '']) {
+        const refused = detectionCommand(root, worker, true)
+        expect(refused.exitCode).toBe(1)
+        expect(refused.stdout).toEqual([])
+        expect(refused.stderr.join('\n')).toContain(worker === '' ? 'no worker named' : `unknown worker ${worker}`)
+        expect(refused.stderr.join('\n')).toContain(WORKERS.join(', '))
+      }
+      const accepted = detectionCommand(root, 'close', true)
+      expect(accepted.exitCode).toBe(0)
+      expect(accepted.stderr).toEqual([])
+      expect(accepted.stdout.join('\n')).toContain('detecting live: close')
+      expect(accepted.stdout.join('\n')).toContain('a worker already running changes mode when it is switched off and on')
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('liveWorkers throws on a live that is not an array and on a live with an unknown worker name', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-close-malformed-'))
+    try {
+      const file = path.join(root, WORKERS_FILE)
+      writeFileSync(file, '{"on":[],"live":"close"}')
+      expect(() => liveWorkers(root)).toThrow(WORKERS_FILE)
+      writeFileSync(file, '{"on":[],"live":["deploy"]}')
+      expect(() => liveWorkers(root)).toThrow(WORKERS_FILE)
     }
     finally {
       rmSync(root, { recursive: true, force: true })
