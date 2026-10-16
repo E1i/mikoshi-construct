@@ -76,9 +76,9 @@ function seen(db: DatabaseSync, clock: Clock, pr: number, type = PROBE_SEEN): nu
   return Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
 }
 
-function detections(db: DatabaseSync, via?: string): { key: string, via: string, event_id: number }[] {
+function detections(db: DatabaseSync, via?: string): { key: string, via: string, event_id: number, outcome?: string }[] {
   return (db.prepare(`SELECT payload FROM events WHERE type = ? ORDER BY id`).all(NODE_DETECTED) as { payload: string }[])
-    .map(row => JSON.parse(row.payload) as { key: string, via: string, event_id: number })
+    .map(row => JSON.parse(row.payload) as { key: string, via: string, event_id: number, outcome?: string })
     .filter(each => via === undefined || each.via === via)
 }
 
@@ -149,7 +149,7 @@ describe('a node', () => {
 
       node.failAfterRecord = false
       await once(node)
-      expect(detections(db, 'event')).toHaveLength(mode === 'shadow' ? 1 : 0)
+      expect(detections(db, 'event').map(each => each.outcome)).toEqual([mode === 'live' ? 'queued' : undefined])
       expect(enqueued(db)).toBe(mode === 'live' ? 1 : 0)
       expect(count(db, 'SELECT count(*) AS n FROM tasks')).toBe(mode === 'live' ? 1 : 0)
     })
