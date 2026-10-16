@@ -15,7 +15,8 @@ import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doct
 import { modelPicture, printGraph } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
 import { printAdmit, runAdmit } from './commands/intake/admit.js'
-import { defaultParking, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
+import { busExpected } from './commands/intake/bus-path.js'
+import { defaultParking, INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
 import { printMove, runMove } from './commands/intake/move.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
 import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
@@ -382,6 +383,11 @@ function intakeCommand(bus: BusPorts | undefined) {
           return
         }
         if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
+          if (events === undefined && !args.dryRun && busExpected()) {
+            console.flatline(console.lore.intakeAdmitNeedsBus)
+            process.exitCode = INTAKE_EXIT.refused
+            return
+          }
           process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, journal, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
           return
         }
