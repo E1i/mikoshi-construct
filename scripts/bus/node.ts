@@ -242,12 +242,10 @@ export abstract class Node<S extends NodeStep> {
 
   private record(task: QueuedTask, via: Via, eventId: number): void {
     const ts = this.ts()
-    if (this.parts.mode === 'live') {
-      queueTaskWithin(this.db, ts, task)
-      return
-    }
     const key = keyOf(task)
-    appendEvent(this.db, { ts, type: NODE_DETECTED, actor: this.actor, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey: `${NODE_DETECTED}:${this.kind}:${key}:${via}`, payload: { key, via, event_id: eventId }, legacy: false })
+    const live = this.parts.mode === 'live'
+    const outcome = live ? { outcome: queueTaskWithin(this.db, ts, task) ? 'queued' : 'already' } : {}
+    appendEvent(this.db, { ts, type: NODE_DETECTED, actor: this.actor, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey: `${NODE_DETECTED}:${this.kind}:${key}${live ? '' : `:${via}`}`, payload: { key, via, event_id: eventId, ...outcome }, legacy: false })
   }
 
   private cursor(): number | null {
