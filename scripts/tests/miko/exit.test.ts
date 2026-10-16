@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit } from '../../miko/exit.js'
+import { ancestors, exitDecision, FRESH_MS, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, stopReasonOf } from '../../miko/exit.js'
 import { mikoHandoff } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -214,16 +214,23 @@ describe('miko:exit ends a session only at a stop reason', () => {
     expect(exit({ readings: () => AT_SPEND })).toMatchObject({ code: 0, kills: [12], recorded: [expect.objectContaining({ reason: 'spend' })] })
   })
 
-  it('a handoff with STATUS OWNER kills the session without conditions', () => {
-    const outcome = exit({ table: () => outsideLoop, handoffMtime: () => undefined, readings: () => UNREAD, status: () => 'OWNER' })
-    expect(outcome).toMatchObject({ code: 0, kills: [12], stops: [], recorded: [expect.objectContaining({ reason: 'owner' })] })
+  it('a handoff with STATUS DONE kills the session without conditions', () => {
+    const outcome = exit({ table: () => outsideLoop, handoffMtime: () => undefined, readings: () => UNREAD, status: () => 'DONE' })
+    expect(outcome).toMatchObject({ code: 0, kills: [12], stops: [], recorded: [expect.objectContaining({ reason: 'done' })] })
+  })
+
+  it('a handoff with STATUS OWNER is no stop reason and pnpm miko:exit refuses it', () => {
+    expect(stopReasonOf('OWNER', BELOW)).toBeNull()
+    const outcome = exit({ status: () => 'OWNER', readings: () => BELOW })
+    expect(outcome).toMatchObject({ code: 1, kills: [], stops: [], recorded: [] })
+    expect(outcome.lines).toEqual([`[miko] ${NOT_AT_A_STOP_CONDITION}; nothing ended`])
+    expect(exit({ status: () => 'OWNER', readings: () => AT_CONTEXT })).toMatchObject({ code: 0, kills: [12], recorded: [expect.objectContaining({ reason: 'context' })] })
   })
 
   it('an exit at each stop reason writes one eddies.jsonl line whose reason is the decision', () => {
     const cases = [
       { status: 'CONTINUE', readings: AT_CONTEXT, reason: 'context' },
       { status: 'CONTINUE', readings: AT_SPEND, reason: 'spend' },
-      { status: 'OWNER', readings: BELOW, reason: 'owner' },
       { status: 'DONE', readings: BELOW, reason: 'done' },
     ]
     for (const { status, readings, reason } of cases) {
@@ -239,15 +246,13 @@ describe('miko:exit ends a session only at a stop reason', () => {
     expect(existsSync(path.join(dir, '.construct', 'eddies.jsonl'))).toBe(false)
   })
 
-  it('without the session file the counters are unknown and an OWNER or DONE exit still happens', () => {
+  it('without the session file the counters are unknown and a DONE exit still happens', () => {
     const dir = scratch()
     const readings = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
     expect(readings).toEqual({ ...UNREAD, sessionId: SESSION, contextWarn: CONTEXT_WARN, sessionSpend: LIMITS.sessionSpend })
-    for (const status of ['OWNER', 'DONE']) {
-      const outcome = exit({ status: () => status, readings: () => readings, handoffMtime: () => undefined })
-      expect(outcome.kills).toEqual([12])
-      expect(outcome.recorded).toEqual([expect.objectContaining({ start: UNKNOWN, end: UNKNOWN, spent: UNKNOWN, cards: UNKNOWN, bus_events: UNKNOWN })])
-    }
+    const outcome = exit({ status: () => 'DONE', readings: () => readings, handoffMtime: () => undefined })
+    expect(outcome.kills).toEqual([12])
+    expect(outcome.recorded).toEqual([expect.objectContaining({ start: UNKNOWN, end: UNKNOWN, spent: UNKNOWN, cards: UNKNOWN, bus_events: UNKNOWN })])
   })
 
   it.each([

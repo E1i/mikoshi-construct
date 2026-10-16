@@ -75,8 +75,6 @@ function atOrAbove(value: Reading<number>, limit: Reading<number>): boolean {
 }
 
 export function stopReasonOf(status: string | null, readings: ExitReadings): StopReason | null {
-  if (status === 'OWNER')
-    return 'owner'
   if (status === 'DONE')
     return 'done'
   if (readings.context === UNKNOWN || atOrAbove(readings.context, readings.contextWarn))
@@ -100,7 +98,7 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
   const reason = stopReasonOf(status, readings)
   if (reason === null)
     return { refuse: `${NOT_AT_A_STOP_CONDITION}; nothing ended` }
-  if (reason === 'owner' || reason === 'done')
+  if (reason === 'done')
     return { kill: claude.pid, reason, line: `ending claude ${claude.pid}: ${MIKO_HANDOFF_NAME} says STATUS: ${status}` }
   const above = chain.slice(at + 1)
   const nextClaude = above.findIndex(isClaude)

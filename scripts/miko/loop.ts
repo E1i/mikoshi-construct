@@ -10,9 +10,9 @@ import { statusOf } from '../shift/relaunch.js'
 
 export const PREFIX = '[miko] '
 export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
-export const DEFAULT_CLAUDE = 'claude --permission-mode auto'
+export const DEFAULT_CLAUDE = 'claude --permission-mode dontAsk'
 export const MIKO_HANDOFF_NAME = 'miko.md'
-export const CONTINUE_PROMPT = `прочитай ${MIKO_HANDOFF_NAME}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца; событие жди через pnpm miko:watch --once в этой же сессии, следующую карточку бери в этой же сессии, pnpm handoff:write на каждой границе — страховка, без pnpm miko:exit; pnpm miko:exit — только при контексте не ниже порога предупреждения Eddies, тратах сессии не ниже sessionSpend или STATUS: OWNER либо DONE`
+export const CONTINUE_PROMPT = `прочитай ~/.construct/handoff/${MIKO_HANDOFF_NAME}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца; если OWNER — задай вопрос владельцу в окне и жди ответа в этой же сессии, после ответа pnpm handoff:write со STATUS: CONTINUE, без pnpm miko:exit; событие жди через pnpm miko:watch --once в этой же сессии, следующую карточку бери в этой же сессии, pnpm handoff:write на каждой границе — страховка, без pnpm miko:exit; pnpm miko:exit — только при контексте не ниже порога предупреждения Eddies, тратах сессии не ниже sessionSpend или STATUS: DONE`
 export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_WINDOW_MS = 1500
 
@@ -151,11 +151,15 @@ function runSession(command: string, prompt: string | undefined): Promise<Sessio
   })
 }
 
+export function claudeCommand(env: NodeJS.ProcessEnv): string {
+  return env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
+}
+
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const ctrlC = doubleCtrlCWatcher()
   process.on('SIGINT', ctrlC.press)
   const handoff = mikoHandoff(os.homedir())
-  const command = process.env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
+  const command = claudeCommand(process.env)
   process.exitCode = await runMikoLoop({
     status: () => statusOfFile(handoff),
     handoffMtime: () => mtimeOf(handoff),
