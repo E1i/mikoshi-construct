@@ -47,10 +47,12 @@ export type CloseOutcome
 export type ReportedVerification = (cardId: number, pr: number | null) => string | null
 
 export const ARTIFACT_REMOVED = 'artifact.removed'
+export const ARTIFACT_KEPT = 'artifact.kept'
 
 export interface RemovedTree {
   path: string
   dirty: number
+  kept: boolean
 }
 
 export interface CardTreeRemover {
@@ -96,9 +98,11 @@ export function gitTreeRemover(repo: string): CardTreeRemover {
       if (listed === undefined)
         return null
       const dirty = dirtyCount(listed)
+      if (dirty > 0)
+        return { path: listed, dirty, kept: true }
       git(repo, ['worktree', 'remove', '--force', listed])
       git(repo, ['worktree', 'prune'])
-      return { path: listed, dirty }
+      return { path: listed, dirty, kept: false }
     },
   }
 }
@@ -222,7 +226,8 @@ export class CloseExecutor {
     }
     if (removed === null)
       return null
-    appendEvent(this.parts.db, { ts: this.ts(), type: ARTIFACT_REMOVED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${ARTIFACT_REMOVED}:${lease.cardId}:${removed.path}`, payload: { path: removed.path, by: lease.actor, dirty: removed.dirty }, legacy: false })
+    const type = removed.kept ? ARTIFACT_KEPT : ARTIFACT_REMOVED
+    appendEvent(this.parts.db, { ts: this.ts(), type, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${type}:${lease.cardId}:${removed.path}`, payload: { path: removed.path, by: lease.actor, dirty: removed.dirty }, legacy: false })
     return null
   }
 

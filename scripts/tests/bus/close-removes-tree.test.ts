@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { ARTIFACT_REMOVED, gitTreeRemover } from '../../bus/close-executor.js'
+import { ARTIFACT_KEPT, ARTIFACT_REMOVED, gitTreeRemover } from '../../bus/close-executor.js'
 import { CloseNode } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
@@ -69,7 +69,7 @@ async function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardT
     const outcome = await step(worker)
     if (outcome === null || outcome.kind === 'idle' || outcome.taskKey === undefined)
       throw new Error('the close queue held no task')
-    return { outcome, closed: eventsOf(bench.db, CARD_CLOSED), removed: eventsOf(bench.db, ARTIFACT_REMOVED), alarms: eventsOf(bench.db, BOARD_ALARM), task: taskState(bench.db, outcome.taskKey) }
+    return { outcome, closed: eventsOf(bench.db, CARD_CLOSED), removed: eventsOf(bench.db, ARTIFACT_REMOVED), kept: eventsOf(bench.db, ARTIFACT_KEPT), alarms: eventsOf(bench.db, BOARD_ALARM), task: taskState(bench.db, outcome.taskKey) }
   }
   finally {
     bench.close()
@@ -78,11 +78,10 @@ async function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardT
 }
 
 describe('the close executor removes the card tree it closed', () => {
-  it('after card.closed the card tree is gone, git worktree list does not name it, and artifact.removed carries path, by and dirty', async () => {
+  it('after card.closed a clean card tree is gone, git worktree list does not name it, and artifact.removed carries path, by and dirty 0', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'close-removes-tree-'))
     try {
       const { repo, worktree } = repoWithCardTree(root)
-      writeFileSync(path.join(worktree, 'unsaved.txt'), 'left behind\n')
       expect(listed(repo).map(entry => realpathSync(entry))).toContain(worktree)
 
       const run = await closeOnce(gitTreeRemover(repo), worktree)
@@ -92,7 +91,35 @@ describe('the close executor removes the card tree it closed', () => {
       expect(existsSync(worktree)).toBe(false)
       expect(listed(repo)).toHaveLength(1)
       expect(listed(repo).some(entry => entry.endsWith(`mc-${CARD}`))).toBe(false)
-      expect(run.removed).toEqual([{ path: worktree, by: CLOSER, dirty: 1 }])
+      expect(run.removed).toEqual([{ path: worktree, by: CLOSER, dirty: 0 }])
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('close keeps a card tree with a changed tracked file, writes artifact.kept with its dirty count and completes, and still removes a clean tree', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'close-removes-tree-'))
+    try {
+      const { repo, worktree } = repoWithCardTree(root)
+      writeFileSync(path.join(worktree, 'README.md'), 'edited\n')
+
+      const run = await closeOnce(gitTreeRemover(repo), worktree)
+
+      expect(run.outcome).toMatchObject({ kind: 'closed', verification: 'run' })
+      expect(run.task).toMatchObject({ state: 'completed', failures: 0 })
+      expect(existsSync(worktree)).toBe(true)
+      expect(listed(repo)).toHaveLength(2)
+      expect(run.removed).toEqual([])
+      expect(run.kept).toEqual([{ path: worktree, by: CLOSER, dirty: 1 }])
+      git(repo, ['worktree', 'remove', '--force', worktree])
+
+      const clean = repoWithCardTree(mkdtempSync(path.join(tmpdir(), 'close-removes-tree-')))
+      const cleanRun = await closeOnce(gitTreeRemover(clean.repo), clean.worktree)
+      expect(existsSync(clean.worktree)).toBe(false)
+      expect(cleanRun.kept).toEqual([])
+      expect(cleanRun.removed).toEqual([{ path: clean.worktree, by: CLOSER, dirty: 0 }])
+      rmSync(path.dirname(clean.repo), { recursive: true, force: true })
     }
     finally {
       rmSync(root, { recursive: true, force: true })
