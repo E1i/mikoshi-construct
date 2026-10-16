@@ -2,6 +2,7 @@ import type { DetachedLaunch } from './bg.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { BUS_RUN_LAUNCH, PREFIX } from './bg.js'
+import { LIVE_FLAG } from './node.js'
 import { reviewLaunch } from './review-bg.js'
 import { SWITCH_FLAG } from './review-worker.js'
 
@@ -41,17 +42,39 @@ export function switchedOn(busDir: string): BusWorker[] {
   return WORKERS.filter(worker => on.includes(worker))
 }
 
+export function liveWorkers(busDir: string): BusWorker[] {
+  const file = path.join(busDir, WORKERS_FILE)
+  if (!existsSync(file))
+    return []
+  const live = (JSON.parse(readFileSync(file, 'utf8')) as { live?: unknown }).live ?? []
+  if (!Array.isArray(live) || !live.every(name => typeof name === 'string' && isBusWorker(name)))
+    throw new Error(`${file} has a "live" that is not a list of ${WORKERS.map(worker => `"${worker}"`).join(', ')}`)
+  return WORKERS.filter(worker => live.includes(worker))
+}
+
+function writeWorkers(busDir: string, on: BusWorker[], live: BusWorker[]): void {
+  mkdirSync(busDir, { recursive: true })
+  writeFileSync(path.join(busDir, WORKERS_FILE), `${JSON.stringify(live.length === 0 ? { on } : { on, live })}\n`)
+}
+
 export function switchWorker(busDir: string, worker: BusWorker, on: boolean): BusWorker[] {
   const current = switchedOn(busDir)
   const next = WORKERS.filter(name => name === worker ? on : current.includes(name))
-  mkdirSync(busDir, { recursive: true })
-  writeFileSync(path.join(busDir, WORKERS_FILE), `${JSON.stringify({ on: next })}\n`)
+  writeWorkers(busDir, next, liveWorkers(busDir))
+  return next
+}
+
+export function switchDetection(busDir: string, worker: BusWorker, live: boolean): BusWorker[] {
+  const current = liveWorkers(busDir)
+  const next = WORKERS.filter(name => name === worker ? live : current.includes(name))
+  writeWorkers(busDir, switchedOn(busDir), next)
   return next
 }
 
 export function wantedLaunches(busDir: string, reviewPreflight: () => string[]): DetachedLaunch[] {
   const launches = workerLaunches(reviewPreflight)
-  return [BUS_RUN_LAUNCH, ...switchedOn(busDir).map(worker => launches[worker])]
+  const live = liveWorkers(busDir)
+  return [BUS_RUN_LAUNCH, ...switchedOn(busDir).map(worker => live.includes(worker) ? { ...launches[worker], args: [...launches[worker].args, LIVE_FLAG] } : launches[worker])]
 }
 
 export function busLaunches(reviewPreflight: () => string[]): DetachedLaunch[] {
