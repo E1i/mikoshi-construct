@@ -15,6 +15,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'bus:launch': 'the launch worker over bus.db, switched off unless started by hand with --on; it starts card sessions as detached processes, so its own tests, on a claude stub, are its gate',
   'bus:merge': 'the merge worker over bus.db, switched off unless started by hand with --on after the first live review verdict; its own tests are its gate',
   'bus:netwatch': 'a long-running poller that writes GitHub observations into bus.db; its own tests are its gate',
+  'bus:node-equivalence': 'a read-only aggregate of the node.equivalence ticks in bus.db printed by hand; its own tests are its gate',
   'bus:reduce': 'rebuilds the prs, cards, tasks, decisions and card_bodies projections of bus.db when run by hand; its own tests are its gate',
   'bus:backfill': 'records a fixed set of live parked cards and admits each once into bus.db with source backfill, when run by hand; its own tests are its gate',
   'card': 'prints one card of the card_bodies projection of bus.db, as a contract\'s JSON fields, its admitted text or its chain, when run by hand; it writes nothing; its own tests are its gate',
