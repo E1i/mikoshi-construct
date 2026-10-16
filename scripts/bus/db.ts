@@ -114,6 +114,10 @@ CREATE TABLE IF NOT EXISTS card_bodies (
   decision TEXT,
   depends TEXT
 );
+CREATE TABLE IF NOT EXISTS node_cursors (
+  kind TEXT PRIMARY KEY,
+  event_id INTEGER NOT NULL
+);
 `
 
 const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT']]

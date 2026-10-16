@@ -2,24 +2,35 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { MergeOutcome } from './executor.js'
 import type { GitHub, GitHubPut } from './github.js'
+import type { Lease } from './lease.js'
+import type { DetectionMode, Scope } from './node.js'
+import type { QueuedTask } from './queue.js'
+import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
-import { REVIEW_RECORDED } from './card-automaton.js'
-import { defaultBusPath, openBus } from './db.js'
+import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
+import { defaultBusPath } from './db.js'
+import { DECISIONS_IMPORTED } from './decisions.js'
 import { MergeExecutor } from './executor.js'
 import { ghApi, ghApiPut } from './github.js'
-import { expireLeases, leaseNext } from './lease.js'
-import { CHECK_MS, TICK_MS } from './netwatch.js'
-import { DRY_RUN_ACTOR, SWITCH_FLAG } from './review-worker.js'
+import { DECISION_RECORDED } from './inbox.js'
+import { Node, NodeRefused, runNode } from './node.js'
+import { CARD_ADMITTED, PR_OBSERVED } from './operator-work.js'
+import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from './queue.js'
+import { REDUCED } from './reducer.js'
+import { DRY_RUN_ACTOR } from './review-worker.js'
 
-export const PREFIX = '[bus:merge] '
 export const LIVE_REVIEWER = 'worker:review:'
+export const PR_CLOSED = 'pr.closed'
+export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED, DECISIONS_IMPORTED] as const
 
-export type MergeStep = { kind: 'idle' } | MergeOutcome
+const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, MERGE_DONE, DECISION_RECORDED, DECISIONS_IMPORTED])
+
+export type MergeStep = MergeOutcome
 
 export interface MergeWorkerParts {
   db: DatabaseSync
@@ -31,7 +42,12 @@ export interface MergeWorkerParts {
   run: string | null
 }
 
-export class NoLiveVerdict extends Error {
+export interface MergeNodeParts extends MergeWorkerParts {
+  mode: DetectionMode
+  env: NodeJS.ProcessEnv
+}
+
+export class NoLiveVerdict extends NodeRefused {
   constructor(worker = 'merge') {
     super(`no ${REVIEW_RECORDED} written by ${LIVE_REVIEWER}<session> yet; the ${worker} worker switches on after the review worker's first live verdict`)
   }
@@ -42,38 +58,59 @@ export function firstLiveVerdict(db: DatabaseSync): number | null {
   return row === undefined ? null : Number(row.id)
 }
 
-export class MergeWorker {
-  readonly actor: string
+interface MergeRow {
+  pr: number
+  card_id: number
+  head: string
+}
+
+function scoped(query: string): string {
+  return `SELECT pr, card_id, head FROM (${query}) WHERE (? IS NULL OR pr = ?) AND (? IS NULL OR card_id = ?) ORDER BY pr`
+}
+
+function scopeOf(event: StoredEvent): Scope | undefined {
+  if (WHOLE_QUEUE_ON.has(event.type))
+    return undefined
+  return { pr: event.pr ?? undefined, cardId: event.card_id ?? undefined }
+}
+
+export class MergeNode extends Node<MergeStep> {
   private readonly executor: MergeExecutor
 
-  constructor(private readonly parts: MergeWorkerParts) {
-    this.actor = `worker:merge:${parts.session}`
+  constructor(parts: MergeNodeParts) {
+    super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
     this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run })
+    this.subscribe(MERGE_ON, event => this.detectOn(event, scopeOf(event)))
   }
 
-  step(): MergeStep {
-    const ts = this.parts.clock().toISOString()
-    expireLeases(this.parts.db, ts)
-    const lease = leaseNext(this.parts.db, ts, 'merge', this.actor)
-    return lease === null ? { kind: 'idle' } : this.executor.merge(lease)
+  protected override before(): void {
+    if (firstLiveVerdict(this.db) === null)
+      throw new NoLiveVerdict()
   }
-}
 
-export function startMergeWorker(parts: MergeWorkerParts): MergeWorker {
-  if (firstLiveVerdict(parts.db) === null)
-    throw new NoLiveVerdict()
-  return new MergeWorker(parts)
-}
+  protected candidates(scope: Scope = {}): QueuedTask[] {
+    const ts = this.ts()
+    const filter = [scope.pr ?? null, scope.pr ?? null, scope.cardId ?? null, scope.cardId ?? null]
+    const rows = (query: string): MergeRow[] => this.db.prepare(scoped(query)).all(...filter) as unknown as MergeRow[]
+    const decided = rows(MERGE_CANDIDATES_WITHOUT_PASS).filter(row => mergeDecidedPastRoundLimit(this.db, ts, row.pr, row.head) !== null)
+    return [...rows(MERGE_CANDIDATES), ...decided]
+      .filter(row => !closedByRounds(this.db, ts, 'merge', row.pr, row.head))
+      .map(row => ({ queue: 'merge', cardId: row.card_id, pr: row.pr, head: row.head }))
+  }
 
-export function mergeStepLine(step: MergeStep): string | null {
-  if (step.kind === 'idle')
-    return null
-  if (step.kind === 'merged')
-    return `${PREFIX}${step.taskKey}: merged as ${step.commit} (${step.rule})`
-  if (step.kind === 'fenced')
-    return `${PREFIX}${step.taskKey}: the lease moved on; nothing written`
-  const reason = step.denial.kind === 'technical' ? step.denial.reason : step.denial.rule
-  return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${reason}): ${step.denial.detail}; the task is ${step.next}`
+  protected override derivedCandidates(ts: string): QueuedTask[] {
+    return mergeCandidates(this.db, ts)
+  }
+
+  protected handle(lease: Lease): MergeStep {
+    return this.executor.merge(lease)
+  }
+
+  protected override stepLine(step: MergeStep): string | null {
+    if (step.kind === 'merged')
+      return `${step.taskKey}: merged as ${step.commit} (${step.rule})`
+    return super.stepLine(step)
+  }
 }
 
 export interface MergeRun {
@@ -86,31 +123,7 @@ export interface MergeRun {
 }
 
 export async function runMergeWorker(argv: string[], run: MergeRun): Promise<number> {
-  if (!argv.includes(SWITCH_FLAG)) {
-    console.log(`${PREFIX}switched off; start it with ${SWITCH_FLAG} once the review worker has recorded a live verdict`)
-    return 0
-  }
-  const db = openBus(run.busPath)
-  try {
-    const worker = startMergeWorker({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null })
-    console.log(`${PREFIX}${run.busPath}: the merge worker ${worker.actor} takes the merge queue`)
-    for (;;) {
-      const step = worker.step()
-      const line = mergeStepLine(step)
-      if (line !== null)
-        console.log(line)
-      await run.pause(step.kind === 'idle' ? CHECK_MS : TICK_MS)
-    }
-  }
-  catch (error) {
-    if (!(error instanceof NoLiveVerdict))
-      throw error
-    console.error(`${PREFIX}refused to switch on: ${error.message}`)
-    return 1
-  }
-  finally {
-    db.close()
-  }
+  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, mode, env: process.env }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {
