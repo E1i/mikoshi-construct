@@ -248,10 +248,7 @@ function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
     () => mergeCandidates(db, ts),
     open('restart', RESTART_CANDIDATES),
     () => closeCandidates(db, ts),
-    open('answer', QUESTION_CANDIDATES),
-    open('answer', CHANGES_CANDIDATES),
-    open('answer', RED_CI_CANDIDATES),
-    open('answer', DIRTY_CANDIDATES),
+    () => answerCandidates(db, ts),
   ]
 }
 
@@ -358,6 +355,12 @@ export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'close', candidateRows(db, CLOSE_CANDIDATES, everyRow))
+}
+
+const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDIDATES, DIRTY_CANDIDATES] as const
+
+export function answerCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
+  return ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow)))
 }
 
 export function mergeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {

@@ -1,19 +1,27 @@
 import type { Answered, AnswerRequest, AnswerRun } from '../../bus/answerer.js'
 import type { CardTreeTools } from '../../bus/card-tree.js'
+import type { Lease } from '../../bus/lease.js'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
-import { answerInSlots, AnswerWorker, priorityOf, startAnswerWorkers } from '../../bus/answer-worker.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AnswerExecutor } from '../../bus/answer-executor.js'
+import { AnswerNode, priorityOf } from '../../bus/answer-worker.js'
 import { claudeAnswerer } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
+import { LEASE_MS, RENEW_MS } from '../../bus/lease.js'
 import { queueTask } from '../../bus/queue.js'
-import { SLOTS, slotsOf } from '../../bus/scheduler.js'
+import { SLOTS, slotsOf, slotsVariable } from '../../bus/scheduler.js'
 import { sha } from './github-fake.js'
-import { mergeBench } from './merge-bench.js'
+import { eventsOf, mergeBench } from './merge-bench.js'
 
 const PUSHED = sha('e')
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 function parkedCard(cardId: number, header: string, body: string): string {
   return `card: #${cardId} task-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/bus/**\n${header}\n\n${body}\n`
@@ -40,14 +48,14 @@ function slotsBench() {
     answered.push(request.lease.cardId)
     return { session: request.card.session, resumed: true, before: sha('a'), after: PUSHED, owner: null }
   }
-  const parts = { db: bench.db, ownerMerges: () => '', clock: bench.clock.now, session: 'slots', cardText, trees: cardTrees }
+  const parts = { db: bench.db, ownerMerges: () => '', clock: bench.clock.now, session: 'slots', cardText, trees: cardTrees, mode: 'shadow' as const }
   return {
     ...bench,
     cards,
     inFlight,
     answered,
-    workers: (slots: number) => startAnswerWorkers({ ...parts, answerer }, slots),
-    prompted: (runs: AnswerRun[]) => new AnswerWorker({ ...parts, answerer: claudeAnswerer(path.join(trees, 'answers'), {
+    node: (slots: number) => new AnswerNode({ ...parts, answerer, env: { [slotsVariable('answer')]: String(slots) } }),
+    prompted: (runs: AnswerRun[]) => new AnswerNode({ ...parts, env: { [slotsVariable('answer')]: '1' }, answerer: claudeAnswerer(path.join(trees, 'answers'), {
       cardText,
       available: () => true,
       remoteHead: () => null,
@@ -72,11 +80,28 @@ function slotsBench() {
       appendEvent(bench.db, { ts: ts(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}`, payload: { session: `card-session-${cardId}`, worktree, branch: `feat/card-${cardId}`, base: sha('1') }, legacy: false })
       appendEvent(bench.db, { ts: ts(), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: 'question.agent', detail: `a question on card #${cardId}` }, legacy: false })
     },
+    taskStates: (): Record<number, string[]> => {
+      const states: Record<number, string[]> = {}
+      for (const row of bench.db.prepare(`SELECT card_id, state FROM tasks WHERE queue = 'answer' ORDER BY id`).all() as { card_id: number, state: string }[])
+        (states[row.card_id] ??= []).push(row.state)
+      return states
+    },
     close: (): void => {
       bench.close()
       rmSync(trees, { recursive: true, force: true })
     },
   }
+}
+
+function runUntil(node: AnswerNode, done: () => boolean): Promise<void> {
+  const controller = new AbortController()
+  return node.run({
+    pause: async () => {
+      if (done())
+        controller.abort()
+    },
+    signal: controller.signal,
+  })
 }
 
 describe('answer slots', () => {
@@ -85,25 +110,30 @@ describe('answer slots', () => {
     expect(slotsOf('answer', {})).toBe(3)
   })
 
-  it('three answer tasks on three card trees run at once', async () => {
+  it('three answer tasks on three card trees run at once in the three slots of one node', async () => {
     const bench = slotsBench()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
     for (const cardId of [900, 901, 902])
       bench.asked(cardId)
     bench.tick()
-    const workers = bench.workers(slotsOf('answer', {}))
-    expect(workers.map(worker => worker.actor)).toEqual(['worker:answer:slots-1', 'worker:answer:slots-2', 'worker:answer:slots-3'])
+    const node = bench.node(slotsOf('answer', {}))
+    expect(node.actor).toBe('worker:answer:slots')
+    expect(node.slots).toBe(3)
 
     const allThree = bench.whenInFlight(3)
-    const steps = workers.map(worker => worker.step())
+    const running = runUntil(node, () => bench.answered.length === 3)
     await allThree
     expect(bench.inFlight.map(request => request.lease.cardId).sort()).toEqual([900, 901, 902])
+    expect(node.getState().leased).toHaveLength(3)
     bench.finishAll()
-    expect((await Promise.all(steps)).map(step => step.kind)).toEqual(['answered', 'answered', 'answered'])
+    await running
+    expect(bench.taskStates()).toEqual({ 900: ['completed'], 901: ['completed'], 902: ['completed'] })
     bench.close()
   })
 
   it('two answer tasks on one card tree never run at once', async () => {
     const bench = slotsBench()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
     bench.asked(1090)
     bench.gitHub.open({ number: 990, review: 'failure' })
     bench.asked(901)
@@ -112,28 +142,26 @@ describe('answer slots', () => {
     const onCard = bench.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'answer' AND state = 'queued' AND card_id = 1090`).get() as { n: number }
     expect(onCard.n).toBe(2)
 
-    const [first, second, third] = bench.workers(3)
+    const node = bench.node(3)
     const both = bench.whenInFlight(2)
-    const firstStep = first!.step()
-    const secondStep = second!.step()
+    const running = runUntil(node, () => bench.answered.length === 3)
     await both
     expect(bench.inFlight.map(request => request.lease.cardId).sort()).toEqual([1090, 901])
-    expect(await third!.step()).toEqual({ kind: 'idle' })
+    expect(node.getState().leased).toHaveLength(2)
 
-    bench.finishAll()
-    await Promise.all([firstStep, secondStep])
     const one = bench.whenInFlight(1)
-    const thirdStep = third!.step()
+    bench.finishAll()
     await one
     expect(bench.inFlight.map(request => request.lease.cardId)).toEqual([1090])
     bench.finishAll()
-    await thirdStep
+    await running
     expect(bench.answered.sort()).toEqual([1090, 1090, 901])
     bench.close()
   })
 
   it('with several tasks queued in answer, the task of a p0 card is leased first', async () => {
     const bench = slotsBench()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
     for (const cardId of [900, 901, 902])
       bench.asked(cardId)
     bench.cards.set(900, parkedCard(900, 'who: shift', 'an ordinary card'))
@@ -142,25 +170,24 @@ describe('answer slots', () => {
     expect(priorityOf(id => bench.cards.get(id) ?? null, 902)).toBe('p0')
     expect(priorityOf(id => bench.cards.get(id) ?? null, 900)).toBeNull()
 
-    const [worker] = bench.workers(1)
+    const node = bench.node(1)
     const one = bench.whenInFlight(1)
-    const step = worker!.step()
+    const running = runUntil(node, () => bench.answered.length === 2)
     await one
     expect(bench.inFlight.map(request => request.lease.cardId)).toEqual([902])
-    bench.finishAll()
-    await step
 
     const next = bench.whenInFlight(1)
-    const following = worker!.step()
+    bench.finishAll()
     await next
     expect(bench.inFlight.map(request => request.lease.cardId)).toEqual([900])
     bench.finishAll()
-    await following
+    await running
     bench.close()
   })
 
   it('a witness admitted through --admit after the verdict appears in the answer round prompt', async () => {
     const bench = slotsBench()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
     bench.asked(903)
     bench.cards.set(903, parkedCard(903, 'who: shift', 'Witnesses:\n- `pnpm exec vitest run scripts/tests/bus/first.test.ts` exits 0'))
     bench.tick()
@@ -168,7 +195,7 @@ describe('answer slots', () => {
     bench.cards.set(903, `${bench.cards.get(903)!.trimEnd()}\n${admitted}\n`)
 
     const runs: AnswerRun[] = []
-    await bench.prompted(runs).step()
+    await runUntil(bench.prompted(runs), () => true)
 
     expect(runs).toHaveLength(1)
     const prompt = runs[0]!.argv.at(-1)!
@@ -178,34 +205,39 @@ describe('answer slots', () => {
     bench.close()
   })
 
-  it('a round that throws in one slot ends no loop: the peer slot answers and its task completes, the fault goes to stderr', async () => {
+  it('a round that throws in one slot ends no slot: the peer answers, the fault goes to stderr, and the lease is renewed while a round runs', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const bench = slotsBench()
+    const answer = AnswerExecutor.prototype.answer
+    vi.spyOn(AnswerExecutor.prototype, 'answer').mockImplementation(async function (this: AnswerExecutor, lease: Lease) {
+      if (lease.cardId === 900)
+        throw new Error('a fault on card #900')
+      return answer.call(this, lease)
+    })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => {})
+    bench.asked(900)
     bench.asked(901)
     bench.tick()
-    const [faulty, peer] = bench.workers(2)
-    vi.spyOn(faulty!, 'step').mockRejectedValue(new Error('a fault on card #900'))
-    const stderr = vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.spyOn(console, 'log').mockImplementation(() => {})
-    const stopped = new Error('the test stops the loops once the peer answered')
-    const pause = async (): Promise<void> => {
-      if (bench.answered.length > 0)
-        throw stopped
-      await new Promise(() => {})
-    }
+    const node = bench.node(2)
 
     const peerInFlight = bench.whenInFlight(1)
-    const slots = answerInSlots([faulty!, peer!], pause)
-    const ended = slots.catch((error: unknown) => error)
+    const running = runUntil(node, () => bench.answered.length > 0)
     await peerInFlight
+    for (let beat = 0; beat < 2; beat += 1) {
+      bench.clock.advance(RENEW_MS)
+      await vi.advanceTimersByTimeAsync(RENEW_MS)
+    }
+    expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(2)
+    const peer = bench.db.prepare(`SELECT lease_until FROM tasks WHERE queue = 'answer' AND card_id = 901`).get() as { lease_until: string }
+    expect(peer.lease_until).toBe(new Date(bench.clock.now().getTime() + LEASE_MS).toISOString())
     bench.finishAll()
+    await running
 
-    expect(await ended).toBe(stopped)
     expect(bench.answered).toEqual([901])
-    const task = bench.db.prepare(`SELECT state FROM tasks WHERE queue = 'answer' AND card_id = 901`).get() as { state: string }
-    expect(task.state).toBe('completed')
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('worker:answer:slots-1: the round threw'))
+    expect(bench.taskStates()).toEqual({ 900: ['leased'], 901: ['completed'] })
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('worker:answer:slots: the round on'))
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('a fault on card #900'))
-    vi.restoreAllMocks()
     bench.close()
   })
 })
