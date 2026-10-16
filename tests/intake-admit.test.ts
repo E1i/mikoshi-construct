@@ -3,14 +3,16 @@ import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { openBus } from '../scripts/bus/db.js'
+import { runCommand } from 'citty'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BUS_DB_VARIABLE, openBus } from '../scripts/bus/db.js'
 import { busCardEvents } from '../scripts/bus/intake.js'
 import { readJournalFile, runTaskStart } from '../scripts/ghosts/task-start.js'
 import { printAdmit, runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
 import { isWithin, parkingTree } from '../src/commands/intake/parking-tree.js'
+import { createMain } from '../src/program.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
@@ -533,5 +535,62 @@ describe('the parking tree draft and admit both read', () => {
     expect(isWithin(w.parking, path.join(w.parking, 'lane-1'))).toBe(true)
     expect(isWithin(w.parking, `${w.parking}-other`)).toBe(false)
     expect(isWithin(w.parking, w.root)).toBe(false)
+  })
+})
+
+describe('construct intake --admit through the CLI entry', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  async function admitThroughEntry(w: World, file: string, extra: string[] = []): Promise<{ exit: typeof process.exitCode, output: string }> {
+    const written: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      written.push(String(chunk))
+      return true
+    })
+    const previousExit = process.exitCode
+    try {
+      await runCommand(createMain(), { rawArgs: ['intake', '--plain', '--admit', file, '--dir', w.repo, '--journal', w.journal, '--parking', w.parking, ...extra] })
+      return { exit: process.exitCode, output: written.join('') }
+    }
+    finally {
+      write.mockRestore()
+      process.exitCode = previousExit
+    }
+  }
+
+  it('intake --admit through the CLI entry either writes card.admitted to the bus as pnpm intake does or refuses and names pnpm intake --admit, and never admits silently without the bus event', async () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    openBus(busOf(w)).close()
+    vi.stubEnv(BUS_DB_VARIABLE, busOf(w))
+    const { exit, output } = await admitThroughEntry(w, file)
+    const inBus = admittedEvents(w) > 0
+    const refusedAndNamed = exit === INTAKE_EXIT.refused && output.includes('pnpm intake --admit')
+    expect(inBus || refusedAndNamed).toBe(true)
+    expect(journalLines(w).filter(line => line.event === 'intake')).toHaveLength(inBus ? 1 : 0)
+  })
+
+  it('intake --admit --dry-run through the CLI entry beside a bus is never refused and writes nothing', async () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    openBus(busOf(w)).close()
+    vi.stubEnv(BUS_DB_VARIABLE, busOf(w))
+    const { exit, output } = await admitThroughEntry(w, file, ['--dry-run'])
+    expect(exit).not.toBe(INTAKE_EXIT.refused)
+    expect(output).not.toContain('pnpm intake --admit instead')
+    expect(admittedEvents(w)).toBe(0)
+    expect(journalLines(w)).toHaveLength(0)
+  })
+
+  it('intake --admit through the CLI entry on a machine with no bus admits into the journal as before', async () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    vi.stubEnv(BUS_DB_VARIABLE, busOf(w))
+    const { exit } = await admitThroughEntry(w, file)
+    expect(exit).not.toBe(INTAKE_EXIT.refused)
+    expect(existsSync(busOf(w))).toBe(false)
+    expect(journalLines(w).filter(line => line.event === 'intake')).toHaveLength(1)
   })
 })

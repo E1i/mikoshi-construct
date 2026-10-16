@@ -1,13 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
-import process from 'node:process'
 import { parseCard } from '../../src/card/grammar.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
-export const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
+export { BUS_DB_VARIABLE, defaultBusPath } from '../../src/commands/intake/bus-path.js'
 export const BUSY_TIMEOUT_MS = 30_000
 export const CARD_BLOCKS = 'card_blocks'
 
@@ -140,10 +138,6 @@ export interface BusEvent {
   dedupeKey: string
   payload: unknown
   legacy: boolean
-}
-
-export function defaultBusPath(): string {
-  return process.env[BUS_DB_VARIABLE] ?? path.join(os.homedir(), '.construct', 'bus.db')
 }
 
 function blocksOfCardLine(line: unknown): string | null {

@@ -165,6 +165,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeAwaitingCard: (card: string) => string
   intakeAwaiting: (parking: string, token: string) => string
   intakeConfirmStale: string
+  intakeAdmitNeedsBus: string
   intakeDryRun: (parking: string) => string
   intakeAdmitted: (file: string, card: string, inBus: boolean) => string
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => string
@@ -502,6 +503,7 @@ export const LORE: Lore = {
   intakeAwaitingCard: (card: string) => `CARD HELD // ${card}`,
   intakeAwaiting: (parking: string, token: string) => `AWAITING CONFIRMATION // nothing parked in ${parking}; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
   intakeConfirmStale: 'CONFIRMATION STALE // --confirm names a different list of corrections than this run holds; nothing parked',
+  intakeAdmitNeedsBus: 'BUS UNREACHED // a bus runs here and this entry cannot write card.admitted to it; nothing admitted. Run pnpm intake --admit',
   intakeDryRun: (parking: string) => `DRY RUN // nothing parked in ${parking}`,
   intakeAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `CARD ADMITTED // ${file}: ${card}; its card.admitted is in the bus`
@@ -859,6 +861,7 @@ export const PLAIN_LORE: Lore = {
   intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, and recorded in the ${inBus ? 'bus' : 'journal'}.`,
   intakeAwaitingCard: (card: string) => `Held: ${card}`,
   intakeAwaiting: (parking: string, token: string) => `Nothing was written to ${parking}: the corrections above wait for a person. Run again with --confirm ${token} to park the cards as shown, or with --auto-confirm to accept corrections in advance.`,
+  intakeAdmitNeedsBus: 'Not admitted: a bus exists on this machine, but this entry cannot write card.admitted to it, and task:start would refuse the card. Nothing was written; run pnpm intake --admit instead.',
   intakeConfirmStale: 'Not confirmed: --confirm names a different list of corrections than this run holds. Nothing was written; confirm the list below.',
   intakeDryRun: (parking: string) => `Dry run: nothing was written to ${parking}.`,
   intakeAdmitted: (file: string, card: string, inBus: boolean) => inBus
