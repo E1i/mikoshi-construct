@@ -241,11 +241,10 @@ function mergeRows(db: DatabaseSync, ts: string): Candidate[] {
 }
 
 function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
-  const update = passOrWaitingForOwner(db)
   const open = (queue: Queue, query: string, admits: Admits = everyRow): (() => QueuedTask[]) => () => openCandidates(db, ts, queue, candidateRows(db, query, admits))
   return [
     open('review', REVIEW_CANDIDATES),
-    open('update', UPDATE_CANDIDATES, update),
+    () => updateCandidates(db, ts),
     () => mergeCandidates(db, ts),
     open('restart', RESTART_CANDIDATES),
     open('close', CLOSE_CANDIDATES),
@@ -351,6 +350,10 @@ function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows: Candid
     const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
     return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input }
   })
+}
+
+export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
+  return openCandidates(db, ts, 'update', candidateRows(db, UPDATE_CANDIDATES, passOrWaitingForOwner(db)))
 }
 
 export function mergeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {

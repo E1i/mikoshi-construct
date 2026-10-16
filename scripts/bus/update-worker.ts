@@ -1,6 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { GitHub, GitHubPut } from './github.js'
+import type { Lease } from './lease.js'
+import type { DetectionMode, Scope } from './node.js'
+import type { QueuedTask } from './queue.js'
+import type { StoredEvent } from './stored.js'
 import type { UpdateOutcome } from './update-executor.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
@@ -8,20 +12,26 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
-import { defaultBusPath, openBus } from './db.js'
+import { PR_OPENED } from './card-automaton.js'
+import { defaultBusPath } from './db.js'
 import { ghApi, ghApiPut } from './github.js'
-import { expireLeases, leaseNext } from './lease.js'
+import { CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { firstLiveVerdict, NoLiveVerdict } from './merge-worker.js'
-import { CHECK_MS, TICK_MS } from './netwatch.js'
-import { SWITCH_FLAG } from './review-worker.js'
+import { Node, runNode } from './node.js'
+import { CARD_ADMITTED, PR_OBSERVED } from './operator-work.js'
+import { updateCandidates } from './queue.js'
+import { REDUCED } from './reducer.js'
 import { UpdateExecutor } from './update-executor.js'
 
-export const PREFIX = '[bus:update] '
 export const SETTLE_MS = 2000
+export const UPDATE_ON = [REDUCED, PR_OBSERVED, PR_OPENED, CARD_ADMITTED, POLICY_DENIED, CARD_STOPPED] as const
 
-export type UpdateStep = { kind: 'idle' } | UpdateOutcome
+const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, CARD_ADMITTED])
+const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_OBSERVED])
 
-export interface UpdateWorkerParts {
+export type UpdateStep = UpdateOutcome
+
+export interface UpdateNodeParts {
   db: DatabaseSync
   gitHub: GitHub
   put: GitHubPut
@@ -29,41 +39,54 @@ export interface UpdateWorkerParts {
   clock: () => Date
   settle: () => void
   session: string
+  mode: DetectionMode
+  env: NodeJS.ProcessEnv
 }
 
-export class UpdateWorker {
-  readonly actor: string
+function scopeOf(event: StoredEvent): Scope | undefined {
+  if (WHOLE_QUEUE_ON.has(event.type))
+    return undefined
+  if (SCOPED_BY_PR_ON.has(event.type))
+    return { pr: event.pr ?? undefined }
+  return { cardId: event.card_id ?? undefined }
+}
+
+function inScope(task: QueuedTask, scope: Scope): boolean {
+  return (scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId)
+}
+
+export class UpdateNode extends Node<UpdateStep> {
   private readonly executor: UpdateExecutor
 
-  constructor(private readonly parts: UpdateWorkerParts) {
-    this.actor = `worker:update:${parts.session}`
-    this.executor = new UpdateExecutor(parts)
+  constructor(parts: UpdateNodeParts) {
+    super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
+    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle })
+    this.subscribe(UPDATE_ON, event => this.detectOn(event, scopeOf(event)))
   }
 
-  step(): UpdateStep {
-    const ts = this.parts.clock().toISOString()
-    expireLeases(this.parts.db, ts)
-    const lease = leaseNext(this.parts.db, ts, 'update', this.actor)
-    return lease === null ? { kind: 'idle' } : this.executor.update(lease)
+  protected override before(): void {
+    if (firstLiveVerdict(this.db) === null)
+      throw new NoLiveVerdict('update')
   }
-}
 
-export function startUpdateWorker(parts: UpdateWorkerParts): UpdateWorker {
-  if (firstLiveVerdict(parts.db) === null)
-    throw new NoLiveVerdict('update')
-  return new UpdateWorker(parts)
-}
+  protected candidates(scope: Scope = {}): QueuedTask[] {
+    return updateCandidates(this.db, this.ts()).filter(task => inScope(task, scope))
+  }
 
-export function updateStepLine(step: UpdateStep): string | null {
-  if (step.kind === 'idle')
-    return null
-  if (step.kind === 'updated') {
+  protected override derivedCandidates(ts: string): QueuedTask[] {
+    return updateCandidates(this.db, ts)
+  }
+
+  protected handle(lease: Lease): UpdateStep {
+    return this.executor.update(lease)
+  }
+
+  protected override stepLine(step: UpdateStep): string | null {
+    if (step.kind !== 'updated')
+      return super.stepLine(step)
     const carry = step.carry.carried === null ? `no verdict carried: ${step.carry.why}` : `${step.carry.carried} carried`
-    return `${PREFIX}${step.taskKey}: updated ${step.from} to ${step.to ?? 'a head not seen yet'}; ${carry}`
+    return `${step.taskKey}: updated ${step.from} to ${step.to ?? 'a head not seen yet'}; ${carry}`
   }
-  if (step.kind === 'fenced')
-    return `${PREFIX}${step.taskKey}: the lease moved on; nothing written`
-  return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${step.denial.reason}): ${step.denial.detail}; the task is ${step.next}`
 }
 
 export function blockFor(ms: number): void {
@@ -81,31 +104,7 @@ export interface UpdateRun {
 }
 
 export async function runUpdateWorker(argv: string[], run: UpdateRun): Promise<number> {
-  if (!argv.includes(SWITCH_FLAG)) {
-    console.log(`${PREFIX}switched off; start it with ${SWITCH_FLAG} once the review worker has recorded a live verdict`)
-    return 0
-  }
-  const db = openBus(run.busPath)
-  try {
-    const worker = startUpdateWorker({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session })
-    console.log(`${PREFIX}${run.busPath}: the update worker ${worker.actor} takes the update queue`)
-    for (;;) {
-      const step = worker.step()
-      const line = updateStepLine(step)
-      if (line !== null)
-        console.log(line)
-      await run.pause(step.kind === 'idle' ? CHECK_MS : TICK_MS)
-    }
-  }
-  catch (error) {
-    if (!(error instanceof NoLiveVerdict))
-      throw error
-    console.error(`${PREFIX}refused to switch on: ${error.message}`)
-    return 1
-  }
-  finally {
-    db.close()
-  }
+  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {
