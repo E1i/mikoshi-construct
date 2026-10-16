@@ -10,12 +10,12 @@ import { expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease, TASK_LEASED 
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { lastEventId } from './operator-work.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
-import { SWITCH_FLAG } from './review-worker.js'
 import { slotsOf } from './scheduler.js'
 import { STORED_COLUMNS } from './stored.js'
 
 export const NODE_DETECTED = 'node.detected'
 export const NODE_EQUIVALENCE = 'node.equivalence'
+export const SWITCH_FLAG = '--on'
 export const LIVE_FLAG = '--live'
 export const NODE_CURSORS = 'node_cursors'
 
