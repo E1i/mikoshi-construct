@@ -126,6 +126,25 @@ describe('the close executor removes the card tree it closed', () => {
     }
   })
 
+  it('close keeps a card tree whose only change is an untracked file and writes artifact.kept with dirty 1', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'close-removes-tree-'))
+    try {
+      const { repo, worktree } = repoWithCardTree(root)
+      writeFileSync(path.join(worktree, 'unsaved.txt'), 'left behind\n')
+
+      const run = await closeOnce(gitTreeRemover(repo), worktree)
+
+      expect(run.task).toMatchObject({ state: 'completed', failures: 0 })
+      expect(existsSync(path.join(worktree, 'unsaved.txt'))).toBe(true)
+      expect(run.removed).toEqual([])
+      expect(run.kept).toEqual([{ path: worktree, by: CLOSER, dirty: 1 }])
+      git(repo, ['worktree', 'remove', '--force', worktree])
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('a card whose tree git worktree list no longer names closes and writes no artifact.removed', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'close-removes-tree-'))
     try {
