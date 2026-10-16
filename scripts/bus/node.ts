@@ -296,10 +296,14 @@ export abstract class Node<S extends NodeStep> {
   }
 
   private fill(inFlight: Map<string, Promise<S>>): void {
-    while (inFlight.size < this.slots) {
+    const taken: Lease[] = []
+    while (inFlight.size + taken.length < this.slots) {
       const lease = this.take()
       if (lease === null)
-        return
+        break
+      taken.push(lease)
+    }
+    for (const lease of taken) {
       inFlight.set(lease.taskKey, (async () => {
         try {
           return await this.settle(lease)
