@@ -13,11 +13,13 @@ import { ghApi } from './github.js'
 import { expireLeasesHeldBy, TASK_EXPIRED } from './lease.js'
 import { CHECK_MS } from './netwatch.js'
 import { busShadowProblems } from './review-bg.js'
-import { busLaunches, isBusWorker, switchWorker, wantedLaunches, WORKERS } from './workers.js'
+import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
 export const SUPERVISE_FLAG = '--supervise'
 export const ON_FLAG = '--on'
 export const OFF_FLAG = '--off'
+export const LIVE_ON_FLAG = '--live'
+export const LIVE_OFF_FLAG = '--shadow'
 export const BUS_CODE_PATH = 'scripts/bus'
 export const STOP_WAIT_MS = 10_000
 export const STOP_POLL_MS = 100
@@ -384,6 +386,7 @@ export type BgCommand
   = | { kind: 'start' }
     | { kind: 'supervise' }
     | { kind: 'switch', worker: string, on: boolean }
+    | { kind: 'detection', worker: string, live: boolean }
 
 export function bgCommand(argv: string[]): BgCommand {
   if (argv.includes(SUPERVISE_FLAG))
@@ -393,7 +396,19 @@ export function bgCommand(argv: string[]): BgCommand {
     if (index !== -1)
       return { kind: 'switch', worker: argv[index + 1] ?? '', on }
   }
+  for (const [flag, live] of [[LIVE_ON_FLAG, true], [LIVE_OFF_FLAG, false]] as const) {
+    const index = argv.indexOf(flag)
+    if (index !== -1)
+      return { kind: 'detection', worker: argv[index + 1] ?? '', live }
+  }
   return { kind: 'start' }
+}
+
+export function detectionCommand(busDir: string, worker: string, live: boolean): BgResult {
+  if (!isBusWorker(worker))
+    return { stdout: [], stderr: [`${PREFIX}${worker === '' ? 'no worker named' : `unknown worker ${worker}`}; one of ${WORKERS.join(', ')}`], exitCode: 1 }
+  const now = switchDetection(busDir, worker, live)
+  return { stdout: [`${PREFIX}detecting live: ${now.join(', ') || 'none'}; every other worker detects in shadow, and a worker already running changes mode when it is switched off and on`], stderr: [], exitCode: 0 }
 }
 
 export function switchCommand(busDir: string, worker: string, on: boolean): BgResult {
@@ -457,6 +472,10 @@ async function main(): Promise<void> {
   }
   if (command.kind === 'switch') {
     printBg(switchCommand(busDir, command.worker, command.on))
+    return
+  }
+  if (command.kind === 'detection') {
+    printBg(detectionCommand(busDir, command.worker, command.live))
     return
   }
   printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight), SUPERVISOR_LAUNCH]))
