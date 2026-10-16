@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
@@ -18,7 +18,7 @@ import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
-import { LaunchWorker } from '../../bus/launch-worker.js'
+import { LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { blockFor } from '../../bus/update-worker.js'
 import { busLaunches } from '../../bus/workers.js'
@@ -29,6 +29,7 @@ const roots: string[] = []
 const groups: number[] = []
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const pgid of groups.splice(0)) {
     try {
       process.kill(-pgid, 'SIGKILL')
@@ -349,15 +350,19 @@ describe('the launch queue', () => {
     bench.close()
   })
 
-  it('the launch worker takes the launch queue and ships switched off in bus:bg', () => {
+  it('the launch node takes the launch queue and ships switched off in bus:bg', async () => {
     const starter = new FakeStarter()
     const bench = launchBench(starter)
     bench.admit(960, 'lane-a')
     bench.tick()
-    const worker = new LaunchWorker({ db: bench.db, starter, clock: bench.clock.now, session: 'w1' })
+    const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'shadow', env: {} })
+    const controller = new AbortController()
+    const once = async (): Promise<void> => node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    expect(worker.step()).toMatchObject({ kind: 'started', taskKey: launch(960) })
-    expect(worker.step()).toEqual({ kind: 'idle' })
+    await once()
+    expect(starter.starts.map(card => card.cardId)).toEqual([960])
+    expect(taskState(bench.db, launch(960))).toMatchObject({ state: 'completed' })
     expect(busLaunches(() => []).map(each => [each.script, ...each.args].join(' '))).toContain('bus:launch --on')
     bench.close()
   })

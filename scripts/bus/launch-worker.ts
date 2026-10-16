@@ -1,5 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardStarter, LaunchOutcome } from './launch-executor.js'
+import type { Lease } from './lease.js'
+import type { DetectionMode } from './node.js'
+import type { QueuedTask } from './queue.js'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -8,50 +11,66 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
-import { defaultBusPath, openBus } from './db.js'
+import { MERGE_DONE, PR_OPENED } from './card-automaton.js'
+import { defaultBusPath } from './db.js'
+import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
+import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { realStarterPorts, ShiftCardStarter, treePrCommand } from './launch-starter.js'
-import { expireLeases, leaseNext } from './lease.js'
-import { CHECK_MS, TICK_MS } from './netwatch.js'
-import { SWITCH_FLAG } from './review-worker.js'
+import { TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
+import { Node, prefixOf, runNode } from './node.js'
+import { PR_CLOSED } from './observations.js'
+import { PR_OBSERVED } from './operator-work.js'
+import { launchTasks, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
+import { REDUCED } from './reducer.js'
 
-export const PREFIX = '[bus:launch] '
+export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
 
-export type LaunchStep = { kind: 'idle' } | LaunchOutcome
+const LEGACY_MERGE = 'merge'
+const LEGACY_PATH = 'path'
 
-export interface LaunchWorkerParts {
+export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, REDUCED] as const
+
+export type LaunchStep = LaunchOutcome
+
+export interface LaunchNodeParts {
   db: DatabaseSync
   starter: CardStarter
   clock: () => Date
   session: string
+  mode: DetectionMode
+  env: NodeJS.ProcessEnv
 }
 
-export class LaunchWorker {
-  readonly actor: string
+export class LaunchNode extends Node<LaunchStep> {
   private readonly executor: LaunchExecutor
 
-  constructor(private readonly parts: LaunchWorkerParts) {
-    this.actor = `worker:launch:${parts.session}`
-    this.executor = new LaunchExecutor(parts)
+  constructor(launchParts: LaunchNodeParts) {
+    super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env })
+    this.executor = new LaunchExecutor(launchParts)
+    this.subscribe(LAUNCH_ON, event => this.detectOn(event))
   }
 
-  step(): LaunchStep {
-    const ts = this.parts.clock().toISOString()
-    expireLeases(this.parts.db, ts)
-    const lease = leaseNext(this.parts.db, ts, 'launch', this.actor)
-    return lease === null ? { kind: 'idle' } : this.executor.launch(lease)
+  protected candidates(): QueuedTask[] {
+    return launchTasks(this.db)
   }
-}
 
-export function launchStepLine(step: LaunchStep): string | null {
-  if (step.kind === 'idle')
-    return null
-  if (step.kind === 'started')
-    return `${PREFIX}${step.taskKey}: started session ${step.card.session} as pid ${step.card.pid} (its own process group) in ${step.card.worktree} on ${step.card.branch} from ${step.card.base}`
-  if (step.kind === 'fenced')
-    return `${PREFIX}${step.taskKey}: the lease moved on or the card is no longer queued; nothing written`
-  return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${step.denial.reason}): ${step.denial.detail}; the task is ${step.next}`
+  protected override derivedCandidates(): QueuedTask[] {
+    return launchTasks(this.db)
+  }
+
+  protected handle(lease: Lease): LaunchStep {
+    return this.executor.launch(lease)
+  }
+
+  protected override stepLine(step: LaunchStep): string | null {
+    if (step.kind === 'started')
+      return `${step.taskKey}: started session ${step.card.session} as pid ${step.card.pid} (its own process group) in ${step.card.worktree} on ${step.card.branch} from ${step.card.base}`
+    if (step.kind === 'fenced')
+      return `${step.taskKey}: the lease moved on or the card is no longer queued; nothing written`
+    return super.stepLine(step)
+  }
 }
 
 export interface LaunchRun {
@@ -62,25 +81,7 @@ export interface LaunchRun {
 }
 
 export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<number> {
-  if (!argv.includes(SWITCH_FLAG)) {
-    console.log(`${PREFIX}switched off; start it with ${SWITCH_FLAG}`)
-    return 0
-  }
-  const db = openBus(run.busPath)
-  try {
-    const worker = new LaunchWorker({ db, starter: run.starter, clock: () => new Date(), session: run.session })
-    console.log(`${PREFIX}${run.busPath}: the launch worker ${worker.actor} takes the launch queue`)
-    for (;;) {
-      const step = worker.step()
-      const line = launchStepLine(step)
-      if (line !== null)
-        console.log(line)
-      await run.pause(step.kind === 'idle' ? CHECK_MS : TICK_MS)
-    }
-  }
-  finally {
-    db.close()
-  }
+  return runNode(argv, 'launch', run.busPath, (db, mode) => new LaunchNode({ db, starter: run.starter, clock: () => new Date(), session: run.session, mode, env: process.env }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {
