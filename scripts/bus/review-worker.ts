@@ -73,10 +73,6 @@ function inScope(task: QueuedTask, scope: Scope): boolean {
   return (scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId)
 }
 
-async function afterTheFillLoop(): Promise<void> {
-  await Promise.resolve()
-}
-
 export interface ReviewNodeParts extends ExecutorParts {
   session: string
   mode: DetectionMode
@@ -109,8 +105,7 @@ export class ReviewNode extends Node<Step> {
     return reviewCandidates(this.db, ts)
   }
 
-  protected async handle(lease: Lease): Promise<Step> {
-    await afterTheFillLoop()
+  protected handle(lease: Lease): Promise<Step> {
     return this.executor.review(lease)
   }
 
