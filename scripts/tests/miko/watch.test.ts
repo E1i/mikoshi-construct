@@ -13,6 +13,7 @@ import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_CLOSED } from '../../bus/launch-candidates.js'
 import { PR_CLOSED, prClosed } from '../../bus/observations.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
+import { REVIEW_ROUNDS_SPENT } from '../../bus/review-executor.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
 import { LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, tick, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
@@ -480,8 +481,8 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     OnceStore.open(storeOf(file), { file: path.join(path.dirname(file), LEGACY_CURSOR), text: JSON.stringify(cursor) }, () => cursor).close()
   }
 
-  async function runOnceToEnd(file: string): Promise<{ code: number | null, stdout: string, stderr: string }> {
-    const watch = startWatch(file, [ONCE], busOf(file))
+  async function runOnceToEnd(file: string, extra: string[] = []): Promise<{ code: number | null, stdout: string, stderr: string }> {
+    const watch = startWatch(file, [ONCE, ...extra], busOf(file))
     try {
       const code = await watch.exited
       return { code, stdout: watch.stdout(), stderr: watch.stderr() }
@@ -669,6 +670,27 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     }
     expect(storedCursor(file)).toEqual({ journal_offset: skipped.offset, bus_id: 4 })
   }, 20_000)
+
+  it('miko:watch --once --card N wakes on review.rounds_spent of its own pull request and its line names the round limit and the owner decision it needs', async () => {
+    const file = journal()
+    const bus = busOf(file)
+    writeStop(bus, 1)
+    seed(file, { offset: statSync(file).size, busId: 1 })
+    const payload = writeBusEvent(bus, REVIEW_ROUNDS_SPENT, 'worker:review:s1', 'review.rounds_spent:818', JSON.stringify({ state: 'round_limit_reached', pr: 818, rounds: 3 }), 818, null, 943)
+    const result = await runOnceToEnd(file, ['--card', '943'])
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain(`bus ${REVIEW_ROUNDS_SPENT} card 943 pr 818`)
+    expect(result.stdout).toContain('round limit')
+    expect(result.stdout).toContain('allow-merge')
+    expect(result.stdout).toContain(payload)
+  }, 20_000)
+
+  it('miko:watch --once --card N does not wake on review.rounds_spent of another card', () => {
+    const file = journal()
+    const offset = statSync(file).size
+    const events: BusEvent[] = [{ id: 2, type: REVIEW_ROUNDS_SPENT, cardId: 942, pr: 817, head: null, payload: '{}' }]
+    expect(selectOnce({ offset, busId: 1 }, { ...fileDeps(file, () => true, events), lastBusId: () => 2 }, [], 943)).toEqual({ line: null, cursor: { offset, busId: 2 } })
+  })
 
   it('with --card the once run prints a journal line of its own card and skips one of another', () => {
     const file = journal()

@@ -11,13 +11,14 @@ import { defaultBusPath, openBus } from '../bus/db.js'
 import { CARD_CLOSED } from '../bus/launch-candidates.js'
 import { PR_CLOSED } from '../bus/observations.js'
 import { PR_OBSERVED } from '../bus/operator-work.js'
+import { REVIEW_ROUNDS_SPENT } from '../bus/review-executor.js'
 import { GHOST_JOURNAL } from '../shift/places.js'
 import { STOP_EVENT } from '../shift/relaunch.js'
 import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore } from './watch-store.js'
 
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED]
+export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT]
 export const FAILED_CI = 'red'
 export const POLL_MS = 500
 export const USAGE = 'usage: pnpm miko:watch [--once [--card <N>]] [--pid <pid>…]'
@@ -112,8 +113,11 @@ function journalCard(line: string): number | undefined {
   return /^[1-9]\d*$/.test(id) ? Number(id) : undefined
 }
 
+export const ROUND_LIMIT_NEEDS_OWNER = 'round limit reached, the bus queues no further review; owner decision needed: allow-merge'
+
 export function busLine(event: BusEvent): string {
-  return `bus ${event.type} card ${event.cardId ?? '-'} pr ${event.pr ?? '-'} ${event.payload}`
+  const head = `bus ${event.type} card ${event.cardId ?? '-'} pr ${event.pr ?? '-'}`
+  return event.type === REVIEW_ROUNDS_SPENT ? `${head} ${ROUND_LIMIT_NEEDS_OWNER} ${event.payload}` : `${head} ${event.payload}`
 }
 
 export function wakingEvent(line: string): string | undefined {

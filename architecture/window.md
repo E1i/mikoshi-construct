@@ -62,7 +62,8 @@ Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no
 `pnpm miko:watch [--once [--card <N>]] [--pid <pid>…]`, which blocks and prints on stdout one line per event and nothing else: `journal <line>` for a
 line appended to `ghosts.jsonl` whose `event` is `merge`, `fall`, `relaunch-stop` or `stop` (`WAKING_EVENTS` in
 `scripts/miko/watch.ts`, any case), `bus <type> card <card_id|-> pr <pr|-> <payload>`, both from the event's columns, for an event added to `bus.db` that needs the window's action —
-`relaunch-stop`, `review.recorded` of any verdict, `merge.done`, `card.closed`, and a `pr.observed` whose `ci` turns `red` for its pull request or is `red` on a new head (once per
+`relaunch-stop`, `review.recorded` of any verdict, `merge.done`, `pr.closed`, `card.closed`, a `review.rounds_spent`, whose line
+names the round limit and the owner decision it needs (`allow-merge`), and a `pr.observed` whose `ci` turns `red` for its pull request or is `red` on a new head (once per
 head: a later red observation of the same head does not wake until it has left red)
 (`WAKING_BUS_EVENTS` and `wakesTheWindow` in `scripts/miko/watch.ts`) — and `pid <pid> exited` once for each watched PID
 that dies. Without `--once`, lines and events already there when it starts print nothing; lines and bus events of any other kind (a `pr.observed` with
