@@ -3,7 +3,10 @@ import type { Priority } from '../../src/card/parking.js'
 import type { AnswerOutcome } from './answer-executor.js'
 import type { Answerer, CardText } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
-import type { LeaseOrder } from './lease.js'
+import type { Lease, LeaseOrder } from './lease.js'
+import type { DetectionMode, Scope } from './node.js'
+import type { QueuedTask } from './queue.js'
+import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -15,14 +18,24 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { claudeAnswerer, parkedCardText, PREFIX, realAnswererTools } from './answerer.js'
-import { defaultBusPath, openBus } from './db.js'
+import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
+import { defaultBusPath } from './db.js'
+import { DECISIONS_IMPORTED } from './decisions.js'
 import { messageOf, OWNER_MERGES } from './executor.js'
-import { expireLeases, leaseNext, queuedCards, RENEW_MS, renewLease, StaleLease } from './lease.js'
-import { CHECK_MS, TICK_MS } from './netwatch.js'
-import { SWITCH_FLAG } from './review-worker.js'
-import { slotsOf } from './scheduler.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED } from './inbox.js'
+import { queuedCards } from './lease.js'
+import { Node, runNode } from './node.js'
+import { PR_CLOSED } from './observations.js'
+import { PR_OBSERVED } from './operator-work.js'
+import { answerCandidates } from './queue.js'
+import { REDUCED } from './reducer.js'
 
 const ANSWERS_DIR = path.join(os.homedir(), '.construct', 'bus', 'answers')
+
+export const ANSWER_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_STOPPED, CARD_ANSWERED, CARD_STARTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE] as const
+
+const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE])
+const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_OBSERVED, PR_CLOSED, REVIEW_RECORDED])
 
 export function priorityOf(cardText: CardText, cardId: number): Priority | null {
   const text = cardText(cardId)
@@ -36,95 +49,75 @@ export function answerLeaseOrder(db: DatabaseSync, cardText: CardText): LeaseOrd
   return { onePerCard: true, firstCards: queuedCards(db, 'answer').filter(cardId => priorityOf(cardText, cardId) === 'p0') }
 }
 
-export type AnswerStep = { kind: 'idle' } | AnswerOutcome
+export type AnswerStep = AnswerOutcome | { kind: 'faulted', taskKey: string, detail: string }
 
-export interface AnswerWorkerParts {
+export interface AnswerNodeParts {
   db: DatabaseSync
   answerer: Answerer
   ownerMerges: () => string
   clock: () => Date
   session: string
   cardText: CardText
+  mode: DetectionMode
+  env: NodeJS.ProcessEnv
   trees?: CardTreeTools
 }
 
-export class AnswerWorker {
-  readonly actor: string
+function scopeOf(event: StoredEvent): Scope | undefined {
+  if (WHOLE_QUEUE_ON.has(event.type))
+    return undefined
+  if (SCOPED_BY_PR_ON.has(event.type))
+    return { pr: event.pr ?? undefined }
+  return { cardId: event.card_id ?? undefined }
+}
+
+function inScope(task: QueuedTask, scope: Scope): boolean {
+  return (scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId)
+}
+
+export class AnswerNode extends Node<AnswerStep> {
   private readonly executor: AnswerExecutor
 
-  constructor(private readonly parts: AnswerWorkerParts) {
-    this.actor = `worker:answer:${parts.session}`
-    this.executor = new AnswerExecutor(parts)
+  constructor(private readonly answerParts: AnswerNodeParts) {
+    super('answer', { db: answerParts.db, clock: answerParts.clock, session: answerParts.session, mode: answerParts.mode, env: answerParts.env })
+    this.executor = new AnswerExecutor(answerParts)
+    this.subscribe(ANSWER_ON, event => this.detectOn(event, scopeOf(event)))
   }
 
-  private ts(): string {
-    return this.parts.clock().toISOString()
+  protected candidates(scope: Scope = {}): QueuedTask[] {
+    return answerCandidates(this.db, this.ts()).filter(task => inScope(task, scope))
   }
 
-  async step(): Promise<AnswerStep> {
-    const { db } = this.parts
-    expireLeases(db, this.ts())
-    const lease = leaseNext(db, this.ts(), 'answer', this.actor, answerLeaseOrder(db, this.parts.cardText))
-    if (lease === null)
-      return { kind: 'idle' }
-    const heartbeat = setInterval(() => {
-      try {
-        renewLease(db, this.ts(), lease)
-      }
-      catch (error) {
-        if (error instanceof StaleLease)
-          clearInterval(heartbeat)
-        else
-          console.error(`${PREFIX}${lease.taskKey}: the lease was not renewed this beat, the heartbeat keeps running: ${messageOf(error)}`)
-      }
-    }, RENEW_MS)
+  protected override derivedCandidates(ts: string): QueuedTask[] {
+    return answerCandidates(this.db, ts)
+  }
+
+  protected override leaseOrder(): LeaseOrder {
+    return answerLeaseOrder(this.db, this.answerParts.cardText)
+  }
+
+  protected async handle(lease: Lease): Promise<AnswerStep> {
     try {
       return await this.executor.answer(lease)
     }
-    finally {
-      clearInterval(heartbeat)
+    catch (error) {
+      const detail = messageOf(error)
+      console.error(`${PREFIX}${this.actor}: the round on ${lease.taskKey} threw, its lease lapses and is expired as a failure; the other slots go on: ${detail}`)
+      return { kind: 'faulted', taskKey: lease.taskKey, detail }
     }
   }
-}
 
-export function startAnswerWorkers(parts: AnswerWorkerParts, slots: number): AnswerWorker[] {
-  return Array.from({ length: slots }, (_, slot) => new AnswerWorker({ ...parts, session: `${parts.session}-${slot + 1}` }))
-}
-
-async function settledStep(worker: AnswerWorker): Promise<AnswerStep | { kind: 'faulted', detail: string }> {
-  try {
-    return await worker.step()
-  }
-  catch (error) {
-    return { kind: 'faulted', detail: messageOf(error) }
-  }
-}
-
-async function keepAnswering(worker: AnswerWorker, pause: (ms: number) => Promise<unknown>): Promise<never> {
-  for (;;) {
-    const step = await settledStep(worker)
+  protected override stepLine(step: AnswerStep): string | null {
+    if (step.kind === 'answered')
+      return `${step.taskKey}: answered in ${step.resumed ? 'the card session' : 'a new session'} ${step.session}; the head is ${step.head}`
+    if (step.kind === 'stopped')
+      return `${step.taskKey}: card.stopped (${step.reason}): ${step.detail}`
+    if (step.kind === 'denied')
+      return `${step.taskKey}: denied (${step.denial.kind}, ${step.denial.reason}): ${step.denial.detail}; the task is ${step.next}`
     if (step.kind === 'faulted')
-      console.error(`${PREFIX}${worker.actor}: the round threw, its lease lapses and is expired as a failure; this loop and its peers go on: ${step.detail}`)
-    else if (step.kind !== 'idle')
-      console.log(answerStepLine(step))
-    await pause(step.kind === 'idle' ? CHECK_MS : TICK_MS)
+      return null
+    return super.stepLine(step)
   }
-}
-
-export function answerInSlots(workers: AnswerWorker[], pause: (ms: number) => Promise<unknown>): Promise<never> {
-  return Promise.race(workers.map(worker => keepAnswering(worker, pause)))
-}
-
-export function answerStepLine(step: AnswerStep): string | null {
-  if (step.kind === 'idle')
-    return null
-  if (step.kind === 'answered')
-    return `${PREFIX}${step.taskKey}: answered in ${step.resumed ? 'the card session' : 'a new session'} ${step.session}; the head is ${step.head}`
-  if (step.kind === 'stopped')
-    return `${PREFIX}${step.taskKey}: card.stopped (${step.reason}): ${step.detail}`
-  if (step.kind === 'fenced')
-    return `${PREFIX}${step.taskKey}: the lease moved on; nothing written`
-  return `${PREFIX}${step.taskKey}: denied (${step.denial.kind}, ${step.denial.reason}): ${step.denial.detail}; the task is ${step.next}`
 }
 
 export interface AnswerRun {
@@ -137,20 +130,7 @@ export interface AnswerRun {
 }
 
 export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<number> {
-  if (!argv.includes(SWITCH_FLAG)) {
-    console.log(`${PREFIX}switched off; start it with ${SWITCH_FLAG}`)
-    return 0
-  }
-  const db = openBus(run.busPath)
-  try {
-    const workers = startAnswerWorkers({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session }, slotsOf('answer', process.env))
-    for (const worker of workers)
-      console.log(`${PREFIX}${run.busPath}: the answer worker ${worker.actor} takes the answer queue`)
-    return await answerInSlots(workers, run.pause)
-  }
-  finally {
-    db.close()
-  }
+  return runNode(argv, 'answer', run.busPath, (db, mode) => new AnswerNode({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {

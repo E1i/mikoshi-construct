@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
-import type { Lease } from './lease.js'
+import type { Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { SlotKind } from './scheduler.js'
 import type { StoredEvent } from './stored.js'
@@ -218,6 +218,10 @@ export abstract class Node<S extends NodeStep> {
     return null
   }
 
+  protected leaseOrder(): LeaseOrder | undefined {
+    return undefined
+  }
+
   protected pauseAfter(step: S | IdleStep): number {
     return step.kind === 'idle' ? CHECK_MS : TICK_MS
   }
@@ -288,7 +292,7 @@ export abstract class Node<S extends NodeStep> {
   private take(): Lease | null {
     const ts = this.ts()
     expireLeases(this.db, ts)
-    return leaseNext(this.db, ts, this.kind, this.actor)
+    return leaseNext(this.db, ts, this.kind, this.actor, this.leaseOrder())
   }
 
   private fill(inFlight: Map<string, Promise<S>>): void {
