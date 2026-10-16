@@ -19,7 +19,7 @@ export const NOT_AT_A_STOP_CONDITION = 'not at a stop condition: wait with pnpm 
 const CLAUDE = 'claude'
 const ARGV_HEAD_NAMING_THE_PROGRAM = 2
 
-export type StopReason = typeof THRESHOLDS[number] | 'owner' | 'done'
+export type StopReason = typeof THRESHOLDS[number] | 'done'
 
 export interface ProcessRow {
   pid: number
