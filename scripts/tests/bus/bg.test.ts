@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
-import { busLaunches, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
+import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
 
@@ -287,14 +287,18 @@ interface Supervised {
   advance: (sha: string) => void
   stopped: number[]
   starts: { name: string, head: string }[]
+  freed: string[][]
   journal: Record<string, unknown>[]
 }
+
+const FREED_LINE = 'freed the leases of'
 
 function supervised(r: Repo, busDir: string, running: RunningProcess[], code: BusCode = gitCode(r.dir), reviewPreflight: () => string[] = NO_PREFLIGHT, startedAs: (launch: DetachedLaunch) => BgResult | null = () => null): Supervised {
   const db = openBus(path.join(busDir, 'bus.db'))
   const stopped: number[] = []
   const starts: { name: string, head: string }[] = []
   const journal: Record<string, unknown>[] = []
+  const freed: string[][] = []
   let alive = [...running]
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
@@ -313,6 +317,11 @@ function supervised(r: Repo, busDir: string, running: RunningProcess[], code: Bu
       stopped.push(instance.pid)
       alive = alive.filter(candidate => candidate.pid !== instance.pid)
     },
+    freeLeases: (stopped) => {
+      const names = stopped.map(launch => launchName(launch))
+      freed.push(names)
+      return names.map(name => `${FREED_LINE} ${name}`)
+    },
     processes: () => alive,
     mainSince: afterId => mainAdvancedSince(db, afterId),
     code,
@@ -322,7 +331,7 @@ function supervised(r: Repo, busDir: string, running: RunningProcess[], code: Bu
   const advance = (sha: string): void => {
     appendEvent(db, { ts: new Date().toISOString(), type: 'main.advanced', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `main:${sha}`, payload: { sha, touches_mechanics: true }, legacy: false })
   }
-  return { supervisor, advance, stopped, starts, journal }
+  return { supervisor, advance, stopped, starts, freed, journal }
 }
 
 const GITHUB_MISMATCH = 'prs vs GitHub: #782 at 37e3eecf here, f0d7481a on GitHub'
@@ -335,6 +344,28 @@ const RUNNING: RunningProcess[] = [
 ]
 
 describe('bus:bg --supervise', () => {
+  it('a worker running with --on while workers.json lists it live is restarted by the supervisor with --live, and back to shadow when it is no longer listed live', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-mode-'), 'bus')
+    switchWorker(busDir, 'review', true)
+    switchWorker(busDir, 'update', true)
+    const s = supervised(r, busDir, RUNNING)
+    expect(await s.supervisor.step()).toEqual([])
+    switchDetection(busDir, 'update', true)
+    const lines = await s.supervisor.step()
+    expect(s.stopped).toEqual([103])
+    expect(s.starts.map(start => start.name)).toEqual(['bus:update --on --live'])
+    expect(s.freed).toEqual([['bus:update --on --live']])
+    expect(lines.join('\n')).toContain('restarting it live')
+    expect(lines).toContain(`${FREED_LINE} bus:update --on --live`)
+    const live = supervised(r, busDir, [{ pid: 103, args: 'node pnpm.cjs --silent bus:update --on --live' }])
+    switchDetection(busDir, 'update', false)
+    await live.supervisor.step()
+    expect(live.stopped).toEqual([103])
+    expect(live.starts.map(start => start.name)).toEqual(['bus:update --on'])
+    expect(live.freed).toEqual([['bus:update --on']])
+  })
+
   it('main advancing with a change under scripts/bus restarts every running bus process on the new code', async () => {
     const r = repo()
     const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
