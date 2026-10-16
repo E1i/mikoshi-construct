@@ -1,13 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardTreeRemover } from '../../bus/close-executor.js'
+import type { CloseNodeParts } from '../../bus/close-worker.js'
 import type { EndedTree } from '../../bus/ended-card-trees.js'
+import type { NodeStep } from '../../bus/node.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ARTIFACT_REMOVED, gitTreeRemover } from '../../bus/close-executor.js'
-import { CloseWorker } from '../../bus/close-worker.js'
+import { CloseNode } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { BOARD_ALARM, CARD_CLOSED } from '../../bus/queue.js'
@@ -38,7 +40,18 @@ function listed(repo: string): string[] {
   return git(repo, ['worktree', 'list', '--porcelain']).split('\n').filter(line => line.startsWith('worktree ')).map(line => line.slice('worktree '.length))
 }
 
-function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRemover), worktree: string | null, closedEarlier = false, endedTrees?: () => EndedTree[]) {
+function closeNode(parts: Omit<CloseNodeParts, 'mode' | 'env'>): CloseNode {
+  return new CloseNode({ ...parts, mode: 'shadow', env: {} })
+}
+
+async function step(node: CloseNode): Promise<NodeStep | null> {
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  const controller = new AbortController()
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  return node.getState().lastStep
+}
+
+async function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRemover), worktree: string | null, closedEarlier = false, endedTrees?: () => EndedTree[]) {
   const bench = mergeBench()
   const root = mkdtempSync(path.join(tmpdir(), 'bus-close-tree-'))
   const trees = typeof treesOf === 'function' ? treesOf(bench.db) : treesOf
@@ -52,9 +65,9 @@ function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRem
     bench.tick()
     if (closedEarlier)
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
-    const worker = new CloseWorker({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, journal: path.join(root, 'ghosts.jsonl'), parking: path.join(root, 'parking'), trees, endedTrees })
-    const outcome = worker.step()
-    if (outcome.kind === 'idle')
+    const worker = closeNode({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, journal: path.join(root, 'ghosts.jsonl'), parking: path.join(root, 'parking'), trees, endedTrees })
+    const outcome = await step(worker)
+    if (outcome === null || outcome.kind === 'idle' || outcome.taskKey === undefined)
       throw new Error('the close queue held no task')
     return { outcome, closed: eventsOf(bench.db, CARD_CLOSED), removed: eventsOf(bench.db, ARTIFACT_REMOVED), alarms: eventsOf(bench.db, BOARD_ALARM), task: taskState(bench.db, outcome.taskKey) }
   }
@@ -65,14 +78,14 @@ function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardTreeRem
 }
 
 describe('the close executor removes the card tree it closed', () => {
-  it('after card.closed the card tree is gone, git worktree list does not name it, and artifact.removed carries path, by and dirty', () => {
+  it('after card.closed the card tree is gone, git worktree list does not name it, and artifact.removed carries path, by and dirty', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'close-removes-tree-'))
     try {
       const { repo, worktree } = repoWithCardTree(root)
       writeFileSync(path.join(worktree, 'unsaved.txt'), 'left behind\n')
       expect(listed(repo).map(entry => realpathSync(entry))).toContain(worktree)
 
-      const run = closeOnce(gitTreeRemover(repo), worktree)
+      const run = await closeOnce(gitTreeRemover(repo), worktree)
 
       expect(run.outcome).toMatchObject({ kind: 'closed', verification: 'run' })
       expect(run.closed).toEqual([{ verification: 'run' }])
@@ -86,13 +99,13 @@ describe('the close executor removes the card tree it closed', () => {
     }
   })
 
-  it('a card whose tree git worktree list no longer names closes and writes no artifact.removed', () => {
+  it('a card whose tree git worktree list no longer names closes and writes no artifact.removed', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'close-removes-tree-'))
     try {
       const { repo, worktree } = repoWithCardTree(root)
       git(repo, ['worktree', 'remove', worktree])
 
-      const run = closeOnce(gitTreeRemover(repo), worktree)
+      const run = await closeOnce(gitTreeRemover(repo), worktree)
 
       expect(run.outcome).toMatchObject({ kind: 'closed' })
       expect(run.removed).toEqual([])
@@ -102,9 +115,9 @@ describe('the close executor removes the card tree it closed', () => {
     }
   })
 
-  it('a card with no recorded tree closes without asking the remover', () => {
+  it('a card with no recorded tree closes without asking the remover', async () => {
     const asked: string[] = []
-    const run = closeOnce({ remove: (worktree) => {
+    const run = await closeOnce({ remove: (worktree) => {
       asked.push(worktree)
       return null
     } }, null)
@@ -114,9 +127,9 @@ describe('the close executor removes the card tree it closed', () => {
     expect(run.removed).toEqual([])
   })
 
-  it('the remover is asked only once card.closed is recorded in the bus', () => {
+  it('the remover is asked only once card.closed is recorded in the bus', async () => {
     const closedWhenAsked: number[] = []
-    const run = closeOnce(db => ({ remove: () => {
+    const run = await closeOnce(db => ({ remove: () => {
       closedWhenAsked.push(eventsOf(db, CARD_CLOSED).length)
       return null
     } }), '/trees/mc-recorded')
@@ -125,9 +138,9 @@ describe('the close executor removes the card tree it closed', () => {
     expect(closedWhenAsked).toEqual([1])
   })
 
-  it('a close denied because the card is already closed never asks the remover', () => {
+  it('a close denied because the card is already closed never asks the remover', async () => {
     const asked: string[] = []
-    const run = closeOnce({ remove: (worktree) => {
+    const run = await closeOnce({ remove: (worktree) => {
       asked.push(worktree)
       return null
     } }, '/trees/mc-recorded', true)
@@ -137,8 +150,8 @@ describe('the close executor removes the card tree it closed', () => {
     expect(run.removed).toEqual([])
   })
 
-  it('a removal that fails gives board.alarm tree_left with git\'s stderr, and the close is recorded and completed', () => {
-    const run = closeOnce({ remove: () => {
+  it('a removal that fails gives board.alarm tree_left with git\'s stderr, and the close is recorded and completed', async () => {
+    const run = await closeOnce({ remove: () => {
       throw Object.assign(new Error('Command failed: git worktree remove'), { stderr: 'fatal: \'/trees/mc-gone\' contains modified or untracked files\n' })
     } }, '/trees/mc-gone')
 
@@ -149,8 +162,8 @@ describe('the close executor removes the card tree it closed', () => {
     expect(run.alarms).toEqual([{ reason: TREE_LEFT, path: '/trees/mc-gone', detail: 'fatal: \'/trees/mc-gone\' contains modified or untracked files' }])
   })
 
-  it('a pass over ended cards\' trees that throws does not stop the close: the card is closed and the task completed', () => {
-    const run = closeOnce({ remove: () => null }, '/trees/mc-recorded', false, () => {
+  it('a pass over ended cards\' trees that throws does not stop the close: the card is closed and the task completed', async () => {
+    const run = await closeOnce({ remove: () => null }, '/trees/mc-recorded', false, () => {
       throw Object.assign(new Error('Command failed: git worktree list'), { stderr: 'fatal: not a git repository' })
     })
 
