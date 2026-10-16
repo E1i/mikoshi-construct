@@ -543,7 +543,7 @@ describe('construct intake --admit through the CLI entry', () => {
     vi.unstubAllEnvs()
   })
 
-  async function admitThroughEntry(w: World, file: string): Promise<{ exit: typeof process.exitCode, output: string }> {
+  async function admitThroughEntry(w: World, file: string, extra: string[] = []): Promise<{ exit: typeof process.exitCode, output: string }> {
     const written: string[] = []
     const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
       written.push(String(chunk))
@@ -551,7 +551,7 @@ describe('construct intake --admit through the CLI entry', () => {
     })
     const previousExit = process.exitCode
     try {
-      await runCommand(createMain(), { rawArgs: ['intake', '--plain', '--admit', file, '--dir', w.repo, '--journal', w.journal, '--parking', w.parking] })
+      await runCommand(createMain(), { rawArgs: ['intake', '--plain', '--admit', file, '--dir', w.repo, '--journal', w.journal, '--parking', w.parking, ...extra] })
       return { exit: process.exitCode, output: written.join('') }
     }
     finally {
@@ -570,6 +570,18 @@ describe('construct intake --admit through the CLI entry', () => {
     const refusedAndNamed = exit === INTAKE_EXIT.refused && output.includes('pnpm intake --admit')
     expect(inBus || refusedAndNamed).toBe(true)
     expect(journalLines(w).filter(line => line.event === 'intake')).toHaveLength(inBus ? 1 : 0)
+  })
+
+  it('intake --admit --dry-run through the CLI entry beside a bus is never refused and writes nothing', async () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    openBus(busOf(w)).close()
+    vi.stubEnv(BUS_DB_VARIABLE, busOf(w))
+    const { exit, output } = await admitThroughEntry(w, file, ['--dry-run'])
+    expect(exit).not.toBe(INTAKE_EXIT.refused)
+    expect(output).not.toContain('pnpm intake --admit instead')
+    expect(admittedEvents(w)).toBe(0)
+    expect(journalLines(w)).toHaveLength(0)
   })
 
   it('intake --admit through the CLI entry on a machine with no bus admits into the journal as before', async () => {
