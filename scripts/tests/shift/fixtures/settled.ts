@@ -9,15 +9,17 @@ function completeLine(file: string): string | undefined {
   return text.endsWith('\n') && text.trim() !== '' ? text.trim() : undefined
 }
 
-export async function settled(file: string, timeoutMs = 20_000): Promise<string> {
+export async function settled(file: string, timeoutMs = 20_000, diagnosis: () => string = () => ''): Promise<string> {
   const started = Date.now()
   for (;;) {
     const line = completeLine(file)
     if (line !== undefined)
       return line
     const waited = Date.now() - started
-    if (waited >= timeoutMs)
-      throw new Error(`${file} did not settle into a complete non-empty line within ${waited}ms`)
+    if (waited >= timeoutMs) {
+      const cause = diagnosis()
+      throw new Error(`${file} did not settle into a complete non-empty line within ${waited}ms${cause === '' ? '' : `; ${cause}`}`)
+    }
     await new Promise(resolve => setTimeout(resolve, POLL_MS))
   }
 }
