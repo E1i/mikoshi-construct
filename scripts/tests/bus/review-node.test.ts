@@ -196,7 +196,7 @@ describe('the review node', () => {
     expect(detected(made, 'event').filter(each => each.event_id === admitted)).toEqual([{ key: reviewKey(1020, headOf(1020), cardBody(1020), cardBodySha), via: 'event', event_id: admitted }])
   })
 
-  it('the node and reviewCandidates find one set on one snapshot, and shadow records node.equivalence with nothing on one side only', async () => {
+  it('the node finds what reviewCandidates finds on one snapshot, and shadow records node.equivalence of the node against reviewCandidates with nothing on one side only', async () => {
     const made = bench()
     openGreen(made, 1030)
     openGreen(made, 1031)
@@ -256,12 +256,13 @@ describe('the review node', () => {
   })
 
   it('i3: a cursor reset to 0 gives no second detection and no second task', async () => {
-    for (const mode of ['live'] as const) {
+    for (const mode of ['shadow', 'live'] as const) {
       const made = bench()
       const node = nodeOf(made, mode)
       await once(node)
       openGreen(made, 1060)
       made.tick()
+      detectReview(made)
       await once(node)
       made.tick()
       await once(node)
