@@ -19,6 +19,7 @@ import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { VERIFICATION_WORDS } from '../board/verification.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db.js'
+import { legacyHistory } from '../bus/legacy-history.js'
 import { openDatabase } from '../bus/sqlite.js'
 import { parseDecisions } from '../decisions/decisions.js'
 import { archiveOf, defaultDecisions } from '../decisions/read.js'
@@ -157,11 +158,23 @@ export function cardVerifiedClosings(busPath: string): VerifiedClosing[] {
   }
 }
 
-export function closingVerificationOf(journal: string, verified: readonly VerifiedClosing[], id: string, pr: number): string | null {
+export function legacyLines(busPath: string): Record<string, unknown>[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    return legacyHistory(db) as Record<string, unknown>[]
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function closingVerificationOf(history: readonly Record<string, unknown>[], verified: readonly VerifiedClosing[], id: string, pr: number): string | null {
   const fromBus = verified.filter(closing => closing.task === id && closing.pr === pr && typeof closing.verification === 'string').at(-1)
   if (fromBus !== undefined)
     return fromBus.verification as string
-  const closing = journalLines(journal).filter(line => line.event === 'path' && line.task === id && line.pr === pr && typeof line.verification === 'string' && writtenBeforeHistoryEnds(line)).at(-1)
+  const closing = history.filter(line => line.event === 'path' && line.task === id && line.pr === pr && typeof line.verification === 'string').at(-1)
   return closing === undefined ? null : closing.verification as string
 }
 
@@ -382,7 +395,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
     return refuse(`verification '${verification}' is not one of ${VERIFICATION_WORDS.join(', ')}; nothing written`)
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
   const journalText = deps.read(journal) ?? ''
-  const lines = [...journalLines(journalText), ...(deps.busPath === undefined ? [] : cardStartedLines(deps.busPath))]
+  const lines = [...journalLines(journalText), ...(deps.busPath === undefined ? [] : [...legacyLines(deps.busPath), ...cardStartedLines(deps.busPath)])]
   const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? cloudStartOf(lines, id)
   if (start === undefined)
     return refuse(`${journal} has no task:start line with a card for #${id}, no ghosts:launch entry line with one and no cloud-start line with one${deps.busPath === undefined ? '' : `, and the bus ${deps.busPath} has no card.started with one`}; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)

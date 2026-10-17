@@ -5,6 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { VERIFICATION_WORDS } from '../../board/verification.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { legacyEventOf } from '../../bus/import.js'
 import { CARD_VERIFIED, cardVerifiedClosings, runTaskClose } from '../../ghosts/task-close.js'
 import { prCardOf } from '../../ghosts/tasks.js'
 import { busWithCardStarted } from './card-started-bus.js'
@@ -564,6 +565,26 @@ describe('task:close reads the start of a task from card.started in the bus', ()
       const result = runTaskClose(['891', '--pr', '790', '--verification', 'run'], { ...deps, busPath: bus.file })
       expect(result.exitCode).toBe(0)
       expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '891', path: 'ladder', pr: 790, sessions: [{ id: 'start-session' }], actual: { minutes: 30 } })
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('finds the start of a card started before the cutoff with an empty journal', () => {
+    const bus = busWithCardStarted([])
+    const db = openBus(bus.file)
+    try {
+      appendEvent(db, legacyEventOf(startLine('892', 'implement').replace('"ts":"x"', '"ts":"2026-10-03T08:30:00.000Z"'), 1)!)
+    }
+    finally {
+      db.close()
+    }
+    try {
+      const { deps, written } = world([])
+      const result = runTaskClose(['892', '--pr', '791', '--verification', 'run'], { ...deps, busPath: bus.file })
+      expect(result.exitCode).toBe(0)
+      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '892', path: 'cheap', pr: 791 })
     }
     finally {
       bus.remove()

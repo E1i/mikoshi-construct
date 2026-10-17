@@ -12,6 +12,7 @@ import { CloseExecutor } from '../../bus/close-executor.js'
 import { CloseNode, closingVerification, runCloseWorker } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
+import { legacyEventOf } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { CARD_CLOSED } from '../../bus/queue.js'
@@ -149,7 +150,7 @@ describe('the close queue', () => {
     bench.tick()
     detectClose(bench.db, bench.clock.now)
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
+    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', taskKey: close(988), verification: 'code-reading' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'code-reading' }])
     bench.close()
@@ -337,7 +338,7 @@ describe('the close queue', () => {
     bench.merged(1014, false)
     reviewed(bench, 1014, sha('a'), 'pass')
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
+    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', taskKey: close(1014), verification: 'code-reading' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'code-reading' }])
     expect(reduce(bench.db).rejected).toBe(0)
@@ -359,8 +360,18 @@ describe('the close queue', () => {
     bench.merged(1016, false)
     reviewed(bench, 1016, sha('a'), 'pass')
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
+    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', taskKey: close(1016), verification: 'code-reading' })
+    bench.close()
+  })
+
+  it('gets the closing check of a PR from before the cutoff with an empty journal', () => {
+    const bench = closeBench()
+    appendEvent(bench.db, legacyEventOf(JSON.stringify({ event: 'path', task: '1117', path: 'cheap', pr: 1017, verification: 'code-reading', ts: '2026-10-11T18:00:00.000Z' }), 1)!)
+    const reported = closingVerification(bench.busPath)
+    expect(existsSync(bench.journal)).toBe(false)
+    expect(reported(1117, 1017)).toBe('code-reading')
+    expect(reported(1117, 1099)).toBeNull()
     bench.close()
   })
 
@@ -371,7 +382,7 @@ describe('the close queue', () => {
     bench.merged(1015, false)
     reviewed(bench, 1015, sha('a'), 'pass')
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
+    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
     expect(await step(worker)).toEqual({ kind: 'idle' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
     bench.close()
@@ -399,7 +410,7 @@ describe('the close queue', () => {
     reviewed(bench, 1012, sha('a'), 'changes')
     reviewed(bench, 1012, sha('b'), 'pass')
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.journal, bench.busPath), clock: bench.clock.now, session: 'none', journal: bench.journal, parking: bench.parking })
+    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'none', journal: bench.journal, parking: bench.parking })
     expect(await step(worker)).toEqual({ kind: 'idle' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
     bench.close()
