@@ -34,6 +34,8 @@ const LEVEL_OF_PATH: Record<string, string> = {
   'scripts/ghosts/task-close.ts': 'R2',
   'scripts/shift': 'R2',
   'scripts/shift/merge.ts': 'R2',
+  'scripts/bus/queue.ts': 'R1',
+  'scripts/bus/executor.ts': 'R4',
   'scripts/ghosts/approval.ts': 'R1',
   'scripts/ghosts/hash.ts': 'R1',
   'scripts/ghosts/launch.ts': 'R1',
