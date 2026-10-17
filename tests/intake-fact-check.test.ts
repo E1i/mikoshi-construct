@@ -4,7 +4,7 @@ import type { RepositoryFacts } from '../src/commands/intake/facts.js'
 import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -24,9 +24,33 @@ const TASK = 'The intake should check every card against the repository before i
 
 const roots: string[] = []
 
+type Remove = (root: string) => void
+
+function removeEverything(root: string): void {
+  rmSync(root, { recursive: true, force: true })
+}
+
+function entriesLeftUnder(root: string): string[] {
+  try {
+    return readdirSync(root, { recursive: true, encoding: 'utf8' }).sort()
+  }
+  catch (error) {
+    return [`(the root could not be listed: ${(error as Error).message})`]
+  }
+}
+
+function removeOrNameLeftovers(root: string, remove: Remove = removeEverything): void {
+  try {
+    remove(root)
+  }
+  catch (error) {
+    throw new Error(`${(error as Error).message}; left under ${root}: ${JSON.stringify(entriesLeftUnder(root))}`, { cause: error })
+  }
+}
+
 afterEach(() => {
   for (const root of roots.splice(0))
-    rmSync(root, { recursive: true, force: true })
+    removeOrNameLeftovers(root)
 })
 
 function scratch(): string {
@@ -91,6 +115,18 @@ function sha256(file: string): string {
 function hashes(dir: string): Record<string, string> {
   return Object.fromEntries(listing(dir).map(entry => [entry, entry.endsWith('/') ? 'directory' : sha256(path.join(dir, entry))]))
 }
+
+describe('the scratch root removal', () => {
+  it('names the entries left under the root when the removal fails', () => {
+    const root = scratch()
+    put(root, '.git/objects/ab/late-write')
+    const notEmpty = (): void => {
+      throw new Error(`ENOTEMPTY, Directory not empty: ${root}`)
+    }
+    expect(() => removeOrNameLeftovers(root, notEmpty)).toThrow(`ENOTEMPTY, Directory not empty: ${root}`)
+    expect(() => removeOrNameLeftovers(root, notEmpty)).toThrow(path.join('.git', 'objects', 'ab', 'late-write'))
+  })
+})
 
 describe('intake fact check', () => {
   it('corrects a wrong path, a taken number and an invalid contour, and a named number is never used', () => {
