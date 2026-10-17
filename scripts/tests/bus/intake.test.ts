@@ -5,7 +5,7 @@ import path from 'node:path'
 import { runMain } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { CARD_ADMITTED, CARD_MOVED } from '../../../src/commands/intake/index.js'
+import { CARD_ADMITTED, CARD_MOVED, CARD_WAITING } from '../../../src/commands/intake/index.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
 import { parkingLane } from '../../bus/admissions.js'
@@ -284,7 +284,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED)).toHaveLength(1)
   })
 
-  it('the ports pnpm intake builds read the bus\'s card states, so --admit drops a depends the bus ended and keeps one merged in the journal only after its half of history while the bus runs it', async () => {
+  it('the ports pnpm intake builds read the bus\'s card states, so --admit drops a depends the bus ended and waits on one merged in the journal only after its half of history while the bus runs it', async () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     const lane = path.join(w.parking, '')
@@ -310,6 +310,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     finally {
       db.close()
     }
-    expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED).map(event => (event.payload as { card: string }).card)).toEqual([card(91, '—'), card(92, '#81')])
+    expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED).map(event => (event.payload as { card: string }).card)).toEqual([card(91, '—')])
+    expect(cardEvents(w).filter(event => event.type === CARD_WAITING).map(event => [event.cardId, event.payload])).toEqual([[92, { depends: [81] }]])
   })
 })

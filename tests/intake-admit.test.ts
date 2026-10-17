@@ -1,6 +1,6 @@
 import type { TaskStartDeps } from '../scripts/ghosts/task-start.js'
 import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runCommand } from 'citty'
@@ -81,6 +81,16 @@ function admittedPayloads(w: World): Record<string, unknown>[] {
   return admittedRows(w).map(row => JSON.parse(row.payload) as Record<string, unknown>)
 }
 
+function payloadsOf(w: World, type: string): Record<string, unknown>[] {
+  const db = openBus(busOf(w))
+  try {
+    return (db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(type) as unknown as { payload: string }[]).map(row => JSON.parse(row.payload) as Record<string, unknown>)
+  }
+  finally {
+    db.close()
+  }
+}
+
 function admittedTimes(w: World): string[] {
   return admittedRows(w).map(row => row.ts)
 }
@@ -121,8 +131,9 @@ function taskStart(w: World, card: string): number {
 }
 
 const CLEAN = '#80 clean-card [implement/runner/S/cheap/owner] · depends — · blocks —'
-const STALE = '#81 stale-card [implement/runner/S/cheap/owner] · depends #70 #80 · blocks #90 the board card'
-const STALE_ADMITTED = '#81 stale-card [implement/runner/S/cheap/owner] · depends #80 · blocks #90 the board card'
+const STALE = '#81 stale-card [implement/runner/S/cheap/owner] · depends #70 · blocks #90 the board card'
+const STALE_ADMITTED = '#81 stale-card [implement/runner/S/cheap/owner] · depends — · blocks #90 the board card'
+const WAITING = '#82 waiting-card [implement/runner/S/cheap/owner] · depends #80 · blocks —'
 
 describe('construct intake --admit takes a card parked before the intake door', () => {
   it('writes an intake line for a card with nothing to correct, leaves the file as it was, and task:start takes the card', () => {
@@ -178,9 +189,43 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const after = readFileSync(file, 'utf8')
     expect(after).toBe(before.replace(STALE, STALE_ADMITTED).replace('touches: scripts/', 'touches: src/').replace('Do the thing.\n', `Do the thing.\n\ncorrected: touches — scripts/board/run.ts → src/board/run.ts — 'scripts/board/run.ts' does not exist; 'src/board/run.ts' is the only path named 'run.ts'\ncorrected: depends — #70 → (removed) — already merged\n`))
     expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '81', card: STALE_ADMITTED, confirmation: 'person', source: 'admit' })
-    appendFileSync(w.journal, `${JSON.stringify({ event: 'merge', task: '80', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' })}\n`)
     expect(taskStart(w, STALE_ADMITTED)).toBe(0)
     expect(taskStart(w, STALE)).toBe(1)
+  })
+
+  it('a card whose depends are not merged is not admitted and stays in the queue as blocked with a waiting on #N event', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    const file = park(w, 82, WAITING)
+    const before = readFileSync(file, 'utf8')
+
+    const waiting = admit(w, file)
+    expect(waiting).toMatchObject({ status: 'waiting', waitingOn: [80], inBus: true })
+    const { lines, exit } = printed(waiting)
+    expect(exit).toBe(INTAKE_EXIT.waiting)
+    expect(lines.join('')).toContain(`Not admitted yet ${file}: ${WAITING}. It depends on #80, not merged yet`)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(journalLines(w)).toEqual([])
+    expect(admittedEvents(w)).toBe(0)
+    expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [80] }])
+    expect(taskStart(w, WAITING)).toBe(1)
+
+    journal(w, [{ event: 'merge', task: '80', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    expect(admit(w, file).status).toBe('admitted')
+    expect(admittedEvents(w)).toBe(1)
+  })
+
+  it('a card waiting on an unmerged depends writes no card.waiting when no bus is wired, and an amend of an admitted card does not wait', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    const file = park(w, 82, WAITING)
+    const waiting = admit(w, file, { events: undefined })
+    expect(waiting).toMatchObject({ status: 'waiting', inBus: false })
+    expect(printed(waiting).lines.join('')).toContain('no bus is wired to this run, so nothing was written')
+    expect(payloadsOf(w, 'card.waiting')).toEqual([])
+
+    journal(w, [{ event: 'intake', task: '82', card: WAITING, bodySha: 'an earlier body', source: 'admit', ts: NOW.toISOString() }])
+    expect(admit(w, file, { events: undefined }).status).toBe('admitted')
   })
 
   it('a stale --confirm admits nothing', () => {
@@ -498,16 +543,15 @@ describe('construct intake --admit across the lanes of the parking', () => {
     const line = '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks #43'
     const file = parkIn(w, 'lane-2', 58, line)
     const result = admit(w, file)
-    expect(result).toMatchObject({ status: 'admitted', card: { line, unclear: [] } })
-    expect(readFileSync(file, 'utf8')).not.toContain('unclear:')
+    expect(result).toMatchObject({ status: 'waiting', card: { line, unclear: [] } })
   })
 
   it('a depends on a card parked under another parking root stays unclear', () => {
     const w = world()
     parkIn(w, 'lane-1', 53, '#53 first [implement/runner/S/cheap/owner] · depends — · blocks —')
     const file = parkIn(w, 'lane-2', 58, '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks —')
-    admit(w, file, { parkingRoot: path.join(w.root, 'elsewhere') })
-    expect(readFileSync(file, 'utf8')).toContain('unclear: depends')
+    const result = admit(w, file, { parkingRoot: path.join(w.root, 'elsewhere') })
+    expect(result).toMatchObject({ status: 'waiting', card: { unclear: [{ field: 'depends' }] } })
   })
 })
 

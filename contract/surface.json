@@ -400,6 +400,7 @@
       "dryRun": 0,
       "failed": 1,
       "refused": 1,
+      "waiting": 3,
       "written": 0
     },
     "mutate apply": {
