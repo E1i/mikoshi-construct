@@ -220,14 +220,20 @@ owner's text verbatim. The handoff's local decisions field points here and does 
 
 ## The day file
 
-The owner's day list, `~/.construct/handoff/day-<date>.md`, has three parts and no other.
+The owner's day list, `~/.construct/handoff/day-<date>.md`, holds only what a session needs now: its title line, the
+open owner questions and the owner texts of the current session, at most `DAY_FILE_LIMIT` bytes, the one constant it
+shares with the decisions in force (`scripts/shift/day-archive.ts`).
 
-- Owner texts, verbatim and append-only, each under its own heading naming the session; the window never edits one
-  after writing it, and the handoff points to them by heading.
-- Owner questions, one numbered list; each is open or answered, an answered question leaves the list once its answer
-  is written above, and the handoff's owner-waits field names them as `Q<N> open|answered [PR #M]`.
-- Progress is not retold: what happened is read from the bus events and the journal lines, and the day file keeps
-  only what neither holds — a dontAsk denial, a finding's id, a scratchpad path.
+- Owner texts, verbatim, each under an `## Owner …` heading naming its session (`session <N>`); the window never edits
+  one after writing it. An owner order that holds longer than a day goes into the decisions through
+  `pnpm decisions:add`, not into the day file.
+- Owner questions, one list under `## Owner questions`, one item each, `- Q<N> open — …` or `- Q<N> answered — …`; the
+  handoff's owner-waits field names them as `Q<N> open|answered [PR #M]`.
+- Everything else — answered questions, an earlier session's owner texts, progress lines, any other section — is moved
+  verbatim by `pnpm handoff:write` to `day-<date>.archive.md` beside it, from the day file the draft names. When what
+  stays is over the limit, `handoff:write` refuses as a question for the owner and writes nothing. The archive is read
+  only by a named heading, `<archive> § <heading>`: `handoff:write` refuses a draft that names it without one or that
+  orders a whole reading.
 
 ## Pull requests and branches
 

@@ -12,6 +12,7 @@ import { openBus } from '../../bus/db.js'
 import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
 import { UNREAD } from '../../miko/eddies-measure.js'
 import { stopReasonOf } from '../../miko/exit.js'
+import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../shift/day-archive.js'
 import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
 import { statusOf } from '../../shift/relaunch.js'
 
@@ -410,6 +411,54 @@ describe('handoff:write', () => {
     finally {
       kill.mockRestore()
     }
+  })
+
+  it('after handoff:write the day file is at most the limit and the handoff has no whole reading', () => {
+    const { dir, handoff, draft: file } = world()
+    const dayFile = path.join(dir, 'day-2026-10-17.md')
+    const progress = `## Progress (window-maintained)\n\n${'- session 1, a step.\n'.repeat(600)}`
+    writeFileSync(dayFile, `# Day\n\n## Owner order, session 1\n\nold order\n\n## Owner order, session 2\n\nthis order\n\n${QUESTIONS_HEADING}\n\n- Q1 answered — one\n- Q2 open — two\n\n${progress}`)
+    expect(Buffer.byteLength(readFileSync(dayFile, 'utf8'))).toBeGreaterThan(DAY_FILE_LIMIT)
+    writeFileSync(file, draft({ 'not done': `owner answers in ${dayFile}, read them whole` }))
+    const refused = write([handoff, file])
+    expect(refused.code).toBe(1)
+    expect(refused.err.join('\n')).toContain('orders a whole reading')
+    expect(existsSync(handoff)).toBe(false)
+    expect(existsSync(archiveOfDay(dayFile))).toBe(false)
+
+    writeFileSync(file, draft({ 'not done': `owner order in ${dayFile}; the earlier one in ${archiveOfDay(dayFile)} § Owner order, session 1` }))
+    const ok = write([handoff, file])
+    expect(ok.code).toBe(0)
+    const kept = readFileSync(dayFile, 'utf8')
+    expect(Buffer.byteLength(kept)).toBeLessThanOrEqual(DAY_FILE_LIMIT)
+    expect(kept).toBe(`# Day\n\n## Owner order, session 2\n\nthis order\n\n${QUESTIONS_HEADING}\n\n- Q2 open — two\n`)
+    const archive = readFileSync(archiveOfDay(dayFile), 'utf8')
+    expect(archive).toContain('## Owner order, session 1\n\nold order')
+    expect(archive).toContain('- Q1 answered — one')
+    expect(archive).toContain(progress.trimEnd())
+    expect(readFileSync(handoff, 'utf8')).not.toMatch(/read them whole/)
+  })
+
+  it('a day file over the limit after the archive refuses as a question for the owner and writes nothing', () => {
+    const { dir, handoff, draft: file } = world()
+    const dayFile = path.join(dir, 'day-2026-10-17.md')
+    const text = `# Day\n\n${QUESTIONS_HEADING}\n\n${'- Q1 open — a long question\n'.repeat(400)}`
+    writeFileSync(dayFile, text)
+    writeFileSync(file, draft({ 'not done': `questions in ${dayFile}` }))
+    const refused = write([handoff, file])
+    expect(refused.code).toBe(1)
+    expect(refused.err.join('\n')).toMatch(new RegExp(`over the limit of ${DAY_FILE_LIMIT}; a question for the owner`))
+    expect(readFileSync(dayFile, 'utf8')).toBe(text)
+    expect(existsSync(archiveOfDay(dayFile))).toBe(false)
+    expect(existsSync(handoff)).toBe(false)
+  })
+
+  it('refuses a draft that names the day archive without a heading', () => {
+    const { handoff, draft: file } = world()
+    writeFileSync(file, draft({ 'not done': 'see day-2026-10-17.archive.md' }))
+    const refused = write([handoff, file])
+    expect(refused.code).toBe(1)
+    expect(refused.err.join('\n')).toContain('names the day archive without a heading')
   })
 
   it('refuses a bad argv', () => {
