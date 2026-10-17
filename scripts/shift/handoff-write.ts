@@ -18,6 +18,7 @@ import { CARD_VARIABLE } from '../ghosts/session.js'
 import { projectRoot, realExitReadings, UNKNOWN } from '../miko/eddies-measure.js'
 import { stopReasonOf } from '../miko/exit.js'
 import { MIKO_HANDOFF_NAME } from '../miko/loop.js'
+import { appended, archiveOfDay, DAY_FILE_LIMIT, dayBytes, dayFileNamedIn, splitDay } from './day-archive.js'
 import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
 
 export const PREFIX = '[handoff:write] '
@@ -37,6 +38,9 @@ const NEXT_TASK_FORM = /^(?:#\d+ \S.*|item \d+ of \S.*)$/
 const POSITIVE_INTEGER = /^[1-9]\d*$/
 const TITLE_OR_BLANK = /^(?:# .*|\s*)$/
 const DRAFT_STOP_FIELDS = /^\s*(?:[-*+]\s+)?(?:role|session):/i
+const WHOLE_READING = /\bread\b.+\bwhole\b/i
+const DAY_ARCHIVE_NAME = /day-\d{4}-\d{2}-\d{2}\.archive\.md/
+const NAMED_HEADING = / § \S/
 
 export type HandoffState = Pick<Board, 'ready' | 'blocked' | 'lanes' | 'execution'>
 export type StateReading = { kind: 'read', state: HandoffState } | { kind: 'unread', why: string }
@@ -227,6 +231,33 @@ export function ownerStatusRefusal(text: string): string | null {
   return `${PREFIX}STATUS: OWNER must end with \`— boundary: <name>\`, the name one of ${OWNER_BOUNDARIES.join(', ')}; review changes, red CI, a denied form with an allowed route and who: window cards are executor work`
 }
 
+export function readingRefusals(draft: string): string[] {
+  return draft.split(/\r?\n/).flatMap((line) => {
+    if (WHOLE_READING.test(line))
+      return [`${PREFIX}"${line.trim().slice(0, 60)}": orders a whole reading; the day file and its archive are read by a named heading`]
+    if (DAY_ARCHIVE_NAME.test(line) && !NAMED_HEADING.test(line))
+      return [`${PREFIX}"${line.trim().slice(0, 60)}": names the day archive without a heading; write <archive> § <heading>`]
+    return []
+  })
+}
+
+export type DayPlan = { kind: 'none' } | { kind: 'refused', why: string } | { kind: 'move', file: string, kept: string, archive: string, archiveText: string, moved: number }
+
+export function planDay(draft: string, handoff: string, deps: Pick<HandoffWriteDeps, 'exists' | 'read' | 'home'>): DayPlan {
+  const file = dayFileNamedIn(draft, deps.home, path.dirname(handoff))
+  if (file === null || !deps.exists(file))
+    return { kind: 'none' }
+  const session = fieldValue(draft, 'session') ?? ''
+  const { kept, moved } = splitDay(deps.read(file), session)
+  const bytes = dayBytes(kept)
+  if (bytes > DAY_FILE_LIMIT)
+    return { kind: 'refused', why: `${PREFIX}day file ${file}: ${bytes} bytes of open owner questions and session ${session} owner texts after the archive, over the limit of ${DAY_FILE_LIMIT}; a question for the owner` }
+  if (moved === '')
+    return { kind: 'none' }
+  const archive = archiveOfDay(file)
+  return { kind: 'move', file, kept, archive, archiveText: appended(deps.exists(archive) ? deps.read(archive) : '', moved), moved: dayBytes(moved) }
+}
+
 function parseArgs(args: string[]): { handoff: string, draft: string, parking: string | null } | null {
   const [handoff, draft, ...rest] = args
   if (handoff === undefined || draft === undefined || handoff.startsWith('--') || draft.startsWith('--'))
@@ -268,8 +299,11 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const stopped = withStop(drafted, heading, generated)
   const text = withPrev(reading.kind === 'read' ? withState(stopped, stateLines(reading.state)) : stopped, prev)
   const ownerRefusal = ownerStatusRefusal(text)
+  const day = planDay(drafted, handoff, deps)
   const refusals = [
     ...draftGeneratedRefusals(drafted),
+    ...readingRefusals(drafted),
+    ...(day.kind === 'refused' ? [day.why] : []),
     ...waits.refusals,
     ...nextTaskFormRefusals(drafted),
     ...(reading.kind === 'read' ? draftStateRefusals(drafted) : []),
@@ -286,6 +320,11 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
       deps.err(line)
     deps.err(`${PREFIX}${draft} refused: nothing archived, ${handoff} unchanged`)
     return 1
+  }
+  if (day.kind === 'move') {
+    deps.write(day.archive, day.archiveText)
+    deps.write(day.file, day.kept)
+    deps.out(`${PREFIX}${day.file}: ${dayBytes(day.kept)} bytes, ${day.moved} bytes moved to ${day.archive}`)
   }
   if (archived !== null && previous !== null) {
     deps.makeDir(archiveDir)

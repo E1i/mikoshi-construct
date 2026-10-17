@@ -161,7 +161,7 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
   }
   const bytes = inForceBytes(parseDecisions(plan.file).decisions)
   if (bytes > DECISIONS_IN_FORCE_LIMIT) {
-    deps.err(`${PREFIX}decisions in force would be ${bytes} bytes, over the limit of ${DECISIONS_IN_FORCE_LIMIT} after the superseded ones go to the archive; nothing written`)
+    deps.err(`${PREFIX}decisions in force would be ${bytes} bytes, over the limit of ${DECISIONS_IN_FORCE_LIMIT} after the superseded, spent and lapsed ones go to the archive; decisions in force are never moved, so this is a question for the owner; nothing written`)
     return 1
   }
   const restore = (): void => {
