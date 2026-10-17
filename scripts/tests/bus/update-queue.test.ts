@@ -13,6 +13,7 @@ import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../bus/update-execut
 import { runUpdateWorker, UpdateNode } from '../../bus/update-worker.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
+import { detectUpdate } from './update-detection.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -45,6 +46,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    detectUpdate(bench)
 
     expect(taskState(bench.db, update(980))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     expect(bench.lease()).toBeNull()
@@ -64,6 +66,7 @@ describe('the update queue', () => {
     bench.gitHub.pulls.get(970)!.mergeable_state = 'behind'
     bench.tick()
     bench.tick()
+    detectUpdate(bench)
 
     expect(taskState(bench.db, update(970))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     expect(bench.leaseUpdate()).toMatchObject({ taskKey: update(970), queue: 'update', head: sha('a') })
@@ -75,6 +78,7 @@ describe('the update queue', () => {
     bench.gitHub.open({ number: 981, mergeable_state: 'behind' })
     deniedByAuthority(bench, 981)
     bench.tick()
+    detectUpdate(bench)
 
     expect(ownerInbox(bench.db)).toHaveLength(1)
     expect(bench.leaseUpdate()).toMatchObject({ taskKey: update(981) })
@@ -89,6 +93,7 @@ describe('the update queue', () => {
     bench.gitHub.open({ number: 985, review: 'success', mergeable_state: 'behind', draft: true })
     bench.gitHub.open({ number: 986, review: 'success', mergeable_state: 'behind', base: 'develop' })
     bench.tick()
+    detectUpdate(bench)
 
     expect(bench.leaseUpdate()).toBeNull()
     bench.close()
@@ -98,6 +103,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 987, review: 'success', mergeable_state: 'behind', files: ['scripts/bus/queue.ts'] })
     bench.tick()
+    detectUpdate(bench)
 
     expect(bench.update(bench.leaseUpdate()!)).toEqual({ kind: 'updated', taskKey: update(987), from: sha('a'), to: NEW_HEAD, carry: { carried: 'pass' } })
     expect(bench.gitHub.puts).toEqual([{ endpoint: 'repos/{owner}/{repo}/pulls/987/update-branch', fields: { expected_head_sha: sha('a') } }])
@@ -120,6 +126,7 @@ describe('the update queue', () => {
     bench.gitHub.open({ number: 988, review: 'success', mergeable_state: 'behind', files: ['scripts/bus/queue.ts'] })
     bench.gitHub.updatedPatches = { 'scripts/bus/queue.ts': '@@ -1,2 +1,2 @@ a line main also changed' }
     bench.tick()
+    detectUpdate(bench)
 
     const outcome = bench.update(bench.leaseUpdate()!)
     expect(outcome).toMatchObject({ kind: 'updated', to: NEW_HEAD, carry: { carried: null, why: expect.stringContaining('own diff') } })
@@ -143,6 +150,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 989, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    detectUpdate(bench)
     bench.gitHub.updatedHead = sha('a')
 
     expect(bench.update(bench.leaseUpdate()!)).toMatchObject({ kind: 'updated', to: null, carry: { carried: null } })
@@ -155,6 +163,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 990, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    detectUpdate(bench)
     bench.gitHub.updateStatus = 422
 
     expect(bench.update(bench.leaseUpdate()!)).toMatchObject({ kind: 'denied', taskKey: update(990), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
@@ -169,6 +178,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 991, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    detectUpdate(bench)
     const lease = bench.leaseUpdate()!
     bench.gitHub.pulls.get(991)!.head = sha('b')
 
@@ -181,6 +191,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 992, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    detectUpdate(bench)
     const lease = bench.leaseUpdate()!
     bench.gitHub.pulls.get(992)!.mergeable_state = 'dirty'
 
@@ -193,6 +204,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 993, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    detectUpdate(bench)
     const lease = bench.leaseUpdate()!
     bench.gitHub.pulls.get(993)!.mergeable_state = 'unknown'
 
@@ -205,6 +217,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 994, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    detectUpdate(bench)
     const old = bench.leaseUpdate('worker:update:old')!
     bench.clock.advance(LEASE_MS + 1)
     expect(expireLeases(bench.db, bench.clock.now().toISOString())).toEqual([update(994)])
@@ -231,7 +244,7 @@ describe('the update worker', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 995, review: 'success', mergeable_state: 'behind' })
     bench.tick()
-    const parts = { db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, session: 'worker-1', mode: 'shadow' as const, env: {} }
+    const parts = { db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, session: 'worker-1', mode: 'live' as const, env: {} }
     await expect(step(new UpdateNode(parts))).rejects.toThrow(NoLiveVerdict)
 
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1095, pr: 995, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:live`, payload: { head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
