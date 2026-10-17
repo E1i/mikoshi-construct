@@ -149,14 +149,14 @@ describe('pnpm decisions:add appends one owner decision', () => {
     expect(decisionsRead(result.files).code).toBe(0)
   })
 
-  it('an overflow the archive does not remove is refused and leaves the file unchanged', () => {
+  it('decisions in force over the limit stop as a question for the owner', () => {
     const before = decisionsFile(long(1), long(2, ' · superseded-by D-3'), long(3))
     const result = add({ [FILE]: before }, [`[owner] ${'four '.repeat(1000)}`])
     expect(result.code).toBe(1)
     expect(result.writes).toBe(0)
     expect(result.recorded).toEqual([])
     expect(result.err).toHaveLength(1)
-    expect(result.err[0]).toMatch(new RegExp(`^\\[decisions\\] decisions in force would be \\d+ bytes, over the limit of ${DECISIONS_IN_FORCE_LIMIT} after the superseded ones go to the archive; nothing written$`))
+    expect(result.err[0]).toMatch(new RegExp(`^\\[decisions\\] decisions in force would be \\d+ bytes, over the limit of ${DECISIONS_IN_FORCE_LIMIT} after the superseded, spent and lapsed ones go to the archive; decisions in force are never moved, so this is a question for the owner; nothing written$`))
     expect(result.files).toEqual({ [FILE]: before })
   })
 
