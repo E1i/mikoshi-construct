@@ -98,13 +98,13 @@ function journaled(record: IntakeRecord, events: CardEventPort | undefined): boo
 }
 
 export function recordIntake(journal: string, records: readonly IntakeRecord[], events: CardEventPort | undefined): void {
+  for (const record of records)
+    events?.(record.event)
   const lines = records.filter(record => journaled(record, events)).map(record => `${record.journalLine}\n`)
   if (lines.length > 0) {
     mkdirSync(path.dirname(journal), { recursive: true })
     appendFileSync(journal, lines.join(''))
   }
-  for (const record of records)
-    events?.(record.event)
 }
 
 function admissionOf(line: string): { depends: number[], decision: string | null, contour: string | null } {

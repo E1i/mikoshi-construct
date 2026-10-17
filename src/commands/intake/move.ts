@@ -1,6 +1,6 @@
 import type { Ui } from '../../ui/console.js'
 import type { CardEventPort } from './index.js'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync } from 'node:fs'
 import path from 'node:path'
 import { parseParkingFile } from '../../card/parking.js'
 import { bodySha } from './confirm.js'
@@ -69,10 +69,9 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   if (parsed.kind === 'refused')
     return refused(ui => ui.lore.intakeRefusedUnreadable(`${from}: ${parsed.reason}`))
   const inPlace = path.resolve(from) === target
-  if (!inPlace) {
-    mkdirSync(targetDir, { recursive: true })
+  const createdDir = inPlace ? undefined : mkdirSync(targetDir, { recursive: true })
+  if (!inPlace)
     renameSync(from, target)
-  }
   const ts = now().toISOString()
   const moved = { from: path.dirname(from), to: targetDir, bodySha: bodySha(text) }
   try {
@@ -84,6 +83,8 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   catch (error) {
     if (!inPlace)
       renameSync(target, from)
+    if (createdDir !== undefined)
+      rmdirSync(createdDir)
     throw error
   }
   return inPlace ? { status: 'recordedInPlace', file: target } : { status: 'moved', from, to: target }

@@ -121,14 +121,26 @@ describe('intake --move', () => {
     expect(bus).toMatchObject([{ type: CARD_MOVED, cardId: 709, payload: { from: path.dirname(file), to: path.dirname(file), lane: 'dropped' } }])
   })
 
-  it('a move the bus refuses puts the file back where it was', () => {
+  it('a move the bus refuses puts the file back, removes the directory it created and leaves no journal line', () => {
     const w = world()
     const file = park(w.parking, 710)
     expect(() => move(w, 710, 'archive', () => {
       throw new Error('refused by the bus')
     })).toThrow('refused by the bus')
     expect(existsSync(file)).toBe(true)
-    expect(existsSync(path.join(w.parking, 'archive', '710.md'))).toBe(false)
+    expect(existsSync(path.join(w.parking, 'archive'))).toBe(false)
+    expect(journalLines(w.journal)).toEqual([])
+  })
+
+  it('a move the bus refuses into a directory that already existed keeps that directory', () => {
+    const w = world()
+    const file = park(w.parking, 711)
+    park(path.join(w.parking, 'archive'), 712)
+    expect(() => move(w, 711, 'archive', () => {
+      throw new Error('refused by the bus')
+    })).toThrow('refused by the bus')
+    expect(existsSync(file)).toBe(true)
+    expect(existsSync(path.join(w.parking, 'archive', '712.md'))).toBe(true)
   })
 
   it('a bus-wired move says the bus holds the move', () => {
