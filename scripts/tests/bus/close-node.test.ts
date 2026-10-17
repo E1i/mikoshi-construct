@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CloseNode } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { BOARD_ALARM, CARD_CLOSED, closeCandidates, keyOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { TREE_LEFT } from '../../bus/review-worker.js'
@@ -311,5 +312,25 @@ describe('the close node', () => {
 
     await once(node)
     expect(passes).toBe(3)
+  })
+
+  it('a running probe card verified by a report is closed by the node, and an implement card verified without a merged pull request is not', async () => {
+    const made = bench()
+    const ts = made.clock.now().toISOString()
+    appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'reducer', cardId: 1200, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1200`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: 1200, pr: null, head: null, dedupeKey: `${CARD_STARTED}:1200`, payload: { session: 's' }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_VERIFIED, actor: 'worker:task-close:window', cardId: 1200, pr: null, head: null, dedupeKey: `${CARD_VERIFIED}:1200`, payload: { path: 'cheap', verification: 'run', report: '/shift/report-1200.md' }, legacy: false })
+    opened(made, 990)
+    verified(made, 990)
+    made.tick()
+
+    await once(nodeOf(made, { mode: 'live' }))
+    made.tick()
+
+    const closedCards = made.db.prepare('SELECT card_id FROM events WHERE type = ? ORDER BY id').all(CARD_CLOSED).map(row => Number(row.card_id))
+    expect(closedCards).toEqual([1200])
+    expect(eventsOf(made.db, CARD_CLOSED)).toEqual([{ verification: 'run', report: '/shift/report-1200.md' }])
+    expect(made.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(1200)).toEqual({ state: 'closed' })
+    expect(made.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(1090)).not.toEqual({ state: 'closed' })
   })
 })
