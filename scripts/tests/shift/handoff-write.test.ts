@@ -8,12 +8,15 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { openBus } from '../../bus/db.js'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { NODE_DETECTED } from '../../bus/node.js'
+import { keyOf, queueTask } from '../../bus/queue.js'
+import { COMPLETION_OF } from '../../bus/window.js'
 import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
 import { UNREAD } from '../../miko/eddies-measure.js'
 import { stopReasonOf } from '../../miko/exit.js'
 import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../shift/day-archive.js'
-import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
+import { busMerged, nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
 import { statusOf } from '../../shift/relaunch.js'
 
 const roots: string[] = []
@@ -323,6 +326,23 @@ describe('handoff:write', () => {
     expect(run.status).toBe(0)
     expect(run.stdout).toContain(source)
     expect(readFileSync(handoff, 'utf8')).toContain('queue: none\n')
+  })
+
+  it('the windows line is the bus:window count of merge and update', () => {
+    const { dir } = world()
+    const bus = path.join(dir, 'bus.db')
+    const db = openBus(bus)
+    const ts = NOW.toISOString()
+    for (const [queue, card, detected] of [['merge', 990, true], ['merge', 991, false], ['update', 992, true]] as const) {
+      const task = { queue, cardId: card, pr: card, head: card.toString(16).padStart(40, 'b') }
+      queueTask(db, ts, task)
+      const key = keyOf(task)
+      if (detected)
+        appendEvent(db, { ts, type: NODE_DETECTED, actor: `worker:${queue}:s1`, cardId: card, pr: card, head: task.head, dedupeKey: `${NODE_DETECTED}:${queue}:${key}`, payload: { key, via: 'event', event_id: 1, outcome: 'queued' }, legacy: false })
+      appendEvent(db, { ts, type: COMPLETION_OF[queue], actor: `worker:${queue}:s1`, cardId: card, pr: card, head: task.head, dedupeKey: `${COMPLETION_OF[queue]}:${key}`, payload: {}, legacy: false })
+    }
+    db.close()
+    expect(busMerged(bus, '2026-10-17T00:00:00.000Z')).toEqual({ kind: 'read', cards: [990, 991], merges: 0, updates: 1 })
   })
 
   it('handoff:write with STATUS: CONTINUE does not kill the session', () => {
