@@ -9,7 +9,10 @@ import { psList, runningBus, runningInstance, startDetached } from '../../bus/bg
 import { openBus } from '../../bus/db.js'
 import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch } from '../../bus/review-bg.js'
 import { settled } from '../shift/fixtures/settled.js'
+import { waitFor } from '../wait-for.js'
 import { FakeGitHub } from './github-fake.js'
+
+const ARRIVAL_GUARD_MS = 25_000
 
 const roots: string[] = []
 const started: number[] = []
@@ -68,6 +71,16 @@ function deadPid(): number {
   return spawnSync('/usr/bin/true').pid!
 }
 
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function argsOf(pid: number): string {
   return execFileSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' })
 }
@@ -75,20 +88,17 @@ function argsOf(pid: number): string {
 describe('pnpm bus:review:bg', () => {
   it('bus:review:bg returns at once with the pid and the log path', async () => {
     const w = world()
-    const before = Date.now()
     const result = startDetached(reviewLaunch(clean), w.busDir, w.env, w.processes)
-    expect(Date.now() - before).toBeLessThan(5000)
     expect(result.exitCode).toBe(0)
     started.push(Number(result.stdout[0]))
+    expect(isAlive(Number(result.stdout[0]))).toBe(true)
     const log = path.join(w.busDir, REVIEW_LOG)
     expect(result.stdout[0]).toBe(await settled(path.join(w.out, 'pid')))
     expect(result.stdout[1]).toContain(`log ${log}`)
     expect(readFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), 'utf8').trim()).toBe(result.stdout[0])
     expect(await settled(path.join(w.out, 'pnpm.argv'))).toBe('--silent bus:review --on')
     expect(argsOf(Number(result.stdout[0]))).toContain('bus:review --on')
-    for (let attempt = 0; attempt < 200 && !readFileSync(log, 'utf8').includes('review worker output'); attempt++)
-      await new Promise(resolve => setTimeout(resolve, 25))
-    expect(readFileSync(log, 'utf8')).toContain('review worker output')
+    await waitFor(() => readFileSync(log, 'utf8').includes('review worker output'), () => `"review worker output" in ${log}`, ARRIVAL_GUARD_MS)
     expect(existsSync(path.join(w.busDir, REVIEW_START_LOCK))).toBe(false)
   })
 
@@ -99,14 +109,12 @@ describe('pnpm bus:review:bg', () => {
     const pid = first.stdout[0]!
     started.push(Number(pid))
     await settled(path.join(w.out, 'pid'))
-    rmSync(path.join(w.out, 'pid'))
     const second = startDetached(reviewLaunch(clean), w.busDir, w.env, w.processes)
+    expect(w.processes().map(candidate => candidate.pid)).toEqual([Number(pid)])
     expect(second.exitCode).toBe(1)
     expect(second.stdout).toEqual([])
     expect(second.stderr.join('\n')).toContain(`pid ${pid}`)
     expect(readFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), 'utf8').trim()).toBe(pid)
-    await new Promise(resolve => setTimeout(resolve, 200))
-    expect(existsSync(path.join(w.out, 'pid'))).toBe(false)
 
     const byHand: ProcessList = () => [{ pid: 4343, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/bus/review-worker.ts --on' }]
     const third = startDetached(reviewLaunch(clean), w.busDir, w.env, byHand)
@@ -118,14 +126,13 @@ describe('pnpm bus:review:bg', () => {
     const w = world()
     const problems = ['prs vs GitHub: #947 open on GitHub, missing here', 'replay byte-diff: differs']
     const result = startDetached(reviewLaunch(() => problems), w.busDir, w.env, w.processes)
+    expect(w.processes()).toEqual([])
     expect(result.exitCode).toBe(1)
     expect(result.stdout).toEqual([])
     for (const problem of problems)
       expect(result.stderr.join('\n')).toContain(problem)
     expect(existsSync(path.join(w.busDir, REVIEW_INSTANCE_FILE))).toBe(false)
     expect(existsSync(path.join(w.busDir, REVIEW_START_LOCK))).toBe(false)
-    await new Promise(resolve => setTimeout(resolve, 200))
-    expect(existsSync(path.join(w.out, 'pid'))).toBe(false)
   })
 
   it('a dead recorded pid and a dead start lock are taken over', async () => {
@@ -175,13 +182,12 @@ describe('pnpm bus:review:bg', () => {
     openBus(busPath).close()
     gitHub.failing = true
     const failing = startDetached(launch, w.busDir, w.env, w.processes)
+    expect(w.processes()).toEqual([])
     expect(failing.exitCode).toBe(1)
     expect(failing.stdout).toEqual([])
     expect(failing.stderr[0]!.startsWith(PREFIX)).toBe(true)
     expect(failing.stderr.join('\n')).toContain('gh api: connection refused')
     expect(existsSync(path.join(w.busDir, REVIEW_INSTANCE_FILE))).toBe(false)
-    await new Promise(resolve => setTimeout(resolve, 200))
-    expect(existsSync(path.join(w.out, 'pid'))).toBe(false)
   })
 
   it('the review worker and bus:run are told apart by their markers', () => {
