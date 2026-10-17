@@ -12,7 +12,7 @@ import { parkingLanes, readBoard } from '../bus/board.js'
 import { MERGE_DONE } from '../bus/card-automaton.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { busParkingReads } from '../bus/parking-reads.js'
-import { UPDATE_DONE } from '../bus/update-executor.js'
+import { windowOf } from '../bus/window.js'
 import { BLOCKED_LABEL, defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
 import { projectRoot, realExitReadings, UNKNOWN } from '../miko/eddies-measure.js'
@@ -359,15 +359,14 @@ function busState(busPath: string, parking: string): StateReading {
   }
 }
 
-function busMerged(busPath: string, since: string): MergedReading {
+export function busMerged(busPath: string, since: string): MergedReading {
   if (!existsSync(busPath))
     return { kind: 'unread', why: `no bus at ${busPath}` }
   try {
     const db = openBus(busPath)
     try {
       const cards = db.prepare('SELECT DISTINCT card_id FROM events WHERE type = ? AND ts >= ? AND card_id IS NOT NULL ORDER BY card_id').all(MERGE_DONE, since) as { card_id: number | string }[]
-      const countOf = (type: string): number => (db.prepare('SELECT COUNT(*) AS n FROM events WHERE type = ? AND ts >= ?').get(type, since) as { n: number }).n
-      return { kind: 'read', cards: cards.map(row => Number(row.card_id)), merges: countOf(MERGE_DONE), updates: countOf(UPDATE_DONE) }
+      return { kind: 'read', cards: cards.map(row => Number(row.card_id)), merges: windowOf(db, 'merge').run.length, updates: windowOf(db, 'update').run.length }
     }
     finally {
       db.close()
