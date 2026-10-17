@@ -57,6 +57,7 @@ const CORE: readonly (readonly [string, string])[] = [
   ['architecture/composition', ALWAYS_HIGH],
   ['eslint.config.mjs', ALWAYS_HIGH],
   ['architecture/owner-merges.md', ALWAYS_HIGH],
+  ['scripts/bus/queue.ts', FACTORY],
 ]
 const HIGH: readonly (readonly [string, string])[] = [
   ['contract', CONTRACT],
