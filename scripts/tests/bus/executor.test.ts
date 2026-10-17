@@ -3,8 +3,9 @@ import type { MergeBench } from './merge-bench.js'
 import { describe, expect, it } from 'vitest'
 import { recordDecision } from '../../bus/decisions.js'
 import { taskKey } from '../../bus/identifiers.js'
+import { importJournal } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
-import { assertHeld, expireLeases, LEASE_MS, StaleLease } from '../../bus/lease.js'
+import { assertHeld, completeTask, expireLeases, LEASE_MS, leaseNext, StaleLease } from '../../bus/lease.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
@@ -31,6 +32,29 @@ describe('the merge executor', () => {
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('a merge task queued before a card amend waits for the review of the new input, without a failure, and merges after it', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 970 })
+    bench.tick()
+    completeTask(bench.db, bench.clock.now().toISOString(), leaseNext(bench.db, bench.clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
+    bench.gitHub.open({ number: 970, review: 'success' })
+    bench.tick()
+    const lease = bench.lease()!
+    importJournal(bench.db, JSON.stringify({ event: 'intake', task: '1070', card: '#1070 a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', confirmation: 'auto', corrections: [], bodySha: '0123abcd4567ef89', source: 'admit', ts: '2026-10-11T14:00:00.000Z' }))
+    bench.tick()
+    const review = leaseNext(bench.db, bench.clock.now().toISOString(), 'review', 'worker:review:s1')!
+
+    expect(bench.merge(lease)).toMatchObject({ kind: 'denied', taskKey: merge(970), denial: { kind: 'technical', reason: 'not_a_candidate', detail: expect.stringContaining(review.taskKey) }, next: 'queued' })
+    expect(eventsOf(bench.db, 'policy.denied')).toMatchObject([{ command: 'merge', kind: 'technical', reason: 'not_a_candidate' }])
+    expect(taskState(bench.db, merge(970))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
+    expect(bench.gitHub.puts).toEqual([])
+
+    completeTask(bench.db, bench.clock.now().toISOString(), review, [])
+    bench.tick()
+    expect(bench.merge(bench.lease()!)).toEqual({ kind: 'merged', taskKey: merge(970), commit: MAIN_2, rule: 'auto' })
     bench.close()
   })
 
