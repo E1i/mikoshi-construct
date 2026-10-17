@@ -48,6 +48,18 @@ function isAlive(pid: number): boolean {
   }
 }
 
+const NOTHING_LEFT_TO_SIGNAL = new Set(['ESRCH', 'EPERM'])
+
+function killGroupUnlessOnlyZombies(leader: number): void {
+  try {
+    process.kill(-leader, 'SIGKILL')
+  }
+  catch (error) {
+    if (!NOTHING_LEFT_TO_SIGNAL.has((error as NodeJS.ErrnoException).code ?? ''))
+      throw error
+  }
+}
+
 function hasExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null
 }
@@ -58,11 +70,8 @@ afterEach(() => {
     if (!hasExited(window))
       process.kill(-window.pid!, 'SIGKILL')
   }
-  while (survivors.length > 0) {
-    const pid = survivors.pop()!
-    if (isAlive(pid))
-      process.kill(-pid, 'SIGKILL')
-  }
+  while (survivors.length > 0)
+    killGroupUnlessOnlyZombies(survivors.pop()!)
   while (created.length > 0)
     world('clean', created.pop()!)
 })
