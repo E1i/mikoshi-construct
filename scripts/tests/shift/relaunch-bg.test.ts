@@ -5,7 +5,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { launchArgv, RELAUNCH_LOG, runRelaunchBg, USAGE } from '../../shift/relaunch-bg.js'
+import { waitFor } from '../wait-for.js'
 import { settled } from './fixtures/settled.js'
+
+const ARRIVAL_GUARD_MS = 25_000
 
 const roots: string[] = []
 
@@ -60,9 +63,7 @@ describe('pnpm relaunch:bg', () => {
     expect(readFileSync(path.join(w.out, 'chain'), 'utf8').trim()).toBe('nohup')
     expect(await settled(path.join(w.out, 'pgid'))).not.toBe(ownPgid())
     const log = path.join(w.home, RELAUNCH_LOG)
-    for (let attempt = 0; attempt < 800 && !readFileSync(log, 'utf8').includes('pnpm relaunch output'); attempt++)
-      await new Promise(resolve => setTimeout(resolve, 25))
-    expect(readFileSync(log, 'utf8')).toContain('pnpm relaunch output')
+    await waitFor(() => readFileSync(log, 'utf8').includes('pnpm relaunch output'), () => `"pnpm relaunch output" in ${log}`, ARRIVAL_GUARD_MS)
   })
 
   it('refuses without a handoff, spawning nothing', () => {
