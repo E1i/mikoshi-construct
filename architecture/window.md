@@ -214,10 +214,11 @@ owner's text verbatim. The handoff's local decisions field points here and does 
   (no dot-commands), or a scratch copy.
 - Contour `cheap` is the default for every card, whatever its size and risk.
   The ladder is proposed only as a question to the owner, with its arguments: which proof the card needs and why the
-  cheap path does not give it, the price
-  against cheap (probe #550: about 12× the money and 2.6× the time), the number of attempts and the time. Without that
-  question and the owner's yes no card takes the ladder; a card intake sets to `ladder` is corrected to `cheap` through
-  `pnpm intake --admit` with a `corrected:` line that names this rule (owner order R5, 2026-10-17,
+  cheap path does not give it, the price against cheap (probe #550: about 12× the money and 2.6× the time), the number
+  of attempts and the time. Without that question and the owner's yes no card takes the ladder. Where the risk table
+  of `/plan` asks for the ladder (a critical risk, or a proof the cheap path does not give), that is the occasion for
+  the question, not the choice. A card intake sets to `ladder` is corrected to `cheap` through `pnpm intake --admit`
+  with a `corrected:` line that names this rule (owner order R5, 2026-10-17,
   `day-2026-10-17.archive.md § Owner order addendum, session 17`).
 
 ## The day file
