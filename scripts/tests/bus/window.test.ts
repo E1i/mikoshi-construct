@@ -4,11 +4,11 @@ import type { WindowQueue } from '../../bus/window.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { keyOf, queueTask } from '../../bus/queue.js'
-import { COMPLETION_OF, windowLines, windowOf } from '../../bus/window.js'
+import { COMPLETION_OF, main, USAGE, windowLines, windowOf } from '../../bus/window.js'
 
 const TS = '2026-10-17T10:00:00.000Z'
 const roots: string[] = []
@@ -29,14 +29,34 @@ function headOf(card: number): string {
   return card.toString(16).padStart(40, 'a')
 }
 
-function complete(db: DatabaseSync, queue: WindowQueue, card: number, detection: Via | null): string {
+interface Detection {
+  outcome?: string
+  payloadKey?: string
+  tasks?: number
+}
+
+function complete(db: DatabaseSync, queue: WindowQueue, card: number, detection: Via | null, { outcome = 'queued', payloadKey, tasks = 1 }: Detection = {}): string {
   const task = { queue, cardId: card, pr: card + 1000, head: headOf(card) }
-  queueTask(db, TS, task)
+  for (let input = 1; input < tasks; input += 1)
+    queueTask(db, TS, { ...task, input: { prBody: input.toString(16).padStart(8, '0'), cardBody: null } })
+  if (tasks > 0)
+    queueTask(db, TS, task)
   const key = keyOf(task)
   if (detection !== null)
-    appendEvent(db, { ts: TS, type: NODE_DETECTED, actor: `worker:${queue}:s1`, cardId: card, pr: task.pr, head: task.head, dedupeKey: `${NODE_DETECTED}:${queue}:${key}`, payload: { key, via: detection, event_id: 1, outcome: 'queued' }, legacy: false })
+    appendEvent(db, { ts: TS, type: NODE_DETECTED, actor: `worker:${queue}:s1`, cardId: card, pr: task.pr, head: task.head, dedupeKey: `${NODE_DETECTED}:${queue}:${key}`, payload: { key: payloadKey ?? key, via: detection, event_id: 1, outcome }, legacy: false })
   appendEvent(db, { ts: TS, type: COMPLETION_OF[queue], actor: `worker:${queue}:s1`, cardId: card, pr: task.pr, head: task.head, dedupeKey: `${COMPLETION_OF[queue]}:${key}`, payload: {}, legacy: false })
   return key
+}
+
+function stopOf(detection: Detection, queue: WindowQueue = 'merge'): string | undefined {
+  const db = newBus()
+  complete(db, queue, 1, 'event')
+  complete(db, queue, 2, 'event', detection)
+  const count = windowOf(db, queue)
+  db.close()
+  expect(count.run).toEqual([])
+  expect(count.stop?.cardId).toBe(2)
+  return count.stop?.why
 }
 
 function tick(db: DatabaseSync, actor: string, onlyNode: string[], onlyDerive: string[]): number {
@@ -62,6 +82,41 @@ describe('bus:window', () => {
     expect(windowLines(count)[0]).toBe('[bus:window] update: N 2')
     expect(windowOf(db, 'merge').run).toEqual([])
     db.close()
+  })
+
+  it('stops at a completion with two review tasks of one card, pr and head under two review inputs', () => {
+    expect(stopOf({ tasks: 2 }, 'review')).toBe(`2 review tasks for card 2 pr 1002 head ${headOf(2)}, not one`)
+  })
+
+  it('stops at a completion with no task and says so', () => {
+    expect(stopOf({ tasks: 0 })).toBe(`0 merge tasks for card 2 pr 1002 head ${headOf(2)}, not one`)
+  })
+
+  it('stops at a detection whose payload names another key than its dedupe key', () => {
+    expect(stopOf({ payloadKey: 'merge:other' })).toContain('no live node.detected')
+  })
+
+  it('counts a detection with outcome already and stops at one with another outcome', () => {
+    expect(stopOf({ outcome: 'skipped' })).toContain('via event before it')
+    const db = newBus()
+    complete(db, 'merge', 1, 'event', { outcome: 'already' })
+    const count = windowOf(db, 'merge')
+    expect(count.run).toHaveLength(1)
+    expect(windowLines(count)[1]).toBe('[bus:window] stop: none, every completion is in the run')
+    db.close()
+  })
+
+  it('reads no ticks without a run', () => {
+    const db = newBus()
+    expect(windowLines(windowOf(db, 'review'))).toEqual(['[bus:window] review: N 0', '[bus:window] stop: none, every completion is in the run', '[bus:window] equivalence: no run, no ticks read'])
+    db.close()
+  })
+
+  it('prints the usage and exits 1 for a queue it does not know', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(main(['nope'])).toBe(1)
+    expect(error).toHaveBeenCalledWith(`[bus:window] ${USAGE}`)
+    error.mockRestore()
   })
 
   it('names the equivalence ticks with a key on one side only', () => {

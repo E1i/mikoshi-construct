@@ -112,7 +112,7 @@ export function windowLines(count: WindowCount): string[] {
   ].map(line => `${PREFIX}${line}`)
 }
 
-function main(argv: readonly string[]): number {
+export function main(argv: readonly string[]): number {
   const queue = argv[0]
   if (!isWindowQueue(queue)) {
     console.error(`${PREFIX}${USAGE}`)
