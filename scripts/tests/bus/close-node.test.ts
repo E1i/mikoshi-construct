@@ -139,9 +139,9 @@ describe('the close node', () => {
     opened(made, 990)
     verified(made, 990)
     merged(made, 990)
-    const node = nodeOf(made)
+    const node = nodeOf(made, { mode: 'live' })
     await once(node)
-    expect(eventsOf(made.db, NODE_DETECTED)).toEqual([{ key: closeKey(990), via: 'tick', event_id: expect.any(Number) as unknown }])
+    expect(eventsOf(made.db, NODE_DETECTED)).toEqual([{ key: closeKey(990), via: 'tick', event_id: expect.any(Number) as unknown, outcome: 'queued' }])
 
     opened(made, 991)
     verified(made, 991)
@@ -149,7 +149,7 @@ describe('the close node', () => {
     expect(byEvent(made)).toEqual([])
     merged(made, 991)
     await once(node)
-    expect(byEvent(made)).toEqual([{ key: closeKey(991), via: 'event', event_id: lastEventOf(made, 'pr.closed', 991) }])
+    expect(byEvent(made)).toEqual([{ key: closeKey(991), via: 'event', event_id: lastEventOf(made, 'pr.closed', 991), outcome: 'queued' }])
   })
 
   it('a card.verified written after the merge is detected by event, scoped by its card', async () => {
@@ -204,7 +204,7 @@ describe('the close node', () => {
     expect(keys.map(key => enqueuedOf(made, key))).toEqual(enqueued)
   })
 
-  it('i1: in live mode the node and deriveQueues detect one key, and there is one task row, one task.enqueued and one card.closed', async () => {
+  it('i1: in live mode the node detects one key, deriveQueues enqueues no close task, and there is one task row, one task.enqueued and one card.closed', async () => {
     const made = bench()
     opened(made, 990)
     merged(made, 990)
@@ -249,7 +249,7 @@ describe('the close node', () => {
   })
 
   it('i3: a cursor reset to 0 gives no second detection, no second task and no second card.closed', async () => {
-    for (const mode of ['shadow', 'live'] as const) {
+    for (const mode of ['live'] as const) {
       const made = bench()
       opened(made, 990)
       verified(made, 990)
@@ -294,6 +294,7 @@ describe('the close node', () => {
     merged(made, 990)
     let passes = 0
     const node = nodeOf(made, {
+      mode: 'live',
       trees: { remove: () => {
         throw Object.assign(new Error('Command failed: git worktree remove'), { stderr: 'fatal: modified files\n' })
       } },

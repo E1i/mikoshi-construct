@@ -14,6 +14,7 @@ import { leaseNext } from '../../bus/lease.js'
 import { BOARD_ALARM, CARD_CLOSED } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { TREE_LEFT } from '../../bus/review-worker.js'
+import { detectClose } from './close-detection.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 
 const CLOSED = 836
@@ -53,6 +54,7 @@ function closeLeased(cardId: number): void {
   cardVerified(bench.db, bench.clock.now().toISOString(), cardId, pr)
   bench.gitHub.close(pr, true)
   bench.tick()
+  detectClose(bench.db, bench.clock.now)
   expect(leaseNext(bench.db, bench.clock.now().toISOString(), 'close', 'worker:close:other')).toMatchObject({ cardId })
 }
 

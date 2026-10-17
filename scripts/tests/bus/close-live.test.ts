@@ -12,6 +12,7 @@ import { CARD_CLOSED, keyOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { bgCommand, detectionCommand } from '../../bus/supervisor.js'
 import { liveWorkers, switchDetection, switchWorker, wantedLaunches, WORKERS, WORKERS_FILE } from '../../bus/workers.js'
+import { detectClose } from './close-detection.js'
 import { sha } from './github-fake.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 
@@ -117,8 +118,7 @@ describe('close live', () => {
     }
   })
 
-  it('a live close node and deriveQueues on one db write one task.enqueued and exactly one node.detected whose outcome matches which of them came first, in both orders', async () => {
-    const expected = { 'node first': 'queued', 'deriveQueues first': 'already' } as const
+  it('a live close node and deriveQueues on one db write one task.enqueued and exactly one node.detected with outcome queued, whichever of them ticks first', async () => {
     for (const order of ['node first', 'deriveQueues first'] as const) {
       const made = bench()
       mergedAndVerified(made, 990)
@@ -142,8 +142,26 @@ describe('close live', () => {
       const key = keyOf({ queue: 'close', cardId: 1090, pr: 990, head: sha('a') })
       const detected = eventsOf(made.db, NODE_DETECTED).filter(payload => payload.key === key)
       expect(detected, order).toHaveLength(1)
-      expect(detected[0]!.outcome, order).toBe(expected[order])
+      expect(detected[0]!.outcome, order).toBe('queued')
     }
+  })
+
+  it('deriveQueues alone enqueues no close task', () => {
+    const made = bench()
+    mergedAndVerified(made, 990)
+    made.tick()
+    made.tick()
+    expect(closeTasks(made, 990)).toBe(0)
+    expect(enqueuedOf(made, 990)).toBe(0)
+    expect(count(made, `SELECT count(*) AS n FROM events WHERE type = ? AND json_extract(payload, '$.queue') = 'close'`, TASK_ENQUEUED)).toBe(0)
+
+    detectClose(made.db, made.clock.now)
+    expect(closeTasks(made, 990)).toBe(1)
+    expect(enqueuedOf(made, 990)).toBe(1)
+
+    detectClose(made.db, made.clock.now)
+    expect(closeTasks(made, 990)).toBe(1)
+    expect(enqueuedOf(made, 990)).toBe(1)
   })
 
   it('a live close node restarted mid-batch writes no second task and no second card.closed', async () => {
