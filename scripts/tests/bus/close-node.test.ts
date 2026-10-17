@@ -8,11 +8,14 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ARTIFACT_REMOVED, CloseExecutor } from '../../bus/close-executor.js'
 import { CloseNode } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
-import { CARD_STARTED } from '../../bus/inbox.js'
+import { CARD_STARTED, POLICY_DENIED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
+import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { BOARD_ALARM, CARD_CLOSED, closeCandidates, keyOf, TASK_ENQUEUED } from '../../bus/queue.js'
+import { BOARD_ALARM, CARD_CLOSED, closeCandidates, keyOf, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { TREE_LEFT } from '../../bus/review-worker.js'
 import { CARD_VERIFIED } from '../../ghosts/task-close.js'
 import { sha } from './github-fake.js'
@@ -102,6 +105,10 @@ function merged(made: CloseBench, ...prs: number[]): void {
 
 function closedEarlier(made: CloseBench, cardId: number): void {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${cardId}`, payload: { verification: 'run' }, legacy: false })
+}
+
+function probeVerified(made: CloseBench, cardId: number, payload: Record<string, unknown>): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_VERIFIED, actor: 'worker:task-close:window', cardId, pr: null, head: null, dedupeKey: `${CARD_VERIFIED}:${cardId}`, payload, legacy: false })
 }
 
 function lastEventOf(made: CloseBench, type: string, pr?: number): number {
@@ -311,5 +318,69 @@ describe('the close node', () => {
 
     await once(node)
     expect(passes).toBe(3)
+  })
+
+  it('a running probe card verified by a report is closed by the node, and an implement card verified without a merged pull request is not', async () => {
+    const made = bench()
+    const ts = made.clock.now().toISOString()
+    appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'reducer', cardId: 1200, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1200`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: 1200, pr: null, head: null, dedupeKey: `${CARD_STARTED}:1200`, payload: { session: 's' }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_VERIFIED, actor: 'worker:task-close:window', cardId: 1200, pr: null, head: null, dedupeKey: `${CARD_VERIFIED}:1200`, payload: { path: 'cheap', verification: 'run', report: '/shift/report-1200.md' }, legacy: false })
+    opened(made, 990)
+    verified(made, 990)
+    made.tick()
+
+    await once(nodeOf(made, { mode: 'live' }))
+    made.tick()
+
+    const closedCards = made.db.prepare('SELECT card_id FROM events WHERE type = ? ORDER BY id').all(CARD_CLOSED).map(row => Number(row.card_id))
+    expect(closedCards).toEqual([1200])
+    expect(eventsOf(made.db, CARD_CLOSED)).toEqual([{ verification: 'run', report: '/shift/report-1200.md' }])
+    expect(made.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(1200)).toEqual({ state: 'closed' })
+    expect(made.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(1090)).not.toEqual({ state: 'closed' })
+  })
+
+  it('a probe whose report close carries no verification word is denied and closes nothing', async () => {
+    const made = bench()
+    probeVerified(made, 1210, { path: 'cheap', report: '/shift/report-1210.md' })
+    probeVerified(made, 1211, { path: 'cheap', verification: 'tests', report: '/shift/report-1211.md' })
+
+    const node = nodeOf(made, { mode: 'live' })
+    await once(node)
+    await once(node)
+
+    expect(eventsOf(made.db, CARD_CLOSED)).toEqual([])
+    expect(eventsOf(made.db, POLICY_DENIED)).toMatchObject([{ command: 'close', reason: 'no_verification' }, { command: 'close', reason: 'no_verification' }])
+  })
+
+  it('a probe closed before its close was recorded is denied as card_closed and withdrawn', () => {
+    const made = bench()
+    const ts = made.clock.now().toISOString()
+    probeVerified(made, 1220, { path: 'cheap', verification: 'run', report: '/shift/report-1220.md' })
+    queueTask(made.db, ts, { queue: 'close', cardId: 1220 })
+    const lease = leaseNext(made.db, ts, 'close', 'worker:close:node-1')!
+    closedEarlier(made, 1220)
+
+    const outcome = new CloseExecutor({ db: made.db, reported: () => 'run', clock: made.clock.now, journal: path.join(made.root, 'ghosts.jsonl'), parking: path.join(made.root, 'parking'), trees: { remove: () => null } }).close(lease)
+
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'card_closed' }, next: 'withdrawn' })
+    expect(eventsOf(made.db, CARD_CLOSED)).toHaveLength(1)
+  })
+
+  it('a probe close removes the card session tree like a pull request close does', async () => {
+    const made = bench()
+    const worktree = '/trees/mc-1230'
+    const removed: string[] = []
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: 1230, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-1230`, payload: { session: 's', worktree, branch: 'feat/card-1230', base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
+    probeVerified(made, 1230, { path: 'cheap', verification: 'run', report: '/shift/report-1230.md' })
+
+    await once(nodeOf(made, { mode: 'live', trees: { remove: (tree) => {
+      removed.push(tree)
+      return { path: tree, dirty: 0, kept: false }
+    } } }))
+
+    expect(eventsOf(made.db, CARD_CLOSED)).toEqual([{ verification: 'run', report: '/shift/report-1230.md' }])
+    expect(removed).toEqual([worktree])
+    expect(eventsOf(made.db, ARTIFACT_REMOVED)).toMatchObject([{ path: worktree, dirty: 0 }])
   })
 })

@@ -270,6 +270,20 @@ describe('the card automaton', () => {
     db.close()
   })
 
+  it('card.closed without a pull request closes a card verified by a report and rejects a card verified without one', () => {
+    const verifiedBy = (cardId: number, payload: Record<string, unknown>): BusEvent => event('card.verified', { actor: 'worker:task-close:window', cardId, payload })
+    const closing = (cardId: number): BusEvent => event('card.closed', { actor: 'worker:close:c1', cardId, payload: { verification: 'run' } })
+    const db = busWith(admitted(793), started(793), verifiedBy(793, { verification: 'run', report: '/shift/report-793.md' }), closing(793), admitted(794), started(794), verifiedBy(794, { verification: 'run' }), closing(794))
+    expect(reduce(db).rejected).toBe(1)
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[793, 'closed'], [794, 'running']])
+  })
+
+  it('card.closed carrying a pull request is rejected for a card only verified by a report', () => {
+    const db = busWith(admitted(795), started(795), event('card.verified', { actor: 'worker:task-close:window', cardId: 795, payload: { verification: 'run', report: '/shift/report-795.md' } }), event('card.closed', { actor: 'worker:close:c1', cardId: 795, pr: 820, payload: { verification: 'run' } }))
+    expect(reduce(db).rejected).toBe(1)
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[795, 'running']])
+  })
+
   it('a pull request netwatch links never leaves its card state null', () => {
     const db = busWith(observed(800, 793), observed(801, 794), closed(801, true), observed(802, cardIdOfDescription('#795 x [implement/bus/S/cheap/auto]')))
     reduce(db)

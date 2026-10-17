@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
 import { CARD_MOVED } from '../../src/commands/intake/index.js'
+import { CARD_VERIFIED } from '../ghosts/task-close.js'
 import { isBackfill } from './backfill-source.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, QUESTION_OWNER } from './inbox.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
@@ -129,9 +130,13 @@ function foldAnswered(db: DatabaseSync, event: StoredEvent): void {
   claimed(db, event, ANSWERED, backInWork(db, cardId))
 }
 
+function closedByReport(db: DatabaseSync, cardId: number): boolean {
+  return db.prepare(`SELECT 1 FROM events WHERE type = ? AND legacy = 0 AND card_id = ? AND pr IS NULL AND json_extract(payload, '$.report') IS NOT NULL LIMIT 1`).get(CARD_VERIFIED, cardId) !== undefined
+}
+
 function foldClosed(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_CLOSED} needs a card_id`)
-  if (stateOf(db, cardId) !== MERGED_CARD && linkedPrState(db, cardId) !== 'merged')
+  if (stateOf(db, cardId) !== MERGED_CARD && linkedPrState(db, cardId) !== 'merged' && !(event.pr === null && closedByReport(db, cardId)))
     reject(`card ${cardId} is ${stateOf(db, cardId) ?? 'without state'} and its pull request is not merged, and ${CARD_CLOSED} closes only a merged card`)
   moveCard(db, cardId, CLOSED_CARD, event.id)
 }

@@ -16,7 +16,7 @@ import { CARD_VERIFIED, cardVerifiedClosings, closingVerificationOf } from '../g
 import { defaultGhostJournal } from '../ghosts/task-merged.js'
 import { worktreeHome } from '../ghosts/worktree-home.js'
 import { PR_OPENED } from './card-automaton.js'
-import { CloseExecutor, failureOf } from './close-executor.js'
+import { CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
 import { defaultBusPath } from './db.js'
 import { EndedCardTrees, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
 import { Node, prefixOf, runNode } from './node.js'
@@ -43,6 +43,10 @@ export interface CloseNodeParts {
   env: NodeJS.ProcessEnv
   trees?: CardTreeRemover
   endedTrees?: () => EndedTree[]
+}
+
+function probeCandidates(db: DatabaseSync): QueuedTask[] {
+  return probeClosingCardIds(db).map(cardId => ({ queue: 'close', cardId }))
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -82,11 +86,11 @@ export class CloseNode extends Node<CloseStep> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return closeCandidates(this.db, this.ts()).filter(task => inScope(task, scope))
+    return [...closeCandidates(this.db, this.ts()), ...probeCandidates(this.db)].filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return closeCandidates(this.db, ts)
+    return [...closeCandidates(this.db, ts), ...probeCandidates(this.db)]
   }
 
   protected handle(lease: Lease): CloseStep {
