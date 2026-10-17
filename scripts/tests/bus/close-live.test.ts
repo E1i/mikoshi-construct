@@ -264,13 +264,13 @@ describe('close live', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-close-command-'))
     try {
       for (const worker of ['deploy', '']) {
-        const refused = detectionCommand(root, worker, true)
+        const refused = detectionCommand(root, worker, true, [])
         expect(refused.exitCode).toBe(1)
         expect(refused.stdout).toEqual([])
         expect(refused.stderr.join('\n')).toContain(worker === '' ? 'no worker named' : `unknown worker ${worker}`)
         expect(refused.stderr.join('\n')).toContain(WORKERS.join(', '))
       }
-      const accepted = detectionCommand(root, 'close', true)
+      const accepted = detectionCommand(root, 'close', true, [{ decisionId: 1, text: '[owner] allow-live close', cards: [] }])
       expect(accepted.exitCode).toBe(0)
       expect(accepted.stderr).toEqual([])
       expect(accepted.stdout.join('\n')).toContain('detecting live: close')
