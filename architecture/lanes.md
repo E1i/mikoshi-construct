@@ -16,8 +16,9 @@ Today's mechanics, as facts:
 - `scripts/shift/parking.ts:92` (`choose`) reads the cards of one lane, the directory a shift is given
   with `--parking`, and at `scripts/shift/parking.ts:97` leaves a card whose touches conflict with an
   already chosen one (`taskConflicts`, `scripts/shift/overlap.ts:49`).
-- `src/commands/intake/move.ts:68` creates the lane directory when `construct intake --move --to`
-  names one that does not exist yet.
+- `src/commands/intake/move.ts:73` creates the lane directory when `pnpm intake --move --to`, the
+  bus-wired run, names one that does not exist yet; the published `construct intake --move` has no bus
+  and refuses before it.
 - `scripts/bus/admissions.ts:64` (`parkingLane`) finds the lane of a card as the parking directory that
   holds `<id>.md`.
 
