@@ -212,11 +212,14 @@ owner's text verbatim. The handoff's local decisions field points here and does 
 - A documentation line or a test that a change makes stale goes into that change's card, never a card of its own.
 - The live `bus.db` is read only through the bus commands, `sqlite3 -readonly` with its full path and `SELECT` only
   (no dot-commands), or a scratch copy.
-- Until the ladder launches again (the launcher still writes the archived `status.md`, finding
-  F-ladder-launch-needs-archived-status-md, item 5 of the plan), a card intake sets to `ladder` with size `S` or `M`
-  and risk R3 or R4 takes contour `cheap` with no question to the owner, recorded through `pnpm intake --admit` with a
-  `corrected:` line that names this rule; R1, R2 or size `L` stays a question to the owner (owner answer 14,
-  2026-10-17). The rule is removed by the card that makes the ladder launch.
+- Contour `cheap` is the default for every card, whatever its size and risk.
+  The ladder is proposed only as a question to the owner, with its arguments: which proof the card needs and why the
+  cheap path does not give it, the price against cheap (probe #550: about 12× the money and 2.6× the time), the number
+  of attempts and the time. Without that question and the owner's yes no card takes the ladder. Where the risk table
+  of `/plan` asks for the ladder (a critical risk, or a proof the cheap path does not give), that is the occasion for
+  the question, not the choice. A card intake sets to `ladder` is corrected to `cheap` through `pnpm intake --admit`
+  with a `corrected:` line that names this rule (owner order R5, 2026-10-17,
+  `day-2026-10-17.archive.md § Owner order addendum, session 17`).
 
 ## The day file
 
