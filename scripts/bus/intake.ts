@@ -28,7 +28,7 @@ const INTAKE_ADMISSIONS = `
 
 const ANY_ADMISSION = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? LIMIT 1`
 
-const PREVIOUS_ADMISSION =`SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
+const PREVIOUS_ADMISSION = `SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
 export interface IntakeAdmission extends RecordedIntake {
   task: string
