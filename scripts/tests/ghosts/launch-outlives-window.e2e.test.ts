@@ -1,8 +1,9 @@
+import type { ChildProcess } from 'node:child_process'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { once } from 'node:events'
+import { existsSync, readFileSync, watch } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ghostRowState } from '../../ghosts/status.js'
 
@@ -12,7 +13,6 @@ const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
 const TSX_LOADER = 'tsx'
 const ROW_APPEARS_MS = 20_000
 const FREE_ROW_MS = 30_000
-const POLL_MS = 100
 const IDS = ['g1', 'g2']
 
 const WINDOW_SCRIPT = `
@@ -26,6 +26,7 @@ launcher.stdin.end('yes\\n')
 `
 
 const created: string[] = []
+const windows: ChildProcess[] = []
 const survivors: number[] = []
 
 function world(...args: string[]): string {
@@ -47,7 +48,16 @@ function isAlive(pid: number): boolean {
   }
 }
 
+function hasExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null
+}
+
 afterEach(() => {
+  while (windows.length > 0) {
+    const window = windows.pop()!
+    if (!hasExited(window))
+      process.kill(-window.pid!, 'SIGKILL')
+  }
   while (survivors.length > 0) {
     const pid = survivors.pop()!
     if (isAlive(pid))
@@ -66,14 +76,18 @@ function allInState(w: string, state: string): boolean {
   return IDS.every(id => ghostRowState(text, id) === state)
 }
 
-async function waitFor(condition: () => boolean, ms: number): Promise<boolean> {
-  const deadline = Date.now() + ms
-  while (Date.now() < deadline) {
-    if (condition())
-      return true
-    await sleep(POLL_MS)
-  }
-  return condition()
+function waitFor(condition: () => boolean, directory: string, guardMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const watcher = watch(directory, { signal: AbortSignal.timeout(guardMs) })
+    const closeWhenMet = (): void => {
+      if (condition())
+        watcher.close()
+    }
+    watcher.on('change', closeWhenMet)
+    watcher.on('error', () => watcher.close())
+    watcher.on('close', () => resolve(condition()))
+    closeWhenMet()
+  })
 }
 
 function supervisorPidsOf(statusText: string): number[] {
@@ -105,18 +119,21 @@ describe('ghosts:launch outlives the window that started it', () => {
       env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}` },
     })
     const windowPgid = window.pid!
-    survivors.push(windowPgid)
+    windows.push(window)
+    const windowExited = once(window, 'exit')
+    const handoff = path.join(w, 'handoff')
 
-    expect(await waitFor(() => allInState(w, 'writing'), ROW_APPEARS_MS), statusOf(w)).toBe(true)
+    expect(await waitFor(() => allInState(w, 'writing'), handoff, ROW_APPEARS_MS), statusOf(w)).toBe(true)
     const supervisors = [...new Set(supervisorPidsOf(statusOf(w)))]
     survivors.push(...supervisors)
     const launcherPid = Number(readFileSync(pidPath, 'utf8'))
 
     process.kill(-windowPgid, signal)
     const aliveAfterKill = supervisors.map(isAlive)
+    await windowExited
 
-    expect(await waitFor(() => allInState(w, 'free'), FREE_ROW_MS), statusOf(w)).toBe(true)
-    expect(await waitFor(() => journalTasks(w).length === IDS.length, FREE_ROW_MS)).toBe(true)
+    expect(await waitFor(() => allInState(w, 'free'), handoff, FREE_ROW_MS), statusOf(w)).toBe(true)
+    expect(await waitFor(() => journalTasks(w).length === IDS.length, handoff, FREE_ROW_MS)).toBe(true)
     expect(journalTasks(w).sort()).toEqual(IDS)
     expect(supervisors).toHaveLength(1)
     expect(supervisors[0]).not.toBe(launcherPid)
