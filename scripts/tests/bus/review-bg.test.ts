@@ -50,7 +50,11 @@ interface World {
   processes: ProcessList
 }
 
-function world(): World {
+const WORKER_STUB = `echo "review worker output"\nprintf '%s\\n' "$*" > "$STUB_OUT/pnpm.argv"\necho $$ > "$STUB_OUT/pid"\nsleep 30`
+const SILENT_STUB = `echo "stub stderr before any pid" >&2\nsleep 30`
+const SHORT_SETTLE_MS = 300
+
+function world(pnpm = WORKER_STUB): World {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'bus-review-bg-')))
   roots.push(root)
   const bin = path.join(root, 'bin')
@@ -60,7 +64,7 @@ function world(): World {
   linkFromSystem(bin, 'ps')
   linkFromSystem(bin, 'sleep')
   stub(bin, 'nohup', 'exec "$@"')
-  stub(bin, 'pnpm', `echo "review worker output"\nprintf '%s\\n' "$*" > "$STUB_OUT/pnpm.argv"\necho $$ > "$STUB_OUT/pid"\nsleep 30`)
+  stub(bin, 'pnpm', pnpm)
   const env = { PATH: bin, STUB_OUT: out }
   return { busDir: path.join(root, 'bus'), out, env, processes: () => psList(env)().filter(candidate => candidate.args.includes(bin)) }
 }
@@ -85,6 +89,23 @@ function argsOf(pid: number): string {
   return execFileSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' })
 }
 
+function stubState(w: World, pid: number): string {
+  let running = `the stub process ${pid} is not running`
+  if (isAlive(pid)) {
+    try {
+      running = `the stub process ${pid} is running (${argsOf(pid).trim()})`
+    }
+    catch {}
+  }
+  const log = path.join(w.busDir, REVIEW_LOG)
+  const output = existsSync(log) ? readFileSync(log, 'utf8').trim() : ''
+  return `${running}; its output in ${log}: ${output === '' ? 'empty' : output}`
+}
+
+function stubPid(w: World, pid: string | undefined, timeoutMs?: number): Promise<string> {
+  return settled(path.join(w.out, 'pid'), timeoutMs, () => stubState(w, Number(pid)))
+}
+
 describe('pnpm bus:review:bg', () => {
   it('bus:review:bg returns at once with the pid and the log path', async () => {
     const w = world()
@@ -93,7 +114,7 @@ describe('pnpm bus:review:bg', () => {
     started.push(Number(result.stdout[0]))
     expect(isAlive(Number(result.stdout[0]))).toBe(true)
     const log = path.join(w.busDir, REVIEW_LOG)
-    expect(result.stdout[0]).toBe(await settled(path.join(w.out, 'pid')))
+    expect(result.stdout[0]).toBe(await stubPid(w, result.stdout[0]))
     expect(result.stdout[1]).toContain(`log ${log}`)
     expect(readFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), 'utf8').trim()).toBe(result.stdout[0])
     expect(await settled(path.join(w.out, 'pnpm.argv'))).toBe('--silent bus:review --on')
@@ -108,7 +129,7 @@ describe('pnpm bus:review:bg', () => {
     expect(first.exitCode).toBe(0)
     const pid = first.stdout[0]!
     started.push(Number(pid))
-    await settled(path.join(w.out, 'pid'))
+    await stubPid(w, pid)
     const second = startDetached(reviewLaunch(clean), w.busDir, w.env, w.processes)
     expect(w.processes().map(candidate => candidate.pid)).toEqual([Number(pid)])
     expect(second.exitCode).toBe(1)
@@ -143,9 +164,24 @@ describe('pnpm bus:review:bg', () => {
     const result = startDetached(reviewLaunch(clean), w.busDir, w.env, w.processes)
     expect(result.exitCode).toBe(0)
     started.push(Number(result.stdout[0]))
-    expect(result.stdout[0]).toBe(await settled(path.join(w.out, 'pid')))
+    expect(result.stdout[0]).toBe(await stubPid(w, result.stdout[0]))
     expect(readFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), 'utf8').trim()).toBe(result.stdout[0])
     expect(existsSync(path.join(w.busDir, REVIEW_START_LOCK))).toBe(false)
+  })
+
+  it('a stub that never writes its pid fails naming the pid file, whether the stub started, and its stderr', async () => {
+    const w = world(SILENT_STUB)
+    const result = startDetached(reviewLaunch(clean), w.busDir, w.env, w.processes)
+    expect(result.exitCode).toBe(0)
+    const pid = result.stdout[0]!
+    started.push(Number(pid))
+    const log = path.join(w.busDir, REVIEW_LOG)
+    await waitFor(() => existsSync(log) && readFileSync(log, 'utf8').includes('stub stderr before any pid'), () => `the stub's stderr in ${log}`, ARRIVAL_GUARD_MS)
+
+    const failure = stubPid(w, pid, SHORT_SETTLE_MS)
+    await expect(failure).rejects.toThrow(path.join(w.out, 'pid'))
+    await expect(failure).rejects.toThrow(`the stub process ${pid} is running`)
+    await expect(failure).rejects.toThrow('stub stderr before any pid')
   })
 
   it('a running dry run is not taken for the review worker', async () => {
@@ -158,7 +194,7 @@ describe('pnpm bus:review:bg', () => {
     const result = startDetached(reviewLaunch(clean), w.busDir, w.env, () => dryRuns)
     expect(result.exitCode).toBe(0)
     started.push(Number(result.stdout[0]))
-    expect(result.stdout[0]).toBe(await settled(path.join(w.out, 'pid')))
+    expect(result.stdout[0]).toBe(await stubPid(w, result.stdout[0]))
 
     const worker = { pid: 4343, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/bus/review-worker.ts --on' }
     const refused = startDetached(reviewLaunch(clean), w.busDir, w.env, () => [...dryRuns, worker])
