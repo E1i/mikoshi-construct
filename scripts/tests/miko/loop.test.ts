@@ -35,7 +35,8 @@ case "$1" in
     exec sleep 30 ;;
   write)
     node --disable-warning=ExperimentalWarning --import tsx scripts/shift/handoff-write.ts "$HOME/.construct/handoff/miko.md" "$STUB_DIR/draft.md" --parking "$STUB_DIR/parking" >> "$STUB_DIR/threshold.log" 2>&1
-    exec sleep 30 ;;
+    : > "$STUB_DIR/survived"
+    exit 0 ;;
   done)
     echo 'STATUS: DONE' > "$HOME/.construct/handoff/miko.md"
     touch -t 200001010000 "$HOME/.construct/handoff/miko.md"
@@ -46,8 +47,15 @@ exit 0
 `
 
 const roots: string[] = []
+const loopGroups: number[] = []
 
 afterEach(() => {
+  for (const group of loopGroups.splice(0)) {
+    try {
+      process.kill(-group, 'SIGKILL')
+    }
+    catch {}
+  }
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -84,6 +92,7 @@ function startLoop(dir: string, claude = path.join(dir, 'claude')): { done: Prom
     stdio: ['ignore', 'ignore', 'pipe'],
     detached: true,
   })
+  loopGroups.push(child.pid!)
   let stderr = ''
   child.stderr.setEncoding('utf8')
   child.stderr.on('data', (chunk: string) => {
@@ -123,14 +132,6 @@ function writeMikoDraft(dir: string, status: Status): void {
   const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, field.id === 'decisions' ? LOOP : `${field.id} value`])), 'queue': 'none', 'in-flight': 'none' }
   const fields = Object.entries(values).map(([label, value]) => `${label}: ${value}`)
   writeFileSync(path.join(dir, 'draft.md'), `# Handoff\n\n## STOP — Miko\n${fields.join('\n')}\n\nSTATUS: ${status}\n`)
-}
-
-async function endsWithin(loop: ReturnType<typeof startLoop>, ms: number): Promise<{ code: number | null, stderr: string } | 'still running'> {
-  const timeout = new Promise<'still running'>(resolve => setTimeout(resolve, ms, 'still running'))
-  const outcome = await Promise.race([loop.done, timeout])
-  if (outcome === 'still running')
-    process.kill(-loop.pid, 'SIGKILL')
-  return outcome
 }
 
 describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS: CONTINUE', () => {
@@ -202,7 +203,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     process.kill(-loop.pid, 'SIGINT')
     await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
     process.kill(-loop.pid, 'SIGINT')
-    const outcome = await endsWithin(loop, 2 * PAUSE_MS)
+    const outcome = await loop.done
     expect(lines(dir, 'calls')).toEqual(['0|'])
     expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('double Ctrl+C during the session: no next session') })
   }, 20_000)
@@ -215,7 +216,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
       await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
       process.kill(-miko.pid, 'SIGINT')
       await miko.exited
-      const stderr = await Promise.race([miko.done, new Promise<string>(resolve => setTimeout(resolve, 4 * PAUSE_MS, 'still running'))])
+      const stderr = await miko.done
       expect(lines(dir, 'calls')).toEqual(['0|'])
       expect(stderr).toContain('Ctrl+C in the pause: no next session')
     }
@@ -239,8 +240,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     const hourAgo = new Date(Date.now() - 3_600_000)
     utimesSync(operator, hourAgo, hourAgo)
     const settled = statSync(operator).mtimeMs
-    const outcome = await endsWithin(startLoop(dir), 6 * PAUSE_MS)
-    expect(outcome).not.toBe('still running')
+    await startLoop(dir).done
     expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `), expect.stringContaining('the pnpm miko loop starts the next session')])
     expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
     expect(CONTINUE_PROMPT).toContain(MIKO_HANDOFF_NAME)
@@ -252,18 +252,18 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     const dir = home(['write'])
     atTheContextWarn(dir)
     writeMikoDraft(dir, 'CONTINUE')
-    const loop = startLoop(dir)
-    await waitFor(() => lines(dir, 'threshold.log').length > 0, () => 'the handoff:write line', READY_DEADLINE_MS)
-    expect(await endsWithin(loop, 2 * PAUSE_MS)).toBe('still running')
+    const { stderr } = await startLoop(dir).done
+    expect(existsSync(path.join(dir, 'survived'))).toBe(true)
     expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `)])
     expect(readFileSync(mikoHandoff(dir), 'utf8')).toContain('STATUS: CONTINUE')
-    expect(lines(dir, 'calls')).toEqual(['0|'])
+    expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
+    expect(stderr).toContain('without rewriting miko.md')
     expect(exitLines(dir)).toEqual([])
   }, 40_000)
 
   it('a handoff with STATUS DONE kills the session and the loop raises no new one', async () => {
     const dir = home(['done', 'owner 0'])
-    const outcome = await endsWithin(startLoop(dir), 2 * PAUSE_MS)
+    const outcome = await startLoop(dir).done
     expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('STATUS: DONE: no next session') })
     expect(lines(dir, 'calls')).toEqual(['0|'])
     expect(exitLines(dir)).toEqual([expect.objectContaining({ reason: 'done' })])
@@ -296,9 +296,9 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
   it('handoff:write with STATUS: STOP under the pnpm miko loop does not end claude', async () => {
     const dir = home(['write'])
     writeMikoDraft(dir, 'STOP')
-    const loop = startLoop(dir)
-    await waitFor(() => lines(dir, 'threshold.log').length > 0, () => 'the handoff:write line', READY_DEADLINE_MS)
-    expect(await endsWithin(loop, 2 * PAUSE_MS)).toBe('still running')
+    const { stderr } = await startLoop(dir).done
+    expect(existsSync(path.join(dir, 'survived'))).toBe(true)
+    expect(stderr).toContain('STATUS: STOP: no next session')
     expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `)])
     expect(readFileSync(mikoHandoff(dir), 'utf8')).toContain('STATUS: STOP')
     expect(lines(dir, 'calls')).toEqual(['0|'])
@@ -307,16 +307,14 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
   it('stops with exit code 1 when MIKO_CLAUDE names a missing command, though miko.md says STATUS: CONTINUE', async () => {
     const dir = home([])
     writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
-    const outcome = await endsWithin(startLoop(dir, path.join(dir, 'no-such-claude')), 2 * PAUSE_MS)
-    expect(outcome).not.toBe('still running')
+    const outcome = await startLoop(dir, path.join(dir, 'no-such-claude')).done
     expect(outcome).toMatchObject({ code: 1, stderr: expect.stringContaining('the session did not start') })
   }, 20_000)
 
   it('a session that exits without rewriting miko.md ends the loop, though the previous STATUS: CONTINUE is still there', async () => {
     const dir = home(['quiet 0', 'quiet 0'])
     writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
-    const outcome = await endsWithin(startLoop(dir), 2 * PAUSE_MS)
-    expect(outcome).not.toBe('still running')
+    const outcome = await startLoop(dir).done
     expect(lines(dir, 'calls')).toEqual([`1|${CONTINUE_PROMPT}`])
     expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('without rewriting miko.md') })
   }, 20_000)
