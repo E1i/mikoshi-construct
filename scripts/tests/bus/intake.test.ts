@@ -136,7 +136,8 @@ describe('pnpm intake writes card events to bus.db', () => {
 
   it('a move whose card.admitted append fails leaves no card.moved: the move and its admission are one transaction', () => {
     const w = world()
-    park(w, '')
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    expect(admitThroughThePorts(w, park(w, ''))).toBe('admitted')
     const db = openBus(w.bus)
     try {
       db.exec(`CREATE TRIGGER refuse_admission BEFORE INSERT ON events WHEN NEW.type = '${CARD_ADMITTED}' BEGIN SELECT RAISE(ABORT, 'admission refused'); END`)
@@ -166,18 +167,42 @@ describe('pnpm intake writes card events to bus.db', () => {
 
   it('a move into a lane writes card.moved and a card.admitted that carries the card and the lane', () => {
     const w = world()
-    park(w, '')
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    expect(admitThroughThePorts(w, park(w, ''))).toBe('admitted')
     expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => NOW)).status).toBe('moved')
-    const [moved, admitted] = cardEvents(w)
+    const [, moved, admitted] = cardEvents(w)
     expect(moved).toMatchObject({ type: CARD_MOVED, cardId: 90, payload: { lane: 'lane-8' } })
     expect(admitted).toMatchObject({ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: 'lane-8', depends: [], decision: 'auto', contour: 'cheap' } })
   })
 
   it('a move into a directory that is no lane writes card.moved alone', () => {
     const w = world()
-    park(w, 'lane-7')
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    expect(admitThroughThePorts(w, park(w, 'lane-7'))).toBe('admitted')
     expect(withPort(w, events => runMove({ move: '#90', to: 'notes', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => NOW)).status).toBe('moved')
-    expect(cardEvents(w).map(event => event.type)).toEqual([CARD_MOVED])
+    expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_MOVED])
+  })
+
+  it('a move of a card with no card.admitted in the bus is refused, and the file stays where it was', () => {
+    const w = world()
+    const file = park(w, '')
+    expect(() => withPort(w, events => runMove({ move: '#90', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF))).toThrow('#90 has no card.admitted in the bus')
+    expect(existsSync(file)).toBe(true)
+    expect(cardEvents(w)).toEqual([])
+  })
+
+  it('a backfilled card counts as admitted: its move into dropped is held by the bus', () => {
+    const w = world()
+    park(w, '')
+    const db = openBus(w.bus)
+    try {
+      db.prepare(`INSERT INTO events (ts, type, actor, card_id, dedupe_key, payload, legacy) VALUES ('2026-10-12T12:00:00.000Z', '${CARD_ADMITTED}', 'worker:backfill:window', 90, 'backfilled', ?, 0)`).run(JSON.stringify({ card: CARD, source: 'backfill' }))
+    }
+    finally {
+      db.close()
+    }
+    expect(withPort(w, events => runMove({ move: '#90', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_MOVED])
   })
 
   it('with the bus a second --admit of an unchanged card is alreadyAdmitted, the bus holds one card.admitted and the journal no intake line', () => {

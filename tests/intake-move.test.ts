@@ -34,7 +34,7 @@ function park(dir: string, id: number, body = 'Do the thing.'): string {
   return file
 }
 
-function move(w: { parking: string, journal: string }, id: number, to: string, events?: CardEventPort) {
+function move(w: { parking: string, journal: string }, id: number, to: string, events: CardEventPort = () => {}) {
   return runMove({ move: `#${id}`, to, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => NOW)
 }
 
@@ -100,10 +100,35 @@ describe('intake --move', () => {
     expect(journalLines(w.journal)).toEqual([])
   })
 
-  it('without a bus intake writes its journal lines as today', () => {
+  it('without a bus a move is refused: the file stays and no journal line holds a move', () => {
     const w = world()
-    admitThenMove(w)
-    expect(journalLines(w.journal).map(line => line.event)).toEqual(['intake', 'intake-move'])
+    const file = park(w.parking, 708)
+    const result = runMove({ move: '#708', to: 'lane-2', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal }, () => NOW)
+    expect(printed(result)).toEqual({ lines: [expect.stringContaining('a move is held only by the bus')], exit: 1 })
+    expect(existsSync(file)).toBe(true)
+    expect(journalLines(w.journal)).toEqual([])
+  })
+
+  it('a move into the folder that already holds the card writes card.moved and leaves the file where it is', () => {
+    const w = world()
+    const file = park(path.join(w.parking, 'dropped'), 709)
+    const text = readFileSync(file, 'utf8')
+    const bus: CardEvent[] = []
+    const result = move(w, 709, 'dropped', event => bus.push(event))
+    expect(result).toEqual({ status: 'recordedInPlace', file })
+    expect(printed(result).lines.join('\n')).toContain('the file was not moved')
+    expect(readFileSync(file, 'utf8')).toBe(text)
+    expect(bus).toMatchObject([{ type: CARD_MOVED, cardId: 709, payload: { from: path.dirname(file), to: path.dirname(file), lane: 'dropped' } }])
+  })
+
+  it('a move the bus refuses puts the file back where it was', () => {
+    const w = world()
+    const file = park(w.parking, 710)
+    expect(() => move(w, 710, 'archive', () => {
+      throw new Error('refused by the bus')
+    })).toThrow('refused by the bus')
+    expect(existsSync(file)).toBe(true)
+    expect(existsSync(path.join(w.parking, 'archive', '710.md'))).toBe(false)
   })
 
   it('a bus-wired move says the bus holds the move', () => {
@@ -130,7 +155,7 @@ describe('intake --move', () => {
     expect(journalLines(w.journal)).toEqual([])
   })
 
-  it('refuses a move onto a number already in the target directory', () => {
+  it('refuses a move onto a number already in the target directory as parked in more than one place', () => {
     const w = world()
     const file = park(w.parking, 702)
     const other = park(path.join(w.parking, 'later'), 702, 'Another.')
@@ -138,7 +163,7 @@ describe('intake --move', () => {
     const result = move(w, 702, 'later')
     expect(result.status).toBe('refused')
     expect(printed(result).exit).toBe(1)
-    expect(printed(result).lines.join('\n')).toContain('already holds #702')
+    expect(printed(result).lines.join('\n')).toContain('more than one place')
     expect(existsSync(file)).toBe(true)
     expect(readFileSync(other, 'utf8')).toBe(before)
     expect(journalLines(w.journal)).toEqual([])
