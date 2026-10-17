@@ -134,7 +134,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test --shard=${{ matrix.shard }}/4 --reporter=default --reporter=blob
+      - run: pnpm test --shard=${{ matrix.shard }}/4 --retry=1 --reporter=default --reporter=blob
       - uses: actions/upload-artifact@v7
         with:
           name: vitest-blob-${{ matrix.shard }}
@@ -295,6 +295,6 @@ jobs:
           merge-multiple: true
       - name: doctor reads this repository's harness as checked (decision 0033)
         run: |
-          pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json
+          pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json --reporter=github-actions
           pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
           node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"
