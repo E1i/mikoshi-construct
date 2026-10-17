@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
+import type { InForceDecision } from './decisions.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { appendFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -9,8 +10,10 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
 import { defaultBusPath, openBus } from './db.js'
+import { inForceDecisions } from './decisions.js'
 import { ghApi } from './github.js'
 import { expireLeasesHeldBy, TASK_EXPIRED } from './lease.js'
+import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
 import { CHECK_MS } from './netwatch.js'
 import { LIVE_FLAG } from './node.js'
 import { busShadowProblems } from './review-bg.js'
@@ -423,9 +426,11 @@ export function bgCommand(argv: string[]): BgCommand {
   return { kind: 'start' }
 }
 
-export function detectionCommand(busDir: string, worker: string, live: boolean): BgResult {
+export function detectionCommand(busDir: string, worker: string, live: boolean, decisions: readonly InForceDecision[]): BgResult {
   if (!isBusWorker(worker))
     return { stdout: [], stderr: [`${PREFIX}${worker === '' ? 'no worker named' : `unknown worker ${worker}`}; one of ${WORKERS.join(', ')}`], exitCode: 1 }
+  if (live && liveDecisionOf(decisions, worker) === null)
+    return { stdout: [], stderr: [`${PREFIX}${worker} is not switched live: no owner decision in force names it; record one with ${allowLiveCommand(worker)}`], exitCode: 1 }
   const now = switchDetection(busDir, worker, live)
   return { stdout: [`${PREFIX}detecting live: ${now.join(', ') || 'none'}; every other worker detects in shadow, and a worker already running changes mode when it is switched off and on`], stderr: [], exitCode: 0 }
 }
@@ -480,6 +485,16 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   }
 }
 
+function decisionsInForce(): InForceDecision[] {
+  const db = openBus(defaultBusPath())
+  try {
+    return inForceDecisions(db)
+  }
+  finally {
+    db.close()
+  }
+}
+
 async function main(): Promise<void> {
   const busDir = path.join(os.homedir(), '.construct', 'bus')
   const cwd = process.cwd()
@@ -494,7 +509,7 @@ async function main(): Promise<void> {
     return
   }
   if (command.kind === 'detection') {
-    printBg(detectionCommand(busDir, command.worker, command.live))
+    printBg(detectionCommand(busDir, command.worker, command.live, command.live ? decisionsInForce() : []))
     return
   }
   printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight), SUPERVISOR_LAUNCH]))
