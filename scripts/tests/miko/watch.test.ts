@@ -15,7 +15,7 @@ import { PR_CLOSED, prClosed } from '../../bus/observations.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../../bus/review-executor.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
-import { LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, tick, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
+import { LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, skippedLine, tick, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 
@@ -23,7 +23,6 @@ const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const WATCH = path.join(REPO_ROOT, 'scripts', 'miko', 'watch.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
 const DEADLINE_MS = 15_000
-const QUIET_MS = 1000
 
 const roots: string[] = []
 const children: Array<ReturnType<typeof spawn>> = []
@@ -716,6 +715,10 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     expect(selectOnce({ offset, busId: 1 }, { ...fileDeps(file, () => true, events), lastBusId: () => 3 }, [], 943)).toEqual({ line: null, cursor: { offset, busId: 2 } })
   })
 
+  it('the skip line names the bus id the cursor was committed through', () => {
+    expect(skippedLine(2)).toBe('skipped through bus id 2')
+  })
+
   it('a --card once run killed while it waits leaves the cursor past the events of other cards it skipped', async () => {
     const file = journal()
     const bus = busOf(file)
@@ -725,7 +728,7 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     writeBusEvent(bus, CARD_CLOSED, 'reducer', 'card.closed:942', JSON.stringify({ verification: 'run' }), 817, null, 942)
     const waiting = startNode(file, [WATCH, ONCE, '--card', '943'], bus)
     await waiting.watching()
-    await new Promise(resolve => setTimeout(resolve, QUIET_MS))
+    await waitFor(() => waiting.stderr().includes(skippedLine(2)), () => `"${skippedLine(2)}" on stderr (stderr so far: ${JSON.stringify(waiting.stderr())})`, DEADLINE_MS)
     waiting.child.kill('SIGKILL')
     await waiting.exited
     expect(waiting.stdout()).toBe('')

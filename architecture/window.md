@@ -85,7 +85,7 @@ non-zero exit, never a silent skip. With `--once` it writes two stderr lines, th
 `scripts/miko/watch-store.ts`) and then `WATCHING_FROM_CURSOR`, and prints the waking events after its cursor even when
 they were there before it started; it takes the last `pr.observed` of each pull request up to its cursor as already
 seen, so a later run does not wake again on a red head an earlier run was woken on. A restarted plain `pnpm miko:watch`
-remembers nothing and may wake again on a red head it saw before. With `--card <N>`, `--once` prints only a bus event whose `card_id` is N or a journal line whose `task` is N, and commits its cursor past every waking event of another card or of none it skipped, while a `--pid` exit still wakes it.
+remembers nothing and may wake again on a red head it saw before. With `--card <N>`, `--once` prints only a bus event whose `card_id` is N or a journal line whose `task` is N, and commits its cursor past every waking event of another card or of none it skipped, writing `skipped through bus id N` on stderr after each such commit, N the bus id the cursor now holds, while a `--pid` exit still wakes it.
 
 Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that command.
 It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
