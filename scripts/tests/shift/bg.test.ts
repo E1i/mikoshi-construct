@@ -5,7 +5,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BG_LOG, launchArgv, runBg, USAGE } from '../../shift/bg.js'
+import { waitFor } from '../wait-for.js'
 import { settled } from './fixtures/settled.js'
+
+const ARRIVAL_GUARD_MS = 25_000
 
 const roots: string[] = []
 
@@ -76,9 +79,8 @@ describe('pnpm shift:bg', () => {
     expect(readFileSync(path.join(w.out, 'chain'), 'utf8')).not.toContain('setsid')
     expect(readFileSync(path.join(w.out, 'chain'), 'utf8').trim()).toBe('nohup')
     expect(await settled(path.join(w.out, 'pgid'))).not.toBe(ownPgid())
-    for (let attempt = 0; attempt < 200 && !readFileSync(path.join(w.dir, BG_LOG), 'utf8').includes('pnpm shift output'); attempt++)
-      await new Promise(resolve => setTimeout(resolve, 25))
-    expect(readFileSync(path.join(w.dir, BG_LOG), 'utf8')).toContain('pnpm shift output')
+    const log = path.join(w.dir, BG_LOG)
+    await waitFor(() => readFileSync(log, 'utf8').includes('pnpm shift output'), () => `"pnpm shift output" in ${log}`, ARRIVAL_GUARD_MS)
   })
 
   it('without setsid on PATH starts the shift in a session of its own through the detached spawn', async () => {
