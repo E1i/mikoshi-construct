@@ -14,6 +14,7 @@ import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { BOARD_ALARM, CARD_CLOSED } from '../../bus/queue.js'
 import { TREE_LEFT } from '../../bus/review-worker.js'
+import { detectClose } from './close-detection.js'
 import { cardVerified, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 const PR = 993
@@ -63,6 +64,7 @@ async function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardT
     cardVerified(bench.db, bench.clock.now().toISOString(), CARD, PR)
     bench.gitHub.close(PR, true)
     bench.tick()
+    detectClose(bench.db, bench.clock.now)
     if (closedEarlier)
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
     const worker = closeNode({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, journal: path.join(root, 'ghosts.jsonl'), parking: path.join(root, 'parking'), trees, endedTrees })
