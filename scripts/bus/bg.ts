@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -7,6 +7,7 @@ export const PREFIX = '[bus:bg] '
 export const SHADOW_LOG = 'shadow.log'
 export const INSTANCE_FILE = 'bus-run.pid'
 export const START_LOCK = 'bus-bg.lock'
+export const START_LOCK_LIMIT_MS = 10 * 60 * 1000
 export const RUN_SCRIPT = 'bus:run'
 export const BUS_RUN_MARKERS = ['scripts/bus/run.ts', `--silent ${RUN_SCRIPT}`] as const
 
@@ -66,11 +67,19 @@ export function runningBus(processes: RunningProcess[]): RunningProcess | undefi
   return runningInstance(processes, BUS_RUN_MARKERS)
 }
 
-function recordedPid(file: string): number | null {
-  if (!existsSync(file))
-    return null
-  const pid = Number(readFileSync(file, 'utf8').trim())
-  return Number.isInteger(pid) && pid > 0 ? pid : null
+interface StartLock { holder: number, mtimeMs: number }
+
+function readStartLock(file: string): StartLock | null {
+  try {
+    const { mtimeMs } = statSync(file)
+    const holder = Number(readFileSync(file, 'utf8').trim())
+    return Number.isInteger(holder) && holder > 0 ? { holder, mtimeMs } : null
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return null
+    throw error
+  }
 }
 
 export function alive(pid: number): boolean {
@@ -83,7 +92,16 @@ export function alive(pid: number): boolean {
   }
 }
 
-function startHolder(lock: string): number | null {
+function holdsStart({ holder, mtimeMs }: StartLock, processes: RunningProcess[]): boolean {
+  if (Date.now() - mtimeMs > START_LOCK_LIMIT_MS)
+    return false
+  const ownArgs = processes.find(candidate => candidate.pid === process.pid)?.args
+  if (ownArgs === undefined)
+    return alive(holder)
+  return processes.some(candidate => candidate.pid === holder && candidate.args === ownArgs)
+}
+
+function startHolder(lock: string, processes: ProcessList): number | null {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       writeFileSync(lock, `${process.pid}\n`, { flag: 'wx' })
@@ -92,13 +110,13 @@ function startHolder(lock: string): number | null {
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST')
         throw error
-      const holder = recordedPid(lock)
-      if (holder !== null && alive(holder))
-        return holder
+      const found = readStartLock(lock)
+      if (found !== null && holdsStart(found, processes()))
+        return found.holder
       rmSync(lock, { force: true })
     }
   }
-  return recordedPid(lock) ?? 0
+  return readStartLock(lock)?.holder ?? 0
 }
 
 export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
@@ -107,7 +125,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
   const lock = path.join(busDir, launch.startLock)
   const log = path.join(busDir, launch.log)
   mkdirSync(busDir, { recursive: true })
-  const holder = startHolder(lock)
+  const holder = startHolder(lock, processes)
   if (holder !== null)
     return { stdout: [], stderr: [`${prefix}another start (pid ${holder}) is starting ${script} (${lock}); nothing started`], exitCode: 1 }
   try {

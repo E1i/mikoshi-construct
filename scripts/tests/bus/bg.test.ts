@@ -1,12 +1,12 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../bus/bg.js'
 import type { BusCode } from '../../bus/supervisor.js'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK } from '../../bus/bg.js'
+import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
@@ -157,6 +157,57 @@ describe('pnpm bus:bg', () => {
     expect(result.stderr).toEqual([`${PREFIX}another start (pid ${other}) is starting bus:run (${lock}); nothing started`])
     expect(readFileSync(path.join(w.busDir, START_LOCK), 'utf8').trim()).toBe(String(other))
     expect(w.processes()).toEqual([])
+  })
+
+  it('a start lock on a live foreign pid is removed and the start proceeds', async () => {
+    const w = world()
+    const other = detachedSleep()
+    mkdirSync(w.busDir, { recursive: true })
+    writeFileSync(path.join(w.busDir, START_LOCK), `${other}\n`)
+    const recycled: ProcessList = () => [{ pid: process.pid, args: 'node review-bg.ts' }, { pid: other, args: 'sleep 30' }]
+    const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, recycled)
+    expect(result.exitCode).toBe(0)
+    started.push(Number(result.stdout[0]))
+    expect(result.stderr).toEqual([])
+    expect(existsSync(path.join(w.busDir, START_LOCK))).toBe(false)
+  })
+
+  it('a start lock that vanishes after the start found it does not crash the start', async () => {
+    const w = world()
+    mkdirSync(w.busDir, { recursive: true })
+    symlinkSync(path.join(w.busDir, 'gone'), path.join(w.busDir, START_LOCK))
+    const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, w.processes)
+    expect(result.exitCode).toBe(0)
+    started.push(Number(result.stdout[0]))
+    expect(result.stderr).toEqual([])
+  })
+
+  it('a start lock of a live start of the same script refuses the start', async () => {
+    const w = world()
+    const other = detachedSleep()
+    mkdirSync(w.busDir, { recursive: true })
+    const lock = path.join(w.busDir, START_LOCK)
+    writeFileSync(lock, `${other}\n`)
+    const sameStart: ProcessList = () => [{ pid: process.pid, args: 'node review-bg.ts' }, { pid: other, args: 'node review-bg.ts' }]
+    const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, sameStart)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([`${PREFIX}another start (pid ${other}) is starting bus:run (${lock}); nothing started`])
+    expect(existsSync(lock)).toBe(true)
+    expect(w.processes()).toEqual([])
+  })
+
+  it('a start lock older than the limit is removed and the start proceeds', async () => {
+    const w = world()
+    const other = detachedSleep()
+    mkdirSync(w.busDir, { recursive: true })
+    const lock = path.join(w.busDir, START_LOCK)
+    writeFileSync(lock, `${other}\n`)
+    const old = new Date(Date.now() - START_LOCK_LIMIT_MS - 1000)
+    utimesSync(lock, old, old)
+    const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, w.processes)
+    expect(result.exitCode).toBe(0)
+    started.push(Number(result.stdout[0]))
+    expect(result.stderr).toEqual([])
   })
 
   it('a start lock and an instance file left by dead processes do not block a start', async () => {
