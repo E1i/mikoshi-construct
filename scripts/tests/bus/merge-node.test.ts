@@ -6,9 +6,10 @@ import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
+import { completeTask, leaseNext } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { keyOf, MERGE_CANDIDATES, mergeCandidates, TASK_ENQUEUED } from '../../bus/queue.js'
+import { keyOf, MERGE_CANDIDATES, mergeCandidates, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, mergeBench, spendReviewRounds } from './merge-bench.js'
 
@@ -164,6 +165,27 @@ describe('the merge node', () => {
     expect(mergeTasks(made, 726)).toBe(1)
     expect(enqueuedOf(made, mergeKey(726))).toBe(1)
     expect(eventsOf(made.db, MERGE_DONE).filter(each => each.rule === 'auto' && each.commit !== sha('f'))).toHaveLength(1)
+  })
+
+  it('the live merge node detects no head with a review in flight, and detects it on the review.recorded that ends it', async () => {
+    const made = bench()
+    made.gitHub.open({ number: 970, review: 'success' })
+    queueTask(made.db, made.clock.now().toISOString(), { queue: 'review', cardId: 1070, pr: 970, head: sha('a') })
+    made.tick()
+    const node = nodeOf(made, 'live')
+    await once(node)
+    expect(node.found()).toEqual([])
+    expect(derivedKeys(made)).toEqual([])
+    expect(mergeTasks(made, 970)).toBe(0)
+
+    const ts = made.clock.now().toISOString()
+    completeTask(made.db, ts, leaseNext(made.db, ts, 'review', 'worker:review:reviewer-1')!, [])
+    appendEvent(made.db, { ts, type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:in-flight`, payload: { head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
+    const recorded = Number((made.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+    await once(node)
+
+    expect(eventsOf(made.db, NODE_DETECTED).filter(each => each.key === mergeKey(970))).toEqual([expect.objectContaining({ key: mergeKey(970), via: 'event', event_id: recorded, outcome: 'queued' })])
+    expect(mergeTasks(made, 970)).toBe(1)
   })
 
   it('i3: a cursor reset to 0 after the merge gives no second detection, no second task and no second merge.done', async () => {

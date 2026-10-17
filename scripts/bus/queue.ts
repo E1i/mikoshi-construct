@@ -61,7 +61,7 @@ const A_REVIEW_UNDER_A_PLAIN_KEY = `EXISTS (
 const REVIEW_CANDIDATES = `
   SELECT pr, card_id, head, body_sha, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
   WHERE state = 'open' AND ci = 'green' AND card_id IS NOT NULL AND head IS NOT NULL
-    AND (verdict_on_head IS NULL OR (verdict_on_head = 'changes' AND body_sha IS NOT NULL AND ${REVIEWED_UNDER_AN_INPUT}))
+    AND (verdict_on_head IS NULL OR (verdict_on_head IN ('changes', 'pass') AND body_sha IS NOT NULL AND ${REVIEWED_UNDER_AN_INPUT}))
     AND NOT ${A_REVIEW_UNDER_A_PLAIN_KEY}
   ORDER BY pr
 `
@@ -101,11 +101,16 @@ const A_DEPENDENCY_UNMERGED = `EXISTS (
     AND NOT EXISTS (SELECT 1 FROM events AS legacy WHERE legacy.type = 'merge' AND legacy.legacy = 1 AND legacy.card_id = dependency.card_id)
 )`
 
+const A_REVIEW_IN_FLIGHT = `EXISTS (
+  SELECT 1 FROM tasks AS reviewing WHERE reviewing.queue = 'review' AND reviewing.pr = prs.pr AND reviewing.head = prs.head
+    AND reviewing.state IN ('${QUEUED}', '${LEASED}')
+)`
+
 function mergeCandidatesWhere(verdict: string, mergeable: string): string {
   return `
   SELECT pr, card_id, head FROM prs
   WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND ${verdict} AND ${mergeable} AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
-    AND NOT ${A_DEPENDENCY_UNMERGED}
+    AND NOT ${A_DEPENDENCY_UNMERGED} AND NOT ${A_REVIEW_IN_FLIGHT}
   ORDER BY pr
 `
 }

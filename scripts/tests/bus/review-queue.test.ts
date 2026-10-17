@@ -8,7 +8,7 @@ import { appendEvent, openBus } from '../../bus/db.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { leaseNext } from '../../bus/lease.js'
+import { completeTask, leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { cardBodyShaOfCard, queueTask, supersedeTask, TASK_SUPERSEDED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
@@ -121,22 +121,23 @@ describe('review queue', () => {
   })
 
   it('a new head without a status or verdict returns to review and the old head tasks are superseded', () => {
-    const { db, gitHub, tick } = setUp()
+    const { db, gitHub, clock, tick } = setUp()
     gitHub.open({ number: 924 })
     tick()
+    completeTask(db, clock.now().toISOString(), leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
     gitHub.open({ number: 924, review: 'success' })
     tick()
     const merge = taskKey({ queue: 'merge', cardId: 1024, pr: 924, head: sha('a') })
-    expect(tasks(db)).toEqual([{ task_key: review(924, sha('a')), state: 'queued' }, { task_key: merge, state: 'queued' }])
+    expect(tasks(db)).toEqual([{ task_key: review(924, sha('a')), state: 'completed' }, { task_key: merge, state: 'queued' }])
 
     gitHub.open({ number: 924, head: sha('e'), required: 'pending' })
     tick()
-    expect(tasks(db)).toEqual([{ task_key: review(924, sha('a')), state: 'superseded' }, { task_key: merge, state: 'superseded' }])
+    expect(tasks(db)).toEqual([{ task_key: review(924, sha('a')), state: 'completed' }, { task_key: merge, state: 'superseded' }])
 
     gitHub.open({ number: 924, head: sha('e') })
     tick()
     expect(tasks(db)).toEqual([
-      { task_key: review(924, sha('a')), state: 'superseded' },
+      { task_key: review(924, sha('a')), state: 'completed' },
       { task_key: merge, state: 'superseded' },
       { task_key: review(924, sha('e')), state: 'queued' },
     ])
@@ -217,6 +218,75 @@ describe('review queue', () => {
     tick()
     expect(gitHub.pulls.get(931)!.review).toBe('failure')
     expect(tasks(db).filter(task => task.task_key.startsWith('merge:'))).toEqual([])
+    db.close()
+  })
+
+  function passingWorker(db: DatabaseSync, gitHub: FakeGitHub, clock: Clock, pr: number): ReviewWorker {
+    return new ReviewWorker({
+      db,
+      gitHub: gitHub.client,
+      publish: (status) => {
+        gitHub.pulls.get(pr)!.review = status.state
+      },
+      reviewer: async () => ({ verdict: 'pass', findings: [], session: 'reviewer-1' }),
+      plan: () => fullReview('a fixed plan'),
+      clock: clock.now,
+      session: 'worker-1',
+    })
+  }
+
+  const inputKey = (pr: number, card: string | null): string => taskKey({ queue: 'review', cardId: pr + 100, pr, head: sha('a'), input: { prBody: prBodySha(cardBody(pr)), cardBody: card } })
+
+  it('a pass on a head and a card amend queue a review of the new input on the same head', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const worker = passingWorker(db, gitHub, clock, 932)
+    gitHub.open({ number: 932, body: cardBody(932) })
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'pass', taskKey: inputKey(932, null) })
+    tick()
+    importJournal(db, intakeLine(1032, '0123abcd4567ef89'))
+    tick()
+
+    expect(tasks(db)).toContainEqual({ task_key: inputKey(932, '0123abcd4567ef89'), state: 'queued' })
+    expect(gitHub.pulls.get(932)!.head).toBe(sha('a'))
+    db.close()
+  })
+
+  it('a pass on a head with no new input queues no second review', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const worker = passingWorker(db, gitHub, clock, 934)
+    gitHub.open({ number: 934, body: cardBody(934) })
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'pass', taskKey: inputKey(934, null) })
+    tick()
+    tick()
+
+    expect(await worker.step()).toEqual({ kind: 'idle' })
+    expect(tasks(db).filter(task => task.task_key.startsWith('review:'))).toEqual([{ task_key: inputKey(934, null), state: 'completed' }])
+    db.close()
+  })
+
+  it('a head with a queued review of a new input after a pass is no merge candidate until that review is recorded', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const worker = passingWorker(db, gitHub, clock, 933)
+    const merge = taskKey({ queue: 'merge', cardId: 1033, pr: 933, head: sha('a') })
+    const merges = (): { task_key: string, state: string }[] => tasks(db).filter(task => task.task_key === merge)
+    gitHub.open({ number: 933, body: cardBody(933), mergeable_state: 'behind' })
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'pass' })
+    tick()
+    importJournal(db, intakeLine(1033, '0123abcd4567ef89'))
+    tick()
+    expect(tasks(db)).toContainEqual({ task_key: inputKey(933, '0123abcd4567ef89'), state: 'queued' })
+
+    gitHub.open({ number: 933, body: cardBody(933), review: 'success' })
+    tick()
+    tick()
+    expect(merges()).toEqual([])
+
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'pass', taskKey: inputKey(933, '0123abcd4567ef89') })
+    tick()
+    expect(merges()).toEqual([{ task_key: merge, state: 'queued' }])
     db.close()
   })
 
