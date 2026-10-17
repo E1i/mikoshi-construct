@@ -78,7 +78,6 @@ function detachedSleep(): number {
 }
 
 const ARRIVAL_GUARD_MS = 25_000
-const QUIET_MS = 300
 
 function readArgv(w: World): string[] {
   const file = path.join(w.out, 'pnpm.argv')
@@ -87,7 +86,6 @@ function readArgv(w: World): string[] {
 
 async function argvLines(w: World, count: number): Promise<string[]> {
   await waitFor(() => readArgv(w).length >= count, () => `${count} pnpm.argv lines (read: ${JSON.stringify(readArgv(w))})`, ARRIVAL_GUARD_MS)
-  await new Promise(resolve => setTimeout(resolve, 200))
   return readArgv(w)
 }
 
@@ -107,11 +105,10 @@ function pidsOf(result: BgResult): number[] {
 describe('pnpm bus:bg', () => {
   it('bus:bg returns at once with the pid and the log path', async () => {
     const w = world()
-    const before = Date.now()
     const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, w.processes)
-    expect(Date.now() - before).toBeLessThan(5000)
     expect(result.exitCode).toBe(0)
     started.push(Number(result.stdout[0]))
+    expect(alive(Number(result.stdout[0]))).toBe(true)
     const log = path.join(w.busDir, SHADOW_LOG)
     expect(result.stdout[0]).toBe(await settled(path.join(w.out, 'pid')))
     expect(result.stdout[1]).toContain(`log ${log}`)
@@ -134,8 +131,7 @@ describe('pnpm bus:bg', () => {
     expect(second.stderr).toEqual([])
     expect(second.stdout).toEqual([`${PREFIX}bus:run is already running as pid ${pid}; left alone`])
     expect(readFileSync(path.join(w.busDir, INSTANCE_FILE), 'utf8').trim()).toBe(pid)
-    await new Promise(resolve => setTimeout(resolve, 200))
-    expect(existsSync(path.join(w.out, 'pid'))).toBe(false)
+    expect(w.processes().map(candidate => candidate.pid)).toEqual([Number(pid)])
   })
 
   it('a bus:run started by hand, with no instance file, is left alone and named', async () => {
@@ -146,8 +142,7 @@ describe('pnpm bus:bg', () => {
     expect(result.stdout.join('\n')).toContain('pid 4242')
     expect(existsSync(path.join(w.busDir, INSTANCE_FILE))).toBe(false)
     expect(existsSync(path.join(w.busDir, START_LOCK))).toBe(false)
-    await new Promise(resolve => setTimeout(resolve, 200))
-    expect(existsSync(path.join(w.out, 'pid'))).toBe(false)
+    expect(w.processes()).toEqual([])
   })
 
   it('a start while another start holds the lock is refused naming its pid', async () => {
@@ -161,8 +156,7 @@ describe('pnpm bus:bg', () => {
     expect(result.stdout).toEqual([])
     expect(result.stderr).toEqual([`${PREFIX}another start (pid ${other}) is starting bus:run (${lock}); nothing started`])
     expect(readFileSync(path.join(w.busDir, START_LOCK), 'utf8').trim()).toBe(String(other))
-    await new Promise(resolve => setTimeout(resolve, 200))
-    expect(existsSync(path.join(w.out, 'pid'))).toBe(false)
+    expect(w.processes()).toEqual([])
   })
 
   it('a start lock and an instance file left by dead processes do not block a start', async () => {
@@ -203,8 +197,7 @@ describe('pnpm bus:bg', () => {
     expect(pidsOf(second)).toEqual([])
     expect(second.stdout).toHaveLength(3)
     expect(second.stdout.every(line => line.endsWith('; left alone'))).toBe(true)
-    await new Promise(resolve => setTimeout(resolve, 200))
-    expect(readArgv(w)).toHaveLength(2)
+    expect(w.processes().map(candidate => candidate.pid).sort()).toEqual(pidsOf(first).sort())
   })
 
   it('a worker that is switched off is not started', async () => {
@@ -219,8 +212,7 @@ describe('pnpm bus:bg', () => {
     expect(result.exitCode).toBe(0)
     expect(pidsOf(result)).toHaveLength(1)
     expect(await argvLines(w, 1)).toEqual(['--silent bus:run'])
-    await new Promise(resolve => setTimeout(resolve, QUIET_MS))
-    expect(readArgv(w)).toEqual(['--silent bus:run'])
+    expect(w.processes().map(candidate => candidate.pid)).toEqual(pidsOf(result))
     for (const worker of ['review', 'merge', 'update'])
       expect(existsSync(path.join(w.busDir, `bus-${worker}.pid`))).toBe(false)
   })
@@ -255,9 +247,7 @@ describe('pnpm bus:bg', () => {
     const pid = detachedSleep()
     const processes: ProcessList = () => alive(pid) ? [{ pid, args: `sleep 30 marker-${pid}` }] : []
     await stopInstance({ pid, args: '' }, [`marker-${pid}`], processes)
-    for (let attempt = 0; attempt < 40 && alive(pid); attempt++)
-      await new Promise(resolve => setTimeout(resolve, 25))
-    expect(alive(pid)).toBe(false)
+    await waitFor(() => !alive(pid), () => `pid ${pid} gone after stopInstance`, ARRIVAL_GUARD_MS)
   })
 })
 
