@@ -1931,11 +1931,14 @@ then. `--dry-run` prints the card it would admit.
 **Moving a parked card.** `construct intake --move <#N> --to <dir>` moves a parked card between the
 parking root and its direct subdirectories (`--parking` names the root; `--to` is a subdirectory of it,
 created when missing, or `.` for the root itself). The card is found by number in the root and its
-subdirectories; a number found in more than one place is refused naming every path, and a target that
-already holds the number is refused with nothing written. The card must pass the parking grammar. The
-file is moved unchanged, so it is the same record with no new number, and one line is appended to
-`--journal`: `{"event":"intake-move","task","from","to","bodySha","ts"}`, or, with a bus wired in and after `2026-10-12T17:04Z`, a `card.moved` in the bus and no journal line. With `--draft`, `--taken` or
-`--admit` the move refuses.
+subdirectories; a number found in more than one place is refused naming every path. The card must pass
+the parking grammar. A move is held only by the bus: a run with no bus wired refuses with exit `1`, moves
+nothing and names `pnpm intake --move`, so the published CLI, which has no bus, always refuses a move. With
+a bus, the file is moved unchanged, so it is the same record with no new number, and a `card.moved` is
+written to the bus with no journal line; a card the bus holds no `card.admitted` for is refused and the file
+goes back. A move to the directory the card already sits in leaves the file where it is and writes the
+`card.moved` all the same. A move into `archive`, `dropped` or `superseded` ends the card as `dropped`
+unless it is already merged, closed or dropped. With `--draft`, `--taken` or `--admit` the move refuses.
 
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under
