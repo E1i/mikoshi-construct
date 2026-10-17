@@ -16,6 +16,8 @@ import { fullReview } from '../../bus/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
+import { detectMerge } from './merge-detection.js'
+import { detectReview } from './review-detection.js'
 
 const roots: string[] = []
 
@@ -37,6 +39,8 @@ function setUp(file?: string): { db: DatabaseSync, gitHub: FakeGitHub, clock: Cl
       clock.advance(TICK_MS)
     first = false
     busTick.run()
+    detectReview({ db, gitHub, clock })
+    detectMerge({ db, gitHub, clock })
   }
   return { db, gitHub, clock, tick }
 }

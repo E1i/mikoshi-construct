@@ -20,6 +20,7 @@ import { TREE_LEFT } from '../../bus/review-worker.js'
 import { CARD_VERIFIED } from '../../ghosts/task-close.js'
 import { sha } from './github-fake.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
+import { detectReview } from './review-detection.js'
 
 interface CloseBench extends MergeBench {
   root: string
@@ -283,13 +284,15 @@ describe('the close node', () => {
     await once(node)
 
     opened(made, 980)
+    detectReview(made)
     expect(taskStatesOf(made, 'review', 980)).toEqual([{ head: sha('a'), state: 'queued' }])
     made.gitHub.pulls.get(980)!.head = sha('b')
     made.tick()
+    detectReview(made)
     await once(node)
 
     expect(taskStatesOf(made, 'review', 980)).toEqual([{ head: sha('a'), state: 'superseded' }, { head: sha('b'), state: 'queued' }])
-    expect(eventsOf(made.db, NODE_DETECTED)).toEqual([])
+    expect(eventsOf(made.db, NODE_DETECTED).filter(detected => !String(detected.key).startsWith('review:'))).toEqual([])
   })
 
   it('the node frees ended trees once before its loop and on every lease, and records a tree left after closed', async () => {

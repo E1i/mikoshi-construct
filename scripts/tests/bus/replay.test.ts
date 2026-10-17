@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
-import { deriveQueues, queueTask, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../bus/queue.js'
+import { deriveQueues, queueTask, reviewCandidates, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 
 const HEADS = ['0123456789abcdef0123456789abcdef01234567', '89abcdef0123456789abcdef0123456789abcdef']
@@ -179,7 +179,8 @@ describe('replay determinism', () => {
     const body = (text: string): BusEvent => ({ ...observed(950, 850, head, 'green'), dedupeKey: `pr:950:${text}`, payload: { base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: prBodySha(text) } })
     appendEvent(copy, body('card: #850'))
     reduce(copy)
-    deriveQueues(copy, '2026-10-11T17:00:00.000Z')
+    for (const task of reviewCandidates(copy, '2026-10-11T17:00:00.000Z'))
+      queueTask(copy, '2026-10-11T17:00:00.000Z', task)
     const first = taskKey({ queue: 'review', cardId: 850, pr: 950, head, input: { prBody: prBodySha('card: #850'), cardBody: null } })
     expect(copy.prepare(`SELECT state FROM tasks WHERE task_key = ?`).get(first)).toEqual({ state: 'queued' })
     appendEvent(copy, body('card: #850 edited'))

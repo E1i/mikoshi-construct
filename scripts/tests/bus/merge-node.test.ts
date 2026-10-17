@@ -189,7 +189,7 @@ describe('the merge node', () => {
   })
 
   it('i3: a cursor reset to 0 after the merge gives no second detection, no second task and no second merge.done', async () => {
-    for (const mode of ['shadow', 'live'] as const) {
+    for (const mode of ['live'] as const) {
       const made = bench()
       made.gitHub.open({ number: 970, review: 'success' })
       made.tick()

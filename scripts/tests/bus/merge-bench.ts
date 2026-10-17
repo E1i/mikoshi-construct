@@ -14,6 +14,8 @@ import { BusTick } from '../../bus/run.js'
 import { SHARD_USED } from '../../bus/shards.js'
 import { CARD_VERIFIED } from '../../ghosts/task-close.js'
 import { Clock, FakeGitHub } from './github-fake.js'
+import { detectMerge } from './merge-detection.js'
+import { detectReview } from './review-detection.js'
 
 export const RUN = '/shift/run-1'
 
@@ -29,7 +31,22 @@ export interface MergeBench {
   close: () => void
 }
 
-export function mergeBench(intake: (db: DatabaseSync, clock: Clock) => () => void = () => () => {}): MergeBench {
+type Intake = (db: DatabaseSync, clock: Clock) => () => void
+
+type LiveNodes = (bench: Pick<MergeBench, 'db' | 'gitHub' | 'clock'>) => void
+
+const NO_NODES: LiveNodes = () => {}
+
+function reviewAndMergeNodes(bench: Pick<MergeBench, 'db' | 'gitHub' | 'clock'>): void {
+  detectReview(bench)
+  detectMerge(bench)
+}
+
+export function liveBench(intake?: Intake): MergeBench {
+  return mergeBench(intake, reviewAndMergeNodes)
+}
+
+export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes = NO_NODES): MergeBench {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-merge-'))
   const busPath = path.join(root, 'bus.db')
   const db = openBus(busPath)
@@ -39,6 +56,7 @@ export function mergeBench(intake: (db: DatabaseSync, clock: Clock) => () => voi
   const executor = new MergeExecutor({ db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN })
   const tick = (): void => {
     busTick.run()
+    liveNodes({ db, gitHub, clock })
     clock.advance(TICK_MS)
   }
   tick()

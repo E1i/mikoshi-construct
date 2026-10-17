@@ -105,11 +105,11 @@ function detectedOf(made: MergeBench, pr: number): Record<string, unknown>[] {
 
 type Order = 'node first' | 'deriveQueues first' | 'same tick'
 
-const OUTCOME_BY_ORDER: Record<Order, 'queued' | 'already'> = { 'node first': 'queued', 'deriveQueues first': 'already', 'same tick': 'queued' }
+const ORDERS: Order[] = ['node first', 'deriveQueues first', 'same tick']
 
 describe('review live', () => {
-  it('a live review node and deriveQueues on one db that detect one key leave exactly one tasks row, one task.enqueued and one review.recorded, with node.detected queued when the node or the same tick comes first and already when deriveQueues does', async () => {
-    for (const order of Object.keys(OUTCOME_BY_ORDER) as Order[]) {
+  it('a live review node and deriveQueues on one db leave exactly one tasks row, one task.enqueued and one review.recorded, with node.detected queued whichever ticks first', async () => {
+    for (const order of ORDERS) {
       const made = bench()
       openGreen(made, 980)
       const node = nodeOf(made)
@@ -137,11 +137,11 @@ describe('review live', () => {
       expect(reviewsOf(made, 980), order).toBe(1)
       const detected = detectedOf(made, 980)
       expect(detected, order).toHaveLength(1)
-      expect(detected[0]!.outcome, order).toBe(OUTCOME_BY_ORDER[order])
+      expect(detected[0]!.outcome, order).toBe('queued')
     }
   })
 
-  it('a live review node restarted mid-batch writes no second task and no second review.recorded and its repeat detects already', async () => {
+  it('a live review node restarted mid-batch writes no second task, no second review.recorded and one node.detected, queued by the restarted node', async () => {
     const made = bench()
     const node = nodeOf(made)
     await once(node)
@@ -168,11 +168,11 @@ describe('review live', () => {
       expect(reviewTasks(made, pr)).toBe(1)
       expect(enqueuedOf(made, pr)).toBe(1)
       expect(reviewsOf(made, pr)).toBe(1)
-      expect(detectedOf(made, pr).map(payload => payload.outcome)).toEqual(['already'])
+      expect(detectedOf(made, pr).map(payload => payload.outcome)).toEqual(['queued'])
     }
   })
 
-  it('after review is switched from live back to shadow the node enqueues nothing and deriveQueues keeps enqueuing', async () => {
+  it('after review is switched from live back to shadow neither the node nor deriveQueues enqueues a review', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-review-switch-'))
     try {
       switchWorker(root, 'review', true)
@@ -199,9 +199,9 @@ describe('review live', () => {
 
       made.tick()
       await once(shadow)
-      expect(reviewTasks(made, 981)).toBe(1)
-      expect(enqueuedOf(made, 981)).toBe(1)
-      expect(reviewsOf(made, 981)).toBe(1)
+      expect(reviewTasks(made, 981)).toBe(0)
+      expect(enqueuedOf(made, 981)).toBe(0)
+      expect(reviewsOf(made, 981)).toBe(0)
       expect(reviewTasks(made, 980)).toBe(1)
       expect(enqueuedOf(made, 980)).toBe(1)
       expect(reviewsOf(made, 980)).toBe(1)

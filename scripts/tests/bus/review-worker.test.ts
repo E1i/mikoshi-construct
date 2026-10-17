@@ -27,6 +27,7 @@ import { openDatabase } from '../../bus/sqlite.js'
 import { REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
 import { classify } from '../../morse/rules.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
+import { detectReview } from './review-detection.js'
 
 const roots: string[] = []
 
@@ -72,6 +73,7 @@ function setUp(): Bench {
     statuses,
     tick: () => {
       busTick.run()
+      detectReview({ db, gitHub, clock })
       clock.advance(TICK_MS)
     },
     worker: (reviewer, publish = posted, plan = fixedPlan, clearLeftovers) => new ReviewWorker({ db, gitHub: gitHub.client, publish, reviewer, plan, clock: clock.now, session: 'worker-1', clearLeftovers }),

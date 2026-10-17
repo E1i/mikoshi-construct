@@ -248,8 +248,6 @@ function mergeRows(db: DatabaseSync, ts: string): Candidate[] {
 function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
   const open = (queue: Queue, query: string, admits: Admits = everyRow): (() => QueuedTask[]) => () => openCandidates(db, ts, queue, candidateRows(db, query, admits))
   return [
-    () => reviewCandidates(db, ts),
-    () => mergeCandidates(db, ts),
     open('restart', RESTART_CANDIDATES),
     () => answerCandidates(db, ts),
   ]

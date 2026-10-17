@@ -18,6 +18,7 @@ import { BusTick } from '../../bus/run.js'
 import { SLOT_POLL_MS, SLOTS, SlotScheduler, slotsOf, slotsVariable } from '../../bus/scheduler.js'
 import { runSlot, slotCall, spawnInherited } from '../../bus/slot.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { detectReview } from './review-detection.js'
 
 const roots: string[] = []
 
@@ -137,6 +138,7 @@ describe('heavy run scheduler', () => {
     gitHub.open({ number: 962, head: sha('c') })
     gitHub.open({ number: 963, head: sha('d') })
     busTick.run()
+    detectReview({ db, gitHub, clock })
     clock.advance(TICK_MS)
 
     const inFlight: Lease[] = []
