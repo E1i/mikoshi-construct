@@ -8,7 +8,10 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { REAL_PROCESSES, stopChain } from '../../bus/chain-process.js'
 import { pidAlive } from '../../shift/relaunch.js'
+import { waitFor } from '../wait-for.js'
 import { MAIN_1 } from './github-fake.js'
+
+const ARRIVAL_GUARD_MS = 25_000
 
 const roots: string[] = []
 const groups: number[] = []
@@ -33,12 +36,6 @@ function fakeTable(commandLine: string | null): { table: ProcessTable, signalled
   return { table: { commandLine: () => commandLine, signalGroup: leader => signalled.push(leader) }, signalled }
 }
 
-async function until(condition: () => boolean): Promise<boolean> {
-  for (let tries = 0; tries < 100 && !condition(); tries += 1)
-    await new Promise(resolve => setTimeout(resolve, 50))
-  return condition()
-}
-
 describe('stopping a running chain before its restart', () => {
   it('the signal reaches every process of a real detached chain group', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'chain-group-'))
@@ -47,13 +44,13 @@ describe('stopping a running chain before its restart', () => {
     const leader = spawn('sh', ['-c', `sleep 60 & echo $! > "${childFile}"; wait`, 'shift', dir], { detached: true, stdio: 'ignore' })
     groups.push(leader.pid!)
     const exited = new Promise(resolve => leader.on('exit', resolve))
-    expect(await until(() => existsSync(childFile) && readFileSync(childFile, 'utf8').trim() !== '')).toBe(true)
+    await waitFor(() => existsSync(childFile) && readFileSync(childFile, 'utf8').trim() !== '', () => `the child pid in ${childFile}`, ARRIVAL_GUARD_MS)
     const child = Number(readFileSync(childFile, 'utf8').trim())
 
     stopChain(chainRow(dir, leader.pid!), REAL_PROCESSES)
 
     await exited
-    expect(await until(() => !pidAlive(child))).toBe(true)
+    await waitFor(() => !pidAlive(child), () => `child ${child} of the signalled group to exit`, ARRIVAL_GUARD_MS)
   })
 
   it('a chain waiting on #N is a live process and is signalled like a running one', () => {

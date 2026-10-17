@@ -3,11 +3,13 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { BUS_DB_VARIABLE } from '../../bus/db.js'
 import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
+import { waitFor } from '../wait-for.js'
+
+const ARRIVAL_GUARD_MS = 25_000
 
 const roots: string[] = []
 const groups: number[] = []
@@ -49,14 +51,12 @@ function alive(pid: number): boolean {
 }
 
 async function settledFile(file: string): Promise<string> {
-  for (let attempt = 0; attempt < 400 && !(existsSync(file) && readFileSync(file, 'utf8') !== ''); attempt += 1)
-    await sleep(50)
-  return existsSync(file) ? readFileSync(file, 'utf8') : ''
+  await waitFor(() => existsSync(file) && readFileSync(file, 'utf8') !== '', () => `the gh stub to write ${file}`, ARRIVAL_GUARD_MS)
+  return readFileSync(file, 'utf8')
 }
 
 async function exited(pid: number): Promise<void> {
-  for (let attempt = 0; attempt < 400 && alive(pid); attempt += 1)
-    await sleep(50)
+  await waitFor(() => !alive(pid), () => `process ${pid} to exit`, ARRIVAL_GUARD_MS)
 }
 
 function launchWorld(claudeExit: number, report = '') {
