@@ -18,6 +18,7 @@ import { CARD_CLOSED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { CARD_VERIFIED, runTaskClose } from '../../ghosts/task-close.js'
 import { appendToJournal, journalLine } from '../../ghosts/task-merged.js'
+import { detectClose } from './close-detection.js'
 import { MAIN_2, MERGER, sha } from './github-fake.js'
 import { cardVerified, eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -57,6 +58,7 @@ function closeBench(reported: Record<number, string> = {}) {
         verified(bench, pr)
       bench.gitHub.close(pr, true)
       bench.tick()
+      detectClose(bench.db, bench.clock.now)
     },
     leaseClose: (actor = 'worker:close:worker-1'): Lease | null => leaseNext(bench.db, bench.clock.now().toISOString(), 'close', actor),
     closeCard: (lease: Lease): CloseOutcome => executor.close(lease),
@@ -145,6 +147,7 @@ describe('the close queue', () => {
     expect(bench.leaseClose()).toBeNull()
     verified(bench, 988, 'code-reading')
     bench.tick()
+    detectClose(bench.db, bench.clock.now)
 
     const worker = closeNode({ db: bench.db, reported: closingVerification(bench.journal, bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', taskKey: close(988), verification: 'code-reading' })
@@ -275,6 +278,7 @@ describe('the close queue', () => {
     verified(bench, 1003)
     bench.gitHub.close(1003, true, null)
     bench.tick()
+    detectClose(bench.db, bench.clock.now)
     const calls = bench.gitHub.calls.length
 
     expect(bench.closeCard(bench.leaseClose()!)).toEqual({ kind: 'closed', taskKey: close(1003), verification: 'run', cycle: { mergeLine: 'no-merger', cardFile: 'moved', treeLeft: null } })
