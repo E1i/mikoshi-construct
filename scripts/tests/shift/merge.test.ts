@@ -17,6 +17,7 @@ import { chainBusMerge } from '../../shift/chain-bus.js'
 import { busMerge, HANDED_TO_THE_BUS, isListed, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
 import { runShift } from '../../shift/shift.js'
 import { cardBody as busCardBody, Clock, FakeGitHub, sha } from '../bus/github-fake.js'
+import { detectReview } from '../bus/review-detection.js'
 import { captured, depsOf, eventsOf, fakeGh, newWorld, cardLine as parkedCardLine } from './fixtures/autopilot-world.js'
 import { prReviewLine } from './fixtures/pr-review-line.js'
 
@@ -230,6 +231,7 @@ describe('runVerdict', () => {
     const clock = new Clock()
     gitHub.open({ number: pr })
     new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now).run()
+    detectReview({ db, gitHub, clock })
     const statuses: ReviewStatus[] = []
     const posted: StatusPublisher = status => statuses.push(status)
     const gh = (): string => JSON.stringify({ body: busCardBody(pr), headRefOid: sha('a'), files: [{ path: 'scripts/board/derive.ts' }] })
