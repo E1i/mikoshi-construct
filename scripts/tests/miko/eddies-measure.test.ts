@@ -51,7 +51,7 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
       context: 1310,
       contextWarn: LIMITS.contextLimit * LIMITS.warnRatio,
       spent: 100 + 10 + 50 + (1000 + 200) * 1.25 + 1100 * 0.1,
-      sessionSpend: LIMITS.sessionSpend,
+      spendWarn: LIMITS.sessionSpend * LIMITS.warnRatio,
       cards: UNKNOWN,
       busEvents: UNKNOWN,
     })
@@ -77,12 +77,15 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
     { name: 'a session id that is not a plain id', env: { CLAUDE_CODE_SESSION_ID: '../x' } },
   ])('with $name reads nothing of the session and keeps the limits', ({ env }) => {
     const dir = scratch()
-    expect(realExitReadings(env, dir, dir, path.join(dir, 'bus.db'))).toEqual({ ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio, sessionSpend: LIMITS.sessionSpend })
+    expect(realExitReadings(env, dir, dir, path.join(dir, 'bus.db'))).toEqual({ ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio, spendWarn: LIMITS.sessionSpend * LIMITS.warnRatio })
   })
 
-  it('reads limits it cannot validate as unknown, never as zero', () => {
-    const dir = scratch({ ...LIMITS, warnRatio: 2, sessionSpend: 0 })
-    expect(realExitReadings({}, dir, dir, path.join(dir, 'bus.db'))).toEqual(UNREAD)
+  it.each([
+    { name: 'a warn ratio above one', limits: { ...LIMITS, warnRatio: 2 }, read: UNREAD },
+    { name: 'a session spend of zero', limits: { ...LIMITS, sessionSpend: 0 }, read: { ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio } },
+  ])('reads limits it cannot validate as unknown, never as zero: $name', ({ limits, read }) => {
+    const dir = scratch(limits)
+    expect(realExitReadings({}, dir, dir, path.join(dir, 'bus.db'))).toEqual(read)
   })
 })
 

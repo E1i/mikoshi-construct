@@ -285,6 +285,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect(CONTINUE_PROMPT).toContain('после ответа pnpm handoff:write со STATUS: CONTINUE, без pnpm miko:exit')
     expect(CONTINUE_PROMPT).not.toContain('STATUS: OWNER либо DONE')
     expect(CONTINUE_PROMPT).toMatch(/pnpm miko:exit — только при .* или STATUS: DONE$/)
+    expect(CONTINUE_PROMPT).toContain('pnpm miko:exit — только при контексте или тратах сессии не ниже порога предупреждения Eddies')
   })
 
   it('the loop starts claude in dontAsk mode unless MIKO_CLAUDE overrides it', () => {
