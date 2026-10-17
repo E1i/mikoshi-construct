@@ -13,20 +13,21 @@ import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
 import { mergePolicy, underOwnerDecision, VERSION_BRANCH } from './policy.js'
-import { mergeDecidedPastRoundLimit } from './queue.js'
+import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit } from './queue.js'
 import { decisionsInForceAt, SHARD_USED, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const MERGE_METHOD = 'squash'
 export const STALE_HEAD_STATUS = 409
-const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable'])
+const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate'])
+const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
 const FILES_PAGE = 100
 const RUNS_PAGE = 100
 const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
 
-export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base'
+export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate'
 
 export type MergeDenial
   = | { kind: 'technical', reason: MergeTechnicalReason, detail: string }
@@ -105,6 +106,9 @@ export class MergeExecutor {
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
+      const withdrawn = checked.mergedCommit === null ? this.noLongerACandidate(lease) : null
+      if (withdrawn !== null)
+        return this.denied(lease, withdrawn)
       const policy = mergePolicy(checked.facts)
       const decision = checked.decidedPastRoundLimit
       const verdict = decision === null ? policy : underOwnerDecision(policy, decision, lease.pr!, lease.head!)
@@ -128,6 +132,14 @@ export class MergeExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private noLongerACandidate(lease: Lease): MergeDenial | null {
+    if (mergeCandidates(this.parts.db, this.ts()).some(task => keyOf(task) === lease.taskKey))
+      return null
+    const reviews = (this.parts.db.prepare(REVIEWS_IN_FLIGHT).all(lease.pr, lease.head) as { task_key: string }[]).map(row => row.task_key)
+    const holder = reviews.length === 0 ? 'no review in flight' : `the review ${reviews.join(', ')} in flight`
+    return { kind: 'technical', reason: 'not_a_candidate', detail: `${lease.taskKey} is no longer a merge candidate: ${holder}` }
   }
 
   private fresh(lease: Lease): Checked {
