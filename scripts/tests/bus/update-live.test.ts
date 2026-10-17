@@ -91,13 +91,11 @@ function detectedOf(made: MergeBench, pr: number): Record<string, unknown>[] {
   return eventsOf(made.db, NODE_DETECTED).filter(payload => payload.key === updateKey(pr))
 }
 
-type Order = 'node first' | 'deriveQueues first' | 'same tick'
-
-const OUTCOME_BY_ORDER: Record<Order, 'queued' | 'already'> = { 'node first': 'queued', 'deriveQueues first': 'already', 'same tick': 'queued' }
+const ORDERS = ['node first', 'deriveQueues first', 'same tick'] as const
 
 describe('update live', () => {
-  it('a live update node and deriveQueues on one db that detect one key leave exactly one tasks row and one task.enqueued, with node.detected queued when the node or the same tick comes first and already when deriveQueues does', async () => {
-    for (const order of Object.keys(OUTCOME_BY_ORDER) as Order[]) {
+  it('a live update node and deriveQueues on one db leave exactly one tasks row, one task.enqueued and one node.detected with outcome queued, in every order', async () => {
+    for (const order of ORDERS) {
       const made = bench()
       made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
       const node = nodeOf(made)
@@ -124,11 +122,30 @@ describe('update live', () => {
       expect(enqueuedOf(made, 980), order).toBe(1)
       const detected = detectedOf(made, 980)
       expect(detected, order).toHaveLength(1)
-      expect(detected[0]!.outcome, order).toBe(OUTCOME_BY_ORDER[order])
+      expect(detected[0]!.outcome, order).toBe('queued')
     }
   })
 
-  it('a live update node restarted mid-batch writes no second task and its repeat detects already', async () => {
+  it('deriveQueues alone enqueues no update task', async () => {
+    const made = bench()
+    made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
+    made.tick()
+    made.tick()
+    expect(updateTasks(made, 980)).toBe(0)
+    expect(enqueuedOf(made, 980)).toBe(0)
+    expect(count(made, `SELECT count(*) AS n FROM events WHERE type = ? AND json_extract(payload, '$.queue') = 'update'`, TASK_ENQUEUED)).toBe(0)
+
+    const node = nodeOf(made)
+    await once(node)
+    expect(updateTasks(made, 980)).toBe(1)
+    expect(enqueuedOf(made, 980)).toBe(1)
+
+    await once(node)
+    expect(updateTasks(made, 980)).toBe(1)
+    expect(enqueuedOf(made, 980)).toBe(1)
+  })
+
+  it('a live update node restarted mid-batch writes no second task and no second node.detected', async () => {
     const made = bench()
     for (const pr of [981, 982])
       made.gitHub.open({ number: pr, mergeable_state: 'behind' })
@@ -155,11 +172,11 @@ describe('update live', () => {
     for (const pr of [981, 982]) {
       expect(updateTasks(made, pr)).toBe(1)
       expect(enqueuedOf(made, pr)).toBe(1)
-      expect(detectedOf(made, pr).map(payload => payload.outcome)).toEqual(['already'])
+      expect(detectedOf(made, pr).map(payload => payload.outcome)).toEqual(['queued'])
     }
   })
 
-  it('after update is switched from live back to shadow the node enqueues nothing and deriveQueues keeps enqueuing', async () => {
+  it('after update is switched from live back to shadow neither the node nor deriveQueues enqueues an update task', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-update-switch-'))
     try {
       switchWorker(root, 'update', true)
@@ -186,8 +203,8 @@ describe('update live', () => {
 
       made.tick()
       await once(shadow)
-      expect(updateTasks(made, 981)).toBe(1)
-      expect(enqueuedOf(made, 981)).toBe(1)
+      expect(updateTasks(made, 981)).toBe(0)
+      expect(enqueuedOf(made, 981)).toBe(0)
       expect(updateTasks(made, 980)).toBe(1)
       expect(enqueuedOf(made, 980)).toBe(1)
     }

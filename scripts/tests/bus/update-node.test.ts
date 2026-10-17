@@ -11,6 +11,7 @@ import { keyOf, TASK_ENQUEUED, updateCandidates } from '../../bus/queue.js'
 import { UpdateNode } from '../../bus/update-worker.js'
 import { MAIN_2, sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
+import { detectUpdate } from './update-detection.js'
 
 const UPDATE_DONE = 'update.done'
 const benches: MergeBench[] = []
@@ -84,6 +85,10 @@ function byEvent(made: MergeBench): Record<string, unknown>[] {
   return eventsOf(made.db, NODE_DETECTED).filter(each => each.via === 'event')
 }
 
+function detectedKeysBy(made: MergeBench, node: UpdateNode): unknown[] {
+  return made.db.prepare('SELECT payload FROM events WHERE type = ? AND actor = ? ORDER BY id').all(NODE_DETECTED, node.actor).map(row => (JSON.parse(String(row.payload)) as Record<string, unknown>).key)
+}
+
 function updateTasks(made: MergeBench, pr: number): number {
   return Number((made.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'update' AND pr = ?`).get(pr) as { n: number }).n)
 }
@@ -101,14 +106,14 @@ describe('the update node', () => {
     const made = bench()
     made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
     made.tick()
-    const node = nodeOf(made)
+    const node = nodeOf(made, 'live')
     await once(node)
-    expect(eventsOf(made.db, NODE_DETECTED)).toEqual([{ key: updateKey(980), via: 'tick', event_id: expect.any(Number) as unknown }])
+    expect(eventsOf(made.db, NODE_DETECTED)).toEqual([{ key: updateKey(980), via: 'tick', event_id: expect.any(Number) as unknown, outcome: 'queued' }])
 
     made.gitHub.open({ number: 981, review: 'success', mergeable_state: 'behind' })
     made.tick()
     await once(node)
-    expect(byEvent(made)).toEqual([{ key: updateKey(981), via: 'event', event_id: lastEventOf(made, 'pr.observed', 981) }])
+    expect(byEvent(made)).toEqual([{ key: updateKey(981), via: 'event', event_id: lastEventOf(made, 'pr.observed', 981), outcome: 'queued' }])
   })
 
   it('main.advanced alone detects nothing, and the pr.observed that brings behind detects the pull request', async () => {
@@ -211,7 +216,7 @@ describe('the update node', () => {
   })
 
   it('i3: a cursor reset to 0 gives no second detection and no second task', async () => {
-    for (const mode of ['shadow', 'live'] as const) {
+    for (const mode of ['live'] as const) {
       const made = bench()
       made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
       made.tick()
@@ -233,18 +238,19 @@ describe('the update node', () => {
 
   it('a queued update task of an old head is superseded by deriveQueues beside the node as before', async () => {
     const made = bench()
-    const node = nodeOf(made)
+    const node = nodeOf(made, 'live')
     await once(node)
 
     made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
     made.tick()
+    detectUpdate(made)
     expect(taskState(made.db, updateKey(980)).state).toBe('queued')
     made.gitHub.pulls.get(980)!.head = sha('b')
     made.tick()
     await once(node)
 
     expect(taskState(made.db, updateKey(980)).state).toBe('superseded')
-    expect(eventsOf(made.db, NODE_DETECTED).map(each => each.key)).not.toContain(updateKey(980))
+    expect(detectedKeysBy(made, node)).not.toContain(updateKey(980))
     expect(made.gitHub.puts.map(put => put.fields.expected_head_sha)).toEqual([sha('b')])
   })
 })
