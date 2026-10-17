@@ -6,13 +6,13 @@ import type { DetectionMode, Scope } from './node.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { CARD_VERIFIED, cardVerifiedClosings, closingVerificationOf } from '../ghosts/task-close.js'
+import { CARD_VERIFIED, cardVerifiedClosings, closingVerificationOf, legacyLines } from '../ghosts/task-close.js'
 import { defaultGhostJournal } from '../ghosts/task-merged.js'
 import { worktreeHome } from '../ghosts/worktree-home.js'
 import { PR_OPENED } from './card-automaton.js'
@@ -108,8 +108,8 @@ export class CloseNode extends Node<CloseStep> {
   }
 }
 
-export function closingVerification(journal: string, busPath: string): ReportedVerification {
-  return (cardId, pr) => pr === null ? null : closingVerificationOf(existsSync(journal) ? readFileSync(journal, 'utf8') : '', cardVerifiedClosings(busPath), String(cardId), pr)
+export function closingVerification(busPath: string): ReportedVerification {
+  return (cardId, pr) => pr === null ? null : closingVerificationOf(legacyLines(busPath), cardVerifiedClosings(busPath), String(cardId), pr)
 }
 
 export interface CloseRun {
@@ -135,7 +135,7 @@ async function main(): Promise<number> {
     return () => trees.free()
   }
   const busPath = defaultBusPath()
-  return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(journal, busPath), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
+  return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(busPath), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
