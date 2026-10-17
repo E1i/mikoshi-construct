@@ -48,6 +48,18 @@ function isAlive(pid: number): boolean {
   }
 }
 
+const NOTHING_LEFT_TO_SIGNAL = new Set(['ESRCH', 'EPERM'])
+
+function killGroupUnlessNothingLeftToSignal(leader: number, kill: typeof process.kill = process.kill): void {
+  try {
+    kill(-leader, 'SIGKILL')
+  }
+  catch (error) {
+    if (!NOTHING_LEFT_TO_SIGNAL.has((error as NodeJS.ErrnoException).code ?? ''))
+      throw error
+  }
+}
+
 function hasExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null
 }
@@ -58,11 +70,8 @@ afterEach(() => {
     if (!hasExited(window))
       process.kill(-window.pid!, 'SIGKILL')
   }
-  while (survivors.length > 0) {
-    const pid = survivors.pop()!
-    if (isAlive(pid))
-      process.kill(-pid, 'SIGKILL')
-  }
+  while (survivors.length > 0)
+    killGroupUnlessNothingLeftToSignal(survivors.pop()!)
   while (created.length > 0)
     world('clean', created.pop()!)
 })
@@ -107,6 +116,28 @@ function journalTasks(w: string): string[] {
     return entry.event === 'task' && typeof entry.task === 'string' ? [entry.task] : []
   })
 }
+
+function killFailingWith(code: string): typeof process.kill {
+  return () => {
+    throw Object.assign(new Error(`kill ${code}`), { code })
+  }
+}
+
+describe('the survivors cleanup', () => {
+  it('signals the whole group of the survivor', () => {
+    const calls: unknown[][] = []
+    killGroupUnlessNothingLeftToSignal(4242, ((...args: unknown[]) => calls.push(args) > 0) as typeof process.kill)
+    expect(calls).toEqual([[-4242, 'SIGKILL']])
+  })
+
+  it.each(['ESRCH', 'EPERM'])('treats %s as a group with nothing left to signal', (code) => {
+    expect(() => killGroupUnlessNothingLeftToSignal(4242, killFailingWith(code))).not.toThrow()
+  })
+
+  it('throws any other kill error', () => {
+    expect(() => killGroupUnlessNothingLeftToSignal(4242, killFailingWith('EINVAL'))).toThrow('kill EINVAL')
+  })
+})
 
 describe('ghosts:launch outlives the window that started it', () => {
   it.each(['SIGHUP', 'SIGKILL'] as const)('w1: after %s to the window process group, the supervisor writes the free rows and the journal task lines', async (signal) => {
