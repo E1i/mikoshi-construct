@@ -322,10 +322,39 @@ describe('the card automaton', () => {
   })
 
   it('a started card moved to dropped through the intake port is dropped', () => {
-    const db = busWith(admitted(916), started(916), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 916, payload: { lane: 'dropped' } }), admitted(917), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 917, payload: { lane: 'dropped' } }))
+    const db = busWith(admitted(916), started(916), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 916, payload: { lane: 'dropped' } }))
     reduce(db)
-    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[916, 'dropped'], [917, 'queued']])
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[916, 'dropped']])
     expect(rejections(db)).toEqual([])
+    db.close()
+  })
+
+  it.each(['archive', 'dropped', 'superseded'])('a queued card moved into %s ends dropped, as does a backfilled card without state', (lane) => {
+    const backfilled = event('card.admitted', { actor: 'worker:backfill:window', cardId: 918, payload: { source: 'backfill' } })
+    const moved = (cardId: number): BusEvent => event('card.moved', { actor: 'worker:intake:by-hand', cardId, payload: { lane } })
+    const db = busWith(admitted(917), moved(917), backfilled, moved(918))
+    reduce(db)
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[917, 'dropped'], [918, 'dropped']])
+    expect(rejections(db)).toEqual([])
+    db.close()
+  })
+
+  it('a move into a terminal folder keeps a merged card merged, and a repeated move makes no new transition', () => {
+    const db = busWith(admitted(919), event('merge.done', { actor: 'worker:merge:s1', cardId: 919, pr: 919, payload: {} }), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 919, payload: { lane: 'archive' } }), admitted(920), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 920, payload: { lane: 'archive' } }))
+    reduce(db)
+    const once = cards(db)
+    appendEvent(db, event('card.moved', { actor: 'worker:intake:by-hand', cardId: 920, payload: { lane: 'archive' } }))
+    reduce(db)
+    expect(once.map(row => [row.card_id, row.state])).toEqual([[919, 'merged'], [920, 'dropped']])
+    expect(cards(db)).toEqual(once)
+    expect(rejections(db)).toEqual([])
+    db.close()
+  })
+
+  it('a move into a lane or the root changes no state', () => {
+    const db = busWith(admitted(921), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 921, payload: { lane: 'lane-2' } }), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 921, payload: { lane: 'parking' } }))
+    reduce(db)
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[921, 'queued']])
     db.close()
   })
 

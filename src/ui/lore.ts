@@ -169,11 +169,12 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeDryRun: (parking: string) => string
   intakeAdmitted: (file: string, card: string, inBus: boolean) => string
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => string
-  intakeMoved: (from: string, to: string, inBus: boolean) => string
+  intakeMoved: (from: string, to: string) => string
+  intakeMoveRecordedInPlace: (file: string) => string
   intakeMoveNotFound: (id: number) => string
   intakeMoveAmbiguous: (id: number, paths: string) => string
-  intakeMoveTargetHasNumber: (id: number, target: string) => string
   intakeMoveNeedsBoth: string
+  intakeMoveNeedsTheBus: string
   intakeMoveTargetOutside: (to: string) => string
   intakeAmended: (file: string, card: string, inBus: boolean) => string
   intakeAdmitUnclear: (count: number) => string
@@ -511,11 +512,12 @@ export const LORE: Lore = {
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `ALREADY ADMITTED // ${file}: ${card}; its card.admitted is in the bus`
     : `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line. NO BUS // nothing written`,
-  intakeMoved: (from: string, to: string, inBus: boolean) => `MOVED // ${from} -> ${to}; the ${inBus ? 'bus' : 'journal'} holds the move, the card is unchanged`,
+  intakeMoved: (from: string, to: string) => `MOVED // ${from} -> ${to}; the bus holds the move, the card is unchanged`,
+  intakeMoveRecordedInPlace: (file: string) => `MOVE RECORDED // ${file} is already there; the bus holds the move, the file stays put`,
   intakeMoveNotFound: (id: number) => `INTAKE REFUSED // NO CARD: #${id} is in no parking directory under the root`,
   intakeMoveAmbiguous: (id: number, paths: string) => `INTAKE REFUSED // AMBIGUOUS: #${id} is parked in more than one place: ${paths}`,
-  intakeMoveTargetHasNumber: (id: number, target: string) => `INTAKE REFUSED // NUMBER TAKEN: ${target} already holds #${id}; nothing moved`,
   intakeMoveNeedsBoth: 'INTAKE REFUSED // --move and --to go together, with no --draft, --taken or --admit',
+  intakeMoveNeedsTheBus: 'INTAKE REFUSED // NO BUS: a move is held only by the bus, and this entry has none; run pnpm intake --move; nothing moved',
   intakeMoveTargetOutside: (to: string) => `INTAKE REFUSED // OUTSIDE: --to ${to} is not the parking root (.) or one directory directly under it; nothing moved`,
   intakeAmended: (file: string, card: string, inBus: boolean) => `CARD AMENDED // ${file}: ${card}; its text differs from the admitted one, a new ${inBus ? 'card.admitted is in the bus' : 'intake line is in the journal'}`,
   intakeAdmitUnclear: (count: number) => `${count} UNCLEAR // marked in the card; who is left as the card states it`,
@@ -870,11 +872,12 @@ export const PLAIN_LORE: Lore = {
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `Already admitted ${file}: ${card}. Its card.admitted is in the bus, so task:start and the shift take it.`
     : `Already admitted ${file}: ${card}. The journal holds its intake line; no bus is wired to this run, so nothing was written.`,
-  intakeMoved: (from: string, to: string, inBus: boolean) => `Moved ${from} to ${to}. The ${inBus ? 'bus holds the move as card.moved' : 'journal holds the move'}; the card is unchanged.`,
+  intakeMoved: (from: string, to: string) => `Moved ${from} to ${to}. The bus holds the move as card.moved; the card is unchanged.`,
+  intakeMoveRecordedInPlace: (file: string) => `${file} is already in that directory. The bus holds the move as card.moved; the file was not moved.`,
   intakeMoveNotFound: (id: number) => `Refused: #${id} is in no parking directory under the root. Nothing was written.`,
   intakeMoveAmbiguous: (id: number, paths: string) => `Refused: #${id} is parked in more than one place: ${paths}. Nothing was written.`,
-  intakeMoveTargetHasNumber: (id: number, target: string) => `Refused: ${target} already holds #${id}. Nothing was moved.`,
   intakeMoveNeedsBoth: 'Refused: --move and --to go together, with no --draft, --taken or --admit. Nothing was written.',
+  intakeMoveNeedsTheBus: 'Refused: a move is held only by the bus, and this entry has none; run pnpm intake --move. Nothing was moved.',
   intakeMoveTargetOutside: (to: string) => `Refused: --to ${to} is not the parking root (.) or one directory directly under it. Nothing was moved.`,
   intakeAmended: (file: string, card: string, inBus: boolean) => inBus
     ? `Amended ${file}: ${card}. Its card, task text or witnesses differ from what was admitted, so a new card.admitted with source amend is in the bus.`

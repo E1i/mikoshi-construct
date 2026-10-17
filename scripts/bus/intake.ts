@@ -26,6 +26,8 @@ const INTAKE_ADMISSIONS = `
   ORDER BY id
 `
 
+const ANY_ADMISSION = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? LIMIT 1`
+
 const PREVIOUS_ADMISSION = `SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
 export interface IntakeAdmission extends RecordedIntake {
@@ -114,6 +116,8 @@ function admissionOfMove(move: CardEvent): CardEvent | null {
 export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}${session}`
   return event => inTransaction(db, () => {
+    if (event.type === CARD_MOVED && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
+      throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
     append(db, actor, event)
     const admitted = event.type === CARD_MOVED ? admissionOfMove(event) : null
     if (admitted !== null)

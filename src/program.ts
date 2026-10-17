@@ -364,7 +364,7 @@ function intakeCommand(bus: BusPorts | undefined) {
       draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
       taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
       admit: { type: 'string', description: 'A card already parked (<parking>/<id>.md): check it by facts and write its intake line; no new number' },
-      move: { type: 'string', description: 'A parked card (#<id>) to move to the parking directory --to names: found in the parking root or a direct subdirectory, the file unchanged, one journal line' },
+      move: { type: 'string', description: 'A parked card (#<id>) to move to the parking directory --to names: found in the parking root or a direct subdirectory, the file unchanged, the bus holds it' },
       to: { type: 'string', description: 'With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root' },
       parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
       dir: commonArgs.dir,

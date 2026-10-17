@@ -24,6 +24,8 @@ export const DROPPED_CARD = 'dropped'
 
 export const DROPPED_LANE = 'dropped'
 
+const TERMINAL_LANES = new Set<unknown>(['archive', DROPPED_LANE, 'superseded'])
+
 type CardState = string | null
 
 const STOP_REASONS = new Set(['question.agent', QUESTION_OWNER, 'review', 'conflict', 'fault', 'ci'])
@@ -33,6 +35,7 @@ const REVIEWED = new Set<CardState>([IN_REVIEW_CARD, CHANGES_CARD, READY_CARD])
 const ADMITTED_AGAIN = new Set<CardState>([null, QUEUED_CARD, FALLEN_CARD, STOPPED_CARD, CLOSED_CARD, DROPPED_CARD])
 const ANSWERED = new Set<CardState>([STOPPED_CARD, CHANGES_CARD, IN_REVIEW_CARD])
 const FALLS = new Set<CardState>([RUNNING_CARD, IN_REVIEW_CARD, CHANGES_CARD])
+const ENDED = new Set<CardState>([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
 
 interface Card {
   state: CardState
@@ -141,7 +144,7 @@ function foldFell(db: DatabaseSync, event: StoredEvent): void {
 
 function foldMoved(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_MOVED} needs a card_id`)
-  if (payloadOf(event).lane === DROPPED_LANE && stateOf(db, cardId) === RUNNING_CARD)
+  if (TERMINAL_LANES.has(payloadOf(event).lane) && !ENDED.has(stateOf(db, cardId)))
     moveCard(db, cardId, DROPPED_CARD, event.id)
 }
 
