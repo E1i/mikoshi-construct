@@ -247,7 +247,6 @@ function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
     () => updateCandidates(db, ts),
     () => mergeCandidates(db, ts),
     open('restart', RESTART_CANDIDATES),
-    () => closeCandidates(db, ts),
     () => answerCandidates(db, ts),
   ]
 }
