@@ -715,6 +715,10 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     expect(selectOnce({ offset, busId: 1 }, { ...fileDeps(file, () => true, events), lastBusId: () => 3 }, [], 943)).toEqual({ line: null, cursor: { offset, busId: 2 } })
   })
 
+  it('the skip line names the bus id the cursor was committed through', () => {
+    expect(skippedLine(2)).toBe('skipped through bus id 2')
+  })
+
   it('a --card once run killed while it waits leaves the cursor past the events of other cards it skipped', async () => {
     const file = journal()
     const bus = busOf(file)
