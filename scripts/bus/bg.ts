@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -67,11 +67,19 @@ export function runningBus(processes: RunningProcess[]): RunningProcess | undefi
   return runningInstance(processes, BUS_RUN_MARKERS)
 }
 
-function recordedPid(file: string): number | null {
-  if (!existsSync(file))
-    return null
-  const pid = Number(readFileSync(file, 'utf8').trim())
-  return Number.isInteger(pid) && pid > 0 ? pid : null
+interface StartLock { holder: number, mtimeMs: number }
+
+function readStartLock(file: string): StartLock | null {
+  try {
+    const { mtimeMs } = statSync(file)
+    const holder = Number(readFileSync(file, 'utf8').trim())
+    return Number.isInteger(holder) && holder > 0 ? { holder, mtimeMs } : null
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return null
+    throw error
+  }
 }
 
 export function alive(pid: number): boolean {
@@ -84,8 +92,8 @@ export function alive(pid: number): boolean {
   }
 }
 
-function holdsStart(lock: string, holder: number, processes: RunningProcess[]): boolean {
-  if (Date.now() - statSync(lock).mtimeMs > START_LOCK_LIMIT_MS)
+function holdsStart({ holder, mtimeMs }: StartLock, processes: RunningProcess[]): boolean {
+  if (Date.now() - mtimeMs > START_LOCK_LIMIT_MS)
     return false
   const ownArgs = processes.find(candidate => candidate.pid === process.pid)?.args
   if (ownArgs === undefined)
@@ -102,13 +110,13 @@ function startHolder(lock: string, processes: ProcessList): number | null {
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST')
         throw error
-      const holder = recordedPid(lock)
-      if (holder !== null && holdsStart(lock, holder, processes()))
-        return holder
+      const found = readStartLock(lock)
+      if (found !== null && holdsStart(found, processes()))
+        return found.holder
       rmSync(lock, { force: true })
     }
   }
-  return recordedPid(lock) ?? 0
+  return readStartLock(lock)?.holder ?? 0
 }
 
 export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {

@@ -172,6 +172,22 @@ describe('pnpm bus:bg', () => {
     expect(existsSync(path.join(w.busDir, START_LOCK))).toBe(false)
   })
 
+  it('a start lock that vanishes after the start found it does not crash the start', async () => {
+    const w = world()
+    const other = detachedSleep()
+    mkdirSync(w.busDir, { recursive: true })
+    const lock = path.join(w.busDir, START_LOCK)
+    writeFileSync(lock, `${other}\n`)
+    const holderFinishes: ProcessList = () => {
+      rmSync(lock, { force: true })
+      return [{ pid: process.pid, args: 'node review-bg.ts' }, { pid: other, args: 'sleep 30' }]
+    }
+    const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, holderFinishes)
+    expect(result.exitCode).toBe(0)
+    started.push(Number(result.stdout[0]))
+    expect(result.stderr).toEqual([])
+  })
+
   it('a start lock of a live start of the same script refuses the start', async () => {
     const w = world()
     const other = detachedSleep()
