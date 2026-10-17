@@ -6,7 +6,6 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFile
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { parkingLane } from '../../bus/admissions.js'
@@ -20,11 +19,12 @@ import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
-import { blockFor } from '../../bus/update-worker.js'
 import { busLaunches } from '../../bus/workers.js'
 import { OPERATOR_CLAUDE } from '../../shift/relaunch.js'
+import { waitFor } from '../wait-for.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
+const ARRIVAL_GUARD_MS = 25_000
 const roots: string[] = []
 const groups: number[] = []
 
@@ -94,9 +94,8 @@ function stubClaude(root: string): { command: string, argsFile: string } {
   return { command, argsFile }
 }
 
-function waitFor(file: string): string {
-  for (let attempt = 0; attempt < 100 && !existsSync(file); attempt += 1)
-    blockFor(50)
+async function written(file: string): Promise<string> {
+  await waitFor(() => existsSync(file), () => `the stub to write ${file}`, ARRIVAL_GUARD_MS)
   return readFileSync(file, 'utf8')
 }
 
@@ -111,8 +110,7 @@ function alive(pid: number): boolean {
 }
 
 async function waitForExit(pid: number): Promise<void> {
-  for (let attempt = 0; attempt < 100 && alive(pid); attempt += 1)
-    await sleep(50)
+  await waitFor(() => !alive(pid), () => `process ${pid} to exit`, ARRIVAL_GUARD_MS)
 }
 
 function realStarter(root: string, shiftClaude: string | undefined, cardId: number, overrides: Partial<StarterPorts> = {}, places: Partial<StarterPlaces> = {}): ShiftCardStarter {
@@ -198,7 +196,7 @@ describe('the launch queue', () => {
     bench.close()
   })
 
-  it('a launch is spawned detached as its own process group leader and records card.started', () => {
+  it('a launch is spawned detached as its own process group leader and records card.started', async () => {
     const root = tempRoot()
     const stub = stubClaude(root)
     const bench = launchBench(realStarter(root, stub.command, 920))
@@ -208,7 +206,7 @@ describe('the launch queue', () => {
     const outcome = bench.launch(bench.leaseLaunch()!)
     expect(outcome.kind).toBe('started')
     const card = (outcome as Extract<LaunchOutcome, { kind: 'started' }>).card
-    waitFor(stub.argsFile)
+    await written(stub.argsFile)
     expect(card.pid).not.toBe(process.pid)
     expect(psPgid(card.pid)).toBe(card.pid)
     expect(card.pgid).toBe(card.pid)
@@ -291,7 +289,7 @@ describe('the launch queue', () => {
     expect(cardCommand('claude')).toBe(OPERATOR_CLAUDE)
   })
 
-  it('a launch worker started from an auto window starts the card session in dontAsk', () => {
+  it('a launch worker started from an auto window starts the card session in dontAsk', async () => {
     const root = tempRoot()
     const stub = stubClaude(root)
     const bench = launchBench(realStarter(root, `${stub.command} --permission-mode auto`, 934, {}, { claude: stub.command }))
@@ -299,7 +297,7 @@ describe('the launch queue', () => {
     bench.tick()
 
     expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
-    const [args, card] = waitFor(stub.argsFile).trim().split('\n')
+    const [args, card] = (await written(stub.argsFile)).trim().split('\n')
     expect(args).toBe('--permission-mode dontAsk -p --session-id session-934')
     expect(card).toBe('card=934')
     bench.close()
