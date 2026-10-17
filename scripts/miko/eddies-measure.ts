@@ -49,7 +49,7 @@ export interface ExitReadings {
   context: Reading<number>
   contextWarn: Reading<number>
   spent: Reading<number>
-  sessionSpend: Reading<number>
+  spendWarn: Reading<number>
   cards: Reading<number>
   busEvents: Reading<number>
 }
@@ -68,7 +68,7 @@ export interface ExitLine {
   at: string
 }
 
-export const UNREAD: ExitReadings = { sessionId: UNKNOWN, start: UNKNOWN, end: UNKNOWN, context: UNKNOWN, contextWarn: UNKNOWN, spent: UNKNOWN, sessionSpend: UNKNOWN, cards: UNKNOWN, busEvents: UNKNOWN }
+export const UNREAD: ExitReadings = { sessionId: UNKNOWN, start: UNKNOWN, end: UNKNOWN, context: UNKNOWN, contextWarn: UNKNOWN, spent: UNKNOWN, spendWarn: UNKNOWN, cards: UNKNOWN, busEvents: UNKNOWN }
 
 export function exitLineOf(readings: ExitReadings, reason: StopReason, at: string): ExitLine {
   return {
@@ -145,15 +145,18 @@ function sessionSpent(root: string, transcript: string): number {
   return hookMeasure.spentOf(hookMeasure.addTokens({ ...parent }, agents))
 }
 
-function limitsOf(root: string): { contextWarn: Reading<number>, sessionSpend: Reading<number> } {
+function warnOf(limit: number | null, warnRatio: number | null): Reading<number> {
+  return limit === null || warnRatio === null || warnRatio > 1 ? UNKNOWN : limit * warnRatio
+}
+
+function limitsOf(root: string): { contextWarn: Reading<number>, spendWarn: Reading<number> } {
   const config = attempt(() => JSON.parse(readFileSync(path.join(root, CONFIG_FILE), 'utf8')) as Record<string, unknown> | null)
   if (config === UNKNOWN || typeof config !== 'object')
-    return { contextWarn: UNKNOWN, sessionSpend: UNKNOWN }
-  const contextLimit = positive(config.contextLimit)
+    return { contextWarn: UNKNOWN, spendWarn: UNKNOWN }
   const warnRatio = positive(config.warnRatio)
   return {
-    contextWarn: contextLimit === null || warnRatio === null || warnRatio > 1 ? UNKNOWN : contextLimit * warnRatio,
-    sessionSpend: positive(config.sessionSpend) ?? UNKNOWN,
+    contextWarn: warnOf(positive(config.contextLimit), warnRatio),
+    spendWarn: warnOf(positive(config.sessionSpend), warnRatio),
   }
 }
 

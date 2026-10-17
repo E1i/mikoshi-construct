@@ -18,6 +18,7 @@ const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
 const CONTEXT_WARN = LIMITS.contextLimit * LIMITS.warnRatio
+const SPEND_WARN = LIMITS.sessionSpend * LIMITS.warnRatio
 const STUB_CLAUDE = `#!/bin/sh
 n=$(( $(cat "$STUB_DIR/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$STUB_DIR/count"
@@ -93,8 +94,9 @@ function run(dir: string, command: string, args: string[]): Promise<{ code: numb
   return new Promise(resolve => child.on('close', (code, signal) => resolve({ code, signal, stderr })))
 }
 
-const BELOW: ExitReadings = { ...UNREAD, sessionId: SESSION, context: CONTEXT_WARN - 1, contextWarn: CONTEXT_WARN, spent: LIMITS.sessionSpend - 1, sessionSpend: LIMITS.sessionSpend }
+const BELOW: ExitReadings = { ...UNREAD, sessionId: SESSION, context: CONTEXT_WARN - 1, contextWarn: CONTEXT_WARN, spent: SPEND_WARN - 1, spendWarn: SPEND_WARN }
 const AT_CONTEXT: ExitReadings = { ...BELOW, context: CONTEXT_WARN }
+const AT_SPEND_WARN: ExitReadings = { ...BELOW, spent: SPEND_WARN }
 const AT_SPEND: ExitReadings = { ...BELOW, spent: LIMITS.sessionSpend }
 
 const underLoop = parsePs('  1     0 /sbin/launchd\n 10     1 node tsx scripts/miko/loop.ts\n 12    10 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
@@ -200,7 +202,7 @@ describe('exitDecision reads the stop reason, the process chain and the age of m
 })
 
 describe('miko:exit ends a session only at a stop reason', () => {
-  it('a fresh handoff with STATUS CONTINUE below the context warn and the spend limit is refused with the not-at-a-stop-condition text', () => {
+  it('a fresh handoff with STATUS CONTINUE below the context warn and the spend warn is refused with the not-at-a-stop-condition text', () => {
     const outcome = exit({ readings: () => BELOW })
     expect(outcome).toMatchObject({ code: 1, kills: [], stops: [], recorded: [] })
     expect(outcome.lines).toEqual([`[miko] ${NOT_AT_A_STOP_CONDITION}; nothing ended`])
@@ -210,8 +212,11 @@ describe('miko:exit ends a session only at a stop reason', () => {
     expect(exit({ readings: () => AT_CONTEXT })).toMatchObject({ code: 0, kills: [12], recorded: [expect.objectContaining({ reason: 'context' })] })
   })
 
-  it('a session spend at or above the eddies limit kills the session with STATUS CONTINUE', () => {
-    expect(exit({ readings: () => AT_SPEND })).toMatchObject({ code: 0, kills: [12], recorded: [expect.objectContaining({ reason: 'spend' })] })
+  it.each([
+    { name: 'the spend warn', readings: AT_SPEND_WARN },
+    { name: 'the spend limit', readings: AT_SPEND },
+  ])('a session spend at or above the spend warn kills the session with STATUS CONTINUE: at $name', ({ readings }) => {
+    expect(exit({ readings: () => readings })).toMatchObject({ code: 0, kills: [12], recorded: [expect.objectContaining({ reason: 'spend' })] })
   })
 
   it('a handoff with STATUS DONE kills the session without conditions', () => {
@@ -249,7 +254,7 @@ describe('miko:exit ends a session only at a stop reason', () => {
   it('without the session file the counters are unknown and a DONE exit still happens', () => {
     const dir = scratch()
     const readings = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
-    expect(readings).toEqual({ ...UNREAD, sessionId: SESSION, contextWarn: CONTEXT_WARN, sessionSpend: LIMITS.sessionSpend })
+    expect(readings).toEqual({ ...UNREAD, sessionId: SESSION, contextWarn: CONTEXT_WARN, spendWarn: SPEND_WARN })
     const outcome = exit({ status: () => 'DONE', readings: () => readings, handoffMtime: () => undefined })
     expect(outcome.kills).toEqual([12])
     expect(outcome.recorded).toEqual([expect.objectContaining({ start: UNKNOWN, end: UNKNOWN, spent: UNKNOWN, cards: UNKNOWN, bus_events: UNKNOWN })])
