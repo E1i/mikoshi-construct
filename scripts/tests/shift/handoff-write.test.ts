@@ -1,4 +1,5 @@
-import type { HandoffState, StateReading } from '../../shift/handoff-write.js'
+import type { ExitReadings } from '../../miko/eddies-measure.js'
+import type { HandoffState, MergedReading, PrState, StateReading } from '../../shift/handoff-write.js'
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -9,6 +10,8 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
+import { UNREAD } from '../../miko/eddies-measure.js'
+import { stopReasonOf } from '../../miko/exit.js'
 import { nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
 import { statusOf } from '../../shift/relaunch.js'
 
@@ -33,17 +36,27 @@ const BUS_STATE: HandoffState = {
   execution: [{ card: 648, pr: null, stage: 'writing', since: null, review: null, markers: [] }, { card: 640, pr: 701, stage: 'awaiting merge', since: null, review: null, markers: [] }],
 }
 const HANDOFF_WRITE = fileURLToPath(new URL('../../shift/handoff-write.ts', import.meta.url))
+const NOW = new Date('2026-10-17T10:00:00.000Z')
+const NO_MERGES: MergedReading = { kind: 'read', cards: [], merges: 0, updates: 0 }
+const BELOW_WARN: ExitReadings = { ...UNREAD, context: 10, contextWarn: 100, spent: 1, spendWarn: 100 }
+const AT_CONTEXT_WARN: ExitReadings = { ...BELOW_WARN, context: 100 }
 let busState: StateReading = NO_BUS
+let mergedToday: MergedReading = NO_MERGES
+let prStates: Record<number, PrState> = {}
+let exitReadings: ExitReadings = BELOW_WARN
 
 afterEach(() => {
   busState = NO_BUS
+  mergedToday = NO_MERGES
+  prStates = {}
+  exitReadings = BELOW_WARN
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
 
 function draft(extra: Record<string, string> = {}): string {
-  const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, field.id === 'decisions' ? DECISIONS : `${field.id} value`])), 'queue': '#650 → #652', 'in-flight': '#650 brief', ...extra }
-  return `# Handoff\n\n## STOP — window 2\n${Object.entries(values).map(([label, value]) => `${label}: ${value}`).join('\n')}\n\nSTATUS: CONTINUE\n`
+  const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.filter(field => field.id !== 'stop-reason').map(field => [field.label, field.id === 'decisions' ? DECISIONS : `${field.id} value`])), 'queue': '#650 → #652', 'in-flight': '#650 brief', 'owner waits': 'none', 'next task': '#650 brief', ...extra }
+  return `# Handoff\n\nrole: window\nsession: 2\n${Object.entries(values).map(([label, value]) => `${label}: ${value}`).join('\n')}\n\nSTATUS: CONTINUE\n`
 }
 
 function withoutStateFields(text: string): string {
@@ -72,6 +85,11 @@ function write(args: string[], handoffDir?: string, sessionHandoff: string | nul
     rename: renameSync,
     parked: () => PARKED,
     state: () => busState,
+    merged: () => mergedToday,
+    prState: pr => prStates[pr] ?? 'OPEN',
+    readings: () => exitReadings,
+    stopReason: stopReasonOf,
+    now: () => NOW,
     home: '/home/x',
     out: line => out.push(line),
     err: line => err.push(line),
@@ -107,7 +125,7 @@ describe('handoff:write', () => {
     expect(write([handoff, file]).code).toBe(0)
     expect(readFileSync(path.join(dir, 'archive', '0001.md'), 'utf8')).toBe(old)
     const written = readFileSync(handoff, 'utf8')
-    expect(written.split('\n').slice(2, 4)).toEqual(['## STOP — window 2', 'prev: archive/0001.md'])
+    expect(written.split('\n').slice(2, 4)).toEqual(['## STOP — window, 2026-10-17, session 2, boundary: none', 'prev: archive/0001.md'])
     writeFileSync(file, draft({ prev: 'archive/0009.md' }))
     expect(write([handoff, file]).code).toBe(0)
     expect(readFileSync(path.join(dir, 'archive', '0002.md'), 'utf8')).toBe(written)
@@ -237,8 +255,8 @@ describe('handoff:write', () => {
     expect(result.err).toEqual([])
     expect(result.code).toBe(0)
     const written = readFileSync(handoff, 'utf8')
-    expect(written).toContain('## STOP — window 2\nprev: none\ncurrent card: #648 lane-1 running\nqueue: #650 → #652\nin-flight:\n- #648 writing\n- #640 awaiting-merge PR #701\nblocked: #653 waits question\n')
-    expect(written).toContain('stop reason: stop-reason value\n')
+    expect(written).toContain('## STOP — window, 2026-10-17, session 2, boundary: none\nprev: none\ncurrent card: #648 lane-1 running\nqueue: #650 → #652\nin-flight:\n- #648 writing\n- #640 awaiting-merge PR #701\nblocked: #653 waits question\n')
+    expect(written).toContain('stop reason: none\n')
     expect(written).toContain('continue when: continue-when value\n')
     expect(result.out[0]).toContain(`${STATE_FIELDS.join(', ')} from the bus state`)
   })
@@ -271,13 +289,13 @@ describe('handoff:write', () => {
 
   it('writes the owner waits the draft names, the version PR among them, beside the blocked cards the bus state holds', () => {
     const { handoff, draft: file } = world()
-    writeFileSync(file, withoutStateFields(draft({ 'owner waits': 'version PR #900 needs the owner\'s approval' })))
+    writeFileSync(file, withoutStateFields(draft({ 'owner waits': 'Q3 open PR #900' })))
     busState = { kind: 'read', state: BUS_STATE }
     const result = write([handoff, file])
     expect(result.err).toEqual([])
     expect(result.code).toBe(0)
     const written = readFileSync(handoff, 'utf8')
-    expect(written).toContain('owner waits: version PR #900 needs the owner\'s approval\n')
+    expect(written).toContain('owner waits: Q3 open PR #900\n')
     expect(written).toContain('blocked: #653 waits question\n')
   })
 
@@ -321,7 +339,63 @@ describe('handoff:write', () => {
   }, 20_000)
 
   it('handoff:write does not import miko:exit', () => {
-    expect(readFileSync(HANDOFF_WRITE, 'utf8')).not.toMatch(/['"]\.\.\/miko\/exit(?:\.js)?['"]/)
+    const source = readFileSync(HANDOFF_WRITE, 'utf8')
+    expect(source).not.toMatch(/\b(?:runMikoExit|realMikoExitDeps|exitDecision)\b/)
+    expect(source.match(/from ['"]\.\.\/miko\/exit(?:\.js)?['"]/g)).toEqual(['from \'../miko/exit.js\''])
+    expect(source).toMatch(/import \{ stopReasonOf \} from '\.\.\/miko\/exit\.js'/)
+  })
+
+  it('generates the STOP heading, merged today and the stop reason, and refuses them in the draft', () => {
+    const { handoff, draft: file } = world()
+    mergedToday = { kind: 'read', cards: [992, 1013], merges: 2, updates: 3 }
+    exitReadings = AT_CONTEXT_WARN
+    writeFileSync(file, draft({ 'next task': 'item 2 of the queue' }).replace('session: 2', 'session: 13'))
+    const written = write([handoff, file])
+    expect(written.err).toEqual([])
+    expect(written.code).toBe(0)
+    const text = readFileSync(handoff, 'utf8')
+    expect(text).toContain('## STOP — window, 2026-10-17, session 13, boundary: context\n')
+    expect(text).toContain('merged today: #992, #1013\nwindows: merge 2, update 3\nstop reason: context (100/100 tokens, 1/100 spend)\n')
+    expect(text).not.toContain('role:')
+    expect(text).not.toContain('session:')
+    mergedToday = { kind: 'unread', why: 'no bus' }
+    writeFileSync(file, draft())
+    expect(write([handoff, file]).code).toBe(0)
+    expect(readFileSync(handoff, 'utf8')).toContain('merged today: unread (no bus)\nwindows: unread\n')
+    const before = readFileSync(handoff, 'utf8')
+    const bad = draft({ 'merged today': '#1', 'windows': 'merge 1', 'stop reason': 'context', 'next task': 'whatever' }).replace('role: window\nsession: 2', '## STOP — x\nrole: owner\nsession: x')
+    writeFileSync(file, bad)
+    const refused = write([handoff, file])
+    expect(refused.code).toBe(1)
+    const lines = refused.err.join('\n')
+    for (const part of ['STOP heading: generated', 'merged today: generated', 'windows: generated', 'stop reason: generated', 'role: "owner"', 'session: "x"', 'next task: "whatever"'])
+      expect(lines).toContain(part)
+    expect(refused.err.at(-1)).toContain('nothing archived')
+    expect(readFileSync(handoff, 'utf8')).toBe(before)
+    writeFileSync(file, draft().replace('STATUS: CONTINUE', 'STATUS: DONE'))
+    expect(write([handoff, file]).code).toBe(0)
+    expect(readFileSync(handoff, 'utf8')).toContain('boundary: done\n')
+    expect(readFileSync(handoff, 'utf8')).toContain('stop reason: done (100/100 tokens, 1/100 spend)\n')
+  })
+
+  it('refuses an owner wait naming a merged or closed pull request', () => {
+    const { handoff, draft: file } = world()
+    writeFileSync(handoff, 'old\n')
+    writeFileSync(file, draft({ 'owner waits': 'Q3 open PR #669; Q4 answered PR #824; Q5 open' }))
+    prStates = { 669: 'OPEN', 824: 'MERGED' }
+    const merged = write([handoff, file])
+    expect(merged.code).toBe(1)
+    expect(merged.err.filter(line => line.includes('owner waits'))).toEqual(['[handoff:write] owner waits: PR #824 is merged; drop it'])
+    expect(readFileSync(handoff, 'utf8')).toBe('old\n')
+    prStates = { 669: 'CLOSED', 824: 'OPEN' }
+    expect(write([handoff, file]).err.filter(line => line.includes('owner waits'))).toEqual(['[handoff:write] owner waits: PR #669 is closed; drop it'])
+    prStates = { 669: 'unread', 824: 'OPEN' }
+    expect(write([handoff, file]).code).toBe(0)
+    expect(readFileSync(handoff, 'utf8')).toContain('owner waits: Q3 open PR #669 (PR #669 unread); Q4 answered PR #824; Q5 open\n')
+    writeFileSync(file, draft({ 'owner waits': 'waiting for the owner' }))
+    const prose = write([handoff, file])
+    expect(prose.code).toBe(1)
+    expect(prose.err.join('\n')).toContain('owner waits: "waiting for the owner" is not Q<N>')
   })
 
   it('runHandoffWrite with STATUS: CONTINUE kills nothing', () => {

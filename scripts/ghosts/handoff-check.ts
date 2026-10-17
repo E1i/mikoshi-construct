@@ -19,17 +19,12 @@ export const HANDOFF_FIELDS: readonly HandoffField[] = [
   { id: 'queue', label: 'queue', group: 'where we are' },
   { id: 'done', label: 'done', group: 'where we are' },
   { id: 'not-done', label: 'not done', group: 'where we are' },
-  { id: 'journal', label: 'journal', group: 'what continuing needs' },
-  { id: 'card-paths', label: 'card paths', group: 'what continuing needs' },
-  { id: 'cloud-runs', label: 'cloud runs', group: 'what continuing needs' },
   { id: 'delegation', label: 'delegation', group: 'what continuing needs' },
+  { id: 'next-task', label: 'next task', group: 'what continuing needs' },
   { id: 'local-decisions', label: 'local decisions', group: 'what continuing needs' },
-  { id: 'judge-format', label: 'judge format', group: 'how to verify' },
-  { id: 'gates', label: 'gates', group: 'how to verify' },
   { id: 'owner-waits', label: 'owner waits', group: 'how to verify' },
   { id: 'decisions', label: 'decisions', group: 'what must not be lost' },
   { id: 'intake-tokens', label: 'intake tokens', group: 'what must not be lost' },
-  { id: 'probe-results', label: 'probe results', group: 'what must not be lost' },
   { id: 'stop-reason', label: 'stop reason', group: 'what must not be lost' },
   { id: 'continue-when', label: 'continue when', group: 'what must not be lost' },
 ]
@@ -85,6 +80,10 @@ export function refusal(missing: readonly HandoffField[]): string[] {
 }
 
 export const HANDOFF_LIMIT = 6000
+export const NEXT_TASK_LIMIT = 300
+export const STATIC_FIELDS = ['journal', 'card paths', 'cloud runs', 'probe results', 'judge format', 'gates', 'pnpm form', 'denials'] as const
+const NEXT_TASK_LABEL = 'next task'
+const HANDOFF_CONSTANTS = 'architecture/window.md § Handoff constants'
 export const OWNER_DECISIONS_LABEL = 'owner decisions'
 
 export function handoffBytes(text: string): number {
@@ -244,10 +243,22 @@ export function reportRefusals(text: string): string[] {
   return boundRefusals(text, blocksOf(text), 'at-most-one', null)
 }
 
+function nextTaskRefusals(text: string): string[] {
+  const bytes = handoffBytes(valuesOf(text).get(NEXT_TASK_LABEL) ?? '')
+  return bytes > NEXT_TASK_LIMIT ? [`${PREFIX}${NEXT_TASK_LABEL}: ${bytes} bytes over the limit of ${NEXT_TASK_LIMIT}`] : []
+}
+
+function staticRefusals(blocks: readonly Block[]): string[] {
+  const labels = new Set(blocks.map(block => block.label))
+  return STATIC_FIELDS.filter(label => labels.has(label)).map(label => `${PREFIX}${label}: static field, not carried in a handoff; see ${HANDOFF_CONSTANTS}`)
+}
+
 export function handoffRefusals(text: string, context: HandoffContext): string[] {
   const blocks = blocksOf(text)
   return [
     ...boundRefusals(text, blocks, 'exactly-one', context.parked),
+    ...nextTaskRefusals(text),
+    ...staticRefusals(blocks),
     ...prevRefusals(blocks, context),
     ...decisionsRefusals(text, blocks, context),
     ...inFlightRefusals(blocks),
