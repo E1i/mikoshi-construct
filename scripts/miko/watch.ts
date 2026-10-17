@@ -28,6 +28,10 @@ export const WATCHING = 'miko:watch: what is already there is read; watching for
 export const WATCHING_FROM_CURSOR = 'miko:watch: reading from the --once cursor; watching'
 export const LEGACY_CURSOR = 'miko-watch.json'
 
+export function skippedLine(busId: number): string {
+  return `skipped through bus id ${busId}`
+}
+
 export interface WatchState {
   offset: number
   rest: string
@@ -251,6 +255,7 @@ export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: numbe
     if (delivery?.line === null) {
       store.write(delivery.cursor)
       store.commit()
+      console.error(skippedLine(delivery.cursor.busId))
     }
     if (delivery?.line == null) {
       await new Promise(resolve => setTimeout(resolve, POLL_MS))
