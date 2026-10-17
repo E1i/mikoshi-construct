@@ -237,10 +237,10 @@ shares with the decisions in force (`scripts/shift/day-archive.ts`).
 
 ## Pull requests and branches
 
-A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
-with what it guards (it runs `quality:steps` under `scripts/quality/lock.ts`, one machine-wide lock in
-`~/.construct/quality` whose `lock.log` records who held it, who waited and when each started and ended, so a run
-in another lane or worktree waits for the one before it); then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
+A pull request of no owner-merged kind: before it, run the card's witnesses, `pnpm typecheck` and `pnpm lint`, each as
+its own command, and read the results, never chained with what they guard (D-111). The window does not run
+`pnpm run quality`: the full quality runs only in CI, which is the proof and the merge gate, and a flake in CI is a
+re-run of that CI job, never a local quality. Then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
 then, for a briefed pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
 review when main merged in cleanly and refuses with `review again` otherwise, and for a cheap one `pnpm shift:merge <N> --carry`,
 which carries its journalled `event:pr-review` verdict to the new head as the `review` status `carried from <sha>` when every

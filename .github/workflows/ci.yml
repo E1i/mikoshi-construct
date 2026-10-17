@@ -1,6 +1,6 @@
 # Gates aggregated into the one required check `CI / required`.
 #
-# checks · lint · typecheck · vitest (two shards) · docs — the steps of package.json's `quality`,
+# checks · lint · typecheck · vitest (four shards) · docs — the steps of package.json's `quality`,
 #              split into parallel jobs; scripts/tests/ci/quality-steps.test.ts holds them to exactly
 #              that list. They run on every change, the fast path included, because most of them read
 #              docs/ and architecture/*.md. checks also runs scripts/release/version-pr-guard.ts, red on a
@@ -124,8 +124,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
-    name: vitest ${{ matrix.shard }}/2
+        shard: [1, 2, 3, 4]
+    name: vitest ${{ matrix.shard }}/4
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -134,7 +134,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test --shard=${{ matrix.shard }}/2 --reporter=default --reporter=blob
+      - run: pnpm test --shard=${{ matrix.shard }}/4 --reporter=default --reporter=blob
       - uses: actions/upload-artifact@v7
         with:
           name: vitest-blob-${{ matrix.shard }}
