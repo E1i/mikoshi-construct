@@ -171,6 +171,64 @@ GH_TOKEN=… before gh pr merge, matches no `Bash(gh pr merge:*)`. Global gh fla
 relaunch. `pnpm doctor:factory --apply` asks a person to confirm and only on that yes appends the missing rules to
 `.claude/settings.local.json`; it never reads or writes `.claude/settings.json`.
 
+## Handoff constants
+
+What stays the same from one session to the next lives here, under version control, and not in the handoff:
+`pnpm handoff:check` refuses each of these labels in a handoff, as a line or as a heading (`STATIC_FIELDS` in
+`scripts/ghosts/handoff-check.ts`), and names this section. A change to one of them is a change to this file.
+
+- journal: `~/.construct/handoff/ghosts.jsonl`.
+- card paths: `~/.construct/parking`, one `<id>.md` per card.
+- cloud runs: none.
+- probe results: `~/.construct/scratch`.
+- judge format: a test is named `<file> › <full describe chain> › <title>`, in a judge's verdict and in the red field of
+  a mutation line alike.
+- gates: D-131, D-111 (`pnpm decisions`).
+- pnpm form: bare `pnpm <script>`, with no `cd`, no env prefix, no pipe and no redirect; a worktree run is
+  `pnpm --dir <mc-N> exec|run …` and a worktree git call `git -C <mc-N> …`; `gh pr create` only with `--body-file`;
+  `construct mutate` only as the global `construct mutate … --dir <mc-N>`. Subagents (brief, implementer) are denied
+  pnpm, so the window runs every gate itself.
+- denials: forms the window's `dontAsk` mode refuses, each with the route that is allowed instead —
+  `pnpm ghosts:hash` (`pnpm morse:approve`), `pnpm ghosts:launch` and `pnpm shift` (`pnpm shift:bg`),
+  `pnpm worktrees:sweep`, an Edit under `.claude/**`, AskUserQuestion (ask as text in the window), `git -C` on the main
+  checkout (git in the working directory), `sed -i` and `perl -pi` (Edit or Write), `python3`, `node -e` (Read),
+  `cat` and `cp` over `~/.construct` (Read), a shell for-loop, `kill`, `gh api` with a query string (`gh pr` /
+  `gh issue list`), `sqlite3` with a `~` path (the full path and `SELECT` only), `grep` with a pipe or a `\|`
+  alternation, `grep --include` with a glob, `ls` with a glob, `find` with `2>/dev/null`, `pnpm --dir <mc-N> dev mutate`
+  (the global `construct mutate`), a command followed by `; echo`, and a gate chained with what it guards (`git stash`,
+  vitest and `git stash pop` run as three commands). A new denial is written into the day file the session it happens
+  and lands here through a card; the allowlist is never touched to get past one.
+
+## Local decisions
+
+The window's working rules, given by the owner in the window. They are not owner decisions, which are read through
+`pnpm decisions`; the handoff names a decision only by reference, `D-N`, or by the day-file heading that keeps the
+owner's text verbatim. The handoff's local decisions field points here and does not restate them.
+
+- A stale process the factory runs under launchd (the bus supervisor) is killed so launchd restarts it on current
+  `main`, with no question to the owner.
+- A parked card changes only through `pnpm intake --admit <parking>/<id>.md` (the dev entry refuses while a bus
+  exists); a card goes back to the parking root with `pnpm intake --move '#N' --to .`.
+- A documentation line or a test that a change makes stale goes into that change's card, never a card of its own.
+- The live `bus.db` is read only through the bus commands, `sqlite3 -readonly` with its full path and `SELECT` only
+  (no dot-commands), or a scratch copy.
+- Until the ladder launches again (the launcher still writes the archived `status.md`, finding
+  F-ladder-launch-needs-archived-status-md, item 5 of the plan), a card intake sets to `ladder` with size `S` or `M`
+  and risk R3 or R4 takes contour `cheap` with no question to the owner, recorded through `pnpm intake --admit` with a
+  `corrected:` line that names this rule; R1, R2 or size `L` stays a question to the owner (owner answer 14,
+  2026-10-17). The rule is removed by the card that makes the ladder launch.
+
+## The day file
+
+The owner's day list, `~/.construct/handoff/day-<date>.md`, has three parts and no other.
+
+- Owner texts, verbatim and append-only, each under its own heading naming the session; the window never edits one
+  after writing it, and the handoff points to them by heading.
+- Owner questions, one numbered list; each is open or answered, an answered question leaves the list once its answer
+  is written above, and the handoff's owner-waits field names them as `Q<N> open|answered [PR #M]`.
+- Progress is not retold: what happened is read from the bus events and the journal lines, and the day file keeps
+  only what neither holds — a dontAsk denial, a finding's id, a scratchpad path.
+
 ## Pull requests and branches
 
 A pull request of no owner-merged kind: run `pnpm run quality` as its own command and read the result, never chained
