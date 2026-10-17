@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { HANDOFF_FIELDS, HANDOFF_LIMIT, handoffRefusals, missingFields, parkedDepends, RETIRED_PARKING, runHandoffCheck } from '../../ghosts/handoff-check.js'
+import { HANDOFF_FIELDS, HANDOFF_LIMIT, handoffRefusals, missingFields, NEXT_TASK_LIMIT, parkedDepends, reportRefusals, RETIRED_PARKING, runHandoffCheck, STATIC_FIELDS } from '../../ghosts/handoff-check.js'
 
 function completeHandoff(except: string[] = []): string {
   return HANDOFF_FIELDS.filter(field => !except.includes(field.id)).map(field => `${field.label}: ${field.id} value`).join('\n')
@@ -75,12 +75,28 @@ describe('handoff-check', () => {
   })
 
   it('refuses a value that is only a placeholder dash and accepts none as an answer', () => {
-    expect(missingFields(`${completeHandoff(['cloud-runs'])}\ncloud runs: —`).map(missing => missing.id)).toEqual(['cloud-runs'])
-    expect(missingFields(`${completeHandoff(['cloud-runs'])}\ncloud runs: -`).map(missing => missing.id)).toEqual(['cloud-runs'])
+    expect(missingFields(`${completeHandoff(['delegation'])}\ndelegation: —`).map(missing => missing.id)).toEqual(['delegation'])
+    expect(missingFields(`${completeHandoff(['delegation'])}\ndelegation: -`).map(missing => missing.id)).toEqual(['delegation'])
     for (const placeholder of ['~', '<>', 'TBD', 'todo'])
-      expect(missingFields(`${completeHandoff(['cloud-runs'])}\ncloud runs: ${placeholder}`).map(missing => missing.id)).toEqual(['cloud-runs'])
-    expect(missingFields(`${completeHandoff(['cloud-runs'])}\ncloud runs: none`)).toEqual([])
-    expect(missingFields(`${completeHandoff(['cloud-runs'])}\ncloud runs: n/a`)).toEqual([])
+      expect(missingFields(`${completeHandoff(['delegation'])}\ndelegation: ${placeholder}`).map(missing => missing.id)).toEqual(['delegation'])
+    expect(missingFields(`${completeHandoff(['delegation'])}\ndelegation: none`)).toEqual([])
+    expect(missingFields(`${completeHandoff(['delegation'])}\ndelegation: n/a`)).toEqual([])
+  })
+
+  it('refuses a next task over its byte limit and a static field, naming the window.md section', () => {
+    expect(refusals(handoff({ 'next task': 'é'.repeat(NEXT_TASK_LIMIT / 2) }))).toEqual([])
+    expect(refusals(handoff({ 'next task': `${'é'.repeat(NEXT_TASK_LIMIT / 2)}x` }))).toEqual([`[handoff:check] next task: ${NEXT_TASK_LIMIT + 1} bytes over the limit of ${NEXT_TASK_LIMIT}`])
+    expect(refusals(handoff({ 'next task': 'é'.repeat(NEXT_TASK_LIMIT / 2 + 1) }))[0]).toContain(`${NEXT_TASK_LIMIT + 2} bytes over the limit of ${NEXT_TASK_LIMIT}`)
+    for (const label of ['journal', 'card paths', 'cloud runs', 'probe results', 'judge format', 'gates', 'pnpm form', 'denials']) {
+      const expected = [`[handoff:check] ${label}: static field, not carried in a handoff; see architecture/window.md § Handoff constants`]
+      expect(refusals(handoff({ [label]: 'x' }))).toEqual(expected)
+      expect(refusals(`${handoff()}\n## ${label}\n\nx\n`)).toEqual(expected)
+    }
+  })
+
+  it('leaves the static fields to a card report, which is not a handoff', () => {
+    const report = handoff(Object.fromEntries(STATIC_FIELDS.map(label => [label, 'x'])))
+    expect(reportRefusals(report).filter(line => line.includes('static field'))).toEqual([])
   })
 
   it('names every missing field at once and exits 1 on an absent file', () => {

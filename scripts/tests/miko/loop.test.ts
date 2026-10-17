@@ -129,9 +129,9 @@ async function pauseLine(stderr: () => string, deadlineMs = READY_DEADLINE_MS): 
 
 function writeMikoDraft(dir: string, status: Status): void {
   mkdirSync(path.join(dir, 'parking'))
-  const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, field.id === 'decisions' ? LOOP : `${field.id} value`])), 'queue': 'none', 'in-flight': 'none' }
+  const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.filter(field => field.id !== 'stop-reason').map(field => [field.label, field.id === 'decisions' ? LOOP : `${field.id} value`])), 'queue': 'none', 'in-flight': 'none', 'owner waits': 'none', 'next task': '#1 implement' }
   const fields = Object.entries(values).map(([label, value]) => `${label}: ${value}`)
-  writeFileSync(path.join(dir, 'draft.md'), `# Handoff\n\n## STOP — Miko\n${fields.join('\n')}\n\nSTATUS: ${status}\n`)
+  writeFileSync(path.join(dir, 'draft.md'), `# Handoff\n\nrole: window\nsession: 1\n${fields.join('\n')}\n\nSTATUS: ${status}\n`)
 }
 
 describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS: CONTINUE', () => {
@@ -232,9 +232,9 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     const dir = home(['threshold', 'owner 0'])
     atTheContextWarn(dir)
     mkdirSync(path.join(dir, 'parking'))
-    const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.map(field => [field.label, field.id === 'decisions' ? LOOP : `${field.id} value`])), 'queue': 'none', 'in-flight': 'none' }
+    const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.filter(field => field.id !== 'stop-reason').map(field => [field.label, field.id === 'decisions' ? LOOP : `${field.id} value`])), 'queue': 'none', 'in-flight': 'none', 'owner waits': 'none', 'next task': '#1 implement' }
     const fields = Object.entries(values).map(([label, value]) => `${label}: ${value}`)
-    writeFileSync(path.join(dir, 'draft.md'), `# Handoff\n\n## STOP — Miko\n${fields.join('\n')}\n\nSTATUS: CONTINUE\n`)
+    writeFileSync(path.join(dir, 'draft.md'), `# Handoff\n\nrole: window\nsession: 1\n${fields.join('\n')}\n\nSTATUS: CONTINUE\n`)
     const operator = path.join(dir, '.construct', 'handoff', 'mikoshi.md')
     writeFileSync(operator, '## STOP — Operator\nSTATUS: CONTINUE\n')
     const hourAgo = new Date(Date.now() - 3_600_000)

@@ -1,16 +1,22 @@
 import type { Board } from '../bus/board.js'
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
+import type { ExitReadings, Reading } from '../miko/eddies-measure.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { execGh } from '../board/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { parkingLanes, readBoard } from '../bus/board.js'
+import { MERGE_DONE } from '../bus/card-automaton.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { busParkingReads } from '../bus/parking-reads.js'
+import { UPDATE_DONE } from '../bus/update-executor.js'
 import { BLOCKED_LABEL, defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
+import { projectRoot, realExitReadings, UNKNOWN } from '../miko/eddies-measure.js'
+import { stopReasonOf } from '../miko/exit.js'
 import { MIKO_HANDOFF_NAME } from '../miko/loop.js'
 import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
 
@@ -23,10 +29,19 @@ const ARCHIVED = /^(\d{4,})\.md$/
 const STOP_HEADING = /^#{1,6} +STOP\b/
 const PREV_LINE = new RegExp(`^\\s*(?:[-*+]\\s+)?${PREV_LABEL}:`, 'i')
 const NAMED_BOUNDARY = /\s—\s*boundary:\s*(\S+)\s*$/
+export const STOP_ROLES = ['window', 'operator', 'card'] as const
 const NOTHING = 'none'
+const GENERATED_LABELS = ['merged today', 'windows', 'stop reason'] as const
+const OWNER_WAIT_ENTRY = /^Q\d+ (?:open|answered)(?: PR #(\d+))?$/
+const NEXT_TASK_FORM = /^(?:#\d+ \S.*|item \d+ of \S.*)$/
+const POSITIVE_INTEGER = /^[1-9]\d*$/
+const TITLE_OR_BLANK = /^(?:# .*|\s*)$/
+const DRAFT_STOP_FIELDS = /^\s*(?:[-*+]\s+)?(?:role|session):/i
 
 export type HandoffState = Pick<Board, 'ready' | 'blocked' | 'lanes' | 'execution'>
 export type StateReading = { kind: 'read', state: HandoffState } | { kind: 'unread', why: string }
+export type MergedReading = { kind: 'read', cards: number[], merges: number, updates: number } | { kind: 'unread', why: string }
+export type PrState = 'OPEN' | 'MERGED' | 'CLOSED' | 'unread'
 
 export interface HandoffWriteDeps {
   cwd: string
@@ -41,6 +56,11 @@ export interface HandoffWriteDeps {
   rename: (from: string, to: string) => void
   parked: (parking: string) => ParkedDepends
   state: (parking: string) => StateReading
+  merged: (since: string) => MergedReading
+  prState: (pr: number) => PrState
+  readings: () => ExitReadings
+  stopReason: (status: string | null, readings: ExitReadings) => string | null
+  now: () => Date
   home: string
   out: (line: string) => void
   err: (line: string) => void
@@ -104,8 +124,101 @@ function stateSource(reading: StateReading): string {
   return reading.kind === 'read' ? `${labels} from the bus state` : `${reading.why}: ${labels} as the draft wrote them`
 }
 
+function fieldLine(label: string): RegExp {
+  return new RegExp(`^\\s*(?:[-*+]\\s+)?${label}:\\s*(.*)$`, 'i')
+}
+
+function fieldValue(text: string, label: string): string | null {
+  const pattern = fieldLine(label)
+  for (const line of text.split(/\r?\n/)) {
+    const found = pattern.exec(line)
+    if (found !== null)
+      return found[1]!.trim()
+  }
+  return null
+}
+
+function withFieldValue(text: string, label: string, value: string): string {
+  const pattern = fieldLine(label)
+  return text.split(/\r?\n/).map(line => pattern.test(line) ? line.replace(/:.*$/, `: ${value}`) : line).join('\n')
+}
+
+function statusLineOf(text: string): string | undefined {
+  return text.split(/\r?\n/).filter(line => statusOf(line) !== null).at(-1)
+}
+
+export function draftGeneratedRefusals(draft: string): string[] {
+  const labels = new Set(labelsOf(draft))
+  const role = fieldValue(draft, 'role') ?? ''
+  const session = fieldValue(draft, 'session') ?? ''
+  return [
+    ...(draft.split(/\r?\n/).some(line => STOP_HEADING.test(line)) ? [`${PREFIX}STOP heading: generated from role: and session:; drop it from the draft`] : []),
+    ...GENERATED_LABELS.filter(label => labels.has(label)).map(label => `${PREFIX}${label}: generated from the bus and the readings; drop it from the draft`),
+    ...((STOP_ROLES as readonly string[]).includes(role) ? [] : [`${PREFIX}role: "${role.slice(0, 60)}" is not one of ${STOP_ROLES.join(', ')}`]),
+    ...(POSITIVE_INTEGER.test(session) ? [] : [`${PREFIX}session: "${session.slice(0, 60)}" is not a positive integer`]),
+  ]
+}
+
+export function nextTaskFormRefusals(draft: string): string[] {
+  const value = fieldValue(draft, 'next task')
+  return value === null || value === '' || NEXT_TASK_FORM.test(value) ? [] : [`${PREFIX}next task: "${value.slice(0, 60)}" is not "#<card> <step>" or "item <N> of <list name>"`]
+}
+
+export function ownerWaits(draft: string, prState: (pr: number) => PrState): { refusals: string[], draft: string } {
+  const value = fieldValue(draft, 'owner waits')
+  if (value === null || value === '' || value === NOTHING)
+    return { refusals: [], draft }
+  const entries = value.split(';').map(entry => entry.trim())
+  const malformed = entries.find(entry => !OWNER_WAIT_ENTRY.test(entry))
+  if (malformed !== undefined)
+    return { refusals: [`${PREFIX}owner waits: "${malformed.slice(0, 60)}" is not Q<N> open|answered [PR #M], entries joined by ;, or ${NOTHING}`], draft }
+  const refusals: string[] = []
+  const checked = entries.map((entry) => {
+    const pr = OWNER_WAIT_ENTRY.exec(entry)?.[1]
+    if (pr === undefined)
+      return entry
+    const state = prState(Number(pr))
+    if (state === 'MERGED' || state === 'CLOSED')
+      refusals.push(`${PREFIX}owner waits: PR #${pr} is ${state.toLowerCase()}; drop it`)
+    return state === 'unread' ? `${entry} (PR #${pr} unread)` : entry
+  })
+  return { refusals, draft: withFieldValue(draft, 'owner waits', checked.join('; ')) }
+}
+
+function readingText(value: Reading<number>): string {
+  return value === UNKNOWN ? 'unknown' : String(value)
+}
+
+export function stopReasonLine(reason: string | null, readings: ExitReadings): string {
+  if (reason === null)
+    return `stop reason: ${NOTHING}`
+  return `stop reason: ${reason} (${readingText(readings.context)}/${readingText(readings.contextWarn)} tokens, ${readingText(readings.spent)}/${readingText(readings.spendWarn)} spend)`
+}
+
+export function mergedLines(merged: MergedReading): string[] {
+  if (merged.kind === 'unread')
+    return [`merged today: unread (${merged.why})`, 'windows: unread']
+  return [`merged today: ${joinedOrNothing(merged.cards.map(card => `#${card}`), ', ')}`, `windows: merge ${merged.merges}, update ${merged.updates}`]
+}
+
+export function boundaryOf(draft: string, reason: string | null): string {
+  const status = statusOf(draft)
+  if (status === 'DONE')
+    return 'done'
+  if (status === 'OWNER')
+    return NAMED_BOUNDARY.exec(statusLineOf(draft) ?? '')?.[1] ?? NOTHING
+  return reason ?? NOTHING
+}
+
+export function withStop(draft: string, heading: string, generated: readonly string[]): string {
+  const lines = draft.split(/\r?\n/).filter(line => !DRAFT_STOP_FIELDS.test(line))
+  const at = lines.findIndex(line => !TITLE_OR_BLANK.test(line))
+  lines.splice(at === -1 ? lines.length : at, 0, heading, ...generated)
+  return lines.join('\n')
+}
+
 export function ownerStatusRefusal(text: string): string | null {
-  const statusLine = text.split(/\r?\n/).filter(line => statusOf(line) !== null).at(-1)
+  const statusLine = statusLineOf(text)
   if (statusLine === undefined || statusOf(statusLine) !== 'OWNER')
     return null
   const boundary = NAMED_BOUNDARY.exec(statusLine)?.[1]
@@ -145,10 +258,20 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const prev = archived === null ? NO_PREV : path.relative(path.dirname(handoff), archived)
   const parking = parsed.parking ?? defaultParking(deps.home)
   const reading = deps.state(parking)
-  const drafted = deps.read(draft)
-  const text = withPrev(reading.kind === 'read' ? withState(drafted, stateLines(reading.state)) : drafted, prev)
+  const waits = ownerWaits(deps.read(draft), deps.prState)
+  const drafted = waits.draft
+  const now = deps.now()
+  const exitReadings = deps.readings()
+  const reason = deps.stopReason(statusOf(drafted), exitReadings)
+  const heading = `## STOP — ${fieldValue(drafted, 'role') ?? ''}, ${now.toISOString().slice(0, 10)}, session ${fieldValue(drafted, 'session') ?? ''}, boundary: ${boundaryOf(drafted, reason)}`
+  const generated = [...mergedLines(deps.merged(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`)), stopReasonLine(reason, exitReadings)]
+  const stopped = withStop(drafted, heading, generated)
+  const text = withPrev(reading.kind === 'read' ? withState(stopped, stateLines(reading.state)) : stopped, prev)
   const ownerRefusal = ownerStatusRefusal(text)
   const refusals = [
+    ...draftGeneratedRefusals(drafted),
+    ...waits.refusals,
+    ...nextTaskFormRefusals(drafted),
     ...(reading.kind === 'read' ? draftStateRefusals(drafted) : []),
     ...handoffRefusals(text, {
       file: handoff,
@@ -197,6 +320,35 @@ function busState(busPath: string, parking: string): StateReading {
   }
 }
 
+function busMerged(busPath: string, since: string): MergedReading {
+  if (!existsSync(busPath))
+    return { kind: 'unread', why: `no bus at ${busPath}` }
+  try {
+    const db = openBus(busPath)
+    try {
+      const cards = db.prepare('SELECT DISTINCT card_id FROM events WHERE type = ? AND ts >= ? AND card_id IS NOT NULL ORDER BY card_id').all(MERGE_DONE, since) as { card_id: number | string }[]
+      const countOf = (type: string): number => (db.prepare('SELECT COUNT(*) AS n FROM events WHERE type = ? AND ts >= ?').get(type, since) as { n: number }).n
+      return { kind: 'read', cards: cards.map(row => Number(row.card_id)), merges: countOf(MERGE_DONE), updates: countOf(UPDATE_DONE) }
+    }
+    finally {
+      db.close()
+    }
+  }
+  catch (error) {
+    return { kind: 'unread', why: `bus at ${busPath} unreadable (${errorLine(error)})` }
+  }
+}
+
+function ghPrState(pr: number): PrState {
+  try {
+    const state = (JSON.parse(execGh(['pr', 'view', String(pr), '--json', 'state'])) as { state?: string }).state
+    return state === 'OPEN' || state === 'MERGED' || state === 'CLOSED' ? state : 'unread'
+  }
+  catch {
+    return 'unread'
+  }
+}
+
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = runHandoffWrite(process.argv.slice(2), {
     cwd: process.cwd(),
@@ -211,6 +363,11 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     rename: renameSync,
     parked: parkedDepends,
     state: parking => busState(defaultBusPath(), parking),
+    merged: since => busMerged(defaultBusPath(), since),
+    prState: ghPrState,
+    readings: () => realExitReadings(process.env, os.homedir(), projectRoot(process.env), defaultBusPath()),
+    stopReason: stopReasonOf,
+    now: () => new Date(),
     home: os.homedir(),
     out: line => console.log(line),
     err: line => console.error(line),
