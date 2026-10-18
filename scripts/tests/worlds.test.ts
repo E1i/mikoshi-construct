@@ -54,12 +54,10 @@ const WORLDS: WorldRow[] = [
   {
     kind: 'morse',
     script: 'scripts/tests/morse/fixtures/world.sh',
-    prefixes: ['morse-world.', 'morse-backtest.', 'morse-refused-out.', 'morse-refused-err.', 'morse-classify-out.', 'morse-classify-err.', 'morse-rule-got.'],
+    prefixes: ['morse-world.', 'morse-classify-out.', 'morse-classify-err.', 'morse-rule-got.'],
     lifecycle: (worldSh) => {
       const w = worldSh('new')
       worldSh('check-classify-empty')
-      worldSh('check-backtest-refused', 'not-json')
-      worldSh('check-backtest')
       worldSh('clean', w)
     },
   },

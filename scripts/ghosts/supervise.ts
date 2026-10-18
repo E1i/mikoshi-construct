@@ -161,8 +161,8 @@ function noSessionJournalEntry(task: PreparedTask, baseSha: string, matrixRow: M
 async function closeOut(ctx: TaskContext, task: PreparedTask, start: string, outcome: string, journalEntry: JournalEntry): Promise<void> {
   const headSha = git(task.worktree, ['rev-parse', 'HEAD'])
   const end = rowTimestamp()
-  await writeGhostRow(ctx.statusPath, task.id, freeRow({ id: task.id, worktree: task.worktree, headSha, start, end, outcome }))
   await appendJournalLine(ctx.journalPath, journalEntry)
+  writeGhostRow(defaultBusPath(), task.card.id, task.id, freeRow({ id: task.id, worktree: task.worktree, headSha, start, end, outcome }), `${FALL_ACTOR_PREFIX}${task.sessionId}`)
 }
 
 async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOutcome> {
@@ -171,7 +171,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   prepareTree(ctx, task)
   writeAgreedText(task.worktree, task.approvedText)
 
-  await writeGhostRow(ctx.statusPath, task.id, writingRow({
+  writeGhostRow(defaultBusPath(), task.card.id, task.id, writingRow({
     id: task.id,
     worktree: task.worktree,
     baseSha: ctx.baseSha,
@@ -179,7 +179,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     briefFileName: path.basename(task.brief),
     supervisorPid: process.pid,
     sessionId: task.sessionId,
-  }))
+  }), `${FALL_ACTOR_PREFIX}${task.sessionId}`)
 
   const runsPath = path.join(task.worktree, '.construct', 'runs.jsonl')
   const linesBefore = countLedgerLines(runsPath)

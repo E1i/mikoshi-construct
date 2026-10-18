@@ -1,13 +1,10 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from './launch-executor.js'
 import { execFileSync, spawn } from 'node:child_process'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { sessionEnv } from '../ghosts/session.js'
-import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
-import { renderPrompt } from '../shift/prompt.js'
 import { messageOf } from './executor.js'
 import { technical } from './launch-executor.js'
 
@@ -28,15 +25,15 @@ export interface StarterPorts {
   pgidOf: (pid: number) => number
   kill: (target: number) => void
   uuid: () => string
+  envOf: (cardId: number) => NodeJS.ProcessEnv
+  prompt: (task: ShiftTask, places: { worktree: string, report: string }) => string
 }
 
 export interface StarterPlaces {
   parking: string
   launchDir: string
-  header: string
   claude: string
   treePr: string
-  env: NodeJS.ProcessEnv
 }
 
 export const CARD_PERMISSION_MODE = 'dontAsk'
@@ -79,8 +76,8 @@ export class ShiftCardStarter implements CardStarter {
         command: 'sh',
         args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardFile: path.join(laneDir, file), worktree, report, id: session }),
         cwd: worktree,
-        env: sessionEnv(this.places.env, card.cardId),
-        input: renderPrompt(this.places.header, task, { worktree, report }),
+        env: this.ports.envOf(card.cardId),
+        input: this.ports.prompt(task, { worktree, report }),
         log: path.join(this.places.launchDir, `log-${card.cardId}.txt`),
       })
       return { kind: 'started', card: { session, worktree, branch: task.branch, base, pid, pgid: this.groupOrKill(pid) } }
@@ -132,19 +129,4 @@ export function spawnDetached(run: DetachedSpawn): number {
 
 export function psPgid(pid: number): number {
   return Number(execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim())
-}
-
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, uuid: () => string): StarterPorts {
-  return {
-    read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
-    cut: (task, laneDir) => {
-      execFileSync('pnpm', ['--silent', 'task:start', task.branch, '--card', task.card.line, '--parking', laneDir], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-      return taskWorktree(worktreeHome(env), String(task.card.id))
-    },
-    base: worktree => execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-    spawnDetached,
-    pgidOf: psPgid,
-    kill: killQuietly,
-    uuid,
-  }
 }

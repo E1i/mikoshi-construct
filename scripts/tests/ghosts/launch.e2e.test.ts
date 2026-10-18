@@ -3,6 +3,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_DB_VARIABLE } from '../../bus/db.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
@@ -30,7 +31,7 @@ function launch(worldDir: string, answer: string, env: NodeJS.ProcessEnv = {}): 
   const result = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs'), LAUNCH, '--tasks', path.join(worldDir, 'tasks.json')], {
     input: `${answer}\n`,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ...env },
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, [BUS_DB_VARIABLE]: path.join(worldDir, 'bus.db'), ...env },
   })
   writeFileSync(path.join(worldDir, 'launch.out'), `${result.stdout}${result.stderr}`)
   return { status: result.status }
@@ -42,7 +43,7 @@ function launchFrom(worldDir: string, cwd: string, answer: string): { status: nu
     cwd,
     input: `${answer}\n`,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, [BUS_DB_VARIABLE]: path.join(worldDir, 'bus.db') },
   })
   return { status: result.status, output: `${result.stdout}${result.stderr}` }
 }
@@ -52,7 +53,7 @@ function launchSealed(worldDir: string, answer: string): { status: number | null
   const result = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs'), LAUNCH, '--tasks', path.join(worldDir, 'tasks.json')], {
     input: `${answer}\n`,
     encoding: 'utf8',
-    env: { ...process.env, PATH: sealedPath },
+    env: { ...process.env, PATH: sealedPath, [BUS_DB_VARIABLE]: path.join(worldDir, 'bus.db') },
   })
   writeFileSync(path.join(worldDir, 'launch.out'), `${result.stdout}${result.stderr}`)
   return { status: result.status }

@@ -1,23 +1,33 @@
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../bus/launch-executor.js'
+import type { DetachedSpawn, StarterPorts } from '../../bus/launch-starter.js'
 import type { LaunchNodeParts, LaunchStep } from '../../bus/launch-worker.js'
 import type { Lease } from '../../bus/lease.js'
 import type { DetectionMode } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import type { MergeBench } from './merge-bench.js'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { parkingFileText } from '../../../src/card/parking.js'
+import { CARD_FELL } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
+import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { LaunchNode } from '../../bus/launch-worker.js'
+import { handoffLadderSteps, LaunchNode } from '../../bus/launch-worker.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
 import { keyOf, launchTasks, TASK_ENQUEUED } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
+import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
+import { WORKTREE_HOME_VARIABLE } from '../../ghosts/worktree-home.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectReview } from './review-detection.js'
 
 const benches: MergeBench[] = []
+const roots: string[] = []
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -27,6 +37,8 @@ afterEach(() => {
   vi.restoreAllMocks()
   for (const made of benches.splice(0))
     made.close()
+  for (const root of roots.splice(0))
+    rmSync(root, { recursive: true, force: true })
 })
 
 class FakeStarter implements CardStarter {
@@ -89,8 +101,8 @@ function launchKey(cardId: number): string {
   return keyOf({ queue: 'launch', cardId, generation: `admission-${cardId}` })
 }
 
-function admit(made: MergeBench, cardId: number, lane: string, depends: number[] = []): number {
-  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour: 'cheap', depends, admission: `admission-${cardId}` }, legacy: false })
+function admit(made: MergeBench, cardId: number, lane: string, depends: number[] = [], contour = 'cheap'): number {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour, depends, admission: `admission-${cardId}` }, legacy: false })
   return lastEventOf(made, CARD_ADMITTED)
 }
 
@@ -255,7 +267,7 @@ describe('the launch node', () => {
     expect(starter.starts.map(card => card.cardId)).toEqual([970])
     expect(taskState(made.db, launchKey(970))).toMatchObject({ state: 'completed' })
     expect(taskState(made.db, launchKey(971))).toMatchObject({ state: 'queued' })
-    expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: 's-970', worktree: '/trees/mc-970', branch: 'feat/card-970', base: 'f'.repeat(40), pid: 4242, pgid: 4242 }])
+    expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: 's-970', worktree: '/trees/mc-970', branch: 'feat/card-970', base: 'f'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' }])
 
     await once(node)
     expect(starter.starts.map(card => card.cardId)).toEqual([970, 971])
@@ -277,5 +289,148 @@ describe('the launch node', () => {
     const rows = made.db.prepare(`SELECT head, state FROM tasks WHERE queue = 'review' AND pr = 980 ORDER BY id`).all()
     expect(rows).toEqual([{ head: sha('a'), state: 'superseded' }, { head: sha('b'), state: 'queued' }])
     expect(eventsOf(made.db, NODE_DETECTED).filter(detected => !String(detected.key).startsWith('review:'))).toEqual([])
+  })
+})
+
+const LADDER_CARD = 9301
+const APPROVED_BRIEF = `/implement ${LADDER_CARD} a-card\nthe approved body\n`
+const EDITED_BRIEF = `/implement ${LADDER_CARD} a-card\nthe body edited after the approval\n`
+
+interface LadderWorld {
+  starter: LadderCardStarter
+  spawned: DetachedSpawn[]
+  handoff: string
+  tree: string
+  briefFile: string
+}
+
+function ladderWorld(handoffState: { brief: string, approved: string } | null): LadderWorld {
+  const root = mkdtempSync(path.join(tmpdir(), 'bus-ladder-node-'))
+  roots.push(root)
+  const parking = path.join(root, 'parking')
+  const handoff = path.join(root, 'handoff')
+  const tree = path.join(root, 'worktrees', `mc-${LADDER_CARD}`)
+  mkdirSync(path.join(parking, 'lane-x'), { recursive: true })
+  mkdirSync(handoff)
+  writeFileSync(path.join(parking, 'lane-x', `${LADDER_CARD}.md`), parkingFileText({ card: `#${LADDER_CARD} a-card [implement/netwatch/M/ladder/auto] · depends — · blocks —`, branch: `feat/card-${LADDER_CARD}`, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
+  const briefFile = path.join(handoff, `brief-${LADDER_CARD}-a-card.md`)
+  if (handoffState !== null) {
+    mkdirSync(tree, { recursive: true })
+    writeFileSync(briefFile, handoffState.brief)
+    const sha256 = approvalSha256(canonicalImplementText(handoffState.approved)!)
+    writeFileSync(path.join(handoff, 'ghosts.jsonl'), `${JSON.stringify({ event: 'approval', by: 'morse', card: LADDER_CARD, sha256 })}\n`)
+  }
+  const spawned: DetachedSpawn[] = []
+  const ports: StarterPorts = {
+    read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    cut: () => {
+      mkdirSync(tree, { recursive: true })
+      return tree
+    },
+    base: () => 'b'.repeat(40),
+    spawnDetached: (run) => {
+      spawned.push(run)
+      return 4242
+    },
+    pgidOf: () => 4242,
+    kill: () => {},
+    uuid: () => `sess-${LADDER_CARD}`,
+    envOf: () => ({}),
+    prompt: task => task.body,
+  }
+  const steps = handoffLadderSteps(handoff, path.join(root, 'repo'), { [WORKTREE_HOME_VARIABLE]: path.join(root, 'worktrees') })
+  const starter = new LadderCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: path.join(root, 'repo') }, ports, steps)
+  return { starter, spawned, handoff, tree, briefFile }
+}
+
+function ladderNode(made: MergeBench, world: LadderWorld, cheap: CardStarter = new FakeStarter()): ProbedLaunchNode {
+  return new ProbedLaunchNode({ db: made.db, starter: cheap, ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {} })
+}
+
+function scriptOf(run: DetachedSpawn): string {
+  return run.args[1]!
+}
+
+function approvedWorld(): LadderWorld {
+  return ladderWorld({ brief: APPROVED_BRIEF, approved: APPROVED_BRIEF })
+}
+
+describe('the launch node in ladder mode', () => {
+  it('the ladder mode launches a Ghost on an approved brief', async () => {
+    const made = bench()
+    const world = approvedWorld()
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    made.tick()
+    await once(ladderNode(made, world))
+
+    expect(world.spawned).toHaveLength(1)
+    const [run] = world.spawned
+    expect(scriptOf(run!)).toContain(`'ghosts:launch' '--tasks' '${path.join(world.handoff, `tasks-${LADDER_CARD}-a-card.json`)}'`)
+    expect(scriptOf(run!)).not.toContain('claude')
+    expect(scriptOf(run!)).not.toContain('ghosts:hash')
+    expect(run!.args.slice(2)).toEqual(['shift', '-p', '--session-id', `sess-${LADDER_CARD}`])
+    expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: `sess-${LADDER_CARD}`, worktree: world.tree, branch: `feat/card-${LADDER_CARD}`, base: 'b'.repeat(40), pid: 4242, pgid: 4242, step: 'launch', contour: 'ladder' }])
+  })
+
+  it('with no ghosts.jsonl and no status.md in the handoff, an admitted ladder card starts its brief step', async () => {
+    const made = bench()
+    const world = ladderWorld(null)
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    made.tick()
+    await once(ladderNode(made, world))
+
+    expect(world.spawned).toHaveLength(1)
+    const script = scriptOf(world.spawned[0]!)
+    expect(script).toContain('claude')
+    expect(script.indexOf('ghosts:hash')).toBeGreaterThan(script.indexOf('claude'))
+    expect(script.indexOf('ghosts:launch')).toBeGreaterThan(script.indexOf('ghosts:hash'))
+    expect(world.spawned[0]!.input).toContain('Ladder route, step 1 of 3')
+    expect(readdirSync(world.handoff)).toEqual([`tasks-${LADDER_CARD}-a-card.json`])
+    expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step: 'brief', contour: 'ladder', worktree: world.tree }])
+  })
+
+  it('a ladder card with two card.fell in the bus gets no launch task and spawns nothing', async () => {
+    const made = bench()
+    const world = ladderWorld(null)
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    for (const fall of [1, 2])
+      appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_FELL, actor: 'policy', cardId: LADDER_CARD, pr: null, head: null, dedupeKey: `${CARD_FELL}:${LADDER_CARD}:${fall}`, payload: { kind: 'fault' }, legacy: false })
+    made.tick()
+    await once(ladderNode(made, world))
+
+    expect(launchRows(made, LADDER_CARD)).toBe(0)
+    expect(world.spawned).toEqual([])
+    expect(eventsOf(made.db, CARD_STARTED)).toEqual([])
+  })
+
+  it('a brief edited after its approval is not launched on it', async () => {
+    const made = bench()
+    const world = ladderWorld({ brief: EDITED_BRIEF, approved: APPROVED_BRIEF })
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    made.tick()
+    await once(ladderNode(made, world))
+
+    expect(world.spawned).toHaveLength(1)
+    const script = scriptOf(world.spawned[0]!)
+    expect(script).toContain('claude')
+    expect(script).toContain(`'ghosts:hash' '${world.briefFile}' '--by' 'morse'`)
+    expect(script.indexOf('ghosts:hash')).toBeLessThan(script.indexOf('ghosts:launch'))
+    expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step: 'brief' }])
+  })
+
+  it('an admitted ladder card is started once, by the ladder starter, never by the cheap one', async () => {
+    const made = bench()
+    const world = approvedWorld()
+    const cheap = new FakeStarter()
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    made.tick()
+    const node = ladderNode(made, world, cheap)
+    await once(node)
+    made.tick()
+    await once(node)
+
+    expect(cheap.starts).toEqual([])
+    expect(world.spawned).toHaveLength(1)
+    expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(1)
   })
 })

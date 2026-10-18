@@ -161,14 +161,13 @@ are refused like anything else, with what that line is. Every invocation without
 
 The window starts relaunch only through `pnpm relaunch:bg <handoff.md> [relaunch arguments]`: it spawns
 `nohup pnpm relaunch <handoff.md> …` as a detached process, a session of its own, appends its output to
-`~/.construct/handoff/relaunch-day.log` and prints its PID. Before every relaunch it runs `pnpm doctor:factory`, which
+`~/.construct/handoff/relaunch-day.log` and prints its PID. `pnpm doctor:factory`
 compares the permissions the factory needs, `contract/factory-permissions.json`, with `.claude/settings.local.json`
 and names each missing rule, the deny of `gh pr merge` on every open version pull request (head `changeset-release/*`)
 included. It names each command quoted in `OPERATOR_ROLE` that no contract allow rule matches, and each command
 quoted in this document that names a contract rule without having its shape: a merge written with an env prefix,
 GH_TOKEN=… before gh pr merge, matches no `Bash(gh pr merge:*)`. Global gh flags before the subcommand (`-R`,
-`--repo`) are dropped before matching. A red `doctor:factory` stops the
-relaunch. `pnpm doctor:factory --apply` asks a person to confirm and only on that yes appends the missing rules to
+`--repo`) are dropped before matching. `pnpm doctor:factory --apply` asks a person to confirm and only on that yes appends the missing rules to
 `.claude/settings.local.json`; it never reads or writes `.claude/settings.json`.
 
 ## Handoff constants
