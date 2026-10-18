@@ -129,7 +129,6 @@
   },
   "devDependencies": {
     "@antfu/eslint-config": "^9.5.1",
-    "@anthropic-ai/sdk": "^0.127.0",
     "@changesets/changelog-github": "^1.0.0",
     "@changesets/cli": "^3.0.0",
     "@types/node": "^22.18.0",
