@@ -56,15 +56,15 @@ describe('no source file is invisible to every reader at once', () => {
   })
 
   it('names a source that is really invisible, written into a directory both readers skip', async () => {
-    const directory = path.join(ROOT, 'bench')
+    const directory = path.join(ROOT, '.construct')
     const probe = path.join(directory, 'reader-probe.ts')
     mkdirSync(directory, { recursive: true })
     writeFileSync(probe, 'export const probe = 1\n')
     try {
       const sources = sourceFiles()
-      expect(sources).toContain('bench/reader-probe.ts')
+      expect(sources).toContain('.construct/reader-probe.ts')
       const unread = unreadSources(sources, { gitIgnores: ignoredByGit(sources), eslintIgnores: await ignoredByEslint(sources) })
-      expect(unread).toContain('bench/reader-probe.ts')
+      expect(unread).toContain('.construct/reader-probe.ts')
     }
     finally {
       rmSync(probe, { force: true })
