@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const DEPCRUISE = path.join(REPO_ROOT, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruiser.mjs')
 const LAYER_CONFIG = path.join(REPO_ROOT, '.dependency-cruiser.mjs')
+const LAYER_BASELINE = path.join(REPO_ROOT, '.dependency-cruiser-known-violations.json')
 const LAYERS_CHECK = 'depcruise --config .dependency-cruiser.mjs --ignore-known .dependency-cruiser-known-violations.json scripts src'
 const CRUISE_TIMEOUT_MS = 120_000
 
@@ -72,6 +73,24 @@ describe('the layer rules of the bus hold over scripts and src', () => {
       'scripts/bus/review-executor.ts': 'export const review = 1\n',
     })
     expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 1, violations: ['bus-services-import-no-other-service scripts/bus/merge-worker.ts -> scripts/bus/review-executor.ts'] })
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses a new import between two services the recorded baseline does not hold, and passes the one it holds', () => {
+    const root = sampleTree({
+      'scripts/bus/ladder-starter.ts': 'import { launch } from \'./launch-executor.js\'\nexport const ladder = launch\n',
+      'scripts/bus/launch-executor.ts': 'export const launch = 1\n',
+      'scripts/bus/merge-worker.ts': 'import { close } from \'./close-executor.js\'\nexport const merge = close\n',
+      'scripts/bus/close-executor.ts': 'export const close = 1\n',
+    })
+    expect(depcruise(root, ['--config', LAYER_CONFIG, '--ignore-known', LAYER_BASELINE, 'scripts'])).toEqual({ status: 1, violations: ['bus-services-import-no-other-service scripts/bus/merge-worker.ts -> scripts/bus/close-executor.ts'] })
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses a cycle inside the bus core', () => {
+    const root = sampleTree({
+      'scripts/bus/db.ts': 'import { reduce } from \'./reducer.js\'\nexport const db = () => reduce\n',
+      'scripts/bus/reducer.ts': 'import { db } from \'./db.js\'\nexport const reduce = () => db\n',
+    })
+    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 1, violations: ['no-circular-bus-core scripts/bus/db.ts -> scripts/bus/reducer.ts'] })
   }, CRUISE_TIMEOUT_MS)
 
   it('refuses an import from the product into the factory scripts', () => {
