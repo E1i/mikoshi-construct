@@ -38,7 +38,3 @@ export function readModelMismatches(dir: string | undefined): ModelMismatch[] {
     return []
   }
 }
-
-export function mismatchText(mismatch: ModelMismatch): string {
-  return `model-mismatch ${mismatch.agentType} expected ${mismatch.expected}, ran on ${mismatch.actual} (${mismatch.at}, session ${mismatch.session})`
-}

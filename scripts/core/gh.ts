@@ -14,7 +14,7 @@ export interface PullRequest {
 
 export type PrList = { kind: 'failed', reason?: string } | { kind: 'listed', prs: PullRequest[], truncated: boolean }
 
-export type PrLookup = { kind: 'found', pr: PullRequest, via?: string } | { kind: 'none' } | { kind: 'unknown', missing: string }
+export type PrLookup = { kind: 'found', pr: PullRequest } | { kind: 'none' } | { kind: 'unknown', missing: string }
 
 interface Check {
   name?: string
@@ -85,30 +85,6 @@ export function lookupPr(list: PrList, branch: string | undefined): PrLookup {
   if (list.truncated)
     return { kind: 'unknown', missing: `pr; the gh list stopped at ${PR_LIST_LIMIT}` }
   return { kind: 'none' }
-}
-
-export function lookupPrVia(list: PrList, branch: string): PrLookup {
-  const pr = lookupPr(list, branch)
-  return pr.kind === 'found' ? { ...pr, via: branch } : pr
-}
-
-export function lookupGhostPr(list: PrList, id: string): PrLookup {
-  const branch = `ghost/${id}`
-  const pr = lookupPrVia(list, branch)
-  return pr.kind === 'none' ? { kind: 'unknown', missing: `branch; no tasks file names one, and no PR for ${branch}` } : pr
-}
-
-export function lookupPrNumber(list: PrList, number: number | undefined): PrLookup {
-  if (number === undefined)
-    return { kind: 'unknown', missing: 'pr; the journal event:path line records none' }
-  if (list.kind === 'failed')
-    return { kind: 'unknown', missing: `pr; ${list.reason ?? GH_QUERY_FAILED}` }
-  const pr = list.prs.find(candidate => candidate.number === number)
-  if (pr !== undefined)
-    return { kind: 'found', pr }
-  if (list.truncated)
-    return { kind: 'unknown', missing: `pr #${number}; the gh list stopped at ${PR_LIST_LIMIT}` }
-  return { kind: 'unknown', missing: `pr #${number}; not in the gh list` }
 }
 
 export type CiState = 'none' | 'pending' | 'red' | 'green' | 'unknown'

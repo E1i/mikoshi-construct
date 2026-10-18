@@ -60,11 +60,3 @@ export function readWindow(roots: (string | undefined)[], session: string | unde
   }
   return window
 }
-
-export function isEnded(window: Window): boolean {
-  return window.session !== undefined && window.ended
-}
-
-export function isLive(window: Window): boolean {
-  return window.session !== undefined && !window.ended
-}

@@ -40,7 +40,3 @@ export const execGit: GitReader = {
     }
   },
 }
-
-export function windowsRoot(git: GitReader, checkout: string): string {
-  return git.worktrees(checkout)?.[0]?.path ?? checkout
-}
