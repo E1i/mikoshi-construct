@@ -2,6 +2,6 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "lib/a.specs.ts.snap"
+    "no test beside: lib/a.specs.ts.snap"
   ]
 }

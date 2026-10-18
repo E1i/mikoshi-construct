@@ -2,6 +2,7 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "templates/ai/cursor/_cursor/rules/construct.mdc"
+    "R1 templates/ai/cursor/_cursor/rules/construct.mdc: what init, attach, sync or detach write into another repository",
+    "no test beside: templates/ai/cursor/_cursor/rules/construct.mdc"
   ]
 }

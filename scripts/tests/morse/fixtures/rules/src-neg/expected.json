@@ -2,6 +2,6 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "scripts/docs/anchors.ts"
+    "no test beside: scripts/docs/anchors.ts"
   ]
 }

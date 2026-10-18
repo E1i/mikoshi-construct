@@ -2,6 +2,6 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "scripts/e2e/login.ts"
+    "no test beside: scripts/e2e/login.ts"
   ]
 }

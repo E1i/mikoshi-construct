@@ -3,7 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const DESIGN_ORDER = ['instructions', 'tests-shrunk', 'src', 'docs-only', 'doubt']
+const DESIGN_ORDER = ['instructions', 'tests-shrunk', 'src', 'docs-only', 'doubt', 'no-ground']
 const fixtures = path.dirname(fileURLToPath(import.meta.url))
 const rulesModule = path.resolve(fixtures, '../../../morse/rules.ts')
 const files = JSON.parse(readFileSync(path.join(fixtures, 'rules/shrunk-over-src-pos/files.json'), 'utf8'))

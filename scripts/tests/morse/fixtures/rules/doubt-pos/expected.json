@@ -2,6 +2,6 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "package.json"
+    "no test beside: package.json"
   ]
 }
