@@ -11,6 +11,7 @@ export const PR_OPENED = 'pr.opened'
 export const REVIEW_RECORDED = 'review.recorded'
 export const MERGE_DONE = 'merge.done'
 export const CARD_FELL = 'card.fell'
+export const GHOST_ROW = 'ghost.row'
 
 export const QUEUED_CARD = 'queued'
 export const RUNNING_CARD = 'running'

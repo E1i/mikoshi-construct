@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { GHOST_ROW } from '../../bus/card-automaton.js'
+import { BUS_DB_VARIABLE } from '../../bus/db.js'
+import { openDatabase } from '../../bus/sqlite.js'
 import { ghostRowState, upsertGhostRow, writingRow } from '../../ghosts/status.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -583,11 +586,22 @@ function killedGhostWorld(supervisor: number): KilledWorld {
 function cleanupKilled(k: KilledWorld): string {
   const result = spawnSync(process.execPath, [TSX_CLI, CLEANUP, '--tasks', path.join(k.w, 'tasks.json'), '--logs', path.join(k.w, 'handoff')], {
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${path.join(k.w, 'gh-stub')}${path.delimiter}${process.env.PATH}` },
+    env: { ...process.env, PATH: `${path.join(k.w, 'gh-stub')}${path.delimiter}${process.env.PATH}`, [BUS_DB_VARIABLE]: path.join(k.w, 'bus.db') },
   })
   expect(result.stderr).toBe('')
   expect(result.status).toBe(0)
   return result.stdout
+}
+
+function busGhostRows(k: KilledWorld): { card_id: number | null, row: string }[] {
+  const db = openDatabase(path.join(k.w, 'bus.db'), { readOnly: true })
+  try {
+    const events = db.prepare('SELECT card_id, payload FROM events WHERE type = ? ORDER BY id').all(GHOST_ROW) as { card_id: number | null, payload: string }[]
+    return events.map(event => ({ card_id: event.card_id, row: (JSON.parse(event.payload) as { row: string }).row }))
+  }
+  finally {
+    db.close()
+  }
 }
 
 function launchPreflight(k: KilledWorld): string {
@@ -608,7 +622,11 @@ describe('k: ghosts:cleanup cleans up after a killed Ghost', () => {
     const stash = git(k.tree, ['stash', 'list', '--format=%H %gs']).split('\n').find(line => line.endsWith(`: ${message}`))
     expect(stash).toBeDefined()
     expect(out).toContain(`[ghosts:cleanup] ghost-g1 released: supervisor ${supervisor} dead with the row writing; row ghost-g1 free; report moved to ${k.aside}; tree ${k.tree} clean, its changes stashed as ${stash!.slice(0, 7)} "${message}"\n`)
-    expect(ghostRowState(readFileSync(k.status, 'utf8'), 'g1')).toBe('free')
+    const freed = busGhostRows(k)
+    expect(freed).toHaveLength(1)
+    expect(ghostRowState(freed[0].row, 'g1')).toBe('free')
+    expect(freed[0].card_id).not.toBeNull()
+    writeFileSync(k.status, upsertGhostRow(readFileSync(k.status, 'utf8'), 'g1', freed[0].row))
     expect(existsSync(k.report)).toBe(false)
     expect(readFileSync(k.aside, 'utf8')).toBe('{"type":"system"}\n')
     expect(git(k.tree, ['status', '--porcelain'])).toBe('')

@@ -16,6 +16,7 @@ import { readHandoff } from '../board/handoff.js'
 import { handLadderPolicy, handLadderRows } from '../board/policy.js'
 import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
 import { readUnregistered } from '../board/tree.js'
+import { defaultBusPath } from '../bus/db.js'
 import { appendJournalEvent } from './journal.js'
 import { carryLedgerLines, carryStepCacheLines } from './ledger.js'
 import { freeRow, ghostRowState, ghostRowSupervisor, rowTimestamp, writeGhostRow } from './status.js'
@@ -24,6 +25,7 @@ import { readTasksFile, startedTree } from './tasks.js'
 import { DISPOSITION_EVENT, MERGE_FOLLOW_UP } from './verdict.js'
 
 const PREFIX = '[ghosts:cleanup] '
+const CLEANUP_ACTOR = 'worker:ghosts:cleanup'
 const DEFAULT_LOGS_DIR = '/tmp'
 const BLOCKED_OUTCOME = /; ladder blocked; report \S+;/
 const DONE_OUTCOME = /^exit 0; ladder done; report \S+;/
@@ -273,7 +275,7 @@ export async function releaseKilled(task: Target, ctx: CleanupContext): Promise<
     return kept(task, `${notSetAside}: ${firstLine(error)}`)
   }
   const headSha = existsSync(task.worktree) ? execFileSync('git', ['-C', task.worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() : row.sha
-  await writeGhostRow(ctx.statusPath, id, freeRow({ id, worktree: task.worktree, headSha, start: row.start, end: rowTimestamp(), outcome: `${killed}; freed by ghosts:cleanup` }))
+  writeGhostRow(defaultBusPath(), /^\d+$/.test(task.id) ? Number(task.id) : null, id, freeRow({ id, worktree: task.worktree, headSha, start: row.start, end: rowTimestamp(), outcome: `${killed}; freed by ghosts:cleanup` }), CLEANUP_ACTOR)
   return `${label(task)} released: ${killed} with the row ${row.state}; row ghost-${id} free; ${report}; ${tree}`
 }
 
