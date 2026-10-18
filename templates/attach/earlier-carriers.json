@@ -558,5 +558,20 @@
     "target": "scripts/construct/implement.workflow",
     "sha256": "6f5128137a9fd4ee75a3c04b81e80db5799f7a9ec01a6871b6954fabd72c9137",
     "date": "2026-10-08"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "284ca7cce349cd2e33d2cd000450dc6f1d1a3f4ae2a65af47737b0beb3ccb759",
+    "date": "2026-10-18"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "754bef53ded4353da79cd5f357bf751464b8caf37a89b3998ec894fcf24f1b8a",
+    "date": "2026-10-18"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "58161a2e46c6c381b5f9c58c8c1427dd2f57706b88fbfd43fb6a1f31712e07da",
+    "date": "2026-10-18"
   }
 ]
