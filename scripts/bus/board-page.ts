@@ -1,16 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { RunningProcess } from './bg.js'
 import type { Board, ComponentHealth, ContractLink, ExecutionRow, LaneRow, QueueCard, TaskQueue, Watched } from './board.js'
-import { renameSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
+import { existsSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { defaultParking } from '../ghosts/handoff-check.js'
+import { fileURLToPath } from 'node:url'
 import { answerLeaseOrder } from './answer-worker.js'
-import { parkedCardText } from './answerer.js'
 import { psList, RUN_SCRIPT, runningInstance } from './bg.js'
-import { BOARD_FILE, parkingLanes, readBoard } from './board.js'
-import { busParkingReads } from './parking-reads.js'
+import { BOARD_FILE, readBoard } from './board.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
+import { openDatabase } from './sqlite.js'
 import { SUPERVISOR_LAUNCH } from './supervisor.js'
 import { switchedOn, workerLaunches, WORKERS } from './workers.js'
 
@@ -166,6 +165,29 @@ export function watchedNow(busDir: string, processes: RunningProcess[]): Watched
   ]
 }
 
+function cardBodyText(db: DatabaseSync): (cardId: number) => string | null {
+  return cardId => (db.prepare('SELECT text FROM card_bodies WHERE card_id = ?').get(cardId) as { text: string } | undefined)?.text ?? null
+}
+
+export function printBoard(busPath: string, now: Date, write: (text: string) => void): number {
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    write(renderBoard(readBoard({ db, now, watched: watchedNow(path.dirname(busPath), psList()()), leaseOrders: { answer: answerLeaseOrder(db, cardBodyText(db)) } })))
+    return 0
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function runBoardCli(busPath: string = defaultBusPath()): number {
+  if (!existsSync(busPath)) {
+    console.error(`${PREFIX}no bus database at ${busPath}`)
+    return 1
+  }
+  return printBoard(busPath, new Date(), text => process.stdout.write(text))
+}
+
 export interface BoardProjection {
   file: string
   project: (now: Date) => void
@@ -174,13 +196,11 @@ export interface BoardProjection {
 export function boardProjection(db: DatabaseSync, busPath: string): BoardProjection {
   const busDir = path.dirname(busPath)
   const file = path.join(busDir, BOARD_FILE)
-  const reads = busParkingReads(busPath)
   return {
     file,
     project: (now) => {
       try {
-        const parking = defaultParking(os.homedir())
-        const board = readBoard({ db, now, watched: watchedNow(busDir, psList()()), parking: parkingLanes(reads, parking), leaseOrders: { answer: answerLeaseOrder(db, parkedCardText(parking)) } })
+        const board = readBoard({ db, now, watched: watchedNow(busDir, psList()()), leaseOrders: { answer: answerLeaseOrder(db, cardBodyText(db)) } })
         writeBoardPage(file, renderBoard(board))
       }
       catch (error) {
@@ -189,3 +209,6 @@ export function boardProjection(db: DatabaseSync, busPath: string): BoardProject
     },
   }
 }
+
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+  process.exitCode = runBoardCli()

@@ -5,7 +5,7 @@ import type { LeaseOrder } from './lease.js'
 import path from 'node:path'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
-import { DROPPED_CARD, MERGE_DONE, PR_OPENED, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
+import { DROPPED_CARD, FALLEN_CARD, MERGE_DONE, MERGED_CARD, PR_OPENED, QUEUED_CARD, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
 import { CHAIN_OBSERVED, WAITING } from './chain.js'
 import { QUEUES } from './identifiers.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
@@ -43,7 +43,7 @@ export interface BoardSources {
   db: DatabaseSync
   now: Date
   watched: readonly Watched[]
-  parking: readonly LaneParking[]
+  parking?: readonly LaneParking[]
   leaseOrders: LeaseOrders
 }
 
@@ -174,6 +174,18 @@ const MERGED_PAST_THE_BUS = `
   ORDER BY closed.pr
 `
 
+const PROJECTED_QUEUE = `
+  SELECT body.card_id, body.lane, cards.state,
+    (SELECT group_concat('#' || dep.value, ', ') FROM json_each(body.depends) AS dep
+      WHERE NOT EXISTS (SELECT 1 FROM cards AS done WHERE done.card_id = dep.value AND done.state = '${MERGED_CARD}')) AS unmet,
+    (SELECT json_extract(stop.payload, '$.reason') FROM events AS stop
+      WHERE stop.card_id = body.card_id AND stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 ORDER BY stop.id DESC LIMIT 1) AS stop_reason
+  FROM card_bodies AS body LEFT JOIN cards ON cards.card_id = body.card_id
+  WHERE body.who = 'shift' AND (cards.state IS NULL OR cards.state IN ('${QUEUED_CARD}', '${FALLEN_CARD}', '${STOPPED_CARD}'))
+    AND NOT EXISTS (SELECT 1 FROM chains WHERE chains.card_id = body.card_id AND chains.state != 'stopped')
+  ORDER BY body.priority IS NOT 'p0', body.lane, body.card_id
+`
+
 const LEASED_TASKS = `
   SELECT tasks.task_key, tasks.card_id, tasks.lease_gen, leased.actor, leased.ts FROM tasks
   LEFT JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
@@ -202,6 +214,23 @@ function queueBlock(parking: readonly LaneParking[], inLanes: ReadonlySet<number
       (isBlocking(left.reason) ? blocked : waiting).push({ card: left.id, lane, reason: left.reason })
   }
   return { ready, waiting, blocked }
+}
+
+function projectedQueue(db: DatabaseSync): Pick<Board, 'ready' | 'waiting' | 'blocked'> {
+  const rows = (db.prepare(PROJECTED_QUEUE).all() as { card_id: number, lane: string | null, state: string | null, unmet: string | null, stop_reason: string | null }[])
+    .filter(row => row.lane !== null && isLaneName(row.lane))
+  const queue: Pick<Board, 'ready' | 'waiting' | 'blocked'> = { ready: [], waiting: [], blocked: [] }
+  for (const row of rows) {
+    const card = String(row.card_id)
+    const lane = row.lane!
+    if (row.state === STOPPED_CARD)
+      queue.blocked.push({ card, lane, reason: `waits ${row.stop_reason ?? 'fault'}` })
+    else if (row.unmet !== null)
+      queue.waiting.push({ card, lane, reason: `depends ${row.unmet} not merged` })
+    else
+      queue.ready.push({ card, lane, reason: null })
+  }
+  return queue
 }
 
 function laneBlock(chains: readonly ChainLane[], parking: readonly LaneParking[]): LaneRow[] {
@@ -374,11 +403,12 @@ export function readBoard(sources: BoardSources): Board {
     roleHealth(db, now, 'miko', 'Miko'),
   ]
   const down = new Set(health.filter(component => component.health === 'down').map(component => component.name))
-  const queue = queueBlock(sources.parking, inLanes)
+  const parking = sources.parking ?? []
+  const queue = sources.parking === undefined ? projectedQueue(db) : queueBlock(parking, inLanes)
   return {
     at: now.toISOString(),
     ...queue,
-    lanes: laneBlock(chains, sources.parking),
+    lanes: laneBlock(chains, parking),
     window: health.find(component => component.name === 'Operator')!,
     execution: executionBlock(db, chains, down),
     health,
