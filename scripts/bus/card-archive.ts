@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import path from 'node:path'
+import { isLane, LANE_FILE } from '../lanes/lane-json.js'
 
 export const ARCHIVE_DIR = 'archive'
 
@@ -27,5 +28,11 @@ export function archiveCardFile(parking: string, cardId: number): CardFileStep {
     return 'absent'
   mkdirSync(path.dirname(archived), { recursive: true })
   renameSync(parked, archived)
+  removeEmptyLane(path.dirname(parked))
   return 'moved'
+}
+
+function removeEmptyLane(dir: string): void {
+  if (isLane(dir) && readdirSync(dir).every(name => name === LANE_FILE))
+    rmSync(dir, { recursive: true })
 }

@@ -59,6 +59,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'ghosts:watch': 'a read-only view of running sessions, not a verdict on a change',
   'docs:dev': 'a local server',
   'docs:preview': 'a local server',
+  'lanes:migrate': 'renames the legacy parking lanes to lane-NN with a lane.json and removes the empty ones when run by hand, refusing while a chain is live in one; its own tests are its gate',
   'lint:fix': 'a fixer; lint is its gate',
   'miko': 'runs Mikoshi sessions in a loop in the owner\'s terminal when run by hand; its own tests, on a claude stub, are its gate',
   'miko:exit': 'ends the claude of the current Mikoshi window when a session runs it; its own tests, on a claude stub under the loop, are its gate',
