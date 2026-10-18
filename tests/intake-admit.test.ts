@@ -134,6 +134,8 @@ const CLEAN = '#80 clean-card [implement/runner/S/cheap/owner] · depends — ·
 const STALE = '#81 stale-card [implement/runner/S/cheap/owner] · depends #70 · blocks #90 the board card'
 const STALE_ADMITTED = '#81 stale-card [implement/runner/S/cheap/owner] · depends — · blocks #90 the board card'
 const WAITING = '#82 waiting-card [implement/runner/S/cheap/owner] · depends #80 · blocks —'
+const STALE_WAITING = '#83 stale-waiting-card [implement/runner/S/cheap/owner] · depends #70 #80 · blocks #90 the board card'
+const STALE_WAITING_ADMITTED = '#83 stale-waiting-card [implement/runner/S/cheap/owner] · depends — · blocks #90 the board card'
 
 describe('construct intake --admit takes a card parked before the intake door', () => {
   it('writes an intake line for a card with nothing to correct, leaves the file as it was, and task:start takes the card', () => {
@@ -226,6 +228,48 @@ describe('construct intake --admit takes a card parked before the intake door', 
 
     journal(w, [{ event: 'intake', task: '82', card: WAITING, bodySha: 'an earlier body', source: 'admit', ts: NOW.toISOString() }])
     expect(admit(w, file, { events: undefined }).status).toBe('admitted')
+  })
+
+  it('a corrected card that keeps an unmerged depends waits before it asks for a confirmation, and is held behind the token once the depends merges', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
+    const file = park(w, 83, STALE_WAITING, 'scripts/board/run.ts')
+    const before = readFileSync(file, 'utf8')
+    const merge70 = { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }
+    journal(w, [merge70])
+
+    expect(admit(w, file)).toMatchObject({ status: 'waiting', waitingOn: [80] })
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(journalLines(w)).toHaveLength(1)
+
+    journal(w, [merge70, { event: 'merge', task: '80', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    const held = admit(w, file)
+    expect(held.status).toBe('awaiting')
+    const token = held.status === 'awaiting' ? held.token : ''
+    expect(admit(w, file, { confirm: token })).toMatchObject({ status: 'admitted', card: { line: STALE_WAITING_ADMITTED } })
+  })
+
+  it('a depends on a card that is neither parked, done nor merged is admitted with an unclear mark, not left waiting', () => {
+    const w = world()
+    const file = park(w, 82, WAITING.replace('depends #80', 'depends #79'))
+    expect(admit(w, file)).toMatchObject({ status: 'admitted', card: { unclear: [{ field: 'depends' }] } })
+    expect(readFileSync(file, 'utf8')).toContain('unclear: depends')
+    expect(payloadsOf(w, 'card.waiting')).toEqual([])
+  })
+
+  it('a dry run of a first admission with an unmerged depends reports the wait and writes nothing', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    const file = park(w, 82, WAITING)
+    const before = readFileSync(file, 'utf8')
+    const dry = admit(w, file, { dryRun: true })
+    expect(dry).toMatchObject({ status: 'waiting', waitingOn: [80], dryRun: true })
+    const { lines, exit } = printed(dry)
+    expect(exit).toBe(INTAKE_EXIT.waiting)
+    expect(lines.join('')).toContain('so --admit would leave it parked and write a card.waiting. Nothing was written.')
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(payloadsOf(w, 'card.waiting')).toEqual([])
   })
 
   it('a stale --confirm admits nothing', () => {
@@ -542,8 +586,11 @@ describe('construct intake --admit across the lanes of the parking', () => {
     parkIn(w, 'lane-1', 43, '#43 other [implement/runner/S/cheap/owner] · depends — · blocks —')
     const line = '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks #43'
     const file = parkIn(w, 'lane-2', 58, line)
-    const result = admit(w, file)
-    expect(result).toMatchObject({ status: 'waiting', card: { line, unclear: [] } })
+    expect(admit(w, file)).toMatchObject({ status: 'waiting', waitingOn: [53], card: { line, unclear: [] } })
+
+    journal(w, [{ event: 'merge', task: '53', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    expect(admit(w, file)).toMatchObject({ status: 'admitted', card: { unclear: [] } })
+    expect(readFileSync(file, 'utf8')).not.toContain('unclear:')
   })
 
   it('a depends on a card parked under another parking root stays unclear', () => {
@@ -551,7 +598,8 @@ describe('construct intake --admit across the lanes of the parking', () => {
     parkIn(w, 'lane-1', 53, '#53 first [implement/runner/S/cheap/owner] · depends — · blocks —')
     const file = parkIn(w, 'lane-2', 58, '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks —')
     const result = admit(w, file, { parkingRoot: path.join(w.root, 'elsewhere') })
-    expect(result).toMatchObject({ status: 'waiting', card: { unclear: [{ field: 'depends' }] } })
+    expect(result).toMatchObject({ status: 'admitted', card: { unclear: [{ field: 'depends' }] } })
+    expect(readFileSync(file, 'utf8')).toContain('unclear: depends')
   })
 })
 

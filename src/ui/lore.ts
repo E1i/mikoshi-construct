@@ -181,6 +181,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeAdmitAwaiting: (file: string, token: string) => string
   intakeAdmitDryRun: (file: string) => string
   intakeAdmitWaiting: (file: string, card: string, depends: string, inBus: boolean) => string
+  intakeAdmitWaitingDryRun: (file: string, card: string, depends: string) => string
   notCarried: string
   notCarriedDoesNotHold: (claimId: string, target: string) => string
   notCarriedUnevaluable: (claimId: string, target: string) => string
@@ -527,6 +528,7 @@ export const LORE: Lore = {
   intakeAdmitWaiting: (file: string, card: string, depends: string, inBus: boolean) => inBus
     ? `WAITING // ${file}: ${card}; depends ${depends} not merged, not admitted; card.waiting is in the bus. Admit again once they merge`
     : `WAITING // ${file}: ${card}; depends ${depends} not merged, not admitted. NO BUS // nothing written. Admit again once they merge`,
+  intakeAdmitWaitingDryRun: (file: string, card: string, depends: string) => `DRY RUN // WAITING // ${file}: ${card}; depends ${depends} not merged, so --admit would not admit it and would write card.waiting. Nothing written`,
   notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
@@ -892,6 +894,7 @@ export const PLAIN_LORE: Lore = {
   intakeAdmitWaiting: (file: string, card: string, depends: string, inBus: boolean) => inBus
     ? `Not admitted yet ${file}: ${card}. It depends on ${depends}, not merged yet, so it stays parked and a card.waiting naming them is in the bus. Run --admit again once they merge.`
     : `Not admitted yet ${file}: ${card}. It depends on ${depends}, not merged yet, so it stays parked; no bus is wired to this run, so nothing was written. Run --admit again once they merge.`,
+  intakeAdmitWaitingDryRun: (file: string, card: string, depends: string) => `Dry run: ${file}: ${card} depends on ${depends}, not merged yet, so --admit would leave it parked and write a card.waiting. Nothing was written.`,
   notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,

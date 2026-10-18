@@ -1,3 +1,4 @@
+import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
 import type { Ui } from '../../ui/console.js'
@@ -57,7 +58,7 @@ export type AdmitResult
     | { status: 'invalidTestPattern', reasons: string[] }
     | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
-    | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean }
+    | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
 
 export function witnessesOf(body: string): string[] {
   const lines = body.split('\n')
@@ -95,6 +96,14 @@ function draftOf(parked: ParkedTask): DraftCard {
 
 function ids(references: readonly string[]): number[] {
   return references.map(reference => Number(CARD_REFERENCE.exec(reference)![1]))
+}
+
+function unmergedKnown(references: readonly string[], parked: ReadonlySet<number>, cards: BusCardStates | undefined, done: ReadonlySet<string>): number[] {
+  return references.flatMap((reference) => {
+    const id = CARD_REFERENCE.exec(reference)?.[1]
+    const known = id !== undefined && (parked.has(Number(id)) || cards?.has(id) === true)
+    return known && !done.has(id) ? [Number(id)] : []
+  })
 }
 
 function waitingEvent(cardId: number, waitingOn: readonly number[], at: Date): CardEvent {
@@ -211,10 +220,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (invalidPatterns.length > 0)
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
   const cards = options.cardStates?.()
+  const parked = new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking())))
+  const done = new Set(closedTasks(journal, cards).keys())
   const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
-    parked: new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking()))),
-    done: new Set(closedTasks(journal, cards).keys()),
+    parked,
+    done,
     merged: mergedTasks(journal, cards),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
@@ -244,16 +255,17 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
     return { status: 'refused', why: reparsed.reason }
+  const waitingOn = unmergedKnown(checked.depends, parked, cards, done)
+  if (source === ADMIT_SOURCE && waitingOn.length > 0) {
+    if (!options.dryRun)
+      options.events?.(waitingEvent(card.id, waitingOn, now()))
+    return { status: 'waiting', file: options.file, card: admitted, waitingOn, inBus: base.inBus, dryRun: options.dryRun }
+  }
   if (options.dryRun)
     return { ...base, status: 'dryRun' }
   const token = confirmationToken([admitted])
   if (!options.autoConfirm && correctionsNeedPerson(admitted) && options.confirm !== token)
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
-  const waitingOn = ids(checked.depends)
-  if (source === ADMIT_SOURCE && waitingOn.length > 0) {
-    options.events?.(waitingEvent(card.id, waitingOn, now()))
-    return { status: 'waiting', file: options.file, card: admitted, waitingOn, inBus: base.inBus }
-  }
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), lane, source)], options.events)
@@ -273,7 +285,8 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   }
   const { card } = result
   if (result.status === 'waiting') {
-    ui.line(ui.lore.intakeAdmitWaiting(result.file, card.line, result.waitingOn.map(id => `#${id}`).join(', '), result.inBus))
+    const depends = result.waitingOn.map(id => `#${id}`).join(', ')
+    ui.line(result.dryRun ? ui.lore.intakeAdmitWaitingDryRun(result.file, card.line, depends) : ui.lore.intakeAdmitWaiting(result.file, card.line, depends, result.inBus))
     return INTAKE_EXIT.waiting
   }
   if (result.status === 'alreadyAdmitted') {

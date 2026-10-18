@@ -178,6 +178,7 @@ describe.concurrent('every command exits with the code it exits with today, as a
     const corrected = path.join(w.home, 'corrected.json')
     writeFileSync(corrected, JSON.stringify({ cards: [{ name: 'two-card', number: 1, kind: 'implement', milestone: 'runner', size: 'S', who: 'shift', touches: ['src/**'], task: 'Do another thing.', witnesses: ['it is done'] }] }))
     expect(await intake('--draft', corrected, '--taken', taken)).toBe(2)
+    writeFileSync(path.join(parking, '8.md'), 'card: #8 depended-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/depended-card\ntouches: src/**\ncontinue: stop\nwho: shift\n\nDo the first thing.\n')
     const waiting = path.join(parking, '9.md')
     writeFileSync(waiting, 'card: #9 waiting-card [implement/runner/S/cheap/owner] · depends #8 · blocks —\nbranch: feat/waiting-card\ntouches: src/**\ncontinue: stop\nwho: shift\n\nDo a third thing.\n')
     vi.stubEnv('CONSTRUCT_BUS_DB', path.join(w.home, 'no-bus.db'))
