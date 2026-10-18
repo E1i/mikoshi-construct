@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -84,6 +84,12 @@ describe('the layer rules of the bus hold over scripts and src', () => {
     })
     expect(depcruise(root, ['--config', LAYER_CONFIG, '--ignore-known', LAYER_BASELINE, 'scripts'])).toEqual({ status: 1, violations: ['bus-services-import-no-other-service scripts/bus/merge-worker.ts -> scripts/bus/close-executor.ts'] })
   }, CRUISE_TIMEOUT_MS)
+
+  it('names every worker, executor and starter of the bus after its service, so the service rules see each one', () => {
+    const serviceShaped = readdirSync(path.join(REPO_ROOT, 'scripts', 'bus')).filter(file => /(?:^|-)(?:worker|executor|starter)\.ts$/.test(file))
+    expect(serviceShaped.filter(file => !/^[a-z]+-(?:worker|executor|starter)\.ts$/.test(file))).toEqual([])
+    expect(serviceShaped).toContain('merge-executor.ts')
+  })
 
   it('refuses a cycle inside the bus core', () => {
     const root = sampleTree({

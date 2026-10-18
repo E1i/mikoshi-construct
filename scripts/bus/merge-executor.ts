@@ -9,16 +9,16 @@ import { Buffer } from 'node:buffer'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
 import { MERGE_DONE } from './card-automaton.js'
 import { appendEvent } from './db.js'
+import { messageOf } from './errors.js'
 import { isFullSha } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
-import { mergePolicy, underOwnerDecision, VERSION_BRANCH } from './policy.js'
+import { mergePolicy, OWNER_MERGES, underOwnerDecision, VERSION_BRANCH } from './policy.js'
 import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit } from './queue.js'
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, SHARD_USED, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
-export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const MERGE_METHOD = 'squash'
 export const STALE_HEAD_STATUS = 409
 const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate'])
@@ -64,10 +64,6 @@ type Checked = { kind: 'ready', facts: MergeFacts, mergedCommit: string | null, 
 
 function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
-}
-
-export function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function changedFiles(meter: Meter, pr: number): string[] {
