@@ -17,7 +17,7 @@ import { expireLeasesHeldBy, TASK_EXPIRED } from './lease.js'
 import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
 import { CHECK_MS } from './netwatch.js'
 import { LIVE_FLAG } from './node.js'
-import { busShadowProblems } from './review-bg.js'
+import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
 export const SUPERVISE_FLAG = '--supervise'
@@ -533,7 +533,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
     wanted: () => wantedLaunches(busDir, reviewPreflight),
-    start: launch => startDetached(launch, busDir, process.env, processes),
+    start: launch => startReviewWorker(launch, busDir, process.env, processes),
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
     freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
     processes,
@@ -545,7 +545,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   }, startingBaseline(db, code))
   const keeper = new WorkerKeeper({
     wanted: () => wantedLaunches(busDir, reviewPreflight),
-    start: launch => startDetached(launch, busDir, process.env, processes),
+    start: launch => startReviewWorker(launch, busDir, process.env, processes),
     processes,
     reduce: () => runReducer(cwd),
     journal,
@@ -590,7 +590,7 @@ async function main(): Promise<void> {
     const processes = psList()
     printBg(await applySwitch(busDir, command.worker, command.on, {
       processes,
-      start: launch => startDetached(launch, busDir, process.env, processes),
+      start: launch => startReviewWorker(launch, busDir, process.env, processes),
       stop: (running, launch) => stopInstance(running, launch.markers, processes),
     }, reviewPreflight))
     return
@@ -599,7 +599,7 @@ async function main(): Promise<void> {
     printBg(detectionCommand(busDir, command.worker, command.live, command.live ? decisionsInForce() : []))
     return
   }
-  printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight), SUPERVISOR_LAUNCH]))
+  printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight), SUPERVISOR_LAUNCH], process.env, psList(), startReviewWorker))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
