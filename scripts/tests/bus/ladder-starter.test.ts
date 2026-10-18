@@ -58,6 +58,22 @@ function starterFor(step: LadderStep, options: { tree?: string | null, parked?: 
   return { starter, spawned, killed, cut, parking }
 }
 
+describe('the brief chain', () => {
+  it('runs brief-finish before ghosts:hash --by morse', () => {
+    const { starter, spawned } = starterFor({ kind: 'brief' }, { tree: null })
+    starter.start({ cardId: CARD, lane: 'lane-x' })
+
+    const script = spawned[0]!.args[1]!
+    const claude = script.indexOf('env claude')
+    const finish = script.indexOf('brief-finish-cli.ts')
+    const hash = script.indexOf(`'ghosts:hash'`)
+    expect(claude).toBeGreaterThanOrEqual(0)
+    expect(finish).toBeGreaterThan(claude)
+    expect(hash).toBeGreaterThan(finish)
+    expect(script).toContain(`'/trees/cut' '/handoff/brief.md' && pnpm`)
+  })
+})
+
 describe('the ladder starter chains', () => {
   it('the brief chain cuts the tree, runs the claude session, then MORSE, then ghosts:launch with a yes', () => {
     const { starter, spawned, cut, parking } = starterFor({ kind: 'brief' }, { tree: null })
@@ -69,7 +85,7 @@ describe('the ladder starter chains', () => {
     expect(run.cwd).toBe('/trees/cut')
     expect(run.args.slice(2)).toEqual(['shift', '-p', '--session-id', 'sess-1'])
     const script = run.args[1]!
-    expect(script).toBe(`env claude --permission-mode dontAsk "$@" && pnpm --dir '/repo' --silent 'ghosts:hash' '/handoff/brief.md' '--by' 'morse' '--card' '${CARD}' '--parking' '${parking}' && printf 'yes\\n' | pnpm --dir '/repo' --silent 'ghosts:launch' '--tasks' '/handoff/tasks.json'`)
+    expect(script).toBe(`env claude --permission-mode dontAsk "$@" && pnpm --dir '/repo' --silent exec tsx 'scripts/shift/brief-finish-cli.ts' '${parking}/lane-x/${CARD}.md' '/trees/cut' '/handoff/brief.md' && pnpm --dir '/repo' --silent 'ghosts:hash' '/handoff/brief.md' '--by' 'morse' '--card' '${CARD}' '--parking' '${parking}' && printf 'yes\\n' | pnpm --dir '/repo' --silent 'ghosts:launch' '--tasks' '/handoff/tasks.json'`)
     expect(run.input).toContain('body of the brief step')
   })
 
