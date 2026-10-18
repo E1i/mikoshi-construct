@@ -52,6 +52,10 @@ export function correctionsNeedPerson(card: Pick<SlicedCard, 'corrections'>): bo
   return !card.corrections.every(correction => dropsMergedDepends(correction) || addsCompanion(correction))
 }
 
+export function admitCorrectionsNeedPerson(card: Pick<SlicedCard, 'corrections'>): boolean {
+  return !card.corrections.every(addsCompanion)
+}
+
 function needsPerson(card: SlicedCard): boolean {
   return correctionsNeedPerson(card) || proposesRiskSlices(card)
 }

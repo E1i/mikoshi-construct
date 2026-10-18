@@ -304,7 +304,7 @@ describe('pnpm intake writes card events to bus.db', () => {
       const ended = parkAs(91, '#80')
       const late = parkAs(92, '#81')
       const main = createMain(busIntakePorts(db))
-      await runMain(main, { rawArgs: ['intake', '--admit', ended, '--dir', w.repo, '--journal', w.journal, '--plain'] })
+      await runMain(main, { rawArgs: ['intake', '--admit', ended, '--dir', w.repo, '--journal', w.journal, '--plain', '--auto-confirm'] })
       await runMain(main, { rawArgs: ['intake', '--admit', late, '--dir', w.repo, '--journal', w.journal, '--plain'] })
     }
     finally {

@@ -151,14 +151,46 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(taskStart(w, CLEAN)).toBe(0)
   })
 
-  it('an amend that only drops merged depends needs no person', () => {
+  it('an admission that only drops merged depends is held behind a token', () => {
     const w = world()
     park(w, 80, CLEAN)
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 81, STALE)
     journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
-    expect(admit(w, file).status).toBe('admitted')
-    expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '81', card: STALE_ADMITTED, confirmation: 'none' })
+    expect(admit(w, file).status).toBe('awaiting')
+  })
+
+  it('an amend with a correction and no --confirm is held with a token and exit 2', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
+    const file = park(w, 81, STALE)
+    const before = readFileSync(file, 'utf8')
+    journal(w, [
+      { event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' },
+      { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' },
+      { event: 'intake', task: '81', card: STALE, confirmation: 'none', corrections: [], source: 'admit', ts: NOW.toISOString() },
+    ])
+    const held = admit(w, file)
+    expect(held).toMatchObject({ status: 'awaiting', stale: false })
+    expect(held.status === 'awaiting' ? held.token : '').not.toBe('')
+    expect(printed(held).exit).toBe(INTAKE_EXIT.awaiting)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(journalLines(w)).toHaveLength(3)
+  })
+
+  it('no confirmation is recorded without --confirm', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
+    const file = park(w, 81, STALE)
+    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    const held = admit(w, file)
+    expect(printed(held).lines.join('\n')).not.toContain('confirmed by a person')
+    expect(journalLines(w).filter(line => line.event === 'intake')).toHaveLength(0)
+    const token = held.status === 'awaiting' ? held.token : ''
+    expect(admit(w, file, { confirm: token }).status).toBe('admitted')
+    expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '81', confirmation: 'person' })
   })
 
   it('any other correction still needs a person', () => {
@@ -213,7 +245,10 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(taskStart(w, WAITING)).toBe(1)
 
     journal(w, [{ event: 'merge', task: '80', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
-    expect(admit(w, file).status).toBe('admitted')
+    const held = admit(w, file)
+    expect(held.status).toBe('awaiting')
+    const token = held.status === 'awaiting' ? held.token : ''
+    expect(admit(w, file, { confirm: token }).status).toBe('admitted')
     expect(admittedEvents(w)).toBe(1)
   })
 
@@ -287,7 +322,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     }
     expect(admitWithBusState('running')).toMatchObject({ status: 'waiting', waitingOn: [77] })
     for (const ended of ['merged', 'closed'])
-      expect(admitWithBusState(ended), ended).toMatchObject({ status: 'admitted', card: { unclear: [] } })
+      expect(admitWithBusState(ended), ended).toMatchObject({ status: 'awaiting', card: { unclear: [] } })
   })
 
   it('a waiting card with no bus wired prints the no-bus wait and exits 3', () => {
@@ -629,7 +664,8 @@ describe('construct intake --admit across the lanes of the parking', () => {
     expect(admit(w, file)).toMatchObject({ status: 'waiting', waitingOn: [53], card: { line, unclear: [] } })
 
     journal(w, [{ event: 'merge', task: '53', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
-    expect(admit(w, file)).toMatchObject({ status: 'admitted', card: { unclear: [] } })
+    expect(admit(w, file)).toMatchObject({ status: 'awaiting', card: { unclear: [] } })
+    expect(admit(w, file, { autoConfirm: true })).toMatchObject({ status: 'admitted', card: { unclear: [] } })
     expect(readFileSync(file, 'utf8')).not.toContain('unclear:')
   })
 
