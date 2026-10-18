@@ -84,6 +84,10 @@ function testShrunk(file: ChangedFile): boolean {
   return file.deletions > 0
 }
 
+function deletesNonTest(file: ChangedFile): boolean {
+  return file.status === 'D' && kindOf(file.path) !== 'test'
+}
+
 function criticalGrounds(files: ChangedFile[]): string[] {
   return files.flatMap((file) => {
     const risk = riskOf(file.path)
@@ -110,6 +114,8 @@ export const RULES = [
     id: 'tests-shrunk',
     verdict: 'ladder',
     fires: (files) => {
+      if (files.some(deletesNonTest))
+        return null
       const matches = files.filter(testShrunk)
       return matches.length > 0 ? sortedPaths(matches) : null
     },
@@ -119,7 +125,8 @@ export const RULES = [
     verdict: 'ladder',
     fires: (files) => {
       const matches = files.filter(file => kindOf(file.path) === 'src')
-      return matches.length > 0 ? sortedPaths(matches) : null
+      const grounded = criticalGrounds(files).length + untestedGrounds(files).length > 0
+      return matches.length > 0 && grounded ? sortedPaths(matches) : null
     },
   },
   {

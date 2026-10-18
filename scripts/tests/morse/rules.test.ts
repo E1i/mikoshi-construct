@@ -40,6 +40,35 @@ describe('morse doubt fires only on a named ground', () => {
     expect(classifyTouches(PLAN_TOUCHES[1041], true)).toEqual({ verdict: 'ladder', rule: 'doubt', why: ['the card carries unclear: lines'] })
   })
 
+  it('an src edit with a test beside classifies cheap', () => {
+    const files = [
+      { path: 'src/ui/lore.ts', status: 'M' as const, additions: 4, deletions: 1 },
+      { path: 'tests/lore.test.ts', status: 'M' as const, additions: 6, deletions: 0 },
+    ]
+    expect(classify(files).verdict).toBe('cheap')
+  })
+
+  it('deletion cards #1038, #1039, #1041 classify cheap', () => {
+    const removed = (path: string) => ({ path, status: 'D' as const, additions: 0, deletions: 10 })
+    const edited = (path: string) => ({ path, status: 'M' as const, additions: 0, deletions: 3 })
+    const shared = ['package.json', 'tests/harness-membership.test.ts', 'CONTRIBUTING.md', 'scripts/ci/test-weights.json'].map(edited)
+    const cards = [
+      [removed('scripts/morse/backtest.ts'), removed('scripts/shift/answer-record.ts'), removed('scripts/tests/shift/answer-record.test.ts'), edited('scripts/morse/cli.ts'), edited('scripts/tests/morse/cli.test.ts'), ...shared],
+      [removed('scripts/bench/run.ts'), removed('scripts/tests/bench/run.test.ts'), ...shared],
+      [removed('scripts/board/run.ts'), removed('scripts/tests/board/run.test.ts'), ...shared],
+    ]
+    for (const files of cards)
+      expect(classify(files).verdict).toBe('cheap')
+  })
+
+  it('a card with an R1 touch does not classify cheap', () => {
+    const files = [
+      { path: 'scripts/ghosts/hash.ts', status: 'M' as const, additions: 2, deletions: 1 },
+      { path: 'scripts/tests/ghosts/hash.test.ts', status: 'M' as const, additions: 3, deletions: 0 },
+    ]
+    expect(classify(files).verdict).toBe('ladder')
+  })
+
   it('a test touch is not a shrunk test, while a binary test diff still is', () => {
     expect(classifyTouches(['scripts/tests/board/run.test.ts'], false).rule).toBe('no-ground')
     expect(classify([{ path: 'tests/fixtures/logo.png', status: 'M', additions: null, deletions: null }]).rule).toBe('tests-shrunk')

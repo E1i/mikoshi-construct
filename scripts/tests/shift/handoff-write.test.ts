@@ -251,6 +251,29 @@ describe('handoff:write', () => {
     }
   })
 
+  it('refuses STATUS: OWNER while the bus holds a card the window can take', () => {
+    const { handoff, draft: file } = world()
+    writeFileSync(file, withoutStateFields(draft()).replace('STATUS: CONTINUE', 'STATUS: OWNER — boundary: owner-question'))
+    busState = { kind: 'read', state: BUS_STATE }
+    const result = write([handoff, file])
+    expect(result.code).toBe(1)
+    expect(result.err.join('\n')).toContain('owner questions go into the day file and the next card is taken')
+    expect(existsSync(handoff)).toBe(false)
+  })
+
+  it('writes STATUS: OWNER when no card can be taken without the owner', () => {
+    const nothingQueued: HandoffState = { ...BUS_STATE, ready: [] }
+    const heldForOwner: HandoffState = { ...nothingQueued, blocked: [{ card: '653', lane: 'lane-2', reason: 'waits question' }] }
+    for (const state of [nothingQueued, heldForOwner]) {
+      const { handoff, draft: file } = world()
+      writeFileSync(file, withoutStateFields(draft()).replace('STATUS: CONTINUE', 'STATUS: OWNER — boundary: owner-question'))
+      busState = { kind: 'read', state }
+      const result = write([handoff, file])
+      expect(result.err).toEqual([])
+      expect(result.code).toBe(0)
+    }
+  })
+
   it('the in-flight and queue fields are generated from the bus state, not from the draft', () => {
     const { handoff, draft: file } = world()
     writeFileSync(file, withoutStateFields(draft()))

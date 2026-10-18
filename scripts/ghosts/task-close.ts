@@ -38,6 +38,7 @@ const CARD_MENTION = /(?<!PR )#([1-9]\d*)/g
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const CLOSER_SESSION_BY_HAND = 'by-hand'
 const CARD_VERIFIED_ROWS = `SELECT id, card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
+const REPORT_ROOTS = ['reports', 'probes'] as const
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const SURVIVED = 'nothing-red'
 const LADDER_CONTOUR = 'ladder'
@@ -73,6 +74,8 @@ export interface TaskCloseDeps {
   append: (file: string, text: string) => void
   now: () => Date
   handoffDir: string
+  constructDir: string
+  realpath: (file: string) => string
   busPath?: string
   exists: (file: string) => boolean
   session: string | undefined
@@ -95,6 +98,16 @@ export interface TaskCloseResult {
   stdout: string[]
   stderr: string[]
   exitCode: number
+}
+
+function reportRootRefusal(deps: TaskCloseDeps, report: string): string | null {
+  const roots = REPORT_ROOTS.map(name => path.join(deps.constructDir, name))
+  const real = deps.realpath(report)
+  const inside = roots.some((root) => {
+    const relative = path.relative(deps.realpath(root), real)
+    return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
+  })
+  return inside ? null : `--report ${report} is outside ${roots.join(' and ')}; a probe's report lives under one of them; nothing written`
 }
 
 function refuse(message: string): TaskCloseResult {
@@ -421,6 +434,9 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
     return refuse(ownership)
   const shared = ownership.sharedBy === undefined ? {} : { sharedBy: ownership.sharedBy }
   const report = path.resolve(deps.cwd, value)
+  const outside = outcome === '--report' ? reportRootRefusal(deps, report) : null
+  if (outside !== null)
+    return refuse(outside)
   const closing = outcome === '--pr' ? { pr: Number(value) } : { report }
   const at = deps.now().toISOString()
   const sessions = taskSessions(deps, start)
@@ -476,6 +492,15 @@ function writeClosing(deps: TaskCloseDeps, journal: string, id: string, record: 
   }
 }
 
+export function realpathOrSelf(file: string): string {
+  try {
+    return realpathSync(file)
+  }
+  catch {
+    return file
+  }
+}
+
 function realDeps(): TaskCloseDeps {
   return {
     cwd: process.cwd(),
@@ -486,6 +511,8 @@ function realDeps(): TaskCloseDeps {
     },
     now: () => new Date(),
     handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    constructDir: path.join(os.homedir(), '.construct'),
+    realpath: realpathOrSelf,
     busPath: defaultBusPath(),
     prCard: pr => prCardOf(defaultBusPath(), pr),
     exists: existsSync,

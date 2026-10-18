@@ -13,6 +13,8 @@ import { busWithCardStarted } from './card-started-bus.js'
 const LAUNCH_SESSION = 'ghost-session'
 
 const HANDOFF = '/handoff'
+const CONSTRUCT = '/home/.construct'
+const REPORTS = path.join(CONSTRUCT, 'reports')
 const JOURNAL = path.join(HANDOFF, 'ghosts.jsonl')
 const NOW = new Date('2026-10-03T09:00:00.000Z')
 const PROJECTS = '/projects'
@@ -36,6 +38,8 @@ function world(journal: string[], sessionFiles: string[] = [], files: Record<str
       },
       now: () => NOW,
       handoffDir: HANDOFF,
+      constructDir: CONSTRUCT,
+      realpath: file => file,
       exists: file => sessionFiles.includes(file),
       session: undefined,
       projectsDir: PROJECTS,
@@ -49,6 +53,34 @@ function sessionFile(key: string, id: string): string {
   return path.join(PROJECTS, key, `${id}.jsonl`)
 }
 
+describe('task:close keeps a report under the construct directory', () => {
+  const probes = path.join(CONSTRUCT, 'probes')
+
+  it('refuses a report outside ~/.construct/reports and ~/.construct/probes', () => {
+    const { deps, written } = world([startLine('7', 'probe')])
+    for (const report of ['/elsewhere/r.md', 'relative.md', `${REPORTS}/../elsewhere/r.md`, `${CONSTRUCT}/reports-other/r.md`, REPORTS]) {
+      const result = runTaskClose(['7', '--report', report, '--verification', 'run'], deps)
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr[0]).toContain(`is outside ${REPORTS} and ${probes}`)
+    }
+    expect(written).toEqual([])
+  })
+
+  it('refuses a report whose symlink leads outside the roots', () => {
+    const { deps, written } = world([startLine('7', 'probe')])
+    const result = runTaskClose(['7', '--report', `${REPORTS}/link.md`, '--verification', 'run'], { ...deps, realpath: file => file === `${REPORTS}/link.md` ? '/elsewhere/r.md' : file })
+    expect(result.exitCode).toBe(1)
+    expect(written).toEqual([])
+  })
+
+  it('accepts a report under ~/.construct/reports and under ~/.construct/probes', () => {
+    const { deps, written } = world([startLine('7', 'probe')])
+    for (const report of [`${REPORTS}/r.md`, `${probes}/name/report.md`])
+      expect(runTaskClose(['7', '--report', report, '--verification', 'run'], deps).exitCode).toBe(0)
+    expect(written).toHaveLength(2)
+  })
+})
+
 describe('w3: task:close writes the closing line the board reads', () => {
   it('w3: an implement task closes with its PR and the verification word', () => {
     const { deps, written } = world([startLine('123', 'implement')])
@@ -59,14 +91,14 @@ describe('w3: task:close writes the closing line the board reads', () => {
 
   it('w3: a probe closes with its report, resolved against the working directory', () => {
     const { deps, written } = world([startLine('7', 'probe')])
-    expect(runTaskClose(['7', '--report', 'probe-7.md', '--verification', 'measurement'], deps).exitCode).toBe(0)
-    expect(JSON.parse(written[0]!)).toMatchObject({ task: '7', report: '/work/probe-7.md', verification: 'measurement' })
+    expect(runTaskClose(['7', '--report', 'probe-7.md', '--verification', 'measurement'], { ...deps, cwd: REPORTS }).exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ task: '7', report: `${REPORTS}/probe-7.md`, verification: 'measurement' })
     expect(JSON.parse(written[0]!)).not.toHaveProperty('pr')
   })
 
   it('w3: reads the last start line with a card for the id, past unreadable lines and lines without a card', () => {
     const { deps, written } = world(['{not json', JSON.stringify({ event: 'path', task: '9', path: 'cheap', ts: 'x' }), startLine('9', 'probe')])
-    expect(runTaskClose(['9', '--report', '/r.md', '--verification', 'review'], deps).exitCode).toBe(0)
+    expect(runTaskClose(['9', '--report', `${REPORTS}/r.md`, '--verification', 'review'], deps).exitCode).toBe(0)
     expect(written).toHaveLength(1)
   })
 })
@@ -374,9 +406,9 @@ describe('a cloud run closes on its cloud-start line', () => {
       JSON.stringify({ event: 'cloud-start', task: '665', card, run: 'trig_1', base: null, ts: 'x' }),
     ]
     const { deps, written } = world(journal)
-    const result = runTaskClose(['665', '--report', '/r.md', '--verification', 'run'], deps)
+    const result = runTaskClose(['665', '--report', `${REPORTS}/r.md`, '--verification', 'run'], deps)
     expect(result.exitCode).toBe(0)
-    expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '665', path: 'cheap', report: '/r.md', verification: 'run', sessions: [{ id: 'trig_1' }] })
+    expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '665', path: 'cheap', report: `${REPORTS}/r.md`, verification: 'run', sessions: [{ id: 'trig_1' }] })
   })
 })
 
@@ -508,8 +540,8 @@ describe('task:close closes the GitHub issue of its card', () => {
   it('closes an issue whose body says card #N, and names the report of a probe', () => {
     const { deps } = world([startLine('7', 'probe')])
     const github = issues({ 7: { title: 'something else entirely', body: 'parked as card #7, see the board' } })
-    runTaskClose(['7', '--report', 'probe-7.md', '--verification', 'measurement'], { ...deps, ...github.deps })
-    expect(github.closed).toEqual([[7, 'Closed by task:close #7 n: report /work/probe-7.md.']])
+    runTaskClose(['7', '--report', 'probe-7.md', '--verification', 'measurement'], { ...deps, ...github.deps, cwd: REPORTS })
+    expect(github.closed).toEqual([[7, `Closed by task:close #7 n: report ${REPORTS}/probe-7.md.`]])
   })
 
   it('an issue with the same number about another card stays open and is named', () => {
