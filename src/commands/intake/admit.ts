@@ -14,7 +14,7 @@ import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/c
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
-import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, TOUCHES_HEADER } from './confirm.js'
+import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, INTAKE_EVENT, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedRecord, CARD_WAITING, defaultParking, INTAKE_EXIT, recordIntake } from './index.js'
 import { parkedNumbers } from './numbers.js'
@@ -194,6 +194,12 @@ function parkedAcrossLanes(file: string, root: string): string[] {
   return parkedFilesUnder(root)
 }
 
+function admitConfirmation(card: SlicedCard, autoConfirm: boolean): Confirmation {
+  if (!autoConfirm && admitCorrectionsNeedPerson(card))
+    return 'person'
+  return confirmationOf(card, autoConfirm)
+}
+
 export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult {
   let text: string
   let journal: string | null
@@ -264,11 +270,11 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (options.dryRun)
     return { ...base, status: 'dryRun' }
   const token = confirmationToken([admitted])
-  if (!options.autoConfirm && correctionsNeedPerson(admitted) && options.confirm !== token)
+  if (!options.autoConfirm && admitCorrectionsNeedPerson(admitted) && options.confirm !== token)
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (admitted.text !== text)
     writeFileSync(options.file, admitted.text)
-  recordIntake(options.journal, [admittedRecord(admitted, confirmationOf(admitted, options.autoConfirm), now(), lane, source)], options.events)
+  recordIntake(options.journal, [admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
   return { ...base, status: 'admitted' }
 }
 
