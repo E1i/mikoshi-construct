@@ -158,7 +158,6 @@ and the journal, `<worktree>` for a Ghost's worktree.
 | `pnpm build` | Bundles the CLI with tsup into `dist/cli.js`. | `pnpm build` |
 | `pnpm contract:update` | The only writer of `contract/surface.json`, the recorded command-line surface; `tests/contract/` is its gate. | `pnpm contract:update` |
 | `pnpm contract:bump` | Compares `contract/surface.json` with the surface at the last release tag and fails when the pending changesets declare a weaker bump than the change requires. Outside the harness because it needs the tags and full history; CI runs it in its own job. | `pnpm contract:bump [--base <ref> --head <ref>]` |
-| `pnpm bench:architect` | The architect benchmark. It calls the Anthropic API and costs real money, so it runs only with `--yes`. | `pnpm bench:architect --yes [--rounds <n>] [--out <file>]` |
 | `pnpm changeset` | Adds a changeset: the bump level and the release-note line for a change. | `pnpm changeset` |
 | `pnpm version-packages` | Applies the pending changesets to the version and changelog, then renders the release notes. The release workflow runs it. | `pnpm version-packages` |
 | `pnpm release-notes:render` | Rewrites the rendered release notes under `docs/release-notes/` from the changelog. | `pnpm release-notes:render` |

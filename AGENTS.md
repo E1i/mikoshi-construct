@@ -47,7 +47,7 @@ the tree; these top-level modules exist and are not in it.
 | `src/sync/` | `replay.ts` (re-render today's template groups for the recorded preset), `classify.ts` (every path into one of the eight classes), `variant.ts` (which template variant wrote an append-block target), `ownership.ts`, `write.ts` |
 | `src/commands/` | `init.ts`, `soulkill.ts`, `graph.ts`, `sync/`, and `cost/` (a `CostSource` per runtime — only Claude Code is readable — summing token counts from `~/.claude/projects/<dir>` session files and joining them to the `/implement` ledger record), beside the `doctor/` CLAUDE.md does list |
 | `src/record-ahead.ts`, `src/version.ts` | The shared "this record was written by a later build" error, and the version constant `tsup` stamps into the build |
-| `scripts/` | The harness this repository materialized for itself and then grew: `composition/` and `model/` (check + render for the two kinds of diagram), `privacy/` (no home path or unlisted domain in a published artifact), `docs/` (every anchored nav link resolves to a rendered heading), `release-notes/`, `release/`, `bench/` (the architect benchmark), `construct/implement.workflow` (the `/implement` ladder), `tests/` |
+| `scripts/` | The harness this repository materialized for itself and then grew: `composition/` and `model/` (check + render for the two kinds of diagram), `privacy/` (no home path or unlisted domain in a published artifact), `docs/` (every anchored nav link resolves to a rendered heading), `release-notes/`, `release/`, `construct/implement.workflow` (the `/implement` ladder), `tests/` |
 | `architecture/` | Policy, the decision records, the epistemic rules, the observations corpus, and this repository's own composition models and rendered flow docs |
 | `docs/` | The VitePress site `docs:build` publishes; `docs/cli.md` is the per-command reference |
 | `.changeset/`, `.github/workflows/release.yml` | Versioning and publish |
@@ -73,7 +73,6 @@ pnpm model:check / model:render                 # the picture of construct.model
 pnpm privacy:check                              # no home path or unlisted domain in templates, docs, README or fixtures
 pnpm docs:dev / docs:build / docs:preview       # the VitePress site; docs:anchors checks every anchored nav link resolves
 pnpm test:watch                                 # Vitest in watch mode (tests/ and scripts/tests/)
-pnpm bench:architect --yes                      # the architect benchmark; it calls the Anthropic API and costs real money
 pnpm run ci                                     # alias of pnpm run quality
 pnpm changeset / pnpm version-packages / pnpm release   # changesets → version bump + rendered release notes → build + npm publish with provenance
 pnpm release:verify                             # poll the registry until the version in package.json is installable

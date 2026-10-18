@@ -4,7 +4,6 @@ import { onTheHarnessRoute, packageScripts, reachedByHarness } from './package-s
 const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'answer:record': 'appends the answer-brief line of an answer brief to the journal when run by hand; its own tests, through shift --answer, are its gate',
   'approve': 'lists the owner\'s approval queue and writes or revokes an approval when run by hand; its own tests are its gate',
-  'bench:architect': 'a benchmark run on demand, not a verdict on a change',
   'board': 'a read-only print of the factory board from the cards, prs and tasks projections of bus.db, not a verdict on a change',
   'build': 'produces the package rather than judging it',
   'bus:answer': 'the answer worker over bus.db, switched off unless started by hand with --on; its own tests are its gate',
