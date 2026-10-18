@@ -1,7 +1,9 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { GHOST_ROW } from '../../bus/card-automaton.js'
+import { openBus } from '../../bus/db.js'
 import { freeRow, ghostRowSessionId, ghostRowState, ghostRowSupervisor, installFailedOutcome, installUnspawnableOutcome, rowTimestamp, sessionOutcome, sessionUnspawnableOutcome, upsertGhostRow, writeGhostRow, writingRow } from '../../ghosts/status.js'
 
 const STATUS = `# Ghosts — window status
@@ -112,34 +114,61 @@ describe('ghostRowSessionId', () => {
   })
 })
 
+const ACTOR = 'worker:ladder:sess-1'
+const WRITING = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
+const FREE = freeRow({ id: 'g1', worktree: '/w/wt-g1', headSha: 'b', start: 't', end: 't2', outcome: sessionOutcome(0, 'done', '/w/handoff/ghost-g1.jsonl', 's') })
+
+function ghostRowEvents(busPath: string): { card_id: number | null, payload: unknown }[] {
+  const db = openBus(busPath)
+  try {
+    const rows = db.prepare('SELECT card_id, payload FROM events WHERE type = ? ORDER BY id').all(GHOST_ROW) as { card_id: number | null, payload: string }[]
+    return rows.map(row => ({ card_id: row.card_id, payload: JSON.parse(row.payload) }))
+  }
+  finally {
+    db.close()
+  }
+}
+
 describe('writeGhostRow', () => {
-  it('writes through a temporary file and a rename, changing only the ghost row', async () => {
+  it('writes a bus event, not status.md', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-status-'))
-    const statusPath = path.join(dir, 'status.md')
-    writeFileSync(statusPath, STATUS)
+    const busPath = path.join(dir, 'bus.db')
 
-    const writing = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
-    await writeGhostRow(statusPath, 'g1', writing)
-    expect(readFileSync(statusPath, 'utf8')).toBe(upsertGhostRow(STATUS, 'g1', writing))
+    writeGhostRow(busPath, 1036, 'g1', WRITING, ACTOR)
+    writeGhostRow(busPath, 1036, 'g1', FREE, ACTOR)
 
-    const free = freeRow({ id: 'g1', worktree: '/w/wt-g1', headSha: 'b', start: 't', end: 't2', outcome: sessionOutcome(0, 'done', '/w/handoff/ghost-g1.jsonl', 's') })
-    await writeGhostRow(statusPath, 'g1', free)
-    expect(readFileSync(statusPath, 'utf8')).toBe(upsertGhostRow(STATUS, 'g1', free))
+    expect(ghostRowEvents(busPath)).toEqual([
+      { card_id: 1036, payload: { id: 'g1', state: 'writing', row: WRITING } },
+      { card_id: 1036, payload: { id: 'g1', state: 'free', row: FREE } },
+    ])
+    expect(existsSync(path.join(dir, 'status.md'))).toBe(false)
   })
 
-  it('serialises concurrent writes to the same file without losing either row', async () => {
+  it('with no status.md in the handoff the row reaches the bus and no file is created', () => {
+    const handoff = mkdtempSync(path.join(tmpdir(), 'ghosts-status-'))
+    const busPath = path.join(mkdtempSync(path.join(tmpdir(), 'ghosts-bus-')), 'bus.db')
+
+    expect(() => writeGhostRow(busPath, null, 'g1', WRITING, ACTOR)).not.toThrow()
+
+    expect(ghostRowEvents(busPath)).toHaveLength(1)
+    expect(readdirSync(handoff)).toEqual([])
+  })
+
+  it('throws when the bus cannot be opened', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-status-'))
-    const statusPath = path.join(dir, 'status.md')
-    writeFileSync(statusPath, STATUS)
+    const blocker = path.join(dir, 'blocker')
+    writeFileSync(blocker, '')
 
-    const rowG1 = writingRow({ id: 'g1', worktree: '/w/wt-g1', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
-    const rowG2 = writingRow({ id: 'g2', worktree: '/w/wt-g2', baseSha: 'a', start: 't', briefFileName: 'b', supervisorPid: 4242, sessionId: 's' })
+    expect(() => writeGhostRow(path.join(blocker, 'bus.db'), null, 'g1', WRITING, ACTOR)).toThrow()
+  })
 
-    await Promise.all([writeGhostRow(statusPath, 'g1', rowG1), writeGhostRow(statusPath, 'g2', rowG2)])
+  it('writing the same row twice yields one event', () => {
+    const busPath = path.join(mkdtempSync(path.join(tmpdir(), 'ghosts-bus-')), 'bus.db')
 
-    const content = readFileSync(statusPath, 'utf8')
-    expect(content).toContain(rowG1)
-    expect(content).toContain(rowG2)
+    writeGhostRow(busPath, 1036, 'g1', WRITING, ACTOR)
+    writeGhostRow(busPath, 1036, 'g1', WRITING, ACTOR)
+
+    expect(ghostRowEvents(busPath)).toHaveLength(1)
   })
 })
 

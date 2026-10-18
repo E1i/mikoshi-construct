@@ -5,6 +5,9 @@ import { existsSync, readFileSync, watch } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { GHOST_ROW } from '../../bus/card-automaton.js'
+import { BUS_DB_VARIABLE } from '../../bus/db.js'
+import { openDatabase } from '../../bus/sqlite.js'
 import { ghostRowState } from '../../ghosts/status.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -77,7 +80,24 @@ afterEach(() => {
 })
 
 function statusOf(w: string): string {
-  return readFileSync(path.join(w, 'handoff', 'status.md'), 'utf8')
+  const busPath = path.join(w, 'bus.db')
+  if (!existsSync(busPath))
+    return ''
+  const db = openDatabase(busPath, { readOnly: true })
+  try {
+    const events = db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(GHOST_ROW) as { payload: string }[]
+    const latest = new Map(events.map((event) => {
+      const payload = JSON.parse(event.payload) as { id: string, row: string }
+      return [payload.id, payload.row]
+    }))
+    return [...latest.values()].join('\n')
+  }
+  catch {
+    return ''
+  }
+  finally {
+    db.close()
+  }
 }
 
 function allInState(w: string, state: string): boolean {
@@ -147,14 +167,14 @@ describe('ghosts:launch outlives the window that started it', () => {
       detached: true,
       cwd: REPO_ROOT,
       stdio: 'ignore',
-      env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}` },
+      env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}`, [BUS_DB_VARIABLE]: path.join(w, 'bus.db') },
     })
     const windowPgid = window.pid!
     windows.push(window)
     const windowExited = once(window, 'exit')
     const handoff = path.join(w, 'handoff')
 
-    expect(await waitFor(() => allInState(w, 'writing'), handoff, ROW_APPEARS_MS), statusOf(w)).toBe(true)
+    expect(await waitFor(() => allInState(w, 'writing'), w, ROW_APPEARS_MS), statusOf(w)).toBe(true)
     const supervisors = [...new Set(supervisorPidsOf(statusOf(w)))]
     survivors.push(...supervisors)
     const launcherPid = Number(readFileSync(pidPath, 'utf8'))
@@ -163,7 +183,7 @@ describe('ghosts:launch outlives the window that started it', () => {
     const aliveAfterKill = supervisors.map(isAlive)
     await windowExited
 
-    expect(await waitFor(() => allInState(w, 'free'), handoff, FREE_ROW_MS), statusOf(w)).toBe(true)
+    expect(await waitFor(() => allInState(w, 'free'), w, FREE_ROW_MS), statusOf(w)).toBe(true)
     expect(await waitFor(() => journalTasks(w).length === IDS.length, handoff, FREE_ROW_MS)).toBe(true)
     expect(journalTasks(w).sort()).toEqual(IDS)
     expect(supervisors).toHaveLength(1)

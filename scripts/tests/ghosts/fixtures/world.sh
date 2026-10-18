@@ -21,9 +21,25 @@ SLOW_SECONDS=3
 GENERATED_PATH=templates/attach/earlier-carriers.json
 REGENERATED_CHECK_ERROR='stub check: templates/attach/earlier-carriers.json is not what the generator writes'
 
+GHOST_ROWS_SCRIPT='
+const fs = require("node:fs")
+const [file, id] = process.argv.slice(1)
+if (fs.existsSync(file)) {
+  const db = new (require("node:sqlite").DatabaseSync)(file, { readOnly: true })
+  for (const event of db.prepare("SELECT payload FROM events WHERE type = ? ORDER BY id").all("ghost.row")) {
+    const payload = JSON.parse(event.payload)
+    if (payload.id === id) console.log(payload.row)
+  }
+}
+'
+
 fail() {
   echo "world.sh $CHECK: $*" >&2
   exit 1
+}
+
+ghost_rows() {
+  node -e "$GHOST_ROWS_SCRIPT" "$1/bus.db" "$2" 2>/dev/null
 }
 
 git_quiet() {
@@ -247,7 +263,7 @@ write_results() {
 
 write_stub() {
   local W=$1
-  printf '#!/usr/bin/env bash\nset -euo pipefail\nW=%q\nFAILING_EXIT=%q\nSLOW_SECONDS=%q\nCHECK_ACCEPTANCE=%q\nARGS_PATH=%q\n' "$W" "$FAILING_EXIT" "$SLOW_SECONDS" "$REPO_ROOT/scripts/construct/check-acceptance.mjs" "$ARGS_PATH" >"$W/bin/claude"
+  printf '#!/usr/bin/env bash\nset -euo pipefail\nW=%q\nFAILING_EXIT=%q\nSLOW_SECONDS=%q\nCHECK_ACCEPTANCE=%q\nARGS_PATH=%q\nGHOST_ROWS_SCRIPT=%q\n' "$W" "$FAILING_EXIT" "$SLOW_SECONDS" "$REPO_ROOT/scripts/construct/check-acceptance.mjs" "$ARGS_PATH" "$GHOST_ROWS_SCRIPT" >"$W/bin/claude"
   cat >>"$W/bin/claude" <<'EOF'
 ghost=$(basename "$PWD")
 id=${ghost#wt-}
@@ -258,7 +274,7 @@ mkdir -p "$dir"
 printf '%s\0' "$@" >"$dir/argv"
 pwd -P >"$dir/cwd"
 printf '%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-unset}" >"$dir/ceiling"
-cat <"$W/handoff/status.md" >"$dir/status-at-start"
+node -e "$GHOST_ROWS_SCRIPT" "$W/bus.db" "$id" >"$dir/rows-at-start" 2>/dev/null || true
 if [ -f "$PWD/.ghost-installed" ]; then echo yes; else echo no; fi >"$dir/installed-at-start"
 if [ -f "$PWD/.construct/implement-agreed.txt" ]; then cp "$PWD/.construct/implement-agreed.txt" "$dir/agreed-at-start"; fi
 : >"$dir/stdout"
@@ -745,33 +761,29 @@ check_launched() {
   [ "$(git -C "$W/main" worktree list --porcelain | grep -c '^worktree ')" = "$(git -C "$W/main" worktree list --porcelain | grep -c '^worktree ' <"$W/.world/worktrees-before")" ] || fail "a worktree was added: $(git -C "$W/main" worktree list | tr '\n' ';')"
 }
 
-window_table_lines() {
-  awk '/^\| window \|/ { inside = 1 } inside && !/^\|/ { exit } inside { print NR }' "$1"
-}
-
 check_rows() {
   local W=$1 sha id wt row count session exit_code
   sha=$(origin_sha "$W")
   for id in $(ids_of "$W"); do
     wt="$W/wt-$id"
-    [ -f "$W/stub/wt-$id/status-at-start" ] || fail "$id: the stub did not run"
-    row=$(grep -F "| ghost-$id | $wt | writing | " "$W/stub/wt-$id/status-at-start" || true)
+    [ -f "$W/stub/wt-$id/rows-at-start" ] || fail "$id: the stub did not run"
+    row=$(grep -F "| ghost-$id | $wt | writing | " "$W/stub/wt-$id/rows-at-start" || true)
     [ -n "$row" ] || fail "$id: no '| ghost-$id | $wt | writing |' row while the session ran"
     case "$sha" in "$(echo "$row" | awk -F' [|] ' '{ print $4 }')"*) ;; *) fail "$id: the writing row's sha is not origin/main $sha: $row" ;; esac
     [ "$(echo "$row" | awk -F' [|] ' '{ print length($4) }')" -ge 7 ] || fail "$id: the writing row's sha is shorter than 7: $row"
 
-    count=$(grep -cF "| ghost-$id |" "$W/handoff/status.md" || true)
-    [ "$count" = 1 ] || fail "$id: $count rows for ghost-$id in status.md, not 1"
-    row=$(grep -F "| ghost-$id |" "$W/handoff/status.md")
+    count=$(ghost_rows "$W" "$id" | wc -l | tr -d ' ')
+    [ "$count" = 2 ] || fail "$id: $count ghost.row events for ghost-$id in the bus, not 2 (writing, free)"
+    case $(ghost_rows "$W" "$id" | head -n 1) in "| ghost-$id | $wt | writing | "*) ;; *) fail "$id: the first row is not writing" ;; esac
+    row=$(ghost_rows "$W" "$id" | tail -n 1)
     case $row in "| ghost-$id | $wt | free | "*) ;; *) fail "$id: the row after exit is not free: $row" ;; esac
     exit_code=$(expected_exit "$W" "$id")
     session=$(session_of "$W" "$id")
     for part in "exit $exit_code" "report $W/handoff/ghost-$id.jsonl" "session $session"; do
       echo "$row" | grep -qF -- "$part" || fail "$id: the free row lacks '$part': $row"
     done
-    window_table_lines "$W/handoff/status.md" | grep -qx "$(grep -nF "| ghost-$id |" "$W/handoff/status.md" | cut -d: -f1)" || fail "$id: the row is not in the window table"
   done
-  grep -vF '| ghost-' "$W/handoff/status.md" | cmp -s - "$W/.world/status.md" || fail "a byte of status.md outside the ghost rows changed"
+  cmp -s "$W/.world/status.md" "$W/handoff/status.md" || fail "status.md changed although the rows go to the bus"
 }
 
 check_report() {
@@ -780,7 +792,7 @@ check_report() {
     [ -f "$W/handoff/ghost-$id.jsonl" ] || fail "$id: no $W/handoff/ghost-$id.jsonl"
     [ -f "$W/stub/wt-$id/stdout" ] || fail "$id: the stub did not run"
     cmp -s "$W/stub/wt-$id/stdout" "$W/handoff/ghost-$id.jsonl" || fail "$id: ghost-$id.jsonl is not the stub's stdout byte for byte"
-    grep -F "| ghost-$id |" "$W/handoff/status.md" | grep -qF "report $W/handoff/ghost-$id.jsonl" || fail "$id: the free row does not name $W/handoff/ghost-$id.jsonl"
+    ghost_rows "$W" "$id" | tail -n 1 | grep -qF "report $W/handoff/ghost-$id.jsonl" || fail "$id: the free row does not name $W/handoff/ghost-$id.jsonl"
   done
 }
 
@@ -834,7 +846,7 @@ expected_ladder() {
 check_ladder() {
   local W=$1 id row part
   for id in $(ids_of "$W"); do
-    row=$(grep -F "| ghost-$id |" "$W/handoff/status.md" || true)
+    row=$(ghost_rows "$W" "$id" | tail -n 1)
     case $row in "| ghost-$id | $W/wt-$id | free | "*) ;; *) fail "$id: no free row: $row" ;; esac
     if install_unspawnable_for "$W" "$id"; then
       part="| install failed: $INSTALL_SPAWN_ERROR; log $W/handoff/ghost-$id.install.log | "

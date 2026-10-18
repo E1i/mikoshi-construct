@@ -1,5 +1,6 @@
-import { readFile, rename, writeFile } from 'node:fs/promises'
-import process from 'node:process'
+import { createHash } from 'node:crypto'
+import { GHOST_ROW } from '../bus/card-automaton.js'
+import { appendEvent, openBus } from '../bus/db.js'
 
 export interface WritingRowParams {
   id: string
@@ -117,20 +118,22 @@ export function ghostRowSupervisor(statusText: string, id: string): GhostRowSupe
   return named === null ? undefined : { supervisor: Number(named[1]), sha: cells[4], start: cells[5] }
 }
 
-let queue: Promise<void> = Promise.resolve()
-
-function withStatusLock<T>(task: () => Promise<T>): Promise<T> {
-  const result = queue.then(task)
-  queue = result.then(() => undefined, () => undefined)
-  return result
-}
-
-export async function writeGhostRow(statusPath: string, id: string, row: string): Promise<void> {
-  await withStatusLock(async () => {
-    const content = await readFile(statusPath, 'utf8')
-    const updated = upsertGhostRow(content, id, row)
-    const tmpPath = `${statusPath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    await writeFile(tmpPath, updated)
-    await rename(tmpPath, statusPath)
-  })
+export function writeGhostRow(busPath: string, cardId: number | null, id: string, row: string, actor: string): void {
+  const db = openBus(busPath)
+  try {
+    appendEvent(db, {
+      ts: new Date().toISOString(),
+      type: GHOST_ROW,
+      actor,
+      cardId,
+      pr: null,
+      head: null,
+      dedupeKey: `${GHOST_ROW}:${id}:${createHash('sha256').update(row).digest('hex')}`,
+      payload: { id, state: ghostRowState(row, id), row },
+      legacy: false,
+    })
+  }
+  finally {
+    db.close()
+  }
 }
