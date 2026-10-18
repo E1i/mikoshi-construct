@@ -272,6 +272,46 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(payloadsOf(w, 'card.waiting')).toEqual([])
   })
 
+  it('a depends whose card opened its pull request but has no merge line waits', () => {
+    const w = world()
+    const file = park(w, 82, WAITING.replace('depends #80', 'depends #77'))
+    journal(w, [{ event: 'path', task: '77', path: 'cheap', pr: 7, verification: 'run' }])
+    expect(admit(w, file)).toMatchObject({ status: 'waiting', waitingOn: [77] })
+    expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [77] }])
+  })
+
+  it('a depends known only to the bus waits while the bus runs it, and not once the bus ended it', () => {
+    const admitWithBusState = (state: string): AdmitResult => {
+      const w = world()
+      return admit(w, park(w, 82, WAITING.replace('depends #80', 'depends #77')), { cardStates: () => new Map([['77', state]]) })
+    }
+    expect(admitWithBusState('running')).toMatchObject({ status: 'waiting', waitingOn: [77] })
+    for (const ended of ['merged', 'closed'])
+      expect(admitWithBusState(ended), ended).toMatchObject({ status: 'admitted', card: { unclear: [] } })
+  })
+
+  it('a waiting card with no bus wired prints the no-bus wait and exits 3', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    const file = park(w, 82, WAITING)
+    const { lines, exit } = printed(admit(w, file, { events: undefined }))
+    expect(exit).toBe(INTAKE_EXIT.waiting)
+    expect(lines.join('')).toContain(`Not admitted yet ${file}: ${WAITING}. It depends on #80, not merged yet, so it stays parked; no bus is wired to this run`)
+  })
+
+  it('a dry run of a corrected card with an unmerged depends exits 3 and prints no token', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
+    const file = park(w, 83, STALE_WAITING, 'scripts/board/run.ts')
+    journal(w, [{ event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    const dry = admit(w, file, { dryRun: true })
+    expect(dry).toMatchObject({ status: 'waiting', waitingOn: [80], dryRun: true })
+    const { lines, exit } = printed(dry)
+    expect(exit).toBe(INTAKE_EXIT.waiting)
+    expect(lines.join('')).not.toContain('--confirm')
+  })
+
   it('a stale --confirm admits nothing', () => {
     const w = world()
     const file = park(w, 81, STALE, 'scripts/board/run.ts')

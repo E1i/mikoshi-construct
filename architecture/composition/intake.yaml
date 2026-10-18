@@ -28,7 +28,7 @@ description: >-
   confirmation token, rewrites only the card line, the touches line and the appended `corrected:` and
   `unclear:` lines, and writes one `intake` line with `source: admit`; a card whose line the journal
   already admitted is left alone. A first admission whose checked depends still name a card that is
-  parked or known to the bus, and is neither done nor merged, is not admitted: before any
+  parked, done or known to the bus, and is not merged, is not admitted: before any
   confirmation is asked, the file and the journal stay as they are, a bus-wired run appends one
   `card.waiting` naming those depends (a --dry-run only reports it), and the exit is 3; a depends on
   a card nobody knows is admitted with an `unclear:` mark; an amend of an admitted card never waits.

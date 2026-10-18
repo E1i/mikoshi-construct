@@ -101,8 +101,8 @@ function ids(references: readonly string[]): number[] {
 function unmergedKnown(references: readonly string[], parked: ReadonlySet<number>, cards: BusCardStates | undefined, done: ReadonlySet<string>): number[] {
   return references.flatMap((reference) => {
     const id = CARD_REFERENCE.exec(reference)?.[1]
-    const known = id !== undefined && (parked.has(Number(id)) || cards?.has(id) === true)
-    return known && !done.has(id) ? [Number(id)] : []
+    const known = id !== undefined && (parked.has(Number(id)) || done.has(id) || cards?.has(id) === true)
+    return known ? [Number(id)] : []
   })
 }
 

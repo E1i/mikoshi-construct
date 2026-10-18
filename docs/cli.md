@@ -1927,7 +1927,7 @@ did not change is reported and nothing is written: no bus is wired to `construct
 the `touches` line records no touches, so a card whose latest line is one of those is amended only once
 its card line, task text or witnesses change; a change to its `touches` line alone is not seen until
 then. `--dry-run` prints the card it would admit. A first admission whose `depends` still name a card that
-is parked or known to the bus, and is neither done nor merged, is not admitted: before any confirmation is
+is parked, done or known to the bus, and is not merged, is not admitted: before any confirmation is
 asked, the file and the journal stay as they are, a bus-wired run appends a `card.waiting` naming those
 cards, and the exit is `3`; `--dry-run` reports the same wait with the same exit and writes nothing; run
 `--admit` again once they merge. A `depends` on a card that is neither parked, known to the bus, done nor
