@@ -558,5 +558,10 @@
     "target": "scripts/construct/implement.workflow",
     "sha256": "6f5128137a9fd4ee75a3c04b81e80db5799f7a9ec01a6871b6954fabd72c9137",
     "date": "2026-10-08"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "284ca7cce349cd2e33d2cd000450dc6f1d1a3f4ae2a65af47737b0beb3ccb759",
+    "date": "2026-10-18"
   }
 ]
