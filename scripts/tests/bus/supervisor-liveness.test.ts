@@ -7,10 +7,11 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
 import { openBus } from '../../bus/db.js'
+import { RESTART_MISSED } from '../../bus/inbox.js'
 import { completeTask, leaseNext, leaseWhileFree, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, outsideGroup, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, outsideGroup, recordRestartMissed, RESTART_LIMIT_MS, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
 import { workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
@@ -499,6 +500,94 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(() => completeTask(db, killedAt, killed, [])).toThrow(StaleLease)
     completeTask(db, killedAt, fresh, [])
     expect(state(killed.taskKey)).toEqual({ state: 'completed', lease_gen: 2 })
+    db.close()
+  })
+
+  it('a merge under scripts/bus restarts the workers and the supervisor', async () => {
+    let head = OLD_MAIN
+    const review = reviewLaunch(() => [])
+    let alive: RunningProcess[] = [{ pid: 500, args: SUPERVISOR_ARGS }, { pid: 600, args: `node pnpm.cjs --silent ${launchName(review)}` }]
+    const started: string[] = []
+    const relaunched: number[] = []
+    const events: MainAdvance[] = [{ id: 7, sha: NEW_MAIN }]
+    const code: BusCode = {
+      head: () => head,
+      holds: sha => sha === head,
+      pull: () => {
+        head = NEW_MAIN
+      },
+      busChangedSince: sha => sha !== head,
+    }
+    const lines: string[] = []
+
+    const supervisor = new BusSupervisor({
+      known: [review],
+      wanted: () => [review],
+      start: (launch) => {
+        started.push(launchName(launch))
+        return ok(launch)
+      },
+      stop: async (instance) => {
+        alive = alive.filter(candidate => candidate.pid !== instance.pid)
+      },
+      processes: () => alive,
+      mainSince: afterId => events.filter(event => event.id > afterId),
+      code,
+      journal: () => {},
+      now: () => 0,
+    }, baselineAdvance(events.at(-1), code))
+
+    await superviseUntilReplaced({
+      supervisor,
+      keeper: new WorkerKeeper({ wanted: () => [], start: ok, processes: () => alive, reduce: () => [], journal: () => {}, now: () => 0 }),
+      relaunch: () => {
+        relaunched.push(500)
+        return { stdout: ['501'], stderr: [], exitCode: 0 }
+      },
+      print: line => lines.push(line),
+      pause: async () => {
+        throw new Error('the supervisor did not restart on the first tick')
+      },
+    })
+
+    expect(started).toEqual([launchName(review)])
+    expect(relaunched).toEqual([500])
+    expect(lines.join('\n')).toContain(`main advanced to ${NEW_MAIN} with a change under scripts/bus; restarting every running bus process on ${NEW_MAIN}`)
+  })
+
+  it('a restart that does not happen within the limit writes a bus event and a board line', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-missed-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const clock = { now: 0 }
+    const supervisor = new BusSupervisor({
+      known: [],
+      wanted: () => [],
+      start: ok,
+      stop: async () => {},
+      processes: () => [],
+      mainSince: afterId => afterId < 1 ? [{ id: 1, sha: NEW_MAIN }] : [],
+      code: { head: () => OLD_MAIN, holds: () => false, pull: () => {}, busChangedSince: () => true },
+      journal: () => {},
+      missed: (sha, waitedMs) => recordRestartMissed(db, '2026-10-18T10:00:00.000Z', sha, waitedMs),
+      now: () => clock.now,
+    }, 0)
+    const missedRows = (): { payload: string }[] => db.prepare('SELECT payload FROM events WHERE type = ?').all(RESTART_MISSED) as { payload: string }[]
+
+    expect((await supervisor.step()).join('\n')).toContain('the restart waits for it')
+    clock.now = RESTART_LIMIT_MS - 1
+    expect((await supervisor.step()).join('\n')).not.toContain(RESTART_MISSED)
+    expect(missedRows()).toEqual([])
+
+    clock.now = RESTART_LIMIT_MS
+    const lines = await supervisor.step()
+    expect(lines.join('\n')).toContain(`the restart onto ${NEW_MAIN} did not happen within 5 min`)
+    expect(lines.join('\n')).toContain(RESTART_MISSED)
+    expect(missedRows().map(row => JSON.parse(row.payload))).toEqual([{ sha: NEW_MAIN, waited_ms: RESTART_LIMIT_MS, limit_ms: RESTART_LIMIT_MS }])
+
+    clock.now = RESTART_LIMIT_MS * 2
+    expect((await supervisor.step()).join('\n')).not.toContain(RESTART_MISSED)
+    expect(missedRows()).toHaveLength(1)
     db.close()
   })
 
