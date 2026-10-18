@@ -8,6 +8,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { startReviewWorker } from '../../bus/review-bg.js'
 import { applySwitch, bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
@@ -249,6 +250,16 @@ describe('pnpm bus:bg', () => {
     expect(second.stdout).toHaveLength(3)
     expect(second.stdout.every(line => line.endsWith('; left alone'))).toBe(true)
     expect(w.processes().map(candidate => candidate.pid).sort()).toEqual(pidsOf(first).sort())
+  })
+
+  it('bus:bg leaves a review worker the supervisor recorded alone', () => {
+    const w = world()
+    switchWorker(w.busDir, 'review', true)
+    writeFileSync(path.join(w.busDir, 'bus-review.pid'), `${process.ppid}\n`)
+    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT).filter(launch => launch.script === 'bus:review'), w.env, () => [], startReviewWorker)
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toEqual([`${PREFIX}bus:review --on is already running as pid ${process.ppid}; left alone`])
+    expect(w.processes()).toEqual([])
   })
 
   it('a worker that is switched off is not started', async () => {
