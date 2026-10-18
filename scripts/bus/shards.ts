@@ -1,14 +1,60 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BusEvent } from './db.js'
 import type { InForceDecision } from './decisions.js'
 import { lapsed, termOf } from '../decisions/decisions.js'
 import { inForceDecisions } from './decisions.js'
 
 export const SHARD_ISSUED = 'shard.issued'
 export const SHARD_USED = 'shard.used'
+export const SHARD_REVOKED = 'shard.revoked'
+export const SHARD_EXPIRED = 'shard.expired'
+export const WINDOW_SHARD_HOURS = 6
+export const WINDOW_SCOPES = ['merge', 'merge+decisions'] as const
+
+export type WindowScope = typeof WINDOW_SCOPES[number]
 
 export interface UnspentShard {
   id: string
   under: number | null
+}
+
+export interface WindowShard {
+  id: string
+  by: string
+  scope: WindowScope
+  until: string
+}
+
+const WINDOW_SHARDS = `
+  SELECT json_extract(issued.payload, '$.id') AS id, json_extract(issued.payload, '$.by') AS by,
+    json_extract(issued.payload, '$.scope') AS scope, json_extract(issued.payload, '$.until') AS until
+  FROM events issued
+  WHERE issued.type = '${SHARD_ISSUED}' AND json_extract(issued.payload, '$.window') = 1
+    AND NOT EXISTS (SELECT 1 FROM events ended WHERE ended.type IN ('${SHARD_REVOKED}', '${SHARD_EXPIRED}') AND json_extract(ended.payload, '$.id') = json_extract(issued.payload, '$.id'))
+  ORDER BY issued.id DESC
+`
+
+export function isWindowScope(value: unknown): value is WindowScope {
+  return WINDOW_SCOPES.includes(value as WindowScope)
+}
+
+function unendedWindowShards(db: DatabaseSync): WindowShard[] {
+  return (db.prepare(WINDOW_SHARDS).all() as Record<string, unknown>[]).flatMap(row =>
+    typeof row.id === 'string' && typeof row.by === 'string' && isWindowScope(row.scope) && typeof row.until === 'string'
+      ? [{ id: row.id, by: row.by, scope: row.scope, until: row.until }]
+      : [])
+}
+
+export function activeWindowShards(db: DatabaseSync, now: Date): WindowShard[] {
+  return unendedWindowShards(db).filter(shard => Date.parse(shard.until) > now.getTime())
+}
+
+export function windowShardEnded(type: typeof SHARD_REVOKED | typeof SHARD_EXPIRED, actor: string, id: string, now: Date): BusEvent {
+  return { ts: now.toISOString(), type, actor, cardId: null, pr: null, head: null, dedupeKey: `${type}:${id}`, payload: { id }, legacy: false }
+}
+
+export function expiredWindowShards(db: DatabaseSync, now: Date, actor: string): BusEvent[] {
+  return unendedWindowShards(db).filter(shard => Date.parse(shard.until) <= now.getTime()).map(shard => windowShardEnded(SHARD_EXPIRED, actor, shard.id, now))
 }
 
 export function decisionsInForceAt(db: DatabaseSync, now: Date): InForceDecision[] {

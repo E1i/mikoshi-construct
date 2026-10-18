@@ -14,7 +14,7 @@ import { ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { firstLiveVerdict, MergeNode, NoLiveVerdict, runMergeWorker } from '../../bus/merge-worker.js'
 import { DRY_RUN_ACTOR } from '../../bus/review-worker.js'
-import { decisionsInForceAt, SHARD_ISSUED, SHARD_USED, unspentShard } from '../../bus/shards.js'
+import { activeWindowShards, decisionsInForceAt, SHARD_EXPIRED, SHARD_ISSUED, SHARD_USED, unspentShard } from '../../bus/shards.js'
 import { runShard } from '../../shift/shard.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench } from './merge-bench.js'
@@ -48,6 +48,7 @@ function shardDeps(bench: MergeBench, id: string, out: string[] = []): ShardDeps
     handoffDir: path.dirname(bench.busPath),
     append: (file, text) => writeFileSync(file, text, { flag: 'a' }),
     record: event => appendEvent(bench.db, event),
+    activeWindows: now => activeWindowShards(bench.db, now),
     inForce: (decisionId, now) => decisionsInForceAt(bench.db, now).some(decision => decision.decisionId === decisionId),
     now: bench.clock.now,
     uuid: () => id,
@@ -154,6 +155,18 @@ describe('the merge worker', () => {
     expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'auto' })
     expect(eventsOf(bench.db, SHARD_USED)).toEqual([])
     expect(unspentShard(bench.db, 826, null)?.id).toBe('shard-826')
+    bench.close()
+  })
+
+  it('a merge step writes shard.expired for a window shard past its term', async () => {
+    const bench = liveBench()
+    recorded(bench, 'worker:review:reviewer-1')
+    expect(runShard(['--window', '--hours', '1', '--by', 'Eli'], shardDeps(bench, 'shard-window'))).toBe(0)
+    bench.clock.advance(60 * 60_000)
+    bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'auto') })
+    bench.tick()
+    expect(await step(mergeNode(bench))).toMatchObject({ kind: 'merged', rule: 'auto' })
+    expect(eventsOf(bench.db, SHARD_EXPIRED)).toEqual([{ id: 'shard-window' }])
     bench.close()
   })
 
