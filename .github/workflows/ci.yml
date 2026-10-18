@@ -5,6 +5,10 @@
 #              that list. They run on every change, the fast path included, because most of them read
 #              docs/ and architecture/*.md. checks also runs scripts/release/version-pr-guard.ts, red on a
 #              changeset-release/* pull request whose merged tree still carries a changeset.
+#              On a pull request that is not changeset-release/* it runs only the tests that
+#              scripts/ci/select.ts reaches: the touched layers and every layer that depends on them,
+#              by the dependency-cruiser graph. A path in no layer, push, merge_group and
+#              changeset-release/* run them all.
 # package    — builds and packs the publishable tarball the acceptance legs install. It runs on every
 #              change and waits on nothing, so the preset matrix starts once both it and changes are done.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
@@ -50,6 +54,8 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       fast-path: ${{ steps.classify.outputs.fast-path }}
+      full: ${{ steps.select.outputs.full || 'true' }}
+      tests: ${{ steps.select.outputs.tests }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -69,6 +75,9 @@ jobs:
           else
             pnpm exec tsx scripts/ci/classify.ts
           fi
+      - id: select
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
+        run: git diff --name-only --no-renames -z HEAD^1 HEAD | xargs -0 pnpm exec tsx scripts/ci/select.ts
 
   checks:
     runs-on: ubuntu-24.04
@@ -121,6 +130,7 @@ jobs:
       - run: pnpm typecheck --incremental --tsBuildInfoFile node_modules/.cache/tsc/typecheck.tsbuildinfo
 
   vitest:
+    needs: changes
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -135,7 +145,10 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test --shard=${{ matrix.shard }}/4 --retry=1 --reporter=default --reporter=blob
+      - env:
+          SELECTED_TESTS: ${{ needs.changes.outputs.full == 'false' && needs.changes.outputs.tests || '' }}
+          PASS_WITH_NO_TESTS: ${{ needs.changes.outputs.full == 'false' && '--passWithNoTests' || '' }}
+        run: pnpm test --shard=${{ matrix.shard }}/4 $SELECTED_TESTS $PASS_WITH_NO_TESTS --retry=1 --reporter=default --reporter=blob
       - uses: actions/upload-artifact@v7
         with:
           name: vitest-blob-${{ matrix.shard }}

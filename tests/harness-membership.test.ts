@@ -25,6 +25,8 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'bus:slot': 'runs one heavy command under a slot of bus.db when run by hand or by a caller; its own tests are its gate',
   'bus:update': 'the update worker over bus.db, switched off unless started by hand with --on after the first live review verdict; its own tests are its gate',
   'changeset': 'an authoring tool',
+  'checks:catalog': 'rewrites the check_tests and check_mutations tables of bus.db from the test graph, the briefs and the journal when run by hand; its own tests are its gate',
+  'ci:select': 'prints the layers and tests a list of changed paths reaches, the selection the CI vitest job takes on a pull request; its own tests are its gate',
   'composition:render': 'a writer; composition:check is its gate',
   'contract:bump': 'a gate, deliberately outside: it needs the release tags and full history, so it runs in its own CI job with fetch-depth 0',
   'contract:update': 'a writer; tests/contract/surface.test.ts is its gate',
