@@ -4,27 +4,19 @@ import type { ChainRow, ChainState } from './chain.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { Role, RoleLease } from './role.js'
-import { CLOSED_CARD, DROPPED_CARD } from './card-automaton.js'
-import { chainProcess } from './chain-process.js'
-import { CHAIN_RESTARTED, chainOfCard, chainOfDir, observeChain } from './chain.js'
-import { inTransaction } from './db.js'
+import { CLOSED_CARD, DROPPED_CARD, RUNNING_CARD } from './card-automaton.js'
+import { chainProcess, stopChain } from './chain-process.js'
+import { chainOfCard, chainOfDir, observeChain } from './chain.js'
 import { messageOf } from './executor.js'
-import { POLICY_DENIED } from './inbox.js'
+import { CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { assertRoleHeld, failRaise, raiseRole } from './role.js'
 
-export const SHORT_SHA = 7
-
-export type RestartReason = 'no_chain' | 'chain_current' | 'chain_dead' | 'launch_off' | 'launch_failed'
-export type RestartWait = 'not_at_boundary' | 'checkout_behind'
-
-export interface ChainLauncher {
-  holds: (sha: string) => boolean
-  launch: (chain: ChainRow, dir: string) => number
-}
+export type RestartReason = 'no_chain' | 'chain_current' | 'chain_dead' | 'launch_off' | 'stop_failed'
+export type RestartWait = 'not_at_boundary'
 
 export type RestartOutcome
-  = | { kind: 'restarted', taskKey: string, fromDir: string, dir: string, from: string, to: string, pid: number }
+  = | { kind: 'handed', taskKey: string, dir: string, cardId: number, cardStopped: boolean }
     | { kind: 'waiting', taskKey: string, dir: string, why: RestartWait }
     | { kind: 'denied', taskKey: string, reason: RestartReason, detail: string, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
@@ -47,7 +39,6 @@ export type RelaunchOutcome
 
 export interface RestartParts {
   db: DatabaseSync
-  launcher: ChainLauncher
   roles: RoleLauncher
   processes: ProcessTable
   launchSwitchedOn: () => boolean
@@ -64,9 +55,7 @@ const CARD_ENDED = `SELECT 1 FROM cards WHERE card_id = ? AND state IN ('${CLOSE
 
 const UNSTOPPED_CHAINS = `SELECT dir, card_id, parking, sha, pid, leader, boundary, state FROM chains WHERE state != 'stopped' ORDER BY dir`
 
-export function restartDir(dir: string, to: string): string {
-  return `${dir}-${to.slice(0, SHORT_SHA)}`
-}
+const CARD_RUNNING = `SELECT 1 FROM cards WHERE card_id = ? AND state = '${RUNNING_CARD}'`
 
 export class RestartExecutor {
   constructor(private readonly parts: RestartParts) {}
@@ -83,14 +72,12 @@ export class RestartExecutor {
       if (chain === undefined)
         return this.denied(lease, 'no_chain', `no chain of card #${lease.cardId} is on the bus`)
       if (chain.state !== 'stopped' && this.processGone(chain))
-        return this.dead(lease, chain, to)
+        return this.dead(lease, chain)
       if (chain.sha === to && chain.state !== 'fault')
         return this.denied(lease, 'chain_current', `the chain in ${chain.dir} already runs on ${to}`)
       if (chain.boundary === 0)
         return this.waiting(lease, chain, 'not_at_boundary')
-      if (!this.parts.launcher.holds(to))
-        return this.waiting(lease, chain, 'checkout_behind')
-      return this.launched(lease, chain, to, true)
+      return this.handed(lease, chain, true)
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -144,7 +131,7 @@ export class RestartExecutor {
     return this.parts.db.prepare(CARD_ENDED).get(cardId) !== undefined
   }
 
-  private dead(lease: Lease, chain: ChainRow, to: string): RestartOutcome {
+  private dead(lease: Lease, chain: ChainRow): RestartOutcome {
     const gone = `the chain in ${chain.dir} died (PID ${chain.leader ?? chain.pid} is gone)`
     if (this.cardEnded(lease.cardId)) {
       this.observe(lease, chain, 'stopped')
@@ -154,9 +141,7 @@ export class RestartExecutor {
       this.observe(lease, chain, 'fault')
     if (!this.parts.launchSwitchedOn())
       return this.denied(lease, 'launch_off', `${gone}: it restarts only while the launch worker is switched on in workers.json`)
-    if (!this.parts.launcher.holds(to))
-      return this.waiting(lease, chain, 'checkout_behind')
-    return this.launched(lease, chain, to, false)
+    return this.handed(lease, chain, false)
   }
 
   private observe(lease: Lease, chain: ChainRow, state: ChainState): void {
@@ -168,33 +153,28 @@ export class RestartExecutor {
     observeChain(this.parts.db, this.ts(), actor, { dir: chain.dir, parking: chain.parking, cardId: chain.card_id, sha: chain.sha, pid: chain.pid, leader: chain.leader, boundary: chain.boundary === 1, state })
   }
 
-  private launchedAtTheBoundary(lease: Lease, seen: ChainRow, dir: string, boundary: boolean): { chain: ChainRow, pid: number } | null {
-    return inTransaction(this.parts.db, () => {
-      assertHeld(this.parts.db, lease)
-      const chain = chainOfDir(this.parts.db, seen.dir)
-      if (chain === undefined || (boundary && chain.boundary === 0))
-        return null
-      return { chain, pid: this.parts.launcher.launch(chain, dir) }
-    })
+  private cardRunning(cardId: number): boolean {
+    return this.parts.db.prepare(CARD_RUNNING).get(cardId) !== undefined
   }
 
-  private launched(lease: Lease, seen: ChainRow, to: string, boundary: boolean): RestartOutcome {
-    const dir = restartDir(seen.dir, to)
-    let started: { chain: ChainRow, pid: number } | null
+  private handed(lease: Lease, seen: ChainRow, boundary: boolean): RestartOutcome {
+    assertHeld(this.parts.db, lease)
+    const chain = chainOfDir(this.parts.db, seen.dir)
+    if (chain === undefined || (boundary && chain.boundary === 0))
+      return this.waiting(lease, seen, 'not_at_boundary')
     try {
-      started = this.launchedAtTheBoundary(lease, seen, dir, boundary)
+      stopChain(chain, this.parts.processes)
     }
     catch (error) {
-      if (error instanceof StaleLease)
-        throw error
-      return this.denied(lease, 'launch_failed', messageOf(error))
+      return this.denied(lease, 'stop_failed', messageOf(error))
     }
-    if (started === null)
-      return this.waiting(lease, seen, 'not_at_boundary')
-    const { chain, pid } = started
-    const event: BusEvent = { ts: this.ts(), type: CHAIN_RESTARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: to, dedupeKey: `${CHAIN_RESTARTED}:${lease.taskKey}`, payload: { from_dir: chain.dir, dir, from: chain.sha, to, pid }, legacy: false }
-    completeTask(this.parts.db, this.ts(), lease, [event])
-    return { kind: 'restarted', taskKey: lease.taskKey, fromDir: chain.dir, dir, from: chain.sha, to, pid }
+    this.observe(lease, chain, 'stopped')
+    const cardStopped = this.cardRunning(chain.card_id)
+    const events: BusEvent[] = cardStopped
+      ? [{ ts: this.ts(), type: CARD_STOPPED, actor: lease.actor, cardId: chain.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${lease.taskKey}`, payload: { reason: 'fault', detail: `the chain in ${chain.dir} was handed to the launch node` }, legacy: false }]
+      : []
+    completeTask(this.parts.db, this.ts(), lease, events)
+    return { kind: 'handed', taskKey: lease.taskKey, dir: chain.dir, cardId: chain.card_id, cardStopped }
   }
 
   private waiting(lease: Lease, chain: ChainRow, why: RestartWait): RestartOutcome {

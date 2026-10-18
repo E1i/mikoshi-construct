@@ -14,7 +14,7 @@ import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { runClaude } from '../../shift/claude.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { boundaryLine, OPERATOR_CONTEXT_THRESHOLD } from '../../shift/operator-boundary.js'
-import { ALREADY_RUNNING, BOUNDARY_EVENT, boundaryCommand, CHAIN_COMMAND, createExclusive, endedAtThreshold, expandHome, factoryPath, GH_ACCOUNT_KEY, ghAccountToken, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_CLAUDE, OPERATOR_ROLE, projectDirOf, promptFirstLine, realDeps, RELAUNCH_ACTOR, relaunchEntries, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
+import { ALREADY_RUNNING, BOUNDARY_EVENT, boundaryCommand, createExclusive, endedAtThreshold, expandHome, factoryPath, GH_ACCOUNT_KEY, ghAccountToken, LAUNCH_LINE, liveSessions, lockPath, NO_MODEL, OPERATOR_CLAUDE, OPERATOR_ROLE, projectDirOf, promptFirstLine, realDeps, RELAUNCH_ACTOR, relaunchEntries, relaunchPrompt, runRelaunch, statusOf, WINDOW_BODY_NOTE } from '../../shift/relaunch.js'
 import { operatorWork } from '../../shift/role-bus.js'
 import { MAIN_1 } from '../bus/github-fake.js'
 
@@ -296,8 +296,8 @@ describe('runRelaunch', () => {
     const first = relaunchPrompt('/h/handoff.md', null, 's-1').split('\n')[0]!
     expect(first.startsWith(OPERATOR_ROLE)).toBe(true)
     expect(promptFirstLine('/h/handoff.md')).toContain('[operator]')
-    expect(first).toContain(`start the who: shift cards as a shift chain with \`${CHAIN_COMMAND}\` and never run pnpm task:start for them`)
-    expect(CHAIN_COMMAND).toBe('pnpm shift:bg <dir> --parking <parking> --chain')
+    expect(first).toContain('the bus launch node starts the who: shift cards from their admission, so never run pnpm task:start for them')
+    expect(first).not.toContain('shift:bg')
     expect(first).toContain(`you never take a card body, except a who: window card, whose body you take yourself and journal as ${WINDOW_BODY_NOTE}`)
   })
 

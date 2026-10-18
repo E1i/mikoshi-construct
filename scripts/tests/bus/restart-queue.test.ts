@@ -1,5 +1,5 @@
 import type { ProcessTable } from '../../bus/chain-process.js'
-import type { ChainObservation, ChainRow } from '../../bus/chain.js'
+import type { ChainObservation } from '../../bus/chain.js'
 import type { Lease } from '../../bus/lease.js'
 import type { Role, RoleLease, RoleStop } from '../../bus/role.js'
 import type { World } from '../shift/fixtures/autopilot-world.js'
@@ -10,6 +10,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
+import { CARD_STARTED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { CARD_CLOSED, FAILURES_TO_STOP } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
@@ -18,6 +20,7 @@ import { launchSwitchedOn, MIKO_LAUNCH_OFF, restartStepLine, RestartWorker, role
 import { leaseRole, observeRoleStop, RAISED_VARIABLE, RAISES_PER_HANDOFF } from '../../bus/role.js'
 import { switchWorker } from '../../bus/workers.js'
 import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
+import { runBg } from '../../shift/bg.js'
 import { chainObserver } from '../../shift/chain-bus.js'
 import { CLAUDE_VARIABLE } from '../../shift/claude.js'
 import { runRelaunchBg } from '../../shift/relaunch-bg.js'
@@ -25,6 +28,10 @@ import { runShift } from '../../shift/shift.js'
 import { captured, depsOf, fakeGh, newWorld } from '../shift/fixtures/autopilot-world.js'
 import { MAIN_1, MAIN_2 } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
+
+vi.mock('../../shift/bg.js', () => ({
+  runBg: vi.fn(() => ({ stdout: ['5151'], stderr: [], exitCode: 0 })),
+}))
 
 vi.mock('../../shift/relaunch-bg.js', () => ({
   runRelaunchBg: vi.fn(() => ({ stdout: ['6161'], stderr: [], exitCode: 0 })),
@@ -36,7 +43,7 @@ afterEach(() => {
 
 const CARD = 809
 const DIR = '/shift/lane-1'
-const NEW_PID = 5151
+const LEADER = 4242
 const ROLE_PIDS: Record<Role, number> = { operator: 6161, miko: 7171 }
 const OPERATOR_HANDOFF = '/handoff/operator.md'
 const MIKO_HANDOFF = `/handoff/${MIKO_HANDOFF_NAME}`
@@ -44,22 +51,14 @@ const restart = (head = MAIN_2, cardId = CARD): string => taskKey({ queue: 'rest
 
 function restartBench() {
   const bench = mergeBench()
-  const launches: { chain: ChainRow, dir: string }[] = []
+  const signalled: number[] = []
   const raises: { role: Role, handoff: string }[] = []
-  let holds = true
   const dead = new Set<number>()
   const reused = new Set<number>()
   let launchOn = () => false
   const processes: ProcessTable = {
-    commandLine: pid => dead.has(pid) ? null : reused.has(pid) ? 'vim notes.txt' : `node ${pid}`,
-    signalGroup: () => {},
-  }
-  const launcher = {
-    holds: () => holds,
-    launch: (chain: ChainRow, dir: string): number => {
-      launches.push({ chain, dir })
-      return NEW_PID
-    },
+    commandLine: pid => dead.has(pid) ? null : reused.has(pid) ? 'vim notes.txt' : `node /opt/runner.js ${DIR} ${pid}`,
+    signalGroup: leader => signalled.push(leader),
   }
   const roles = {
     raise: (role: Role, handoff: string): number => {
@@ -68,15 +67,14 @@ function restartBench() {
     },
   }
   const launchSwitchedOn = (): boolean => launchOn()
-  const executor = new RestartExecutor({ db: bench.db, launcher, roles, processes, launchSwitchedOn, clock: bench.clock.now })
+  const executor = new RestartExecutor({ db: bench.db, roles, processes, launchSwitchedOn, clock: bench.clock.now })
   return {
     ...bench,
-    launcher,
-    launches,
+    signalled,
     roles,
     raises,
     processes,
-    worker: (session = 'worker-1') => new RestartWorker({ db: bench.db, launcher, roles, processes, launchSwitchedOn, clock: bench.clock.now, session }),
+    worker: (session = 'worker-1') => new RestartWorker({ db: bench.db, roles, processes, launchSwitchedOn, clock: bench.clock.now, session }),
     die: (pid: number): void => {
       dead.add(pid)
     },
@@ -85,9 +83,6 @@ function restartBench() {
     },
     switchLaunch: (on: () => boolean): void => {
       launchOn = on
-    },
-    holdNothing: () => {
-      holds = false
     },
     observe: (chain: Partial<ChainObservation> = {}): void => {
       observeChain(bench.db, bench.clock.now().toISOString(), 'worker:chain:shift-1', { dir: DIR, parking: '/parking/lane-1', cardId: CARD, sha: MAIN_1, pid: 4242, leader: null, boundary: true, state: 'running', ...chain })
@@ -137,40 +132,27 @@ describe('the restart queue', () => {
 
   it('the restart waits for the task boundary and records both shas', () => {
     const bench = restartBench()
-    bench.observe({ boundary: false })
+    bench.observe({ boundary: false, leader: LEADER })
     bench.advanceMain(['scripts/shift/bg.ts'])
     bench.tick()
 
     expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'waiting', taskKey: restart(), dir: DIR, why: 'not_at_boundary' })
-    expect(bench.launches).toEqual([])
+    expect(bench.signalled).toEqual([])
     expect(taskState(bench.db, restart())).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
 
-    bench.observe({ boundary: true })
+    bench.observe({ boundary: true, leader: LEADER })
     bench.tick()
-    const dir = `${DIR}-${MAIN_2.slice(0, 7)}`
-    expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'restarted', taskKey: restart(), fromDir: DIR, dir, from: MAIN_1, to: MAIN_2, pid: NEW_PID })
-    expect(bench.launches).toEqual([{ chain: expect.objectContaining({ dir: DIR, sha: MAIN_1, pid: 4242, parking: '/parking/lane-1' }), dir }])
-    expect(eventsOf(bench.db, 'chain.restarted')).toEqual([{ from_dir: DIR, dir, from: MAIN_1, to: MAIN_2, pid: NEW_PID }])
+    expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'handed', taskKey: restart(), dir: DIR, cardId: CARD, cardStopped: false })
+    expect(bench.signalled).toEqual([LEADER])
+    expect(eventsOf(bench.db, 'chain.restarted')).toEqual([])
     expect(taskState(bench.db, restart())).toEqual({ state: 'completed', lease_gen: 2, failures: 0 })
 
     bench.tick()
-    expect(bench.db.prepare('SELECT dir, sha, pid, boundary FROM chains').all()).toEqual([{ dir, sha: MAIN_2, pid: NEW_PID, boundary: 0 }])
+    expect(bench.db.prepare('SELECT dir, sha, pid, boundary, state FROM chains').all()).toEqual([{ dir: DIR, sha: MAIN_1, pid: 4242, boundary: 1, state: 'stopped' }])
     expect(restartTasks(bench)).toEqual([{ task_key: restart(), state: 'completed' }])
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
-    bench.close()
-  })
-
-  it('a checkout that does not hold the new main yet waits and starts nothing', () => {
-    const bench = restartBench()
-    bench.observe()
-    bench.advanceMain(['scripts/shift/shift.ts'])
-    bench.tick()
-    bench.holdNothing()
-
-    expect(bench.restart(bench.leaseRestart()!)).toMatchObject({ kind: 'waiting', why: 'checkout_behind' })
-    expect(bench.launches).toEqual([])
     bench.close()
   })
 
@@ -188,22 +170,27 @@ describe('the restart queue', () => {
     const before = eventCount(bench.db)
     expect(bench.restart(old)).toEqual({ kind: 'fenced', taskKey: restart() })
     expect(eventCount(bench.db)).toBe(before)
-    expect(bench.launches).toEqual([])
+    expect(bench.signalled).toEqual([])
     bench.close()
   })
 
   it('a chain that left its boundary after the projection was read is not restarted', () => {
     const bench = restartBench()
-    bench.observe()
+    bench.observe({ leader: LEADER })
     bench.advanceMain(['scripts/shift/shift.ts'])
     bench.tick()
-    bench.launcher.holds = () => {
-      bench.observe({ boundary: false })
-      return true
+    const commandLine = bench.processes.commandLine
+    let left = false
+    bench.processes.commandLine = (pid) => {
+      if (!left) {
+        left = true
+        bench.observe({ boundary: false, leader: LEADER })
+      }
+      return commandLine(pid)
     }
 
     expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'waiting', taskKey: restart(), dir: DIR, why: 'not_at_boundary' })
-    expect(bench.launches).toEqual([])
+    expect(bench.signalled).toEqual([])
     expect(eventsOf(bench.db, 'chain.restarted')).toEqual([])
     bench.close()
   })
@@ -218,11 +205,12 @@ describe('the restart queue', () => {
 
   it('a chain waiting on #N sits at its boundary under the card it waits for, restarts on a mechanism merge, and replays the same', () => {
     const bench = restartBench()
-    bench.observe({ cardId: 812, state: 'waiting', boundary: true, waitingOn: [809] })
+    bench.observe({ cardId: 812, state: 'waiting', boundary: true, waitingOn: [809], leader: LEADER })
     expect(bench.db.prepare('SELECT card_id, state, boundary FROM chains WHERE dir = ?').get(DIR)).toEqual({ card_id: 812, state: 'waiting', boundary: 1 })
     bench.advanceMain(['scripts/shift/shift.ts'])
     bench.tick()
-    expect(bench.restart(bench.leaseRestart()!)).toMatchObject({ kind: 'restarted', fromDir: DIR, from: MAIN_1, to: MAIN_2 })
+    expect(bench.restart(bench.leaseRestart()!)).toMatchObject({ kind: 'handed', dir: DIR, cardId: 812 })
+    expect(bench.signalled).toEqual([LEADER])
     bench.tick()
     const live = projectionDump(bench.db)
     reduce(bench.db)
@@ -239,17 +227,17 @@ describe('the restart queue', () => {
     bench.close()
   })
 
-  it('a launch that fails is a technical denial and the task goes back to the queue', () => {
+  it('a stop that fails is a technical denial and the task goes back to the queue', () => {
     const bench = restartBench()
-    bench.observe()
+    bench.observe({ leader: LEADER })
     bench.advanceMain(['scripts/shift/shift.ts'])
     bench.tick()
-    bench.launcher.launch = () => {
-      throw new Error('shift:bg refused')
+    bench.processes.signalGroup = () => {
+      throw new Error('kill EPERM')
     }
 
-    expect(bench.restart(bench.leaseRestart()!)).toMatchObject({ kind: 'denied', reason: 'launch_failed', next: 'queued' })
-    expect(eventsOf(bench.db, 'policy.denied')).toMatchObject([{ command: 'restart', kind: 'technical', reason: 'launch_failed' }])
+    expect(bench.restart(bench.leaseRestart()!)).toMatchObject({ kind: 'denied', reason: 'stop_failed', next: 'queued' })
+    expect(eventsOf(bench.db, 'policy.denied')).toMatchObject([{ command: 'restart', kind: 'technical', reason: 'stop_failed' }])
     expect(taskState(bench.db, restart())).toEqual({ state: 'queued', lease_gen: 1, failures: 1 })
     bench.close()
   })
@@ -270,9 +258,9 @@ describe('the chain producer', () => {
     expect(eventsOf(bench.db, 'chain.observed').map(({ state, boundary }) => `${String(state)} ${String(boundary)}`)).toEqual(['running false', 'running true', 'fault true'])
     bench.tick()
     expect(restartTasks(bench)).toEqual([{ task_key: restart(MAIN_1, 1), state: 'queued' }])
-    const dir = `${world.shift}-${MAIN_1.slice(0, 7)}`
-    expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'restarted', taskKey: restart(MAIN_1, 1), fromDir: world.shift, dir, from: MAIN_1, to: MAIN_1, pid: NEW_PID })
-    expect(bench.launches).toEqual([{ chain: expect.objectContaining({ dir: world.shift, parking: world.parking, state: 'fault' }), dir }])
+    expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'handed', taskKey: restart(MAIN_1, 1), dir: world.shift, cardId: 1, cardStopped: false })
+    expect(bench.signalled).toEqual([])
+    expect(bench.db.prepare('SELECT dir, state FROM chains').all()).toEqual([{ dir: world.shift, state: 'stopped' }])
     bench.close()
   })
 
@@ -406,12 +394,12 @@ describe('the ceiling on relaunch(role)', () => {
 describe('the restart worker', () => {
   it('takes the restart queue and is idle once it is empty', () => {
     const bench = restartBench()
-    bench.observe()
+    bench.observe({ leader: LEADER })
     bench.advanceMain(['scripts/shift/shift.ts'])
     bench.tick()
     const worker = bench.worker()
 
-    expect(worker.step()).toMatchObject({ kind: 'restarted', taskKey: restart() })
+    expect(worker.step()).toMatchObject({ kind: 'handed', taskKey: restart() })
     expect(worker.step()).toEqual({ kind: 'idle' })
     bench.close()
   })
@@ -419,7 +407,7 @@ describe('the restart worker', () => {
   it('ships switched off: without --on it opens nothing and exits 0', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const bench = restartBench()
-    expect(await runRestartWorker([], { busPath: '/nonexistent/bus.db', launcher: bench.launcher, roles: bench.roles, processes: bench.processes, launchSwitchedOn: () => false, session: 'worker-1', pause: async () => {} })).toBe(0)
+    expect(await runRestartWorker([], { busPath: '/nonexistent/bus.db', roles: bench.roles, processes: bench.processes, launchSwitchedOn: () => false, session: 'worker-1', pause: async () => {} })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
     bench.close()
   })
@@ -451,7 +439,7 @@ describe('a dead chain', () => {
     expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'stopped' }])
     expect(taskState(bench.db, restart())).toMatchObject({ state: 'withdrawn' })
     expect(bench.leaseRestart()).toBeNull()
-    expect(bench.launches).toEqual([])
+    expect(bench.signalled).toEqual([])
     bench.tick()
     expect(restartTasks(bench)).toEqual([{ task_key: restart(), state: 'withdrawn' }])
     const live = projectionDump(bench.db)
@@ -485,7 +473,7 @@ describe('a dead chain', () => {
     expect(worker.step()).toEqual({ kind: 'idle' })
     bench.tick()
     expect(worker.step()).toEqual({ kind: 'idle' })
-    expect(bench.launches).toEqual([])
+    expect(bench.signalled).toEqual([])
     const ofRestart = (type: string): unknown[] => eventsOf(bench.db, type).filter(event => event.queue === 'restart')
     expect(ofRestart('task.leased')).toHaveLength(1)
     expect(ofRestart('task.released')).toEqual([])
@@ -518,9 +506,9 @@ describe('a dead chain', () => {
     bench.tick()
     bench.die(4242)
 
-    const dir = `${DIR}-${MAIN_2.slice(0, 7)}`
-    expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'restarted', taskKey: restart(), fromDir: DIR, dir, from: MAIN_1, to: MAIN_2, pid: NEW_PID })
-    expect(bench.launches).toEqual([{ chain: expect.objectContaining({ dir: DIR, state: 'fault', boundary: 0 }), dir }])
+    expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'handed', taskKey: restart(), dir: DIR, cardId: CARD, cardStopped: false })
+    expect(bench.signalled).toEqual([])
+    expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'stopped' }])
     bench.close()
     rmSync(busDir, { recursive: true, force: true })
   })
@@ -533,7 +521,7 @@ describe('a dead chain', () => {
     bench.tick()
 
     expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'waiting', taskKey: restart(), dir: DIR, why: 'not_at_boundary' })
-    expect(bench.launches).toEqual([])
+    expect(bench.signalled).toEqual([])
     bench.close()
   })
 
@@ -547,7 +535,7 @@ describe('a dead chain', () => {
     expect(bench.worker().step()).toEqual({ kind: 'dead_chains', chains: [{ dir: DIR, cardId: CARD, state: 'stopped' }] })
     expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'stopped' }])
     expect(eventsOf(bench.db, 'chain.observed').at(-1)).toMatchObject({ dir: DIR, pid: 4242, state: 'stopped', boundary: false })
-    expect(bench.launches).toEqual([])
+    expect(bench.signalled).toEqual([])
     bench.close()
   })
 
@@ -563,7 +551,7 @@ describe('a dead chain', () => {
     expect(worker.step()).toEqual({ kind: 'dead_chains', chains: [{ dir: DIR, cardId: CARD, state: 'fault' }] })
     expect(worker.step()).toEqual({ kind: 'idle' })
     expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'fault' }, { dir: '/shift/lane-2', card_id: 810, state: 'running' }])
-    expect(bench.launches).toEqual([])
+    expect(bench.signalled).toEqual([])
     bench.close()
   })
 
@@ -592,6 +580,32 @@ describe('a dead chain', () => {
     bench.tick()
 
     expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'waiting', taskKey: restart(), dir: DIR, why: 'not_at_boundary' })
+    bench.close()
+  })
+
+  it('a dead chain is raised through a launch task, never through shift:bg', () => {
+    const bench = restartBench()
+    bench.switchLaunch(() => true)
+    const admit = (cardId: number): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
+    }
+    admit(CARD)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${CARD}`, payload: { session: 'earlier' }, legacy: false })
+    admit(810)
+    bench.observe({ boundary: false })
+    bench.tick()
+    bench.die(4242)
+    const worker = bench.worker()
+
+    expect(worker.step()).toEqual({ kind: 'dead_chains', chains: [{ dir: DIR, cardId: CARD, state: 'fault' }] })
+    bench.tick()
+    expect(worker.step()).toEqual({ kind: 'handed', taskKey: restart(MAIN_1), dir: DIR, cardId: CARD, cardStopped: true })
+    expect(vi.mocked(runBg)).not.toHaveBeenCalled()
+    expect(eventsOf(bench.db, 'chain.restarted')).toEqual([])
+    expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
+    expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'stopped' }])
+    bench.tick()
+    expect(bench.db.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'launch'`).all()).toEqual([{ task_key: 'launch:810:admission-810', state: 'queued' }])
     bench.close()
   })
 })
