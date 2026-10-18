@@ -15,9 +15,53 @@ interface CheckAcceptance {
   agreedImmutable: (text: string) => string[]
   argsAcceptance: (json: string) => string[]
   missingItems: (agreed: string[], acceptance: string[]) => string[]
+  buildArgs: (text: string) => { acceptance: string[], invariants: string[] }
 }
 
-const { agreedImmutable, agreedInvariants, agreedItems, argsAcceptance, missingItems, normalizeItem } = await import(pathToFileURL(SCRIPT).href) as CheckAcceptance
+const { agreedImmutable, agreedInvariants, agreedItems, argsAcceptance, buildArgs, missingItems, normalizeItem } = await import(pathToFileURL(SCRIPT).href) as CheckAcceptance
+
+const BRIEF_1037_HEAD = [
+  '/implement Gate Ghost, shift and review launches on the runtime isolation level (#1037).',
+  'Sketch: none — independent implementation is the witness',
+  '',
+]
+
+const BRIEF_1037_OLD_FORM = [
+  ...BRIEF_1037_HEAD,
+  'Acceptance:',
+  '- W1, a launch with no runtime isolation is refused and starts no session — witness: `pnpm exec vitest run scripts/tests/bus/launch-node.test.ts -t \'a launch with no runtime isolation is refused and writes no session\'`',
+  '- W2, the launch event names the isolation level — witness: `pnpm exec vitest run scripts/tests/bus/launch-node.test.ts -t \'the launch event names the isolation level\'`',
+  '- W3, a review with no runtime isolation is refused — witness: `pnpm exec vitest run scripts/tests/bus/review-worker.test.ts -t \'a review with no runtime isolation is refused\'`',
+  '- W4, an enabled sandbox that allows unsandboxed commands reads partial — witness: `pnpm exec vitest run scripts/tests/ghosts/isolation.test.ts -t \'an enabled sandbox that allows unsandboxed commands reads partial\'`',
+  '- W5, bg starts no shift without runtime isolation — witness: `pnpm exec vitest run scripts/tests/shift/bg.test.ts -t \'bg starts no shift without runtime isolation\'`',
+  '',
+  'Invariants:',
+  '- I1, types and lint hold with the port required everywhere — witness: `pnpm typecheck`; `pnpm exec eslint scripts/ghosts/isolation.ts scripts/bus scripts/shift scripts/tests/ghosts/isolation.test.ts scripts/tests/bus scripts/tests/shift`',
+  '- I2, the neighbouring suites stay green — witness: `pnpm exec vitest run scripts/tests/bus scripts/tests/shift scripts/tests/ghosts`',
+  '- I3, the file registries agree (isolation.ts has its ghosts row) — witness: `pnpm exec vitest run scripts/tests/shredder`',
+  '- I4, the quality gate is green, run as its own command — witness: `pnpm run quality`',
+  '- I5, nothing outside the card\'s touches changes — witness: `! git diff HEAD --name-only | grep -vxE \'scripts/shift/(bg|merge)\\.ts|scripts/ghosts/isolation\\.ts\'`',
+  '- I6, no comment is added — witness: `! git diff HEAD -U0 -- scripts | grep -E \'^[+]\\s*(//|/[*])\'`',
+].join('\n')
+
+const BRIEF_1037_FIXED_FORM = [
+  ...BRIEF_1037_HEAD,
+  'Acceptance:',
+  '- W1, a launch with no runtime isolation is refused and starts no session — witness: `pnpm exec vitest run scripts/tests/bus/launch-node.test.ts -t \'a launch with no runtime isolation is refused and writes no session\'`;',
+  '- W2, the launch event names the isolation level — witness: `pnpm exec vitest run scripts/tests/bus/launch-node.test.ts -t \'the launch event names the isolation level\'`;',
+  '- W3, a review with no runtime isolation is refused — witness: `pnpm exec vitest run scripts/tests/bus/review-worker.test.ts -t \'a review with no runtime isolation is refused\'`;',
+  '- W4, an enabled sandbox that allows unsandboxed commands reads partial — witness: `pnpm exec vitest run scripts/tests/ghosts/isolation.test.ts -t \'an enabled sandbox that allows unsandboxed commands reads partial\'`;',
+  '- W5, bg starts no shift without runtime isolation — witness: `pnpm exec vitest run scripts/tests/shift/bg.test.ts -t \'bg starts no shift without runtime isolation\'`.',
+  '',
+  'Invariants:',
+  '- I1a, types hold with the port required everywhere — witness: `pnpm typecheck`;',
+  '- I1b, lint holds on the touched code — witness: `pnpm exec eslint scripts/ghosts/isolation.ts scripts/bus scripts/shift scripts/tests/ghosts/isolation.test.ts scripts/tests/bus scripts/tests/shift`;',
+  '- I2, the neighbouring suites stay green — witness: `pnpm exec vitest run scripts/tests/bus scripts/tests/shift scripts/tests/ghosts`;',
+  '- I3, the file registries agree (isolation.ts has its ghosts row) — witness: `pnpm exec vitest run scripts/tests/shredder`;',
+  '- I4, the quality gate is green, run as its own command — witness: `pnpm run quality`;',
+  '- I5, nothing outside the card\'s touches changes — witness: `! git diff HEAD --name-only | grep -vxE \'scripts/shift/(bg|merge)\\.ts|scripts/ghosts/isolation\\.ts\'`;',
+  '- I6, no comment is added — witness: `! git diff HEAD -U0 -- scripts | grep -E \'^[+]\\s*(//|/[*])\'`',
+].join('\n')
 
 const AGREED = [
   '/implement Acceptance echo in the ladder:',
@@ -79,6 +123,40 @@ describe('the agreed Acceptance section', () => {
 
   it('is absent when the label is', () => {
     expect(agreedItems('/implement add a rule')).toBeNull()
+  })
+})
+
+describe('the build of a brief\'s items', () => {
+  it('refuses an item that holds more than one witness marker', () => {
+    const glued = [
+      ...BRIEF_1037_HEAD,
+      'Acceptance:',
+      '- W1, one — witness: `true`',
+      '- W2, two — witness: `true`',
+    ].join('\n')
+    expect(() => buildArgs(glued)).toThrow('more than one witness marker in one item; end each item with ;: - W1, one — witness: `true` - W2, two')
+  })
+
+  it('refuses the #1037 brief in its old form and builds it with each item ended by a semicolon', () => {
+    expect(() => buildArgs(BRIEF_1037_OLD_FORM)).toThrow('more than one witness marker in one item')
+    expect(() => buildArgs(BRIEF_1037_OLD_FORM)).toThrow('an item cut off its boundary, it begins with a command that continues the witness before it; give each witness command its own item: `pnpm exec eslint')
+    const built = buildArgs(BRIEF_1037_FIXED_FORM)
+    expect(built.acceptance).toHaveLength(5)
+    expect(built.invariants).toHaveLength(7)
+  })
+
+  it('builds a witnessed item that begins with a quoted command after a witnessed item', () => {
+    expect(buildArgs('Acceptance: `a.test` passes — witness: `true`; `b.test` passes — witness: `true`.').acceptance).toEqual(['`a.test` passes', '`b.test` passes'])
+    expect(buildArgs('Acceptance: W1 — witness: `true`; `pnpm run quality` is green — witness: `true`.').acceptance).toHaveLength(2)
+  })
+
+  it('builds a witnessed item that wraps right after its opening quoted command', () => {
+    expect(buildArgs('Acceptance: W1 — witness: `true`; `a.test`\n passes — witness: `true`.').acceptance).toEqual(['W1', '`a.test` passes'])
+  })
+
+  it('reports a cut-off item and an unwitnessed item in one refusal', () => {
+    const both = 'Acceptance: W1 — witness: `true`; `pnpm exec eslint`; W2 has none.'
+    expect(() => buildArgs(both)).toThrow(/an item cut off its boundary[\s\S]*no witness: W2 has none/)
   })
 })
 
