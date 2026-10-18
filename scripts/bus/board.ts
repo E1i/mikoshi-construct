@@ -8,7 +8,7 @@ import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGE_DONE, MERGED_CARD, PR_OPENED, QUEUED_CARD, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
 import { CHAIN_OBSERVED, WAITING } from './chain.js'
 import { QUEUES } from './identifiers.js'
-import { CARD_STARTED, CARD_STOPPED, RESTART_MISSED } from './inbox.js'
+import { CARD_STARTED, CARD_STOPPED, RESTART_MISSED, RESTARTED } from './inbox.js'
 import { grantOrder, RENEW_MS, TASK_COMPLETED, TASK_LEASED } from './lease.js'
 import { CARD_ADMITTED } from './operator-work.js'
 import { CARD_CLOSED, LEASED } from './queue.js'
@@ -372,7 +372,7 @@ function contractRow(db: DatabaseSync): ContractLink[] {
   const stateless = count(db, 'SELECT count(*) AS n FROM cards WHERE state IS NULL')
   const replayed = replayDifferences(db).differences.length === 0
   const rejected = count(db, `SELECT count(*) AS n FROM events WHERE type = '${REJECTED}'`)
-  const missed = count(db, `SELECT count(*) AS n FROM events WHERE type = '${RESTART_MISSED}' AND id > (SELECT coalesce(max(id), 0) FROM events WHERE type = 'main.advanced')`)
+  const missed = count(db, `SELECT count(*) AS n FROM events WHERE type = '${RESTART_MISSED}' AND id > (SELECT coalesce(max(id), 0) FROM events WHERE type = '${RESTARTED}')`)
   return [
     link('launch', started > 0, `${started} ${CARD_STARTED} from the bus`),
     link('answer', answered > 0, `${answered} answer tasks completed`),
@@ -381,7 +381,7 @@ function contractRow(db: DatabaseSync): ContractLink[] {
     writerLink(db),
     link('replay', replayed, replayed ? 'matches' : 'differs'),
     link(REJECTED, rejected === 0, `${rejected}`),
-    link(RESTART_MISSED, missed === 0, `${missed} restart${missed === 1 ? '' : 's'} after the latest merge under scripts/bus did not happen within the limit`),
+    link(RESTART_MISSED, missed === 0, `${missed} restart${missed === 1 ? '' : 's'} after a merge under scripts/bus did not happen within the limit and no restart followed`),
   ]
 }
 

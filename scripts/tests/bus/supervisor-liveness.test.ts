@@ -617,14 +617,37 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     holds = true
     await supervisor.step()
     holds = false
-    events.push({ id: 2, sha: OLD_MAIN })
+    events.push({ id: 2, sha: NEW_MAIN })
     clock.now += 1
     await supervisor.step()
     expect(missed).toEqual([NEW_MAIN])
 
     clock.now += RESTART_LIMIT_MS
     await supervisor.step()
-    expect(missed).toEqual([NEW_MAIN, OLD_MAIN])
+    expect(missed).toEqual([NEW_MAIN, NEW_MAIN])
+  })
+
+  it('a restart onto a sha calls restarted with that sha, and a merge with no bus change does not', async () => {
+    const restarted: string[] = []
+    let busChanged = true
+    const supervisor = new BusSupervisor({
+      known: [],
+      wanted: () => [],
+      start: ok,
+      stop: async () => {},
+      processes: () => [],
+      mainSince: afterId => afterId < 1 ? [{ id: 1, sha: NEW_MAIN }] : afterId < 2 ? [{ id: 2, sha: OLD_MAIN }] : [],
+      code: { head: () => NEW_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => busChanged },
+      journal: () => {},
+      restarted: sha => restarted.push(sha),
+      now: () => 0,
+    }, 0)
+
+    await supervisor.step()
+    expect(restarted).toEqual([NEW_MAIN])
+    busChanged = false
+    await supervisor.step()
+    expect(restarted).toEqual([NEW_MAIN])
   })
 
   it('a missed record that throws once is retried on the next step and not lost', async () => {

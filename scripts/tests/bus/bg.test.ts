@@ -330,6 +330,7 @@ describe('pnpm bus:bg', () => {
     expect(failed.exitCode).toBe(3)
     expect(failed.stderr).toEqual(['err line'])
     expect(failed.stdout).toContain('out line')
+    expect(failed.stdout).toContain(switchCommand(busDir, 'update', true).stdout[0])
   })
 
   it('bus:bg --off on a worker that is not running says so and stops nothing', async () => {
@@ -347,6 +348,7 @@ describe('pnpm bus:bg', () => {
     const off = await applySwitch(busDir, 'update', false, control, NO_PREFLIGHT)
 
     expect(off.exitCode).toBe(0)
+    expect(off.stdout[0]).toBe(switchCommand(busDir, 'update', false).stdout[0])
     expect(off.stdout.at(-1)).toBe(`${PREFIX}${launchName(update)} was not running`)
     expect(stops).toBe(0)
   })

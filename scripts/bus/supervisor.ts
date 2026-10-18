@@ -12,7 +12,7 @@ import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDe
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
 import { ghApi } from './github.js'
-import { RESTART_MISSED } from './inbox.js'
+import { RESTART_MISSED, RESTARTED } from './inbox.js'
 import { expireLeasesHeldBy, TASK_EXPIRED } from './lease.js'
 import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
 import { CHECK_MS } from './netwatch.js'
@@ -115,6 +115,7 @@ export interface SupervisorParts {
   code: BusCode
   journal: (entry: Record<string, unknown>) => void
   missed?: (sha: string, waitedMs: number) => void
+  restarted?: (sha: string) => void
   now: () => number
 }
 
@@ -214,6 +215,7 @@ export class BusSupervisor {
     const restarted = await this.restart(wanted, head)
     this.settle(head)
     this.outdatedBy = head
+    this.parts.restarted?.(sha)
     const notBack = restarted.down.length === 0 ? '' : `; not brought back: ${restarted.down.join(', ')}`
     return [...lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}${notBack}`, ...restarted.lines]
   }
@@ -260,6 +262,10 @@ export class BusSupervisor {
 
 export function recordRestartMissed(db: DatabaseSync, ts: string, sha: string, waitedMs: number): void {
   appendEvent(db, { ts, type: RESTART_MISSED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTART_MISSED}:${sha}`, payload: { sha, waited_ms: waitedMs, limit_ms: RESTART_LIMIT_MS }, legacy: false })
+}
+
+export function recordRestarted(db: DatabaseSync, ts: string, sha: string): void {
+  appendEvent(db, { ts, type: RESTARTED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTARTED}:${sha}`, payload: { sha }, legacy: false })
 }
 
 export function baselineAdvance(last: MainAdvance | undefined, code: BusCode): number {
@@ -527,6 +533,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     code,
     journal,
     missed: (sha, waitedMs) => recordRestartMissed(db, new Date().toISOString(), sha, waitedMs),
+    restarted: sha => recordRestarted(db, new Date().toISOString(), sha),
     now: () => Date.now(),
   }, startingBaseline(db, code))
   const keeper = new WorkerKeeper({
