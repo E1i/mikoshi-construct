@@ -11,7 +11,9 @@ import productBuild from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const BUS_SOURCE = 'scripts/bus/'
-const BUS_STORE_MODULE = 'node:sqlite'
+const BUS_STORE_OPEN = /DatabaseSync\(([^)]*)\)/g
+const READ_ONLY_OPEN = /readOnly:\s*true/
+const BUS_WRITE_STATEMENT = /\b(?:INSERT\s+INTO|CREATE\s+(?:TABLE|INDEX|TRIGGER|VIEW)|DELETE\s+FROM|DROP\s+TABLE|ALTER\s+TABLE|UPDATE\s+\w+\s+SET)\b/
 const BUILD_TIMEOUT_MS = 120_000
 
 const roots: string[] = []
@@ -44,12 +46,15 @@ async function buildProduct(outDir: string): Promise<ProductBundle> {
 }
 
 describe('the delivery boundary between the product and the factory', () => {
-  it('the product build carries no bus code and the cli runs without the bus writer', async () => {
+  it('the product build carries no bus code, opens the bus store only read-only, and the cli runs without the bus writer', async () => {
     const root = scratch()
     const bundle = await buildProduct(scratchBesideDependencies())
     expect(bundle.inputs.some(input => input.startsWith('src/'))).toBe(true)
     expect(bundle.inputs.filter(input => input.startsWith(BUS_SOURCE))).toEqual([])
-    expect(readFileSync(bundle.cli, 'utf8')).not.toContain(BUS_STORE_MODULE)
+    const cli = readFileSync(bundle.cli, 'utf8')
+    expect(cli).not.toMatch(BUS_WRITE_STATEMENT)
+    for (const [, options] of cli.matchAll(BUS_STORE_OPEN))
+      expect(options).toMatch(READ_ONLY_OPEN)
 
     const repo = path.join(root, 'repo')
     mkdirSync(path.join(repo, 'src'), { recursive: true })
