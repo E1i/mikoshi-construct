@@ -54,12 +54,12 @@ function brainWorld(): { deps: RelaunchDeps, handoff: string, stubOut: string } 
 }
 
 describe('relaunch end to end', () => {
-  it('a relaunch session with stub claude starts shift:bg, not task:start', async () => {
+  it('a relaunch session with stub claude starts neither shift:bg nor task:start, the bus launch node does', async () => {
     const world = brainWorld()
     expect(await runRelaunch([world.handoff, '--max', '1', '--model', 'claude-test'], world.deps)).toBe(0)
-    const ran = readFileSync(path.join(world.stubOut, 'pnpm.argv'), 'utf8').trim().split('\n')
-    expect(ran).toHaveLength(1)
-    expect(ran[0]).toMatch(/^shift:bg \S+ --parking \S+ --chain$/)
+    const argvFile = path.join(world.stubOut, 'pnpm.argv')
+    const ran = existsSync(argvFile) ? readFileSync(argvFile, 'utf8').trim().split('\n') : []
+    expect(ran.some(argv => argv.startsWith('shift:bg'))).toBe(false)
     expect(ran.some(argv => argv.startsWith('task:start'))).toBe(false)
   })
 })
