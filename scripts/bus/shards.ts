@@ -25,14 +25,17 @@ export interface WindowShard {
   until: string
 }
 
-const WINDOW_SHARDS = `
-  SELECT json_extract(issued.payload, '$.id') AS id, json_extract(issued.payload, '$.by') AS by,
+const UNENDED_WINDOW_SHARDS = `
+  SELECT issued.id AS event_id, json_extract(issued.payload, '$.id') AS id, json_extract(issued.payload, '$.by') AS by,
     json_extract(issued.payload, '$.scope') AS scope, json_extract(issued.payload, '$.until') AS until
   FROM events issued
   WHERE issued.type = '${SHARD_ISSUED}' AND json_extract(issued.payload, '$.window') = 1
     AND NOT EXISTS (SELECT 1 FROM events ended WHERE ended.type IN ('${SHARD_REVOKED}', '${SHARD_EXPIRED}') AND json_extract(ended.payload, '$.id') = json_extract(issued.payload, '$.id'))
-  ORDER BY issued.id DESC
 `
+
+const WINDOW_SHARDS = `${UNENDED_WINDOW_SHARDS} ORDER BY issued.id DESC`
+
+export const WINDOW_SHARDS_LIVE_AT = `${UNENDED_WINDOW_SHARDS} AND json_extract(issued.payload, '$.until') > ?`
 
 export function isWindowScope(value: unknown): value is WindowScope {
   return WINDOW_SCOPES.includes(value as WindowScope)

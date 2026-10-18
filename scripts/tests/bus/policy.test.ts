@@ -38,6 +38,7 @@ function facts(overrides: Partial<MergeFacts> = {}): MergeFacts {
     ownerMergesText: OWNER_MERGES,
     shardActive: false,
     shardUnder: null,
+    windowShard: null,
     decisions: [],
     ...overrides,
   }
@@ -92,6 +93,15 @@ describe('the merge policy', () => {
   it('the reservations hold under a shard, where an owner card would merge', () => {
     for (const overrides of [{ headRef: 'changeset-release/main' }, { files: ['architecture/security-invariants.md'] }, { files: ['scripts/ghosts/approve.ts'] }, { description: `${cardBody(942, 'owner')}\n#1042 reserved` }])
       expect(mergePolicy(facts({ ...overrides, shardActive: true })).kind).toBe('denied')
+  })
+
+  it('a window shard lifts owner_by_risk and R1 and leaves the version pull request, security-invariants and a reserved card the owner\'s', () => {
+    const owner = { description: cardBody(942, 'owner'), windowShard: 'shard-window' }
+    for (const files of [['scripts/ghosts/approve.ts'], ['scripts/bus/queue.ts']])
+      expect(mergePolicy(facts({ ...owner, files }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard', detail: expect.stringContaining('shard-window') as unknown })
+    expect(mergePolicy(facts({ ...owner, headRef: 'changeset-release/main' }))).toMatchObject({ kind: 'denied', rule: 'version_pr' })
+    expect(mergePolicy(facts({ ...owner, files: ['architecture/security-invariants.md'] }))).toMatchObject({ kind: 'denied', rule: 'security_invariants' })
+    expect(mergePolicy(facts({ ...owner, description: `${cardBody(942, 'owner')}\n#1042 reserved` }))).toMatchObject({ kind: 'denied', rule: 'reserved' })
   })
 
   it('whatever the until, the version pull request and a reserved card get policy.denied authority under a shard --under D-N', () => {
