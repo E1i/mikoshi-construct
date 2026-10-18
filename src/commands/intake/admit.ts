@@ -1,10 +1,11 @@
+import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
 import type { Ui } from '../../ui/console.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
-import type { CardAdmissionsPort, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
+import type { CardAdmissionsPort, CardEvent, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -15,7 +16,7 @@ import { parseParkingFile } from '../../card/parking.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, correctionsNeedPerson, INTAKE_EVENT, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
-import { admittedRecord, defaultParking, INTAKE_EXIT, recordIntake } from './index.js'
+import { admittedRecord, CARD_WAITING, defaultParking, INTAKE_EXIT, recordIntake } from './index.js'
 import { parkedNumbers } from './numbers.js'
 import { isWithin, parkingTree } from './parking-tree.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
@@ -57,6 +58,7 @@ export type AdmitResult
     | { status: 'invalidTestPattern', reasons: string[] }
     | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
+    | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
 
 export function witnessesOf(body: string): string[] {
   const lines = body.split('\n')
@@ -94,6 +96,18 @@ function draftOf(parked: ParkedTask): DraftCard {
 
 function ids(references: readonly string[]): number[] {
   return references.map(reference => Number(CARD_REFERENCE.exec(reference)![1]))
+}
+
+function unmergedKnown(references: readonly string[], parked: ReadonlySet<number>, cards: BusCardStates | undefined, done: ReadonlySet<string>): number[] {
+  return references.flatMap((reference) => {
+    const id = CARD_REFERENCE.exec(reference)?.[1]
+    const known = id !== undefined && (parked.has(Number(id)) || done.has(id) || cards?.has(id) === true)
+    return known ? [Number(id)] : []
+  })
+}
+
+function waitingEvent(cardId: number, waitingOn: readonly number[], at: Date): CardEvent {
+  return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${cardId}:${waitingOn.join(',')}`, payload: { depends: waitingOn } }
 }
 
 function blocksTail(line: string): string {
@@ -206,10 +220,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (invalidPatterns.length > 0)
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
   const cards = options.cardStates?.()
+  const parked = new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking())))
+  const done = new Set(closedTasks(journal, cards).keys())
   const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
-    parked: new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking()))),
-    done: new Set(closedTasks(journal, cards).keys()),
+    parked,
+    done,
     merged: mergedTasks(journal, cards),
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
@@ -239,6 +255,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
     return { status: 'refused', why: reparsed.reason }
+  const waitingOn = unmergedKnown(checked.depends, parked, cards, done)
+  if (source === ADMIT_SOURCE && waitingOn.length > 0) {
+    if (!options.dryRun)
+      options.events?.(waitingEvent(card.id, waitingOn, now()))
+    return { status: 'waiting', file: options.file, card: admitted, waitingOn, inBus: base.inBus, dryRun: options.dryRun }
+  }
   if (options.dryRun)
     return { ...base, status: 'dryRun' }
   const token = confirmationToken([admitted])
@@ -262,6 +284,11 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
     return INTAKE_EXIT.refused
   }
   const { card } = result
+  if (result.status === 'waiting') {
+    const depends = result.waitingOn.map(id => `#${id}`).join(', ')
+    ui.line(result.dryRun ? ui.lore.intakeAdmitWaitingDryRun(result.file, card.line, depends) : ui.lore.intakeAdmitWaiting(result.file, card.line, depends, result.inBus))
+    return INTAKE_EXIT.waiting
+  }
   if (result.status === 'alreadyAdmitted') {
     ui.ok(ui.lore.intakeAlreadyAdmitted(result.file, card.line, result.inBus))
     return INTAKE_EXIT.alreadyAdmitted

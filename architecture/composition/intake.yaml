@@ -27,7 +27,11 @@ description: >-
   the same `checkDraft` under the card's own number, holds a corrected card behind the same
   confirmation token, rewrites only the card line, the touches line and the appended `corrected:` and
   `unclear:` lines, and writes one `intake` line with `source: admit`; a card whose line the journal
-  already admitted is left alone.
+  already admitted is left alone. A first admission whose checked depends still name a card that is
+  parked, done or known to the bus, and is not merged, is not admitted: before any
+  confirmation is asked, the file and the journal stay as they are, a bus-wired run appends one
+  `card.waiting` naming those depends (a --dry-run only reports it), and the exit is 3; a depends on
+  a card nobody knows is admitted with an `unclear:` mark; an amend of an admitted card never waits.
 doc: architecture/intake.md
 boundaries:
   - id: entry
@@ -87,6 +91,10 @@ nodes:
     label: --journal · one intake line per parked card, its confirmation and corrections
     path: src/commands/intake/index.ts
     boundary: write
+  - id: waiting
+    label: card.waiting · a first --admit with depends not merged; nothing admitted, exit 3
+    path: src/commands/intake/admit.ts
+    boundary: write
   - id: print
     label: printIntake · INTAKE_EXIT
     path: src/commands/intake/index.ts
@@ -97,7 +105,9 @@ edges:
   - {from: admit, to: grammar, kind: wires}
   - {from: admit, to: check, kind: sequence}
   - {from: admit, to: confirm, kind: sequence}
+  - {from: admit, to: waiting, kind: route}
   - {from: admit, to: journal, kind: sequence}
+  - {from: waiting, to: print, kind: sequence}
   - {from: run, to: draft, kind: sequence}
   - {from: draft, to: numbers, kind: sequence}
   - {from: numbers, to: check, kind: sequence}

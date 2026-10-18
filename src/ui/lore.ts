@@ -180,6 +180,8 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeAdmitUnclear: (count: number) => string
   intakeAdmitAwaiting: (file: string, token: string) => string
   intakeAdmitDryRun: (file: string) => string
+  intakeAdmitWaiting: (file: string, card: string, depends: string, inBus: boolean) => string
+  intakeAdmitWaitingDryRun: (file: string, card: string, depends: string) => string
   notCarried: string
   notCarriedDoesNotHold: (claimId: string, target: string) => string
   notCarriedUnevaluable: (claimId: string, target: string) => string
@@ -523,6 +525,10 @@ export const LORE: Lore = {
   intakeAdmitUnclear: (count: number) => `${count} UNCLEAR // marked in the card; who is left as the card states it`,
   intakeAdmitAwaiting: (file: string, token: string) => `AWAITING CONFIRMATION // ${file} unchanged, no intake line; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
   intakeAdmitDryRun: (file: string) => `DRY RUN // ${file} unchanged, no intake line`,
+  intakeAdmitWaiting: (file: string, card: string, depends: string, inBus: boolean) => inBus
+    ? `WAITING // ${file}: ${card}; depends ${depends} not merged, not admitted; card.waiting is in the bus. Admit again once they merge`
+    : `WAITING // ${file}: ${card}; depends ${depends} not merged, not admitted. NO BUS // nothing written. Admit again once they merge`,
+  intakeAdmitWaitingDryRun: (file: string, card: string, depends: string) => `DRY RUN // WAITING // ${file}: ${card}; depends ${depends} not merged, so --admit would not admit it and would write card.waiting. Nothing written`,
   notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
@@ -885,6 +891,10 @@ export const PLAIN_LORE: Lore = {
   intakeAdmitUnclear: (count: number) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; who is left as the card states it.`,
   intakeAdmitAwaiting: (file: string, token: string) => `${file} is unchanged and has no intake line: the corrections above wait for a person. Run again with --confirm ${token} to admit the card as shown, or with --auto-confirm to accept corrections in advance.`,
   intakeAdmitDryRun: (file: string) => `Dry run: ${file} is unchanged and no intake line was written.`,
+  intakeAdmitWaiting: (file: string, card: string, depends: string, inBus: boolean) => inBus
+    ? `Not admitted yet ${file}: ${card}. It depends on ${depends}, not merged yet, so it stays parked and a card.waiting naming them is in the bus. Run --admit again once they merge.`
+    : `Not admitted yet ${file}: ${card}. It depends on ${depends}, not merged yet, so it stays parked; no bus is wired to this run, so nothing was written. Run --admit again once they merge.`,
+  intakeAdmitWaitingDryRun: (file: string, card: string, depends: string) => `Dry run: ${file}: ${card} depends on ${depends}, not merged yet, so --admit would leave it parked and write a card.waiting. Nothing was written.`,
   notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,

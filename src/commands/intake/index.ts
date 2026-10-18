@@ -67,13 +67,15 @@ export const INTAKE_EXIT = {
   awaiting: 2,
   admitted: 0,
   alreadyAdmitted: 0,
+  waiting: 3,
 } as const
 
 export const CARD_ADMITTED = 'card.admitted'
 export const CARD_MOVED = 'card.moved'
+export const CARD_WAITING = 'card.waiting'
 
 export interface CardEvent {
-  type: typeof CARD_ADMITTED | typeof CARD_MOVED
+  type: typeof CARD_ADMITTED | typeof CARD_MOVED | typeof CARD_WAITING
   cardId: number
   ts: string
   dedupeKey: string
