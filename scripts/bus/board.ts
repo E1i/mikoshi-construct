@@ -372,7 +372,7 @@ function contractRow(db: DatabaseSync): ContractLink[] {
   const stateless = count(db, 'SELECT count(*) AS n FROM cards WHERE state IS NULL')
   const replayed = replayDifferences(db).differences.length === 0
   const rejected = count(db, `SELECT count(*) AS n FROM events WHERE type = '${REJECTED}'`)
-  const missed = count(db, `SELECT count(*) AS n FROM events WHERE type = '${RESTART_MISSED}'`)
+  const missed = count(db, `SELECT count(*) AS n FROM events WHERE type = '${RESTART_MISSED}' AND id > (SELECT coalesce(max(id), 0) FROM events WHERE type = 'main.advanced')`)
   return [
     link('launch', started > 0, `${started} ${CARD_STARTED} from the bus`),
     link('answer', answered > 0, `${answered} answer tasks completed`),
@@ -381,7 +381,7 @@ function contractRow(db: DatabaseSync): ContractLink[] {
     writerLink(db),
     link('replay', replayed, replayed ? 'matches' : 'differs'),
     link(REJECTED, rejected === 0, `${rejected}`),
-    link(RESTART_MISSED, missed === 0, `${missed} restarts after a merge under scripts/bus did not happen within the limit`),
+    link(RESTART_MISSED, missed === 0, `${missed} restart${missed === 1 ? '' : 's'} after the latest merge under scripts/bus did not happen within the limit`),
   ]
 }
 

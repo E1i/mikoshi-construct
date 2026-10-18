@@ -6,12 +6,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
-import { openBus } from '../../bus/db.js'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { RESTART_MISSED } from '../../bus/inbox.js'
 import { completeTask, leaseNext, leaseWhileFree, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, outsideGroup, recordRestartMissed, RESTART_LIMIT_MS, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
 import { workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
@@ -591,11 +591,117 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     db.close()
   })
 
+  it('a wait that clears and starts again re-arms the limit and reports a second missed restart', async () => {
+    const clock = { now: 0 }
+    const events: MainAdvance[] = [{ id: 1, sha: NEW_MAIN }]
+    const missed: string[] = []
+    let holds = false
+    const supervisor = new BusSupervisor({
+      known: [],
+      wanted: () => [],
+      start: ok,
+      stop: async () => {},
+      processes: () => [],
+      mainSince: afterId => events.filter(event => event.id > afterId),
+      code: { head: () => OLD_MAIN, holds: () => holds, pull: () => {}, busChangedSince: () => false },
+      journal: () => {},
+      missed: sha => missed.push(sha),
+      now: () => clock.now,
+    }, 0)
+
+    await supervisor.step()
+    clock.now = RESTART_LIMIT_MS
+    await supervisor.step()
+    expect(missed).toEqual([NEW_MAIN])
+
+    holds = true
+    await supervisor.step()
+    holds = false
+    events.push({ id: 2, sha: OLD_MAIN })
+    clock.now += 1
+    await supervisor.step()
+    expect(missed).toEqual([NEW_MAIN])
+
+    clock.now += RESTART_LIMIT_MS
+    await supervisor.step()
+    expect(missed).toEqual([NEW_MAIN, OLD_MAIN])
+  })
+
+  it('a missed record that throws once is retried on the next step and not lost', async () => {
+    const clock = { now: 0 }
+    const missed: string[] = []
+    let failing = true
+    const supervisor = new BusSupervisor({
+      known: [],
+      wanted: () => [],
+      start: ok,
+      stop: async () => {},
+      processes: () => [],
+      mainSince: afterId => afterId < 1 ? [{ id: 1, sha: NEW_MAIN }] : [],
+      code: { head: () => OLD_MAIN, holds: () => false, pull: () => {}, busChangedSince: () => true },
+      journal: () => {},
+      missed: (sha) => {
+        if (failing)
+          throw new Error('database is locked')
+        missed.push(sha)
+      },
+      now: () => clock.now,
+    }, 0)
+
+    await supervisor.step()
+    clock.now = RESTART_LIMIT_MS
+    const failed = await supervisor.step()
+    expect(failed.join('\n')).toContain('database is locked')
+    expect(missed).toEqual([])
+
+    failing = false
+    const retried = await supervisor.step()
+    expect(missed).toEqual([NEW_MAIN])
+    expect(retried.join('\n')).toContain(RESTART_MISSED)
+    await supervisor.step()
+    expect(missed).toEqual([NEW_MAIN])
+  })
+
   it('the replacement does not see its own supervisor as already running', () => {
     const own = [{ pid: 500, group: 500, args: SUPERVISOR_ARGS }, { pid: 501, group: 500, args: 'node tsx scripts/bus/supervisor.ts --supervise' }]
     const other = { pid: 700, group: 700, args: 'node pnpm.cjs --silent bus:run' }
     expect(runningInstance(outsideGroup([...own, other], 500), SUPERVISOR_LAUNCH.markers)).toBeUndefined()
     expect(outsideGroup([...own, other], 500)).toEqual([{ pid: 700, args: other.args }])
     expect(runningInstance(outsideGroup(own, 700), SUPERVISOR_LAUNCH.markers)?.pid).toBe(500)
+  })
+})
+
+describe('the main.advanced the supervisor starts from', () => {
+  const held: BusCode = { head: () => OLD_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => false }
+  const unheld: BusCode = { ...held, holds: () => false }
+
+  function advance(db: ReturnType<typeof openBus>, key: string, payload: Record<string, unknown>): void {
+    appendEvent(db, { ts: '2026-10-18T10:00:00.000Z', type: 'main.advanced', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: key, payload, legacy: false })
+  }
+
+  it('baselineAdvance is 0 with no advance, the id when the checkout holds the sha, and the id before it when not', () => {
+    const last = { id: 7, sha: NEW_MAIN }
+    expect(baselineAdvance(undefined, held)).toBe(0)
+    expect(baselineAdvance(last, held)).toBe(7)
+    expect(baselineAdvance(last, unheld)).toBe(6)
+  })
+
+  it('a last main.advanced with no readable sha counts as seen, so no earlier one is replayed', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-baseline-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    expect(startingBaseline(db, held)).toBe(0)
+
+    advance(db, 'main:1', { sha: OLD_MAIN })
+    const readable = lastMainAdvance(db)
+    expect(startingBaseline(db, held)).toBe(readable)
+    expect(startingBaseline(db, unheld)).toBe(readable - 1)
+
+    advance(db, 'main:2', { touches_mechanics: true })
+    const unreadable = lastMainAdvance(db)
+    expect(unreadable).toBeGreaterThan(readable)
+    expect(startingBaseline(db, unheld)).toBe(unreadable)
+    expect(mainAdvancedSince(db, startingBaseline(db, unheld))).toEqual([])
+    db.close()
   })
 })

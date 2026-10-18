@@ -317,6 +317,40 @@ describe('pnpm bus:bg', () => {
     expect(startedNames).toHaveLength(1)
   })
 
+  it('bus:bg --on returns the output and exit code of a start that fails', async () => {
+    const busDir = path.join(tempRoot('bus-bg-switch-fail-'), 'bus')
+    const control = {
+      processes: () => [],
+      start: (): BgResult => ({ stdout: ['out line'], stderr: ['err line'], exitCode: 3 }),
+      stop: async (): Promise<void> => {},
+    }
+
+    const failed = await applySwitch(busDir, 'update', true, control, NO_PREFLIGHT)
+
+    expect(failed.exitCode).toBe(3)
+    expect(failed.stderr).toEqual(['err line'])
+    expect(failed.stdout).toContain('out line')
+  })
+
+  it('bus:bg --off on a worker that is not running says so and stops nothing', async () => {
+    const busDir = path.join(tempRoot('bus-bg-switch-idle-'), 'bus')
+    const update = busLaunches(NO_PREFLIGHT).find(launch => launch.script === 'bus:update')!
+    let stops = 0
+    const control = {
+      processes: () => [],
+      start: (): BgResult => ({ stdout: [], stderr: [], exitCode: 0 }),
+      stop: async (): Promise<void> => {
+        stops++
+      },
+    }
+
+    const off = await applySwitch(busDir, 'update', false, control, NO_PREFLIGHT)
+
+    expect(off.exitCode).toBe(0)
+    expect(off.stdout.at(-1)).toBe(`${PREFIX}${launchName(update)} was not running`)
+    expect(stops).toBe(0)
+  })
+
   it('bus:bg --on and --off take one known worker and write the switch file', () => {
     const busDir = path.join(tempRoot('bus-bg-switch-'), 'bus')
     expect(bgCommand(['--on', 'merge'])).toEqual({ kind: 'switch', worker: 'merge', on: true })

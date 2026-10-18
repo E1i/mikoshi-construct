@@ -358,7 +358,18 @@ describe('the factory board', () => {
     const bench = boardBench()
     expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: true })
     appendEvent(bench.db, { ts: bench.ts(), type: RESTART_MISSED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTART_MISSED}:${sha('b')}`, payload: { sha: sha('b'), waited_ms: 300_000, limit_ms: 300_000 }, legacy: false })
-    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: false, fact: expect.stringContaining('1 restarts') })
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: false, fact: expect.stringContaining('1 restart after') })
+    appendEvent(bench.db, { ts: bench.ts(), type: RESTART_MISSED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTART_MISSED}:${sha('c')}`, payload: { sha: sha('c'), waited_ms: 300_000, limit_ms: 300_000 }, legacy: false })
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: false, fact: expect.stringContaining('2 restarts after') })
+  })
+
+  it('a missed supervisor restart is cleared by a later main.advanced the supervisor restarted onto', () => {
+    const bench = boardBench()
+    bench.tick()
+    appendEvent(bench.db, { ts: bench.ts(), type: RESTART_MISSED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTART_MISSED}:${sha('b')}`, payload: { sha: sha('b'), waited_ms: 300_000, limit_ms: 300_000 }, legacy: false })
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: false })
+    appendEvent(bench.db, { ts: bench.ts(), type: 'main.advanced', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `main:${sha('d')}`, payload: { sha: sha('d'), touches_mechanics: true }, legacy: false })
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: true, fact: expect.stringContaining('0 restarts after') })
   })
 
   it('a pull request merged with no merge.done reads merge past the bus', () => {

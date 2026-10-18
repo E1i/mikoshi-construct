@@ -159,8 +159,13 @@ export class BusSupervisor {
     const waitedMs = this.parts.now() - this.waiting.since
     if (this.waiting.reported || waitedMs < RESTART_LIMIT_MS)
       return []
+    try {
+      this.parts.missed?.(sha, waitedMs)
+    }
+    catch (error) {
+      return [`${PREFIX}recording ${RESTART_MISSED} failed: ${error instanceof Error ? error.message : String(error)}; retried on the next tick`]
+    }
     this.waiting.reported = true
-    this.parts.missed?.(sha, waitedMs)
     return [`${PREFIX}the restart onto ${sha} did not happen within ${RESTART_LIMIT_MS / 60_000} min (waited ${Math.round(waitedMs / 1000)}s); ${RESTART_MISSED} is on the bus and the board`]
   }
 
@@ -261,6 +266,12 @@ export function baselineAdvance(last: MainAdvance | undefined, code: BusCode): n
   if (last === undefined)
     return 0
   return code.holds(last.sha) ? last.id : last.id - 1
+}
+
+export function startingBaseline(db: DatabaseSync, code: BusCode): number {
+  const lastId = lastMainAdvance(db)
+  const readable = mainAdvancedSince(db, lastId - 1).at(-1)
+  return readable === undefined ? lastId : baselineAdvance(readable, code)
 }
 
 export function freeLeasesOf(db: DatabaseSync, ts: string, stopped: DetachedLaunch[]): string[] {
@@ -517,7 +528,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     journal,
     missed: (sha, waitedMs) => recordRestartMissed(db, new Date().toISOString(), sha, waitedMs),
     now: () => Date.now(),
-  }, baselineAdvance(mainAdvancedSince(db, lastMainAdvance(db) - 1).at(-1), code))
+  }, startingBaseline(db, code))
   const keeper = new WorkerKeeper({
     wanted: () => wantedLaunches(busDir, reviewPreflight),
     start: launch => startDetached(launch, busDir, process.env, processes),
