@@ -19,6 +19,7 @@ import { CARD_CLOSED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { CARD_VERIFIED, runTaskClose } from '../../ghosts/task-close.js'
 import { appendToJournal, journalLine } from '../../ghosts/task-merged.js'
+import { writeLaneJson } from '../../lanes/lane-json.js'
 import { detectClose } from './close-detection.js'
 import { MAIN_2, MERGER, sha } from './github-fake.js'
 import { cardVerified, eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -268,6 +269,35 @@ describe('the close queue', () => {
     expect(MERGER.at).not.toBe(pullClosed.ts)
     expect(bench.mergeLines()).toEqual([{ event: 'merge', task: '1100', pr: 1000, by: MERGER.login, commit: MAIN_2, merged: MERGER.at, ts: bench.clock.now().toISOString() }])
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'run' }])
+    bench.close()
+  })
+
+  it('an empty lane disappears once its last card is closed', () => {
+    const bench = closeBench({ 1105: 'run', 1106: 'run' })
+    const lane = path.join(bench.parking, 'lane-01')
+    bench.park(1105, 'lane-01')
+    bench.park(1106, 'lane-01')
+    bench.park(1107, 'lane-bus-1')
+    writeLaneJson(lane, { purpose: 'p', touches: ['a.ts'], createdBy: 'owner', createdAt: '2026-10-11', status: 'open' })
+    bench.merged(1005)
+    bench.merged(1006)
+
+    expect(bench.closeCard(bench.leaseClose()!)).toMatchObject({ kind: 'closed', cycle: { cardFile: 'moved' } })
+    expect(readdirSync(lane).sort()).toEqual(['1106.md', 'lane.json'])
+    expect(bench.closeCard(bench.leaseClose()!)).toMatchObject({ kind: 'closed', cycle: { cardFile: 'moved' } })
+    expect(existsSync(lane)).toBe(false)
+    expect(readdirSync(path.join(bench.parking, 'archive')).sort()).toEqual(['1105.md', '1106.md'])
+    expect(readdirSync(path.join(bench.parking, 'lane-bus-1'))).toEqual(['1107.md'])
+    bench.close()
+  })
+
+  it('a directory without lane.json stays when its last card is closed', () => {
+    const bench = closeBench({ 1108: 'run' })
+    bench.park(1108, 'lane-bus-2')
+    bench.merged(1008)
+
+    expect(bench.closeCard(bench.leaseClose()!)).toMatchObject({ kind: 'closed', cycle: { cardFile: 'moved' } })
+    expect(readdirSync(path.join(bench.parking, 'lane-bus-2'))).toEqual([])
     bench.close()
   })
 
