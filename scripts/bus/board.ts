@@ -2,10 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Choice, ParkingReads } from '../shift/parking.js'
 import type { Queue } from './identifiers.js'
 import type { LeaseOrder } from './lease.js'
-import { realpathSync } from 'node:fs'
 import path from 'node:path'
-import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGE_DONE, MERGED_CARD, PR_OPENED, QUEUED_CARD, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
@@ -419,11 +416,6 @@ export function readBoard(sources: BoardSources): Board {
     contract: contractRow(db),
     queues: taskQueues(db, sources.leaseOrders),
   }
-}
-
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { runBoardCli } = await import('./board-page.js')
-  process.exitCode = runBoardCli()
 }
 
 export function parkingLanes(reads: ParkingReads, root: string): LaneParking[] {

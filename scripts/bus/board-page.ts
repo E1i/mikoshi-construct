@@ -1,9 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { RunningProcess } from './bg.js'
 import type { Board, ComponentHealth, ContractLink, ExecutionRow, LaneRow, QueueCard, TaskQueue, Watched } from './board.js'
-import { existsSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { answerLeaseOrder } from './answer-worker.js'
 import { psList, RUN_SCRIPT, runningInstance } from './bg.js'
 import { BOARD_FILE, readBoard } from './board.js'
@@ -179,8 +180,7 @@ export function printBoard(busPath: string, now: Date, write: (text: string) => 
   }
 }
 
-export function runBoardCli(): number {
-  const busPath = defaultBusPath()
+export function runBoardCli(busPath: string = defaultBusPath()): number {
   if (!existsSync(busPath)) {
     console.error(`${PREFIX}no bus database at ${busPath}`)
     return 1
@@ -209,3 +209,6 @@ export function boardProjection(db: DatabaseSync, busPath: string): BoardProject
     },
   }
 }
+
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+  process.exitCode = runBoardCli()

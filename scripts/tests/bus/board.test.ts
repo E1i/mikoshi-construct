@@ -1,13 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Board, LaneParking, LeaseOrders, Watched } from '../../bus/board.js'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import process from 'node:process'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
-import { renderBoard } from '../../bus/board-page.js'
+import { boardProjection, printBoard, renderBoard, runBoardCli } from '../../bus/board-page.js'
 import { MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
 import { DROPPED_LANE, MERGE_DONE } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
@@ -39,7 +40,12 @@ interface BoardBench {
 
 const benches: { root: string, db: DatabaseSync }[] = []
 
+const roots: string[] = []
+
 afterEach(() => {
+  vi.unstubAllEnvs()
+  for (const root of roots.splice(0))
+    rmSync(root, { recursive: true, force: true })
   for (const bench of benches.splice(0)) {
     bench.db.close()
     rmSync(bench.root, { recursive: true, force: true })
@@ -83,31 +89,112 @@ function healthOf(board: Board, name: string): string | undefined {
   return board.health.find(component => component.name === name)?.health
 }
 
-function bodyRow(bench: BoardBench, cardId: number, columns: { lane: string, depends: number[], priority?: string | null }): void {
+interface BodyColumns {
+  lane: string
+  depends?: number[]
+  priority?: string | null
+  who?: string
+  state?: string | null
+  chain?: string
+}
+
+function bodyRow(bench: BoardBench, cardId: number, columns: BodyColumns): void {
   appendEvent(bench.db, { ts: bench.ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: {}, legacy: false })
   const eventId = (bench.db.prepare('SELECT id FROM events WHERE dedupe_key = ?').get(`${CARD_ADMITTED}:${cardId}`) as { id: number }).id
   bench.db.prepare('INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, lane, who, priority, depends) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(cardId, eventId, `do ${cardId}`, sha('a'), columns.lane, 'shift', columns.priority ?? null, JSON.stringify(columns.depends))
-  bench.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, NULL, NULL, ?)').run(cardId, eventId)
+    .run(cardId, eventId, `do ${cardId}`, sha('a'), columns.lane, columns.who ?? 'shift', columns.priority ?? null, JSON.stringify(columns.depends ?? []))
+  bench.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, NULL, ?)').run(cardId, columns.state ?? null, eventId)
+  if (columns.chain !== undefined)
+    bench.db.prepare('INSERT INTO chains (dir, card_id, parking, sha, pid, leader, boundary, state, event_id) VALUES (?, ?, ?, ?, 1, NULL, 0, ?, ?)').run(`/trees/${cardId}`, cardId, '/parking/lane-1', sha('c'), columns.chain, eventId)
+}
+
+function conflictingSources(): void {
+  const root = mkdtempSync(path.join(tmpdir(), 'bus-board-sources-'))
+  roots.push(root)
+  const parking = path.join(root, '.construct', 'parking', 'lane-1')
+  mkdirSync(parking, { recursive: true })
+  writeFileSync(path.join(parking, '999.md'), 'card: #999 other [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/999\ntouches: scripts/999/**\nwho: shift\n\ndo 999\n')
+  writeFileSync(path.join(root, 'ghosts.jsonl'), `${JSON.stringify({ event: 'path', task: '999', ts: '2026-10-18T00:00:00Z' })}\n`)
+  vi.stubEnv('HOME', root)
+  vi.stubEnv('CONSTRUCT_HANDOFF_DIR', root)
+}
+
+function seedProjections(bench: BoardBench): void {
+  bodyRow(bench, 860, { lane: 'lane-1' })
+  bodyRow(bench, 861, { lane: 'lane-1', priority: 'p0' })
+  bodyRow(bench, 862, { lane: 'lane-2', depends: [860] })
+  bodyRow(bench, 863, { lane: 'lane-2', state: 'stopped' })
+  appendEvent(bench.db, { ts: bench.ts(), type: CARD_STOPPED, actor: 'policy', cardId: 863, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:863`, payload: { reason: 'question' }, legacy: false })
 }
 
 describe('the factory board', () => {
   it('reads only the bus projections', () => {
     const bench = boardBench()
-    bodyRow(bench, 860, { lane: 'lane-1', depends: [] })
-    bodyRow(bench, 861, { lane: 'lane-1', depends: [], priority: 'p0' })
-    bodyRow(bench, 862, { lane: 'lane-2', depends: [860] })
-    bodyRow(bench, 863, { lane: 'lane-2', depends: [] })
-    bench.db.prepare('UPDATE cards SET state = ? WHERE card_id = ?').run('stopped', 863)
-    appendEvent(bench.db, { ts: bench.ts(), type: CARD_STOPPED, actor: 'policy', cardId: 863, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:863`, payload: { reason: 'question' }, legacy: false })
+    conflictingSources()
+    seedProjections(bench)
     const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} })
     expect(board.ready).toEqual([{ card: '861', lane: 'lane-1', reason: null }, { card: '860', lane: 'lane-1', reason: null }])
     expect(board.waiting).toEqual([{ card: '862', lane: 'lane-2', reason: 'depends #860 not merged' }])
     expect(board.blocked).toEqual([{ card: '863', lane: 'lane-2', reason: 'waits question' }])
-    const source = readFileSync(path.join(import.meta.dirname, '../../bus/board.ts'), 'utf8')
-    expect(source).not.toContain('ghosts.jsonl')
+
+    const busPath = bench.db.location()!
+    const projection = boardProjection(bench.db, busPath)
+    projection.project(bench.clock.now())
+    const projected = readFileSync(projection.file, 'utf8')
+    expect(projected).toContain('#861')
+    expect(projected).not.toContain('#999')
+
+    const printed: string[] = []
+    expect(printBoard(busPath, bench.clock.now(), text => printed.push(text))).toBe(0)
+    expect(printed.join('')).toContain('#862')
+    expect(printed.join('')).not.toContain('#999')
+
     bench.db.prepare('UPDATE cards SET state = ? WHERE card_id = ?').run('merged', 860)
     expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).waiting).toEqual([])
+  })
+
+  it('the board command exits 1 on a missing database and prints the page for a seeded one', () => {
+    const bench = boardBench()
+    seedProjections(bench)
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(runBoardCli(path.join(tmpdir(), 'bus-board-missing', 'bus.db'))).toBe(1)
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('no bus database'))
+    errors.mockRestore()
+    const written = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+    expect(runBoardCli(bench.db.location()!)).toBe(0)
+    expect(String(written.mock.calls[0]?.[0])).toContain('<!doctype html>')
+    written.mockRestore()
+  })
+
+  it('the projected queue applies each clause of its SQL', () => {
+    const cases: { name: string, columns: BodyColumns, queue: 'ready' | 'waiting' | 'blocked' | null }[] = [
+      { name: 'fallen', columns: { lane: 'lane-1', state: 'fallen' }, queue: 'ready' },
+      { name: 'queued', columns: { lane: 'lane-1', state: 'queued' }, queue: 'ready' },
+      { name: 'running', columns: { lane: 'lane-1', state: 'running' }, queue: null },
+      { name: 'merged', columns: { lane: 'lane-1', state: 'merged' }, queue: null },
+      { name: 'running chain', columns: { lane: 'lane-1', chain: 'running' }, queue: null },
+      { name: 'stopped chain', columns: { lane: 'lane-1', chain: 'stopped' }, queue: 'ready' },
+      { name: 'who window', columns: { lane: 'lane-1', who: 'window' }, queue: null },
+      { name: 'not a lane', columns: { lane: 'archive' }, queue: null },
+      { name: 'stopped without a stop event', columns: { lane: 'lane-1', state: 'stopped' }, queue: 'blocked' },
+    ]
+    const bench = boardBench()
+    cases.forEach((each, index) => bodyRow(bench, 900 + index, each.columns))
+    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} })
+    const found = (queue: 'ready' | 'waiting' | 'blocked'): string[] => board[queue].map(card => cases[Number(card.card) - 900]!.name)
+    expect(found('ready')).toEqual(cases.filter(each => each.queue === 'ready').map(each => each.name))
+    expect(found('blocked')).toEqual(['stopped without a stop event'])
+    expect(board.blocked[0]?.reason).toBe('waits fault')
+    expect(board.waiting).toEqual([])
+  })
+
+  it('the projected queue orders p0 first, then lane, then card', () => {
+    const bench = boardBench()
+    bodyRow(bench, 910, { lane: 'lane-2' })
+    bodyRow(bench, 911, { lane: 'lane-1' })
+    bodyRow(bench, 912, { lane: 'lane-2', priority: 'p0' })
+    bodyRow(bench, 913, { lane: 'lane-1' })
+    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).ready.map(card => card.card)).toEqual(['912', '911', '913', '910'])
   })
 
   it('the answer queue lists its leased task with holder, lease_gen and since, and its waiting tasks #849, #837, #847 in grant order', () => {
