@@ -7,11 +7,11 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { RESTART_MISSED } from '../../bus/inbox.js'
+import { RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
 import { completeTask, leaseNext, leaseWhileFree, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, recordStarted, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
 import { workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
@@ -627,27 +627,34 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(missed).toEqual([NEW_MAIN, NEW_MAIN])
   })
 
-  it('a restart onto a sha calls restarted with that sha, and a merge with no bus change does not', async () => {
-    const restarted: string[] = []
-    let busChanged = true
-    const supervisor = new BusSupervisor({
-      known: [],
-      wanted: () => [],
-      start: ok,
-      stop: async () => {},
-      processes: () => [],
-      mainSince: afterId => afterId < 1 ? [{ id: 1, sha: NEW_MAIN }] : afterId < 2 ? [{ id: 2, sha: OLD_MAIN }] : [],
-      code: { head: () => NEW_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => busChanged },
-      journal: () => {},
-      restarted: sha => restarted.push(sha),
-      now: () => 0,
-    }, 0)
+  it('a supervisor start writes supervisor.restarted with the head of its checkout, once per sha', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-started-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const head = 'c'.repeat(40)
+    const code: BusCode = { head: () => head, holds: () => true, pull: () => {}, busChangedSince: () => false }
+    const logged: string[] = []
+    const rows = (): { dedupe_key: string, payload: string }[] => db.prepare('SELECT dedupe_key, payload FROM events WHERE type = ?').all(RESTARTED) as { dedupe_key: string, payload: string }[]
 
-    await supervisor.step()
-    expect(restarted).toEqual([NEW_MAIN])
-    busChanged = false
-    await supervisor.step()
-    expect(restarted).toEqual([NEW_MAIN])
+    recordStarted(db, '2026-10-18T10:00:00.000Z', code, line => logged.push(line))
+    recordStarted(db, '2026-10-18T10:05:00.000Z', code, line => logged.push(line))
+
+    expect(rows().map(row => ({ key: row.dedupe_key, payload: JSON.parse(row.payload) as unknown }))).toEqual([{ key: `${RESTARTED}:${head}`, payload: { sha: head } }])
+    expect(logged).toEqual([])
+    db.close()
+  })
+
+  it('a supervisor start whose write throws logs a line and does not crash', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-started-fail-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    db.close()
+    const logged: string[] = []
+
+    expect(() => recordStarted(db, '2026-10-18T10:00:00.000Z', { head: () => NEW_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => false }, line => logged.push(line))).not.toThrow()
+
+    expect(logged).toHaveLength(1)
+    expect(logged[0]).toContain(`recording ${RESTARTED} failed`)
   })
 
   it('a missed record that throws once is retried on the next step and not lost', async () => {

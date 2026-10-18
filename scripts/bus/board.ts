@@ -381,7 +381,7 @@ function contractRow(db: DatabaseSync): ContractLink[] {
     writerLink(db),
     link('replay', replayed, replayed ? 'matches' : 'differs'),
     link(REJECTED, rejected === 0, `${rejected}`),
-    link(RESTART_MISSED, missed === 0, `${missed} restart${missed === 1 ? '' : 's'} after a merge under scripts/bus did not happen within the limit and no restart followed`),
+    link(RESTART_MISSED, missed === 0, `${missed} restart${missed === 1 ? '' : 's'} after a merge under scripts/bus did not happen within the limit and no supervisor start on newer code followed`),
   ]
 }
 

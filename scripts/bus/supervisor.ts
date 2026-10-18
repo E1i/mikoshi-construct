@@ -115,7 +115,6 @@ export interface SupervisorParts {
   code: BusCode
   journal: (entry: Record<string, unknown>) => void
   missed?: (sha: string, waitedMs: number) => void
-  restarted?: (sha: string) => void
   now: () => number
 }
 
@@ -215,7 +214,6 @@ export class BusSupervisor {
     const restarted = await this.restart(wanted, head)
     this.settle(head)
     this.outdatedBy = head
-    this.parts.restarted?.(sha)
     const notBack = restarted.down.length === 0 ? '' : `; not brought back: ${restarted.down.join(', ')}`
     return [...lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}${notBack}`, ...restarted.lines]
   }
@@ -266,6 +264,15 @@ export function recordRestartMissed(db: DatabaseSync, ts: string, sha: string, w
 
 export function recordRestarted(db: DatabaseSync, ts: string, sha: string): void {
   appendEvent(db, { ts, type: RESTARTED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTARTED}:${sha}`, payload: { sha }, legacy: false })
+}
+
+export function recordStarted(db: DatabaseSync, ts: string, code: BusCode, log: (line: string) => void): void {
+  try {
+    recordRestarted(db, ts, code.head())
+  }
+  catch (error) {
+    log(`${PREFIX}recording ${RESTARTED} failed: ${error instanceof Error ? error.message : String(error)}; the supervisor starts without it`)
+  }
 }
 
 export function baselineAdvance(last: MainAdvance | undefined, code: BusCode): number {
@@ -522,6 +529,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   }
   const code = gitCode(cwd)
+  recordStarted(db, new Date().toISOString(), code, line => console.log(line))
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
     wanted: () => wantedLaunches(busDir, reviewPreflight),
@@ -533,7 +541,6 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     code,
     journal,
     missed: (sha, waitedMs) => recordRestartMissed(db, new Date().toISOString(), sha, waitedMs),
-    restarted: sha => recordRestarted(db, new Date().toISOString(), sha),
     now: () => Date.now(),
   }, startingBaseline(db, code))
   const keeper = new WorkerKeeper({
