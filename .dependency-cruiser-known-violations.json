@@ -1,0 +1,100 @@
+[
+  {
+    "type": "dependency",
+    "from": "scripts/bus/ladder-starter.ts",
+    "to": "scripts/bus/launch-executor.ts",
+    "unresolvedTo": "./launch-executor.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-services-import-no-other-service"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/ladder-starter.ts",
+    "to": "scripts/bus/launch-starter.ts",
+    "unresolvedTo": "./launch-starter.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-services-import-no-other-service"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/launch-worker.ts",
+    "to": "scripts/bus/ladder-starter.ts",
+    "unresolvedTo": "./ladder-starter.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-services-import-no-other-service"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/merge-worker.ts",
+    "to": "scripts/bus/review-worker.ts",
+    "unresolvedTo": "./review-worker.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-services-import-no-other-service"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/restart-worker.ts",
+    "to": "scripts/bus/review-worker.ts",
+    "unresolvedTo": "./review-worker.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-services-import-no-other-service"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/review-executor.ts",
+    "to": "scripts/bus/close-executor.ts",
+    "unresolvedTo": "./close-executor.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-services-import-no-other-service"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/update-worker.ts",
+    "to": "scripts/bus/merge-worker.ts",
+    "unresolvedTo": "./merge-worker.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-services-import-no-other-service"
+    }
+  }
+]

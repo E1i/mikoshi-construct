@@ -12,7 +12,7 @@ import { ClaudeCodeCostSource, expectFor, formatContour as formatContourIn, form
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
 import { readSubagentRecords } from '../../src/commands/cost/turns.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
-import { HANDOFF_DIR_VARIABLE } from '../board/run.js'
+import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { roleExpects } from './role-sample.js'
 
 export type { ImplementSubsample, SampleRow, SampleSource, StepExpect, Subsample } from '../../src/commands/cost/index.js'

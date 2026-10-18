@@ -1,7 +1,7 @@
 import type { Contour } from '../../src/card/grammar.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { CompanionRow } from '../../src/commands/intake/check.js'
-import type { GhRunner } from '../board/gh.js'
+import type { GhRunner } from '../core/gh.js'
 import type { ChangedFile, Prediction } from '../morse/rules.js'
 import { COMPANION_TABLE, PACKAGE_MANIFEST, publishedRootsOf } from '../../src/commands/intake/check.js'
 import { changedFilesFrom } from '../morse/diff.js'

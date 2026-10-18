@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { VERIFICATION_WORDS } from '../../board/verification.js'
+import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { runClaude } from '../../shift/claude.js'
 import { runShift } from '../../shift/shift.js'
 import { admitCards } from './fixtures/admitted.js'

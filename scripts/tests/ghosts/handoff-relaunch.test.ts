@@ -2,9 +2,9 @@ import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readHandoff } from '../../board/handoff.js'
+import { readHandoff } from '../../ghosts/handoff.js'
 
-const BASIC = path.join(import.meta.dirname, 'fixtures/basic')
+const BASIC = path.join(import.meta.dirname, 'handoff-basic')
 const RELAUNCH = { repo: 'repo', status: 'status.md', out: '.', tasks: [{ id: 'alpha-2b', brief: 'brief-alpha.md', card: '#102 alpha-2 [implement/ghosts/S/ladder/owner] · depends — · blocks —' }] }
 const RELAUNCHED = { event: 'task', ts: '2026-09-28T10:00:00.000Z', task: 'alpha-2b', baseSha: 'base', session: null, install: 0, exit: 0, ladder: 'blocked', run: null, iterations: 1, class: null, contour: null, resultLine: 'present', total_cost_usd: null, num_turns: null, duration_ms: null, usage: null, review: null }
 

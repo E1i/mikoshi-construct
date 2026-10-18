@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readHandoff } from '../../board/handoff.js'
+import { readHandoff } from '../../ghosts/handoff.js'
 import { busWithCardStarted } from '../ghosts/card-started-bus.js'
 
 const CLOSE = { event: 'path', task: '891', path: 'ladder', pr: 790, verification: 'run', ts: '2026-10-12T11:00:00.000Z' }

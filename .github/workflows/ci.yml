@@ -83,6 +83,7 @@ jobs:
       - run: pnpm composition:check
       - run: pnpm model:check
       - run: pnpm privacy:check
+      - run: pnpm layers:check
       - run: pnpm exec tsx scripts/release/version-pr-guard.ts
 
   lint:

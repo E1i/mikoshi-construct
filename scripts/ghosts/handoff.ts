@@ -1,25 +1,26 @@
 import type { Card } from '../../src/card/grammar.js'
 import type { Signal } from '../../src/ui/signal.js'
-import type { JournalEntry } from '../ghosts/journal.js'
-import type { TasksFile } from '../ghosts/tasks.js'
-import type { LedgerStage } from '../ghosts/watch-ledger.js'
-import type { BudgetLine } from './eddies.js'
-import type { ModelMismatch } from './roles.js'
-import type { Window } from './window.js'
+import type { BudgetLine } from '../core/eddies.js'
+import type { MergeEvent } from '../core/merge-event.js'
+import type { ModelMismatch } from '../core/roles.js'
+import type { Window } from '../core/window.js'
+import type { JournalEntry } from './journal.js'
+import type { TasksFile } from './tasks.js'
+import type { LedgerStage } from './watch-ledger.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { defaultBusPath } from '../bus/db.js'
 import { readContourSchema, violations } from '../contract/contours.js'
-import { entryOf, startedEntryOf } from '../ghosts/entry.js'
-import { lookupMatrixRow } from '../ghosts/matrix.js'
-import { ghostRowState } from '../ghosts/status.js'
-import { cardStartedLines, readTasksFile } from '../ghosts/tasks.js'
-import { readLedgerStage } from '../ghosts/watch-ledger.js'
-import { readBudgetLines } from './eddies.js'
-import { handLadderRows } from './policy.js'
-import { readModelMismatches } from './roles.js'
-import { callsBrowserWitness } from './verification.js'
-import { readWindow } from './window.js'
+import { readBudgetLines } from '../core/eddies.js'
+import { handLadderRows } from '../core/policy.js'
+import { readModelMismatches } from '../core/roles.js'
+import { callsBrowserWitness } from '../core/verification.js'
+import { readWindow } from '../core/window.js'
+import { entryOf, startedEntryOf } from './entry.js'
+import { lookupMatrixRow } from './matrix.js'
+import { ghostRowState } from './status.js'
+import { cardStartedLines, readTasksFile } from './tasks.js'
+import { readLedgerStage } from './watch-ledger.js'
 
 export type TaskEvent = JournalEntry & { event: 'task', ts: string }
 
@@ -37,16 +38,6 @@ export interface ReviewEvent {
   brief?: Digest
   report?: Digest
   file?: Digest
-}
-
-export interface MergeEvent {
-  event: 'merge'
-  task: string
-  pr?: number
-  merged?: string
-  by: string
-  commit: string
-  ts: string
 }
 
 export interface PathEvent {
