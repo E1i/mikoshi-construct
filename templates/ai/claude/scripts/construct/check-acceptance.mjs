@@ -12,6 +12,7 @@ const IMPLEMENT_PREFIX = '/implement '
 const QUOTED_PATH = /^`([^`]+)`$/
 const QUOTED_COMMAND = /^`[\s\S]+`$/
 const WITNESS_MARKER = '— witness:'
+const LEADING_COMMAND_ALONE_ON_ITS_LINE = /^\s*`[^`]*`[ \t]*(?:\n|$)/
 const CONTRACT_PATHS_LINE = /^Contract paths:(.*)$/m
 const CONTRACT_CHECK_LINE = /^Contract check:(.*)$/m
 const IMPLEMENT_LINE = /^\/implement /m
@@ -107,6 +108,28 @@ function lastMarkerOutsideBackticks(item) {
   return marker
 }
 
+function markersOutsideBackticks(item) {
+  return [...item.matchAll(new RegExp(WITNESS_MARKER, 'g'))].filter(found => !insideBackticks(item, found.index)).length
+}
+
+function endsWithWitnessCommand(item) {
+  return item != null && readWitness(item).problem == null
+}
+
+function itemBoundaryProblem(item, previous) {
+  if (LEADING_COMMAND_ALONE_ON_ITS_LINE.test(item) && markersOutsideBackticks(item) !== 1 && endsWithWitnessCommand(previous))
+    return 'an item cut off its boundary, it begins with a command that continues the witness before it; give each witness command its own item'
+  if (markersOutsideBackticks(item) > 1)
+    return 'more than one witness marker in one item; end each item with ;'
+  return null
+}
+
+function boundaryProblems(items) {
+  return (items ?? [])
+    .map((item, index) => ({ criterion: normalizeItem(item), problem: itemBoundaryProblem(item, items[index - 1]) }))
+    .filter(item => item.problem != null)
+}
+
 export function readWitness(item) {
   const marker = lastMarkerOutsideBackticks(item)
   const quoted = marker === -1 ? '' : item.slice(marker + WITNESS_MARKER.length).trim()
@@ -183,7 +206,9 @@ export function buildArgs(text) {
   const agreed = agreedWitnesses(text)
   if (agreed == null)
     throw new InputError('the brief has no Acceptance: section')
-  const refused = agreed.filter(item => item.problem != null)
+  const cut = [...boundaryProblems(sectionItemsRaw(text, 'Acceptance')), ...boundaryProblems(sectionItemsRaw(text, 'Invariants'))]
+  const cutCriteria = new Set(cut.map(item => item.criterion))
+  const refused = [...cut, ...agreed.filter(item => item.problem != null && !cutCriteria.has(item.criterion))]
   if (refused.length > 0)
     throw new InputError(refused.map(item => `${item.problem}: ${item.criterion}`).join('\n'))
   const unparseable = agreed
