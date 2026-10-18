@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from './chain-process.js'
+import type { LadderSteps } from './ladder-starter.js'
+import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
 import type { StarterPorts } from './launch-starter.js'
 import type { Lease } from './lease.js'
@@ -7,7 +9,7 @@ import type { DetectionMode } from './node.js'
 import type { QueuedTask } from './queue.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -15,12 +17,17 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { sessionEnv } from '../ghosts/session.js'
+import { reviewOf } from '../ghosts/verdict.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
+import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../shift/ladder.js'
+import { GHOST_JOURNAL } from '../shift/places.js'
 import { renderPrompt } from '../shift/prompt.js'
-import { MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
+import { GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, defaultBusPath } from './db.js'
+import { journalPath } from './import.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
+import { LadderCardStarter } from './ladder-starter.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
@@ -41,13 +48,14 @@ const LAUNCH_LIMIT_MS = LAUNCH_LIMIT_MINUTES * 60_000
 const LEGACY_MERGE = 'merge'
 const LEGACY_PATH = 'path'
 
-export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, REDUCED] as const
+export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
 
 export type LaunchStep = LaunchOutcome
 
 export interface LaunchNodeParts {
   db: DatabaseSync
   starter: CardStarter
+  ladder?: CardStarter
   clock: () => Date
   session: string
   mode: DetectionMode
@@ -73,10 +81,12 @@ const RUNNING_STARTS = `
 function startedCardOf(payload: string): StartedCard | null {
   try {
     const parsed = JSON.parse(payload) as Record<string, unknown>
-    const { session, worktree, branch, base, pid, pgid } = parsed
+    const { session, worktree, branch, base, pid, pgid, contour, step } = parsed
     if (typeof session !== 'string' || typeof worktree !== 'string' || typeof branch !== 'string' || typeof base !== 'string' || typeof pid !== 'number' || typeof pgid !== 'number')
       return null
-    return { session, worktree, branch, base, pid, pgid }
+    if (contour !== 'cheap' && contour !== 'ladder')
+      return null
+    return { session, worktree, branch, base, pid, pgid, contour, ...(typeof step === 'string' ? { step } : {}) }
   }
   catch {
     return null
@@ -85,13 +95,13 @@ function startedCardOf(payload: string): StartedCard | null {
 
 export class LaunchNode extends Node<LaunchStep> {
   private readonly executor: LaunchExecutor
-  private readonly starter: CardStarter
+  private readonly starters: Partial<Record<Contour, CardStarter>>
   private readonly processes: ProcessTable
 
   constructor(launchParts: LaunchNodeParts) {
     super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env })
     this.executor = new LaunchExecutor(launchParts)
-    this.starter = launchParts.starter
+    this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
     this.subscribe(LAUNCH_ON, event => this.detectOn(event))
   }
@@ -106,7 +116,7 @@ export class LaunchNode extends Node<LaunchStep> {
         continue
       if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'live')
         continue
-      this.starter.stop(card)
+      this.starters[card.contour]?.stop(card)
       if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
         continue
       const detail = `time-limit: card #${start.card_id} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}`
@@ -141,6 +151,7 @@ export class LaunchNode extends Node<LaunchStep> {
 export interface LaunchRun {
   busPath: string
   starter: CardStarter
+  ladder?: CardStarter
   session: string
   pause: (ms: number) => Promise<unknown>
 }
@@ -148,7 +159,7 @@ export interface LaunchRun {
 export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<number> {
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, clock: () => new Date(), session: run.session, mode, env: process.env })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -175,6 +186,34 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
   }
 }
 
+export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv = process.env): LadderSteps {
+  const readIfThere = (file: string): string | null => existsSync(file) ? readFileSync(file, 'utf8') : null
+  return {
+    stepOf: task => ladderStep({ journal: readIfThere(path.join(handoffDir, GHOST_JOURNAL)), brief: readIfThere(briefPathOf(handoffDir, task.card)) }, task.card),
+    tree: (task) => {
+      const tree = taskWorktree(worktreeHome(env), String(task.card.id))
+      return existsSync(tree) ? tree : null
+    },
+    brief: task => briefPathOf(handoffDir, task.card),
+    tasksFile: (task) => {
+      const file = tasksFilePathOf(handoffDir, task.card)
+      const text = tasksFileText(task.card, { repo, handoffDir, brief: briefPathOf(handoffDir, task.card) })
+      if (existsSync(file)) {
+        if (readFileSync(file, 'utf8') !== text)
+          throw new Error(`${file} exists and holds another tasks file; nothing launched`)
+        return file
+      }
+      mkdirSync(handoffDir, { recursive: true })
+      writeFileSync(file, text)
+      return file
+    },
+    body: (task, step) => {
+      const brief = briefPathOf(handoffDir, task.card)
+      return step === 'brief' ? briefBody(task.card, brief) : reviewBody(task.card, brief, reviewOf(task.touches))
+    },
+  }
+}
+
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const env = process.env
@@ -185,8 +224,10 @@ async function main(): Promise<number> {
     treePr: treePrCommand(process.cwd()),
   }
   const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
-  const starter = new ShiftCardStarter(places, realStarterPorts(process.cwd(), env, header, randomUUID))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, session: randomUUID(), pause: sleep })
+  const ports = realStarterPorts(process.cwd(), env, header, randomUUID)
+  const starter = new ShiftCardStarter(places, ports)
+  const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env))
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

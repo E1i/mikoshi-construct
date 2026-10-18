@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
+import { GHOST_ROW } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
@@ -66,8 +67,11 @@ function launchBench(starter: CardStarter = new FakeStarter(), intake?: Paramete
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
-    admit: (cardId: number, lane: string, depends: number[] = []): void => {
-      appendEvent(bench.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour: 'cheap', depends, admission: admission(cardId) }, legacy: false })
+    admit: (cardId: number, lane: string, depends: number[] = [], contour = 'cheap'): void => {
+      appendEvent(bench.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour, depends, admission: admission(cardId) }, legacy: false })
+    },
+    ghostRow: (cardId: number, id: string, state: string): void => {
+      appendEvent(bench.db, { ts: ts(), type: GHOST_ROW, actor: 'worker:ladder:session-1', cardId, pr: null, head: null, dedupeKey: `${GHOST_ROW}:${id}:${state}`, payload: { id, state, row: `| ${id} | ${state} |` }, legacy: false })
     },
     started: (cardId: number): void => {
       appendEvent(bench.db, { ts: ts(), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: 'earlier' }, legacy: false })
@@ -216,7 +220,7 @@ describe('the launch queue', () => {
     expect(psPgid(card.pid)).toBe(card.pid)
     expect(card.pgid).toBe(card.pid)
     expect(psPgid(card.pid)).not.toBe(psPgid(process.pid))
-    expect(eventsOf(bench.db, CARD_STARTED)).toEqual([{ session: 'session-920', worktree: path.join(root, 'mc-920'), branch: 'feat/card-920', base: 'b'.repeat(40), pid: card.pid, pgid: card.pid }])
+    expect(eventsOf(bench.db, CARD_STARTED)).toEqual([{ session: 'session-920', worktree: path.join(root, 'mc-920'), branch: 'feat/card-920', base: 'b'.repeat(40), pid: card.pid, pgid: card.pid, contour: 'cheap' }])
     expect(taskState(bench.db, launch(920))).toMatchObject({ state: 'completed' })
     bench.tick()
     expect(bench.leaseLaunch()).toBeNull()
@@ -451,6 +455,49 @@ describe('the launch queue', () => {
     expect(starter.starts.map(card => card.cardId)).toEqual([960])
     expect(taskState(bench.db, launch(960))).toMatchObject({ state: 'completed' })
     expect(busLaunches(() => []).map(each => [each.script, ...each.args].join(' '))).toContain('bus:launch --on')
+    bench.close()
+  })
+})
+
+describe('launch candidates', () => {
+  it('a free ghost row queues the review step of the same card once', () => {
+    const starter = new FakeStarter()
+    const bench = launchBench(starter)
+    const executor = new LaunchExecutor({ db: bench.db, starter, ladder: starter, clock: bench.clock.now })
+    bench.admit(981, 'lane-a', [], 'ladder')
+    bench.tick()
+    expect(executor.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: launch(981) })
+
+    bench.ghostRow(981, 'ghost-1', 'writing')
+    bench.tick()
+    expect(launchTasks(bench.db)).toEqual([{ task_key: launch(981), state: 'completed' }])
+
+    bench.ghostRow(981, 'ghost-1', 'free')
+    bench.tick()
+    bench.tick()
+    const reviewKey = launchTasks(bench.db)[1]!.task_key as string
+    expect(reviewKey).toMatch(new RegExp(`^${launch(981)}:ghost-\\d+$`))
+    expect(launchTasks(bench.db)).toEqual([{ task_key: launch(981), state: 'completed' }, { task_key: reviewKey, state: 'queued' }])
+
+    expect(executor.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: reviewKey })
+    bench.tick()
+    bench.tick()
+    expect(launchTasks(bench.db)).toEqual([{ task_key: launch(981), state: 'completed' }, { task_key: reviewKey, state: 'completed' }])
+    expect(eventsOf(bench.db, CARD_STARTED).map(payload => payload.contour)).toEqual(['ladder', 'ladder'])
+    bench.close()
+  })
+
+  it('a free ghost row of a cheap card queues nothing', () => {
+    const starter = new FakeStarter()
+    const bench = launchBench(starter)
+    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now })
+    bench.admit(982, 'lane-a')
+    bench.tick()
+    executor.launch(bench.leaseLaunch()!)
+    bench.ghostRow(982, 'ghost-2', 'free')
+    bench.tick()
+
+    expect(launchTasks(bench.db)).toEqual([{ task_key: launch(982), state: 'completed' }])
     bench.close()
   })
 })
