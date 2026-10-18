@@ -20,6 +20,7 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { CARD_ADMITTED } from '../../bus/operator-work.js'
 import { queueTask } from '../../bus/queue.js'
 import { BusTick } from '../../bus/run.js'
+import { SHARD_ISSUED, SHARD_REVOKED, windowShardEnded } from '../../bus/shards.js'
 import { choose } from '../../shift/parking.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -286,6 +287,20 @@ describe('the factory board', () => {
     bench.watched = [reviewWorker(REVIEW_PID)]
     bench.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '850', reason: 'waits question' }] } }]
     expect(bench.tick().progress.cause).toBe('queue blocked: #850 waits question')
+  })
+
+  it('the board shows the active shard, its scope and the time left', () => {
+    const bench = boardBench()
+    const read = (at: string): Board => readBoard({ db: bench.db, now: new Date(at), watched: [], leaseOrders: {} })
+    expect(read('2026-10-18T09:00:00.000Z').shard).toBeNull()
+    expect(renderBoard(read('2026-10-18T09:00:00.000Z'))).toContain('shard: none')
+    appendEvent(bench.db, { ts: '2026-10-18T09:00:00.000Z', type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:w1`, payload: { id: 'w1', by: 'Eli', run: null, window: true, scope: 'merge+decisions', until: '2026-10-18T15:00:00.000Z' }, legacy: false })
+    const board = read('2026-10-18T10:30:00.000Z')
+    expect(board.shard).toEqual({ id: 'w1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-18T15:00:00.000Z', leftMinutes: 270 })
+    expect(renderBoard(board)).toContain('shard w1 · scope merge+decisions · by Eli · 270 min left, until 2026-10-18T15:00:00.000Z')
+    expect(read('2026-10-18T15:00:00.000Z').shard).toBeNull()
+    appendEvent(bench.db, windowShardEnded(SHARD_REVOKED, 'owner', 'w1', new Date('2026-10-18T11:00:00.000Z')))
+    expect(read('2026-10-18T11:00:00.000Z').shard).toBeNull()
   })
 
   it('the queue-blocked cause names the silent card in work, never a card queued behind it', () => {

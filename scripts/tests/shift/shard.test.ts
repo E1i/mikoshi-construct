@@ -6,7 +6,7 @@ import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { SHARD_ISSUED, SHARD_USED } from '../../bus/shards.js'
+import { activeWindowShards, expiredWindowShards, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from '../../bus/shards.js'
 import { runShard, USAGE } from '../../shift/shard.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
@@ -45,7 +45,7 @@ function ownerGh(pr: Pr = {}): { gh: (args: string[]) => string, calls: string[]
 }
 
 function shardDeps(world: World, io: ReturnType<typeof captured>, record: ShardDeps['record'] = () => {}): ShardDeps {
-  return { cwd: world.repo, handoffDir: world.handoff, append: (file, text) => writeFileSync(file, text, { flag: 'a' }), record, inForce: () => false, now: () => new Date('2026-10-08T09:00:00.000Z'), uuid: () => SHARD, by: () => '', out: line => io.out.push(line), err: line => io.err.push(line) }
+  return { cwd: world.repo, handoffDir: world.handoff, append: (file, text) => writeFileSync(file, text, { flag: 'a' }), record, activeWindows: () => [], inForce: () => false, now: () => new Date('2026-10-08T09:00:00.000Z'), uuid: () => SHARD, by: () => '', out: line => io.out.push(line), err: line => io.err.push(line) }
 }
 
 function issue(world: World): string {
@@ -114,6 +114,65 @@ describe('a shard delegates one owner merge to one shift run', () => {
     for (const argv of [[world.shift, '--under', 'D-82'], ['--pr', '626', '--under', '82'], ['--pr', '626', '--under']])
       expect(runShard(argv, deps)).toBe(1)
     expect(recorded).toHaveLength(1)
+  })
+
+  it('pnpm shard --window issues a window shard for six hours of merges by default, or the term and scope named', () => {
+    const world = initWorld('do 1')
+    const db = openBus(path.join(world.handoff, 'bus.db'))
+    const io = captured()
+    const deps = shardDeps(world, io, event => appendEvent(db, event))
+    expect(runShard(['--window', '--by', 'Eli'], deps)).toBe(0)
+    expect(runShard(['--window', '--hours', '2', '--scope', 'merge+decisions', '--by', 'Eli'], { ...deps, uuid: () => `${SHARD}-all` })).toBe(0)
+    expect(busEvents(db)).toEqual([
+      { type: SHARD_ISSUED, actor: 'owner', card_id: null, pr: null, payload: { id: SHARD, by: 'Eli', run: null, window: true, scope: 'merge', until: '2026-10-08T15:00:00.000Z' } },
+      { type: SHARD_ISSUED, actor: 'owner', card_id: null, pr: null, payload: { id: `${SHARD}-all`, by: 'Eli', run: null, window: true, scope: 'merge+decisions', until: '2026-10-08T11:00:00.000Z' } },
+    ])
+    expect(eventsOf(world, 'shard').at(0)).toEqual({ event: 'shard', id: SHARD, by: 'Eli', ts: '2026-10-08T09:00:00.000Z', window: true, scope: 'merge', until: '2026-10-08T15:00:00.000Z' })
+    expect(io.out[0]).toContain('for the window, scope merge, until 2026-10-08T15:00:00.000Z')
+    expect(activeWindowShards(db, new Date('2026-10-08T12:00:00.000Z')).map(shard => shard.id)).toEqual([SHARD])
+    db.close()
+  })
+
+  it('pnpm shard --window refuses a target, a term that is not a whole number of hours and an unknown scope, and writes nothing', () => {
+    const world = initWorld('do 1')
+    const io = captured()
+    const recorded: unknown[] = []
+    const deps = shardDeps(world, io, event => recorded.push(event))
+    for (const argv of [['--window', '--card', '726'], ['--window', world.shift], ['--window', '--hours', '0'], ['--window', '--hours', '1.5'], ['--window', '--scope', 'all'], ['--card', '726', '--hours', '2'], ['--stop', '--window'], ['--stop', '--hours', '2']])
+      expect(runShard([...argv, '--by', 'Eli'], deps)).toBe(1)
+    expect(recorded).toEqual([])
+    expect(eventsOf(world, 'shard')).toEqual([])
+    expect(io.err.every(line => line.includes(USAGE))).toBe(true)
+  })
+
+  it('stop revokes the shard and the revocation is a bus event', () => {
+    const world = initWorld('do 1')
+    const db = openBus(path.join(world.handoff, 'bus.db'))
+    const io = captured()
+    const deps = { ...shardDeps(world, io, event => appendEvent(db, event)), activeWindows: (now: Date) => activeWindowShards(db, now) }
+    expect(runShard(['--window', '--by', 'Eli'], deps)).toBe(0)
+    expect(runShard(['--stop'], deps)).toBe(0)
+    expect(busEvents(db).at(-1)).toEqual({ type: SHARD_REVOKED, actor: 'owner', card_id: null, pr: null, payload: { id: SHARD } })
+    expect(io.out.at(-1)).toBe(`[shard] shard ${SHARD} revoked`)
+    expect(activeWindowShards(db, new Date('2026-10-08T09:30:00.000Z'))).toEqual([])
+    expect(runShard(['--stop'], deps)).toBe(1)
+    expect(io.err.at(-1)).toBe('[shard] no active window shard to revoke')
+    db.close()
+  })
+
+  it('a window shard past its term expires as a bus event once, and is no longer active', () => {
+    const world = initWorld('do 1')
+    const db = openBus(path.join(world.handoff, 'bus.db'))
+    expect(runShard(['--window', '--hours', '1', '--by', 'Eli'], shardDeps(world, captured(), event => appendEvent(db, event)))).toBe(0)
+    expect(expiredWindowShards(db, new Date('2026-10-08T09:59:00.000Z'), 'worker:merge:1')).toEqual([])
+    const late = new Date('2026-10-08T10:00:00.000Z')
+    expect(activeWindowShards(db, late)).toEqual([])
+    const expired = expiredWindowShards(db, late, 'worker:merge:1')
+    expect(expired).toMatchObject([{ type: SHARD_EXPIRED, actor: 'worker:merge:1', payload: { id: SHARD } }])
+    for (const event of expired)
+      appendEvent(db, event)
+    expect(expiredWindowShards(db, late, 'worker:merge:1')).toEqual([])
+    db.close()
   })
 
   it('pnpm shift --slot writes shard.used to the bus with no bus refusal', async () => {
