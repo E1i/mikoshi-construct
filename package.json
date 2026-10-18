@@ -38,7 +38,6 @@
   },
   "scripts": {
     "approve": "tsx scripts/ghosts/approve.ts",
-    "bench:architect": "tsx scripts/bench/run.ts",
     "board": "tsx scripts/bus/board-page.ts",
     "build": "tsup",
     "bus:answer": "tsx scripts/bus/answer-worker.ts",
@@ -128,7 +127,6 @@
   },
   "devDependencies": {
     "@antfu/eslint-config": "^9.5.1",
-    "@anthropic-ai/sdk": "^0.127.0",
     "@changesets/changelog-github": "^1.0.0",
     "@changesets/cli": "^3.0.0",
     "@types/node": "^22.18.0",

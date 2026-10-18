@@ -1,8 +1,5 @@
 {
   "scripts/tests/attach/earlier-carriers.test.ts": 0,
-  "scripts/tests/bench/classify.test.ts": 0,
-  "scripts/tests/bench/transport.test.ts": 0,
-  "scripts/tests/bench/usable.test.ts": 0,
   "scripts/tests/board/board-entry.test.ts": 0,
   "scripts/tests/board/board-view.test.ts": 0.1,
   "scripts/tests/board/board.test.ts": 22.7,
