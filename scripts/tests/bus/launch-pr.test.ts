@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { BUS_DB_VARIABLE } from '../../bus/db.js'
 import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
+import { sessionEnv } from '../../ghosts/session.js'
+import { renderPrompt } from '../../shift/prompt.js'
 import { waitFor } from '../wait-for.js'
 
 const ARRIVAL_GUARD_MS = 25_000
@@ -90,8 +92,9 @@ function launchWorld(claudeExit: number, report = '') {
   const claude = script(path.join(root, 'claude-stub.sh'), `#!/bin/sh\ncat > /dev/null\nprintf 'green\\n' > x.txt\n${writeReport}exit ${claudeExit}\n`)
 
   const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'shift', 'tree-pr-cli.ts'))}`
+  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, [BUS_DB_VARIABLE]: path.join(root, 'bus.db') }
   const starter = new ShiftCardStarter(
-    { parking, launchDir, header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, [BUS_DB_VARIABLE]: path.join(root, 'bus.db') }, claude, treePr },
+    { parking, launchDir, claude, treePr },
     {
       read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
       cut: () => worktree,
@@ -104,6 +107,8 @@ function launchWorld(claudeExit: number, report = '') {
       pgidOf: psPgid,
       kill: killQuietly,
       uuid: () => `session-${CARD_ID}`,
+      envOf: id => sessionEnv(env, id),
+      prompt: (task, at) => renderPrompt('card {{card}} in {{worktree}}, report {{report}}\n\n', task, at),
     },
   )
   return { origin, worktree, ghArgs, start: () => starter.start({ cardId: CARD_ID, lane: 'lane-x' }) }
