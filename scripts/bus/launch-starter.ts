@@ -5,7 +5,7 @@ import { closeSync, mkdirSync, openSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { messageOf } from './executor.js'
+import { messageOf } from './errors.js'
 import { technical } from './launch-executor.js'
 
 export interface DetachedSpawn {

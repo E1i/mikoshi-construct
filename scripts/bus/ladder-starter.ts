@@ -3,7 +3,7 @@ import type { CardStart, CardStarter, LaunchedCard, LaunchTechnicalReason, Queue
 import type { StarterPlaces, StarterPorts } from './launch-starter.js'
 import path from 'node:path'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { messageOf } from './executor.js'
+import { messageOf } from './errors.js'
 import { technical } from './launch-executor.js'
 import { cardCommand, shellWord } from './launch-starter.js'
 

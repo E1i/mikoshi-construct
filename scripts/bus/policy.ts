@@ -5,6 +5,7 @@ import { ownerPathsOf } from '../../src/commands/intake/check.js'
 import { matchGlob } from '../shredder/glob.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
 
+export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const VERSION_BRANCH = /^changeset-release\//
 export const RELEASE_KIND = 'release'
 const KINDS_NO_SHARD_MERGES = ['security-invariants']
