@@ -30,6 +30,7 @@ import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
 
 const roots: string[] = []
+const WRITING_TRANSCRIPT = `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: 'planted.txt' } }] } })}\n`
 
 afterEach(() => {
   vi.useRealTimers()
@@ -644,6 +645,7 @@ describe('review worker', () => {
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
     const dir = path.join(roots.at(-1)!, 'reviews')
     const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+      writeFileSync(params.stdoutPath, WRITING_TRANSCRIPT)
       writeFileSync(path.join(dir, params.sessionId, 'planted.txt'), 'planted\n')
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
@@ -664,6 +666,7 @@ describe('review worker', () => {
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
     const dir = path.join(roots.at(-1)!, 'reviews')
     const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+      writeFileSync(params.stdoutPath, WRITING_TRANSCRIPT)
       writeFileSync(path.join(dir, params.sessionId, 'planted.txt'), 'planted\n')
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"changes","findings":["a finding"]}')
       return 0
@@ -707,6 +710,7 @@ describe('review worker', () => {
     const dir = path.join(roots.at(-1)!, 'reviews')
     const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
       const tree = path.join(dir, params.sessionId)
+      writeFileSync(params.stdoutPath, WRITING_TRANSCRIPT)
       writeFileSync(path.join(tree, 'a.txt'), 'b\n')
       gitRun(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-am', 'b')
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')

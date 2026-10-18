@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../bus/review-depth.js'
-import { claudeReviewer, GIT_TREE_TOOLS, HEAD_MOVED, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
+import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
 import { sessionArgv } from '../../ghosts/session.js'
 import { sha } from './github-fake.js'
 
@@ -170,6 +170,63 @@ describe('reviewer', () => {
     finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('a tree mutated outside the review session is a node fault, not a changes verdict', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-foreign-'))
+    try {
+      const transcript = (tool: object): string => `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', ...tool }] } })}\n`
+      const run = async (stdout: string): Promise<unknown> => {
+        let states = 0
+        const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: sha('a'), status: states++ === 0 ? [] : [' D a.txt', ' D b.txt'] }) })
+        return claudeReviewer(trees, async (params) => {
+          writeFileSync(params.stdoutPath, stdout)
+          writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+          return 0
+        })(lease, full).catch((error: unknown) => error)
+      }
+
+      const foreign = await run(`\nnot json\n${transcript({ name: 'Bash', input: { command: 'git status --short' } })}${transcript({ name: 'Bash', input: { command: 'pnpm exec vitest run 2>&1 | tail' } })}${transcript({ name: 'Read', input: { file_path: '/x' } })}`)
+      expect(foreign).toBeInstanceOf(ReviewFailed)
+      expect((foreign as Error).message).toMatch(/changed outside the review session .*node fault/)
+      expect((foreign as Error).message).toContain('a.txt, b.txt')
+
+      const own = await run(transcript({ name: 'Bash', input: { command: 'rm a.txt b.txt' } }))
+      expect(own).toMatchObject({ verdict: 'changes', tree: { mutated: ['a.txt', 'b.txt'] } })
+
+      const mutation = await run(transcript({ name: 'Bash', input: { command: 'construct mutate apply scripts/bus/reviewer.ts' } }))
+      expect(mutation).toMatchObject({ verdict: 'changes' })
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  const COMMANDS_THAT_MAY_WRITE: Record<string, boolean> = {
+    'pnpm exec vitest run 2>&1 | tail': false,
+    'ls >/dev/null': false,
+    'git diff main 2>/dev/null; echo done': false,
+    'cmd >>/dev/null 2>&1': false,
+    'node -p "[1].map(x => x)"': false,
+    'git log --format=%H -n1': false,
+    'git status --short': false,
+    'echo x > out.txt': true,
+    'echo x >>out.txt': true,
+    'cmd 2>err.log': true,
+    'cmd &> all.log': true,
+    'rm a.txt': true,
+    'construct mutate apply scripts/bus/reviewer.ts': true,
+    'npx mikoshi-construct mutate judge': true,
+    'pnpm composition:render': true,
+    'pnpm run model:render': true,
+    'pnpm lint:fix': true,
+    'pnpm exec eslint --fix scripts': true,
+    'node -e "require(\'fs\').rmSync(\'x\')"': true,
+    'perl -pi -e s/a/b/ f': true,
+  }
+
+  it.each(Object.entries(COMMANDS_THAT_MAY_WRITE))('a review command %s may write: %s', (command, writes) => {
+    expect(commandMayWrite(command)).toBe(writes)
   })
 
   it('a moved HEAD is a mutation even when the status is clean', () => {
