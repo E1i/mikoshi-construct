@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Board, LaneParking, LeaseOrders, Watched } from '../../bus/board.js'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -13,7 +13,7 @@ import { DROPPED_LANE, MERGE_DONE } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { importJournal } from '../../bus/import.js'
-import { CARD_STARTED } from '../../bus/inbox.js'
+import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { CARD_ADMITTED } from '../../bus/operator-work.js'
@@ -83,7 +83,33 @@ function healthOf(board: Board, name: string): string | undefined {
   return board.health.find(component => component.name === name)?.health
 }
 
+function bodyRow(bench: BoardBench, cardId: number, columns: { lane: string, depends: number[], priority?: string | null }): void {
+  appendEvent(bench.db, { ts: bench.ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: {}, legacy: false })
+  const eventId = (bench.db.prepare('SELECT id FROM events WHERE dedupe_key = ?').get(`${CARD_ADMITTED}:${cardId}`) as { id: number }).id
+  bench.db.prepare('INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, lane, who, priority, depends) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(cardId, eventId, `do ${cardId}`, sha('a'), columns.lane, 'shift', columns.priority ?? null, JSON.stringify(columns.depends))
+  bench.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, NULL, NULL, ?)').run(cardId, eventId)
+}
+
 describe('the factory board', () => {
+  it('reads only the bus projections', () => {
+    const bench = boardBench()
+    bodyRow(bench, 860, { lane: 'lane-1', depends: [] })
+    bodyRow(bench, 861, { lane: 'lane-1', depends: [], priority: 'p0' })
+    bodyRow(bench, 862, { lane: 'lane-2', depends: [860] })
+    bodyRow(bench, 863, { lane: 'lane-2', depends: [] })
+    bench.db.prepare('UPDATE cards SET state = ? WHERE card_id = ?').run('stopped', 863)
+    appendEvent(bench.db, { ts: bench.ts(), type: CARD_STOPPED, actor: 'policy', cardId: 863, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:863`, payload: { reason: 'question' }, legacy: false })
+    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} })
+    expect(board.ready).toEqual([{ card: '861', lane: 'lane-1', reason: null }, { card: '860', lane: 'lane-1', reason: null }])
+    expect(board.waiting).toEqual([{ card: '862', lane: 'lane-2', reason: 'depends #860 not merged' }])
+    expect(board.blocked).toEqual([{ card: '863', lane: 'lane-2', reason: 'waits question' }])
+    const source = readFileSync(path.join(import.meta.dirname, '../../bus/board.ts'), 'utf8')
+    expect(source).not.toContain('ghosts.jsonl')
+    bench.db.prepare('UPDATE cards SET state = ? WHERE card_id = ?').run('merged', 860)
+    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).waiting).toEqual([])
+  })
+
   it('the answer queue lists its leased task with holder, lease_gen and since, and its waiting tasks #849, #837, #847 in grant order', () => {
     const bench = boardBench()
     bench.tick()
