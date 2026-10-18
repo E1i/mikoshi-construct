@@ -6,7 +6,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const DESIGN_ORDER = ['instructions', 'tests-shrunk', 'src', 'docs-only', 'doubt', 'no-ground']
 const fixtures = path.dirname(fileURLToPath(import.meta.url))
 const rulesModule = path.resolve(fixtures, '../../../morse/rules.ts')
+const R1_SRC = 'src/manifest.ts'
 const files = JSON.parse(readFileSync(path.join(fixtures, 'rules/shrunk-over-src-pos/files.json'), 'utf8'))
+  .map(file => file.path.startsWith('src/') ? { ...file, path: R1_SRC } : file)
 
 function refuse(message) {
   process.stderr.write(`world.sh check-order: ${message}\n`)

@@ -1,7 +1,8 @@
 {
-  "verdict": "ladder",
-  "rule": "src",
+  "verdict": "cheap",
+  "rule": "no-ground",
   "why": [
-    "src/a.ts"
+    "src/a.ts",
+    "tests/a.test.ts"
   ]
 }
