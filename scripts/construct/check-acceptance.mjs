@@ -117,7 +117,7 @@ function endsWithWitnessCommand(item) {
 }
 
 function itemBoundaryProblem(item, previous) {
-  if (LEADING_COMMAND_ALONE_ON_ITS_LINE.test(item) && endsWithWitnessCommand(previous))
+  if (LEADING_COMMAND_ALONE_ON_ITS_LINE.test(item) && markersOutsideBackticks(item) !== 1 && endsWithWitnessCommand(previous))
     return 'an item cut off its boundary, it begins with a command that continues the witness before it; give each witness command its own item'
   if (markersOutsideBackticks(item) > 1)
     return 'more than one witness marker in one item; end each item with ;'

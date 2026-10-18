@@ -150,6 +150,10 @@ describe('the build of a brief\'s items', () => {
     expect(buildArgs('Acceptance: W1 — witness: `true`; `pnpm run quality` is green — witness: `true`.').acceptance).toHaveLength(2)
   })
 
+  it('builds a witnessed item that wraps right after its opening quoted command', () => {
+    expect(buildArgs('Acceptance: W1 — witness: `true`; `a.test`\n passes — witness: `true`.').acceptance).toEqual(['W1', '`a.test` passes'])
+  })
+
   it('reports a cut-off item and an unwitnessed item in one refusal', () => {
     const both = 'Acceptance: W1 — witness: `true`; `pnpm exec eslint`; W2 has none.'
     expect(() => buildArgs(both)).toThrow(/an item cut off its boundary[\s\S]*no witness: W2 has none/)
