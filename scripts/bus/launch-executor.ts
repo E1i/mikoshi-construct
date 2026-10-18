@@ -1,13 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { DiskReader } from './disk.js'
+import type { Contour } from './launch-candidates.js'
 import type { AfterFailure, Lease } from './lease.js'
 import { DISK_LOW, diskLowDetail, statfsReader } from './disk.js'
 import { CARD_STARTED, POLICY_DENIED } from './inbox.js'
-import { queuedLane } from './launch-candidates.js'
+import { launchableCard } from './launch-candidates.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 
-export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached' | typeof DISK_LOW
+export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached' | 'ladder_running' | 'ladder_fault' | typeof DISK_LOW
 
 export interface LaunchDenial {
   kind: 'technical'
@@ -15,16 +16,21 @@ export interface LaunchDenial {
   detail: string
 }
 
-export interface StartedCard {
+export interface LaunchedCard {
   session: string
   worktree: string
   branch: string
   base: string
   pid: number
   pgid: number
+  step?: string
 }
 
-export type CardStart = { kind: 'started', card: StartedCard } | { kind: 'refused', denial: LaunchDenial }
+export interface StartedCard extends LaunchedCard {
+  contour: Contour
+}
+
+export type CardStart = { kind: 'started', card: LaunchedCard } | { kind: 'refused', denial: LaunchDenial }
 
 export interface QueuedCard {
   cardId: number
@@ -44,6 +50,7 @@ export type LaunchOutcome
 export interface LaunchParts {
   db: DatabaseSync
   starter: CardStarter
+  ladder?: CardStarter
   clock: () => Date
   disk?: DiskReader
 }
@@ -70,20 +77,22 @@ export class LaunchExecutor {
   launch(lease: Lease): LaunchOutcome {
     try {
       assertHeld(this.parts.db, lease)
-      const lane = queuedLane(this.parts.db, lease.cardId)
-      if (lane === null)
+      const launchable = launchableCard(this.parts.db, lease.cardId)
+      if (launchable === null)
         return this.denied(lease, technical('card_not_queued', `card #${lease.cardId} is no longer queued`))
       const diskLow = diskLowDetail(this.disk)
       if (diskLow !== null)
         return this.denied(lease, technical(DISK_LOW, `card #${lease.cardId} is not started: ${diskLow}`))
-      const start = this.parts.starter.start({ cardId: lease.cardId, lane })
+      const starter = this.starterOf(launchable.contour)
+      const start = starter.start({ cardId: lease.cardId, lane: launchable.lane })
       if (start.kind === 'refused')
         return this.denied(lease, start.denial)
-      if (start.card.pgid !== start.card.pid) {
-        this.parts.starter.stop(start.card)
-        return this.denied(lease, technical('not_detached', `card #${lease.cardId} runs as pid ${start.card.pid} in process group ${start.card.pgid}, not as its own group leader; it was stopped`))
+      const card: StartedCard = { ...start.card, contour: launchable.contour }
+      if (card.pgid !== card.pid) {
+        starter.stop(card)
+        return this.denied(lease, technical('not_detached', `card #${lease.cardId} runs as pid ${card.pid} in process group ${card.pgid}, not as its own group leader; it was stopped`))
       }
-      return this.started(lease, start.card)
+      return this.started(lease, card, starter)
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -92,16 +101,22 @@ export class LaunchExecutor {
     }
   }
 
-  private started(lease: Lease, card: StartedCard): LaunchOutcome {
+  private starterOf(contour: Contour): CardStarter {
+    if (contour === 'cheap')
+      return this.parts.starter
+    return this.parts.ladder ?? { start: () => ({ kind: 'refused', denial: technical('start_failed', 'no ladder starter is wired into this launch node') }), stop: () => {} }
+  }
+
+  private started(lease: Lease, card: StartedCard, starter: CardStarter): LaunchOutcome {
     const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload: { ...card }, legacy: false }
     try {
       completeTask(this.parts.db, this.ts(), lease, [event], (db) => {
-        if (queuedLane(db, lease.cardId) === null)
+        if (launchableCard(db, lease.cardId) === null)
           throw new StaleLease(`task ${lease.taskKey} is no longer due`)
       })
     }
     catch (error) {
-      this.parts.starter.stop(card)
+      starter.stop(card)
       throw error
     }
     return { kind: 'started', taskKey: lease.taskKey, card }
