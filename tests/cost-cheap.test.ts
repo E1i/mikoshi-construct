@@ -285,7 +285,7 @@ describe('the window journal half of history', () => {
     ])
     const { tasks, notes } = readCheapTasks(root(), journal)
     expect(tasks.map(task => task.task)).toEqual(['71'])
-    expect(notes).toEqual([{ taskClass: 'implement/S', text: `2 cheap tasks closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and cost reads no bus` }])
+    expect(notes).toEqual([{ taskClass: 'implement/S', text: `2 cheap tasks closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and the bus holds no counted close of it` }])
   })
 
   it('a cheap task closed after the cutoff with no start line is named in the note by the class of its intake line', () => {
@@ -301,7 +301,7 @@ describe('the window journal half of history', () => {
     ])
     const { tasks, notes } = readCheapTasks(root(), journal)
     expect(tasks).toEqual([])
-    expect(notes).toEqual([{ taskClass: 'implement/S', text: `2 cheap tasks closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and cost reads no bus` }])
+    expect(notes).toEqual([{ taskClass: 'implement/S', text: `2 cheap tasks closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and the bus holds no counted close of it` }])
   })
 
   it('a cheap task closed after the cutoff takes its class from its start line before its intake line, and from its last intake line', () => {
@@ -316,8 +316,8 @@ describe('the window journal half of history', () => {
     ])
     const { notes } = readCheapTasks(root(), journal)
     expect(notes).toEqual([
-      { taskClass: 'implement/S', text: `1 cheap task closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and cost reads no bus` },
-      { taskClass: 'implement/L', text: `1 cheap task closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and cost reads no bus` },
+      { taskClass: 'implement/S', text: `1 cheap task closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and the bus holds no counted close of it` },
+      { taskClass: 'implement/L', text: `1 cheap task closed in ${journal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and the bus holds no counted close of it` },
     ])
   })
 
@@ -398,15 +398,16 @@ describe('cards from the bus projections', () => {
       busCard(6, { line: '#6 ladder-card [implement/eddies/M/ladder/owner] · depends — · blocks —' }),
     ])
     writeSession(projects, '/work/mc-5', 's5', [usageLine(40, 'r1')])
-    expect(readBusTasks(bus)).toEqual([{ task: '5', taskClass: 'implement/M', sessions: [{ id: 's5', project: projectKey('/work/mc-5') }], minutes: 6 }])
+    expect(readBusTasks(bus)).toEqual({ tasks: [{ task: '5', taskClass: 'implement/M', sessions: [{ id: 's5', project: projectKey('/work/mc-5') }], minutes: 6 }], leftOut: [] })
     const noJournal = path.join(dir, 'ghosts.jsonl')
     const { tasks } = readCheapTasks(path.join(dir, 'no-shifts'), noJournal, bus)
     expect(tasks).toEqual([{ task: '5', taskClass: 'implement/M', sessions: [{ id: 's5', project: projectKey('/work/mc-5') }], minutes: 6 }])
     expect(cheapRows(tasks, 'implement/M', projects)).toEqual([{ task: '5', tokens: 40, minutes: 6 }])
   })
 
-  it('leaves out a card the bus cannot stand behind', () => {
-    const bus = path.join(root(), 'bus.db')
+  it('leaves out a card the bus cannot stand behind, and names each cheap one it leaves out in its class', () => {
+    const dir = root()
+    const bus = path.join(dir, 'bus.db')
     writeBus(bus, [
       busCard(10),
       busCard(11, { legacy: 1 }),
@@ -418,7 +419,24 @@ describe('cards from the bus projections', () => {
       busCard(17, { close: {} }),
       busCard(18, { started: '2026-10-14T00:06:00.000Z', ended: '2026-10-14T00:00:00.000Z' }),
     ])
-    expect(readBusTasks(bus).map(task => task.task)).toEqual(['10'])
+    expect(readBusTasks(bus).tasks.map(task => task.task)).toEqual(['10'])
+    const { tasks, notes } = readCheapTasks(path.join(dir, 'no-shifts'), path.join(dir, 'ghosts.jsonl'), bus)
+    expect(tasks.map(task => task.task)).toEqual(['10'])
+    expect(notes).toEqual([
+      ...['13', '14', '15'].map(id => ({ taskClass: 'implement/M', text: `#${id} session or worktree not recorded on its card.started event in ${bus}` })),
+      ...['16', '17'].map(id => ({ taskClass: 'implement/M', text: `#${id} close without verification not counted` })),
+      { taskClass: 'implement/M', text: `#18 closed before it started in ${bus}, not counted` },
+    ])
+  })
+
+  it('does not name a card the bus leaves out when a journal counts it', () => {
+    const shifts = root()
+    const bus = path.join(shifts, 'bus.db')
+    writeBus(bus, [busCard(91, { close: {} })])
+    writeShift(shifts, 'a', [taskLine({ task: '91' })])
+    const { tasks, notes } = readCheapTasks(shifts, path.join(shifts, 'ghosts.jsonl'), bus)
+    expect(tasks.map(task => task.task)).toEqual(['91'])
+    expect(notes).toEqual([])
   })
 
   it('reads nothing from a bus path that does not exist', () => {
@@ -431,7 +449,7 @@ describe('cards from the bus projections', () => {
     const bus = path.join(shifts, 'bus.db')
     writeFileSync(bus, '')
     writeShift(shifts, 'a', [taskLine()])
-    expect(readBusTasks(bus)).toEqual([])
+    expect(readBusTasks(bus)).toEqual({ tasks: [], leftOut: [] })
     expect(readCheapTasks(shifts, path.join(shifts, 'ghosts.jsonl'), bus).tasks.map(task => task.task)).toEqual(['1'])
   })
 

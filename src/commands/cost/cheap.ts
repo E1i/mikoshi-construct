@@ -230,7 +230,7 @@ function readWindowTasks(windowJournal: string, notes: CheapNote[], onBus: Set<s
   for (const [taskClass, count] of unrecorded)
     notes.push({ taskClass, text: `sessions not recorded on ${count} closing line${count === 1 ? '' : 's'} in ${windowJournal}` })
   for (const [taskClass, count] of afterHistory)
-    notes.push({ taskClass, text: `${count} cheap task${count === 1 ? '' : 's'} closed in ${windowJournal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and cost reads no bus` })
+    notes.push({ taskClass, text: `${count} cheap task${count === 1 ? '' : 's'} closed in ${windowJournal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and the bus holds no counted close of it` })
   return tasks
 }
 
@@ -252,11 +252,13 @@ function withoutSharedSessions(tasks: CheapTask[], notes: CheapNote[]): CheapTas
 
 export function readCheapTasks(shiftRoot: string, windowJournal: string, busPath?: string): CheapSample {
   const notes: CheapNote[] = []
-  const bus = busPath === undefined ? [] : readBusTasks(busPath)
+  const { tasks: bus, leftOut } = busPath === undefined ? { tasks: [], leftOut: [] } : readBusTasks(busPath)
   const busIds = new Set(bus.map(task => task.task))
   const shift = readShiftTasks(shiftRoot).filter(task => !busIds.has(task.task))
   const shiftIds = new Set(shift.map(task => task.task))
   const window = readWindowTasks(windowJournal, notes, busIds).filter(task => !shiftIds.has(task.task))
+  const counted = new Set([...shift, ...window].map(task => task.task))
+  notes.push(...leftOut.filter(card => !counted.has(card.task)).map(({ taskClass, text }) => ({ taskClass, text })))
   return { tasks: withoutSharedSessions([...shift, ...bus, ...window], notes), notes }
 }
 

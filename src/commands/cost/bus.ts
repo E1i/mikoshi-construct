@@ -13,6 +13,17 @@ interface BusTask {
   minutes: number
 }
 
+interface BusLeftOut {
+  task: string
+  taskClass: string
+  text: string
+}
+
+interface BusSample {
+  tasks: BusTask[]
+  leftOut: BusLeftOut[]
+}
+
 interface ClosedCardRow {
   card_id: number
   card_line: string | null
@@ -42,39 +53,41 @@ function payloadOf(text: string): Record<string, unknown> {
   }
 }
 
-function taskOf(row: ClosedCardRow): BusTask | null {
+function taskOf(row: ClosedCardRow, busPath: string): BusTask | BusLeftOut | null {
   if (row.card_line === null)
     return null
   const parsed = parseCard(row.card_line)
   if (parsed.kind !== 'card' || parsed.card.contour !== CHEAP_CONTOUR)
     return null
+  const task = String(row.card_id)
+  const taskClass = `${parsed.card.kind}/${parsed.card.size}`
   if (typeof payloadOf(row.close_payload).verification !== 'string')
-    return null
+    return { task, taskClass, text: `#${task} close without verification not counted` }
   const { session, worktree } = payloadOf(row.start_payload)
   if (typeof session !== 'string' || session === '' || typeof worktree !== 'string')
-    return null
+    return { task, taskClass, text: `#${task} session or worktree not recorded on its card.started event in ${busPath}` }
   const minutes = (Date.parse(row.ended) - Date.parse(row.started)) / MS_PER_MINUTE
   if (!Number.isFinite(minutes) || minutes < 0)
-    return null
-  return {
-    task: String(row.card_id),
-    taskClass: `${parsed.card.kind}/${parsed.card.size}`,
-    sessions: [{ id: session, project: projectKey(worktree) }],
-    minutes,
-  }
+    return { task, taskClass, text: `#${task} closed before it started in ${busPath}, not counted` }
+  return { task, taskClass, sessions: [{ id: session, project: projectKey(worktree) }], minutes }
 }
 
-export function readBusTasks(busPath: string): BusTask[] {
+export function readBusTasks(busPath: string): BusSample {
+  const sample: BusSample = { tasks: [], leftOut: [] }
   if (!existsSync(busPath))
-    return []
+    return sample
   try {
-    return closedCards(busPath).flatMap((row) => {
-      const task = taskOf(row)
-      return task === null ? [] : [task]
-    })
+    for (const row of closedCards(busPath)) {
+      const read = taskOf(row, busPath)
+      if (read !== null && 'text' in read)
+        sample.leftOut.push(read)
+      else if (read !== null)
+        sample.tasks.push(read)
+    }
+    return sample
   }
   catch {
-    return []
+    return { tasks: [], leftOut: [] }
   }
 }
 
