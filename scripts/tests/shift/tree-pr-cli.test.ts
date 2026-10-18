@@ -38,12 +38,12 @@ const PATH_LINES: Record<string, { diff: ShiftedDiff, cardBody?: string, line: s
   },
   'scripts on a ladder card': {
     diff: { contour: 'ladder', files: [{ path: 'scripts/shift/x.ts', additions: 1, deletions: 0 }], patch: '' },
-    line: `Path: ladder · MORSE predicts ladder by rule doubt (scripts/shift/x.ts) · the card's contour and MORSE agree`,
+    line: `Path: ladder · MORSE predicts ladder by rule doubt (no test beside: scripts/shift/x.ts) · the card's contour and MORSE agree`,
   },
   'scripts on a cheap card that names its D-76 reason': {
     diff: { contour: 'cheap', files: [{ path: 'scripts/shift/x.ts', additions: 1, deletions: 0 }], patch: '' },
     cardBody: 'Do x.\nPath (D-76): cheap, one guard line the witness covers',
-    line: `Path: cheap · MORSE predicts ladder by rule doubt (scripts/shift/x.ts) · cheap holds by the card's D-76 reason: cheap, one guard line the witness covers`,
+    line: `Path: cheap · MORSE predicts ladder by rule doubt (no test beside: scripts/shift/x.ts) · cheap holds by the card's D-76 reason: cheap, one guard line the witness covers`,
   },
   'docs only on a cheap card': {
     diff: { contour: 'cheap', files: [{ path: 'docs/x.md', additions: 1, deletions: 0 }], patch: '' },

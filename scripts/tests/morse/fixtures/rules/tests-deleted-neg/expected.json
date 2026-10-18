@@ -1,6 +1,6 @@
 {
-  "verdict": "ladder",
-  "rule": "doubt",
+  "verdict": "cheap",
+  "rule": "no-ground",
   "why": [
     "scripts/tests/ghosts/status.test.ts"
   ]

@@ -2,6 +2,6 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "lib/api.specs.js"
+    "no test beside: lib/api.specs.js"
   ]
 }

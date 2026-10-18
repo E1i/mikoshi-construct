@@ -2,6 +2,6 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "lib/contest.d.ts"
+    "no test beside: lib/contest.d.ts"
   ]
 }

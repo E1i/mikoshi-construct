@@ -33,6 +33,10 @@
     "doubt": {
       "fact": 0,
       "noFact": 1
+    },
+    "no-ground": {
+      "fact": 0,
+      "noFact": 0
     }
   },
   "missed": [

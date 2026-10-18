@@ -2,6 +2,6 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "assets/logo.png"
+    "no test beside: assets/logo.png"
   ]
 }
