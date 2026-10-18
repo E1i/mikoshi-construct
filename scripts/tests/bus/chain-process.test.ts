@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { REAL_PROCESSES, stopChain } from '../../bus/chain-process.js'
+import { chainProcess, launchProcess, REAL_PROCESSES, stopChain } from '../../bus/chain-process.js'
 import { pidAlive } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 import { MAIN_1 } from './github-fake.js'
@@ -81,6 +81,34 @@ describe('stopping a running chain before its restart', () => {
     const { table, signalled } = fakeTable('node /x/tsx scripts/shift/shift.ts /shift/lane-1 --chain')
     expect(() => stopChain(chainRow('/shift/lane-1', null, 4242), table)).toThrow('recorded no process group')
     expect(signalled).toEqual([])
+  })
+
+  it('a chain is known by its launch record, not by the shift words', () => {
+    const known = fakeTable('node /opt/runner.js /shift/lane-1')
+    stopChain(chainRow('/shift/lane-1', 4242), known.table)
+    expect(known.signalled).toEqual([4242])
+    expect(chainProcess(chainRow('/shift/lane-1', 4242), known.table)).toBe('live')
+
+    const other = fakeTable('node /usr/local/bin/pnpm shift /shift/lane-2 --chain')
+    expect(() => stopChain(chainRow('/shift/lane-1', 4242), other.table)).toThrow('PID 4242 is not the chain in /shift/lane-1')
+    expect(other.signalled).toEqual([])
+  })
+
+  it('a chain leader is read only at its recorded pid, so a stranger naming the dir elsewhere is never signalled', () => {
+    const signalled: number[] = []
+    const table: ProcessTable = {
+      commandLine: pid => pid === 4242 ? null : 'node /opt/runner.js /shift/lane-1',
+      signalGroup: leader => signalled.push(leader),
+    }
+    expect(chainProcess(chainRow('/shift/lane-1', 4242), table)).toBe('gone')
+    stopChain(chainRow('/shift/lane-1', 4242), table)
+    expect(signalled).toEqual([])
+  })
+
+  it('a launched session is live only while its group leader names its session', () => {
+    expect(launchProcess({ pgid: 4242, session: 'session-1' }, fakeTable('sh -c claude shift -p --session-id session-1').table)).toBe('live')
+    expect(launchProcess({ pgid: 4242, session: 'session-1' }, fakeTable('/usr/bin/vim notes.md').table)).toBe('foreign')
+    expect(launchProcess({ pgid: 4242, session: 'session-1' }, fakeTable(null).table)).toBe('gone')
   })
 
   it('a failed signal is not swallowed', () => {

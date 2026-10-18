@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ProcessTable } from '../../bus/chain-process.js'
 import type { CardStart, CardStarter, LaunchOutcome, QueuedCard, StartedCard } from '../../bus/launch-executor.js'
 import type { StarterPlaces, StarterPorts } from '../../bus/launch-starter.js'
 import type { Lease } from '../../bus/lease.js'
@@ -17,7 +18,7 @@ import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
-import { LaunchNode } from '../../bus/launch-worker.js'
+import { LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { busLaunches } from '../../bus/workers.js'
 import { OPERATOR_CLAUDE } from '../../shift/relaunch.js'
@@ -346,6 +347,90 @@ describe('the launch queue', () => {
     expect(bench.launch(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'card_not_queued' }, next: 'withdrawn' })
     expect(starter.starts).toEqual([])
     bench.close()
+  })
+
+  describe('the time limit of a launched session', () => {
+    const LIMIT_MS = LAUNCH_LIMIT_MINUTES * 60_000
+
+    function runningCard(commandLine: string | null | ((starter: FakeStarter) => string | null), mode: 'shadow' | 'live' = 'live', answer?: (card: QueuedCard) => CardStart) {
+      const starter = new FakeStarter(answer)
+      const bench = launchBench(starter)
+      bench.admit(947, 'lane-a')
+      bench.tick()
+      const startedAt = bench.clock.now().getTime()
+      expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
+      bench.tick()
+      const processes: ProcessTable = { commandLine: () => typeof commandLine === 'function' ? commandLine(starter) : commandLine, signalGroup: () => {} }
+      const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode, env: {}, processes })
+      const advanceToLimitPlus = (offsetMs: number): void => bench.clock.advance(startedAt + LIMIT_MS + offsetMs - bench.clock.now().getTime())
+      return { bench, starter, node, advanceToLimitPlus }
+    }
+
+    const timeLimitStops = (bench: ReturnType<typeof launchBench>): unknown[] => eventsOf(bench.db, CARD_STOPPED).filter(payload => String(payload.detail).startsWith('time-limit'))
+
+    it('stops a live session at the limit once and records time-limit once', () => {
+      const { bench, starter, node, advanceToLimitPlus } = runningCard(starter => starter.stops.length > 0 ? null : 'sh -c claude -p --session-id s-947')
+      const stoppedBeforeStop: number[] = []
+      const stop = starter.stop.bind(starter)
+      starter.stop = (card) => {
+        stoppedBeforeStop.push(eventsOf(bench.db, CARD_STOPPED).length)
+        stop(card)
+      }
+
+      advanceToLimitPlus(-1)
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toEqual([])
+
+      advanceToLimitPlus(0)
+      expect(node.stopOverdue()).toEqual([947])
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops.map(card => card.pgid)).toEqual([4242])
+      expect(stoppedBeforeStop).toEqual([0])
+      expect(timeLimitStops(bench)).toHaveLength(1)
+      expect(timeLimitStops(bench)).toMatchObject([{ reason: 'fault' }])
+      bench.close()
+    })
+
+    it('stops nothing and records nothing in shadow mode', () => {
+      const { bench, starter, node, advanceToLimitPlus } = runningCard('sh -c claude -p --session-id s-947', 'shadow')
+
+      advanceToLimitPlus(0)
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toEqual([])
+      expect(timeLimitStops(bench)).toEqual([])
+      bench.close()
+    })
+
+    it('a kill that does not take records nothing and is tried again on the next pause', () => {
+      const { bench, starter, node, advanceToLimitPlus } = runningCard('sh -c claude -p --session-id s-947')
+
+      advanceToLimitPlus(0)
+      expect(node.stopOverdue()).toEqual([])
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toHaveLength(2)
+      expect(timeLimitStops(bench)).toEqual([])
+      bench.close()
+    })
+
+    it('skips a running card whose card.started payload is not a whole started card', () => {
+      const { bench, starter, node, advanceToLimitPlus } = runningCard('sh -c claude -p --session-id s-947', 'live', () => ({ kind: 'started', card: { session: 's-947' } as StartedCard }))
+
+      advanceToLimitPlus(0)
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toEqual([])
+      expect(timeLimitStops(bench)).toEqual([])
+      bench.close()
+    })
+
+    it('does not stop a session whose command line does not name its session id', () => {
+      const { bench, starter, node, advanceToLimitPlus } = runningCard('/usr/bin/vim notes.md')
+
+      advanceToLimitPlus(0)
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toEqual([])
+      expect(timeLimitStops(bench)).toEqual([])
+      bench.close()
+    })
   })
 
   it('the launch node takes the launch queue and ships switched off in bus:bg', async () => {

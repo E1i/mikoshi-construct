@@ -2,7 +2,7 @@ import type { ChainRow, ChainState } from './chain.js'
 import { execFileSync } from 'node:child_process'
 import process from 'node:process'
 
-export type ChainProcess = 'gone' | 'foreign' | 'chain'
+export type ChainProcess = 'gone' | 'foreign' | 'live'
 
 export interface ProcessTable {
   commandLine: (pid: number) => string | null
@@ -11,18 +11,25 @@ export interface ProcessTable {
 
 const LIVE_STATES: ReadonlySet<ChainState> = new Set(['running', 'waiting'])
 
-const SHIFT_WORDS = new Set(['shift', 'shift.ts'])
+export function namesTheRecord(commandLine: string, token: string): boolean {
+  return commandLine.split(/\s+/).includes(token)
+}
 
-export function namesTheChain(commandLine: string, dir: string): boolean {
-  const words = commandLine.split(/\s+/)
-  return words.includes(dir) && words.some(word => SHIFT_WORDS.has(word) || word.endsWith('/shift.ts'))
+function processOf(table: ProcessTable, pid: number, token: string): ChainProcess {
+  const commandLine = table.commandLine(pid)
+  if (commandLine === null)
+    return 'gone'
+  return namesTheRecord(commandLine, token) ? 'live' : 'foreign'
 }
 
 export function chainProcess(chain: ChainRow, table: ProcessTable): ChainProcess {
-  const commandLine = table.commandLine(chain.leader ?? chain.pid)
-  if (commandLine === null)
-    return 'gone'
-  return chain.leader !== null && namesTheChain(commandLine, chain.dir) ? 'chain' : 'foreign'
+  if (chain.leader === null)
+    return table.commandLine(chain.pid) === null ? 'gone' : 'foreign'
+  return processOf(table, chain.leader, chain.dir)
+}
+
+export function launchProcess(launch: { pgid: number, session: string }, table: ProcessTable): ChainProcess {
+  return processOf(table, launch.pgid, launch.session)
 }
 
 export function stopChain(chain: ChainRow, table: ProcessTable): void {
@@ -33,8 +40,8 @@ export function stopChain(chain: ChainRow, table: ProcessTable): void {
     return
   if (found === 'foreign') {
     throw new Error(chain.leader === null
-      ? `the chain in ${chain.dir} recorded no process group (it was not started by pnpm shift:bg): stop it by hand`
-      : `PID ${chain.leader} is not the chain in ${chain.dir} (its command line does not name shift and ${chain.dir}): nothing signalled`)
+      ? `the chain in ${chain.dir} recorded no process group: stop it by hand`
+      : `PID ${chain.leader} is not the chain in ${chain.dir} (its command line does not name ${chain.dir}): nothing signalled`)
   }
   table.signalGroup(chain.leader!)
 }
