@@ -320,10 +320,10 @@ describe('the window journal half of history', () => {
     ])
   })
 
-  it('construct cost opens no bus.db', () => {
+  it('construct cost opens bus.db', () => {
     const home = root()
     mkdirSync(path.join(home, '.construct', 'handoff'), { recursive: true })
-    writeFileSync(path.join(home, '.construct', 'bus.db'), '')
+    writeBus(path.join(home, '.construct', 'bus.db'), [])
     writeFileSync(path.join(home, '.construct', 'handoff', 'ghosts.jsonl'), `${JSON.stringify(windowStart('81'))}\n${JSON.stringify(windowClose('81', { ts: '2026-10-13T12:00:00.000Z' }))}\n`)
     const opened = path.join(home, 'opened.log')
     const recorder = path.join(home, 'record-opens.mjs')
@@ -349,6 +349,62 @@ describe('the window journal half of history', () => {
     expect({ status: run.status, report: JSON.parse(run.stdout).status }, run.stderr).toEqual({ status: 3, report: 'unsupported' })
     const paths = readFileSync(opened, 'utf8').split('\n')
     expect(paths).toContain(path.join(home, '.construct', 'handoff', 'ghosts.jsonl'))
-    expect(paths.filter(target => target.endsWith('bus.db'))).toEqual([])
+    expect(paths).toContain(bus)
+  })
+})
+
+interface BusCard {
+  id: number
+  line: string
+  pr: number | null
+  tasks: number
+  session: string
+  worktree: string
+  started: string
+  ended: string
+}
+
+function writeBus(file: string, cards: BusCard[]): void {
+  const { DatabaseSync } = process.getBuiltinModule('node:sqlite')
+  const db = new DatabaseSync(file)
+  db.exec(`
+    CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
+    CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER);
+    CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, state TEXT);
+    CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id INTEGER NOT NULL);
+    CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, card_line TEXT);
+  `)
+  for (const card of cards) {
+    db.prepare('INSERT INTO cards (card_id, state, pr) VALUES (?, ?, ?)').run(card.id, 'closed', card.pr)
+    db.prepare('INSERT INTO card_bodies (card_id, card_line) VALUES (?, ?)').run(card.id, card.line)
+    if (card.pr !== null)
+      db.prepare('INSERT INTO prs (pr, card_id, state) VALUES (?, ?, ?)').run(card.pr, card.id, 'merged')
+    for (let n = 0; n < card.tasks; n++)
+      db.prepare('INSERT INTO tasks (card_id) VALUES (?)').run(card.id)
+    db.prepare('INSERT INTO events (ts, type, card_id, payload) VALUES (?, ?, ?, ?)').run(card.started, 'card.started', card.id, JSON.stringify({ session: card.session, worktree: card.worktree, branch: 'b' }))
+    db.prepare('INSERT INTO events (ts, type, card_id, payload) VALUES (?, ?, ?, ?)').run(card.ended, 'card.closed', card.id, JSON.stringify({ verification: 'run' }))
+  }
+  db.close()
+}
+
+describe('cards from the bus projections', () => {
+  it('takes a closed cheap card, its pull request and its tasks from cards, prs and tasks, with no ghosts.jsonl present', () => {
+    const dir = root()
+    const bus = path.join(dir, 'bus.db')
+    const projects = path.join(dir, 'projects')
+    writeBus(bus, [
+      { id: 5, line: '#5 cost-bus [implement/eddies/M/cheap/owner] · depends — · blocks —', pr: 77, tasks: 2, session: 'sb', worktree: '/work/mc-5', started: '2026-10-14T00:00:00.000Z', ended: '2026-10-14T00:06:00.000Z' },
+      { id: 6, line: '#6 ladder-card [implement/eddies/M/ladder/owner] · depends — · blocks —', pr: 78, tasks: 1, session: 'sl', worktree: '/work/mc-6', started: '2026-10-14T00:00:00.000Z', ended: '2026-10-14T00:06:00.000Z' },
+    ])
+    writeSession(projects, '/work/mc-5', 'sb', [usageLine(40, 'r1')])
+    const noJournal = path.join(dir, 'ghosts.jsonl')
+    const { tasks } = readCheapTasks(path.join(dir, 'no-shifts'), noJournal, bus)
+    expect(tasks).toEqual([{ task: '5', taskClass: 'implement/M', sessions: [{ id: 'sb', project: projectKey('/work/mc-5') }], minutes: 6, pr: 77, tasks: 2 }])
+    expect(cheapRows(tasks, 'implement/M', projects)).toEqual([{ task: '5', tokens: 40, minutes: 6 }])
+  })
+
+  it('reads nothing from a bus path that does not exist', () => {
+    const dir = root()
+    expect(readCheapTasks(path.join(dir, 'no-shifts'), path.join(dir, 'ghosts.jsonl'), path.join(dir, 'bus.db')).tasks).toEqual([])
   })
 })
