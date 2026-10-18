@@ -1516,8 +1516,8 @@ being its card's kind and size, read from the bus database (`CONSTRUCT_BUS_DB`, 
 `~/.construct/bus.db`), from the shift journals under `~/.construct/shift` and from the window journal
 `~/.construct/handoff/ghosts.jsonl`. A cheap card the bus holds closed is read from its `cards` and `card_bodies` rows and its
 `card.started` / `card.closed` events: the session and tree its start recorded and its minutes from start to close;
-a journal or shift line for the same card is not read again. A `bus.db` without those tables, or a Node without
-`node:sqlite`, reads as no bus, and the journals are read as before. A window task counts once `task:close` has written
+a journal or shift line for the same card is not read again. A `bus.db` without those tables reads as no bus, and
+the journals are read as before. A window task counts once `task:close` has written
 its closing line with a pull request or a report and a verification word; that line records when it
 ended and each session it used with the project key its session file lies under, and the session is
 read under that key. A session recorded under two tasks counts for neither, and `ACTION` names each

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { JOURNAL_HISTORY_ENDS } from '../src/card/closed.js'
 import { readBusTasks } from '../src/commands/cost/bus.js'
 import { cheapForecast, cheapForecastOf, cheapRows, ClaudeCodeCostSource, costReport, printCost, projectKey, readCheapClasses, readCheapTasks, sessionTokens } from '../src/commands/cost/index.js'
@@ -433,21 +433,6 @@ describe('cards from the bus projections', () => {
     writeShift(shifts, 'a', [taskLine()])
     expect(readBusTasks(bus)).toEqual([])
     expect(readCheapTasks(shifts, path.join(shifts, 'ghosts.jsonl'), bus).tasks.map(task => task.task)).toEqual(['1'])
-  })
-
-  it('falls back to the journals on a Node that has no node:sqlite', () => {
-    const shifts = root()
-    const bus = path.join(shifts, 'bus.db')
-    writeBus(bus, [busCard(1)])
-    writeShift(shifts, 'a', [taskLine()])
-    const builtin = vi.spyOn(process, 'getBuiltinModule').mockReturnValue(undefined)
-    try {
-      expect(readBusTasks(bus)).toEqual([])
-      expect(readCheapTasks(shifts, path.join(shifts, 'ghosts.jsonl'), bus).tasks).toEqual([expect.objectContaining({ task: '1', taskClass: 'implement/S', minutes: 4 })])
-    }
-    finally {
-      builtin.mockRestore()
-    }
   })
 
   it('counts a card the bus holds once, from the bus, and does not name its journal close as not read', () => {

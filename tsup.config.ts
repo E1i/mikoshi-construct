@@ -5,5 +5,6 @@ export default defineConfig({
   format: ['esm'],
   target: 'node20',
   clean: true,
+  removeNodeProtocol: false,
   banner: { js: '#!/usr/bin/env node' },
 })

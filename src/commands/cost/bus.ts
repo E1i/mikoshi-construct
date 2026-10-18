@@ -1,12 +1,10 @@
-import type { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
-import process from 'node:process'
+import { DatabaseSync } from 'node:sqlite'
 import { parseCard } from '../../card/grammar.js'
 import { projectKey } from './claude-code.js'
 
 const CHEAP_CONTOUR = 'cheap'
 const MS_PER_MINUTE = 60_000
-const SQLITE_EXPERIMENTAL_WARNING = 'SQLite is an experimental feature'
 
 interface BusTask {
   task: string
@@ -33,23 +31,6 @@ JOIN events s ON s.id = (SELECT MAX(id) FROM events WHERE card_id = c.card_id AN
 WHERE s.ts IS NOT NULL AND k.ts IS NOT NULL
 ORDER BY c.card_id
 `
-
-function openReadOnly(file: string): DatabaseSync {
-  const sqlite = process.getBuiltinModule('node:sqlite') as { DatabaseSync: typeof DatabaseSync } | undefined
-  if (sqlite === undefined)
-    throw new Error('node:sqlite is not built into this Node')
-  const emitWarning = process.emitWarning
-  process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
-    if (!(typeof warning === 'string' ? warning : warning.message).startsWith(SQLITE_EXPERIMENTAL_WARNING))
-      Reflect.apply(emitWarning, process, [warning, ...rest])
-  }) as typeof process.emitWarning
-  try {
-    return new sqlite.DatabaseSync(file, { readOnly: true })
-  }
-  finally {
-    process.emitWarning = emitWarning
-  }
-}
 
 function payloadOf(text: string): Record<string, unknown> {
   try {
@@ -98,7 +79,7 @@ export function readBusTasks(busPath: string): BusTask[] {
 }
 
 function closedCards(busPath: string): ClosedCardRow[] {
-  const db = openReadOnly(busPath)
+  const db = new DatabaseSync(busPath, { readOnly: true })
   try {
     return db.prepare(CLOSED_CARDS).all() as unknown as ClosedCardRow[]
   }
