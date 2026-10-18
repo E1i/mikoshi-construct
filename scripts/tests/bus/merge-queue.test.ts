@@ -14,7 +14,7 @@ import { ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { firstLiveVerdict, MergeNode, NoLiveVerdict, runMergeWorker } from '../../bus/merge-worker.js'
 import { DRY_RUN_ACTOR } from '../../bus/review-worker.js'
-import { decisionsInForceAt, SHARD_ISSUED, SHARD_USED, unspentShard } from '../../bus/shards.js'
+import { activeWindowShards, decisionsInForceAt, SHARD_EXPIRED, SHARD_ISSUED, SHARD_USED, unspentShard } from '../../bus/shards.js'
 import { runShard } from '../../shift/shard.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench } from './merge-bench.js'
@@ -48,6 +48,7 @@ function shardDeps(bench: MergeBench, id: string, out: string[] = []): ShardDeps
     handoffDir: path.dirname(bench.busPath),
     append: (file, text) => writeFileSync(file, text, { flag: 'a' }),
     record: event => appendEvent(bench.db, event),
+    activeWindows: now => activeWindowShards(bench.db, now),
     inForce: (decisionId, now) => decisionsInForceAt(bench.db, now).some(decision => decision.decisionId === decisionId),
     now: bench.clock.now,
     uuid: () => id,
@@ -154,6 +155,73 @@ describe('the merge worker', () => {
     expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'auto' })
     expect(eventsOf(bench.db, SHARD_USED)).toEqual([])
     expect(unspentShard(bench.db, 826, null)?.id).toBe('shard-826')
+    bench.close()
+  })
+
+  it('a merge step writes shard.expired for a window shard past its term', async () => {
+    const bench = liveBench()
+    recorded(bench, 'worker:review:reviewer-1')
+    expect(runShard(['--window', '--hours', '1', '--by', 'Eli'], shardDeps(bench, 'shard-window'))).toBe(0)
+    bench.clock.advance(60 * 60_000)
+    bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'auto') })
+    bench.tick()
+    expect(await step(mergeNode(bench))).toMatchObject({ kind: 'merged', rule: 'auto' })
+    expect(eventsOf(bench.db, SHARD_EXPIRED)).toEqual([{ id: 'shard-window' }])
+    bench.close()
+  })
+
+  it('under a 6 h merge shard the bus merges an R1 owner PR', async () => {
+    const bench = liveBench()
+    recorded(bench, 'worker:review:reviewer-1')
+    ownerPulls(bench, [{ number: 726, files: ['scripts/bus/queue.ts'] }])
+    bench.tick()
+    const worker = mergeNode(bench)
+    expect(await step(worker)).toMatchObject({ kind: 'denied', denial: { kind: 'authority' }, next: 'withdrawn' })
+
+    expect(runShard(['--window', '--by', 'Eli'], shardDeps(bench, 'shard-window'))).toBe(0)
+    bench.clock.advance(5 * 60 * 60_000)
+    bench.tick()
+    expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'owner_under_shard' })
+    expect(eventsOf(bench.db, MERGE_DONE)).toEqual([{ commit: expect.any(String) as unknown, rule: 'owner_under_shard' }])
+    expect(eventsOf(bench.db, SHARD_USED)).toEqual([])
+    expect(activeWindowShards(bench.db, bench.clock.now()).map(shard => shard.id)).toEqual(['shard-window'])
+    bench.close()
+  })
+
+  it('after the shard term an R1 owner PR waits for the owner again', async () => {
+    const bench = liveBench()
+    recorded(bench, 'worker:review:reviewer-1')
+    expect(runShard(['--window', '--by', 'Eli'], shardDeps(bench, 'shard-window'))).toBe(0)
+    ownerPulls(bench, [{ number: 725, files: ['scripts/bus/queue.ts'] }])
+    bench.tick()
+    const worker = mergeNode(bench)
+    expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'owner_under_shard' })
+
+    bench.clock.advance(6 * 60 * 60_000)
+    ownerPulls(bench, [{ number: 726, files: ['scripts/bus/queue.ts'] }])
+    bench.tick()
+    expect(await step(worker)).toMatchObject({ kind: 'denied', denial: { kind: 'authority' }, next: 'withdrawn' })
+    expect(bench.gitHub.puts).toHaveLength(1)
+    expect(ownerInbox(bench.db).map(line => line.pr)).toEqual([726])
+    bench.close()
+  })
+
+  it('a version PR is refused under any shard', async () => {
+    const bench = liveBench()
+    recorded(bench, 'worker:review:reviewer-1')
+    expect(runShard(['--window', '--scope', 'merge+decisions', '--by', 'Eli'], shardDeps(bench, 'shard-window'))).toBe(0)
+    expect(runShard(['--pr', '726', '--by', 'Eli'], shardDeps(bench, 'shard-726'))).toBe(0)
+    ownerPulls(bench, [
+      { number: 725, files: ['scripts/bus/queue.ts'] },
+      { number: 726, ref: 'changeset-release/main', files: ['package.json'] },
+    ])
+    bench.tick()
+    const worker = mergeNode(bench)
+    expect([await step(worker), await step(worker)]).toMatchObject([
+      { kind: 'merged', rule: 'owner_under_shard' },
+      { kind: 'denied', denial: { kind: 'authority', rule: 'version_pr' } },
+    ])
+    expect(bench.gitHub.puts.map(put => put.endpoint)).toEqual(['repos/{owner}/{repo}/pulls/725/merge'])
     bench.close()
   })
 

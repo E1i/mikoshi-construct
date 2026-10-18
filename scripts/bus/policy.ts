@@ -35,6 +35,7 @@ export interface MergeFacts {
   ownerMergesText: string
   shardActive: boolean
   shardUnder: number | null
+  windowShard: string | null
   decisions: readonly InForceDecision[]
 }
 
@@ -74,6 +75,8 @@ function reserved(facts: MergeFacts): MergeVerdict | null {
     if (file !== undefined)
       return denied('security_invariants', `changes ${file} (${kind.kind}) and stays the owner's`)
   }
+  if (facts.windowShard !== null)
+    return null
   for (const row of ownerPathsOf(facts.ownerMergesText).byRisk) {
     const file = facts.files.find(candidate => reachesRisk(candidate, row.level) && meetsAny(candidate, row.globs))
     if (file !== undefined)
@@ -117,6 +120,8 @@ export function mergePolicy(facts: MergeFacts): MergeVerdict {
     return { kind: 'allowed', rule: 'owner_under_shard', detail: `${why}; an unspent shard under D-${under}, in force, covers its card or pull request` }
   if (facts.shardActive)
     return { kind: 'allowed', rule: 'owner_under_shard', detail: `${why}; an unspent shard of its run, card or pull request covers it` }
+  if (facts.windowShard !== null)
+    return { kind: 'allowed', rule: 'owner_under_shard', detail: `${why}; the window shard ${facts.windowShard} covers it until its term` }
   if (!facts.decisions.some(entry => entry.decisionId === OWNER_PR_MERGED_BY_THE_BUS))
     return denied('owner_without_shard', `${why}, no unspent shard of its run, card or pull request covers it and D-${OWNER_PR_MERGED_BY_THE_BUS} is not in force`)
   const r1 = facts.files.find(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION)

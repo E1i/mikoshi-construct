@@ -8,13 +8,14 @@ import type { TechnicalReason } from './record-verdict.js'
 import { Buffer } from 'node:buffer'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
 import { MERGE_DONE } from './card-automaton.js'
+import { appendEvent } from './db.js'
 import { isFullSha } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
 import { mergePolicy, underOwnerDecision, VERSION_BRANCH } from './policy.js'
 import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit } from './queue.js'
-import { decisionsInForceAt, SHARD_USED, shardActive, unspentShard } from './shards.js'
+import { activeWindowShards, decisionsInForceAt, expiredWindowShards, SHARD_USED, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
@@ -103,6 +104,8 @@ export class MergeExecutor {
   merge(lease: Lease): MergeOutcome {
     try {
       assertHeld(this.parts.db, lease)
+      for (const expired of expiredWindowShards(this.parts.db, this.parts.clock(), lease.actor))
+        appendEvent(this.parts.db, expired)
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
@@ -185,6 +188,7 @@ export class MergeExecutor {
           ownerMergesText: ownerMergesText(meter),
           shardActive: runShard || shard !== null,
           shardUnder: shard?.under ?? null,
+          windowShard: activeWindowShards(this.parts.db, this.parts.clock())[0]?.id ?? null,
           decisions,
         },
       }

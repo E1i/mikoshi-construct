@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Choice, ParkingReads } from '../shift/parking.js'
 import type { Queue } from './identifiers.js'
 import type { LeaseOrder } from './lease.js'
+import type { WindowShard } from './shards.js'
 import path from 'node:path'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
@@ -15,6 +16,7 @@ import { CARD_CLOSED, LEASED } from './queue.js'
 import { REJECTED } from './rejection.js'
 import { replayDifferences } from './report.js'
 import { roleReadings } from './role.js'
+import { activeWindowShards } from './shards.js'
 
 export const BOARD_FILE = 'board.html'
 export const FRESH_MS = RENEW_MS
@@ -104,6 +106,10 @@ export interface Progress {
   cause: string | null
 }
 
+export interface ActiveShard extends WindowShard {
+  leftMinutes: number
+}
+
 export interface Board {
   at: string
   ready: QueueCard[]
@@ -111,6 +117,7 @@ export interface Board {
   blocked: QueueCard[]
   lanes: LaneRow[]
   window: ComponentHealth
+  shard: ActiveShard | null
   execution: ExecutionRow[]
   health: ComponentHealth[]
   progress: Progress
@@ -385,6 +392,11 @@ function contractRow(db: DatabaseSync): ContractLink[] {
   ]
 }
 
+function activeShard(db: DatabaseSync, now: Date): ActiveShard | null {
+  const shard = activeWindowShards(db, now)[0]
+  return shard === undefined ? null : { ...shard, leftMinutes: Math.ceil((Date.parse(shard.until) - now.getTime()) / 60_000) }
+}
+
 function taskQueues(db: DatabaseSync, orders: LeaseOrders): TaskQueue[] {
   return QUEUES.map(queue => ({
     queue,
@@ -412,6 +424,7 @@ export function readBoard(sources: BoardSources): Board {
     ...queue,
     lanes: laneBlock(chains, parking),
     window: health.find(component => component.name === 'Operator')!,
+    shard: activeShard(db, now),
     execution: executionBlock(db, chains, down),
     health,
     progress: progressOf(db, now, health, queue.blocked, queue.ready),

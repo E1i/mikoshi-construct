@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { RunningProcess } from './bg.js'
-import type { Board, ComponentHealth, ContractLink, ExecutionRow, LaneRow, QueueCard, TaskQueue, Watched } from './board.js'
+import type { ActiveShard, Board, ComponentHealth, ContractLink, ExecutionRow, LaneRow, QueueCard, TaskQueue, Watched } from './board.js'
 import { existsSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -71,6 +71,12 @@ function healthTone(component: ComponentHealth): string {
   return component.health === 'alive' ? 'green' : component.health === 'down' ? 'red' : 'grey'
 }
 
+function shardLine(shard: ActiveShard | null): string {
+  if (shard === null)
+    return '<p data-empty>shard: none, every owner merge waits for the owner</p>'
+  return `<p data-tone="green">shard ${escaped(shard.id)} · scope ${escaped(shard.scope)} · by ${escaped(shard.by)} · ${shard.leftMinutes} min left, until ${escaped(shard.until)}</p>`
+}
+
 function laneSection(board: Board): string {
   const rows = board.lanes.map((lane: LaneRow) => lane.card === null
     ? [cell(lane.lane), cell('free'), cell('')]
@@ -80,6 +86,7 @@ function laneSection(board: Board): string {
     '<section><h2>Lanes</h2>',
     table(['lane', 'card', 'since'], rows, 'no lane'),
     `<p>window (Operator): <span data-tone="${healthTone(window)}">${escaped(window.health)}</span> · ${escaped(window.why)} · last sign ${escaped(ago(board.at, window.lastSign))}</p>`,
+    shardLine(board.shard),
     '</section>',
   ].join('')
 }

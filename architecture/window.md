@@ -189,7 +189,7 @@ What stays the same from one session to the next lives here, under version contr
   pnpm, so the window runs every gate itself.
 - denials: forms the window's `dontAsk` mode refuses, each with the route that is allowed instead —
   `pnpm ghosts:hash` (`pnpm morse:approve`), `pnpm ghosts:launch` and `pnpm shift` (`pnpm shift:bg`),
-  `pnpm worktrees:sweep`, an Edit under `.claude/**`, AskUserQuestion (ask as text in the window), `git -C` on the main
+  an Edit under `.claude/**`, AskUserQuestion (ask as text in the window), `git -C` on the main
   checkout (git in the working directory), `sed -i` and `perl -pi` (Edit or Write), `python3`, `node -e` (Read),
   `cat` and `cp` over `~/.construct` (Read), a shell for-loop, `kill`, `gh api` with a query string (`gh pr` /
   `gh issue list`), `sqlite3` with a `~` path (the full path and `SELECT` only), `grep` with a pipe or a `\|`
@@ -320,11 +320,8 @@ of its pull request description is the card.
 A cheap-path task starts only with `pnpm task:start <branch> --card "<card>"`, which checks the card, cuts
 `mc-<id>` from `origin/main` under the worktree home, `~/.construct/worktrees` (`CONSTRUCT_WORKTREE_HOME` moves it), not
 beside the repository, and writes the journal start line carrying the card; a task with no start line was not
-started on the cheap path, whatever its branch is called. `pnpm worktrees:sweep` prints the trees it would remove — a
-merged or closed card's, clean and with every commit pushed, a squash-merged branch at its pull request's head counting
-as pushed — and every other tree with the reason it is kept, a closed card whose pull request is still open among them;
-`--apply` removes those trees and their branches, and a shift runs it for its own card's tree alone once it records
-that card's merge. Before it cuts anything, `task:start` passes the card through the intake
+started on the cheap path, whatever its branch is called. The bus removes a closed card's tree
+(`removeCardTree` in `scripts/bus/close-executor.ts`). Before it cuts anything, `task:start` passes the card through the intake
 door: it takes a card only when the bus holds a `card.admitted` event for it, written through `pnpm intake` when it
 sliced and confirmed the card, by `pnpm intake --admit <parking>/<id>.md` for a card parked before the door, or by a
 move into a lane; it reads no journal line, and a card with no such event, or one that changed since it, is refused

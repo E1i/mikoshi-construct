@@ -12,7 +12,7 @@ import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } fro
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox, ownerQuestionAnswered } from './inbox.js'
 import { CARD_ADMITTED, launchCandidates } from './launch-candidates.js'
 import { roundLimitDecisionOf } from './round-limit-decision.js'
-import { decisionsInForceAt, unspentShardsOf } from './shards.js'
+import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
@@ -282,14 +282,20 @@ const STOPPED_ON_NO_CARD_TREE = `
   ORDER BY tasks.task_key
 `
 
-const WITHDRAWN_MERGES_A_LATER_SHARD_NAMES = `
+function withdrawnMergesALaterShardOf(shards: string): string {
+  return `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
   JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.queue = 'merge' AND tasks.state = '${WITHDRAWN}' AND prs.state = 'open' AND prs.head = tasks.head
     AND NOT EXISTS (SELECT 1 FROM events AS requeued WHERE requeued.type = '${TASK_REQUEUED}' AND json_extract(requeued.payload, '$.task_key') = tasks.task_key)
-    AND EXISTS (SELECT 1 FROM (${unspentShardsOf('tasks.card_id', 'tasks.pr')}) AS shard WHERE shard.event_id > tasks.event_id)
+    AND EXISTS (SELECT 1 FROM (${shards}) AS shard WHERE shard.event_id > tasks.event_id)
   ORDER BY tasks.task_key
 `
+}
+
+const WITHDRAWN_MERGES_A_LATER_SHARD_NAMES = withdrawnMergesALaterShardOf(unspentShardsOf('tasks.card_id', 'tasks.pr'))
+
+const WITHDRAWN_MERGES_A_LATER_WINDOW_SHARD_COVERS = withdrawnMergesALaterShardOf(WINDOW_SHARDS_LIVE_AT)
 
 const ANSWERS_WHOSE_STOP_NO_LONGER_HOLDS = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.failures, stop.id AS failure,
@@ -541,8 +547,8 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const query of [STOPPED_ON_NO_CARD_TREE, WITHDRAWN_MERGES_A_LATER_SHARD_NAMES]) {
-    for (const row of db.prepare(query).all() as unknown as StoppedRow[]) {
+  for (const [query, ...params] of [[STOPPED_ON_NO_CARD_TREE], [WITHDRAWN_MERGES_A_LATER_SHARD_NAMES], [WITHDRAWN_MERGES_A_LATER_WINDOW_SHARD_COVERS, ts]]) {
+    for (const row of db.prepare(query!).all(...params) as unknown as StoppedRow[]) {
       if (requeueTask(db, ts, row))
         derived.queued.push(row.task_key)
     }
