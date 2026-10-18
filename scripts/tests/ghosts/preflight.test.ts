@@ -222,6 +222,28 @@ describe('the preflight before ghosts:hash prints a hash', () => {
     expect(refusal(run)).toContain('preflight P4: scripts/ghosts/preflight.ts has no row in architecture/ghosts-files.md: add its row with the kind ghosts or plain')
   })
 
+  it('preflight P4 counts a new scripts/ghosts file the brief declares in creates with its kind as classified', () => {
+    const { repo } = world()
+
+    expect(hashIn(repo, briefText({ design: 'Add scripts/ghosts/isolation.ts (creates, ghosts) and its row.' })).line).not.toBeNull()
+    expect(hashIn(repo, briefText({ design: 'Add `scripts/ghosts/isolation.ts` (creates, plain) and its row.' })).line).not.toBeNull()
+  })
+
+  it('still refuses a new scripts/ghosts file declared in creates with no kind', () => {
+    const { repo } = world()
+    const run = hashIn(repo, briefText({ design: 'Add scripts/ghosts/isolation.ts (creates) and its row.' }))
+
+    expect(refusal(run)).toContain('preflight P4: scripts/ghosts/isolation.ts has no row in architecture/ghosts-files.md')
+  })
+
+  it('still refuses a sketch that adds a scripts/ghosts file the Design declares in creates but carries no row for', () => {
+    const { repo } = world()
+    const sha = sketchOn(repo, { 'added.txt': 'x\n', 'scripts/ghosts/fresh.ts': 'export {}\n' })
+    const run = hashIn(repo, briefText({ sketch: `Sketch: sketch/t @ ${sha}`, design: 'Add scripts/ghosts/fresh.ts (creates, plain).' }))
+
+    expect(refusal(run)).toContain('preflight P4: scripts/ghosts/fresh.ts has no row in architecture/ghosts-files.md')
+  })
+
   it('accepts a named file under scripts/ghosts that ghosts-files.md already classifies plain', () => {
     const { repo } = world()
 
