@@ -12,7 +12,19 @@ import productBuild from '../tsup.config.js'
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const BUS_SOURCE = 'scripts/bus/'
 const BUS_STORE_MODULE = 'node:sqlite'
+const BUS_STORE_READER = 'src/commands/cost/bus.ts'
+const SPAWN_MODULE = 'node:child_process'
+const SPAWN_CARRIERS = ['src/detect/git.ts', 'src/detect/package-manager.ts']
+const STATIC_IMPORT = 'import-statement'
+const BUS_STORE_OPEN = /DatabaseSync\(([^)]*)\)/g
+const READ_ONLY_OPEN = /readOnly:\s*true/
+const BUILTIN_REACH = /getBuiltinModule\(/
+const BUS_WRITE_STATEMENT = /\b(?:INSERT\s+INTO|CREATE\s+(?:TABLE|INDEX|TRIGGER|VIEW)|DELETE\s+FROM|DROP\s+TABLE|ALTER\s+TABLE|UPDATE\s+\w+\s+SET)\b/
+const EXPERIMENTAL_WARNING = 'ExperimentalWarning'
 const BUILD_TIMEOUT_MS = 120_000
+
+interface BundleImport { path: string, kind: string, external?: boolean }
+type BundleInputs = Record<string, { imports: BundleImport[] }>
 
 const roots: string[] = []
 
@@ -35,21 +47,52 @@ function scratchBesideDependencies(): string {
   return outDir
 }
 
-interface ProductBundle { cli: string, inputs: string[] }
+interface ProductBundle { cli: string, inputs: BundleInputs }
 
 async function buildProduct(outDir: string): Promise<ProductBundle> {
   await build({ ...(productBuild as Options), outDir, metafile: true, silent: true, config: false })
-  const metafile = JSON.parse(readFileSync(path.join(outDir, 'metafile-esm.json'), 'utf8')) as { inputs: Record<string, unknown> }
-  return { cli: path.join(outDir, 'cli.js'), inputs: Object.keys(metafile.inputs) }
+  const metafile = JSON.parse(readFileSync(path.join(outDir, 'metafile-esm.json'), 'utf8')) as { inputs: BundleInputs }
+  return { cli: path.join(outDir, 'cli.js'), inputs: metafile.inputs }
 }
 
-describe('the delivery boundary between the product and the factory', () => {
-  it('the product build carries no bus code and the cli runs without the bus writer', async () => {
+function boundaryCrossings(inputs: BundleInputs): string[] {
+  return Object.entries(inputs).flatMap(([input, { imports }]) => [
+    ...(input.startsWith(BUS_SOURCE) ? [`${input}: bus code in the product`] : []),
+    ...imports.filter(found => found.kind !== STATIC_IMPORT).map(found => `${input}: ${found.kind} of ${found.path}`),
+    ...imports.filter(found => found.path === BUS_STORE_MODULE && input !== BUS_STORE_READER).map(() => `${input}: ${BUS_STORE_MODULE} outside ${BUS_STORE_READER}`),
+    ...imports.filter(found => found.path === SPAWN_MODULE && !SPAWN_CARRIERS.includes(input)).map(() => `${input}: ${SPAWN_MODULE} outside the spawn carriers`),
+  ])
+}
+
+describe('the product boundary of dist/cli.js', () => {
+  it('names a dynamic import(), a require, child_process outside its carriers and node:sqlite outside its reader', () => {
+    expect(boundaryCrossings({
+      'src/a.ts': { imports: [{ path: './b.js', kind: 'dynamic-import' }, { path: 'node:fs', kind: 'require-call', external: true }] },
+      'src/b.ts': { imports: [{ path: SPAWN_MODULE, kind: STATIC_IMPORT, external: true }, { path: BUS_STORE_MODULE, kind: STATIC_IMPORT, external: true }] },
+      [BUS_STORE_READER]: { imports: [{ path: BUS_STORE_MODULE, kind: STATIC_IMPORT, external: true }] },
+      [SPAWN_CARRIERS[0]]: { imports: [{ path: SPAWN_MODULE, kind: STATIC_IMPORT, external: true }] },
+      'scripts/bus/db.ts': { imports: [] },
+    })).toEqual([
+      'src/a.ts: dynamic-import of ./b.js',
+      'src/a.ts: require-call of node:fs',
+      `src/b.ts: ${BUS_STORE_MODULE} outside ${BUS_STORE_READER}`,
+      `src/b.ts: ${SPAWN_MODULE} outside the spawn carriers`,
+      'scripts/bus/db.ts: bus code in the product',
+    ])
+  })
+
+  it('the product build imports node:sqlite statically from its reader alone, opens it read-only, and the cli runs through its own shebang without the bus writer or an ExperimentalWarning', async () => {
     const root = scratch()
     const bundle = await buildProduct(scratchBesideDependencies())
-    expect(bundle.inputs.some(input => input.startsWith('src/'))).toBe(true)
-    expect(bundle.inputs.filter(input => input.startsWith(BUS_SOURCE))).toEqual([])
-    expect(readFileSync(bundle.cli, 'utf8')).not.toContain(BUS_STORE_MODULE)
+    expect(Object.keys(bundle.inputs).some(input => input.startsWith('src/'))).toBe(true)
+    expect(boundaryCrossings(bundle.inputs)).toEqual([])
+    expect(bundle.inputs[BUS_STORE_READER]?.imports).toContainEqual(expect.objectContaining({ path: BUS_STORE_MODULE, kind: STATIC_IMPORT }))
+    const cli = readFileSync(bundle.cli, 'utf8')
+    expect(cli).not.toMatch(BUILTIN_REACH)
+    const opens = [...cli.matchAll(BUS_STORE_OPEN)].map(([, options]) => options)
+    expect(opens).toHaveLength(1)
+    expect(opens[0]).toMatch(READ_ONLY_OPEN)
+    expect(cli).not.toMatch(BUS_WRITE_STATEMENT)
 
     const repo = path.join(root, 'repo')
     mkdirSync(path.join(repo, 'src'), { recursive: true })
@@ -60,8 +103,9 @@ describe('the delivery boundary between the product and the factory', () => {
     writeFileSync(taken, '12\n')
     const parking = path.join(root, 'parking')
     const journal = path.join(root, 'handoff', 'ghosts.jsonl')
-    const run = spawnSync(process.execPath, [bundle.cli, 'intake', '--draft', draft, '--taken', taken, '--parking', parking, '--journal', journal, '--dir', repo, '--plain'], { cwd: root, encoding: 'utf8', env: { ...process.env, [BUS_DB_VARIABLE]: path.join(root, 'bus.db') } })
+    const run = spawnSync(bundle.cli, ['intake', '--draft', draft, '--taken', taken, '--parking', parking, '--journal', journal, '--dir', repo, '--plain'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '', [BUS_DB_VARIABLE]: path.join(root, 'bus.db') } })
     expect(run.status, run.stderr).toBe(0)
+    expect(run.stderr).not.toContain(EXPERIMENTAL_WARNING)
     expect(existsSync(path.join(parking, '13.md'))).toBe(true)
     expect(readFileSync(journal, 'utf8')).toContain('"event":"intake"')
     expect(existsSync(path.join(root, 'bus.db'))).toBe(false)
