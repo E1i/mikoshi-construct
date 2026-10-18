@@ -12,6 +12,7 @@ import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js
 import { keyOf, MERGE_CANDIDATES, mergeCandidates, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, mergeBench, spendReviewRounds } from './merge-bench.js'
+import { detectMerge } from './merge-detection.js'
 
 const benches: MergeBench[] = []
 
@@ -91,7 +92,7 @@ describe('mergeCandidates', () => {
 })
 
 describe('the merge node', () => {
-  it('finds through candidates() what mergeCandidates finds: a green pass on a clean head, scoped by pull request and card', () => {
+  it('finds what mergeCandidates finds: a green pass on a clean head, scoped by pull request and card', () => {
     const made = bench()
     made.gitHub.open({ number: 970, review: 'success' })
     made.gitHub.open({ number: 971, review: 'success' })
@@ -193,6 +194,7 @@ describe('the merge node', () => {
       const made = bench()
       made.gitHub.open({ number: 970, review: 'success' })
       made.tick()
+      detectMerge(made)
       const node = nodeOf(made, mode)
       await once(node)
       await once(node)

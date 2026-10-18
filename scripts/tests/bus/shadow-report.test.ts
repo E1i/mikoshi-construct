@@ -10,6 +10,8 @@ import { reduce } from '../../bus/reducer.js'
 import { EXIT_CRITERIA, PREFIX, shadowProblems, shadowReport } from '../../bus/report.js'
 import { BusTick } from '../../bus/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { detectMerge } from './merge-detection.js'
+import { detectReview } from './review-detection.js'
 
 const roots: string[] = []
 
@@ -28,6 +30,8 @@ describe('shadow report', () => {
     const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
     const tick = (): void => {
       busTick.run()
+      detectReview({ db, gitHub, clock })
+      detectMerge({ db, gitHub, clock })
       clock.advance(TICK_MS)
     }
     gitHub.open({ number: 930 })

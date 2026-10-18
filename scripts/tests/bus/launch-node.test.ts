@@ -15,6 +15,7 @@ import { keyOf, launchTasks, TASK_ENQUEUED } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
+import { detectReview } from './review-detection.js'
 
 const benches: MergeBench[] = []
 
@@ -267,12 +268,14 @@ describe('the launch node', () => {
 
     made.gitHub.open({ number: 980 })
     made.tick()
+    detectReview(made)
     made.gitHub.pulls.get(980)!.head = sha('b')
     made.tick()
+    detectReview(made)
     await once(node)
 
     const rows = made.db.prepare(`SELECT head, state FROM tasks WHERE queue = 'review' AND pr = 980 ORDER BY id`).all()
     expect(rows).toEqual([{ head: sha('a'), state: 'superseded' }, { head: sha('b'), state: 'queued' }])
-    expect(eventsOf(made.db, NODE_DETECTED)).toEqual([])
+    expect(eventsOf(made.db, NODE_DETECTED).filter(detected => !String(detected.key).startsWith('review:'))).toEqual([])
   })
 })

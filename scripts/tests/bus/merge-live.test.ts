@@ -103,11 +103,11 @@ function detectedOf(made: MergeBench, pr: number): Record<string, unknown>[] {
 
 type Order = 'node first' | 'deriveQueues first' | 'same tick'
 
-const OUTCOME_BY_ORDER: Record<Order, 'queued' | 'already'> = { 'node first': 'queued', 'deriveQueues first': 'already', 'same tick': 'queued' }
+const ORDERS: Order[] = ['node first', 'deriveQueues first', 'same tick']
 
 describe('merge live', () => {
-  it('a live merge node and deriveQueues on one db that detect one key leave exactly one tasks row, one task.enqueued and one merge.done, with node.detected queued when the node or the same tick comes first and already when deriveQueues does', async () => {
-    for (const order of Object.keys(OUTCOME_BY_ORDER) as Order[]) {
+  it('a live merge node and deriveQueues on one db leave exactly one tasks row, one task.enqueued and one merge.done, with node.detected queued whichever ticks first', async () => {
+    for (const order of ORDERS) {
       const made = bench()
       made.gitHub.open({ number: 980, review: 'success' })
       const node = nodeOf(made)
@@ -135,11 +135,11 @@ describe('merge live', () => {
       expect(mergesOf(made, 980), order).toBe(1)
       const detected = detectedOf(made, 980)
       expect(detected, order).toHaveLength(1)
-      expect(detected[0]!.outcome, order).toBe(OUTCOME_BY_ORDER[order])
+      expect(detected[0]!.outcome, order).toBe('queued')
     }
   })
 
-  it('a live merge node restarted mid-batch writes no second task and no second merge.done and its repeat detects already', async () => {
+  it('a live merge node restarted mid-batch writes no second task, no second merge.done and one node.detected, queued by the restarted node', async () => {
     const made = bench()
     dependsOn(made, 826, 838)
     dependsOn(made, 827, 839)
@@ -172,11 +172,11 @@ describe('merge live', () => {
       expect(mergeTasks(made, pr)).toBe(1)
       expect(enqueuedOf(made, pr)).toBe(1)
       expect(mergesOf(made, pr)).toBe(1)
-      expect(detectedOf(made, pr).map(payload => payload.outcome)).toEqual(['already'])
+      expect(detectedOf(made, pr).map(payload => payload.outcome)).toEqual(['queued'])
     }
   })
 
-  it('after merge is switched from live back to shadow the node enqueues nothing and deriveQueues keeps enqueuing', async () => {
+  it('after merge is switched from live back to shadow neither the node nor deriveQueues enqueues a merge', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-merge-switch-'))
     try {
       switchWorker(root, 'merge', true)
@@ -203,9 +203,9 @@ describe('merge live', () => {
 
       made.tick()
       await once(shadow)
-      expect(mergeTasks(made, 981)).toBe(1)
-      expect(enqueuedOf(made, 981)).toBe(1)
-      expect(mergesOf(made, 981)).toBe(1)
+      expect(mergeTasks(made, 981)).toBe(0)
+      expect(enqueuedOf(made, 981)).toBe(0)
+      expect(mergesOf(made, 981)).toBe(0)
       expect(mergeTasks(made, 980)).toBe(1)
       expect(enqueuedOf(made, 980)).toBe(1)
       expect(mergesOf(made, 980)).toBe(1)

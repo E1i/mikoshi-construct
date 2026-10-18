@@ -21,6 +21,7 @@ import { queueTask } from '../../bus/queue.js'
 import { BusTick } from '../../bus/run.js'
 import { choose } from '../../shift/parking.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { detectReview } from './review-detection.js'
 
 const REVIEW_PID = 4242
 
@@ -60,6 +61,7 @@ function boardBench(): BoardBench {
   bench.tick = () => {
     const before = bench.boards.length
     busTick.run()
+    detectReview({ db, gitHub, clock })
     clock.advance(TICK_MS)
     expect(bench.boards.length).toBe(before + 1)
     return bench.boards.at(-1)!

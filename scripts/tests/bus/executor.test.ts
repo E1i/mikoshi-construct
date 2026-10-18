@@ -8,7 +8,7 @@ import { ownerInbox } from '../../bus/inbox.js'
 import { assertHeld, completeTask, expireLeases, LEASE_MS, leaseNext, StaleLease } from '../../bus/lease.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
-import { eventCount, eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
+import { eventCount, eventsOf, liveBench, spendReviewRounds, taskState } from './merge-bench.js'
 
 const merge = (pr: number, head = sha('a')): string => taskKey({ queue: 'merge', cardId: pr + 100, pr, head })
 
@@ -21,7 +21,7 @@ const AWAITING: FakeRun[] = [WAITING, WAITING]
 
 describe('the merge executor', () => {
   it('a pass on a green, clean head is queued for merge and merged with its sha', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 960, review: 'success' })
     bench.tick()
 
@@ -36,7 +36,7 @@ describe('the merge executor', () => {
   })
 
   it('a merge task queued before a card amend waits for the review of the new input, without a failure, and merges after it', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 970 })
     bench.tick()
     completeTask(bench.db, bench.clock.now().toISOString(), leaseNext(bench.db, bench.clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
@@ -59,7 +59,7 @@ describe('the merge executor', () => {
   })
 
   it('a pull request without a pass, green CI or a clean merge is not queued for merge', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 961 })
     bench.gitHub.open({ number: 962, review: 'failure' })
     bench.gitHub.open({ number: 963, review: 'success', required: 'pending' })
@@ -72,7 +72,7 @@ describe('the merge executor', () => {
   })
 
   it('a 409 on merge is a technical stale_head denial that requeues and leaves the inbox empty', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 966, review: 'success' })
     bench.tick()
     bench.gitHub.mergeStatus = 409
@@ -90,7 +90,7 @@ describe('the merge executor', () => {
   })
 
   it('a head that moved before the merge is a technical stale_head denial read from a fresh snapshot', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 967, review: 'success' })
     bench.tick()
     const lease = bench.lease()!
@@ -103,7 +103,7 @@ describe('the merge executor', () => {
   })
 
   it('an open version pull request whose runs all wait at action_required does not lock the merge', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 978, review: 'success' })
     bench.gitHub.open({ number: 979, head: sha('c'), ref: 'changeset-release/main', runs: AWAITING })
     bench.tick()
@@ -114,7 +114,7 @@ describe('the merge executor', () => {
   })
 
   it('a version pull request with approved runs on its head locks the merge as technical version_pr_open and requeues', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 980, review: 'success' })
     bench.gitHub.open({ number: 981, head: sha('c'), ref: 'changeset-release/main', runs: APPROVED })
     bench.tick()
@@ -128,7 +128,7 @@ describe('the merge executor', () => {
   })
 
   it('an open version pull request locks every merge and requeues without reaching the inbox', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 969, review: 'success' })
     bench.gitHub.open({ number: 970, head: sha('c'), ref: 'changeset-release/main', runs: APPROVED })
     bench.tick()
@@ -140,7 +140,7 @@ describe('the merge executor', () => {
   })
 
   it('the version pull request lock leaves the task queued however many ticks it lasts, and never stops the card', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 973, review: 'success' })
     bench.gitHub.open({ number: 974, head: sha('c'), ref: 'changeset-release/main', runs: APPROVED })
     bench.tick()
@@ -157,7 +157,7 @@ describe('the merge executor', () => {
   })
 
   it('a not_mergeable denial releases the task without counting a failure', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 975, review: 'success' })
     bench.tick()
     const lease = bench.lease()!
@@ -170,7 +170,7 @@ describe('the merge executor', () => {
   })
 
   it('a red CI on the leased head is a technical ci_red denial that counts a failure, a pending one is ci_not_ready', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 978, review: 'success' })
     bench.tick()
     bench.gitHub.pulls.get(978)!.required = 'failure'
@@ -185,7 +185,7 @@ describe('the merge executor', () => {
   })
 
   it('a released merge task keeps its place: the merge queue leases first in, first out by arrival', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 979, review: 'success' })
     bench.gitHub.open({ number: 980, review: 'success', head: sha('c') })
     bench.tick()
@@ -199,7 +199,7 @@ describe('the merge executor', () => {
   })
 
   it('a released task returns to the queue with its failure count unchanged and its lease_gen fenced', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 976, review: 'success' })
     bench.gitHub.open({ number: 977, head: sha('c'), ref: 'changeset-release/main', runs: APPROVED })
     bench.tick()
@@ -214,7 +214,7 @@ describe('the merge executor', () => {
   })
 
   it('a pull request whose base is not main is never merged', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 971, review: 'success' })
     bench.tick()
     const lease = bench.lease()!
@@ -227,7 +227,7 @@ describe('the merge executor', () => {
   })
 
   it('a pull request already merged at the leased head finishes as merge.done, not as stale_head', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 972, review: 'success' })
     bench.tick()
     const lease = bench.lease()!
@@ -241,7 +241,7 @@ describe('the merge executor', () => {
   })
 
   it('a PR blocked only by the review context with an owner decision gets merge.done', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 990, review: 'failure', mergeable_state: 'blocked', blockedBy: 'review' })
     spendReviewRounds(bench, 990, sha('a'))
     allowMerge(bench, 990)
@@ -254,7 +254,7 @@ describe('the merge executor', () => {
 
   it('an owner-path PR with an owner decision gets merge.done', () => {
     for (const pull of [{ number: 991, files: ['scripts/ghosts/approve.ts'] }, { number: 992, body: cardBody(992, 'owner') }]) {
-      const bench = mergeBench()
+      const bench = liveBench()
       bench.gitHub.open({ review: 'failure', ...pull })
       spendReviewRounds(bench, pull.number, sha('a'))
       allowMerge(bench, pull.number)
@@ -266,7 +266,7 @@ describe('the merge executor', () => {
   })
 
   it('an owner decision does not lift security_invariants', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 993, review: 'failure', files: ['architecture/security-invariants.md'] })
     spendReviewRounds(bench, 993, sha('a'))
     allowMerge(bench, 993)
@@ -279,7 +279,7 @@ describe('the merge executor', () => {
   })
 
   it('a decided PR still blocked after the review status is set is denied not_mergeable and puts no merge', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 996, review: 'failure', mergeable_state: 'blocked' })
     spendReviewRounds(bench, 996, sha('a'))
     allowMerge(bench, 996)
@@ -298,7 +298,7 @@ describe('the merge executor', () => {
       'GitHub failing': { change: (bench) => { bench.gitHub.failing = true }, reason: 'github_error' },
     }
     for (const [name, { change, reason }] of Object.entries(afterTheStatus)) {
-      const bench = mergeBench()
+      const bench = liveBench()
       bench.gitHub.open({ number: 997, review: 'failure' })
       spendReviewRounds(bench, 997, sha('a'))
       allowMerge(bench, 997)
@@ -317,7 +317,7 @@ describe('the merge executor', () => {
   })
 
   it('without a decision an owner-path or review-blocked PR is not merged', () => {
-    const blocked = mergeBench()
+    const blocked = liveBench()
     blocked.gitHub.open({ number: 994, review: 'failure', mergeable_state: 'blocked', blockedBy: 'review' })
     spendReviewRounds(blocked, 994, sha('a'))
     blocked.tick()
@@ -325,7 +325,7 @@ describe('the merge executor', () => {
     expect(blocked.lease()).toBeNull()
     blocked.close()
 
-    const ownerPath = mergeBench()
+    const ownerPath = liveBench()
     ownerPath.gitHub.open({ number: 995, review: 'success', files: ['scripts/ghosts/approve.ts'] })
     ownerPath.tick()
 
@@ -335,7 +335,7 @@ describe('the merge executor', () => {
   })
 
   it('a command with a stale lease_gen is refused and writes nothing', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 968, review: 'success' })
     bench.tick()
     const old = bench.lease('worker:merge:old')!

@@ -7,7 +7,7 @@ import { TICK_MS } from '../../bus/netwatch.js'
 import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
 import { changesRoundsOf, REVIEW_ROUNDS } from '../../bus/queue.js'
 import { sha } from './github-fake.js'
-import { eventsOf, mergeBench, spendReviewRounds } from './merge-bench.js'
+import { eventsOf, liveBench, spendReviewRounds } from './merge-bench.js'
 
 const PR = 970
 const HEAD = sha('a')
@@ -20,7 +20,7 @@ afterEach(() => {
 })
 
 function roundLimited(): MergeBench {
-  const bench = mergeBench()
+  const bench = liveBench()
   benches.push(bench)
   bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
   spendReviewRounds(bench, PR, HEAD)
@@ -87,7 +87,7 @@ describe('a merge past the review round limit by an owner decision', () => {
 
   it('a PR below the round limit gets no merge task without a pass, with a decision or without', () => {
     for (const text of [null, `allow-merge PR #${PR + 1} at ${sha('e')} past the round limit`]) {
-      const bench = mergeBench()
+      const bench = liveBench()
       benches.push(bench)
       bench.gitHub.open({ number: PR + 1, head: sha('e'), review: 'failure' })
       if (text !== null)

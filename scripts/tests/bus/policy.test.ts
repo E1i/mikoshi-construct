@@ -9,7 +9,7 @@ import { decisionsIntake } from '../../bus/decisions-import.js'
 import { ownerInbox } from '../../bus/inbox.js'
 import { mergePolicy } from '../../bus/policy.js'
 import { cardBody } from './github-fake.js'
-import { mergeBench } from './merge-bench.js'
+import { liveBench } from './merge-bench.js'
 
 const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
 const D77 = '# Owner decisions\n\n- D-76 · 2026-10-10 ~02:55Z — Путь работы выбирает MORSE.\n- D-77 · 2026-10-10 ~13:35Z — Owner-PR мержится шиной по pass ревью воркера и зелёному CI. Исключения за Эли: R1, security-invariants, version-PR.\n'
@@ -25,7 +25,7 @@ function underDecisions(text: string): MergeBench {
   roots.push(root)
   const file = path.join(root, 'owner-decisions.md')
   writeFileSync(file, text)
-  return mergeBench((db, clock) => decisionsIntake(db, file, clock.now))
+  return liveBench((db, clock) => decisionsIntake(db, file, clock.now))
 }
 
 function facts(overrides: Partial<MergeFacts> = {}): MergeFacts {
@@ -67,7 +67,7 @@ describe('the merge policy', () => {
   })
 
   it('a version PR, security-invariants, owner by risk and a reserved card are denied with authority and reach the inbox', () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     const cases: [Partial<FakePull> & { number: number }, string][] = [
       [{ number: 950, ref: 'changeset-release/main' }, 'version_pr'],
       [{ number: 951, title: 'chore: version packages' }, 'version_pr'],

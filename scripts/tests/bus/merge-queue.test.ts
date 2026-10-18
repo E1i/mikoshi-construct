@@ -2,6 +2,7 @@ import type { MergeWorkerParts } from '../../bus/merge-worker.js'
 import type { DetectionMode, NodeStep } from '../../bus/node.js'
 import type { ShardDeps } from '../../shift/shard.js'
 import type { FakePull } from './github-fake.js'
+import type { MergeBench } from './merge-bench.js'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -16,7 +17,7 @@ import { DRY_RUN_ACTOR } from '../../bus/review-worker.js'
 import { decisionsInForceAt, SHARD_ISSUED, SHARD_USED, unspentShard } from '../../bus/shards.js'
 import { runShard } from '../../shift/shard.js'
 import { cardBody, sha } from './github-fake.js'
-import { eventCount, eventsOf, mergeBench } from './merge-bench.js'
+import { eventCount, eventsOf, liveBench } from './merge-bench.js'
 
 const UNTIL_MS = Date.parse('2026-10-09T13:00:00.000Z')
 const D82 = '# Owner decisions\n\n- D-82 · 2026-10-09 ~11:00Z — Delegation: where the bus refuses on authority, the bus executor merges under a Shard --under this decision. until 2026-10-09T13:00Z\n'
@@ -32,16 +33,16 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-function delegatedBench(decisions = D82): ReturnType<typeof mergeBench> & { file: string } {
+function delegatedBench(decisions = D82): MergeBench & { file: string } {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-merge-delegation-'))
   roots.push(root)
   const file = path.join(root, 'owner-decisions.md')
   writeFileSync(file, decisions)
   writeFileSync(path.join(root, 'owner-decisions.archive.md'), `# Owner decisions archive\n\n${Array.from({ length: 81 }, (_, index) => `- D-${index + 1} · 2026-10-08 — archived ${index + 1}.\n`).join('')}`)
-  return { ...mergeBench((db, clock) => decisionsIntake(db, file, clock.now)), file }
+  return { ...liveBench((db, clock) => decisionsIntake(db, file, clock.now)), file }
 }
 
-function shardDeps(bench: ReturnType<typeof mergeBench>, id: string, out: string[] = []): ShardDeps {
+function shardDeps(bench: MergeBench, id: string, out: string[] = []): ShardDeps {
   return {
     cwd: path.dirname(bench.busPath),
     handoffDir: path.dirname(bench.busPath),
@@ -56,28 +57,28 @@ function shardDeps(bench: ReturnType<typeof mergeBench>, id: string, out: string
   }
 }
 
-function shardUnderD82(bench: ReturnType<typeof mergeBench>, pr: number): number {
+function shardUnderD82(bench: MergeBench, pr: number): number {
   return runShard(['--pr', String(pr), '--under', 'D-82', '--by', 'Eli'], shardDeps(bench, `shard-${pr}`))
 }
 
-function mergeTaskState(bench: ReturnType<typeof mergeBench>, pr: number): string {
+function mergeTaskState(bench: MergeBench, pr: number): string {
   return (bench.db.prepare(`SELECT state FROM tasks WHERE queue = 'merge' AND pr = ?`).get(pr) as { state: string }).state
 }
 
-function ownerPulls(bench: ReturnType<typeof mergeBench>, pulls: (Partial<FakePull> & { number: number })[]): void {
+function ownerPulls(bench: MergeBench, pulls: (Partial<FakePull> & { number: number })[]): void {
   for (const pull of pulls)
     bench.gitHub.open({ review: 'success', body: cardBody(pull.number, 'owner'), ...pull })
 }
 
-function recorded(bench: ReturnType<typeof mergeBench>, actor: string): void {
+function recorded(bench: MergeBench, actor: string): void {
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor, cardId: 1070, pr: 970, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:${actor}`, payload: { head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
 }
 
-function parts(bench: ReturnType<typeof mergeBench>): MergeWorkerParts {
+function parts(bench: MergeBench): MergeWorkerParts {
   return { db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, session: 'worker-1', run: null }
 }
 
-function mergeNode(bench: ReturnType<typeof mergeBench>, mode: DetectionMode = 'shadow'): MergeNode {
+function mergeNode(bench: MergeBench, mode: DetectionMode = 'shadow'): MergeNode {
   return new MergeNode({ ...parts(bench), mode, env: {} })
 }
 
@@ -89,7 +90,7 @@ async function step(node: MergeNode): Promise<NodeStep | null> {
 
 describe('the merge worker', () => {
   it('the merge worker refuses to switch on before the first live review verdict', async () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     bench.gitHub.open({ number: 970, review: 'success' })
     bench.tick()
     await expect(step(mergeNode(bench))).rejects.toThrow(NoLiveVerdict)
@@ -112,7 +113,7 @@ describe('the merge worker', () => {
   })
 
   it('an owner pull request under an issued shard goes from pass to merge.done with rule owner_under_shard and no owner step', async () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     recorded(bench, 'worker:review:reviewer-1')
     bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'owner') })
     bench.gitHub.open({ number: 727, review: 'success', body: cardBody(727, 'owner') })
@@ -132,7 +133,7 @@ describe('the merge worker', () => {
   })
 
   it('a spent shard covers no second owner pull request of its card', async () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     recorded(bench, 'worker:review:reviewer-1')
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: 726, head: null, dedupeKey: `${SHARD_ISSUED}:shard-726`, payload: { id: 'shard-726', by: 'Eli', run: null }, legacy: false })
     bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'owner') })
@@ -144,7 +145,7 @@ describe('the merge worker', () => {
   })
 
   it('an auto pull request of a card that holds a shard merges under auto and leaves the shard unspent', async () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     recorded(bench, 'worker:review:reviewer-1')
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: 826, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:shard-826`, payload: { id: 'shard-826', by: 'Eli', run: null }, legacy: false })
     bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'auto') })
@@ -266,7 +267,7 @@ describe('the merge worker', () => {
   })
 
   it('a pull request whose card depends on a card with no merge.done is not a merge candidate, and becomes one after that merge.done', async () => {
-    const bench = mergeBench()
+    const bench = liveBench()
     const ts = bench.clock.now().toISOString()
     appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'reducer', cardId: 826, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:826`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [838] }, legacy: false })
     bench.gitHub.open({ number: 726, review: 'success', body: cardBody(726, 'auto') })
@@ -281,7 +282,7 @@ describe('the merge worker', () => {
 
   it('ships switched off: without --on it opens nothing and exits 0', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const bench = mergeBench()
+    const bench = liveBench()
     expect(await runMergeWorker([], { busPath: '/nonexistent/bus.db', gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, session: 'worker-1', pause: async () => {} })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
     bench.close()

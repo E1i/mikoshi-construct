@@ -12,7 +12,7 @@ import { projectionDump, reduce } from '../../bus/reducer.js'
 import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../bus/update-executor.js'
 import { runUpdateWorker, UpdateNode } from '../../bus/update-worker.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
-import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
+import { eventCount, eventsOf, liveBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 afterEach(() => {
@@ -23,7 +23,7 @@ const NEW_HEAD = sha('d')
 const update = (pr: number, head = sha('a')): string => taskKey({ queue: 'update', cardId: pr + 100, pr, head })
 
 function updateBench() {
-  const bench = mergeBench()
+  const bench = liveBench()
   let settled = 0
   const settle = (): void => {
     settled += 1
@@ -37,7 +37,7 @@ function updateBench() {
   }
 }
 
-function deniedByAuthority(bench: ReturnType<typeof mergeBench>, pr: number): void {
+function deniedByAuthority(bench: ReturnType<typeof liveBench>, pr: number): void {
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: POLICY_DENIED, actor: 'policy', cardId: pr + 100, pr, head: sha('a'), dedupeKey: `${POLICY_DENIED}:owner-${pr}`, payload: { command: 'merge', kind: 'authority', rule: 'owner_by_risk', detail: 'stays the owner\'s' }, legacy: false })
 }
 

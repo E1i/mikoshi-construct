@@ -19,6 +19,7 @@ import { ReviewExecutor } from '../../bus/review-executor.js'
 import { DRY_RUN_ACTOR, ReviewNode, ReviewWorker, runReview } from '../../bus/review-worker.js'
 import { cardBody } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
+import { detectReview } from './review-detection.js'
 
 const benches: MergeBench[] = []
 
@@ -179,6 +180,7 @@ describe('the review node', () => {
     openGreen(made, 1020)
     openGreen(made, 1021)
     made.tick()
+    detectReview(made)
     changesOn(made, 1020, 1021)
     const node = nodeOf(made)
     await once(node)
@@ -191,10 +193,10 @@ describe('the review node', () => {
     expect(node.found({ cardId: 1121 })).toEqual([reviewKey(1021)])
 
     await once(node)
-    expect(detected(made, 'event')).toEqual([{ key: reviewKey(1020, headOf(1020), cardBody(1020), cardBodySha), via: 'event', event_id: admitted }])
+    expect(detected(made, 'event').filter(each => each.event_id === admitted)).toEqual([{ key: reviewKey(1020, headOf(1020), cardBody(1020), cardBodySha), via: 'event', event_id: admitted }])
   })
 
-  it('the node and reviewCandidates find one set on one snapshot, and shadow records node.equivalence with nothing on one side only', async () => {
+  it('the node finds what reviewCandidates finds on one snapshot, and shadow records node.equivalence of the node against reviewCandidates with nothing on one side only', async () => {
     const made = bench()
     openGreen(made, 1030)
     openGreen(made, 1031)
@@ -202,6 +204,7 @@ describe('the review node', () => {
     openGreen(made, 1033, { required: 'pending' })
     openGreen(made, 1034, { review: 'success' })
     made.tick()
+    detectReview(made)
     changesOn(made, 1031)
     const node = nodeOf(made)
     const keys = [reviewKey(1030), reviewKey(1031)]
@@ -259,6 +262,7 @@ describe('the review node', () => {
       await once(node)
       openGreen(made, 1060)
       made.tick()
+      detectReview(made)
       await once(node)
       made.tick()
       await once(node)
@@ -280,6 +284,7 @@ describe('the review node', () => {
     for (const pr of [1070, 1071, 1072, 1073])
       openGreen(made, pr)
     made.tick()
+    detectReview(made)
     const reviewed = vi.spyOn(ReviewExecutor.prototype, 'review')
     const leases: Lease[] = []
     const gates: (() => void)[] = []
@@ -341,6 +346,7 @@ describe('the review node', () => {
     expect(reviewed).toHaveLength(1)
 
     made.tick()
+    detectReview(made)
     made.gitHub.pulls.get(1080)!.required = 'pending'
     const waiting = new UngatedReviewNode(partsOf(made, 'shadow', reviewer))
     expect(await pausesOf(waiting)).toEqual([TICK_MS])
@@ -362,15 +368,19 @@ describe('the review node', () => {
 
     openGreen(made, 1090)
     made.tick()
+    detectReview(made)
     await once(node)
     made.gitHub.pulls.get(1090)!.body = `${cardBody(1090)}\nan edited description`
     made.tick()
+    detectReview(made)
     await once(node)
 
     openGreen(made, 1091)
     made.tick()
+    detectReview(made)
     made.gitHub.pulls.get(1091)!.head = headOf(6091)
     made.tick()
+    detectReview(made)
     await once(node)
 
     const rows = (pr: number): unknown[] => made.db.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review' AND pr = ? ORDER BY id`).all(pr)
@@ -384,6 +394,7 @@ describe('the review node', () => {
     openGreen(made, 1095)
     openGreen(made, 1096)
     made.tick()
+    detectReview(made)
     const reviewed = vi.spyOn(ReviewExecutor.prototype, 'review')
     const worker = new ReviewWorker({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer: passing, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'worker-1' })
 
