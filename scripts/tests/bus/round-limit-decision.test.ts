@@ -6,6 +6,7 @@ import { recordDecision } from '../../bus/decisions.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
 import { changesRoundsOf, REVIEW_ROUNDS } from '../../bus/queue.js'
+import { roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, spendReviewRounds } from './merge-bench.js'
 
@@ -172,6 +173,17 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'version_pr_open' } })
     expect(bench.gitHub.published).toEqual([])
     expect(bench.gitHub.puts.filter(put => put.endpoint.endsWith('/merge'))).toEqual([])
+  })
+
+  it('a decision on a head holds for every head a chain of clean updates leads to from it, and for no other', () => {
+    const decisions = [{ decisionId: DECISION, text: `[owner] allow-merge PR #${PR} at ${HEAD} past the round limit`, cards: [] }]
+    const chain = [{ from: HEAD, to: sha('b') }, { from: sha('b'), to: sha('c') }, { from: sha('c'), to: sha('b') }]
+
+    expect(roundLimitDecisionOf(decisions, PR, sha('c'), chain)).toBe(DECISION)
+    expect(roundLimitDecisionOf(decisions, PR, sha('b'), chain)).toBe(DECISION)
+    expect(roundLimitDecisionOf(decisions, PR, sha('c'), [{ from: sha('b'), to: sha('c') }])).toBeNull()
+    expect(roundLimitDecisionOf(decisions, PR + 1, sha('b'), chain)).toBeNull()
+    expect(roundLimitDecisionOf(decisions, PR, sha('e'), chain)).toBeNull()
   })
 
   it('a decision whose term has lapsed, at the tick or by the merge, merges nothing', () => {

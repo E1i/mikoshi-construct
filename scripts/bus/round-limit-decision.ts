@@ -1,4 +1,5 @@
 import type { InForceDecision } from './decisions.js'
+import type { CleanUpdate } from './update-done.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { isFullSha } from './identifiers.js'
 
@@ -8,8 +9,20 @@ export function namesPrAtHead(text: string, pr: number, head: string): boolean {
   return new RegExp(`^(?:${OWNER_PREFIX})?allow-merge PR #${pr} at ${head}(?![0-9a-f])`).test(text)
 }
 
-export function roundLimitDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string): number | null {
+function headsWithTheSameDiff(head: string, cleanUpdates: readonly CleanUpdate[]): string[] {
+  const heads = [head]
+  for (let current = head; ;) {
+    const from = cleanUpdates.find(update => update.to === current)?.from
+    if (from === undefined || heads.includes(from))
+      return heads
+    heads.push(from)
+    current = from
+  }
+}
+
+export function roundLimitDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
   if (!isFullSha(head))
     return null
-  return decisions.find(decision => namesPrAtHead(decision.text, pr, head))?.decisionId ?? null
+  const heads = headsWithTheSameDiff(head, cleanUpdates)
+  return decisions.find(decision => heads.some(decided => namesPrAtHead(decision.text, pr, decided)))?.decisionId ?? null
 }

@@ -15,6 +15,7 @@ import { roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
+import { cleanUpdatesOf } from './update-done.js'
 
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
@@ -217,7 +218,7 @@ function outOfRounds(db: DatabaseSync, queue: Queue, pr: number | null): boolean
 export function mergeDecidedPastRoundLimit(db: DatabaseSync, ts: string, pr: number | null, head: string | null): number | null {
   if (pr === null || head === null || !outOfRounds(db, 'merge', pr))
     return null
-  return roundLimitDecisionOf(decisionsInForceAt(db, new Date(ts)), pr, head)
+  return roundLimitDecisionOf(decisionsInForceAt(db, new Date(ts)), pr, head, cleanUpdatesOf(db, pr))
 }
 
 export function closedByRounds(db: DatabaseSync, ts: string, queue: Queue, pr: number | null, head: string | null): boolean {
@@ -228,9 +229,10 @@ type Admits = (row: Candidate) => boolean
 
 const everyRow: Admits = () => true
 
-function passOrWaitingForOwner(db: DatabaseSync): Admits {
+function passWaitingForOwnerOrDecided(db: DatabaseSync, ts: string): Admits {
   const waiting = new Set(ownerInbox(db).map(line => line.card_id))
-  return row => row.verdict_on_head === 'pass' || waiting.has(row.card_id)
+  const decided = decidedPastRoundLimit(db, ts)
+  return row => row.verdict_on_head === 'pass' || waiting.has(row.card_id) || decided(row)
 }
 
 function decidedPastRoundLimit(db: DatabaseSync, ts: string): Admits {
@@ -361,7 +363,7 @@ export function reviewCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
 }
 
 export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  return openCandidates(db, ts, 'update', candidateRows(db, UPDATE_CANDIDATES, passOrWaitingForOwner(db)))
+  return openCandidates(db, ts, 'update', candidateRows(db, UPDATE_CANDIDATES, passWaitingForOwnerOrDecided(db, ts)))
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
