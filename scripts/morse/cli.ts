@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import process from 'node:process'
-import { runBacktest } from './backtest.js'
 import { predict } from './predict.js'
 import { classify } from './rules.js'
 
@@ -34,13 +33,6 @@ function runPredict(argv: string[]): void {
   process.stdout.write(`${JSON.stringify(line)}\n`)
 }
 
-function runBacktestCommand(argv: string[]): void {
-  const prsPath = requireFlag(argv, '--prs')
-  const text = readFileSync(prsPath, 'utf8')
-  const result = runBacktest(text)
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
-}
-
 function main(): void {
   const [command, ...rest] = process.argv.slice(2)
 
@@ -51,9 +43,6 @@ function main(): void {
         break
       case 'predict':
         runPredict(rest)
-        break
-      case 'backtest':
-        runBacktestCommand(rest)
         break
       default:
         throw new Error(`unknown command: ${command ?? ''}`)

@@ -205,37 +205,6 @@ check_rules() {
   done
 }
 
-check_backtest() {
-  local dir first second
-  dir=$(mktemp -d "${TMPDIR:-/tmp}/morse-backtest.XXXXXX")
-  trap "rm -rf $(printf %q "$dir")" EXIT
-  first=$(cd "$REPO_ROOT" && pnpm exec tsx "$CLI" backtest --prs "$FIXTURES/backtest/synthetic.jsonl" 2>/dev/null) || fail "backtest exited non-zero"
-  second=$(cd "$REPO_ROOT" && pnpm exec tsx "$CLI" backtest --prs "$FIXTURES/backtest/synthetic.jsonl" 2>/dev/null) || fail "backtest exited non-zero on the second run"
-  [ "$first" = "$second" ] || fail "two runs over the same input differ"
-  printf '%s\n' "$first" >"$dir/got.json"
-  same_json "$dir/got.json" "$FIXTURES/backtest/synthetic.expected.json" || fail "backtest printed $(tr -d '\n ' <"$dir/got.json"), expected $(tr -d '\n ' <"$FIXTURES/backtest/synthetic.expected.json")"
-}
-
-check_backtest_refused() {
-  local case=$1 input names status out err name
-  input="$FIXTURES/backtest/refused/$case.jsonl"
-  names="$FIXTURES/backtest/refused/$case.names"
-  [ -f "$input" ] && [ -f "$names" ] || fail "no refused case $case"
-  out=$(mktemp "${TMPDIR:-/tmp}/morse-refused-out.XXXXXX")
-  err=$(mktemp "${TMPDIR:-/tmp}/morse-refused-err.XXXXXX")
-  trap "rm -f $(printf %q "$out") $(printf %q "$err")" EXIT
-  status=0
-  (cd "$REPO_ROOT" && pnpm exec tsx "$CLI" backtest --prs "$input" >"$out" 2>"$err") || status=$?
-  [ "$status" -ne 0 ] || fail "$case: backtest accepted the file: $(tr -d '\n ' <"$out")"
-  if grep -qF '"matrix"' "$out"; then
-    fail "$case: backtest printed a result although it refused the file"
-  fi
-  while IFS= read -r name; do
-    [ -n "$name" ] || continue
-    cat "$out" "$err" | grep -qwF -- "$name" || fail "$case: the refusal does not name $name: $(cat "$err")"
-  done <"$names"
-}
-
 check_classify_empty() {
   local out err status
   out=$(mktemp "${TMPDIR:-/tmp}/morse-classify-out.XXXXXX")
@@ -260,7 +229,7 @@ check_suite() {
   node -e '
 const fs = require("node:fs")
 const path = require("node:path")
-const [report, fixtures, heads, suite] = process.argv.slice(1)
+const [report, fixtures, heads] = process.argv.slice(1)
 const r = JSON.parse(fs.readFileSync(report, "utf8"))
 const passed = new Set(r.testResults.flatMap(f => f.assertionResults).filter(t => t.status === "passed").map(t => t.title))
 const required = [
@@ -273,8 +242,6 @@ const required = [
   "predict refuses an empty diff",
   "predict refuses an unknown revision",
   "predict refuses a failing append",
-  "backtest synthetic",
-  ...fs.readdirSync(path.join(fixtures, "backtest", "refused")).filter(f => f.endsWith(".jsonl")).sort().map(f => `backtest refuses ${f.slice(0, -6)}`),
 ]
 const lacking = required.filter(t => passed.has(t) === false)
 const problems = []
@@ -282,14 +249,11 @@ if (r.success !== true)
   problems.push("the suite did not pass")
 if (lacking.length > 0)
   problems.push(`no passing test titled: ${lacking.join("; ")}`)
-const text = fs.existsSync(suite) ? fs.readFileSync(suite, "utf8") : ""
-if (text.includes("synthetic.expected.json") === false)
-  problems.push(`${suite} does not compare the backtest with synthetic.expected.json`)
 if (problems.length > 0) {
   process.stderr.write(`world.sh check-suite: ${problems.join("\n")}\n`)
   process.exit(1)
 }
-' "$report" "$FIXTURES" "$HEADS" "$REPO_ROOT/scripts/tests/morse/cli.test.ts"
+' "$report" "$FIXTURES" "$HEADS"
 }
 
 CHECK=${1:-}
@@ -309,10 +273,8 @@ case $CHECK in
     "check_${fn//-/_}" "$W" "$@"
     ;;
   check-rules) check_rules ;;
-  check-backtest) check_backtest ;;
-  check-backtest-refused) check_backtest_refused "${2:?usage: world.sh check-backtest-refused <case>}" ;;
   check-classify-empty) check_classify_empty ;;
   check-order) check_order ;;
   check-suite) check_suite "${2:?usage: world.sh check-suite <vitest.json>}" ;;
-  *) echo "usage: world.sh new | world.sh clean <world> | world.sh heads | world.sh check-<predicted|refused|empty|no-journal|unprinted|anchor> <world> [...] | world.sh check-<rules|backtest|classify-empty|order> | world.sh check-suite <vitest.json> | world.sh check-backtest-refused <case>" >&2; exit 2 ;;
+  *) echo "usage: world.sh new | world.sh clean <world> | world.sh heads | world.sh check-<predicted|refused|empty|no-journal|unprinted|anchor> <world> [...] | world.sh check-<rules|classify-empty|order> | world.sh check-suite <vitest.json>" >&2; exit 2 ;;
 esac
