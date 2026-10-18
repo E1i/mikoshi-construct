@@ -44,10 +44,16 @@ interface Chain {
   input: string
 }
 
+const BRIEF_FINISH_CLI = 'scripts/shift/brief-finish-cli.ts'
 const ANSWER_YES = `printf 'yes\\n'`
 
 function pnpmScript(places: LadderPlaces, args: string[]): string {
   return ['pnpm', '--dir', shellWord(places.repo), '--silent', ...args.map(shellWord)].join(' ')
+}
+
+function finishScript(context: ChainContext): string {
+  const args = [BRIEF_FINISH_CLI, context.cardFile, context.worktree, context.brief]
+  return ['pnpm', '--dir', shellWord(context.places.repo), '--silent', 'exec', 'tsx', ...args.map(shellWord)].join(' ')
 }
 
 function hashScript(context: ChainContext): string {
@@ -67,7 +73,7 @@ function claudeScript(context: ChainContext): string {
 }
 
 const CHAINS: Record<ChainStep, (context: ChainContext) => Chain> = {
-  brief: context => ({ script: `${claudeScript(context)} && ${hashScript(context)} && ${launchScript(context)}`, input: context.prompt }),
+  brief: context => ({ script: `${claudeScript(context)} && ${finishScript(context)} && ${hashScript(context)} && ${launchScript(context)}`, input: context.prompt }),
   launch: context => ({ script: launchScript(context), input: '' }),
   review: context => ({ script: `${claudeScript(context)} && ${treePrScript(context)}`, input: context.prompt }),
 }
