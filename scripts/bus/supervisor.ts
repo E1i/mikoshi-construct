@@ -9,9 +9,10 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
-import { defaultBusPath, openBus } from './db.js'
+import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
 import { ghApi } from './github.js'
+import { RESTART_MISSED, RESTARTED } from './inbox.js'
 import { expireLeasesHeldBy, TASK_EXPIRED } from './lease.js'
 import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
 import { CHECK_MS } from './netwatch.js'
@@ -27,6 +28,7 @@ export const LIVE_OFF_FLAG = '--shadow'
 export const BUS_CODE_PATH = 'scripts/bus'
 export const STOP_WAIT_MS = 10_000
 export const STOP_POLL_MS = 100
+export const RESTART_LIMIT_MS = 5 * 60_000
 
 export const SUPERVISOR_LAUNCH: DetachedLaunch = {
   prefix: PREFIX,
@@ -112,6 +114,7 @@ export interface SupervisorParts {
   mainSince: (afterId: number) => MainAdvance[]
   code: BusCode
   journal: (entry: Record<string, unknown>) => void
+  missed?: (sha: string, waitedMs: number) => void
   now: () => number
 }
 
@@ -124,6 +127,7 @@ export class BusSupervisor {
   private codeSha: string
   private pending: string | null = null
   private outdatedBy: string | null = null
+  private waiting: { sha: string, since: number, reported: boolean } | null = null
 
   constructor(private readonly parts: SupervisorParts, private seen: number) {
     this.codeSha = parts.code.head()
@@ -136,12 +140,33 @@ export class BusSupervisor {
   async step(): Promise<string[]> {
     try {
       const advanced = await this.advance()
-      return [...advanced, ...await this.moveModes()]
+      return [...advanced, ...await this.moveModes(), ...this.watchLimit()]
     }
     catch (error) {
       const waiting = this.pending === null ? '' : `; main.advanced to ${this.pending} stays pending and is retried on the next tick`
-      return [`${PREFIX}supervisor step failed: ${error instanceof Error ? error.message : String(error)}${waiting}`]
+      return [`${PREFIX}supervisor step failed: ${error instanceof Error ? error.message : String(error)}${waiting}`, ...this.watchLimit()]
     }
+  }
+
+  private watchLimit(): string[] {
+    const sha = this.pending ?? this.outdatedBy
+    if (sha === null) {
+      this.waiting = null
+      return []
+    }
+    if (this.waiting?.sha !== sha)
+      this.waiting = { sha, since: this.parts.now(), reported: false }
+    const waitedMs = this.parts.now() - this.waiting.since
+    if (this.waiting.reported || waitedMs < RESTART_LIMIT_MS)
+      return []
+    try {
+      this.parts.missed?.(sha, waitedMs)
+    }
+    catch (error) {
+      return [`${PREFIX}recording ${RESTART_MISSED} failed: ${error instanceof Error ? error.message : String(error)}; retried on the next tick`]
+    }
+    this.waiting.reported = true
+    return [`${PREFIX}the restart onto ${sha} did not happen within ${RESTART_LIMIT_MS / 60_000} min (waited ${Math.round(waitedMs / 1000)}s); ${RESTART_MISSED} is on the bus and the board`]
   }
 
   private async moveModes(): Promise<string[]> {
@@ -231,6 +256,35 @@ export class BusSupervisor {
     })
     return { lines: [...freed, ...lines], down }
   }
+}
+
+export function recordRestartMissed(db: DatabaseSync, ts: string, sha: string, waitedMs: number): void {
+  appendEvent(db, { ts, type: RESTART_MISSED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTART_MISSED}:${sha}`, payload: { sha, waited_ms: waitedMs, limit_ms: RESTART_LIMIT_MS }, legacy: false })
+}
+
+export function recordRestarted(db: DatabaseSync, ts: string, sha: string): void {
+  appendEvent(db, { ts, type: RESTARTED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTARTED}:${sha}`, payload: { sha }, legacy: false })
+}
+
+export function recordStarted(db: DatabaseSync, ts: string, code: BusCode, log: (line: string) => void): void {
+  try {
+    recordRestarted(db, ts, code.head())
+  }
+  catch (error) {
+    log(`${PREFIX}recording ${RESTARTED} failed: ${error instanceof Error ? error.message : String(error)}; the supervisor starts without it`)
+  }
+}
+
+export function baselineAdvance(last: MainAdvance | undefined, code: BusCode): number {
+  if (last === undefined)
+    return 0
+  return code.holds(last.sha) ? last.id : last.id - 1
+}
+
+export function startingBaseline(db: DatabaseSync, code: BusCode): number {
+  const lastId = lastMainAdvance(db)
+  const readable = mainAdvancedSince(db, lastId - 1).at(-1)
+  return readable === undefined ? lastId : baselineAdvance(readable, code)
 }
 
 export function freeLeasesOf(db: DatabaseSync, ts: string, stopped: DetachedLaunch[]): string[] {
@@ -442,6 +496,31 @@ export function switchCommand(busDir: string, worker: string, on: boolean): BgRe
   return { stdout: [`${PREFIX}switched on: ${now.join(', ') || 'none'}; pnpm bus:bg starts what is switched on and not running, a restart leaves out what is switched off`], stderr: [], exitCode: 0 }
 }
 
+export interface SwitchControl {
+  processes: ProcessList
+  start: (launch: DetachedLaunch) => BgResult
+  stop: (running: RunningProcess, launch: DetachedLaunch) => Promise<void>
+}
+
+export async function applySwitch(busDir: string, worker: string, on: boolean, control: SwitchControl, reviewPreflight: () => string[]): Promise<BgResult> {
+  const switched = switchCommand(busDir, worker, on)
+  if (switched.exitCode !== 0)
+    return switched
+  const script = `bus:${worker}`
+  const launch = (on ? wantedLaunches(busDir, reviewPreflight) : busLaunches(reviewPreflight)).find(each => each.script === script)!
+  const running = runningInstance(control.processes(), launch.markers)
+  if (!on) {
+    if (running === undefined)
+      return { ...switched, stdout: [...switched.stdout, `${PREFIX}${launchName(launch)} was not running`] }
+    await control.stop(running, launch)
+    return { ...switched, stdout: [...switched.stdout, `${PREFIX}${launchName(launch)} stopped`] }
+  }
+  if (running !== undefined)
+    return { ...switched, stdout: [...switched.stdout, `${PREFIX}${launchName(launch)} is already running as pid ${running.pid}; left alone`] }
+  const started = control.start(launch)
+  return { stdout: [...switched.stdout, ...started.stdout], stderr: started.stderr, exitCode: started.exitCode }
+}
+
 async function supervise(busDir: string, cwd: string, reviewPreflight: () => string[]): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
@@ -449,6 +528,8 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   const journal = (entry: Record<string, unknown>): void => {
     appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   }
+  const code = gitCode(cwd)
+  recordStarted(db, new Date().toISOString(), code, line => console.log(line))
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
     wanted: () => wantedLaunches(busDir, reviewPreflight),
@@ -457,10 +538,11 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
     processes,
     mainSince: afterId => mainAdvancedSince(db, afterId),
-    code: gitCode(cwd),
+    code,
     journal,
+    missed: (sha, waitedMs) => recordRestartMissed(db, new Date().toISOString(), sha, waitedMs),
     now: () => Date.now(),
-  }, lastMainAdvance(db))
+  }, startingBaseline(db, code))
   const keeper = new WorkerKeeper({
     wanted: () => wantedLaunches(busDir, reviewPreflight),
     start: launch => startDetached(launch, busDir, process.env, processes),
@@ -505,7 +587,12 @@ async function main(): Promise<void> {
     return
   }
   if (command.kind === 'switch') {
-    printBg(switchCommand(busDir, command.worker, command.on))
+    const processes = psList()
+    printBg(await applySwitch(busDir, command.worker, command.on, {
+      processes,
+      start: launch => startDetached(launch, busDir, process.env, processes),
+      stop: (running, launch) => stopInstance(running, launch.markers, processes),
+    }, reviewPreflight))
     return
   }
   if (command.kind === 'detection') {

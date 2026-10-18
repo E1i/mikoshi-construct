@@ -6,7 +6,6 @@ import type { GhRunner } from '../board/gh.js'
 import type { ChainState } from '../bus/chain.js'
 import type { BusEvent } from '../bus/db.js'
 import type { HandedContract, TaskStartDeps, TaskStartJournalReader, TaskStartResult } from '../ghosts/task-start.js'
-import type { SweepResult } from '../worktrees/sweep.js'
 import type { ChainMoment } from './chain-bus.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { ExitReason, SessionEvidence } from './continuation.js'
@@ -48,9 +47,8 @@ import { tailLines } from '../ghosts/preflight-trees.js'
 import { PREFIX as CLOSE_PREFIX, prBodyOf, realpathOrSelf, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
-import { busCardStates, cardStartedLines, startedTree } from '../ghosts/tasks.js'
+import { busCardStates, startedTree } from '../ghosts/tasks.js'
 import { reviewOf } from '../ghosts/verdict.js'
-import { realSweepDeps, runSweep } from '../worktrees/sweep.js'
 import { ANSWER_COMMAND, ANSWER_FLAG, runAnswer } from './answer.js'
 import { finishBrief, firstLine, NO_PNPM_RUNNER, runPnpm } from './brief-finish.js'
 import { chainBusMerge, realChainObserver } from './chain-bus.js'
@@ -164,7 +162,6 @@ export interface ShiftDeps {
   holdHangup?: () => () => void
   notify?: Notify
   current?: (journal: string) => MergeResult
-  sweep?: (card: string) => SweepResult
   observeChain?: (moment: ChainMoment) => void
   busMerge?: (pr: number, head: string) => BusMerge
   recordBus?: (event: BusEvent) => void
@@ -206,34 +203,7 @@ function keepCurrent(deps: ShiftDeps, journal: string): void {
   }
 }
 
-function startedByThisShift(journal: string | null, bus: string | undefined, dir: string): Set<string> {
-  const journalLines = (journal ?? '').split('\n').flatMap((line) => {
-    try {
-      const entry = JSON.parse(line) as Record<string, unknown> | null
-      return entry === null ? [] : [entry]
-    }
-    catch {
-      return []
-    }
-  })
-  const starts = [...journalLines, ...(bus === undefined ? [] : cardStartedLines(bus))]
-  return new Set(starts.flatMap(entry => entry.event === 'path' && entry.shift === dir && typeof entry.task === 'string' && typeof entry.worktree === 'string' ? [entry.task] : []))
-}
-
-function sweepOwnTrees(deps: ShiftDeps, journal: string, dir: string, merged: readonly { task: string }[]): void {
-  if (deps.sweep === undefined)
-    return
-  const own = startedByThisShift(deps.readJournal(journal), deps.bus, dir)
-  for (const task of new Set(merged.map(line => line.task).filter(task => own.has(task)))) {
-    const swept = deps.sweep(task)
-    for (const line of swept.stdout)
-      deps.out(line)
-    for (const line of swept.stderr)
-      deps.err(line)
-  }
-}
-
-function sweepMerges(deps: ShiftDeps, journal: string, dir: string): void {
+function recordShiftMerges(deps: ShiftDeps, journal: string, dir: string): void {
   try {
     const result = recordMerges({ gh: deps.gh, journal, readJournal: deps.readJournal, append: deps.append, now: deps.now })
     const summary = mergedSummary(result)
@@ -242,7 +212,6 @@ function sweepMerges(deps: ShiftDeps, journal: string, dir: string): void {
     deps.append(path.join(dir, MERGED_FILE), mergedDetails(result).map(line => `${line}\n`).join(''))
     deps.err(`${PREFIX}${summary}; details in ${path.join(dir, MERGED_FILE)}`)
     keepCurrent(deps, journal)
-    sweepOwnTrees(deps, journal, dir, result.written)
   }
   catch (error) {
     deps.err(`${PREFIX}merged: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
@@ -994,7 +963,7 @@ function pollReviews(deps: ShiftDeps, dir: string, chain: Chain, reviews: Review
       decideAfterReview(deps, dir, review, watched.head, shard)
   }
   const ghostJournal = path.join(deps.handoffDir, GHOST_JOURNAL)
-  sweepMerges(deps, ghostJournal, dir)
+  recordShiftMerges(deps, ghostJournal, dir)
   const merged = mergedTasks(readIfThere(deps, ghostJournal), busCardsOf(deps))
   for (const review of reviews.filter(open => merged.has(open.task.id) || open.busMerged === true)) {
     reviews.splice(reviews.indexOf(review), 1)
@@ -1122,7 +1091,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
     return refuse(deps, [`${journal} exists: this shift already ran; start a new one in a new directory`])
   const parking = parkingArg === undefined ? undefined : path.resolve(deps.cwd, parkingArg)
   if (parking !== undefined && !check)
-    sweepMerges(deps, ghostJournal, dir)
+    recordShiftMerges(deps, ghostJournal, dir)
   const read = parking === undefined ? { ...readTasks(deps, dir), choice: undefined } : readParking(deps, parking)
   const { errors } = read
   if (errors.length > 0)
@@ -1220,7 +1189,7 @@ export async function runShift(argv: string[], deps: ShiftDeps): Promise<number>
   }
   observe(last.task, isFailure(last.stop) ? 'fault' : 'stopped', true)
   if (parking !== undefined)
-    sweepMerges(deps, ghostJournal, dir)
+    recordShiftMerges(deps, ghostJournal, dir)
   writeOutcomes(deps, dir, outcomes, parking, taken)
   deps.out(`${PREFIX}shift over; pnpm shift:report ${dir}`)
   return clean ? 0 : 1
@@ -1290,7 +1259,6 @@ function realDeps(): ShiftDeps {
     holdHangup: holdThroughHangup,
     notify: osascriptNotify(),
     current: journal => runCurrent(realCurrentDeps(journal)),
-    sweep: card => runSweep(['--apply', '--card', card], realSweepDeps()),
     observeChain: realChainObserver(process.cwd(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
     busMerge: chainBusMerge(defaultBusPath(), line => writeQuietly(console.error, `${PREFIX}${line}`)),
     recordBus: recordInBus,

@@ -14,12 +14,13 @@ import { DROPPED_LANE, MERGE_DONE } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { importJournal } from '../../bus/import.js'
-import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
+import { CARD_STARTED, CARD_STOPPED, RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { CARD_ADMITTED } from '../../bus/operator-work.js'
 import { queueTask } from '../../bus/queue.js'
 import { BusTick } from '../../bus/run.js'
+import { SHARD_ISSUED, SHARD_REVOKED, windowShardEnded } from '../../bus/shards.js'
 import { choose } from '../../shift/parking.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -288,6 +289,20 @@ describe('the factory board', () => {
     expect(bench.tick().progress.cause).toBe('queue blocked: #850 waits question')
   })
 
+  it('the board shows the active shard, its scope and the time left', () => {
+    const bench = boardBench()
+    const read = (at: string): Board => readBoard({ db: bench.db, now: new Date(at), watched: [], leaseOrders: {} })
+    expect(read('2026-10-18T09:00:00.000Z').shard).toBeNull()
+    expect(renderBoard(read('2026-10-18T09:00:00.000Z'))).toContain('shard: none')
+    appendEvent(bench.db, { ts: '2026-10-18T09:00:00.000Z', type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:w1`, payload: { id: 'w1', by: 'Eli', run: null, window: true, scope: 'merge+decisions', until: '2026-10-18T15:00:00.000Z' }, legacy: false })
+    const board = read('2026-10-18T10:30:00.000Z')
+    expect(board.shard).toEqual({ id: 'w1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-18T15:00:00.000Z', leftMinutes: 270 })
+    expect(renderBoard(board)).toContain('shard w1 · scope merge+decisions · by Eli · 270 min left, until 2026-10-18T15:00:00.000Z')
+    expect(read('2026-10-18T15:00:00.000Z').shard).toBeNull()
+    appendEvent(bench.db, windowShardEnded(SHARD_REVOKED, 'owner', 'w1', new Date('2026-10-18T11:00:00.000Z')))
+    expect(read('2026-10-18T11:00:00.000Z').shard).toBeNull()
+  })
+
   it('the queue-blocked cause names the silent card in work, never a card queued behind it', () => {
     const working = boardBench()
     appendEvent(working.db, { ts: working.ts(), type: CARD_STARTED, actor: 'policy', cardId: 850, pr: null, head: null, dedupeKey: `${CARD_STARTED}:850`, payload: {}, legacy: false })
@@ -352,6 +367,26 @@ describe('the factory board', () => {
     expect(contract.get('one writer')?.fact).toBe('no bus.cutover recorded')
     expect(contract.get('automaton')?.fact).toBe('0 pr.opened, 0 cards without state')
     expect(contract.get('replay')?.fact).toBe('matches')
+  })
+
+  it('a missed supervisor restart reads red on the contract row', () => {
+    const bench = boardBench()
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: true })
+    appendEvent(bench.db, { ts: bench.ts(), type: RESTART_MISSED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTART_MISSED}:${sha('b')}`, payload: { sha: sha('b'), waited_ms: 300_000, limit_ms: 300_000 }, legacy: false })
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: false, fact: expect.stringContaining('1 restart after') })
+    appendEvent(bench.db, { ts: bench.ts(), type: RESTART_MISSED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTART_MISSED}:${sha('c')}`, payload: { sha: sha('c'), waited_ms: 300_000, limit_ms: 300_000 }, legacy: false })
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: false, fact: expect.stringContaining('2 restarts after') })
+  })
+
+  it('a missed supervisor restart stays red after a later main.advanced and clears on a supervisor.restarted', () => {
+    const bench = boardBench()
+    bench.tick()
+    appendEvent(bench.db, { ts: bench.ts(), type: RESTART_MISSED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTART_MISSED}:${sha('b')}`, payload: { sha: sha('b'), waited_ms: 300_000, limit_ms: 300_000 }, legacy: false })
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: false })
+    appendEvent(bench.db, { ts: bench.ts(), type: 'main.advanced', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `main:${sha('d')}`, payload: { sha: sha('d'), touches_mechanics: true }, legacy: false })
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: false })
+    appendEvent(bench.db, { ts: bench.ts(), type: RESTARTED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTARTED}:${sha('d')}`, payload: { sha: sha('d') }, legacy: false })
+    expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: true, fact: expect.stringContaining('0 restarts after') })
   })
 
   it('a pull request merged with no merge.done reads merge past the bus', () => {
