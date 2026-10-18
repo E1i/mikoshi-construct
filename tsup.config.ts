@@ -6,5 +6,5 @@ export default defineConfig({
   target: 'node20',
   clean: true,
   removeNodeProtocol: false,
-  banner: { js: '#!/usr/bin/env node' },
+  banner: { js: '#!/usr/bin/env -S node --disable-warning=ExperimentalWarning' },
 })

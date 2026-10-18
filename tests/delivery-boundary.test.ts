@@ -20,6 +20,7 @@ const BUS_STORE_OPEN = /DatabaseSync\(([^)]*)\)/g
 const READ_ONLY_OPEN = /readOnly:\s*true/
 const BUILTIN_REACH = /getBuiltinModule\(/
 const BUS_WRITE_STATEMENT = /\b(?:INSERT\s+INTO|CREATE\s+(?:TABLE|INDEX|TRIGGER|VIEW)|DELETE\s+FROM|DROP\s+TABLE|ALTER\s+TABLE|UPDATE\s+\w+\s+SET)\b/
+const EXPERIMENTAL_WARNING = 'ExperimentalWarning'
 const BUILD_TIMEOUT_MS = 120_000
 
 interface BundleImport { path: string, kind: string, external?: boolean }
@@ -80,7 +81,7 @@ describe('the product boundary of dist/cli.js', () => {
     ])
   })
 
-  it('the product build imports node:sqlite statically from its reader alone, opens it read-only, and the cli runs without the bus writer', async () => {
+  it('the product build imports node:sqlite statically from its reader alone, opens it read-only, and the cli runs through its own shebang without the bus writer or an ExperimentalWarning', async () => {
     const root = scratch()
     const bundle = await buildProduct(scratchBesideDependencies())
     expect(Object.keys(bundle.inputs).some(input => input.startsWith('src/'))).toBe(true)
@@ -102,8 +103,9 @@ describe('the product boundary of dist/cli.js', () => {
     writeFileSync(taken, '12\n')
     const parking = path.join(root, 'parking')
     const journal = path.join(root, 'handoff', 'ghosts.jsonl')
-    const run = spawnSync(process.execPath, [bundle.cli, 'intake', '--draft', draft, '--taken', taken, '--parking', parking, '--journal', journal, '--dir', repo, '--plain'], { cwd: root, encoding: 'utf8', env: { ...process.env, [BUS_DB_VARIABLE]: path.join(root, 'bus.db') } })
+    const run = spawnSync(bundle.cli, ['intake', '--draft', draft, '--taken', taken, '--parking', parking, '--journal', journal, '--dir', repo, '--plain'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '', [BUS_DB_VARIABLE]: path.join(root, 'bus.db') } })
     expect(run.status, run.stderr).toBe(0)
+    expect(run.stderr).not.toContain(EXPERIMENTAL_WARNING)
     expect(existsSync(path.join(parking, '13.md'))).toBe(true)
     expect(readFileSync(journal, 'utf8')).toContain('"event":"intake"')
     expect(existsSync(path.join(root, 'bus.db'))).toBe(false)
