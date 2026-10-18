@@ -8,6 +8,7 @@ const INVARIANT_WITNESS = /^(.*?) — witness: `([^`]+)`$/
 const GHOSTS_FILE = /^scripts\/ghosts\/[\w./-]+\.\w+$/
 const IMMUTABLE_PATH = /^[\w.@+-]+(?:\/[\w.@+-]+)*\/?$/
 const GHOSTS_FILE_IN_TEXT = /scripts\/ghosts\/[\w.-]+\.\w+/g
+const GHOSTS_FILE_CREATED_IN_TEXT = /(scripts\/ghosts\/[\w.-]+\.\w+)`? \(creates, (?:ghosts|plain)\)/g
 const GENERATORS = [
   { path: 'templates/attach/earlier-carriers.json', command: 'pnpm exec tsx scripts/attach/earlier-carriers.ts' },
   { path: 'contract/surface.json', command: 'pnpm contract:update' },
@@ -56,8 +57,9 @@ export function ghostsFilesRefusal(show: ShowAt, design: string, changed: string
   if (ghostsFilesText === null)
     return null
   const named = [...design.matchAll(GHOSTS_FILE_IN_TEXT)].map(found => found[0])
+  const declaredCreated = new Set([...design.matchAll(GHOSTS_FILE_CREATED_IN_TEXT)].map(found => found[1]!))
   const files = [...new Set([...named, ...changed])]
-  const ghostsFiles = files.filter(file => GHOSTS_FILE.test(file) && (changed.includes(file) || show(file) === null))
+  const ghostsFiles = files.filter(file => GHOSTS_FILE.test(file) && (changed.includes(file) || (show(file) === null && !declaredCreated.has(file))))
   return classificationRefusals(ghostsFilesText, ghostsFiles)[0] ?? null
 }
 
