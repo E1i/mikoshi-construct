@@ -40,3 +40,10 @@ the args file that holds them as `witnesses[]` and its sha256: check the file wi
 before trusting what you read, and read the brief's design from the same file when the prompt says it
 has one. You do not choose, change or add a witness, and the run is done only when each one fails on the
 base and passes after your change. If a witness cannot be satisfied as written, say so in `question`.
+
+## Command form
+
+The tree is the one your task names. Run a command in it only as `pnpm --dir <tree> run|exec <x>` or
+`git -C <tree> <x>`: no `cd`, no `&&`, no pipes, no redirects, no environment prefixes. Read and write files with
+Read, Edit and Write, never through the shell. A command this file names verbatim is run as written. A rejected
+command is not worked around: stop and return its exact text.

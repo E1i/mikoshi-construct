@@ -32,3 +32,10 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `constraints` — one constraint per entry, each one the implementer must respect.
 - `acceptance` — one verifiable criterion per entry.
 - `files` — the files to create or change.
+
+## Command form
+
+The tree is the one your task names. Run a command in it only as `pnpm --dir <tree> run|exec <x>` or
+`git -C <tree> <x>`: no `cd`, no `&&`, no pipes, no redirects, no environment prefixes. Read files with Read, never
+through the shell. A command this file names verbatim is run as written. A rejected
+command is not worked around: stop and return its exact text.
