@@ -23,6 +23,7 @@ file. This file is not owner-merged: who merges is decided in [owner-merges.md](
 | `scripts/ghosts/expect-sample.ts` | plain |
 | `scripts/ghosts/expect.ts` | plain |
 | `scripts/ghosts/handoff-check.ts` | plain |
+| `scripts/ghosts/handoff.ts` | ghosts |
 | `scripts/ghosts/hash.ts` | ghosts |
 | `scripts/ghosts/install.ts` | ghosts |
 | `scripts/ghosts/journal.ts` | ghosts |
@@ -48,6 +49,7 @@ file. This file is not owner-merged: who merges is decided in [owner-merges.md](
 | `scripts/ghosts/task-merged.ts` | ghosts |
 | `scripts/ghosts/task-start.ts` | ghosts |
 | `scripts/ghosts/tasks.ts` | ghosts |
+| `scripts/ghosts/tree.ts` | ghosts |
 | `scripts/ghosts/verdict.ts` | ghosts |
 | `scripts/ghosts/watch-ledger.ts` | plain |
 | `scripts/ghosts/watch-process.ts` | plain |
