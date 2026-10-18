@@ -362,6 +362,7 @@ interface BusCard {
   start?: Record<string, unknown>
   close?: Record<string, unknown>
   legacy?: number
+  restart?: { started: string, start: Record<string, unknown> }
 }
 
 const CHEAP_LINE = (id: number): string => `#${id} cost-bus [implement/eddies/M/cheap/owner] · depends — · blocks —`
@@ -380,9 +381,10 @@ function writeBus(file: string, cards: BusCard[]): void {
   `)
   for (const card of cards) {
     db.prepare('INSERT INTO cards (card_id, state) VALUES (?, ?)').run(card.id, 'closed')
-    if (card.line !== null)
-      db.prepare('INSERT INTO card_bodies (card_id, card_line) VALUES (?, ?)').run(card.id, card.line)
+    db.prepare('INSERT INTO card_bodies (card_id, card_line) VALUES (?, ?)').run(card.id, card.line)
     db.prepare('INSERT INTO events (ts, type, card_id, legacy, payload) VALUES (?, ?, ?, ?, ?)').run(card.started, 'card.started', card.id, card.legacy ?? 0, JSON.stringify(card.start ?? {}))
+    if (card.restart)
+      db.prepare('INSERT INTO events (ts, type, card_id, payload) VALUES (?, ?, ?, ?)').run(card.restart.started, 'card.started', card.id, JSON.stringify(card.restart.start))
     db.prepare('INSERT INTO events (ts, type, card_id, payload) VALUES (?, ?, ?, ?)').run(card.ended, 'card.closed', card.id, JSON.stringify(card.close ?? {}))
   }
   db.close()
@@ -419,6 +421,14 @@ describe('cards from the bus projections', () => {
       busCard(18, { started: '2026-10-14T00:06:00.000Z', ended: '2026-10-14T00:00:00.000Z' }),
     ])
     expect(readBusTasks(bus).map(task => task.task)).toEqual(['10'])
+  })
+
+  it('takes a restarted card\'s session and minutes from its latest start', () => {
+    const bus = path.join(root(), 'bus.db')
+    writeBus(bus, [
+      busCard(20, { start: { session: 's20-fell', worktree: '/work/mc-20' }, restart: { started: '2026-10-14T00:04:00.000Z', start: { session: 's20', worktree: '/work/mc-20' } } }),
+    ])
+    expect(readBusTasks(bus)).toEqual([{ task: '20', taskClass: 'implement/M', sessions: [{ id: 's20', project: projectKey('/work/mc-20') }], minutes: 2 }])
   })
 
   it('reads nothing from a bus path that does not exist', () => {
