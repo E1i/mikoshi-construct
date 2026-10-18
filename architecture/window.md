@@ -182,7 +182,7 @@ What stays the same from one session to the next lives here, under version contr
 - probe results: `~/.construct/scratch`.
 - judge format: a test is named `<file> › <full describe chain> › <title>`, in a judge's verdict and in the red field of
   a mutation line alike.
-- gates: D-131, D-111 (`pnpm decisions`).
+- gates: D-131, D-175 (`pnpm decisions`).
 - pnpm form: bare `pnpm <script>`, with no `cd`, no env prefix, no pipe and no redirect; a worktree run is
   `pnpm --dir <mc-N> exec|run …` and a worktree git call `git -C <mc-N> …`; `gh pr create` only with `--body-file`;
   `construct mutate` only as the global `construct mutate … --dir <mc-N>`. Subagents (brief, implementer) are denied
@@ -239,8 +239,9 @@ shares with the decisions in force (`scripts/shift/day-archive.ts`).
 
 ## Pull requests and branches
 
-A pull request of no owner-merged kind: before it, run the card's witnesses, `pnpm typecheck` and `pnpm lint`, each as
-its own command, and read the results, never chained with what they guard (D-111). The window does not run
+A pull request of no owner-merged kind: before it, run the card's witnesses, the test files listed in the card's
+touches, `pnpm typecheck` and `pnpm lint`, each as its own command, and read the results, never chained with what they
+guard (D-175). Never a whole test directory or suite. The window does not run
 `pnpm run quality`: the full quality runs only in CI, which is the proof and the merge gate, and a flake in CI is a
 re-run of that CI job, never a local quality. Then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
 then, for a briefed pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
