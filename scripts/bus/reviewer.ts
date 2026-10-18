@@ -304,7 +304,12 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
 }
 
 const WRITING_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit']
-const WRITING_COMMAND = /(?:^|[\s;&|(])(?:rm|mv|cp|touch|mkdir|rmdir|tee|truncate|chmod|ln|patch|git\s+(?:checkout|reset|clean|restore|stash|apply|commit|add|rm|mv|switch|merge|rebase|cherry-pick|pull)|sed\s+-i|(?:pnpm|npm|yarn)\s+(?:i|install|add|remove))\b|[^=!<>-]>|>>/
+const WRITING_PROGRAM = /(?:^|[\s;&|(])(?:rm|mv|cp|touch|mkdir|rmdir|tee|truncate|chmod|ln|patch|git\s+(?:checkout|reset|clean|restore|stash|apply|commit|add|rm|mv|switch|merge|rebase|cherry-pick|pull)|sed\s+-i|(?:pnpm|npm|yarn)\s+(?:i|install|add|remove)|(?:construct|miko|mikoshi-construct)\s+mutate|(?:pnpm|npm|yarn)\s+(?:run\s+)?[\w:-]*(?:render|fix|format)|(?:node|tsx|python3?)\s+-[ec]|perl\s+-[pi]?i)\b|\s--(?:fix|write)\b/
+const REDIRECTION_TO_A_FILE = /(?:^|[^=!<>-])[&\d]?>{1,2}\|?\s*(?![>&]|\/dev\/null(?:$|[\s;&|)]))\S/
+
+export function commandMayWrite(command: string): boolean {
+  return WRITING_PROGRAM.test(command) || REDIRECTION_TO_A_FILE.test(command)
+}
 
 function toolUsesOf(transcript: string): Array<{ name?: unknown, input?: { command?: unknown } }> {
   return transcript.split('\n').flatMap((line) => {
@@ -322,7 +327,7 @@ function transcriptExplainsMutation(stdoutPath: string): boolean {
   if (!existsSync(stdoutPath))
     return false
   return toolUsesOf(readFileSync(stdoutPath, 'utf8')).some(use =>
-    WRITING_TOOLS.includes(String(use.name)) || (use.name === 'Bash' && WRITING_COMMAND.test(String(use.input?.command ?? ''))))
+    WRITING_TOOLS.includes(String(use.name)) || (use.name === 'Bash' && commandMayWrite(String(use.input?.command ?? ''))))
 }
 
 function withoutPassOnMutation(review: Review, mutated: string[]): Pick<Review, 'verdict' | 'findings'> {
