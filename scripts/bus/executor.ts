@@ -15,7 +15,7 @@ import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './l
 import { Meter } from './meter.js'
 import { mergePolicy, underOwnerDecision, VERSION_BRANCH } from './policy.js'
 import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit } from './queue.js'
-import { decisionsInForceAt, expiredWindowShards, SHARD_USED, shardActive, unspentShard } from './shards.js'
+import { activeWindowShards, decisionsInForceAt, expiredWindowShards, SHARD_USED, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
@@ -188,6 +188,7 @@ export class MergeExecutor {
           ownerMergesText: ownerMergesText(meter),
           shardActive: runShard || shard !== null,
           shardUnder: shard?.under ?? null,
+          windowShard: activeWindowShards(this.parts.db, this.parts.clock())[0]?.id ?? null,
           decisions,
         },
       }
