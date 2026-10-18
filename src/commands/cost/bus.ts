@@ -8,29 +8,24 @@ const CHEAP_CONTOUR = 'cheap'
 const MS_PER_MINUTE = 60_000
 const SQLITE_EXPERIMENTAL_WARNING = 'SQLite is an experimental feature'
 
-export interface BusTask {
+interface BusTask {
   task: string
   taskClass: string
   sessions: { id: string, project: string }[]
   minutes: number
-  pr: number | null
-  tasks: number
 }
 
 interface ClosedCardRow {
   card_id: number
-  pr: number | null
   card_line: string | null
   started: string
   start_payload: string
   ended: string
   close_payload: string
-  tasks: number
 }
 
 const CLOSED_CARDS = `
-SELECT c.card_id, c.pr, b.card_line, s.ts AS started, s.payload AS start_payload, k.ts AS ended, k.payload AS close_payload,
-  (SELECT count(*) FROM tasks t WHERE t.card_id = c.card_id) AS tasks
+SELECT c.card_id, b.card_line, s.ts AS started, s.payload AS start_payload, k.ts AS ended, k.payload AS close_payload
 FROM cards c
 JOIN card_bodies b ON b.card_id = c.card_id
 JOIN events k ON k.card_id = c.card_id AND k.type = 'card.closed'
@@ -85,8 +80,6 @@ function taskOf(row: ClosedCardRow): BusTask | null {
     taskClass: `${parsed.card.kind}/${parsed.card.size}`,
     sessions: [{ id: session, project: projectKey(worktree) }],
     minutes,
-    pr: row.pr === null ? null : Number(row.pr),
-    tasks: Number(row.tasks),
   }
 }
 

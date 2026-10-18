@@ -357,8 +357,6 @@ describe('the window journal half of history', () => {
 interface BusCard {
   id: number
   line: string | null
-  pr: number | null
-  tasks: number
   started: string
   ended: string
   start?: Record<string, unknown>
@@ -369,7 +367,7 @@ interface BusCard {
 const CHEAP_LINE = (id: number): string => `#${id} cost-bus [implement/eddies/M/cheap/owner] · depends — · blocks —`
 
 function busCard(id: number, fields: Partial<BusCard> = {}): BusCard {
-  return { id, line: CHEAP_LINE(id), pr: 70 + id, tasks: 1, started: '2026-10-14T00:00:00.000Z', ended: '2026-10-14T00:06:00.000Z', start: { session: `s${id}`, worktree: `/work/mc-${id}`, branch: 'b' }, close: { verification: 'run' }, ...fields }
+  return { id, line: CHEAP_LINE(id), started: '2026-10-14T00:00:00.000Z', ended: '2026-10-14T00:06:00.000Z', start: { session: `s${id}`, worktree: `/work/mc-${id}`, branch: 'b' }, close: { verification: 'run' }, ...fields }
 }
 
 function writeBus(file: string, cards: BusCard[]): void {
@@ -377,19 +375,13 @@ function writeBus(file: string, cards: BusCard[]): void {
   const db = new DatabaseSync(file)
   db.exec(`
     CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
-    CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER);
-    CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, state TEXT);
-    CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id INTEGER NOT NULL);
+    CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT);
     CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, card_line TEXT);
   `)
   for (const card of cards) {
-    db.prepare('INSERT INTO cards (card_id, state, pr) VALUES (?, ?, ?)').run(card.id, 'closed', card.pr)
+    db.prepare('INSERT INTO cards (card_id, state) VALUES (?, ?)').run(card.id, 'closed')
     if (card.line !== null)
       db.prepare('INSERT INTO card_bodies (card_id, card_line) VALUES (?, ?)').run(card.id, card.line)
-    if (card.pr !== null)
-      db.prepare('INSERT INTO prs (pr, card_id, state) VALUES (?, ?, ?)').run(card.pr, card.id, 'merged')
-    for (let n = 0; n < card.tasks; n++)
-      db.prepare('INSERT INTO tasks (card_id) VALUES (?)').run(card.id)
     db.prepare('INSERT INTO events (ts, type, card_id, legacy, payload) VALUES (?, ?, ?, ?, ?)').run(card.started, 'card.started', card.id, card.legacy ?? 0, JSON.stringify(card.start ?? {}))
     db.prepare('INSERT INTO events (ts, type, card_id, payload) VALUES (?, ?, ?, ?)').run(card.ended, 'card.closed', card.id, JSON.stringify(card.close ?? {}))
   }
@@ -397,26 +389,20 @@ function writeBus(file: string, cards: BusCard[]): void {
 }
 
 describe('cards from the bus projections', () => {
-  it('takes a closed cheap card, its pull request and its tasks from cards, prs and tasks, with no ghosts.jsonl present', () => {
+  it('takes a closed cheap card from cards, card_bodies and its start and close events, with no ghosts.jsonl present', () => {
     const dir = root()
     const bus = path.join(dir, 'bus.db')
     const projects = path.join(dir, 'projects')
     writeBus(bus, [
-      busCard(5, { pr: 77, tasks: 2 }),
+      busCard(5),
       busCard(6, { line: '#6 ladder-card [implement/eddies/M/ladder/owner] · depends — · blocks —' }),
     ])
     writeSession(projects, '/work/mc-5', 's5', [usageLine(40, 'r1')])
-    expect(readBusTasks(bus)).toEqual([{ task: '5', taskClass: 'implement/M', sessions: [{ id: 's5', project: projectKey('/work/mc-5') }], minutes: 6, pr: 77, tasks: 2 }])
+    expect(readBusTasks(bus)).toEqual([{ task: '5', taskClass: 'implement/M', sessions: [{ id: 's5', project: projectKey('/work/mc-5') }], minutes: 6 }])
     const noJournal = path.join(dir, 'ghosts.jsonl')
     const { tasks } = readCheapTasks(path.join(dir, 'no-shifts'), noJournal, bus)
     expect(tasks).toEqual([{ task: '5', taskClass: 'implement/M', sessions: [{ id: 's5', project: projectKey('/work/mc-5') }], minutes: 6 }])
     expect(cheapRows(tasks, 'implement/M', projects)).toEqual([{ task: '5', tokens: 40, minutes: 6 }])
-  })
-
-  it('reads a card closed without a pull request with pr null', () => {
-    const bus = path.join(root(), 'bus.db')
-    writeBus(bus, [busCard(7, { pr: null, tasks: 0 })])
-    expect(readBusTasks(bus).map(task => [task.task, task.pr, task.tasks])).toEqual([['7', null, 0]])
   })
 
   it('leaves out a card the bus cannot stand behind', () => {
