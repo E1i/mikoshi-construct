@@ -563,5 +563,10 @@
     "target": "scripts/construct/check-acceptance.mjs",
     "sha256": "284ca7cce349cd2e33d2cd000450dc6f1d1a3f4ae2a65af47737b0beb3ccb759",
     "date": "2026-10-18"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "754bef53ded4353da79cd5f357bf751464b8caf37a89b3998ec894fcf24f1b8a",
+    "date": "2026-10-18"
   }
 ]

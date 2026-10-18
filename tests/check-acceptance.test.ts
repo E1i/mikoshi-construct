@@ -144,6 +144,16 @@ describe('the build of a brief\'s items', () => {
     expect(built.acceptance).toHaveLength(5)
     expect(built.invariants).toHaveLength(7)
   })
+
+  it('builds a witnessed item that begins with a quoted command after a witnessed item', () => {
+    expect(buildArgs('Acceptance: `a.test` passes — witness: `true`; `b.test` passes — witness: `true`.').acceptance).toEqual(['`a.test` passes', '`b.test` passes'])
+    expect(buildArgs('Acceptance: W1 — witness: `true`; `pnpm run quality` is green — witness: `true`.').acceptance).toHaveLength(2)
+  })
+
+  it('reports a cut-off item and an unwitnessed item in one refusal', () => {
+    const both = 'Acceptance: W1 — witness: `true`; `pnpm exec eslint`; W2 has none.'
+    expect(() => buildArgs(both)).toThrow(/an item cut off its boundary[\s\S]*no witness: W2 has none/)
+  })
 })
 
 describe('the agreed Immutable section', () => {
