@@ -8,7 +8,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
+import { applySwitch, bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
@@ -277,6 +277,80 @@ describe('pnpm bus:bg', () => {
     finally {
       clearTimeout(late)
     }
+  })
+
+  it('bus:bg --on and --off start and stop the named worker', async () => {
+    const busDir = path.join(tempRoot('bus-bg-switch-run-'), 'bus')
+    const update = busLaunches(NO_PREFLIGHT).find(launch => launch.script === 'bus:update')!
+    let running: RunningProcess[] = []
+    const startedNames: string[] = []
+    const stoppedNames: string[] = []
+    const control = {
+      processes: () => running,
+      start: (launch: DetachedLaunch): BgResult => {
+        startedNames.push(launchName(launch))
+        running = [{ pid: 900, args: `node pnpm.cjs --silent ${launchName(launch)}` }]
+        return { stdout: ['900'], stderr: [], exitCode: 0 }
+      },
+      stop: async (instance: RunningProcess, launch: DetachedLaunch): Promise<void> => {
+        stoppedNames.push(launchName(launch))
+        running = running.filter(candidate => candidate.pid !== instance.pid)
+      },
+    }
+
+    const on = await applySwitch(busDir, 'update', true, control, NO_PREFLIGHT)
+    expect(on.exitCode).toBe(0)
+    expect(switchedOn(busDir)).toEqual(['update'])
+    expect(startedNames).toEqual([launchName(update)])
+
+    await applySwitch(busDir, 'update', true, control, NO_PREFLIGHT)
+    expect(startedNames).toHaveLength(1)
+
+    const off = await applySwitch(busDir, 'update', false, control, NO_PREFLIGHT)
+    expect(off.exitCode).toBe(0)
+    expect(switchedOn(busDir)).toEqual([])
+    expect(stoppedNames).toEqual([launchName(update)])
+    expect(running).toEqual([])
+
+    const unknown = await applySwitch(busDir, 'deploy', true, control, NO_PREFLIGHT)
+    expect(unknown.exitCode).toBe(1)
+    expect(startedNames).toHaveLength(1)
+  })
+
+  it('bus:bg --on returns the output and exit code of a start that fails', async () => {
+    const busDir = path.join(tempRoot('bus-bg-switch-fail-'), 'bus')
+    const control = {
+      processes: () => [],
+      start: (): BgResult => ({ stdout: ['out line'], stderr: ['err line'], exitCode: 3 }),
+      stop: async (): Promise<void> => {},
+    }
+
+    const failed = await applySwitch(busDir, 'update', true, control, NO_PREFLIGHT)
+
+    expect(failed.exitCode).toBe(3)
+    expect(failed.stderr).toEqual(['err line'])
+    expect(failed.stdout).toContain('out line')
+    expect(failed.stdout).toContain(switchCommand(busDir, 'update', true).stdout[0])
+  })
+
+  it('bus:bg --off on a worker that is not running says so and stops nothing', async () => {
+    const busDir = path.join(tempRoot('bus-bg-switch-idle-'), 'bus')
+    const update = busLaunches(NO_PREFLIGHT).find(launch => launch.script === 'bus:update')!
+    let stops = 0
+    const control = {
+      processes: () => [],
+      start: (): BgResult => ({ stdout: [], stderr: [], exitCode: 0 }),
+      stop: async (): Promise<void> => {
+        stops++
+      },
+    }
+
+    const off = await applySwitch(busDir, 'update', false, control, NO_PREFLIGHT)
+
+    expect(off.exitCode).toBe(0)
+    expect(off.stdout[0]).toBe(switchCommand(busDir, 'update', false).stdout[0])
+    expect(off.stdout.at(-1)).toBe(`${PREFIX}${launchName(update)} was not running`)
+    expect(stops).toBe(0)
   })
 
   it('bus:bg --on and --off take one known worker and write the switch file', () => {
