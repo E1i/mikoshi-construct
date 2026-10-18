@@ -8,4 +8,8 @@ number=$(printf '%s\n' "$prompt" | sed -n 's/.*STUB-PR-\([0-9][0-9]*\).*/\1/p' |
 if [ -n "$number" ]; then
   sed "s/^PR #1\$/PR #$number/" "$report" > "$report.tmp" && mv "$report.tmp" "$report"
 fi
-case "$prompt" in *STUB-PROBE-CLOSE*) printf 'Report: %s/probe.md\nverification: run\n' "$PWD" >> "$report" ;; esac
+case "$prompt" in *STUB-PROBE-CLOSE*)
+  reports="$(dirname "$CONSTRUCT_HANDOFF_DIR")/reports"
+  mkdir -p "$reports" && : > "$reports/probe.md"
+  printf 'Report: %s/probe.md\nverification: run\n' "$reports" >> "$report" ;;
+esac

@@ -224,12 +224,20 @@ function probeRun(reportLines: string[]): ShiftDeps['run'] {
   }
 }
 
+function reportUnderConstruct(world: World, name: string): string {
+  const reports = path.join(world.root, 'reports')
+  mkdirSync(reports, { recursive: true })
+  const file = path.join(reports, name)
+  writeFileSync(file, '')
+  return file
+}
+
 describe('the shift closes a probe from its report', () => {
   it('closes a probe by its report line', async () => {
     const world = newWorld([], [{ id: 3, kind: PROBE }])
     const { gh, calls } = ghMerged({})
     const out: string[] = []
-    const written = path.join(world.root, 'probe-3.md')
+    const written = reportUnderConstruct(world, 'probe-3.md')
     await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, out, []), run: probeRun(['result: measured', 'no PR', `Report: ${written}`, 'verification: measurement']) })
     const closing = readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event === 'path' && 'report' in line)
     expect(closing).toMatchObject([{ task: '3', report: written, verification: 'measurement' }])
@@ -237,10 +245,22 @@ describe('the shift closes a probe from its report', () => {
     expect(calls.filter(args => args[1] === 'merge')).toEqual([])
   })
 
+  it('a probe whose report lies outside the construct directory is not closed', async () => {
+    const world = newWorld([], [{ id: 3, kind: PROBE }])
+    const { gh } = ghMerged({})
+    const out: string[] = []
+    const outside = path.join(world.root, 'probe-3.md')
+    writeFileSync(outside, '')
+    await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, out, []), run: probeRun(['no PR', `Report: ${outside}`, 'verification: run']) })
+    const closing = readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event === 'path' && 'report' in line)
+    expect(closing).toEqual([])
+    expect(out.some(line => line.includes(`#3 not closed: --report ${outside} is outside`))).toBe(true)
+  })
+
   it('a closed probe is not taken again', async () => {
     const world = newWorld([], [{ id: 3, kind: PROBE }])
     const { gh } = ghMerged({})
-    await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, [], []), run: probeRun(['no PR', 'result: report written to `probe-3.md`.', 'verification: run']) })
+    await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, [], []), run: probeRun(['no PR', `result: report written to \`${reportUnderConstruct(world, 'probe-3.md')}\`.`, 'verification: run']) })
     const next: string[] = []
     const rerun = path.join(world.root, 'shift-2')
     mkdirSync(rerun)

@@ -45,7 +45,7 @@ import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
 import { tailLines } from '../ghosts/preflight-trees.js'
-import { PREFIX as CLOSE_PREFIX, prBodyOf, runTaskClose } from '../ghosts/task-close.js'
+import { PREFIX as CLOSE_PREFIX, prBodyOf, realpathOrSelf, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { busCardStates, cardStartedLines, startedTree } from '../ghosts/tasks.js'
@@ -382,6 +382,8 @@ function closeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
     append: deps.append,
     now: deps.now,
     handoffDir: deps.handoffDir,
+    constructDir: path.dirname(deps.handoffDir),
+    realpath: realpathOrSelf,
     exists: deps.exists,
     session: session.id,
     projectsDir: deps.projectsDir,

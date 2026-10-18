@@ -18,6 +18,8 @@ function closeCard(journal: string[], id: string): string[] {
     append: () => undefined,
     now: () => new Date('2026-10-05T09:00:00.000Z'),
     handoffDir: '/handoff',
+    constructDir: '/',
+    realpath: file => file,
     exists: () => false,
     session: undefined,
     projectsDir: '/projects',
