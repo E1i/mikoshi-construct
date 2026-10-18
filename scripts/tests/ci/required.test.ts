@@ -95,10 +95,12 @@ describe('ci.yml wiring', () => {
   it('starts the preset matrix beside the quality jobs rather than after them', () => {
     const acceptanceNeeds = [workflow.jobs.acceptance!.needs].flat()
     expect(workflow.jobs.package!.needs).toBeUndefined()
-    for (const job of ['checks', 'lint', 'typecheck', 'vitest', 'docs']) {
+    for (const job of ['checks', 'lint', 'typecheck', 'docs']) {
       expect(workflow.jobs[job]!.needs).toBeUndefined()
       expect(acceptanceNeeds).not.toContain(job)
     }
+    expect([workflow.jobs.vitest!.needs].flat()).toEqual([CLASSIFY_JOB])
+    expect(acceptanceNeeds).not.toContain('vitest')
   })
 
   it('names no conditional job by a matrix expression, which a skipped job shows unexpanded', () => {
