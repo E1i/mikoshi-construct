@@ -1,5 +1,6 @@
 import type { MergeWorkerParts } from '../../bus/merge-worker.js'
 import type { DetectionMode, NodeStep } from '../../bus/node.js'
+import type { UpdateOutcome } from '../../bus/update-executor.js'
 import type { ShardDeps } from '../../shift/shard.js'
 import type { FakePull } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
@@ -10,14 +11,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { decisionsIntake } from '../../bus/decisions-import.js'
+import { recordDecision } from '../../bus/decisions.js'
 import { ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
+import { leaseNext } from '../../bus/lease.js'
 import { firstLiveVerdict, MergeNode, NoLiveVerdict, runMergeWorker } from '../../bus/merge-worker.js'
 import { DRY_RUN_ACTOR } from '../../bus/review-worker.js'
 import { decisionsInForceAt, SHARD_ISSUED, SHARD_USED, unspentShard } from '../../bus/shards.js'
+import { UpdateExecutor } from '../../bus/update-executor.js'
 import { runShard } from '../../shift/shard.js'
 import { cardBody, sha } from './github-fake.js'
-import { eventCount, eventsOf, liveBench } from './merge-bench.js'
+import { eventCount, eventsOf, liveBench, spendReviewRounds } from './merge-bench.js'
+import { detectUpdate } from './update-detection.js'
 
 const UNTIL_MS = Date.parse('2026-10-09T13:00:00.000Z')
 const D82 = '# Owner decisions\n\n- D-82 · 2026-10-09 ~11:00Z — Delegation: where the bus refuses on authority, the bus executor merges under a Shard --under this decision. until 2026-10-09T13:00Z\n'
@@ -87,6 +92,50 @@ async function step(node: MergeNode): Promise<NodeStep | null> {
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })
   return node.getState().lastStep
 }
+
+const ROUND_LIMITED_PR = 970
+const DECIDED_HEAD = sha('a')
+const UPDATED_HEAD = sha('d')
+
+function decidedAndBehind(): MergeBench & { update: () => UpdateOutcome } {
+  const bench = liveBench()
+  bench.gitHub.open({ number: ROUND_LIMITED_PR, head: DECIDED_HEAD, review: 'failure', mergeable_state: 'behind', files: ['scripts/bus/queue.ts'] })
+  spendReviewRounds(bench, ROUND_LIMITED_PR, DECIDED_HEAD)
+  recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 168, text: `[owner] allow-merge PR #${ROUND_LIMITED_PR} at ${DECIDED_HEAD} past the round limit`, cards: [] })
+  bench.tick()
+  detectUpdate(bench)
+  const executor = new UpdateExecutor({ db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  return { ...bench, update: () => executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
+}
+
+describe('an allow-merge across an update-branch', () => {
+  it('an update-branch after an allow-merge is merged by the bus without a new decision', () => {
+    const bench = decidedAndBehind()
+    expect(bench.update()).toMatchObject({ kind: 'updated', from: DECIDED_HEAD, to: UPDATED_HEAD, carry: { clean: true } })
+    bench.tick()
+    const lease = bench.lease()
+
+    expect(lease).toMatchObject({ queue: 'merge', head: UPDATED_HEAD })
+    expect(bench.merge(lease!)).toMatchObject({ kind: 'merged', rule: 'owner_after_round_limit' })
+    expect(bench.gitHub.puts.filter(put => put.endpoint.endsWith('/merge')).map(put => put.fields.sha)).toEqual([UPDATED_HEAD])
+    bench.close()
+  })
+
+  it('a new commit that changes code voids the allow-merge', () => {
+    const changedByTheUpdate = decidedAndBehind()
+    changedByTheUpdate.gitHub.updatedPatches = { 'scripts/bus/queue.ts': '@@ -1,2 +1,2 @@ a line main also changed' }
+    expect(changedByTheUpdate.update()).toMatchObject({ kind: 'updated', to: UPDATED_HEAD, carry: { clean: false } })
+    changedByTheUpdate.tick()
+    expect(changedByTheUpdate.lease()).toBeNull()
+    changedByTheUpdate.close()
+
+    const pushed = decidedAndBehind()
+    pushed.gitHub.open({ number: ROUND_LIMITED_PR, head: sha('e'), review: 'failure', files: ['scripts/bus/queue.ts'] })
+    pushed.tick()
+    expect(pushed.lease()).toBeNull()
+    pushed.close()
+  })
+})
 
 describe('the merge worker', () => {
   it('the merge worker refuses to switch on before the first live review verdict', async () => {

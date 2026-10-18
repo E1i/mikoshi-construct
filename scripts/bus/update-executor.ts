@@ -12,8 +12,8 @@ import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
 import { MAIN_BRANCH, MERGEABLE_OF_STATE, verdictOf } from './snapshot.js'
+import { UPDATE_DONE } from './update-done.js'
 
-export const UPDATE_DONE = 'update.done'
 export const UPDATED_STATUS = 202
 export const STALE_HEAD_ON_UPDATE = 422
 export const HEAD_READS = 5
@@ -29,7 +29,7 @@ export interface UpdateDenial {
   detail: string
 }
 
-export type Carry = { carried: VerdictOnHead } | { carried: null, why: string }
+export type Carry = ({ carried: VerdictOnHead } | { carried: null, why: string }) & { clean: boolean }
 
 export type UpdateOutcome
   = | { kind: 'updated', taskKey: string, from: string, to: string | null, carry: Carry }
@@ -180,29 +180,32 @@ export class UpdateExecutor {
     return poll.kind === 'moved' ? poll.head : null
   }
 
-  private carry(lease: Lease, before: Before, to: string | null): Carry {
-    if (to === null)
-      return { carried: null, why: `the head of #${lease.pr} had not moved after ${HEAD_READS} reads` }
-    if (before.verdict === null)
-      return { carried: null, why: `${lease.head} had no verdict to carry` }
-    let unclean: string | null
+  private unclean(lease: Lease, before: Before, to: string): string | null {
     try {
       const meter = this.meter()
-      unclean = cleanUpdate({ from: lease.head!, to, parents: parentsOf(meter, to), before: before.files, after: diffOf(meter, lease.pr!) })
+      return cleanUpdate({ from: lease.head!, to, parents: parentsOf(meter, to), before: before.files, after: diffOf(meter, lease.pr!) })
     }
     catch (error) {
-      unclean = messageOf(error)
+      return messageOf(error)
     }
+  }
+
+  private carry(lease: Lease, before: Before, to: string | null): Carry {
+    if (to === null)
+      return { carried: null, why: `the head of #${lease.pr} had not moved after ${HEAD_READS} reads`, clean: false }
+    const unclean = this.unclean(lease, before, to)
     if (unclean !== null)
-      return { carried: null, why: unclean }
+      return { carried: null, why: unclean, clean: false }
+    if (before.verdict === null)
+      return { carried: null, why: `${lease.head} had no verdict to carry`, clean: true }
     assertHeld(this.parts.db, lease)
     try {
       this.parts.publish({ commit: to, state: STATE_OF_VERDICT[before.verdict], context: REVIEW_STATUS_CONTEXT, description: `carried from ${lease.head} by a clean update-branch` })
     }
     catch (error) {
-      return { carried: null, why: messageOf(error) }
+      return { carried: null, why: messageOf(error), clean: true }
     }
-    return { carried: before.verdict }
+    return { carried: before.verdict, clean: true }
   }
 
   private updated(lease: Lease, before: Before): UpdateOutcome {
