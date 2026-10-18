@@ -7,6 +7,7 @@ import type { Role, RoleLease } from './role.js'
 import { CLOSED_CARD, DROPPED_CARD, RUNNING_CARD } from './card-automaton.js'
 import { chainProcess, stopChain } from './chain-process.js'
 import { chainOfCard, chainOfDir, observeChain } from './chain.js'
+import { inTransaction } from './db.js'
 import { messageOf } from './executor.js'
 import { CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
@@ -157,17 +158,29 @@ export class RestartExecutor {
     return this.parts.db.prepare(CARD_RUNNING).get(cardId) !== undefined
   }
 
-  private handed(lease: Lease, seen: ChainRow, boundary: boolean): RestartOutcome {
-    assertHeld(this.parts.db, lease)
-    const chain = chainOfDir(this.parts.db, seen.dir)
-    if (chain === undefined || (boundary && chain.boundary === 0))
-      return this.waiting(lease, seen, 'not_at_boundary')
-    try {
+  private stoppedAtTheBoundary(lease: Lease, seen: ChainRow, boundary: boolean): ChainRow | null {
+    return inTransaction(this.parts.db, () => {
+      assertHeld(this.parts.db, lease)
+      const chain = chainOfDir(this.parts.db, seen.dir)
+      if (chain === undefined || (boundary && chain.boundary === 0))
+        return null
       stopChain(chain, this.parts.processes)
+      return chain
+    })
+  }
+
+  private handed(lease: Lease, seen: ChainRow, boundary: boolean): RestartOutcome {
+    let chain: ChainRow | null
+    try {
+      chain = this.stoppedAtTheBoundary(lease, seen, boundary)
     }
     catch (error) {
+      if (error instanceof StaleLease)
+        throw error
       return this.denied(lease, 'stop_failed', messageOf(error))
     }
+    if (chain === null)
+      return this.waiting(lease, seen, 'not_at_boundary')
     this.observe(lease, chain, 'stopped')
     const cardStopped = this.cardRunning(chain.card_id)
     const events: BusEvent[] = cardStopped

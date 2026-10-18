@@ -192,6 +192,7 @@ describe('the restart queue', () => {
     expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'waiting', taskKey: restart(), dir: DIR, why: 'not_at_boundary' })
     expect(bench.signalled).toEqual([])
     expect(eventsOf(bench.db, 'chain.restarted')).toEqual([])
+    expect(bench.db.prepare('SELECT state, boundary FROM chains WHERE dir = ?').get(DIR)).toEqual({ state: 'running', boundary: 0 })
     bench.close()
   })
 

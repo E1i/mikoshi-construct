@@ -93,18 +93,21 @@ export class LaunchNode extends Node<LaunchStep> {
 
   stopOverdue(): number[] {
     const stopped: number[] = []
+    if (this.parts.mode !== 'live')
+      return stopped
     for (const start of this.db.prepare(RUNNING_STARTS).all() as unknown as RunningStart[]) {
       const card = startedCardOf(start.payload)
       if (card === null || this.parts.clock().getTime() - Date.parse(start.ts) < LAUNCH_LIMIT_MS)
         continue
       if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'live')
         continue
+      this.starter.stop(card)
+      if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
+        continue
       const detail = `time-limit: card #${start.card_id} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}`
       const recorded = appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:time-limit:${start.dedupe_key}`, payload: { reason: 'fault', detail }, legacy: false })
-      if (!recorded)
-        continue
-      this.starter.stop(card)
-      stopped.push(start.card_id)
+      if (recorded)
+        stopped.push(start.card_id)
     }
     return stopped
   }

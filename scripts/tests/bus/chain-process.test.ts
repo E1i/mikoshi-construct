@@ -94,6 +94,17 @@ describe('stopping a running chain before its restart', () => {
     expect(other.signalled).toEqual([])
   })
 
+  it('a chain leader is read only at its recorded pid, so a stranger naming the dir elsewhere is never signalled', () => {
+    const signalled: number[] = []
+    const table: ProcessTable = {
+      commandLine: pid => pid === 4242 ? null : 'node /opt/runner.js /shift/lane-1',
+      signalGroup: leader => signalled.push(leader),
+    }
+    expect(chainProcess(chainRow('/shift/lane-1', 4242), table)).toBe('gone')
+    stopChain(chainRow('/shift/lane-1', 4242), table)
+    expect(signalled).toEqual([])
+  })
+
   it('a launched session is live only while its group leader names its session', () => {
     expect(launchProcess({ pgid: 4242, session: 'session-1' }, fakeTable('sh -c claude shift -p --session-id session-1').table)).toBe('live')
     expect(launchProcess({ pgid: 4242, session: 'session-1' }, fakeTable('/usr/bin/vim notes.md').table)).toBe('foreign')

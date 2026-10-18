@@ -352,16 +352,16 @@ describe('the launch queue', () => {
   describe('the time limit of a launched session', () => {
     const LIMIT_MS = LAUNCH_LIMIT_MINUTES * 60_000
 
-    function runningCard(commandLine: string) {
-      const starter = new FakeStarter()
+    function runningCard(commandLine: string | ((starter: FakeStarter) => string), mode: 'shadow' | 'live' = 'live', answer?: (card: QueuedCard) => CardStart) {
+      const starter = new FakeStarter(answer)
       const bench = launchBench(starter)
       bench.admit(947, 'lane-a')
       bench.tick()
       const startedAt = bench.clock.now().getTime()
       expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
       bench.tick()
-      const processes: ProcessTable = { commandLine: () => commandLine, signalGroup: () => {} }
-      const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'shadow', env: {}, processes })
+      const processes: ProcessTable = { commandLine: () => typeof commandLine === 'string' ? commandLine : commandLine(starter), signalGroup: () => {} }
+      const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode, env: {}, processes })
       const advanceToLimitPlus = (offsetMs: number): void => bench.clock.advance(startedAt + LIMIT_MS + offsetMs - bench.clock.now().getTime())
       return { bench, starter, node, advanceToLimitPlus }
     }
@@ -369,7 +369,7 @@ describe('the launch queue', () => {
     const timeLimitStops = (bench: ReturnType<typeof launchBench>): unknown[] => eventsOf(bench.db, CARD_STOPPED).filter(payload => String(payload.detail).startsWith('time-limit'))
 
     it('stops a live session at the limit once and records time-limit once', () => {
-      const { bench, starter, node, advanceToLimitPlus } = runningCard('sh -c claude -p --session-id s-947')
+      const { bench, starter, node, advanceToLimitPlus } = runningCard(starter => starter.stops.length > 0 ? '' : 'sh -c claude -p --session-id s-947')
 
       advanceToLimitPlus(-1)
       expect(node.stopOverdue()).toEqual([])
@@ -381,6 +381,48 @@ describe('the launch queue', () => {
       expect(starter.stops.map(card => card.pgid)).toEqual([4242])
       expect(timeLimitStops(bench)).toHaveLength(1)
       expect(timeLimitStops(bench)).toMatchObject([{ reason: 'fault' }])
+      bench.close()
+    })
+
+    it('stops nothing and records nothing in shadow mode', () => {
+      const { bench, starter, node, advanceToLimitPlus } = runningCard('sh -c claude -p --session-id s-947', 'shadow')
+
+      advanceToLimitPlus(0)
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toEqual([])
+      expect(timeLimitStops(bench)).toEqual([])
+      bench.close()
+    })
+
+    it('records time-limit only once the process reads gone after the stop', () => {
+      const { bench, starter, node, advanceToLimitPlus } = runningCard(starter => starter.stops.length > 0 ? '' : 'sh -c claude -p --session-id s-947')
+
+      advanceToLimitPlus(0)
+      expect(node.stopOverdue()).toEqual([947])
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toHaveLength(1)
+      expect(timeLimitStops(bench)).toHaveLength(1)
+      bench.close()
+    })
+
+    it('a kill that does not take records nothing and is tried again on the next pause', () => {
+      const { bench, starter, node, advanceToLimitPlus } = runningCard('sh -c claude -p --session-id s-947')
+
+      advanceToLimitPlus(0)
+      expect(node.stopOverdue()).toEqual([])
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toHaveLength(2)
+      expect(timeLimitStops(bench)).toEqual([])
+      bench.close()
+    })
+
+    it('skips a running card whose card.started payload is not a whole started card', () => {
+      const { bench, starter, node, advanceToLimitPlus } = runningCard('sh -c claude -p --session-id s-947', 'live', () => ({ kind: 'started', card: { session: 's-947' } as StartedCard }))
+
+      advanceToLimitPlus(0)
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toEqual([])
+      expect(timeLimitStops(bench)).toEqual([])
       bench.close()
     })
 
