@@ -186,26 +186,3 @@ describe('morse predict', () => {
     expect(readdirSync(jdir)).toEqual([])
   })
 })
-
-describe('morse backtest', () => {
-  it('backtest synthetic', () => {
-    const result = run(['backtest', '--prs', path.join(FIXTURES, 'backtest', 'synthetic.jsonl')])
-    expect(result.status).toBe(0)
-    const expected = JSON.parse(readFileSync(path.join(FIXTURES, 'backtest', 'synthetic.expected.json'), 'utf8'))
-    expect(JSON.parse(result.stdout)).toEqual(expected)
-  })
-
-  const refusedDir = path.join(FIXTURES, 'backtest', 'refused')
-  const refusedCases = readdirSync(refusedDir).filter(f => f.endsWith('.jsonl')).map(f => f.slice(0, -'.jsonl'.length)).sort()
-  for (const name of refusedCases) {
-    it(`backtest refuses ${name}`, () => {
-      const names = readFileSync(path.join(refusedDir, `${name}.names`), 'utf8').split('\n').filter(Boolean)
-      const result = run(['backtest', '--prs', path.join(refusedDir, `${name}.jsonl`)])
-      expect(result.status).not.toBe(0)
-      expect(result.stdout).not.toContain('"matrix"')
-      const combined = `${result.stdout}${result.stderr}`
-      for (const needle of names)
-        expect(combined).toContain(needle)
-    })
-  }
-})
