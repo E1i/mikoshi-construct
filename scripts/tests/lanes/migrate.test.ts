@@ -1,5 +1,5 @@
 import type { ChainState } from '../../bus/chain.js'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -140,6 +140,26 @@ describe('the lane migration', () => {
     expect(readLaneJson(target('lane-notes')).touches).toBe(UNKNOWN)
     expect(readLaneJson(target('lane-mixed')).touches).toBe(UNKNOWN)
     expect(readFileSync(path.join(target('lane-notes'), 'readme.txt'), 'utf8')).toBe('note\n')
+  })
+
+  it('a write that fails mid-migration surfaces its error, keeps the moves before it, and a second run completes the migration', () => {
+    const parking = parkingRoot()
+    park(parking, '2026-10-10-a', 607)
+    park(parking, 'lane-x', 608)
+    chmodSync(path.join(parking, 'lane-x'), 0o555)
+    try {
+      expect(() => migrate(parking, [])).toThrow(/EACCES/)
+    }
+    finally {
+      chmodSync(path.join(parking, 'lane-02'), 0o755)
+    }
+    expect(readLaneJson(path.join(parking, 'lane-01')).touches).toEqual(['scripts/c607.ts'])
+    expect(existsSync(path.join(parking, 'lane-02', 'lane.json'))).toBe(false)
+    expect(laneCards(path.join(parking, 'lane-02'))).toEqual(['608.md'])
+    const moves = migrate(parking, [])
+    expect(moves.map(move => move.kind === 'rename' ? [path.basename(move.from), path.basename(move.to)] : [])).toEqual([['lane-02', 'lane-03']])
+    expect(readLaneJson(path.join(parking, 'lane-03')).touches).toEqual(['scripts/c608.ts'])
+    expect([...lanesWithCards(parking).keys()].sort()).toEqual(['lane-01', 'lane-03'])
   })
 
   it('the live lanes are the parking of every chain in the bus that has not stopped', () => {
