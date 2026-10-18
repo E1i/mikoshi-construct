@@ -17,7 +17,7 @@ export function namesTheRecord(commandLine: string, token: string): boolean {
 
 function processOf(table: ProcessTable, pid: number, token: string): ChainProcess {
   const commandLine = table.commandLine(pid)
-  if (commandLine === null || commandLine === '')
+  if (commandLine === null)
     return 'gone'
   return namesTheRecord(commandLine, token) ? 'live' : 'foreign'
 }

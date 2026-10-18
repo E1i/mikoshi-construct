@@ -6,6 +6,7 @@ import type { World } from '../shift/fixtures/autopilot-world.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent } from '../../bus/db.js'
@@ -193,6 +194,30 @@ describe('the restart queue', () => {
     expect(bench.signalled).toEqual([])
     expect(eventsOf(bench.db, 'chain.restarted')).toEqual([])
     expect(bench.db.prepare('SELECT state, boundary FROM chains WHERE dir = ?').get(DIR)).toEqual({ state: 'running', boundary: 0 })
+    bench.close()
+  })
+
+  it('the boundary stop holds the write lock while the group is signalled, so the chain cannot leave its boundary mid-stop', () => {
+    const bench = restartBench()
+    bench.observe({ leader: LEADER })
+    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.tick()
+    const other = new DatabaseSync(bench.busPath)
+    other.exec('PRAGMA busy_timeout = 0')
+    const refusals: string[] = []
+    bench.processes.signalGroup = () => {
+      try {
+        other.prepare('UPDATE chains SET boundary = 0 WHERE dir = ?').run(DIR)
+        refusals.push('written')
+      }
+      catch (error) {
+        refusals.push(error instanceof Error ? error.message : String(error))
+      }
+    }
+
+    expect(bench.restart(bench.leaseRestart()!)).toMatchObject({ kind: 'handed', dir: DIR })
+    expect(refusals).toEqual(['database is locked'])
+    other.close()
     bench.close()
   })
 
