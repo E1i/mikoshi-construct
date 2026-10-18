@@ -110,7 +110,39 @@ describe('the lane migration', () => {
     expect(planMigration(parking)).toHaveLength(6)
   })
 
-  it('the live lanes are the parking of every running or waiting chain in the bus', () => {
+  it('a legacy lane-NN without lane.json is never the target of another lane, whatever the order of the moves', () => {
+    const parking = parkingRoot()
+    park(parking, '2026-10-10-a', 607)
+    park(parking, '2026-10-10-b', 608)
+    park(parking, 'lane-02', 609)
+    const before = new Map(['2026-10-10-a', '2026-10-10-b', 'lane-02'].map(lane => [lane, laneCards(path.join(parking, lane))]))
+    const moves = migrate(parking, [])
+    const targets = moves.flatMap(move => move.kind === 'rename' ? [path.basename(move.to)] : [])
+    expect(targets).toEqual(['lane-03', 'lane-04', 'lane-05'])
+    const after = lanesWithCards(parking)
+    for (const move of moves) {
+      if (move.kind === 'rename')
+        expect(after.get(path.basename(move.to))).toEqual(before.get(path.basename(move.from)))
+    }
+  })
+
+  it('a lane with files but no card, or with one card whose touches are missing, gets touches unknown', () => {
+    const parking = parkingRoot()
+    mkdirSync(path.join(parking, 'lane-notes'))
+    writeFileSync(path.join(parking, 'lane-notes', 'readme.txt'), 'note\n')
+    park(parking, 'lane-mixed', 700)
+    park(parking, 'lane-mixed', 701, null)
+    const moves = migrate(parking, [])
+    const target = (from: string): string => {
+      const move = moves.find(candidate => path.basename(candidate.from) === from)
+      return move?.kind === 'rename' ? move.to : ''
+    }
+    expect(readLaneJson(target('lane-notes')).touches).toBe(UNKNOWN)
+    expect(readLaneJson(target('lane-mixed')).touches).toBe(UNKNOWN)
+    expect(readFileSync(path.join(target('lane-notes'), 'readme.txt'), 'utf8')).toBe('note\n')
+  })
+
+  it('the live lanes are the parking of every chain in the bus that has not stopped', () => {
     const db = openBus(path.join(parkingRoot(), 'bus.db'))
     const chain = (dir: string, cardId: number, parking: string, state: ChainState): void => {
       observeChain(db, '2026-10-18T12:00:00.000Z', 'worker:chain:c1', { dir, parking, cardId, sha: 'a'.repeat(40), pid: 10 + cardId, leader: null, boundary: false, state, ...(state === 'waiting' ? { waitingOn: [9] } : {}) })
@@ -118,7 +150,8 @@ describe('the lane migration', () => {
     chain('/s/a', 1, '/p/lane-bus-5', 'running')
     chain('/s/b', 2, '/p/lane-miko-1', 'waiting')
     chain('/s/c', 3, '/p/lane-1', 'stopped')
-    expect(liveChainLanes(db).sort()).toEqual(['/p/lane-bus-5', '/p/lane-miko-1'])
+    chain('/s/d', 4, '/p/2026-10-10-a', 'fault')
+    expect(liveChainLanes(db).sort()).toEqual(['/p/2026-10-10-a', '/p/lane-bus-5', '/p/lane-miko-1'])
     db.close()
   })
 })

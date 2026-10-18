@@ -35,6 +35,8 @@ export function laneCards(lane: string): string[] {
 }
 
 function touchesOf(lane: string, cards: string[]): LaneJson['touches'] {
+  if (cards.length === 0)
+    return UNKNOWN
   const touches = new Set<string>()
   for (const card of cards) {
     const parsed = parseParkingFile(card, readFileSync(path.join(lane, card), 'utf8'))
@@ -47,7 +49,7 @@ function touchesOf(lane: string, cards: string[]): LaneJson['touches'] {
 
 export function planMigration(parking: string): LaneMove[] {
   const names = laneDirs(parking)
-  let next = Math.max(0, ...names.map(name => isLane(path.join(parking, name)) ? laneNumber(name) ?? 0 : 0)) + 1
+  let next = Math.max(0, ...names.map(name => laneNumber(name) ?? 0)) + 1
   return names.filter(name => isLegacyLane(parking, name)).sort().map((name): LaneMove => {
     const from = path.join(parking, name)
     if (readdirSync(from).length === 0)
@@ -76,7 +78,7 @@ export function migrate(parking: string, liveLanes: readonly string[]): LaneMove
 }
 
 export function liveChainLanes(db: DatabaseSync): string[] {
-  const rows = db.prepare(`SELECT DISTINCT parking FROM chains WHERE state IN ('running', 'waiting')`).all() as unknown as { parking: string }[]
+  const rows = db.prepare(`SELECT DISTINCT parking FROM chains WHERE state != 'stopped'`).all() as unknown as { parking: string }[]
   return rows.map(row => row.parking)
 }
 
