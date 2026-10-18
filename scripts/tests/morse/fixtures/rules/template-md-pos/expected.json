@@ -2,6 +2,7 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "templates/base/architecture/principles.md"
+    "R1 templates/base/architecture/principles.md: what init, attach, sync or detach write into another repository",
+    "no test beside: templates/base/architecture/principles.md"
   ]
 }

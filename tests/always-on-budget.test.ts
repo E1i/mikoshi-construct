@@ -14,6 +14,9 @@ const BUDGET_CHANGED_ONLY_IN_AN_OWNER_PR: Record<string, number> = {
   'architecture/window-core.md': 3_695,
 }
 
+const WINDOW_MD = 'architecture/window.md'
+const WINDOW_MD_BUDGET_CHANGED_ONLY_IN_AN_OWNER_PR = 57_060
+
 function read(file: string): string {
   return readFileSync(path.join(root, file), 'utf8')
 }
@@ -38,6 +41,10 @@ describe('the always-on text stays inside a fixed budget', () => {
     const budget = BUDGET_CHANGED_ONLY_IN_AN_OWNER_PR[file]
     expect(budget, `${file} is loaded in every session and has no budget`).toBeDefined()
     expect(read(file).length).toBeLessThanOrEqual(budget)
+  })
+
+  it(`keeps ${WINDOW_MD} within its character budget`, () => {
+    expect(read(WINDOW_MD).length).toBeLessThanOrEqual(WINDOW_MD_BUDGET_CHANGED_ONLY_IN_AN_OWNER_PR)
   })
 
   it('budgets no file that is not loaded in every session', () => {

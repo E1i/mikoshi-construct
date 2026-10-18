@@ -1,8 +1,12 @@
+import { riskOf } from '../../src/card/risk.js'
+
 export type FileStatus = 'A' | 'M' | 'D'
+
+export const TOUCHED = 'touch'
 
 export interface ChangedFile {
   path: string
-  status: FileStatus
+  status: FileStatus | typeof TOUCHED
   additions: number | null
   deletions: number | null
 }
@@ -66,14 +70,31 @@ function sortedPaths(files: ChangedFile[]): string[] {
   return files.map(file => file.path).sort()
 }
 
+const CRITICAL_RISK = 'R1'
+const UNTESTED = 'no test beside'
+const UNDEFINED_TASK = 'the card carries unclear: lines'
+
 function testShrunk(file: ChangedFile): boolean {
-  if (kindOf(file.path) !== 'test')
+  if (kindOf(file.path) !== 'test' || file.status === TOUCHED)
     return false
   if (file.status === 'D')
     return true
   if (file.deletions === null)
     return true
   return file.deletions > 0
+}
+
+function criticalGrounds(files: ChangedFile[]): string[] {
+  return files.flatMap((file) => {
+    const risk = riskOf(file.path)
+    return risk.level === CRITICAL_RISK ? [`${CRITICAL_RISK} ${file.path}: ${risk.why}`] : []
+  })
+}
+
+function untestedGrounds(files: ChangedFile[]): string[] {
+  if (files.some(file => kindOf(file.path) === 'test'))
+    return []
+  return files.filter(file => kindOf(file.path) !== 'docs').map(file => `${UNTESTED}: ${file.path}`)
 }
 
 export const RULES = [
@@ -113,9 +134,14 @@ export const RULES = [
     id: 'doubt',
     verdict: 'ladder',
     fires: (files) => {
-      const matches = files.filter(file => kindOf(file.path) !== 'docs')
-      return matches.length > 0 ? sortedPaths(matches) : null
+      const grounds = [...criticalGrounds(files), ...untestedGrounds(files)].sort()
+      return grounds.length > 0 ? grounds : null
     },
+  },
+  {
+    id: 'no-ground',
+    verdict: 'cheap',
+    fires: files => sortedPaths(files),
   },
 ] as const satisfies readonly Rule[]
 
@@ -132,4 +158,10 @@ export function classify(files: ChangedFile[], rules: readonly Rule<RuleId>[] = 
   }
 
   throw new MorseRefusal('no rule decided the diff')
+}
+
+export function classifyTouches(touches: readonly string[], unclear: boolean): Prediction {
+  if (unclear)
+    return { verdict: 'ladder', rule: 'doubt', why: [UNDEFINED_TASK] }
+  return classify(touches.map(path => ({ path, status: TOUCHED, additions: null, deletions: null })))
 }

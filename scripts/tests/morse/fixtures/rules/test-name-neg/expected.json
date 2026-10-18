@@ -2,6 +2,6 @@
   "verdict": "ladder",
   "rule": "doubt",
   "why": [
-    "lib/a.testing.mjs"
+    "no test beside: lib/a.testing.mjs"
   ]
 }
