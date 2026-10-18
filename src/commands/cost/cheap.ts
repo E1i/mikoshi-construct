@@ -26,8 +26,6 @@ export interface CheapTask {
   taskClass: string
   sessions: CheapSession[]
   minutes: number
-  pr?: number | null
-  tasks?: number
 }
 
 export interface CheapNote {
@@ -254,11 +252,11 @@ function withoutSharedSessions(tasks: CheapTask[], notes: CheapNote[]): CheapTas
 
 export function readCheapTasks(shiftRoot: string, windowJournal: string, busPath?: string): CheapSample {
   const notes: CheapNote[] = []
-  const bus = busPath === undefined ? [] : readBusTasks(busPath)
+  const bus = (busPath === undefined ? [] : readBusTasks(busPath)).map(({ task, taskClass, sessions, minutes }) => ({ task, taskClass, sessions, minutes }))
   const busIds = new Set(bus.map(task => task.task))
   const shift = readShiftTasks(shiftRoot).filter(task => !busIds.has(task.task))
-  const claimed = new Set([...shift.map(task => task.task), ...busIds])
-  const window = readWindowTasks(windowJournal, notes, busIds).filter(task => !claimed.has(task.task))
+  const shiftIds = new Set(shift.map(task => task.task))
+  const window = readWindowTasks(windowJournal, notes, busIds).filter(task => !shiftIds.has(task.task))
   return { tasks: withoutSharedSessions([...shift, ...bus, ...window], notes), notes }
 }
 

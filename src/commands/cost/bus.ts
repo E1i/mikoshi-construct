@@ -40,13 +40,16 @@ ORDER BY c.card_id
 `
 
 function openReadOnly(file: string): DatabaseSync {
+  const sqlite = process.getBuiltinModule('node:sqlite') as { DatabaseSync: typeof DatabaseSync } | undefined
+  if (sqlite === undefined)
+    throw new Error('node:sqlite is not built into this Node')
   const emitWarning = process.emitWarning
   process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
     if (!(typeof warning === 'string' ? warning : warning.message).startsWith(SQLITE_EXPERIMENTAL_WARNING))
       Reflect.apply(emitWarning, process, [warning, ...rest])
   }) as typeof process.emitWarning
   try {
-    return new (process.getBuiltinModule('node:sqlite').DatabaseSync)(file, { readOnly: true })
+    return new sqlite.DatabaseSync(file, { readOnly: true })
   }
   finally {
     process.emitWarning = emitWarning
@@ -90,12 +93,21 @@ function taskOf(row: ClosedCardRow): BusTask | null {
 export function readBusTasks(busPath: string): BusTask[] {
   if (!existsSync(busPath))
     return []
-  const db = openReadOnly(busPath)
   try {
-    return (db.prepare(CLOSED_CARDS).all() as unknown as ClosedCardRow[]).flatMap((row) => {
+    return closedCards(busPath).flatMap((row) => {
       const task = taskOf(row)
       return task === null ? [] : [task]
     })
+  }
+  catch {
+    return []
+  }
+}
+
+function closedCards(busPath: string): ClosedCardRow[] {
+  const db = openReadOnly(busPath)
+  try {
+    return db.prepare(CLOSED_CARDS).all() as unknown as ClosedCardRow[]
   }
   finally {
     db.close()

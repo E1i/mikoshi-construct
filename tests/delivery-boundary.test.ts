@@ -11,6 +11,10 @@ import productBuild from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const BUS_SOURCE = 'scripts/bus/'
+const BUS_STORE_READER = 'src/commands/cost/bus.ts'
+const BUS_STORE_MENTION = /sqlite/i
+const BUILTIN_REACH = /getBuiltinModule\(([^)]*)\)/g
+const BUS_STORE_MODULE = /["'`]node:sqlite["'`]/g
 const BUS_STORE_OPEN = /DatabaseSync\(([^)]*)\)/g
 const READ_ONLY_OPEN = /readOnly:\s*true/
 const BUS_WRITE_STATEMENT = /\b(?:INSERT\s+INTO|CREATE\s+(?:TABLE|INDEX|TRIGGER|VIEW)|DELETE\s+FROM|DROP\s+TABLE|ALTER\s+TABLE|UPDATE\s+\w+\s+SET)\b/
@@ -51,10 +55,14 @@ describe('the delivery boundary between the product and the factory', () => {
     const bundle = await buildProduct(scratchBesideDependencies())
     expect(bundle.inputs.some(input => input.startsWith('src/'))).toBe(true)
     expect(bundle.inputs.filter(input => input.startsWith(BUS_SOURCE))).toEqual([])
+    expect(bundle.inputs.filter(input => input.startsWith('src/') && BUS_STORE_MENTION.test(readFileSync(path.join(REPOSITORY, input), 'utf8')))).toEqual([BUS_STORE_READER])
     const cli = readFileSync(bundle.cli, 'utf8')
+    expect([...cli.matchAll(BUILTIN_REACH)].map(([, module]) => module)).toEqual(['"node:sqlite"'])
+    expect(cli.match(BUS_STORE_MODULE)).toEqual(['"node:sqlite"'])
+    const opens = [...cli.matchAll(BUS_STORE_OPEN)].map(([, options]) => options)
+    expect(opens).toHaveLength(1)
+    expect(opens[0]).toMatch(READ_ONLY_OPEN)
     expect(cli).not.toMatch(BUS_WRITE_STATEMENT)
-    for (const [, options] of cli.matchAll(BUS_STORE_OPEN))
-      expect(options).toMatch(READ_ONLY_OPEN)
 
     const repo = path.join(root, 'repo')
     mkdirSync(path.join(repo, 'src'), { recursive: true })
