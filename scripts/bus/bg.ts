@@ -159,10 +159,10 @@ export function launchName(launch: DetachedLaunch): string {
   return [launch.script, ...launch.args].join(' ')
 }
 
-export function runBusBg(busDir: string, launches: DetachedLaunch[], env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
+export function runBusBg(busDir: string, launches: DetachedLaunch[], env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env), start: (launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList) => BgResult = startDetached): BgResult {
   const result: BgResult = { stdout: [], stderr: [], exitCode: 0 }
   for (const launch of launches) {
-    const started = startDetached(launch, busDir, env, processes)
+    const started = start(launch, busDir, env, processes)
     if (started.alreadyRunning !== undefined) {
       result.stdout.push(`${PREFIX}${launchName(launch)} is already running as pid ${started.alreadyRunning.pid}; left alone`)
       continue

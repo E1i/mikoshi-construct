@@ -7,7 +7,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { psList, runningBus, runningInstance, startDetached } from '../../bus/bg.js'
 import { openBus } from '../../bus/db.js'
-import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch } from '../../bus/review-bg.js'
+import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../bus/review-bg.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
 import { FakeGitHub } from './github-fake.js'
@@ -141,6 +141,25 @@ describe('pnpm bus:review:bg', () => {
     const third = startDetached(reviewLaunch(clean), w.busDir, w.env, byHand)
     expect(third.exitCode).toBe(1)
     expect(third.stderr.join('\n')).toContain('pid 4343')
+  })
+
+  it('a second review worker is not started while one runs', async () => {
+    const w = world()
+    mkdirSync(w.busDir, { recursive: true })
+    const survivor = String(process.ppid)
+    writeFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), `${survivor}\n`)
+
+    const second = startReviewWorker(reviewLaunch(clean), w.busDir, w.env, () => [])
+    expect(second.exitCode).toBe(1)
+    expect(second.stderr.join('\n')).toContain(`pid ${survivor}`)
+    expect(second.alreadyRunning?.pid).toBe(Number(survivor))
+    expect(w.processes()).toEqual([])
+    expect(readFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), 'utf8').trim()).toBe(survivor)
+
+    const reused: ProcessList = () => [{ pid: Number(survivor), args: 'vim notes.md' }]
+    const third = startReviewWorker(reviewLaunch(clean), w.busDir, w.env, reused)
+    expect(third.exitCode).toBe(0)
+    started.push(Number(third.stdout[0]))
   })
 
   it('an unclean shadow is refused before anything starts', async () => {

@@ -172,6 +172,33 @@ describe('reviewer', () => {
     }
   })
 
+  it('a tree mutated outside the review session is a node fault, not a changes verdict', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-foreign-'))
+    try {
+      const transcript = (tool: object): string => `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', ...tool }] } })}\n`
+      const run = async (stdout: string): Promise<unknown> => {
+        let states = 0
+        const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: sha('a'), status: states++ === 0 ? [] : [' D a.txt', ' D b.txt'] }) })
+        return claudeReviewer(trees, async (params) => {
+          writeFileSync(params.stdoutPath, stdout)
+          writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+          return 0
+        })(lease, full).catch((error: unknown) => error)
+      }
+
+      const foreign = await run(transcript({ name: 'Bash', input: { command: 'git status --short' } }) + transcript({ name: 'Read', input: { file_path: '/x' } }))
+      expect(foreign).toBeInstanceOf(ReviewFailed)
+      expect((foreign as Error).message).toMatch(/changed outside the review session .*node fault/)
+      expect((foreign as Error).message).toContain('a.txt, b.txt')
+
+      const own = await run(transcript({ name: 'Bash', input: { command: 'rm a.txt b.txt' } }))
+      expect(own).toMatchObject({ verdict: 'changes', tree: { mutated: ['a.txt', 'b.txt'] } })
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('a moved HEAD is a mutation even when the status is clean', () => {
     expect(mutatedPaths({ head: sha('a'), status: [] }, { head: sha('b'), status: [] })).toEqual([HEAD_MOVED])
     expect(mutatedPaths({ head: sha('a'), status: [] }, { head: sha('a'), status: ['?? x.txt'] })).toEqual(['x.txt'])

@@ -289,6 +289,8 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
       const review = reviewOf(readFileSync(verdictPath, 'utf8'), session)
       const after = trees.state(tree)
       const mutated = mutatedPaths(before, after)
+      if (mutated.length > 0 && !transcriptExplainsMutation(params.stdoutPath))
+        throw new Error(`the review tree ${tree} changed outside the review session ${session}, whose transcript has no command that writes: ${mutated.slice(0, 5).join(', ')}${mutated.length > 5 ? `, and ${mutated.length - 5} more` : ''}; a node fault, not a changes verdict`)
       const model = existsSync(params.stdoutPath) ? sessionModelOf(readFileSync(params.stdoutPath, 'utf8')) : undefined
       const cache = cacheTokensOf(readResultFields(params.stdoutPath).usage)
       return { ...review, ...withoutPassOnMutation(review, mutated), model, cache, tree: { ...held, before, after, mutated } }
@@ -299,6 +301,28 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
       throw new ReviewFailed(error instanceof Error ? error.message : String(error), held)
     }
   }
+}
+
+const WRITING_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit']
+const WRITING_COMMAND = /(?:^|[\s;&|(])(?:rm|mv|cp|touch|mkdir|rmdir|tee|truncate|chmod|ln|patch|git\s+(?:checkout|reset|clean|restore|stash|apply|commit|add|rm|mv|switch|merge|rebase|cherry-pick|pull)|sed\s+-i|(?:pnpm|npm|yarn)\s+(?:i|install|add|remove))\b|[^=!<>-]>|>>/
+
+function toolUsesOf(transcript: string): Array<{ name?: unknown, input?: { command?: unknown } }> {
+  return transcript.split('\n').flatMap((line) => {
+    try {
+      const content = (JSON.parse(line) as { message?: { content?: unknown } }).message?.content
+      return Array.isArray(content) ? content.filter(item => item?.type === 'tool_use') : []
+    }
+    catch {
+      return []
+    }
+  })
+}
+
+function transcriptExplainsMutation(stdoutPath: string): boolean {
+  if (!existsSync(stdoutPath))
+    return false
+  return toolUsesOf(readFileSync(stdoutPath, 'utf8')).some(use =>
+    WRITING_TOOLS.includes(String(use.name)) || (use.name === 'Bash' && WRITING_COMMAND.test(String(use.input?.command ?? ''))))
 }
 
 function withoutPassOnMutation(review: Review, mutated: string[]): Pick<Review, 'verdict' | 'findings'> {
