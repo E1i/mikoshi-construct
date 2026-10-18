@@ -90,6 +90,8 @@ function taskCloseDeps(handoffDir: string, now = new Date('2026-10-11T18:00:00.0
     append: (file, text) => appendFileSync(file, text),
     now: () => now,
     handoffDir,
+    constructDir: handoffDir,
+    realpath: file => file,
     exists: () => false,
     session: undefined,
     projectsDir: handoffDir,
