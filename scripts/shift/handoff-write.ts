@@ -231,6 +231,12 @@ export function ownerStatusRefusal(text: string): string | null {
   return `${PREFIX}STATUS: OWNER must end with \`— boundary: <name>\`, the name one of ${OWNER_BOUNDARIES.join(', ')}; review changes, red CI, a denied form with an allowed route and who: window cards are executor work`
 }
 
+export function ownerWhileWorkIsFreeRefusal(text: string, reading: StateReading): string | null {
+  if (statusOf(statusLineOf(text) ?? '') !== 'OWNER' || reading.kind !== 'read' || reading.state.ready.length === 0)
+    return null
+  return `${PREFIX}STATUS: OWNER while the bus holds ${reading.state.ready.map(card => `#${card.card}`).join(', ')}, which can be taken without the owner; owner questions go into the day file and the next card is taken`
+}
+
 export function readingRefusals(draft: string): string[] {
   return draft.split(/\r?\n/).flatMap((line) => {
     if (WHOLE_READING.test(line))
@@ -299,6 +305,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const stopped = withStop(drafted, heading, generated)
   const text = withPrev(reading.kind === 'read' ? withState(stopped, stateLines(reading.state)) : stopped, prev)
   const ownerRefusal = ownerStatusRefusal(text)
+  const freeWorkRefusal = ownerWhileWorkIsFreeRefusal(text, reading)
   const day = planDay(drafted, handoff, deps)
   const refusals = [
     ...draftGeneratedRefusals(drafted),
@@ -314,6 +321,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
       parked: deps.parked(parking),
     }),
     ...(ownerRefusal === null ? [] : [ownerRefusal]),
+    ...(freeWorkRefusal === null ? [] : [freeWorkRefusal]),
   ]
   if (refusals.length > 0) {
     for (const line of refusals)
