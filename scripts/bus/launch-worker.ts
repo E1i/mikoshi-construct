@@ -1,24 +1,29 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from './chain-process.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
+import type { StarterPorts } from './launch-starter.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode } from './node.js'
 import type { QueuedTask } from './queue.js'
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
+import { sessionEnv } from '../ghosts/session.js'
+import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
+import { renderPrompt } from '../shift/prompt.js'
 import { MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, defaultBusPath } from './db.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
-import { realStarterPorts, ShiftCardStarter, treePrCommand } from './launch-starter.js'
+import { killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { PR_CLOSED } from './observations.js'
@@ -153,18 +158,34 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
   return runNode(argv, 'launch', run.busPath, build, { pause })
 }
 
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
+  return {
+    read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    cut: (task, laneDir) => {
+      execFileSync('pnpm', ['--silent', 'task:start', task.branch, '--card', task.card.line, '--parking', laneDir], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      return taskWorktree(worktreeHome(env), String(task.card.id))
+    },
+    base: worktree => execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    spawnDetached,
+    pgidOf: psPgid,
+    kill: killQuietly,
+    uuid,
+    envOf: cardId => sessionEnv(env, cardId),
+    prompt: (task, places) => renderPrompt(header, task, places),
+  }
+}
+
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const env = process.env
   const places = {
     parking: defaultParking(os.homedir()),
     launchDir: path.join(os.homedir(), '.construct', 'bus', LAUNCH_DIR),
-    header: readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8'),
     claude: 'claude',
     treePr: treePrCommand(process.cwd()),
-    env,
   }
-  const starter = new ShiftCardStarter(places, realStarterPorts(process.cwd(), env, randomUUID))
+  const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
+  const starter = new ShiftCardStarter(places, realStarterPorts(process.cwd(), env, header, randomUUID))
   return runLaunchWorker(process.argv.slice(2), { busPath, starter, session: randomUUID(), pause: sleep })
 }
 

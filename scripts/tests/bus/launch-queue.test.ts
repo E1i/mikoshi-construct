@@ -21,6 +21,8 @@ import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } fro
 import { LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { busLaunches } from '../../bus/workers.js'
+import { sessionEnv } from '../../ghosts/session.js'
+import { renderPrompt } from '../../shift/prompt.js'
 import { OPERATOR_CLAUDE } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -135,9 +137,11 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
     pgidOf: psPgid,
     kill: killQuietly,
     uuid: () => `session-${cardId}`,
+    envOf: id => sessionEnv(env, id),
+    prompt: (task, at) => renderPrompt('card {{card}} in {{worktree}}, report {{report}}\n\n', task, at),
     ...overrides,
   }
-  return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), header: 'card {{card}} in {{worktree}}, report {{report}}\n\n', env, claude: shiftClaude ?? 'claude', treePr: 'true', ...places }, ports)
+  return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: shiftClaude ?? 'claude', treePr: 'true', ...places }, ports)
 }
 
 describe('the launch queue', () => {
