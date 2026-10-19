@@ -270,6 +270,23 @@ describe('w1: task:start cuts the tree and writes the start', () => {
     }])
   })
 
+  it('task:start fetches origin main over https through the proxy', () => {
+    const world = newWorld()
+    const calls: string[][] = []
+    const deps = depsOf(world)
+    const result = runTaskStart(['feat/s1', '--card', card(41)], { ...deps, git: (cwd, args) => {
+      calls.push(args)
+      return deps.git(cwd, args)
+    } })
+    expect(result.exitCode).toBe(0)
+    const fetch = calls.find(args => args.includes('fetch'))!
+    expect(fetch.slice(-3)).toEqual(['fetch', 'origin', 'main'])
+    git(world.repo, ['remote', 'set-url', 'origin', 'git@github.com:E1i/mikoshi-construct.git'])
+    expect(git(world.repo, [...fetch.slice(0, -3), 'remote', 'get-url', 'origin']).trim()).toBe('https://github.com/E1i/mikoshi-construct.git')
+    git(world.repo, ['remote', 'set-url', 'origin', 'ssh://git@github.com/E1i/mikoshi-construct.git'])
+    expect(git(world.repo, [...fetch.slice(0, -3), 'remote', 'get-url', 'origin']).trim()).toBe('https://github.com/E1i/mikoshi-construct.git')
+  })
+
   it('cuts a new worktree under the worktree home', () => {
     const world = newWorld()
     const home = path.join(world.root, 'home', 'worktrees')

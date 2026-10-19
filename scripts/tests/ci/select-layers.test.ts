@@ -2,8 +2,8 @@ import type { Graph } from '../../ci/layers.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { BUS_CORE as CORE_PATTERN, layerOf, selectRun, BUS_SERVICE as SERVICE_PATTERN } from '../../ci/layers.js'
-import { outputLines, pathsOf, reportedRun, runSummary } from '../../ci/select.js'
+import { BUS_CORE as CORE_PATTERN, layerOf, selectRun, BUS_SERVICE as SERVICE_PATTERN, windowGate } from '../../ci/layers.js'
+import { changedPathsOf, outputLines, pathsOf, reportedRun, runSummary, windowLines } from '../../ci/select.js'
 
 const GRAPH: Graph = new Map([
   ['scripts/bus/db.ts', []],
@@ -114,6 +114,49 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     ])
     const run = selectRun(['scripts/notes/print.ts'], graph, () => '')
     expect(run).toMatchObject({ kind: 'layers', tests: [] })
+  })
+})
+
+describe('the window gate of D-194 takes the CI selection by layers', () => {
+  const graph: Graph = new Map([
+    ...GRAPH,
+    ['tests/package-scripts.ts', []],
+    ['tests/contributing-scripts.test.ts', ['tests/package-scripts.ts']],
+    ['tests/harness-membership.test.ts', ['tests/package-scripts.ts']],
+  ])
+
+  it('the window gate for a change to a package.json script selects tests/contributing-scripts.test.ts and tests/harness-membership.test.ts', () => {
+    expect(windowGate(['package.json'], graph, () => '')).toEqual({ kind: 'layers', layers: [], tests: ['tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts'] })
+    expect(selectRun(['package.json'], graph, () => '').kind).toBe('full')
+  })
+
+  it('the window gate adds the package.json readers to the layers the rest of the change reaches', () => {
+    expect(windowGate(['package.json', 'scripts/bus/merge-worker.ts'], graph, () => '')).toEqual({
+      kind: 'layers',
+      layers: ['bus:merge'],
+      tests: ['scripts/tests/bus/merge-worker.test.ts', 'tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts'],
+    })
+  })
+
+  it('the window gate takes the full run when the rest of a package.json change reaches no layer', () => {
+    const run = windowGate(['package.json', 'docs/index.md'], graph, () => '')
+    expect(run).toEqual(selectRun(['docs/index.md'], graph, () => ''))
+    expect(run.kind).toBe('full')
+  })
+
+  it('the window gate is the CI selection for a change without package.json', () => {
+    for (const changed of [['scripts/bus/db.ts'], ['docs/index.md'], []])
+      expect(windowGate(changed, graph, () => '')).toEqual(selectRun(changed, graph, () => ''))
+  })
+
+  it('the window gate prints the vitest command of its tests, or says there is none', () => {
+    expect(windowLines({ kind: 'layers', layers: ['bus:merge'], tests: ['a.test.ts', 'b.test.ts'] })).toContain('pnpm exec vitest run a.test.ts b.test.ts')
+    expect(windowLines({ kind: 'full', why: 'docs/index.md belongs to no layer of the dependency graph' })).not.toContain('vitest run')
+  })
+
+  it('the changed paths of a tree are the diff against the merge base and the untracked files, each once', () => {
+    expect(changedPathsOf('a.ts\nb.ts\n', 'b.ts\nc.ts\n')).toEqual(['a.ts', 'b.ts', 'c.ts'])
+    expect(changedPathsOf('', '')).toEqual([])
   })
 })
 

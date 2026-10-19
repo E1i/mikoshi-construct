@@ -22,6 +22,9 @@ export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
   'scripts/shift/': ['tests/decisions-read-through-reader.test.ts'],
 }
 
+export const PACKAGE_MANIFEST = 'package.json'
+export const PACKAGE_SCRIPT_READERS = ['tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts']
+
 export function isTest(file: string): boolean {
   return TEST_FILE.test(file) && TEST_ROOTS.some(root => file.startsWith(root))
 }
@@ -92,4 +95,15 @@ export function selectRun(changed: readonly string[], graph: Graph, testText: (t
   const layers = [...new Set([...closure].map(layerOf).filter(layer => layer !== null))].sort()
   const tests = [...closure].filter(isTest).sort()
   return { kind: 'layers', layers, tests }
+}
+
+export function windowGate(changed: readonly string[], graph: Graph, testText: (test: string) => string): Run {
+  if (!changed.includes(PACKAGE_MANIFEST))
+    return selectRun(changed, graph, testText)
+  const rest = changed.filter(file => file !== PACKAGE_MANIFEST)
+  const run: Run = rest.length === 0 ? { kind: 'layers', layers: [], tests: [] } : selectRun(rest, graph, testText)
+  if (run.kind === 'full')
+    return run
+  const readers = PACKAGE_SCRIPT_READERS.filter(test => graph.has(test))
+  return { kind: 'layers', layers: run.layers, tests: [...new Set([...run.tests, ...readers])].sort() }
 }
