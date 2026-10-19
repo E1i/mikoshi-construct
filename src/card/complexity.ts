@@ -1,4 +1,4 @@
-import { GENERATED_WITH, groupsOf, riskReading, SEAM_PREFIX, SLICE_PREFIX } from './risk.js'
+import { GENERATED_WITH, groupsOf, riskReading, SEAM_PREFIX, sliceLine } from './risk.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 
 export const AREAS = ['mechanism', 'prompts', 'templates', 'documents', 'generated'] as const
@@ -135,11 +135,11 @@ export function splitSignal(input: ComplexityInput): SplitVerdict {
   return { split, signals, slices: slices.length > 1 && !mixed ? slices : [], mixed }
 }
 
-export function seamLines(verdict: SplitVerdict): string[] {
+export function seamLines(verdict: SplitVerdict, depends: readonly (readonly number[])[] = []): string[] {
   if (!verdict.split)
     return []
   return [
     `${SEAM_PREFIX}complexity — ${[...verdict.signals.map(signal => signal.detail), ...(verdict.mixed ? [SLICES_MIX_RISK] : [])].join('; ')} — ${PRINCIPLE}`,
-    ...verdict.slices.map((slice, index) => `${SLICE_PREFIX}${index + 1} ${slice.area} — ${slice.touches.join(', ')}`),
+    ...verdict.slices.map((slice, index) => sliceLine(index, slice.area, slice.touches, depends[index])),
   ]
 }

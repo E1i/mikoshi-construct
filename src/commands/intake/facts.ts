@@ -1,5 +1,5 @@
 import type { Dirent } from 'node:fs'
-import { accessSync, constants, existsSync, readdirSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { unresolvedCommandWord } from './command-word.js'
 
@@ -52,6 +52,20 @@ export class DirectoryFacts implements RepositoryFacts {
   pathsNamed(segment: string): string[] {
     this.walked ??= this.walk('')
     return this.walked.filter(relative => path.posix.basename(relative) === segment).sort()
+  }
+
+  filesUnder(directory: string): string[] {
+    this.walked ??= this.walk('')
+    return this.walked.filter(relative => relative.startsWith(`${directory}/`)).sort()
+  }
+
+  read(relative: string): string | null {
+    try {
+      return readFileSync(path.join(this.root, relative), 'utf8')
+    }
+    catch {
+      return null
+    }
   }
 
   commandResolves(word: string): boolean {

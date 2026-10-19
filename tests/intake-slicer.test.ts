@@ -51,11 +51,14 @@ function repositoryOf(root: string, cards: unknown): string {
   return repo
 }
 
-function intake(draft: unknown, taken: string, parking: string, options: Partial<IntakeOptions> = {}): IntakeResult {
+function intake(draft: unknown, taken: string, parking: string, options: Partial<IntakeOptions> = {}, sources: Record<string, string> = {}): IntakeResult {
   const root = path.dirname(parking)
   const draftFile = path.join(root, 'draft.json')
   writeFileSync(draftFile, typeof draft === 'string' ? draft : JSON.stringify(draft))
-  return runIntake({ draft: draftFile, taken: '-', parking, dir: repositoryOf(root, typeof draft === 'object' && draft !== null && 'cards' in draft ? draft.cards : []), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => taken, ...options })
+  const repo = repositoryOf(root, typeof draft === 'object' && draft !== null && 'cards' in draft ? draft.cards : [])
+  for (const [file, text] of Object.entries(sources))
+    writeFileSync(path.join(repo, file), text)
+  return runIntake({ draft: draftFile, taken: '-', parking, dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => taken, ...options })
 }
 
 function cards(result: IntakeResult) {
@@ -212,6 +215,25 @@ describe('a test rides in the slice whose change it witnesses', () => {
       'slice: 1 R1 — src/commands/detach/**, tests/detach.test.ts',
       'slice: 2 R3 — docs/cli.md, .changeset/**, src/ui/lore.ts, architecture/detach.md, scripts/privacy/allowlist.ts',
     ])
+  })
+
+  it('each proposed slice carries its touches and depends on the slice that defines what it calls', () => {
+    const sources = { 'src/commands/detach/index.ts': 'import { lore } from \'../../ui/lore.js\'\n', 'src/ui/lore.ts': 'export const lore = {}\n' }
+    const [card] = cards(intake({ cards: [detach] }, '655', path.join(scratch(), 'parking'), { dryRun: true }, sources))
+    expect(card!.risk.filter(line => line.startsWith('slice: '))).toEqual([
+      'slice: 1 R1 — src/commands/detach/**, tests/detach.test.ts · depends 2',
+      'slice: 2 R3 — docs/cli.md, .changeset/**, src/ui/lore.ts, architecture/detach.md, scripts/privacy/allowlist.ts',
+    ])
+    expect(card!.slices).toEqual([
+      { touches: ['src/commands/detach/**', 'tests/detach.test.ts'], depends: [1] },
+      { touches: ['docs/cli.md', '.changeset/**', 'src/ui/lore.ts', 'architecture/detach.md', 'scripts/privacy/allowlist.ts'], depends: [] },
+    ])
+  })
+
+  it('refuses a card whose slices import each other, since no order of their cards holds', () => {
+    const sources = { 'src/commands/detach/index.ts': 'import { lore } from \'../../ui/lore.js\'\n', 'src/ui/lore.ts': 'import { detach } from \'../commands/detach/index.js\'\n' }
+    const result = intake({ cards: [detach] }, '655', path.join(scratch(), 'parking'), { dryRun: true }, sources)
+    expect(detail(result)).toEqual(['detach-no-trace-slice-2: slices 1, 2 import each other, so no order of their cards holds; keep the card whole with \'whole:\' or cut the draft by hand'])
   })
 
   it('refuses a card whose task text names its own slices when a seam proposes others', () => {
