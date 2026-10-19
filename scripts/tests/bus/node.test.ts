@@ -59,7 +59,7 @@ class FakeNode extends Node<NodeStep> {
     return this.derived
   }
 
-  protected handle(lease: Lease): NodeStep {
+  protected handle(lease: Lease): NodeStep | Promise<NodeStep> {
     completeTask(this.db, this.clock.now().toISOString(), lease, [])
     return { kind: 'done', taskKey: lease.taskKey }
   }
@@ -216,6 +216,72 @@ describe('a node', () => {
 
     reduce(db)
     expect(projectionDump(db)).toBe(before)
+  })
+
+  it('a deliver that hits database is locked is logged and retried, and the in-flight lease completes', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: 'pr.observed:970', payload: { pr: 970, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
+    reduce(db)
+    let release: () => void = () => {}
+    const handled = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let locked = false
+    let probe = 0
+    const delivered: number[] = []
+    class LockedNode extends FakeNode {
+      constructor() {
+        super(db, clock, 'live')
+        this.subscribe([PROBE_SEEN], (event) => {
+          if (locked)
+            throw new Error('database is locked')
+          delivered.push(event.id)
+        })
+      }
+
+      override subscribe(pattern: readonly string[], handler: Parameters<FakeNode['subscribe']>[1]): () => void {
+        if (pattern.includes('ci.*'))
+          return () => {}
+        return super.subscribe(pattern, handler)
+      }
+
+      protected override async handle(lease: Lease): Promise<NodeStep> {
+        await handled
+        return super.handle(lease)
+      }
+    }
+    const node = new LockedNode()
+    node.found = [task(970)]
+    const lines = vi.mocked(console.log)
+    const controller = new AbortController()
+    let pauses = 0
+    const run = node.run({
+      signal: controller.signal,
+      pause: async () => {
+        pauses += 1
+        await new Promise(resolve => setImmediate(resolve))
+        if (pauses === 1) {
+          probe = seen(db, clock, 970)
+          locked = true
+        }
+        else if (pauses === 2) {
+          locked = false
+          release()
+        }
+        else {
+          controller.abort()
+        }
+      },
+    })
+
+    await expect(run).resolves.toBeUndefined()
+    expect(lines.mock.calls.map(call => String(call[0])).filter(line => line.includes('database is locked'))).toEqual([
+      '[bus:merge] the deliver hit database is locked; it is retried on the next turn, and the leases in flight keep running',
+    ])
+    expect(db.prepare(`SELECT state FROM tasks WHERE task_key = ?`).get(keyOf(task(970)))).toEqual({ state: 'completed' })
+    expect(delivered).toEqual([probe])
+    expect(cursorOf(db)).toBeGreaterThanOrEqual(probe)
   })
 
   it('emit sets actor and ts only where the event leaves them out, and getState reads the cursor and the leases', async () => {
