@@ -1,6 +1,6 @@
 # Window core
 
-window-core v3
+window-core v4
 
 If your context holds two versions of window-core, the higher version applies; stop and ask for a new session.
 

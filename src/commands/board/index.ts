@@ -44,6 +44,17 @@ export interface BoardReading {
   view: BoardView
 }
 
+export interface RawSectionFlags {
+  geek: boolean
+  all: boolean
+  staleHours: number
+  prs: string | undefined
+}
+
+export function rawSectionsAsked(flags: RawSectionFlags): boolean {
+  return flags.geek || flags.all || flags.staleHours !== STALE_HOURS || flags.prs !== undefined
+}
+
 export function readBoard(dir: string, options: BoardOptions): BoardReading {
   const now = options.now ?? new Date()
   const ledger = readLedger(dir)

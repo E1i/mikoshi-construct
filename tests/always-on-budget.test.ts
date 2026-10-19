@@ -59,6 +59,6 @@ describe('the always-on text stays inside a fixed budget', () => {
   })
 
   it('names its version on a line of its own in window-core.md', () => {
-    expect(read('architecture/window-core.md').split('\n')).toContain('window-core v3')
+    expect(read('architecture/window-core.md').split('\n')).toContain('window-core v4')
   })
 })

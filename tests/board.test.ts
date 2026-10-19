@@ -1,15 +1,16 @@
 import type { BusReader } from '../src/commands/board/bus.js'
 import type { Theme } from '../src/ui/theme.js'
+import type { SeedCard } from './board/bus-fixture.js'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { busReaderAt } from '../src/commands/board/bus.js'
-import { BOARD_FORMAT, boardJson, IMPLEMENT_SKILL, printBoard, readBoard } from '../src/commands/board/index.js'
+import { BOARD_FORMAT, boardJson, IMPLEMENT_SKILL, printBoard, rawSectionsAsked, readBoard, STALE_HOURS } from '../src/commands/board/index.js'
 import { ciOf } from '../src/commands/board/prs.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { subagent, writeBus } from './board/bus-fixture.js'
 
 const NOW = new Date('2026-10-02T12:00:00.000Z')
 const HOUR = 3_600_000
@@ -70,29 +71,21 @@ function render(dir: string, options: RenderOptions = {}): string[] {
   return lines
 }
 
-const BUS_SCHEMA = `
-CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, payload TEXT NOT NULL);
-CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER);
-CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT);
-CREATE TABLE prs (pr INTEGER PRIMARY KEY, verdict_on_head TEXT);
-CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL);
-`
-
 function busFile(dir: string): string {
-  const file = path.join(dir, 'bus.db')
-  const db = new DatabaseSync(file)
-  db.exec(BUS_SCHEMA)
-  const card = db.prepare('INSERT INTO cards (card_id, state, pr) VALUES (?, ?, ?)')
-  const body = db.prepare('INSERT INTO card_bodies (card_id, lane, card_line) VALUES (?, ?, ?)')
-  for (const [id, state, lane, name] of [[1, 'queued', 'a', 'alpha'], [2, 'running', null, 'beta'], [3, 'in_review', 'a', 'gamma'], [4, 'ready', null, 'delta']] as const) {
-    card.run(id, state, null)
-    body.run(id, lane, `card: #${id} ${name}`)
-  }
-  db.prepare('INSERT INTO prs (pr, verdict_on_head) VALUES (9, \'approve\')').run()
-  db.prepare('INSERT INTO tasks (queue, card_id, pr, head, state) VALUES (\'review\', 3, 9, NULL, \'leased\')').run()
-  db.prepare('INSERT INTO events (ts, type, card_id, payload) VALUES (?, \'window.subagent\', NULL, ?)').run(ago(MINUTE), JSON.stringify({ session: 's1', role: 'implementer', task: '#1071', tree: '/t', phase: 'started' }))
-  db.close()
-  return file
+  return writeBus(path.join(dir, 'bus.db'), {
+    cards: [card(1, 'queued', 'a', 'alpha'), card(2, 'running', null, 'beta'), card(3, 'in_review', 'a', 'gamma'), card(4, 'ready', null, 'delta')],
+    verdicts: [[9, 'approve']],
+    tasks: [{ queue: 'review', card: 3, pr: 9, head: null, state: 'leased' }],
+    events: [subagent(ago(MINUTE), { session: 's1', role: 'implementer', task: '#1071', tree: '/t', phase: 'started' })],
+  })
+}
+
+function card(id: number, state: string, lane: string | null, name: string): SeedCard {
+  return { id, state, lane, line: `card: #${id} ${name}` }
+}
+
+function busAt(file: string): BusReader {
+  return busReaderAt(file, () => NOW)
 }
 
 function json(dir: string, prs?: string): ReturnType<typeof boardJson> {
@@ -228,7 +221,7 @@ describe('construct board', () => {
 
   it('construct board reads the bus and shows Flow, Backlog and Services', () => {
     const dir = repository()
-    const lines = render(dir, { bus: busReaderAt(busFile(dir)), version: '0.44.0' })
+    const lines = render(dir, { bus: busAt(busFile(dir)), version: '0.44.0' })
     expect(lines).toEqual([
       'construct 0.44.0',
       'Flow',
@@ -248,9 +241,41 @@ describe('construct board', () => {
       'implementer · #1071 · /t · started',
       'agents at work: 2 · last failure: none · review queue: 1 · geek mode: --geek',
     ])
-    const geek = render(dir, { bus: busReaderAt(busFile(repository())), version: '0.44.0', geek: true })
+    const geek = render(dir, { bus: busAt(busFile(repository())), version: '0.44.0', geek: true })
     expect(geek[1]).toMatch(/^open 0:/)
-    expect(render(dir, { bus: busReaderAt(path.join(dir, 'missing.db')) })[0]).toBe(`bus ${path.join(dir, 'missing.db')}: absent`)
+    expect(render(dir, { bus: busAt(path.join(dir, 'missing.db')) })[0]).toBe(`bus ${path.join(dir, 'missing.db')}: absent`)
+  })
+
+  it('a bus it cannot read is named with its reason, and the raw sections follow in place of the screens', () => {
+    const dir = repository()
+    const file = path.join(dir, 'bus.db')
+    writeFileSync(file, 'this is not a database')
+    const lines = render(dir, { bus: busAt(file), version: '0.44.0' })
+    expect(lines[0]).toBe('construct 0.44.0')
+    expect(lines[1]).toMatch(new RegExp(`^bus ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: unreadable \\(.+\\)$`))
+    expect(lines[2]).toMatch(/^open 0:/)
+    expect(lines).not.toContain('Flow')
+  })
+
+  it('with a readable bus, the raw sections replace the screens and keep the ledger and the pull requests they were given', () => {
+    const dir = repository({ implement: true })
+    ledger(dir, [run('fix the parser', 'done', HOUR)])
+    const file = prsFile(dir, [pr(7, 'open one', 'OPEN', [check('SUCCESS', MINUTE)])])
+    const lines = render(dir, { bus: busAt(busFile(dir)), version: '0.44.0', prs: file, geek: true })
+    expect(lines[0]).toBe('construct 0.44.0')
+    expect(lines[1]).toMatch(/^open 2:/)
+    expect(lines.join('\n')).toContain('fix the parser')
+    expect(lines.join('\n')).toContain('#7 open one')
+    expect(lines).not.toContain('Flow')
+  })
+
+  it('--prs, --all and a --stale other than the default ask for the raw sections, as --geek does', () => {
+    const plain = { geek: false, all: false, staleHours: STALE_HOURS, prs: undefined }
+    expect(rawSectionsAsked(plain)).toBe(false)
+    expect(rawSectionsAsked({ ...plain, geek: true })).toBe(true)
+    expect(rawSectionsAsked({ ...plain, all: true })).toBe(true)
+    expect(rawSectionsAsked({ ...plain, staleHours: STALE_HOURS + 1 })).toBe(true)
+    expect(rawSectionsAsked({ ...plain, prs: '-' })).toBe(true)
   })
 
   it('the header names the version and the mode', () => {

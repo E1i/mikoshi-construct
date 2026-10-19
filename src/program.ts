@@ -9,7 +9,7 @@ import { defineCommand, showUsage } from 'citty'
 import { printAtlas, runAtlas } from './atlas/index.js'
 import { ATTACH_EXIT, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
 import { busReaderAt } from './commands/board/bus.js'
-import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, readBoard, STALE_HOURS } from './commands/board/index.js'
+import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, rawSectionsAsked, readBoard, STALE_HOURS } from './commands/board/index.js'
 import { COST_EXIT, costExpect, costJson, costReport, defaultWindowJournal, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
@@ -221,7 +221,7 @@ const board = withKnownFlags(defineCommand({
     if (everySeconds !== undefined && args.prs === PRS_FROM_STDIN)
       return refuse(lore.boardEveryWithStdin)
     const dir = path.resolve(args.dir)
-    const frame = (): BoardReading => readBoard(dir, { all: args.all, staleHours, prs: args.prs, readStdin: () => readStdinToEnd(), bus: busReaderAt(defaultBusPath()), version: VERSION, mode: process.env.CONSTRUCT_MODE === 'hijack' ? 'hijack' : undefined, geek: args.geek })
+    const frame = (): BoardReading => readBoard(dir, { all: args.all, staleHours, prs: args.prs, readStdin: () => readStdinToEnd(), bus: args.json ? undefined : busReaderAt(defaultBusPath()), version: VERSION, mode: process.env.CONSTRUCT_MODE === 'hijack' ? 'hijack' : undefined, geek: rawSectionsAsked({ geek: args.geek, all: args.all, staleHours, prs: args.prs }) })
     try {
       if (args.json) {
         process.stdout.write(`${JSON.stringify(boardJson(frame()), null, 2)}\n`)

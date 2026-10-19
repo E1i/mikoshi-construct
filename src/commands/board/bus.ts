@@ -5,6 +5,8 @@ import { withReadOnlyBus } from '../cost/bus.js'
 export const WINDOW_SUBAGENT_EVENT = 'window.subagent'
 const CARD_FELL_EVENT = 'card.fell'
 const SHORT_SHA = 7
+export const SUBAGENT_SHOWN_HOURS = 12
+const HOUR_MS = 3_600_000
 
 export interface BusCard {
   id: number
@@ -42,6 +44,7 @@ interface TaskRow {
 }
 
 interface EventRow {
+  ts: string | null
   payload: string
 }
 
@@ -75,15 +78,20 @@ function taskServices(db: BusDb): BusService[] {
   return rows.map(row => ({ role: row.queue, task: `#${row.card_id}`, tree: null, step: stepOf(row) }))
 }
 
-function windowServices(db: BusDb): BusService[] {
-  const rows = db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(WINDOW_SUBAGENT_EVENT) as unknown as EventRow[]
+function isSilent(row: EventRow, now: Date): boolean {
+  const at = row.ts === null ? Number.NaN : Date.parse(row.ts)
+  return Number.isNaN(at) || now.getTime() - at > SUBAGENT_SHOWN_HOURS * HOUR_MS
+}
+
+function windowServices(db: BusDb, now: Date): BusService[] {
+  const rows = db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(WINDOW_SUBAGENT_EVENT) as unknown as EventRow[]
   const running = new Map<string, BusService>()
   for (const row of rows) {
     const payload = payloadOf(row.payload)
     const role = text(payload.role) ?? 'agent'
     const task = text(payload.task) ?? '—'
     const session = text(payload.session) ?? `${role}:${task}`
-    if (payload.phase === 'ended')
+    if (payload.phase === 'ended' || isSilent(row, now))
       running.delete(session)
     else
       running.set(session, { role, task, tree: text(payload.tree), step: text(payload.step) ?? 'started' })
@@ -96,18 +104,18 @@ function lastFailure(db: BusDb): string | null {
   return row === undefined ? null : `card #${row.card_id ?? '?'} fell${row.ts === null ? '' : ` at ${row.ts}`}`
 }
 
-function factsOf(db: BusDb): BusFacts {
+function factsOf(db: BusDb, now: Date): BusFacts {
   const cards = db.prepare('SELECT c.card_id AS id, c.state, b.lane, b.card_line AS line FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id ORDER BY c.card_id').all() as unknown as BusCard[]
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
-  return { cards, services: [...taskServices(db), ...windowServices(db)], failure: lastFailure(db), reviewQueue: Number(queue.n) }
+  return { cards, services: [...taskServices(db), ...windowServices(db, now)], failure: lastFailure(db), reviewQueue: Number(queue.n) }
 }
 
-export function busReaderAt(file: string): BusReader {
+export function busReaderAt(file: string, clock: () => Date = () => new Date()): BusReader {
   return () => {
     if (!existsSync(file))
       return { status: 'absent', file }
     try {
-      return { status: 'read', file, facts: withReadOnlyBus(file, factsOf) }
+      return { status: 'read', file, facts: withReadOnlyBus(file, db => factsOf(db, clock())) }
     }
     catch (error) {
       return { status: 'unreadable', file, reason: error instanceof Error ? error.message : String(error) }
