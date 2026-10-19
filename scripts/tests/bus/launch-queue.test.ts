@@ -3,6 +3,7 @@ import type { ProcessTable } from '../../bus/chain-process.js'
 import type { CardStart, CardStarter, LaunchOutcome, QueuedCard, StartedCard } from '../../bus/launch-executor.js'
 import type { StarterPlaces, StarterPorts } from '../../bus/launch-starter.js'
 import type { Lease } from '../../bus/lease.js'
+import type { IsolationReader } from '../../ghosts/isolation.js'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -27,6 +28,8 @@ import { renderPrompt } from '../../shift/prompt.js'
 import { OPERATOR_CLAUDE } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const ARRIVAL_GUARD_MS = 25_000
 const roots: string[] = []
@@ -63,7 +66,7 @@ class FakeStarter implements CardStarter {
 
 function launchBench(starter: CardStarter = new FakeStarter(), intake?: Parameters<typeof mergeBench>[0]) {
   const bench = mergeBench(intake)
-  const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now })
+  const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, isolation: sandboxed })
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
@@ -220,7 +223,7 @@ describe('the launch queue', () => {
     expect(psPgid(card.pid)).toBe(card.pid)
     expect(card.pgid).toBe(card.pid)
     expect(psPgid(card.pid)).not.toBe(psPgid(process.pid))
-    expect(eventsOf(bench.db, CARD_STARTED)).toEqual([{ session: 'session-920', worktree: path.join(root, 'mc-920'), branch: 'feat/card-920', base: 'b'.repeat(40), pid: card.pid, pgid: card.pid, contour: 'cheap' }])
+    expect(eventsOf(bench.db, CARD_STARTED)).toEqual([{ session: 'session-920', worktree: path.join(root, 'mc-920'), branch: 'feat/card-920', base: 'b'.repeat(40), pid: card.pid, pgid: card.pid, contour: 'cheap', isolation: 'full', isolationGaps: [] }])
     expect(taskState(bench.db, launch(920))).toMatchObject({ state: 'completed' })
     bench.tick()
     expect(bench.leaseLaunch()).toBeNull()
@@ -333,7 +336,7 @@ describe('the launch queue', () => {
       bench.started(card.cardId)
       return { kind: 'started', card: { session: 's', worktree: '/t', branch: 'b', base: 'f'.repeat(40), pid: 7, pgid: 7 } }
     })
-    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now })
+    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, isolation: sandboxed })
     bench.admit(945, 'lane-a')
     bench.tick()
 
@@ -369,7 +372,7 @@ describe('the launch queue', () => {
       expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
       bench.tick()
       const processes: ProcessTable = { commandLine: () => typeof commandLine === 'function' ? commandLine(starter) : commandLine, signalGroup: () => {} }
-      const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode, env: {}, processes })
+      const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode, env: {}, processes, isolation: sandboxed })
       const advanceToLimitPlus = (offsetMs: number): void => bench.clock.advance(startedAt + LIMIT_MS + offsetMs - bench.clock.now().getTime())
       return { bench, starter, node, advanceToLimitPlus }
     }
@@ -446,7 +449,7 @@ describe('the launch queue', () => {
     const bench = launchBench(starter)
     bench.admit(960, 'lane-a')
     bench.tick()
-    const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'shadow', env: {} })
+    const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'shadow', env: {}, isolation: sandboxed })
     const controller = new AbortController()
     const once = async (): Promise<void> => node.run({ pause: async () => controller.abort(), signal: controller.signal })
     vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -463,7 +466,7 @@ describe('launch candidates', () => {
   it('a free ghost row queues the review step of the same card once', () => {
     const starter = new FakeStarter()
     const bench = launchBench(starter)
-    const executor = new LaunchExecutor({ db: bench.db, starter, ladder: starter, clock: bench.clock.now })
+    const executor = new LaunchExecutor({ db: bench.db, starter, ladder: starter, clock: bench.clock.now, isolation: sandboxed })
     bench.admit(981, 'lane-a', [], 'ladder')
     bench.tick()
     expect(executor.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: launch(981) })
@@ -490,7 +493,7 @@ describe('launch candidates', () => {
   it('a free ghost row of a cheap card queues nothing', () => {
     const starter = new FakeStarter()
     const bench = launchBench(starter)
-    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now })
+    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, isolation: sandboxed })
     bench.admit(982, 'lane-a')
     bench.tick()
     executor.launch(bench.leaseLaunch()!)

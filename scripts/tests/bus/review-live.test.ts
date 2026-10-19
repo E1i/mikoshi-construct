@@ -1,6 +1,7 @@
 import type { DetectionMode, Scope } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import type { Reviewer } from '../../bus/reviewer.js'
+import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -17,6 +18,8 @@ import { ReviewNode } from '../../bus/review-worker.js'
 import { switchDetection, switchWorker, wantedLaunches } from '../../bus/workers.js'
 import { cardBody } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const benches: MergeBench[] = []
 const NO_PREFLIGHT = (): string[] => []
@@ -58,7 +61,7 @@ function bench(): MergeBench {
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'live'): ProbedReviewNode {
-  return new ProbedReviewNode({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer: passing, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'node-1', mode, env: {} })
+  return new ProbedReviewNode({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer: passing, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'node-1', mode, env: {}, isolation: sandboxed })
 }
 
 async function once(node: ReviewNode): Promise<void> {

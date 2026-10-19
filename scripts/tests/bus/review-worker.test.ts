@@ -3,6 +3,7 @@ import type { Lease } from '../../bus/lease.js'
 import type { DepthSources, ReviewDepth, ReviewPlan, ReviewPlanner } from '../../bus/review-depth.js'
 import type { ReviewRun } from '../../bus/review-worker.js'
 import type { LeftoverTree, Reviewer, TreeTools } from '../../bus/reviewer.js'
+import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { SpawnSessionParams } from '../../ghosts/session.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import type { ChangedFile } from '../../morse/rules.js'
@@ -20,14 +21,16 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewIsolationCommand, reviewMode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { openDatabase } from '../../bus/sqlite.js'
-import { REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
+import { HEADLESS_FLAGS, REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
 import { classify } from '../../morse/rules.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const roots: string[] = []
 const WRITING_TRANSCRIPT = `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: 'planted.txt' } }] } })}\n`
@@ -77,7 +80,7 @@ function setUp(): Bench {
       detectReview({ db, gitHub, clock })
       clock.advance(TICK_MS)
     },
-    worker: (reviewer, publish = posted, plan = fixedPlan, clearLeftovers) => new ReviewWorker({ db, gitHub: gitHub.client, publish, reviewer, plan, clock: clock.now, session: 'worker-1', clearLeftovers }),
+    worker: (reviewer, publish = posted, plan = fixedPlan, clearLeftovers) => new ReviewWorker({ db, gitHub: gitHub.client, publish, reviewer, plan, clock: clock.now, session: 'worker-1', clearLeftovers, isolation: sandboxed }),
   }
 }
 
@@ -143,7 +146,7 @@ describe('review worker', () => {
 
     expect(await worker(reviewing()).step()).toEqual({ kind: 'recorded', taskKey: review(939), verdict: 'pass', depth: 'full' })
     expect(statuses.map(status => status.state)).toEqual(['success'])
-    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: [] }])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: [], isolation: 'full', isolationGaps: [] }])
     expectReplayIdentical(db)
     db.close()
   })
@@ -157,7 +160,7 @@ describe('review worker', () => {
     const step = await worker(ran).step()
     expect(step).toEqual({ kind: 'recorded', taskKey: review(941), verdict: 'pass', depth: 'full', model: 'claude-haiku-5-5' })
     expect(stepLine(step)).toBe(`[bus:review] ${review(941)}: pass recorded, review depth full, model claude-haiku-5-5`)
-    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', model: 'claude-haiku-5-5', findings: [] }])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', model: 'claude-haiku-5-5', findings: [], isolation: 'full', isolationGaps: [] }])
     expectReplayIdentical(db)
     db.close()
   })
@@ -169,7 +172,7 @@ describe('review worker', () => {
 
     expect(await worker(reviewing('reviewer-1', 'changes')).step()).toEqual({ kind: 'recorded', taskKey: review(940), verdict: 'changes', depth: 'full' })
     expect(statuses).toEqual([{ commit: sha('a'), state: 'failure', context: 'review', description: 'review verdict changes for card #1040 by reviewer-1' }])
-    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'changes', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: ['a finding'] }])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'changes', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: ['a finding'], isolation: 'full', isolationGaps: [] }])
     expect(task(db, review(940))).toEqual({ state: 'completed', lease_gen: 1, failures: 0 })
 
     tick()
@@ -306,7 +309,7 @@ describe('review worker', () => {
 
   it('the worker refuses to start while the shadow report is not clean', () => {
     const { db, gitHub, clock, tick } = setUp()
-    const parts = { db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'worker-1' }
+    const parts = { db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: sandboxed }
     gitHub.open({ number: 947 })
     tick()
     gitHub.open({ number: 947, head: sha('c') })
@@ -332,6 +335,62 @@ describe('review worker', () => {
     db.prepare(`UPDATE prs SET state = 'closed' WHERE pr = 947`).run()
     expect(() => startReviewWorkers(parts, 1)).toThrow(/replay byte-diff: prs 947: state live "closed", replay "open"/)
     db.close()
+  })
+
+  it('a review with no runtime isolation is refused', async () => {
+    const { db, gitHub, statuses, tick, clock } = setUp()
+    gitHub.open({ number: 960 })
+    tick()
+    const reviewer = vi.fn<Reviewer>(async () => ({ verdict: 'pass', findings: [], session: 'reviewer-1' }))
+    const unconfined: IsolationReader = () => ({ level: 'none', why: 'sandbox.enabled is not true' })
+    const worker = new ReviewWorker({ db, gitHub: gitHub.client, publish: () => {}, reviewer, plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: unconfined })
+
+    const step = await worker.step()
+    expect(step).toMatchObject({ kind: 'denied', taskKey: review(960), denial: { kind: 'technical', reason: 'no_isolation' }, next: 'queued' })
+    expect(reviewer).not.toHaveBeenCalled()
+    expect(statuses).toEqual([])
+    expect(events(db, 'review.recorded')).toEqual([])
+    expect(events(db, 'policy.denied')).toMatchObject([{ command: 'record_verdict', kind: 'technical', reason: 'no_isolation' }])
+    expect(task(db, review(960))).toMatchObject({ state: 'queued', failures: 0 })
+    expectReplayIdentical(db)
+    db.close()
+  })
+
+  it('a review under a partial sandbox records the level and its gap', async () => {
+    const { db, gitHub, tick, clock } = setUp()
+    gitHub.open({ number: 962 })
+    tick()
+    const gap = 'sandbox.excludedCommands names docker; they run outside the sandbox'
+    const partial: IsolationReader = () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [gap] })
+    const worker = new ReviewWorker({ db, gitHub: gitHub.client, publish: () => {}, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: partial })
+
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', taskKey: review(962) })
+    expect(events(db, 'review.recorded')).toMatchObject([{ isolation: 'partial', isolationGaps: [gap] }])
+    expectReplayIdentical(db)
+    db.close()
+  })
+
+  it('a dry run with no runtime isolation starts no reviewer', async () => {
+    const { busPath, gitHub } = setUp()
+    gitHub.open({ number: 961 })
+    const failed = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const reviewer = vi.fn<Reviewer>(async () => ({ verdict: 'pass', findings: [], session: 'reviewer-dry' }))
+    const run: ReviewRun = {
+      busPath,
+      isolation: () => ({ level: 'none', why: 'sandbox.enabled is not true' }),
+      gitHub: gitHub.client,
+      publish: () => {},
+      reviewer,
+      plan: fixedPlan,
+      session: 'main-1',
+      slots: 1,
+      pause: async () => {},
+      clearLeftovers: () => [],
+    }
+
+    expect(await runReview(['--dry-run', '961'], run)).toBe(1)
+    expect(reviewer).not.toHaveBeenCalled()
+    expect(String(failed.mock.calls[0]?.[0])).toMatch(/no runtime isolation: .*; nothing reviewed$/)
   })
 
   it('a dry run prints the review and writes nothing to the bus or GitHub', async () => {
@@ -516,6 +575,7 @@ describe('review worker', () => {
     class Stopped extends Error {}
     const run: ReviewRun = {
       busPath,
+      isolation: sandboxed,
       gitHub: gitHub.client,
       publish: (status) => {
         statuses.push(status)
@@ -608,6 +668,7 @@ describe('review worker', () => {
     class Stopped extends Error {}
     const run: ReviewRun = {
       busPath,
+      isolation: sandboxed,
       gitHub: gitHub.client,
       publish: () => {},
       reviewer: async (lease) => {
@@ -1105,6 +1166,8 @@ describe('review depth by MORSE', () => {
       review_ms: READING_MS.diff,
       reviewer_session: 'reviewer-1',
       findings: [],
+      isolation: 'full',
+      isolationGaps: [],
     }])
     expect(stepLine({ kind: 'recorded', taskKey: review(964), verdict: 'pass', depth: 'diff' })).toContain('pass recorded, review depth diff')
     expect(stepLine({ kind: 'recorded', taskKey: review(964), verdict: 'pass', depth: 'diff' })).toContain('model not reported by the session')
@@ -1197,5 +1260,11 @@ describe('review depth by MORSE', () => {
     expect(withinTouches('docs/a/b.md', ['docs/**'])).toBe(true)
     expect(withinTouches('docs.md', ['docs/**'])).toBe(false)
     expect(withinTouches('README.md', ['README.md'])).toBe(true)
+  })
+})
+
+describe('the review isolation command', () => {
+  it('is claude with the headless flags the reviewer is spawned with', () => {
+    expect(reviewIsolationCommand()).toEqual(['claude', ...HEADLESS_FLAGS])
   })
 })

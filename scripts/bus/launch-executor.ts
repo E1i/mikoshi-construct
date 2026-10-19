@@ -1,14 +1,16 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Isolation, IsolationReader } from '../ghosts/isolation.js'
 import type { BusEvent } from './db.js'
 import type { DiskReader } from './disk.js'
 import type { Contour } from './launch-candidates.js'
 import type { AfterFailure, Lease } from './lease.js'
+import { NO_ISOLATION } from '../ghosts/isolation.js'
 import { DISK_LOW, diskLowDetail, statfsReader } from './disk.js'
 import { CARD_STARTED, POLICY_DENIED } from './inbox.js'
 import { launchableCard } from './launch-candidates.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 
-export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached' | 'ladder_running' | 'ladder_fault' | typeof DISK_LOW
+export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached' | 'ladder_running' | 'ladder_fault' | typeof DISK_LOW | typeof NO_ISOLATION
 
 export interface LaunchDenial {
   kind: 'technical'
@@ -53,11 +55,12 @@ export interface LaunchParts {
   ladder?: CardStarter
   clock: () => Date
   disk?: DiskReader
+  isolation: IsolationReader
 }
 
 const WITHDRAW_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set(['card_not_queued'])
 
-const RELEASE_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set([DISK_LOW])
+const RELEASE_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set([DISK_LOW, NO_ISOLATION])
 
 export function technical(reason: LaunchTechnicalReason, detail: string): LaunchDenial {
   return { kind: 'technical', reason, detail }
@@ -83,6 +86,9 @@ export class LaunchExecutor {
       const diskLow = diskLowDetail(this.disk)
       if (diskLow !== null)
         return this.denied(lease, technical(DISK_LOW, `card #${lease.cardId} is not started: ${diskLow}`))
+      const isolation = this.parts.isolation()
+      if (isolation.level === 'none')
+        return this.denied(lease, technical(NO_ISOLATION, `card #${lease.cardId} is not started: ${isolation.why}`))
       const starter = this.starterOf(launchable.contour)
       const start = starter.start({ cardId: lease.cardId, lane: launchable.lane })
       if (start.kind === 'refused')
@@ -92,7 +98,7 @@ export class LaunchExecutor {
         starter.stop(card)
         return this.denied(lease, technical('not_detached', `card #${lease.cardId} runs as pid ${card.pid} in process group ${card.pgid}, not as its own group leader; it was stopped`))
       }
-      return this.started(lease, card, starter)
+      return this.started(lease, card, starter, isolation)
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -107,8 +113,8 @@ export class LaunchExecutor {
     return this.parts.ladder ?? { start: () => ({ kind: 'refused', denial: technical('start_failed', 'no ladder starter is wired into this launch node') }), stop: () => {} }
   }
 
-  private started(lease: Lease, card: StartedCard, starter: CardStarter): LaunchOutcome {
-    const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload: { ...card }, legacy: false }
+  private started(lease: Lease, card: StartedCard, starter: CardStarter, isolation: Exclude<Isolation, { level: 'none' }>): LaunchOutcome {
+    const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload: { ...card, isolation: isolation.level, isolationGaps: isolation.gaps }, legacy: false }
     try {
       completeTask(this.parts.db, this.ts(), lease, [event], (db) => {
         if (launchableCard(db, lease.cardId) === null)

@@ -1,5 +1,6 @@
 import type { DiskReader } from '../../bus/disk.js'
 import type { CardStart, CardStarter, QueuedCard } from '../../bus/launch-executor.js'
+import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { Shell } from '../../ghosts/preflight-trees.js'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -16,6 +17,8 @@ import { leaseNext } from '../../bus/lease.js'
 import { BOARD_ALARM, FAILURES_TO_STOP } from '../../bus/queue.js'
 import { PreflightRefusal, runPreflight } from '../../ghosts/preflight.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const BSIZE = 4096
 const CARD = 951
@@ -41,7 +44,7 @@ function launchOnce(disk: DiskReader, rounds = 1) {
   const bench = mergeBench()
   try {
     const starter = new RecordingStarter()
-    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, disk })
+    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, disk, isolation: sandboxed })
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD}` }, legacy: false })
     bench.tick()
     const outcomes = Array.from({ length: rounds }, () => executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:w')!))

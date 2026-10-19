@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Isolation, IsolationReader } from '../ghosts/isolation.js'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { BusEvent } from './db.js'
 import type { GitHub } from './github.js'
@@ -6,6 +7,7 @@ import type { AfterFailure, Lease } from './lease.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
+import { NO_ISOLATION } from '../ghosts/isolation.js'
 import { REVIEW_RECORDED } from './card-automaton.js'
 import { ARTIFACT_REMOVED } from './close-executor.js'
 import { appendEvent } from './db.js'
@@ -22,6 +24,7 @@ export const TREE_LEFT = 'tree_left'
 export const REVIEW_ROUNDS_SPENT = 'review.rounds_spent'
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const REVIEW_TREE_ORPHANED = 'review.tree.orphaned'
+export const SPAWNS_NO_SESSION = 'spawns-no-session'
 
 export type Step
   = | { kind: 'idle' }
@@ -39,13 +42,23 @@ export interface ExecutorParts {
   clock: () => Date
   clearLeftovers?: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
+  isolation: IsolationReader | typeof SPAWNS_NO_SESSION
 }
 
 interface Reviewed {
   review: Review
   plan: ReviewPlan
   ms: number
+  isolation: Held | null
 }
+
+type Held = Exclude<Isolation, { level: 'none' }>
+
+function isolationFields(isolation: Held | null): Record<string, unknown> {
+  return isolation === null ? {} : { isolation: isolation.level, isolationGaps: isolation.gaps }
+}
+
+const RELEASE_REASONS: ReadonlySet<string> = new Set([NO_ISOLATION])
 
 interface Attempt {
   outcome: Reviewed | Denial
@@ -129,9 +142,12 @@ export class ReviewExecutor {
       return this.waiting(lease, stale.detail)
     if (stale !== null)
       return this.denied(lease, stale)
+    const isolation = this.parts.isolation === SPAWNS_NO_SESSION ? null : this.parts.isolation()
+    if (isolation?.level === 'none')
+      return this.denied(lease, { kind: 'technical', reason: NO_ISOLATION, detail: `PR #${lease.pr} is not reviewed: ${isolation.why}` })
     let held: HeldTree | null = null
     try {
-      const attempt = await this.reviewed(lease)
+      const attempt = await this.reviewed(lease, isolation)
       held = attempt.held
       return this.settle(lease, attempt.outcome)
     }
@@ -146,13 +162,13 @@ export class ReviewExecutor {
     }
   }
 
-  private async reviewed(lease: Lease): Promise<Attempt> {
+  private async reviewed(lease: Lease, isolation: Held | null): Promise<Attempt> {
     const { db, clock } = this.parts
     const plan = planned(this.parts.plan, lease, earlierVerdict(db, lease))
     try {
       const started = clock().getTime()
       const review = await this.parts.reviewer(lease, plan)
-      return { outcome: { review, plan, ms: clock().getTime() - started }, held: review.tree ?? null }
+      return { outcome: { review, plan, ms: clock().getTime() - started, isolation }, held: review.tree ?? null }
     }
     catch (error) {
       return { outcome: { kind: 'technical', reason: 'review_failed', detail: error instanceof Error ? error.message : String(error) }, held: error instanceof ReviewFailed ? error.held : null }
@@ -209,7 +225,7 @@ export class ReviewExecutor {
     }
   }
 
-  private recorded(lease: Lease, { review, plan, ms }: Reviewed): BusEvent {
+  private recorded(lease: Lease, { review, plan, ms, isolation }: Reviewed): BusEvent {
     return {
       ts: this.ts(),
       type: REVIEW_RECORDED,
@@ -218,7 +234,7 @@ export class ReviewExecutor {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review) },
+      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation) },
       legacy: false,
     }
   }
@@ -241,6 +257,10 @@ export class ReviewExecutor {
       dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`,
       payload: { command: 'record_verdict', ...denial },
       legacy: false,
+    }
+    if (RELEASE_REASONS.has(reason)) {
+      releaseTask(this.parts.db, ts, lease, reason, [event])
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
     const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }

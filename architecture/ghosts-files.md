@@ -26,6 +26,7 @@ file. This file is not owner-merged: who merges is decided in [owner-merges.md](
 | `scripts/ghosts/handoff.ts` | ghosts |
 | `scripts/ghosts/hash.ts` | ghosts |
 | `scripts/ghosts/install.ts` | ghosts |
+| `scripts/ghosts/isolation.ts` | ghosts |
 | `scripts/ghosts/journal.ts` | ghosts |
 | `scripts/ghosts/launch.ts` | ghosts |
 | `scripts/ghosts/ledger.ts` | plain |

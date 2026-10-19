@@ -1,9 +1,12 @@
 import type { Scope } from '../../bus/node.js'
 import type { StoredEvent } from '../../bus/stored.js'
+import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { ReviewNode } from '../../bus/review-worker.js'
 import { STORED_COLUMNS } from '../../bus/stored.js'
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 class DetectingReviewNode extends ReviewNode {
   detect(scope?: Scope): void {
@@ -13,5 +16,5 @@ class DetectingReviewNode extends ReviewNode {
 }
 
 export function detectReview(bench: Pick<MergeBench, 'db' | 'gitHub' | 'clock'>, scope?: Scope): void {
-  new DetectingReviewNode({ db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'pass', findings: [], session: 'detect' }), plan: () => fullReview('detection only'), clock: bench.clock.now, session: 'detect', mode: 'live', env: {} }).detect(scope)
+  new DetectingReviewNode({ db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'pass', findings: [], session: 'detect' }), plan: () => fullReview('detection only'), clock: bench.clock.now, session: 'detect', mode: 'live', env: {}, isolation: sandboxed }).detect(scope)
 }

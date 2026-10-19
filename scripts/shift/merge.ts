@@ -19,7 +19,7 @@ import { ghApi } from '../bus/github.js'
 import { POLICY_DENIED } from '../bus/inbox.js'
 import { QUEUED } from '../bus/queue.js'
 import { fullReview } from '../bus/review-depth.js'
-import { ReviewWorker } from '../bus/review-worker.js'
+import { ReviewWorker, SPAWNS_NO_SESSION } from '../bus/review-worker.js'
 import { execGh } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { reviewCarry } from '../ghosts/review-carry.js'
@@ -258,6 +258,7 @@ export async function runVerdict(argv: string[], deps: VerdictDeps): Promise<Mer
       return { stdout: [], stderr: [`${VERDICT_PREFIX}PR #${review.pr} has no review task queued at ${review.commit} in the bus ${deps.bus}; nothing recorded`], exitCode: 1 }
     const reviewerSession = deps.session ?? VERDICT_BY_HAND
     const worker = new ReviewWorker({
+      isolation: SPAWNS_NO_SESSION,
       db,
       gitHub: deps.gitHub,
       publish: deps.publish,
