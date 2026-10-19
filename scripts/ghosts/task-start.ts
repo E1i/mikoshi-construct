@@ -37,7 +37,7 @@ const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SAFE_BRANCH = /^[^\s-]\S*$/
 const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
-export const FETCH_MAIN_OVER_HTTPS = ['-c', 'url.https://github.com/.insteadOf=git@github.com:', 'fetch', 'origin', 'main']
+const FETCH_MAIN_OVER_HTTPS = ['-c', 'url.https://github.com/.insteadOf=git@github.com:', '-c', 'url.https://github.com/.insteadOf=ssh://git@github.com/', 'fetch', 'origin', 'main']
 
 export interface TaskStartDeps {
   cwd: string

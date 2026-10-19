@@ -34,7 +34,7 @@ const MANAGED_SETTINGS: Record<string, string> = {
 const SANDBOX_EXEC = '/usr/bin/sandbox-exec'
 const OVERRIDE_WORDS = ['--settings', '--setting-sources', 'dangerously-skip-permissions', 'bypassPermissions']
 const ENABLE_IT = 'enable sandbox.enabled in the user or managed settings'
-const TSX_PIPE_PATH = /^\/\S*\/tsx-\d+(?:\/\d+\.pipe)?$/
+const TSX_PIPE_PATH = /^(?:\/private)?\/tmp\/claude-\d+\/tsx-\d+(?:\/\d+\.pipe)?$/
 
 function fieldsOf(value: unknown): Fields | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Fields : null
