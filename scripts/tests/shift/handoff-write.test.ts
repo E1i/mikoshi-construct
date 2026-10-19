@@ -1,3 +1,4 @@
+import type { WindowShard } from '../../bus/shards.js'
 import type { ExitReadings } from '../../miko/eddies-measure.js'
 import type { HandoffState, MergedReading, PrState, StateReading } from '../../shift/handoff-write.js'
 import { Buffer } from 'node:buffer'
@@ -48,9 +49,11 @@ let busState: StateReading = NO_BUS
 let mergedToday: MergedReading = NO_MERGES
 let prStates: Record<number, PrState> = {}
 let exitReadings: ExitReadings = BELOW_WARN
+let decisionsShard: WindowShard | null = null
 
 afterEach(() => {
   busState = NO_BUS
+  decisionsShard = null
   mergedToday = NO_MERGES
   prStates = {}
   exitReadings = BELOW_WARN
@@ -91,6 +94,7 @@ function write(args: string[], handoffDir?: string, sessionHandoff: string | nul
     state: () => busState,
     merged: () => mergedToday,
     prState: pr => prStates[pr] ?? 'OPEN',
+    decisionsShard: () => decisionsShard,
     readings: () => exitReadings,
     stopReason: stopReasonOf,
     now: () => NOW,
@@ -259,6 +263,23 @@ describe('handoff:write', () => {
     expect(result.code).toBe(1)
     expect(result.err.join('\n')).toContain('owner questions go into the day file and the next card is taken')
     expect(existsSync(handoff)).toBe(false)
+  })
+
+  it('handoff:write refuses STATUS: OWNER under an active decisions shard', () => {
+    decisionsShard = { id: 'ws-1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-17T16:00:00.000Z' }
+    for (const boundary of OWNER_BOUNDARIES.slice(1)) {
+      const { handoff, draft: file } = world()
+      writeFileSync(file, draft().replace('STATUS: CONTINUE', `STATUS: OWNER — boundary: ${boundary}`))
+      const result = write([handoff, file])
+      expect(result.code).toBe(1)
+      expect(result.err.join('\n')).toContain('under the active merge+decisions shard ws-1')
+      expect(existsSync(handoff)).toBe(false)
+    }
+    for (const status of [`STATUS: OWNER — boundary: ${OWNER_BOUNDARIES[0]}`, 'STATUS: CONTINUE']) {
+      const { handoff, draft: file } = world()
+      writeFileSync(file, draft().replace('STATUS: CONTINUE', status))
+      expect(write([handoff, file]).code).toBe(0)
+    }
   })
 
   it('writes STATUS: OWNER when no card can be taken without the owner', () => {

@@ -1,4 +1,5 @@
 import type { Board } from '../bus/board.js'
+import type { WindowShard } from '../bus/shards.js'
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
 import type { ExitReadings, Reading } from '../miko/eddies-measure.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
@@ -10,6 +11,7 @@ import { parkingLanes, readBoard } from '../bus/board.js'
 import { MERGE_DONE } from '../bus/card-automaton.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { busParkingReads } from '../bus/parking-reads.js'
+import { activeDecisionsShard, VERSION_PR_RESERVATION } from '../bus/shards.js'
 import { windowOf } from '../bus/window.js'
 import { execGh } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
@@ -24,7 +26,7 @@ import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
 export const PREFIX = '[handoff:write] '
 export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md> [--parking <dir>]'
 export const ARCHIVE_DIR = 'archive'
-export const OWNER_BOUNDARIES = ['version-pr', 'owner-merged-kind', 'missing-right', 'owner-question'] as const
+export const OWNER_BOUNDARIES = [VERSION_PR_RESERVATION, 'owner-merged-kind', 'missing-right', 'owner-question'] as const
 
 const ARCHIVED = /^(\d{4,})\.md$/
 const STOP_HEADING = /^#{1,6} +STOP\b/
@@ -62,6 +64,7 @@ export interface HandoffWriteDeps {
   state: (parking: string) => StateReading
   merged: (since: string) => MergedReading
   prState: (pr: number) => PrState
+  decisionsShard: (now: Date) => WindowShard | null
   readings: () => ExitReadings
   stopReason: (status: string | null, readings: ExitReadings) => string | null
   now: () => Date
@@ -237,6 +240,13 @@ export function ownerWhileWorkIsFreeRefusal(text: string, reading: StateReading)
   return `${PREFIX}STATUS: OWNER while the bus holds ${reading.state.ready.map(card => `#${card.card}`).join(', ')}, which can be taken without the owner; owner questions go into the day file and the next card is taken`
 }
 
+export function ownerUnderDecisionsShardRefusal(text: string, shard: WindowShard | null): string | null {
+  const statusLine = statusLineOf(text) ?? ''
+  if (shard === null || statusOf(statusLine) !== 'OWNER' || NAMED_BOUNDARY.exec(statusLine)?.[1] === VERSION_PR_RESERVATION)
+    return null
+  return `${PREFIX}STATUS: OWNER under the active ${shard.scope} shard ${shard.id} (by ${shard.by}, until ${shard.until}); the window decides the question under the shard, and only boundary: ${VERSION_PR_RESERVATION} stays the owner's`
+}
+
 export function readingRefusals(draft: string): string[] {
   return draft.split(/\r?\n/).flatMap((line) => {
     if (WHOLE_READING.test(line))
@@ -306,6 +316,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const text = withPrev(reading.kind === 'read' ? withState(stopped, stateLines(reading.state)) : stopped, prev)
   const ownerRefusal = ownerStatusRefusal(text)
   const freeWorkRefusal = ownerWhileWorkIsFreeRefusal(text, reading)
+  const shardRefusal = ownerUnderDecisionsShardRefusal(text, deps.decisionsShard(now))
   const day = planDay(drafted, handoff, deps)
   const refusals = [
     ...draftGeneratedRefusals(drafted),
@@ -322,6 +333,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
     }),
     ...(ownerRefusal === null ? [] : [ownerRefusal]),
     ...(freeWorkRefusal === null ? [] : [freeWorkRefusal]),
+    ...(shardRefusal === null ? [] : [shardRefusal]),
   ]
   if (refusals.length > 0) {
     for (const line of refusals)
@@ -385,6 +397,23 @@ export function busMerged(busPath: string, since: string): MergedReading {
   }
 }
 
+function busDecisionsShard(busPath: string, now: Date): WindowShard | null {
+  if (!existsSync(busPath))
+    return null
+  try {
+    const db = openBus(busPath)
+    try {
+      return activeDecisionsShard(db, now)
+    }
+    finally {
+      db.close()
+    }
+  }
+  catch {
+    return null
+  }
+}
+
 function ghPrState(pr: number): PrState {
   try {
     const state = (JSON.parse(execGh(['pr', 'view', String(pr), '--json', 'state'])) as { state?: string }).state
@@ -411,6 +440,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     state: parking => busState(defaultBusPath(), parking),
     merged: since => busMerged(defaultBusPath(), since),
     prState: ghPrState,
+    decisionsShard: now => busDecisionsShard(defaultBusPath(), now),
     readings: () => realExitReadings(process.env, os.homedir(), projectRoot(process.env), defaultBusPath()),
     stopReason: stopReasonOf,
     now: () => new Date(),
