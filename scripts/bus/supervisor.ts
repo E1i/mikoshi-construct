@@ -558,12 +558,12 @@ export interface SwitchControl {
   stop: (running: RunningProcess, launch: DetachedLaunch) => Promise<void>
 }
 
-export async function applySwitch(busDir: string, worker: string, on: boolean, control: SwitchControl, reviewPreflight: () => string[]): Promise<BgResult> {
+export async function applySwitch(busDir: string, worker: string, on: boolean, control: SwitchControl, reviewPreflight: () => string[], decisions: readonly InForceDecision[] = []): Promise<BgResult> {
   const switched = switchCommand(busDir, worker, on)
   if (switched.exitCode !== 0)
     return switched
   const script = `bus:${worker}`
-  const launch = (on ? wantedLaunches(busDir, reviewPreflight) : busLaunches(reviewPreflight)).find(each => each.script === script)!
+  const launch = (on ? wantedLaunches(busDir, reviewPreflight, decisions) : busLaunches(reviewPreflight)).find(each => each.script === script)!
   const running = runningInstance(control.processes(), launch.markers)
   if (!on) {
     if (running === undefined)
@@ -588,7 +588,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   recordStarted(db, new Date().toISOString(), code, line => console.log(line))
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
-    wanted: () => wantedLaunches(busDir, reviewPreflight),
+    wanted: () => wantedLaunches(busDir, reviewPreflight, inForceDecisions(db)),
     start: launch => startReviewWorker(launch, busDir, process.env, processes),
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
     freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
@@ -601,7 +601,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     now: () => Date.now(),
   }, startingBaseline(db, code))
   const keeper = new WorkerKeeper({
-    wanted: () => wantedLaunches(busDir, reviewPreflight),
+    wanted: () => wantedLaunches(busDir, reviewPreflight, inForceDecisions(db)),
     start: launch => startReviewWorker(launch, busDir, process.env, processes),
     processes,
     reduce: () => runReducer(cwd),
@@ -649,14 +649,14 @@ async function main(): Promise<void> {
       processes,
       start: launch => startReviewWorker(launch, busDir, process.env, processes),
       stop: (running, launch) => stopInstance(running, launch.markers, processes),
-    }, reviewPreflight))
+    }, reviewPreflight, decisionsInForce()))
     return
   }
   if (command.kind === 'detection') {
     printBg(detectionCommand(busDir, command.worker, command.live, command.live ? decisionsInForce() : []))
     return
   }
-  printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight), SUPERVISOR_LAUNCH], process.env, psList(), startReviewWorker))
+  printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], process.env, psList(), startReviewWorker))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

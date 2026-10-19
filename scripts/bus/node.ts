@@ -300,7 +300,13 @@ export abstract class Node<S extends NodeStep> {
     })
   }
 
+  protected executes(): boolean {
+    return true
+  }
+
   private take(): Lease | null {
+    if (!this.executes())
+      return null
     const ts = this.ts()
     expireLeases(this.db, ts)
     if (drainOpen(this.db, ts))

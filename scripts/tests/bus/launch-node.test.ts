@@ -1,3 +1,4 @@
+import type { ProcessTable } from '../../bus/chain-process.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../bus/launch-executor.js'
 import type { DetachedSpawn, StarterPorts } from '../../bus/launch-starter.js'
 import type { LaunchNodeParts, LaunchStep } from '../../bus/launch-worker.js'
@@ -6,17 +7,18 @@ import type { DetectionMode } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { CARD_FELL } from '../../bus/card-automaton.js'
+import { CARD_FELL, GHOST_ROW, STOPPED_CARD } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { handoffLadderSteps, launchIsolationCommand, LaunchNode } from '../../bus/launch-worker.js'
+import { handoffLadderSteps, hasCommitsAhead, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
 import { keyOf, launchTasks, TASK_ENQUEUED } from '../../bus/queue.js'
@@ -263,7 +265,7 @@ describe('the launch node', () => {
     admit(made, 970, 'lane-a')
     admit(made, 971, 'lane-b')
     made.tick()
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
     expect(node.slots).toBe(1)
 
     await once(node)
@@ -274,6 +276,132 @@ describe('the launch node', () => {
 
     await once(node)
     expect(starter.starts.map(card => card.cardId)).toEqual([970, 971])
+  })
+
+  it('in shadow the launch node writes node.detected and starts no session', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 975, 'lane-a')
+    made.tick()
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+
+    await once(node)
+    await once(node)
+    expect(starter.starts).toEqual([])
+    expect(eventsOf(made.db, CARD_STARTED)).toEqual([])
+    expect(taskState(made.db, launchKey(975))).toMatchObject({ state: 'queued' })
+
+    const detecting = bench()
+    admit(detecting, 975, 'lane-a')
+    const detectingStarter = new FakeStarter()
+    await once(new ProbedLaunchNode({ db: detecting.db, starter: detectingStarter, clock: detecting.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed }))
+    expect(detectingStarter.starts).toEqual([])
+    expect(eventsOf(detecting.db, NODE_DETECTED)).toEqual([{ key: launchKey(975), via: 'tick', event_id: expect.any(Number) as unknown }])
+  })
+
+  it('a launched session that ends with no PR, commit or handoff gives card.stopped with a reason and the card is queued again', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 976, 'lane-a')
+    made.tick()
+    let alive = true
+    const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-976' : null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+
+    await once(node)
+    expect(starter.starts).toHaveLength(1)
+    made.tick()
+    expect(node.stopOverdue()).toEqual([])
+    expect(node.found()).toEqual([])
+
+    alive = false
+    expect(node.stopOverdue()).toEqual([976])
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: expect.stringContaining('session-end') as unknown }])
+
+    made.tick()
+    expect(launchRows(made, 976)).toBe(2)
+    expect(taskState(made.db, keyOf({ queue: 'launch', cardId: 976, generation: 'session-end:card.started:launch:976:admission-976' }))).toMatchObject({ state: 'queued' })
+  })
+
+  it('the third session death of one card gives a final card.stopped naming D-104 and the card is not queued again', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 978, 'lane-a')
+    made.tick()
+    let alive = true
+    const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-978' : null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+
+    for (let death = 1; death <= SESSION_DEATH_CAP; death++) {
+      alive = true
+      await once(node)
+      made.tick()
+      alive = false
+      expect(node.stopOverdue()).toEqual([978])
+      made.tick()
+    }
+
+    expect(starter.starts).toHaveLength(SESSION_DEATH_CAP)
+    const stops = eventsOf(made.db, CARD_STOPPED) as { detail: string }[]
+    expect(stops.map(stop => stop.detail.includes('D-104'))).toEqual([false, false, true])
+    expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 978`).get()).toEqual({ state: STOPPED_CARD })
+    expect(made.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'launch' AND card_id = 978 AND state = 'queued'`).get()).toEqual({ n: 0 })
+    await once(node)
+    expect(starter.starts).toHaveLength(SESSION_DEATH_CAP)
+  })
+
+  it('a launched session that ends with a commit is not stopped', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 977, 'lane-a')
+    made.tick()
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, isolation: sandboxed })
+
+    await once(node)
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+  })
+
+  it('in shadow stopOverdue neither stops a dead session nor signals an overdue one', async () => {
+    const made = bench()
+    admit(made, 979, 'lane-a')
+    admit(made, 980, 'lane-b')
+    made.tick()
+    let alive979 = true
+    const signalled: number[] = []
+    const processes: ProcessTable = { commandLine: pid => pid === 979 ? (alive979 ? 'sh -c claude -p --session-id s-979' : null) : 'sh -c claude -p --session-id s-980', signalGroup: pgid => signalled.push(pgid) }
+    const starter: CardStarter = { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: card.cardId, pgid: card.cardId } }), stop: card => signalled.push(card.pgid) }
+    const live = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+    await once(live)
+    await once(live)
+    expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(2)
+    made.tick()
+
+    alive979 = false
+    made.clock.advance(LAUNCH_LIMIT_MINUTES * 60_000 + 1)
+    const shadow = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-2', mode: 'shadow', env: {}, processes, isolation: sandboxed })
+    expect(shadow.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(signalled).toEqual([])
+  })
+
+  it('a launched session that left a shift report or a Ghost row is not stopped', async () => {
+    for (const left of ['report', 'ghost-row'] as const) {
+      const made = bench()
+      admit(made, 981, 'lane-a')
+      made.tick()
+      const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+      const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: (_card, start) => left === 'report' && start.cardId === 981, isolation: sandboxed })
+      await once(node)
+      made.tick()
+      if (left === 'ghost-row')
+        appendEvent(made.db, { ts: made.clock.now().toISOString(), type: GHOST_ROW, actor: 'policy', cardId: 981, pr: null, head: null, dedupeKey: `${GHOST_ROW}:981`, payload: { state: 'running' }, legacy: false })
+
+      expect(node.stopOverdue()).toEqual([])
+      expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    }
   })
 
   it('a task of an old head is superseded by deriveQueues beside the launch node as before', async () => {
@@ -347,11 +475,15 @@ function ladderWorld(handoffState: { brief: string, approved: string } | null): 
 }
 
 function ladderNode(made: MergeBench, world: LadderWorld, cheap: CardStarter = new FakeStarter()): ProbedLaunchNode {
-  return new ProbedLaunchNode({ db: made.db, starter: cheap, ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+  return new ProbedLaunchNode({ db: made.db, starter: cheap, ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
 }
 
 function scriptOf(run: DetachedSpawn): string {
   return run.args[1]!
+}
+
+function commandWordsOf(script: string): string[] {
+  return script.split(/[|;&]+/).map(segment => segment.trim().split(/\s+/)[0]!)
 }
 
 function approvedWorld(): LadderWorld {
@@ -369,10 +501,28 @@ describe('the launch node in ladder mode', () => {
     expect(world.spawned).toHaveLength(1)
     const [run] = world.spawned
     expect(scriptOf(run!)).toContain(`'ghosts:launch' '--tasks' '${path.join(world.handoff, `tasks-${LADDER_CARD}-a-card.json`)}'`)
-    expect(scriptOf(run!)).not.toContain('claude')
+    expect(commandWordsOf(scriptOf(run!))).toEqual(['printf', 'pnpm'])
     expect(scriptOf(run!)).not.toContain('ghosts:hash')
     expect(run!.args.slice(2)).toEqual(['shift', '-p', '--session-id', `sess-${LADDER_CARD}`])
     expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: `sess-${LADDER_CARD}`, worktree: world.tree, branch: `feat/card-${LADDER_CARD}`, base: 'b'.repeat(40), pid: 4242, pgid: 4242, step: 'launch', contour: 'ladder', isolation: 'full', isolationGaps: [] }])
+  })
+
+  it('a ladder session that ends with no result gives card.stopped and the card is queued again; the sessionless launch step does not', async () => {
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    for (const [world, step, stops] of [[ladderWorld(null), 'brief', 1], [approvedWorld(), 'launch', 0]] as const) {
+      const made = bench()
+      admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+      made.tick()
+      const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => false, isolation: sandboxed })
+      await once(node)
+      expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step, contour: 'ladder' }])
+      made.tick()
+
+      expect(node.stopOverdue()).toEqual(stops === 1 ? [LADDER_CARD] : [])
+      expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(stops)
+      made.tick()
+      expect(made.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'launch' AND card_id = ? AND state = 'queued'`).get(LADDER_CARD)).toEqual({ n: stops })
+    }
   })
 
   it('a launch with no runtime isolation is refused and writes no session', async () => {
@@ -385,7 +535,7 @@ describe('the launch node in ladder mode', () => {
       const card = contour === 'cheap' ? 970 : LADDER_CARD
       admit(made, card, 'lane-x', [], contour)
       made.tick()
-      await once(new ProbedLaunchNode({ db: made.db, starter: cheap, ladder, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: unconfined }))
+      await once(new ProbedLaunchNode({ db: made.db, starter: cheap, ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: unconfined }))
 
       expect(eventsOf(made.db, CARD_STARTED)).toEqual([])
       expect(cheap.starts).toEqual([])
@@ -406,7 +556,7 @@ describe('the launch node in ladder mode', () => {
       const made = bench()
       admit(made, 970, 'lane-a')
       made.tick()
-      await once(new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation }))
+      await once(new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation }))
 
       expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ isolation: level, isolationGaps: gaps }])
     }
@@ -478,5 +628,43 @@ describe('the launch node in ladder mode', () => {
 describe('the launch isolation command', () => {
   it('is the command the card session is spawned with', () => {
     expect(launchIsolationCommand('/opt/claude --settings /tmp/s.json')).toEqual(['/opt/claude', '--settings', '/tmp/s.json', '--permission-mode', 'dontAsk'])
+  })
+})
+
+describe('what a launched session left behind', () => {
+  function scratch(): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'launch-result-'))
+    roots.push(root)
+    return root
+  }
+
+  it('a commit ahead of the base is a result, none is not, and a tree git cannot read counts as a result', () => {
+    const tree = scratch()
+    const git = (...args: string[]): string => execFileSync('git', ['-C', tree, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
+    git('init', '-q')
+    git('commit', '-q', '--allow-empty', '-m', 'base')
+    const base = git('rev-parse', 'HEAD')
+    const card: StartedCard = { session: 's', worktree: tree, branch: 'b', base, pid: 1, pgid: 1, contour: 'cheap' }
+
+    expect(hasCommitsAhead(card)).toBe(false)
+    git('commit', '-q', '--allow-empty', '-m', 'work')
+    expect(hasCommitsAhead(card)).toBe(true)
+    expect(hasCommitsAhead({ ...card, worktree: path.join(tree, 'gone') })).toBe(true)
+  })
+
+  it('a shift report written since the session started is a result, an older one is not', () => {
+    const launchDir = scratch()
+    const start = { cardId: 982, ts: '2026-10-19T12:00:00.000Z' }
+    expect(reportWrittenSince(launchDir, start)).toBe(false)
+
+    for (const file of ['report-982.md', 'report-982-brief.md']) {
+      const report = path.join(launchDir, file)
+      writeFileSync(report, 'PR #1\n')
+      utimesSync(report, new Date('2026-10-19T11:00:00.000Z'), new Date('2026-10-19T11:00:00.000Z'))
+      expect(reportWrittenSince(launchDir, start)).toBe(false)
+      utimesSync(report, new Date('2026-10-19T12:00:01.000Z'), new Date('2026-10-19T12:00:01.000Z'))
+      expect(reportWrittenSince(launchDir, start)).toBe(true)
+      rmSync(report)
+    }
   })
 })

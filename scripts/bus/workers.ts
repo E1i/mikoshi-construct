@@ -1,7 +1,9 @@
 import type { DetachedLaunch } from './bg.js'
+import type { InForceDecision } from './decisions.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { BUS_RUN_LAUNCH, PREFIX } from './bg.js'
+import { liveDecisionOf } from './live-decision.js'
 import { LIVE_FLAG } from './node.js'
 import { reviewLaunch } from './review-bg.js'
 import { SWITCH_FLAG } from './review-worker.js'
@@ -71,9 +73,9 @@ export function switchDetection(busDir: string, worker: BusWorker, live: boolean
   return next
 }
 
-export function wantedLaunches(busDir: string, reviewPreflight: () => string[]): DetachedLaunch[] {
+export function wantedLaunches(busDir: string, reviewPreflight: () => string[], decisions: readonly InForceDecision[] = []): DetachedLaunch[] {
   const launches = workerLaunches(reviewPreflight)
-  const live = liveWorkers(busDir)
+  const live = [...liveWorkers(busDir), ...(liveDecisionOf(decisions, 'launch') === null ? [] : ['launch' as const])]
   return [BUS_RUN_LAUNCH, ...switchedOn(busDir).map(worker => live.includes(worker) ? { ...launches[worker], args: [...launches[worker].args, LIVE_FLAG] } : launches[worker])]
 }
 

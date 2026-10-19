@@ -14,12 +14,14 @@ import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { recordDecision } from '../../bus/decisions.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
+import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
 import { LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { busLaunches } from '../../bus/workers.js'
@@ -449,7 +451,7 @@ describe('the launch queue', () => {
     const bench = launchBench(starter)
     bench.admit(960, 'lane-a')
     bench.tick()
-    const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'shadow', env: {}, isolation: sandboxed })
+    const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'live', env: {}, isolation: sandboxed })
     const controller = new AbortController()
     const once = async (): Promise<void> => node.run({ pause: async () => controller.abort(), signal: controller.signal })
     vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -632,6 +634,30 @@ describe('card.admitted from the intake journal', () => {
     bench.tick()
 
     expect(admittedRows(bench.db).map(row => JSON.parse(String(row.payload)).lane)).toEqual(['lane-q'])
+    bench.close()
+  })
+
+  it('after card.stopped and after a withdrawal the next legacy card does not join the launch queue', () => {
+    const bench = journalBench()
+    for (const [cardId, minute] of [[990, 1], [991, 2]] as const) {
+      bench.park(cardId, 'lane-q')
+      bench.append(intakeLine(cardId, 'admit', minute))
+    }
+    bench.tick()
+    expect(launchTasks(bench.db).map(task => task.state)).toEqual(['queued'])
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 74, text: 'allow-live launch', cards: [] })
+    withdrawLegacyLaunchTasks(bench.db, bench.clock.now().toISOString())
+    bench.tick()
+    expect(launchTasks(bench.db).map(task => task.state)).toEqual(['withdrawn'])
+
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: 'policy', cardId: 990, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:990`, payload: { reason: 'fault' }, legacy: false })
+    bench.tick()
+    expect(launchTasks(bench.db).map(task => task.state)).toEqual(['withdrawn'])
+
+    bench.park(992, 'lane-q')
+    const fresh = bench.append(intakeLine(992, 'admit', 3))
+    bench.tick()
+    expect(launchTasks(bench.db).map(task => task.task_key)).toEqual([expect.stringMatching(/^launch:990:/), `launch:992:${fresh}`])
     bench.close()
   })
 
