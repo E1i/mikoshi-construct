@@ -2,14 +2,16 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
+import { PRIORITIES } from '../../src/card/parking.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
 import { CARD_VERIFIED } from '../ghosts/task-close.js'
 import { BACKFILL_SOURCE } from './backfill-source.js'
 import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
+import { CARD_BODIES } from './card-bodies.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerInbox, ownerQuestionAnswered } from './inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerQuestionAnswered } from './inbox.js'
 import { CARD_ADMITTED, launchCandidates } from './launch-candidates.js'
 import { roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from './shards.js'
@@ -36,6 +38,7 @@ const FAULT = 'fault'
 const REQUEUABLE = new Set([STOPPED, WITHDRAWN, SUPERSEDED])
 const REQUEUABLE_ANSWER = new Set([...REQUEUABLE, COMPLETED])
 const NO_CARD_TREE = 'no_card_tree'
+const [TOP_PRIORITY] = PRIORITIES
 
 function latestBodyAdmission(card: string, columns: string): string {
   return `
@@ -120,10 +123,12 @@ export const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`,
 
 export const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`, `mergeable IN ('clean', 'blocked')`)
 
-const UPDATE_CANDIDATES = `
-  SELECT pr, card_id, head, verdict_on_head FROM prs
-  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND mergeable = 'behind' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
-  ORDER BY pr
+const GREEN_BEHIND_BY_CARD_PRIORITY = `
+  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
+  LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
+  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'behind' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
+    AND prs.ci = 'green'
+  ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
 `
 
 const LAST_MECHANICS = `SELECT sha, event_id FROM mains WHERE touches_mechanics = 1 ORDER BY event_id DESC LIMIT 1`
@@ -233,10 +238,9 @@ type Admits = (row: Candidate) => boolean
 
 const everyRow: Admits = () => true
 
-function passWaitingForOwnerOrDecided(db: DatabaseSync, ts: string): Admits {
-  const waiting = new Set(ownerInbox(db).map(line => line.card_id))
+function aMergeCandidate(db: DatabaseSync, ts: string): Admits {
   const decided = decidedPastRoundLimit(db, ts)
-  return row => row.verdict_on_head === 'pass' || waiting.has(row.card_id) || decided(row)
+  return row => (row.verdict_on_head === 'pass' || decided(row)) && !closedByRounds(db, ts, 'merge', row.pr, row.head)
 }
 
 function decidedPastRoundLimit(db: DatabaseSync, ts: string): Admits {
@@ -367,7 +371,7 @@ export function reviewCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
 }
 
 export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  return openCandidates(db, ts, 'update', candidateRows(db, UPDATE_CANDIDATES, passWaitingForOwnerOrDecided(db, ts)))
+  return openCandidates(db, ts, 'update', candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)).slice(0, 1))
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
