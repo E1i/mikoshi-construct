@@ -13,6 +13,7 @@ import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STOPPED, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_CLOSED } from '../../bus/launch-candidates.js'
+import { noPullRequestDetail } from '../../bus/launch-worker.js'
 import { TASK_EXPIRED } from '../../bus/lease.js'
 import { PR_CLOSED, prClosed } from '../../bus/observations.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
@@ -199,6 +200,17 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       { id: 2, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: timed },
       { id: 3, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: slot },
     )
+    expect(tick(state, deps)).toEqual([])
+  })
+
+  it('a card.stopped for a session that ended with no pull request wakes the window', () => {
+    const file = journal()
+    const events: BusEvent[] = []
+    const deps = fileDeps(file, () => true, events)
+    const state = watchState(deps, [])
+    const text = JSON.stringify({ reason: 'fault', detail: noPullRequestDetail(1077, 's-1077', 'result: stopped at the gate') })
+    events.push({ id: 1, type: CARD_STOPPED, cardId: 1077, pr: null, head: null, payload: text })
+    expect(tick(state, deps)).toEqual([`bus ${CARD_STOPPED} card 1077 pr - ${text}`])
     expect(tick(state, deps)).toEqual([])
   })
 

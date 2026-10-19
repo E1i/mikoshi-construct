@@ -68,6 +68,7 @@ export interface LaunchNodeParts {
   env: NodeJS.ProcessEnv
   processes?: ProcessTable
   resulted?: (card: StartedCard, start: SessionStart) => boolean
+  endedWith?: (start: SessionStart) => string | null
   isolation: IsolationReader
   prompts?: string
 }
@@ -101,7 +102,21 @@ const SESSION_DEATHS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_ST
 
 const GHOST_ROW_SINCE = `SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
 
+const PR_OPENED_SINCE = `SELECT 1 FROM events WHERE type = '${PR_OPENED}' AND card_id = ? AND id > ? LIMIT 1`
+
+export const CARD_PULSE = 'card.pulse'
+
+export const PULSE_MINUTES = 5
+
+const PULSE_MS = PULSE_MINUTES * 60_000
+
+const LAST_PULSE = `SELECT ts FROM events WHERE type = '${CARD_PULSE}' AND legacy = 0 AND card_id = ? AND id > ? ORDER BY id DESC LIMIT 1`
+
 export const SESSIONLESS_LADDER_STEP = 'launch'
+
+export function noPullRequestDetail(cardId: number, session: string, result: string | null): string {
+  return `session-end: card #${cardId} session ${session} ended with no pull request; ${result ?? 'its shift report names no result'}`
+}
 
 const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
 
@@ -141,14 +156,15 @@ export class LaunchNode extends Node<LaunchStep> {
       const card = startedCardOf(start.payload)
       if (card === null)
         continue
-      if (this.endedWithoutResult(start, card)) {
+      if (this.endedWithoutPullRequest(start, card)) {
         if (this.db.prepare(STOPPED_SINCE).get(start.card_id, start.id) === undefined && this.stopEnded(start, card))
           stopped.push(start.card_id)
         continue
       }
-      if (this.parts.clock().getTime() - Date.parse(start.ts) < LAUNCH_LIMIT_MS)
-        continue
       if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'live')
+        continue
+      this.pulse(start, card)
+      if (this.parts.clock().getTime() - Date.parse(start.ts) < LAUNCH_LIMIT_MS)
         continue
       this.starters[card.contour]?.stop(card)
       if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
@@ -161,15 +177,35 @@ export class LaunchNode extends Node<LaunchStep> {
     return stopped
   }
 
-  private endedWithoutResult(start: RunningStart, card: StartedCard): boolean {
+  private pulse(start: RunningStart, card: StartedCard): void {
+    const last = this.db.prepare(LAST_PULSE).get(start.card_id, start.id) as { ts: string } | undefined
+    const now = this.parts.clock().getTime()
+    if (now - Date.parse(last?.ts ?? start.ts) < PULSE_MS)
+      return
+    const ts = this.ts()
+    appendEvent(this.db, { ts, type: CARD_PULSE, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_PULSE}:${start.dedupe_key}:${ts}`, payload: { session: card.session, pgid: card.pgid, since: start.ts }, legacy: false })
+  }
+
+  private endedWithoutPullRequest(start: RunningStart, card: StartedCard): boolean {
     if (card.step === SESSIONLESS_LADDER_STEP || launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
       return false
-    if (this.db.prepare(GHOST_ROW_SINCE).get(start.card_id, start.id) !== undefined)
-      return false
-    return !(this.launchParts.resulted?.(card, { cardId: start.card_id, ts: start.ts }) ?? false)
+    return this.db.prepare(GHOST_ROW_SINCE).get(start.card_id, start.id) === undefined
+      && this.db.prepare(PR_OPENED_SINCE).get(start.card_id, start.id) === undefined
   }
 
   private stopEnded(start: RunningStart, card: StartedCard): boolean {
+    const session: SessionStart = { cardId: start.card_id, ts: start.ts }
+    if (!(this.launchParts.resulted?.(card, session) ?? false))
+      return this.stopDeadSession(start, card)
+    return card.contour === 'cheap' && this.stopWithoutPullRequest(start, card, session)
+  }
+
+  private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
+    const detail = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
+    return appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, payload: { reason: 'fault', detail }, legacy: false })
+  }
+
+  private stopDeadSession(start: RunningStart, card: StartedCard): boolean {
     const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
     const deaths = Number((this.db.prepare(SESSION_DEATHS).get(start.card_id) as { n: number }).n) + 1
     const final = deaths >= SESSION_DEATH_CAP
@@ -255,12 +291,21 @@ export function sessionLeftAResult(launchDir: string): (card: StartedCard, start
   return (card, start) => reportWrittenSince(launchDir, start) || hasCommitsAhead(card)
 }
 
+export function reportResultLine(launchDir: string): (start: SessionStart) => string | null {
+  return (start) => {
+    const report = path.join(launchDir, `report-${start.cardId}.md`)
+    if (!reportWrittenSince(launchDir, start) || !existsSync(report))
+      return null
+    return readFileSync(report, 'utf8').split('\n').find(line => line.startsWith('result: ')) ?? null
+  }
+}
+
 export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<number> {
   if (argv.includes(WITHDRAW_LEGACY_FLAG))
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
