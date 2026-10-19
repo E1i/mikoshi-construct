@@ -10,8 +10,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
+import { parseParkingFile } from '../../card/parking.js'
 import { textSha } from '../../card/text-sha.js'
-import { laneOf } from './admit.js'
+import { laneOf, layLane } from './admit.js'
 import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
 import { parseDraft } from './draft.js'
@@ -258,12 +259,20 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   if (parkedSlice.kind === 'refused')
     return refused('invalid', parkedSlice.reasons)
   mkdirSync(options.parking, { recursive: true })
-  for (const card of parkedSlice.cards)
-    writeFileSync(path.join(options.parking, card.file), card.text, { flag: 'wx' })
   const at = new Date()
+  const root = options.parkingRoot ?? defaultParking()
+  const written = parkedSlice.cards.map(card => parkCard(card, options.parking, root, at))
   const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? 'person' : confirmationOf(card, options.autoConfirm))
-  recordIntake(options.journal, parkedSlice.cards.map(card => admittedRecord(card, confirmation(card), at, laneOf(options.parkingRoot ?? defaultParking(), options.parking))), options.events)
-  return { status: 'written', parking: options.parking, cards: parkedSlice.cards, autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
+  recordIntake(options.journal, written.map(({ card, lane }) => admittedRecord(card, confirmation(card), at, lane)), options.events)
+  return { status: 'written', parking: options.parking, cards: written.map(({ card }) => card), autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
+}
+
+function parkCard(card: SlicedCard, parking: string, root: string, at: Date): { card: SlicedCard, lane: string | null } {
+  const parsed = parseParkingFile(card.file, card.text)
+  const lane = path.resolve(parking) === path.resolve(root) && parsed.kind === 'parked' ? layLane(root, parsed.parked, at) : null
+  const file = lane === null ? card.file : path.join(lane, card.file)
+  writeFileSync(path.join(parking, file), card.text, { flag: 'wx' })
+  return { card: { ...card, file }, lane: lane ?? laneOf(root, parking) }
 }
 
 export function printIntake(ui: Ui, result: IntakeResult): number {
