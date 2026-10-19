@@ -78,12 +78,18 @@ export function readBusTasks(busPath: string): BusTask[] {
   }
 }
 
-function closedCards(busPath: string): ClosedCardRow[] {
+export type BusDb = DatabaseSync
+
+export function withReadOnlyBus<T>(busPath: string, read: (db: BusDb) => T): T {
   const db = new DatabaseSync(busPath, { readOnly: true })
   try {
-    return db.prepare(CLOSED_CARDS).all() as unknown as ClosedCardRow[]
+    return read(db)
   }
   finally {
     db.close()
   }
+}
+
+function closedCards(busPath: string): ClosedCardRow[] {
+  return withReadOnlyBus(busPath, db => db.prepare(CLOSED_CARDS).all() as unknown as ClosedCardRow[])
 }
