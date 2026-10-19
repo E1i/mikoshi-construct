@@ -224,7 +224,7 @@ describe('intake writes the slicing principle into a card the signal splits', ()
   }
 
   it('a card made from a confirmed R1 slice is not held for slicing again', () => {
-    const r1Slice = ['scripts/ghosts/hash.ts', 'scripts/ghosts/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/bus/queue.ts', 'scripts/tests/bus/round-limit-decision.test.ts', 'scripts/tests/bus/merge-queue.test.ts', 'scripts/tests/bus/answer-node.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ghosts/launch.ts', '.changeset/**']
+    const r1Slice = ['scripts/ghosts/hash.ts', 'scripts/ghosts/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/tests/bus/queue.test.ts', 'scripts/tests/bus/round-limit-decision.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ghosts/launch.ts', '.changeset/**']
     const [card] = sliced(intake(scratch(), [draftCard('owner-loop-r1', r1Slice)]))
     expect(card!.text.split('\n').filter(line => line.startsWith(SEAM_PREFIX))).toHaveLength(1)
     expect(card!.slices).toEqual([])
