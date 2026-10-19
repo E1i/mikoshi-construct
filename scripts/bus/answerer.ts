@@ -129,7 +129,7 @@ export function answerPrompt(request: AnswerRequest, ownerQuestion: string, card
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
     `The card's latest events, oldest first:`,
     ...source.events.map(event => JSON.stringify(event)),
-    `Run pnpm run quality and end the session when the tree is green. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
+    `Run the window gate of D-194 in ${card.worktree}, each as its own command: the card's witnesses, the tests pnpm gate:window prints for the tree, pnpm typecheck and pnpm lint; the full quality is CI. End the session when they are green. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
   ].join('\n')
 }
 
