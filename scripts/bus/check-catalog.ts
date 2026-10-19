@@ -13,6 +13,8 @@ import { openDatabase } from './sqlite.js'
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const BRIEF_FILE = /^brief-(\d+)(?:-.*)?\.md$/
 const FIRST_DESCRIBE = /describe\(\s*(['"`])(.*?)\1/
+const IT_TITLE = /\bit\(\s*(['"`])((?:\\.|(?!\1).)*)\1/g
+const WITNESSES_HEADING = /^Witnesses:/
 const NO_LAYER = 'none'
 
 const SCHEMA = `
@@ -91,9 +93,25 @@ function namesPath(text: string, test: string): boolean {
   return new RegExp(`(?<![\\w./-])${escaped}(?!\\w)`).test(text)
 }
 
-function witnessCards(test: string, title: string, parking: readonly ParkingCard[]): string {
+function witnessLines(text: string): string {
+  const lines = text.split(/\r?\n/)
+  const start = lines.findIndex(line => WITNESSES_HEADING.test(line))
+  if (start === -1)
+    return ''
+  const end = lines.findIndex((line, index) => index > start && line.trim() === '')
+  return lines.slice(start, end === -1 ? undefined : end).join('\n')
+}
+
+function itTitles(text: string): string[] {
+  return [...text.matchAll(IT_TITLE)].map(match => match[2]!.replaceAll(/\\(.)/g, '$1')).filter(title => title !== '')
+}
+
+function witnessCards(test: string, titles: readonly string[], parking: readonly ParkingCard[]): string {
   return parking
-    .filter(card => namesPath(card.text, test) || (title !== '' && card.text.includes(title)))
+    .filter((card) => {
+      const witnesses = witnessLines(card.text)
+      return namesPath(witnesses, test) || titles.some(title => witnesses.includes(title))
+    })
     .map(card => card.card)
     .sort((a, b) => a - b)
     .join(',')
@@ -109,7 +127,7 @@ export function catalogTests(sources: CatalogSources): CheckTest[] {
       layer: layers.get(test)?.join(',') ?? NO_LAYER,
       kind: kindOf(test),
       what,
-      witness: witnessCards(test, what, sources.parking),
+      witness: witnessCards(test, itTitles(testText(test)), sources.parking),
     }
   })
 }

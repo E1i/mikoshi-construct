@@ -32,6 +32,12 @@ export function runSummary(run: Run): string {
   ].join('\n')
 }
 
+export function reportedRun(run: Run): Run {
+  if (run.kind === 'layers' && run.tests.length === 0)
+    return { kind: 'full', why: 'the touched layers reach no test file, and vitest given no file runs every test' }
+  return run
+}
+
 export function pathsOf(args: readonly string[], stdin: () => string): string[] {
   if (!args.includes('--stdin'))
     return [...args]
@@ -45,7 +51,7 @@ export function outputLines(run: Run): string {
 
 function main(): void {
   const changed = pathsOf(process.argv.slice(2), () => readFileSync(0, 'utf8'))
-  const run = changed.length === 0 ? selectRun([], new Map(), () => '') : selectRun(changed, cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8'))
+  const run = reportedRun(changed.length === 0 ? selectRun([], new Map(), () => '') : selectRun(changed, cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8')))
   console.log(runSummary(run))
   if (process.env.GITHUB_OUTPUT)
     appendFileSync(process.env.GITHUB_OUTPUT, outputLines(run))
