@@ -3,13 +3,15 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ATLAS_EXIT, printAtlas, runAtlas } from '../src/atlas/index.js'
+import { ATLAS_EXIT, AtlasRefusedUnconstructed, printAtlas, runAtlas } from '../src/atlas/index.js'
 import { readAttachRecord, runAttach } from '../src/commands/attach/index.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
+import { FAILED_EXIT, reported } from '../src/failure.js'
 import { ENGRAM_HOME_DIR, engramDirectoryName } from '../src/model/discovery.js'
 import { MODEL_FILE, parseModel } from '../src/model/schema.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
+import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { useIsolatedHome } from './isolated-home.js'
 
@@ -192,16 +194,6 @@ describe('construct atlas in a repository construct attach jacked into, with no 
   })
 })
 
-describe('construct atlas in a repository with neither init nor attach, docs view', () => {
-  it('writes no documentation view anywhere', () => {
-    const dir = foreignRepository()
-    const written = atlasOf(dir)
-    expect(existsSync(path.join(path.dirname(written.page), 'atlas-docs.html'))).toBe(false)
-    expect(readFileSync(written.page, 'utf8')).not.toContain('class="switch"')
-    expect(git(dir, 'status', '--porcelain', '--ignored')).toBe('')
-  })
-})
-
 describe('construct detach after construct atlas', () => {
   it('takes the atlas page with the rest of what attach owned, so git sees no .construct/ afterwards', async () => {
     const dir = foreignRepository()
@@ -213,12 +205,29 @@ describe('construct detach after construct atlas', () => {
 })
 
 describe('construct atlas in a repository with neither init nor attach', () => {
-  it('writes the engram and the page under the home directory and nothing into the repository', () => {
+  it('atlas refuses a repository with neither an init construct.json nor an attach record', () => {
     const dir = foreignRepository()
-    const written = atlasOf(dir)
-    const engramDir = path.join(home(), ENGRAM_HOME_DIR, engramDirectoryName(dir))
-    expect(written).toEqual({ engram: path.join(engramDir, MODEL_FILE), page: path.join(engramDir, 'atlas.html') })
+    expect(() => atlasOf(dir)).toThrow(AtlasRefusedUnconstructed)
+    expect(existsSync(path.join(home(), ENGRAM_HOME_DIR, engramDirectoryName(dir)))).toBe(false)
     expect(git(dir, 'status', '--porcelain', '--ignored')).toBe('')
+  })
+
+  it('refuses through the failure line the CLI prints, naming attach as the way in, and exits 1', () => {
+    const lines: string[] = []
+    const plain = createUi(resolveTheme({ plain: true }), line => lines.push(line))
+    expect(reported(plain, () => atlasOf(foreignRepository()))).toBe(FAILED_EXIT)
+    expect(lines.join('\n')).toContain(PLAIN_LORE.atlasRefusedUnconstructed)
+    expect(PLAIN_LORE.atlasRefusedUnconstructed).toContain('construct attach')
+  })
+})
+
+describe('construct atlas in a repository construct attach jacked into by this build', () => {
+  it('atlas runs on a repository attached by this build', async () => {
+    const dir = foreignRepository()
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    const written = atlasOf(dir)
+    expect(existsSync(written.engram)).toBe(true)
+    expect(existsSync(written.page)).toBe(true)
   })
 })
 
@@ -239,10 +248,11 @@ describe('open the source resolves from where the page lies', () => {
 })
 
 describe('construct atlas over a repository whose files discovery mostly cannot read', () => {
-  it('builds the Atlas with every tracked file as a node, and each file it cannot read carries relations unknown with the reason', () => {
+  it('builds the Atlas with every tracked file as a node, and each file it cannot read carries relations unknown with the reason', async () => {
     const dir = path.join(mkdtempSync(path.join(tmpdir(), 'construct-atlas-unknown-')), 'unknown-types')
     cpSync(path.resolve(import.meta.dirname, 'fixtures/engram/unknown-types'), dir, { recursive: true })
     commitAll(dir)
+    expect((await runAttach(ui, { dir, yes: true })).status).toBe('done')
     const written = atlasOf(dir)
     const tracked = git(dir, 'ls-files').split('\n').filter(file => file !== '')
     const html = readFileSync(written.page, 'utf8')
