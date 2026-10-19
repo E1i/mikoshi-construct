@@ -106,7 +106,16 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     expect(witnessOf('  it(\'costs $5 at 100%% of x\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'costs 7 at 100 of x\'` exits 0\n')).toBe('')
     expect(witnessOf('  it(\'costs $5 at 100%% of x\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'costs $5 at 100%% of x\'` exits 0\n')).toBe('3')
     expect(witnessOf('  it.each([[\'a\']])(\'%s\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'anything\'` exits 0\n')).toBe('')
-    expect(witnessOf('  it.each([{ n: 1 }])(\'counts $n at 100%% of $5\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'counts 1 at 100%% of $5\'` exits 0\n')).toBe('3')
+    expect(witnessOf('  it.each([{ n: 1 }])(\'counts $n at 100%% of $5\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'counts 1 at 100% of $5\'` exits 0\n')).toBe('3')
+    expect(witnessOf('  it.each([{ n: 1 }])(\'counts $n at 100%% of $5\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'counts 1 at 100%% of $5\'` exits 0\n')).toBe('')
+    expect(witnessOf('  it.each([[1]])(\'keeps %%s literal\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'keeps %s literal\'` exits 0\n')).toBe('3')
+  })
+
+  it('a placeholder in a plain it title stays literal', () => {
+    const graph: Graph = new Map([['tests/x.test.ts', []]])
+    const witnessOf = (body: string, text: string) => buildCatalog({ ...sources(), graph, testText: () => `describe('the x suite', () => {\n${body}\n})`, parking: [{ card: 3, text }] }).tests[0]!.witness
+    expect(witnessOf('  it(\'reads $HOME and %s\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'reads x and y\'` exits 0\n')).toBe('')
+    expect(witnessOf('  it(\'reads $HOME and %s\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'reads $HOME and %s\'` exits 0\n')).toBe('3')
   })
 
   it('an it.each tagged template or a table holding parentheses keeps its own title and the next one', () => {
