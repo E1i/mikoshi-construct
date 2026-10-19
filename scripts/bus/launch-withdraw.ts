@@ -20,7 +20,7 @@ interface WithdrawnRow {
   card_id: number
   pr: number | null
   head: string | null
-  state: string
+  state: typeof QUEUED | typeof STOPPED
   lease_gen: number
 }
 
