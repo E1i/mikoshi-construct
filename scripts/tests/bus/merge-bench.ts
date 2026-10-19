@@ -13,7 +13,7 @@ import { REVIEW_ROUNDS } from '../../bus/queue.js'
 import { BusTick } from '../../bus/run.js'
 import { SHARD_USED } from '../../bus/shards.js'
 import { CARD_VERIFIED } from '../../ghosts/task-close.js'
-import { Clock, FakeGitHub } from './github-fake.js'
+import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectMerge } from './merge-detection.js'
 import { detectReview } from './review-detection.js'
 
@@ -83,8 +83,10 @@ export function cardVerified(db: DatabaseSync, ts: string, cardId: number, pr: n
 }
 
 export function spendReviewRounds(bench: MergeBench, pr: number, head: string): void {
-  for (let round = 1; round <= REVIEW_ROUNDS; round += 1)
-    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: `worker:review:session-${round}`, cardId: pr + 100, pr, head, dedupeKey: `${REVIEW_RECORDED}:round-${round}`, payload: { head, verdict: 'changes', reviewer_session: `session-${round}`, findings: [] }, legacy: false })
+  for (let round = 1; round <= REVIEW_ROUNDS; round += 1) {
+    const reviewed = round === REVIEW_ROUNDS ? head : sha(String(round))
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: `worker:review:session-${round}`, cardId: pr + 100, pr, head: reviewed, dedupeKey: `${REVIEW_RECORDED}:round-${round}`, payload: { head: reviewed, verdict: 'changes', reviewer_session: `session-${round}`, findings: [] }, legacy: false })
+  }
 }
 
 export function eventsOf(db: DatabaseSync, type: string): Record<string, unknown>[] {
