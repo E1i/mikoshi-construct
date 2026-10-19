@@ -88,8 +88,8 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
   it('records each well-formed brief mutation with its killing test and its judged outcome, and skips a malformed line', () => {
     const { mutations } = buildCatalog(sources())
     expect(mutations).toEqual([
-      { card: 7, id: 'M1', operator: 'a → b', file: 'scripts/bus/merge-worker.ts', layer: 'bus:merge', killedBy: 'scripts/tests/bus/merge-worker.test.ts', judged: 'killed' },
-      { card: 7, id: 'M2', operator: 'drop the guard', file: 'scripts/bus/merge-worker.ts', layer: 'bus:merge', killedBy: null, judged: null },
+      { card: 7, id: 'M1', operator: 'a → b', file: 'scripts/bus/merge-worker.ts', layer: 'bus:merge', killedBy: 'scripts/tests/bus/merge-worker.test.ts', judged: 'killed', find: 'a', replacement: 'b' },
+      { card: 7, id: 'M2', operator: 'drop the guard', file: 'scripts/bus/merge-worker.ts', layer: 'bus:merge', killedBy: null, judged: null, find: null, replacement: null },
     ])
   })
 
@@ -102,6 +102,17 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
       { test: 'scripts/tests/bus/merge-worker.test.ts', layer: 'bus:merge', kind: 'unit' },
     ])
     expect(db.prepare('SELECT id, judged FROM check_mutations ORDER BY id').all().map(row => ({ ...row }))).toEqual([{ id: 'M1', judged: 'killed' }, { id: 'M2', judged: null }])
+    db.close()
+  })
+
+  it('adds the find and replacement columns to a mutation table written before them', () => {
+    const db = openDatabase(path.join(scratch(), 'bus.db'))
+    db.exec('CREATE TABLE check_mutations (card INTEGER NOT NULL, id TEXT NOT NULL, operator TEXT NOT NULL, file TEXT NOT NULL, layer TEXT NOT NULL, killed_by TEXT, judged TEXT, PRIMARY KEY (card, id))')
+    writeCatalog(db, buildCatalog(sources()))
+    expect(db.prepare('SELECT id, find, replacement FROM check_mutations ORDER BY id').all().map(row => ({ ...row }))).toEqual([
+      { id: 'M1', find: 'a', replacement: 'b' },
+      { id: 'M2', find: null, replacement: null },
+    ])
     db.close()
   })
 
