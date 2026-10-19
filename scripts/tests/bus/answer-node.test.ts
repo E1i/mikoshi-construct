@@ -1,19 +1,31 @@
+import type { AnswerOutcome } from '../../bus/answer-executor.js'
 import type { AnswerNodeParts, AnswerStep } from '../../bus/answer-worker.js'
+import type { Answerer } from '../../bus/answerer.js'
+import type { CardTreeTools } from '../../bus/card-tree.js'
 import type { Lease } from '../../bus/lease.js'
 import type { DetectionMode, Scope } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
+import type { Isolation, IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AnswerExecutor } from '../../bus/answer-executor.js'
 import { AnswerNode } from '../../bus/answer-worker.js'
 import { appendEvent } from '../../bus/db.js'
-import { CARD_ANSWERED, CARD_STOPPED } from '../../bus/inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { answerCandidates, FAILURES_TO_STOP, keyOf, TASK_ENQUEUED } from '../../bus/queue.js'
+import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
+import { DECISIONS_SCOPE, SHARD_DECIDED, SHARD_ISSUED } from '../../bus/shards.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 const benches: MergeBench[] = []
+const roots: string[] = []
+const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
+const OWNER_QUESTION = 'may the card also touch architecture/owner-merges.md?'
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -23,6 +35,8 @@ afterEach(() => {
   vi.restoreAllMocks()
   for (const made of benches.splice(0))
     made.close()
+  for (const root of roots.splice(0))
+    rmSync(root, { recursive: true, force: true })
 })
 
 class ProbedAnswerNode extends AnswerNode {
@@ -120,6 +134,24 @@ function openEach(made: MergeBench, base: number): string[] {
   made.gitHub.open({ number: base + 2, mergeable_state: 'dirty' })
   made.tick()
   return [prKey(base), prKey(base + 1), prKey(base + 2)]
+}
+
+async function askedUnderShard(made: MergeBench, question: string, isolation?: IsolationReader): Promise<AnswerOutcome> {
+  const trees = mkdtempSync(path.join(tmpdir(), 'bus-answer-shard-'))
+  roots.push(trees)
+  const worktree = path.join(trees, 'mc-905')
+  mkdirSync(worktree)
+  const ts = made.clock.now().toISOString()
+  const until = new Date(made.clock.now().getTime() + 3_600_000).toISOString()
+  appendEvent(made.db, { ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'Eli', scope: DECISIONS_SCOPE, until, window: 1 }, legacy: false })
+  appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STARTED}:905`, payload: { session: 'card-session-1', worktree, branch: 'feat/card-905', base: sha('1') }, legacy: false })
+  const stop = stopped(made, 905)
+  queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
+  const lease = leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
+  const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: question })
+  const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation })
+  return executor.answer(lease)
 }
 
 describe('the answer node', () => {
@@ -233,6 +265,23 @@ describe('the answer node', () => {
       made.tick()
       await once(node)
       expect(counts(), mode).toEqual(before)
+    }
+  })
+
+  it('a question under a decisions shard is recorded as decided under shard and work does not stop', async () => {
+    const made = bench()
+    const outcome = await askedUnderShard(made, OWNER_QUESTION, () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }))
+    expect(outcome).toEqual({ kind: 'decided', taskKey: expect.any(String) as unknown, shard: 'ws-1', question: OWNER_QUESTION })
+    expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([{ shard: 'ws-1', question: OWNER_QUESTION, ground: expect.stringContaining('partial isolation') as unknown, options: expect.any(Array) as unknown }])
+    expect(eventsOf(made.db, CARD_STOPPED).map(each => each.reason)).toEqual(['question.agent'])
+  })
+
+  it('a decisions shard is refused without isolation', async () => {
+    for (const isolation of [undefined, (): Isolation => ({ level: 'none', why: 'no sandbox' })]) {
+      const made = bench()
+      const outcome = await askedUnderShard(made, OWNER_QUESTION, isolation)
+      expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining(`the ${DECISIONS_SCOPE} shard ws-1 is refused without isolation`) as unknown })
+      expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
     }
   })
 

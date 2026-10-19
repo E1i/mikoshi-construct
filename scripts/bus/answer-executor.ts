@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Isolation, IsolationReader } from '../ghosts/isolation.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
 import type { Answered, Answerer } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
@@ -14,7 +15,7 @@ import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
 import { QUESTION_AGENT, QUESTION_OWNER } from './queue.js'
-import { decisionsInForceAt, unspentShard } from './shards.js'
+import { activeDecisionsShard, DECISIONS_SCOPE, decisionsInForceAt, SHARD_DECIDED, unspentShard } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { ownerGlobs, wideningOf } from './widening.js'
 
@@ -31,6 +32,7 @@ export interface AnswerDenial {
 export type AnswerOutcome
   = | { kind: 'answered', taskKey: string, session: string, resumed: boolean, head: string }
     | { kind: 'stopped', taskKey: string, reason: string, detail: string }
+    | { kind: 'decided', taskKey: string, shard: string, question: string }
     | { kind: 'denied', taskKey: string, denial: AnswerDenial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
 
@@ -40,7 +42,12 @@ export interface AnswerParts {
   ownerMerges: () => string
   clock: () => Date
   trees?: CardTreeTools
+  isolation?: IsolationReader
 }
+
+const OWNERS_UNDER_ANY_SHARD = /version pull request|changeset-release|\bnpm\b|security-invariants/i
+
+const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
 
 interface Widened {
   event: BusEvent
@@ -130,13 +137,27 @@ export class AnswerExecutor {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
-        return this.stopped(lease, this.ownersQuestion(lease, answered.owner) ? QUESTION_OWNER : QUESTION_AGENT, answered.owner, scope)
+        return this.asked(lease, answered.owner, scope)
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, scope)
     }
     const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
+  }
+
+  private asked(lease: Lease, question: string, scope: BusEvent[]): AnswerOutcome {
+    if (!this.ownersQuestion(lease, question))
+      return this.stopped(lease, QUESTION_AGENT, question, scope)
+    const shard = activeDecisionsShard(this.parts.db, this.parts.clock())
+    if (shard === null || reservationOf(lease.cardId, question) || OWNERS_UNDER_ANY_SHARD.test(question))
+      return this.stopped(lease, QUESTION_OWNER, question, scope)
+    const isolation: Isolation = this.parts.isolation?.() ?? { level: 'none', why: 'the answer worker reads no isolation' }
+    if (isolation.level === 'none')
+      return this.stopped(lease, QUESTION_OWNER, `${question} (the ${DECISIONS_SCOPE} shard ${shard.id} is refused without isolation: ${isolation.why})`, scope)
+    const ground = `window shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until}) under ${isolation.level} isolation`
+    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS })])
+    return { kind: 'decided', taskKey: lease.taskKey, shard: shard.id, question }
   }
 
   private ownersQuestion(lease: Lease, question: string): boolean {

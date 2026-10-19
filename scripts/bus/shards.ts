@@ -9,7 +9,9 @@ export const SHARD_USED = 'shard.used'
 export const SHARD_REVOKED = 'shard.revoked'
 export const SHARD_EXPIRED = 'shard.expired'
 export const WINDOW_SHARD_HOURS = 6
-export const WINDOW_SCOPES = ['merge', 'merge+decisions'] as const
+export const SHARD_DECIDED = 'shard.decided'
+export const DECISIONS_SCOPE = 'merge+decisions'
+export const WINDOW_SCOPES = ['merge', DECISIONS_SCOPE] as const
 
 export type WindowScope = typeof WINDOW_SCOPES[number]
 
@@ -50,6 +52,10 @@ function unendedWindowShards(db: DatabaseSync): WindowShard[] {
 
 export function activeWindowShards(db: DatabaseSync, now: Date): WindowShard[] {
   return unendedWindowShards(db).filter(shard => Date.parse(shard.until) > now.getTime())
+}
+
+export function activeDecisionsShard(db: DatabaseSync, now: Date): WindowShard | null {
+  return activeWindowShards(db, now).find(shard => shard.scope === DECISIONS_SCOPE) ?? null
 }
 
 export function windowShardEnded(type: typeof SHARD_REVOKED | typeof SHARD_EXPIRED, actor: string, id: string, now: Date): BusEvent {
