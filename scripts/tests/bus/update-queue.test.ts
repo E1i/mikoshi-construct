@@ -2,12 +2,15 @@ import type { Lease } from '../../bus/lease.js'
 import type { NodeStep } from '../../bus/node.js'
 import type { UpdateOutcome } from '../../bus/update-executor.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
 import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { NoLiveVerdict } from '../../bus/merge-worker.js'
+import { updateCandidates } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../bus/update-executor.js'
 import { runUpdateWorker, UpdateNode } from '../../bus/update-worker.js'
@@ -39,6 +42,11 @@ function updateBench() {
 
 function deniedByAuthority(bench: ReturnType<typeof liveBench>, pr: number): void {
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: POLICY_DENIED, actor: 'policy', cardId: pr + 100, pr, head: sha('a'), dedupeKey: `${POLICY_DENIED}:owner-${pr}`, payload: { command: 'merge', kind: 'authority', rule: 'owner_by_risk', detail: 'stays the owner\'s' }, legacy: false })
+}
+
+function admittedWithPriority(bench: ReturnType<typeof liveBench>, cardId: number): void {
+  const text = `card: #${cardId} task-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/${cardId}\ntouches: scripts/${cardId}/**\nwho: shift\npriority: p0\n\ndo ${cardId}\n`
+  appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { text, textSha: textSha(text), lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
 }
 
 describe('the update queue', () => {
@@ -73,7 +81,7 @@ describe('the update queue', () => {
     bench.close()
   })
 
-  it('a behind PR that waits for the owner enters update without a pass', () => {
+  it('a behind PR that waits for the owner without a pass does not enter update', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 981, mergeable_state: 'behind' })
     deniedByAuthority(bench, 981)
@@ -81,7 +89,50 @@ describe('the update queue', () => {
     detectUpdate(bench)
 
     expect(ownerInbox(bench.db)).toHaveLength(1)
-    expect(bench.leaseUpdate()).toMatchObject({ taskKey: update(981) })
+    expect(bench.leaseUpdate()).toBeNull()
+    bench.close()
+  })
+
+  it('of three behind PRs only the one with a pass and green CI on its old head is the update candidate', () => {
+    const bench = updateBench()
+    bench.gitHub.open({ number: 960, head: sha('c'), mergeable_state: 'behind' })
+    bench.gitHub.open({ number: 961, head: sha('e'), review: 'success', mergeable_state: 'behind', required: 'failure' })
+    bench.gitHub.open({ number: 962, head: sha('f'), review: 'success', mergeable_state: 'behind' })
+    bench.tick()
+
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString())).toEqual([expect.objectContaining({ queue: 'update', cardId: 1062, pr: 962, head: sha('f') })])
+    bench.close()
+  })
+
+  it('of two behind pass PRs with green CI only the older is the update candidate on a priority tie', () => {
+    const bench = updateBench()
+    bench.gitHub.open({ number: 964, head: sha('e'), review: 'success', mergeable_state: 'behind' })
+    bench.gitHub.open({ number: 963, head: sha('f'), review: 'success', mergeable_state: 'behind' })
+    bench.tick()
+
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)).toEqual([963])
+    bench.close()
+  })
+
+  it('of two behind pass PRs with green CI only the one of the higher card priority is the update candidate', () => {
+    const bench = updateBench()
+    bench.gitHub.open({ number: 965, head: sha('e'), review: 'success', mergeable_state: 'behind' })
+    bench.gitHub.open({ number: 966, head: sha('f'), review: 'success', mergeable_state: 'behind' })
+    admittedWithPriority(bench, 1066)
+    bench.tick()
+
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)).toEqual([966])
+    bench.close()
+  })
+
+  it('with no behind PR that has a pass and green CI on its old head no update candidate is', () => {
+    const bench = updateBench()
+    bench.gitHub.open({ number: 967, head: sha('c'), mergeable_state: 'behind' })
+    bench.gitHub.open({ number: 968, head: sha('e'), review: 'success', mergeable_state: 'behind', required: 'failure' })
+    bench.gitHub.open({ number: 969, head: sha('f'), review: 'success', mergeable_state: 'behind', required: 'pending' })
+    bench.tick()
+
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString())).toEqual([])
     bench.close()
   })
 
