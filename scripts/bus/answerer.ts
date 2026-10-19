@@ -6,6 +6,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { readResultFields } from '../ghosts/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ghosts/session.js'
 import { commitAndPush } from '../shift/tree-pr.js'
 import { parkedCardFile } from './card-archive.js'
@@ -28,6 +29,16 @@ export interface Answered {
   before: string | null
   after: string | null
   owner: string | null
+  tokens?: number | null
+}
+
+const USAGE_TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']
+
+export function tokensOf(usage: unknown): number | null {
+  if (usage === null || typeof usage !== 'object')
+    return null
+  const counts = USAGE_TOKEN_FIELDS.map(field => (usage as Record<string, unknown>)[field]).filter(value => typeof value === 'number')
+  return counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0)
 }
 
 export type Answerer = (request: AnswerRequest) => Promise<Answered>
@@ -185,10 +196,11 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
+    const stdoutPath = path.join(dir, `${session}.${request.lease.leaseGen}.out.jsonl`)
     const code = await tools.spawn({
       cwd: card.worktree,
       argv: resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]),
-      stdoutPath: path.join(dir, `${session}.${request.lease.leaseGen}.out.jsonl`),
+      stdoutPath,
       stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}.err.log`),
       env: sessionEnv(process.env, request.lease.cardId),
     })
@@ -197,6 +209,8 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const owner = ownerQuestionIn(ownerQuestion)
     if (owner === null)
       tools.publish(card, answerCommitMessage(request.lease))
-    return { session, resumed, before, after: tools.remoteHead(card), owner }
+    const result = readResultFields(stdoutPath)
+    const measured = result.resultLine === 'present' ? { tokens: tokensOf(result.usage) } : {}
+    return { session, resumed, before, after: tools.remoteHead(card), owner, ...measured }
   }
 }

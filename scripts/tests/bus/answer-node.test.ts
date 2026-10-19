@@ -13,6 +13,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnswerExecutor } from '../../bus/answer-executor.js'
 import { AnswerNode, answerNodeOf } from '../../bus/answer-worker.js'
+import { tokensOf } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
@@ -296,6 +297,36 @@ describe('the answer node', () => {
     expect(outcome).toEqual({ kind: 'decided', taskKey: expect.any(String) as unknown, shard: 'ws-1', question: OWNER_QUESTION })
     expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([{ shard: 'ws-1', question: OWNER_QUESTION, ground: expect.stringContaining('partial isolation') as unknown, options: expect.any(Array) as unknown }])
     expect(eventsOf(made.db, CARD_STOPPED).map(each => each.reason)).toEqual(['question.agent'])
+  })
+
+  it('card.answered carries the minutes and tokens of the answer session', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const answerer: Answerer = async () => {
+      made.clock.advance(7.5 * 60_000)
+      return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null, tokens: 48_200 }
+    }
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
+    expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', resumed: true, source: 'question', from: sha('a'), to: sha('e'), minutes: 7.5, tokens: 48_200 }])
+  })
+
+  it('card.answered carries no measurement from an answerer that reports no usage', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null })
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
+    expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', resumed: true, source: 'question', from: sha('a'), to: sha('e') }])
+  })
+
+  it('tokensOf sums the input, output and cache counts of a result usage and is null without one', () => {
+    expect(tokensOf({ input_tokens: 10, output_tokens: 200, cache_creation_input_tokens: 3_000, cache_read_input_tokens: 45_000 })).toBe(48_210)
+    expect(tokensOf({ output_tokens: 5 })).toBe(5)
+    expect(tokensOf({})).toBeNull()
+    expect(tokensOf(null)).toBeNull()
   })
 
   it('a decisions shard is refused without isolation', async () => {

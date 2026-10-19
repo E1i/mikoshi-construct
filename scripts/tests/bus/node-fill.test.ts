@@ -8,6 +8,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { releaseTask, TASK_LEASED } from '../../bus/lease.js'
+import { CHECK_MS, TICK_MS } from '../../bus/netwatch.js'
 import { Node } from '../../bus/node.js'
 import { keyOf, queueTaskWithin } from '../../bus/queue.js'
 import { slotsVariable } from '../../bus/scheduler.js'
@@ -55,6 +56,55 @@ class ReleasingNode extends Node<NodeStep> {
   }
 }
 
+class BlockingNode extends Node<NodeStep> {
+  readonly handledWhileFirstRuns: string[] = []
+  private firstRunning = false
+  private releaseFirst: () => void = () => {}
+
+  constructor(db: DatabaseSync, clock: Clock, slots: number, private readonly blocked: string) {
+    super('review', { db, clock: clock.now, session: 'fill', mode: 'live', env: { [slotsVariable('review')]: String(slots) } })
+  }
+
+  protected candidates(_scope?: Scope): QueuedTask[] {
+    return []
+  }
+
+  protected async handle(lease: Lease): Promise<NodeStep> {
+    if (lease.taskKey !== this.blocked) {
+      if (this.firstRunning)
+        this.handledWhileFirstRuns.push(lease.taskKey)
+      return { kind: 'fenced', taskKey: lease.taskKey }
+    }
+    this.firstRunning = true
+    await new Promise<void>((resolve) => {
+      this.releaseFirst = resolve
+    })
+    this.firstRunning = false
+    return { kind: 'fenced', taskKey: lease.taskKey }
+  }
+
+  finishFirst(): void {
+    this.releaseFirst()
+  }
+}
+
+class HookedNode extends BlockingNode {
+  constructor(db: DatabaseSync, clock: Clock, slots: number, blocked: string, private readonly onQuick: (key: string) => void) {
+    super(db, clock, slots, blocked)
+  }
+
+  protected override async handle(lease: Lease): Promise<NodeStep> {
+    this.onQuick(lease.taskKey)
+    return super.handle(lease)
+  }
+}
+
+function realPause(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms).unref()
+  })
+}
+
 async function onePass(node: Node<NodeStep>): Promise<void> {
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })
@@ -94,5 +144,88 @@ describe('a fill pass', () => {
       expect(leasedEvents(db, keyOf(each))).toBe(1)
       expect(leaseGen(db, keyOf(each))).toBe(1)
     }
+  })
+
+  it('with three slots a second task is leased while the first still runs', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    const first = keyOf(task(970))
+    const node = new BlockingNode(db, clock, 3, first)
+    queueTaskWithin(db, clock.now().toISOString(), task(970))
+    const controller = new AbortController()
+    let pauses = 0
+    await node.run({
+      pause: async () => {
+        pauses += 1
+        if (pauses === 1) {
+          queueTaskWithin(db, clock.now().toISOString(), task(971))
+          return
+        }
+        controller.abort()
+        node.finishFirst()
+      },
+      signal: controller.signal,
+    })
+
+    expect(node.handledWhileFirstRuns).toEqual([keyOf(task(971))])
+    expect(leasedEvents(db, first)).toBe(1)
+  })
+
+  it('on real timers with three slots, a task queued as another settles is leased before TICK_MS while the first still runs', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    const first = keyOf(task(970))
+    const quick = keyOf(task(971))
+    const late = keyOf(task(972))
+    const node = new HookedNode(db, clock, 3, first, (key) => {
+      if (key === quick)
+        queueTaskWithin(db, clock.now().toISOString(), task(972))
+    })
+    queueTaskWithin(db, clock.now().toISOString(), task(970))
+    queueTaskWithin(db, clock.now().toISOString(), task(971))
+    const controller = new AbortController()
+    const running = node.run({ pause: realPause, signal: controller.signal })
+    const started = Date.now()
+
+    try {
+      await vi.waitFor(() => expect(leasedEvents(db, late)).toBe(1), { timeout: 3 * CHECK_MS, interval: 50 })
+      expect(Date.now() - started).toBeLessThan(TICK_MS)
+      expect(node.handledWhileFirstRuns).toEqual([quick, late])
+    }
+    finally {
+      controller.abort()
+      node.finishFirst()
+      await running
+    }
+  }, 6 * CHECK_MS)
+
+  it('with every slot busy, an event appended meanwhile is delivered and its cursor recorded', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    const first = keyOf(task(970))
+    const node = new BlockingNode(db, clock, 1, first)
+    const delivered: number[] = []
+    node.subscribe(['test.delivered'], event => delivered.push(Number(event.id)))
+    queueTaskWithin(db, clock.now().toISOString(), task(970))
+    const controller = new AbortController()
+    let appended = 0
+    let pauses = 0
+    await node.run({
+      pause: async () => {
+        pauses += 1
+        if (pauses === 1) {
+          node.emit({ ts: clock.now().toISOString(), type: 'test.delivered', actor: node.actor, cardId: null, pr: null, head: null, dedupeKey: 'test.delivered:1', payload: {}, legacy: false })
+          appended = Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+          return
+        }
+        controller.abort()
+        node.finishFirst()
+      },
+      signal: controller.signal,
+    })
+
+    expect(delivered).toEqual([appended])
+    expect(node.getState().cursor).toBeGreaterThanOrEqual(appended)
+    expect(leasedEvents(db, first)).toBe(1)
   })
 })

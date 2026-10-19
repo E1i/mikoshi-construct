@@ -352,14 +352,14 @@ describe('the review node', () => {
     detectReview(made)
     made.gitHub.pulls.get(1080)!.required = 'pending'
     const waiting = new UngatedReviewNode(partsOf(made, 'shadow', reviewer))
-    expect(await pausesOf(waiting)).toEqual([TICK_MS])
+    expect(await pausesOf(waiting)).toEqual([TICK_MS, CHECK_MS])
     expect(taskState(made.db, reviewKey(1080))).toMatchObject({ state: 'queued', failures: 0 })
     expect(reviewed).toHaveLength(1)
 
     made.gitHub.pulls.get(1080)!.required = 'success'
     made.tick()
     const recording = new ReviewNode(partsOf(made, 'shadow', reviewer))
-    expect(await pausesOf(recording)).toEqual([0])
+    expect(await pausesOf(recording)).toEqual([0, CHECK_MS])
     expect(eventsOf(made.db, REVIEW_RECORDED)).toHaveLength(1)
     expect(await pausesOf(new ReviewNode(partsOf(made, 'shadow', reviewer)))).toEqual([CHECK_MS])
   })
