@@ -116,6 +116,10 @@ describe('a path AGENTS.md names always high or a publish reads R1, never R3 or 
   })
 })
 
+it.each(['scripts/bus/queue.ts', 'scripts/bus/admissions.ts', 'scripts/bus/close-executor.ts', 'scripts/bus/lease.ts', 'scripts/bus/merge-executor.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts'])('the bus core files read as core, not R4 through the scripts root: %s', (touch) => {
+  expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('the factory mechanism') })
+})
+
 it('the changeset companion glob reads no R1 and the release config does', () => {
   expect(riskOf('.changeset/**').level).toBe('R4')
   expect(riskOf('.changeset/config.json').level).toBe('R1')
@@ -232,6 +236,14 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
     expect(reading.slices.map(slice => slice.touches)).toEqual([
       ['src/commands/detach/**', 'tests/detach-restore.test.ts'],
       ['docs/cli.md'],
+    ])
+  })
+
+  it('a test file goes to the slice of the code it imports, not of a shared directory name', () => {
+    const reading = riskReading(['scripts/bus/queue.ts', 'scripts/bus/answerer.ts', 'scripts/tests/bus/answerer.test.ts', 'scripts/tests/bus/queue.test.ts'], false)
+    expect(reading.slices.map(slice => [slice.level, slice.touches])).toEqual([
+      ['R1', ['scripts/bus/queue.ts', 'scripts/tests/bus/queue.test.ts']],
+      ['R4', ['scripts/bus/answerer.ts', 'scripts/tests/bus/answerer.test.ts']],
     ])
   })
 
