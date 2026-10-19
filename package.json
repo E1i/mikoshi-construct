@@ -60,6 +60,8 @@
     "bus:update": "tsx scripts/bus/update-worker.ts",
     "card": "tsx scripts/bus/card.ts",
     "changeset": "changeset",
+    "checks:catalog": "tsx scripts/bus/check-catalog.ts",
+    "ci:select": "tsx scripts/ci/select.ts",
     "ci": "pnpm run quality",
     "contract:bump": "tsx scripts/contract/bump.ts",
     "contract:update": "tsx scripts/contract/update.ts",
