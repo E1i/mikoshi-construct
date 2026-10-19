@@ -356,6 +356,20 @@ describe('review worker', () => {
     db.close()
   })
 
+  it('a review under a partial sandbox records the level and its gap', async () => {
+    const { db, gitHub, tick, clock } = setUp()
+    gitHub.open({ number: 962 })
+    tick()
+    const gap = 'sandbox.excludedCommands names docker; they run outside the sandbox'
+    const partial: IsolationReader = () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [gap] })
+    const worker = new ReviewWorker({ db, gitHub: gitHub.client, publish: () => {}, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: partial })
+
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', taskKey: review(962) })
+    expect(events(db, 'review.recorded')).toMatchObject([{ isolation: 'partial', isolationGaps: [gap] }])
+    expectReplayIdentical(db)
+    db.close()
+  })
+
   it('a dry run with no runtime isolation starts no reviewer', async () => {
     const { busPath, gitHub } = setUp()
     gitHub.open({ number: 961 })

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { NO_ISOLATION, readIsolationFacts, realIsolationReader, runtimeIsolation } from '../../ghosts/isolation.js'
+import { commandWords, NO_ISOLATION, readIsolationFacts, realIsolationReader, runtimeIsolation, settingsPaths } from '../../ghosts/isolation.js'
 
 const roots: string[] = []
 
@@ -40,12 +40,13 @@ const ROWS: Record<string, { facts: IsolationFacts, expected: Expected }> = {
   'a bypassPermissions mode reads none': { facts: facts({ command: ['claude', '--permission-mode', 'bypassPermissions'] }), expected: { level: 'none', why: /bypassPermissions/ } },
   'a plain command word keeps full': { facts: facts({ command: ['claude', '--permission-mode', 'dontAsk'] }), expected: { level: 'full' } },
   'every cause is named at once': { facts: facts({ user: null, sandboxExec: false, command: ['--settings'] }), expected: { level: 'none', why: /sandbox\.enabled.*; .*sandbox-exec.*; .*--settings/ } },
-  'an unparsable layer is absent': { facts: facts({ user: null, project: null }), expected: { level: 'none', why: /sandbox\.enabled is not true/ } },
   'a sandbox that is not an object counts as absent': { facts: facts({ managed: { sandbox: 'on' }, user: ENABLED_AND_CLOSED }), expected: { level: 'full' } },
   'a network that is not an object counts as absent': { facts: closed({ network: 'open' }), expected: { level: 'full' } },
   'a managed layer overrides a user layer': { facts: facts({ managed: { sandbox: { enabled: false } }, user: ENABLED_AND_CLOSED }), expected: { level: 'none', why: /sandbox\.enabled is not true/ } },
   'a managed enabled outweighs a user disabled': { facts: facts({ managed: { sandbox: { enabled: true, allowUnsandboxedCommands: false } }, user: { sandbox: { enabled: false } } }), expected: { level: 'full' } },
   'a higher layer silent on a key leaves the lower value in force': { facts: facts({ managed: { sandbox: { enabled: true } }, user: { sandbox: { allowUnsandboxedCommands: false } } }), expected: { level: 'full' } },
+  'a managed layer outweighs a local layer': { facts: facts({ managed: { sandbox: { allowUnsandboxedCommands: false } }, local: { sandbox: { allowUnsandboxedCommands: true } } }), expected: { level: 'full' } },
+  'a project layer outweighs a user layer': { facts: facts({ project: { sandbox: { allowUnsandboxedCommands: true } } }), expected: { level: 'partial', gaps: ['sandbox.allowUnsandboxedCommands'] } },
   'a local layer outweighs a project layer': { facts: facts({ local: { sandbox: { allowUnsandboxedCommands: true } }, project: { sandbox: { allowUnsandboxedCommands: false } } }), expected: { level: 'partial', gaps: ['sandbox.allowUnsandboxedCommands'] } },
   'allowUnsandboxedCommands absent reads partial': { facts: facts({ user: { sandbox: { enabled: true } } }), expected: { level: 'partial', gaps: ['sandbox.allowUnsandboxedCommands'] } },
   'allowUnsandboxedCommands true reads partial': { facts: closed({ allowUnsandboxedCommands: true }), expected: { level: 'partial', gaps: ['sandbox.allowUnsandboxedCommands'] } },
@@ -95,6 +96,25 @@ describe('runtimeIsolation', () => {
   })
 })
 
+describe('settingsPaths', () => {
+  it('reads the managed layer from the platform path and none on another platform', () => {
+    expect(settingsPaths({}, '/repo', 'darwin', '/home/u').managed).toBe('/Library/Application Support/ClaudeCode/managed-settings.json')
+    expect(settingsPaths({}, '/repo', 'linux', '/home/u').managed).toBe('/etc/claude-code/managed-settings.json')
+    expect(settingsPaths({}, '/repo', 'win32', '/home/u').managed).toBeNull()
+  })
+
+  it('reads the user layer from CLAUDE_CONFIG_DIR, and from ~/.claude when it is unset or empty', () => {
+    expect(settingsPaths({ CLAUDE_CONFIG_DIR: '/config' }, '/repo', 'darwin', '/home/u')).toEqual({
+      managed: '/Library/Application Support/ClaudeCode/managed-settings.json',
+      local: '/repo/.claude/settings.local.json',
+      project: '/repo/.claude/settings.json',
+      user: '/config/settings.json',
+    })
+    expect(settingsPaths({}, '/repo', 'darwin', '/home/u').user).toBe('/home/u/.claude/settings.json')
+    expect(settingsPaths({ CLAUDE_CONFIG_DIR: '' }, '/repo', 'darwin', '/home/u').user).toBe('/home/u/.claude/settings.json')
+  })
+})
+
 describe('readIsolationFacts', () => {
   it('reads the local, project and user layers, the command words and treats an unparsable file as absent', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'isolation-facts-'))
@@ -106,16 +126,25 @@ describe('readIsolationFacts', () => {
     writeFileSync(path.join(cwd, '.claude', 'settings.local.json'), JSON.stringify({ sandbox: { enabled: true } }))
     writeFileSync(path.join(cwd, '.claude', 'settings.json'), '{ not json')
     writeFileSync(path.join(config, 'settings.json'), JSON.stringify({ sandbox: { allowUnsandboxedCommands: false } }))
-    const env = { CLAUDE_CONFIG_DIR: config, SHIFT_CLAUDE: '  claude  --settings /tmp/s.json ', PATH: '' }
+    const env = { CLAUDE_CONFIG_DIR: config, SHIFT_CLAUDE: 'claude --dangerously-skip-permissions', PATH: '' }
+    const command = commandWords('  claude  --settings /tmp/s.json ')
 
-    const read = readIsolationFacts(env, cwd)
+    const read = readIsolationFacts(env, cwd, command)
     expect(read.local).toEqual({ sandbox: { enabled: true } })
     expect(read.project).toBeNull()
     expect(read.user).toEqual({ sandbox: { allowUnsandboxedCommands: false } })
     expect(read.command).toEqual(['claude', '--settings', '/tmp/s.json'])
     expect(read.bwrap).toBe(false)
     expect(read.socat).toBe(false)
-    expect(readIsolationFacts({ CLAUDE_CONFIG_DIR: config, PATH: '' }, cwd).command).toEqual([])
-    expect(realIsolationReader(env, cwd)()).toMatchObject({ level: 'none', why: expect.stringContaining('--settings') as unknown })
+    expect(readIsolationFacts(env, cwd, []).command).toEqual([])
+    expect(realIsolationReader(env, cwd, command)()).toMatchObject({ level: 'none', why: expect.stringContaining('the session command claude --settings /tmp/s.json carries --settings') as unknown })
+  })
+
+  it('reads the spawned command it is given, not SHIFT_CLAUDE', () => {
+    const facts = readIsolationFacts({ SHIFT_CLAUDE: 'claude --settings /tmp/s.json', PATH: '' }, tmpdir(), ['claude', '--permission-mode', 'dontAsk'])
+    expect(facts.command).toEqual(['claude', '--permission-mode', 'dontAsk'])
+    const reading = runtimeIsolation({ ...facts, command: ['claude', '--settings', 'x'] })
+    expect(reading).toMatchObject({ level: 'none', why: expect.stringContaining('remove it from the session command') as unknown })
+    expect(reading).not.toMatchObject({ why: expect.stringContaining('SHIFT_CLAUDE') as unknown })
   })
 })

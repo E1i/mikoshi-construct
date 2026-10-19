@@ -24,6 +24,7 @@ export const TREE_LEFT = 'tree_left'
 export const REVIEW_ROUNDS_SPENT = 'review.rounds_spent'
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const REVIEW_TREE_ORPHANED = 'review.tree.orphaned'
+export const SPAWNS_NO_SESSION = 'spawns-no-session'
 
 export type Step
   = | { kind: 'idle' }
@@ -41,17 +42,21 @@ export interface ExecutorParts {
   clock: () => Date
   clearLeftovers?: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
-  isolation: IsolationReader
+  isolation: IsolationReader | typeof SPAWNS_NO_SESSION
 }
 
 interface Reviewed {
   review: Review
   plan: ReviewPlan
   ms: number
-  isolation: Held
+  isolation: Held | null
 }
 
 type Held = Exclude<Isolation, { level: 'none' }>
+
+function isolationFields(isolation: Held | null): Record<string, unknown> {
+  return isolation === null ? {} : { isolation: isolation.level, isolationGaps: isolation.gaps }
+}
 
 const RELEASE_REASONS: ReadonlySet<string> = new Set([NO_ISOLATION])
 
@@ -137,8 +142,8 @@ export class ReviewExecutor {
       return this.waiting(lease, stale.detail)
     if (stale !== null)
       return this.denied(lease, stale)
-    const isolation = this.parts.isolation()
-    if (isolation.level === 'none')
+    const isolation = this.parts.isolation === SPAWNS_NO_SESSION ? null : this.parts.isolation()
+    if (isolation?.level === 'none')
       return this.denied(lease, { kind: 'technical', reason: NO_ISOLATION, detail: `PR #${lease.pr} is not reviewed: ${isolation.why}` })
     let held: HeldTree | null = null
     try {
@@ -157,7 +162,7 @@ export class ReviewExecutor {
     }
   }
 
-  private async reviewed(lease: Lease, isolation: Held): Promise<Attempt> {
+  private async reviewed(lease: Lease, isolation: Held | null): Promise<Attempt> {
     const { db, clock } = this.parts
     const plan = planned(this.parts.plan, lease, earlierVerdict(db, lease))
     try {
@@ -229,7 +234,7 @@ export class ReviewExecutor {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), isolation: isolation.level, isolationGaps: isolation.gaps },
+      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation) },
       legacy: false,
     }
   }

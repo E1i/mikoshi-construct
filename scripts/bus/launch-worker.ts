@@ -17,7 +17,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
-import { realIsolationReader } from '../ghosts/isolation.js'
+import { commandWords, realIsolationReader } from '../ghosts/isolation.js'
 import { sessionEnv } from '../ghosts/session.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
@@ -32,7 +32,7 @@ import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { LadderCardStarter } from './ladder-starter.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
-import { killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
+import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { PR_CLOSED } from './observations.js'
@@ -231,7 +231,7 @@ async function main(): Promise<number> {
   const ports = realStarterPorts(process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, isolation: realIsolationReader(env, process.cwd()) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, isolation: realIsolationReader(env, process.cwd(), commandWords(cardCommand(places.claude))) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

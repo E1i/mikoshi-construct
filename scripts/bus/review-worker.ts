@@ -19,6 +19,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { realIsolationReader } from '../ghosts/isolation.js'
+import { HEADLESS_FLAGS } from '../ghosts/session.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
 import { defaultBusPath } from './db.js'
@@ -40,7 +41,7 @@ import { slotsOf, slotsVariable } from './scheduler.js'
 import { openDatabase } from './sqlite.js'
 
 export { SWITCH_FLAG }
-export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_LIMIT_REACHED, roundLimitLine, TREE_LEFT } from './review-executor.js'
+export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_LIMIT_REACHED, roundLimitLine, SPAWNS_NO_SESSION, TREE_LEFT } from './review-executor.js'
 export type { Step }
 
 export const DRY_RUN_FLAG = '--dry-run'
@@ -357,7 +358,7 @@ async function main(): Promise<number> {
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
     notePr: ghNotePr(cwd),
-    isolation: realIsolationReader(process.env, cwd),
+    isolation: realIsolationReader(process.env, cwd, ['claude', ...HEADLESS_FLAGS]),
   })
 }
 

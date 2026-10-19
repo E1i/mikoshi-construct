@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { unresolvedCommandWord } from '../../src/commands/intake/command-word.js'
-import { CLAUDE_VARIABLE } from '../shift/claude.js'
 
 export const NO_ISOLATION = 'no_isolation'
 
@@ -72,7 +71,7 @@ function causesOf(facts: IsolationFacts, enabled: unknown): string[] {
     causes.push(`the Claude Code sandbox has no backend on ${facts.platform}`)
   const overriding = facts.command.filter(word => OVERRIDE_WORDS.some(override => word.includes(override)))
   if (overriding.length > 0)
-    causes.push(`the session command carries ${overriding.join(' ')}, which can lift the sandbox settings; remove it from ${CLAUDE_VARIABLE}`)
+    causes.push(`the session command ${facts.command.join(' ')} carries ${overriding.join(' ')}, which can lift the sandbox settings; remove it from the session command`)
   return causes
 }
 
@@ -132,23 +131,43 @@ function sandboxExecPresent(): boolean {
   }
 }
 
-export function readIsolationFacts(env: NodeJS.ProcessEnv, cwd: string): IsolationFacts {
-  const platform = os.platform()
-  const configDir = env.CLAUDE_CONFIG_DIR !== undefined && env.CLAUDE_CONFIG_DIR !== '' ? env.CLAUDE_CONFIG_DIR : path.join(os.homedir(), '.claude')
-  const managed = MANAGED_SETTINGS[platform]
+export function commandWords(command: string): string[] {
+  return command.split(/\s+/).filter(word => word !== '')
+}
+
+export interface SettingsPaths {
+  managed: string | null
+  local: string
+  project: string
+  user: string
+}
+
+export function settingsPaths(env: NodeJS.ProcessEnv, cwd: string, platform: string, home: string): SettingsPaths {
+  const configDir = env.CLAUDE_CONFIG_DIR !== undefined && env.CLAUDE_CONFIG_DIR !== '' ? env.CLAUDE_CONFIG_DIR : path.join(home, '.claude')
   return {
-    managed: managed === undefined ? null : readLayer(managed),
-    local: readLayer(path.join(cwd, '.claude', 'settings.local.json')),
-    project: readLayer(path.join(cwd, '.claude', 'settings.json')),
-    user: readLayer(path.join(configDir, 'settings.json')),
+    managed: MANAGED_SETTINGS[platform] ?? null,
+    local: path.join(cwd, '.claude', 'settings.local.json'),
+    project: path.join(cwd, '.claude', 'settings.json'),
+    user: path.join(configDir, 'settings.json'),
+  }
+}
+
+export function readIsolationFacts(env: NodeJS.ProcessEnv, cwd: string, command: string[]): IsolationFacts {
+  const platform = os.platform()
+  const paths = settingsPaths(env, cwd, platform, os.homedir())
+  return {
+    managed: paths.managed === null ? null : readLayer(paths.managed),
+    local: readLayer(paths.local),
+    project: readLayer(paths.project),
+    user: readLayer(paths.user),
     platform,
     sandboxExec: sandboxExecPresent(),
     bwrap: onPath('bwrap', env),
     socat: onPath('socat', env),
-    command: (env[CLAUDE_VARIABLE] ?? '').split(/\s+/).filter(word => word !== ''),
+    command,
   }
 }
 
-export function realIsolationReader(env: NodeJS.ProcessEnv, cwd: string): IsolationReader {
-  return () => runtimeIsolation(readIsolationFacts(env, cwd))
+export function realIsolationReader(env: NodeJS.ProcessEnv, cwd: string, command: string[]): IsolationReader {
+  return () => runtimeIsolation(readIsolationFacts(env, cwd, command))
 }

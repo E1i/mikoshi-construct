@@ -8,8 +8,9 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execGh } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
-import { realIsolationReader } from '../ghosts/isolation.js'
+import { commandWords, realIsolationReader } from '../ghosts/isolation.js'
 import { ANSWER_FLAG } from './answer.js'
+import { CLAUDE_VARIABLE } from './claude.js'
 import { REVIEW_MISSING_EVENT } from './current.js'
 import { PR_REVIEW_EVENT } from './merge.js'
 import { GHOST_JOURNAL, REPO, SHIFT_JOURNAL } from './places.js'
@@ -144,7 +145,7 @@ export function runBg(argv: string[], env: NodeJS.ProcessEnv, gh: GhRunner, isol
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = runBg(process.argv.slice(2), process.env, execGh, realIsolationReader(process.env, process.cwd()))
+  const result = runBg(process.argv.slice(2), process.env, execGh, realIsolationReader(process.env, process.cwd(), commandWords(process.env[CLAUDE_VARIABLE] ?? '')))
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)

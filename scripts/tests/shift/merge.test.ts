@@ -247,6 +247,8 @@ describe('runVerdict', () => {
     const result = await run(['42', '--verdict', 'changes', '--commit', sha('a')])
     expect(result).toEqual({ stdout: [`[shift:verdict] #142 PR #42 changes at ${sha('a')} recorded in the bus ${bus}; a chain arms its auto-merge only after a pass at its head, and only at ${sha('a')}`], stderr: [], exitCode: 0 })
     expect(recorded(db)).toMatchObject([{ head: sha('a'), verdict: 'changes', reviewer_session: 'reviewer-1', depth_why: 'the verdict was given by shift:merge --verdict' }])
+    expect(recorded(db)[0]).not.toHaveProperty('isolation')
+    expect(recorded(db)[0]).not.toHaveProperty('isolationGaps')
     expect(statuses).toEqual([{ commit: sha('a'), state: 'failure', context: 'review', description: 'review verdict changes for card #142 by reviewer-1' }])
     expect(existsSync(journal)).toBe(false)
     db.close()
