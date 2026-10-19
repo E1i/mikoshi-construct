@@ -1,4 +1,4 @@
-import type { BusEvent, WatchDeps } from '../../miko/watch.js'
+import type { BusEvent, CardActivity, WatchDeps } from '../../miko/watch.js'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { appendFileSync, closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -10,12 +10,13 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { CARD_STOPPED, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_CLOSED } from '../../bus/launch-candidates.js'
 import { PR_CLOSED, prClosed } from '../../bus/observations.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../../bus/review-executor.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
-import { LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, skippedLine, tick, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
+import { BUS_ALIVE_MS, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, skippedLine, STALL_MS, stalledOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 
@@ -49,11 +50,13 @@ function journal(): string {
   return file
 }
 
-function fileDeps(file: string, alive: (pid: number) => boolean = () => true, events: BusEvent[] = []): WatchDeps {
+function fileDeps(file: string, alive: (pid: number) => boolean = () => true, events: BusEvent[] = [], stalls: CardActivity[] = []): WatchDeps {
   return {
     journal: file,
     bus: path.join(path.dirname(file), 'bus.db'),
     observedUpTo: id => [...new Map(events.filter(event => event.type === PR_OBSERVED && event.id <= id).map(event => [event.pr, event])).values()],
+    deniedUpTo: id => events.filter(event => event.type === POLICY_DENIED && event.id <= id),
+    stalls: () => [...stalls],
     emit: async () => {},
     beforeCommit: async () => {},
     lastBusId: () => 0,
@@ -94,6 +97,8 @@ const BUS_EVENT_WAKES: Array<{ name: string, type: string, payload: object, wake
   { name: 'a pr.closed with a merge', type: PR_CLOSED, payload: { merged: true, commit: 'c0ffee' }, wakes: true },
   { name: 'a card.closed', type: CARD_CLOSED, payload: { verification: 'run' }, wakes: true },
   { name: 'a relaunch-stop', type: STOP_EVENT, payload: { event: STOP_EVENT, reason: 'max' }, wakes: true },
+  { name: 'a card.stopped', type: CARD_STOPPED, payload: { reason: 'fault', detail: 'the session died' }, wakes: true },
+  { name: 'a first policy.denied of a task', type: POLICY_DENIED, payload: { command: 'record_verdict', kind: 'technical', reason: 'no_isolation' }, wakes: false },
   { name: 'a pr.observed with green CI', type: PR_OBSERVED, payload: { ci: 'green' }, wakes: false },
   { name: 'a pr.observed with pending CI', type: PR_OBSERVED, payload: { ci: 'pending' }, wakes: false },
   { name: 'a chain pulse', type: 'chain.observed', payload: { alive: true }, wakes: false },
@@ -784,5 +789,117 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     const events: BusEvent[] = [red(1, 'a'), red(2, 'a'), red(3, 'b')]
     const deps = { ...fileDeps(file, () => true, events), lastBusId: () => 3 }
     expect(selectOnce({ offset: statSync(file).size, busId: 1 }, deps, [])).toEqual({ line: `bus ${PR_OBSERVED} card - pr 805 ${red(3, 'b').payload}`, cursor: { offset: statSync(file).size, busId: 3 } })
+  })
+})
+
+describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a verdict and CI', () => {
+  const denial = (id: number, reason: string, head = 'h1'): BusEvent => ({ id, type: POLICY_DENIED, cardId: 1064, pr: 921, head, payload: JSON.stringify({ command: 'record_verdict', kind: 'technical', reason, detail: 'sandbox.enabled is not true' }) })
+
+  it('wakes on a second policy.denied in a row for one task with the reason and the settings file', () => {
+    const file = journal()
+    const events: BusEvent[] = []
+    const deps = fileDeps(file, () => true, events)
+    const state = watchState(deps, [])
+    events.push(denial(1, 'no_isolation'))
+    expect(tick(state, deps)).toEqual([])
+    events.push(denial(2, 'no_isolation'))
+    const lines = tick(state, deps)
+    expect(lines).toEqual([`bus ${POLICY_DENIED} card 1064 pr 921 second in a row for one task: reason no_isolation; settings ${USER_SETTINGS} ${denial(2, 'no_isolation').payload}`])
+    events.push(denial(3, 'no_isolation'), denial(4, 'other'), denial(5, 'no_isolation', 'h2'))
+    expect(tick(state, deps)).toEqual([])
+    const settings = { ...denial(6, 'no_isolation', 'h2'), payload: JSON.stringify({ command: 'record_verdict', reason: 'no_isolation', settings: '.claude/settings.local.json' }) }
+    events.push(settings)
+    expect(tick(state, deps)).toEqual([`bus ${POLICY_DENIED} card 1064 pr 921 second in a row for one task: reason no_isolation; settings .claude/settings.local.json ${settings.payload}`])
+    const offset = statSync(file).size
+    const once = { ...fileDeps(file, () => true, events.slice(0, 3)), lastBusId: () => 3 }
+    expect(selectOnce({ offset, busId: 1 }, once, [], 1064)).toEqual({ line: lines[0], cursor: { offset, busId: 2 } })
+    expect(selectOnce({ offset, busId: 2 }, once, [], 1064)).toBeUndefined()
+  })
+
+  it('wakes on card.stopped after a session death', () => {
+    const file = journal()
+    const offset = statSync(file).size
+    const stopped: BusEvent = { id: 2, type: CARD_STOPPED, cardId: 1074, pr: null, head: null, payload: JSON.stringify({ reason: 'fault', detail: 'the session died a third time' }) }
+    const deps = { ...fileDeps(file, () => true, [stopped]), lastBusId: () => 2 }
+    expect(selectOnce({ offset, busId: 1 }, deps, [], 1074)).toEqual({ line: `bus ${CARD_STOPPED} card 1074 pr - ${stopped.payload}`, cursor: { offset, busId: 2 } })
+  })
+
+  it('wakes on a card with no new event for more than 20 minutes while the bus is alive', async () => {
+    const now = Date.parse('2026-10-19T12:00:00.000Z')
+    const at = (ms: number): string => new Date(now - ms).toISOString()
+    const card = (cardId: number, ms: number): CardActivity => ({ cardId, lastEventId: cardId, lastType: 'card.started', lastTs: at(ms) })
+    expect(stalledOf([card(1, STALL_MS + 1), card(2, STALL_MS)], at(0), now)).toEqual([card(1, STALL_MS + 1)])
+    expect(stalledOf([card(1, STALL_MS + 1)], at(BUS_ALIVE_MS + 1), now)).toEqual([])
+    expect(stalledOf([card(1, STALL_MS + 1)], undefined, now)).toEqual([])
+
+    const file = journal()
+    const stalls: CardActivity[] = [card(951, 7 * 24 * 60 * 60_000)]
+    const deps = { ...fileDeps(file), stalls: () => [...stalls] }
+    const state = watchState(deps, [])
+    expect(tick(state, deps, now)).toEqual([])
+    stalls.push(card(1071, STALL_MS + 60_000))
+    expect(tick(state, deps, now)).toEqual([`stall card 1071: no new event for 21 minutes since card.started at ${at(STALL_MS + 60_000)}, while the bus is alive`])
+    expect(tick(state, deps, now)).toEqual([])
+
+    let cursor = { offset: statSync(file).size, busId: 0 }
+    const store = {
+      cursor: () => cursor,
+      write: (next: typeof cursor) => {
+        cursor = next
+      },
+      commit: () => {},
+    } as unknown as OnceStore
+    const emitted: string[] = []
+    let calls = 0
+    const old = card(951, 7 * 24 * 60 * 60_000)
+    const once = {
+      ...fileDeps(file),
+      emit: async (line: string) => {
+        emitted.push(line)
+      },
+      stalls: () => calls++ < 2 ? [old] : [old, card(1086, STALL_MS + 60_000)],
+    }
+    await deliverOnce(store, once, [], 1086, () => now)
+    expect(emitted).toEqual([`stall card 1086: no new event for 21 minutes since card.started at ${at(STALL_MS + 60_000)}, while the bus is alive`])
+    expect(cursor).toEqual({ offset: statSync(file).size, busId: 0 })
+  }, 10_000)
+
+  it('the streaming watch counts a policy.denied from before its start toward a second in a row, as --once does', () => {
+    const file = journal()
+    const events: BusEvent[] = [denial(1, 'no_isolation')]
+    const deps = { ...fileDeps(file, () => true, events), lastBusId: () => 1 }
+    const state = watchState(deps, [])
+    events.push(denial(2, 'no_isolation'))
+    const lines = tick(state, deps)
+    expect(lines).toEqual([`bus ${POLICY_DENIED} card 1064 pr 921 second in a row for one task: reason no_isolation; settings ${USER_SETTINGS} ${denial(2, 'no_isolation').payload}`])
+    const offset = statSync(file).size
+    const once = { ...deps, lastBusId: () => 2 }
+    expect(selectOnce({ offset, busId: 1 }, once, [])).toEqual({ line: lines[0], cursor: { offset, busId: 2 } })
+  })
+
+  it('two cards that stall in the same poll both wake a --once with no --card', async () => {
+    const now = Date.parse('2026-10-19T12:00:00.000Z')
+    const at = (ms: number): string => new Date(now - ms).toISOString()
+    const card = (cardId: number): CardActivity => ({ cardId, lastEventId: cardId, lastType: 'card.started', lastTs: at(STALL_MS + 60_000) })
+    const file = journal()
+    let cursor = { offset: statSync(file).size, busId: 0 }
+    const store = {
+      cursor: () => cursor,
+      write: (next: typeof cursor) => {
+        cursor = next
+      },
+      commit: () => {},
+    } as unknown as OnceStore
+    const emitted: string[] = []
+    let calls = 0
+    const once = {
+      ...fileDeps(file),
+      emit: async (line: string) => {
+        emitted.push(line)
+      },
+      stalls: () => calls++ < 1 ? [] : [card(1071), card(1086)],
+    }
+    await deliverOnce(store, once, [], undefined, () => now)
+    expect(emitted).toEqual([[1071, 1086].map(id => `stall card ${id}: no new event for 21 minutes since card.started at ${at(STALL_MS + 60_000)}, while the bus is alive`).join('\n')])
   })
 })

@@ -63,10 +63,12 @@ Mikoshi, as foreman, does not poll on a timer; it waits for events and spends no
 line appended to `ghosts.jsonl` whose `event` is `merge`, `fall`, `relaunch-stop` or `stop` (`WAKING_EVENTS` in
 `scripts/miko/watch.ts`, any case), `bus <type> card <card_id|-> pr <pr|-> <payload>`, both from the event's columns, for an event added to `bus.db` that needs the window's action —
 `relaunch-stop`, `review.recorded` of any verdict, `merge.done`, `pr.closed`, `card.closed`, a `review.rounds_spent`, whose line
-names the round limit and the owner decision it needs (`allow-merge`), and a `pr.observed` whose `ci` turns `red` for its pull request or is `red` on a new head (once per
-head: a later red observation of the same head does not wake until it has left red)
-(`WAKING_BUS_EVENTS` and `wakesTheWindow` in `scripts/miko/watch.ts`) — and `pid <pid> exited` once for each watched PID
-that dies. Without `--once`, lines and events already there when it starts print nothing; lines and bus events of any other kind (a `pr.observed` with
+names the round limit and the owner decision it needs (`allow-merge`), a `card.stopped`, a `pr.observed` whose `ci` turns `red` for its pull request or is `red` on a new head (once per
+head: a later red observation of the same head does not wake until it has left red), and a second `policy.denied` in a row for one task (card, PR, head, command, reason),
+naming its reason and settings file (`settings`, else `USER_SETTINGS`)
+(`WAKING_BUS_EVENTS` and `wakesTheWindow` in `scripts/miko/watch.ts`) — `pid <pid> exited` once for each watched PID
+that dies, and `stall card <N>: …` once for a `running` or `in_review` card with no bus event for `STALL_MS` (20 min)
+while a `netwatch.tick` is within `BUS_ALIVE_MS` (`stalledOf`); one stalled at start does not wake; a stall moves no cursor. Without `--once`, lines and events already there when it starts print nothing; lines and bus events of any other kind (a `pr.observed` with
 green or pending CI, a pulse) and live PIDs print nothing. The window waits on a pull request or a card only through
 `pnpm miko:watch`, and builds no monitor of its own on GitHub state. Without `--once`, on stderr it writes one line, once, when it has read what is already there and watches (`WATCHING`
 in `scripts/miko/watch.ts`); a reader that merges stderr into stdout gets that line at start, and an event written
