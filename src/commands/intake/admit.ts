@@ -245,6 +245,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     who: parsed.parked.who,
     seam: [],
     risk: [],
+    slices: [],
     unclear: checked.unclear,
     corrections: checked.corrections,
     text: admittedText(text, line, checked),

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { parseParkingFile } from '../src/card/parking.js'
 import { textSha } from '../src/card/text-sha.js'
 import { ADMIT_SOURCE, AMEND_SOURCE, runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
@@ -85,6 +86,54 @@ describe('intake confirmation gate', () => {
     expect(text).toContain(`corrected: ${CORRECTION}`)
     expect(text).toContain('who: shift')
     expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', confirmation: 'person', corrections: [CORRECTION] }])
+  })
+
+  it('confirmed slices are parked as cards with depends and no manual step', () => {
+    const w = world([card({ touches: ['scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts'] })])
+    writeFileSync(path.join(w.repo, 'scripts/bus/queue.ts'), 'import { roundLimitDecisionOf } from \'./round-limit-decision.js\'\n')
+    const held = intake(w)
+    expect(held.status).toBe('awaiting')
+    expect(existsSync(w.parking)).toBe(false)
+    const token = held.status === 'awaiting' ? held.token : ''
+    const confirmed = intake(w, { confirm: token })
+    expect(confirmed.status).toBe('written')
+    const parked = confirmed.status === 'written' ? confirmed.cards : []
+    expect(parked.map(entry => entry.line)).toEqual([
+      '#13 gate-card-slice-1 [implement/runner/S/cheap/owner] · depends #14 · blocks —',
+      '#14 gate-card-slice-2 [implement/runner/S/cheap/owner] · depends — · blocks #13',
+    ])
+    for (const [index, entry] of parked.entries()) {
+      const text = readFileSync(path.join(w.parking, entry.file), 'utf8')
+      expect(text).toContain(`whole: slice ${index + 1} of gate-card`)
+      expect(text).toContain('who: shift')
+      expect(text).toContain('- `pnpm run quality` is green')
+    }
+    expect(readFileSync(path.join(w.parking, '13.md'), 'utf8')).toContain('touches: scripts/bus/queue.ts\n')
+    expect(readFileSync(path.join(w.parking, '14.md'), 'utf8')).toContain('touches: scripts/bus/round-limit-decision.ts\n')
+    expect(journalLines(w)).toMatchObject([{ task: '13', confirmation: 'person' }, { task: '14', confirmation: 'person' }])
+  })
+
+  it('card A of probe 1075 passes intake into cards with depends with no manual step', () => {
+    const touches = ['scripts/ghosts/hash.ts', 'scripts/ghosts/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/bus/inbox.ts', 'scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts', 'scripts/bus/merge-executor.ts', 'scripts/decisions/decisions.ts', 'scripts/ci/update-branch.ts', 'scripts/tests/bus/round-limit-decision.test.ts', 'scripts/tests/bus/merge-queue.test.ts', 'scripts/bus/answerer.ts', 'scripts/bus/answer-worker.ts', 'scripts/bus/lease.ts', 'scripts/tests/bus/answer-node.test.ts', 'scripts/miko/watch.ts', 'scripts/miko/watch-store.ts', 'scripts/tests/miko/watch.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ghosts/launch.ts', 'scripts/bus/launch-worker.ts', 'package.json', 'architecture/window.md', '.changeset/**']
+    const witness = '`pnpm exec vitest run scripts/tests/ghosts/hash.test.ts scripts/tests/bus/round-limit-decision.test.ts scripts/tests/bus/merge-queue.test.ts scripts/tests/bus/answer-node.test.ts scripts/tests/miko/watch.test.ts` exits 0'
+    const w = world([card({ name: 'owner-loop-without-relay', milestone: 'operator', size: 'L', touches, task: 'Card A owner-loop-without-relay, eight items as one task.', witnesses: [witness] })])
+    writeFileSync(path.join(w.repo, 'package.json'), '{}\n')
+    writeFileSync(path.join(w.repo, 'scripts/bus/queue.ts'), 'import { roundLimitDecisionOf } from \'./round-limit-decision.js\'\n')
+    const held = intake(w)
+    expect(held.status).toBe('awaiting')
+    const confirmed = intake(w, { confirm: held.status === 'awaiting' ? held.token : '' })
+    expect(confirmed.status).toBe('written')
+    const parked = confirmed.status === 'written' ? confirmed.cards : []
+    expect(parked.map(entry => entry.line)).toEqual([
+      '#13 owner-loop-without-relay-slice-1 [implement/operator/L/cheap/owner] · depends #14 · blocks —',
+      '#14 owner-loop-without-relay-slice-2 [implement/operator/L/cheap/owner] · depends — · blocks #13',
+    ])
+    expect(parked.map(entry => entry.who)).toEqual(['shift', 'shift'])
+    expect(parked.every(entry => entry.slices.length === 0 && entry.unclear.length === 0)).toBe(true)
+    const parsed = parked.map(entry => parseParkingFile(entry.file, readFileSync(path.join(w.parking, entry.file), 'utf8')))
+    const parkedTouches = parsed.flatMap(entry => (entry.kind === 'parked' ? entry.parked.task.touches : []))
+    expect(new Set(parkedTouches)).toEqual(new Set(touches))
+    expect(parsed.map(entry => entry.kind === 'parked' && entry.parked.task.touches.includes('scripts/bus/queue.ts'))).toEqual([true, false])
   })
 
   it('a --confirm token that names another list parks nothing and prints the list this run holds', () => {

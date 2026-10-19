@@ -510,6 +510,35 @@ describe('the review round limit of D-104', () => {
     db.close()
   })
 
+  it('three card-body edits on one head spend no review.rounds_spent', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const worker = new ReviewWorker({
+      isolation: sandboxed,
+      db,
+      gitHub: gitHub.client,
+      publish: (status) => {
+        gitHub.pulls.get(944)!.review = status.state
+      },
+      reviewer: async () => ({ verdict: 'changes', findings: ['a.ts:1 the finding'], session: 'reviewer-1' }),
+      plan: () => fullReview('a fixed plan'),
+      clock: clock.now,
+      session: 'worker-1',
+    })
+    gitHub.open({ number: 944, body: cardBody(944) })
+    tick()
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
+    for (const edit of [1, 2, 3]) {
+      tick()
+      importJournal(db, intakeLine(1044, `${edit}123abcd4567ef89`))
+      tick()
+      expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
+    }
+
+    expect((db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${REVIEW_RECORDED}' AND pr = 944`).get() as { n: number }).n).toBe(4)
+    expect(spentEvents(db)).toEqual([])
+    db.close()
+  })
+
   it('before the limit a changes verdict is answered as before', async () => {
     const { db, notes } = await rounds(941, ['changes', 'changes'])
     expect(liveTasksOn(db, HEADS[1]!)).toEqual(['answer'])

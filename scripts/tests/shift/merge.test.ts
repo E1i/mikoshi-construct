@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../bus/db.js'
+import type { CleanUpdate } from '../../bus/update-done.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import type { MergeResult } from '../../shift/merge.js'
 import type { World } from './fixtures/autopilot-world.js'
@@ -13,8 +14,9 @@ import { appendEvent, openBus } from '../../bus/db.js'
 import { POLICY_DENIED } from '../../bus/inbox.js'
 import { NetWatch } from '../../bus/netwatch.js'
 import { BusTick } from '../../bus/run.js'
+import { cleanUpdatesOf } from '../../bus/update-done.js'
 import { chainBusMerge } from '../../shift/chain-bus.js'
-import { busMerge, HANDED_TO_THE_BUS, isListed, runCarry, runMerge, runVerdict } from '../../shift/merge.js'
+import { busMerge, HANDED_TO_THE_BUS, isListed, runCarry, runMerge, runUpdated, runVerdict } from '../../shift/merge.js'
 import { runShift } from '../../shift/shift.js'
 import { cardBody as busCardBody, Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { detectReview } from '../bus/review-detection.js'
@@ -366,5 +368,49 @@ describe('runCarry', () => {
     const gh = (): string => JSON.stringify({ body: cardLine('auto'), headRefOid: HEAD, files: [] })
     const result = runCarry(['42', '--carry'], { gh, git: () => '', fetch: () => {}, journal: () => null, main: 'main', publish: status => posted.push(status) })
     expect([posted, result.exitCode]).toEqual([[], 1])
+  })
+
+  describe('runUpdated', () => {
+    function updatedRun(repo: string, argv: string[], head: string): { updates: CleanUpdate[], result: MergeResult } {
+      const bus = path.join(mkdtempSync(path.join(tmpdir(), 'shift-merge-updated-')), 'bus.db')
+      const gh = (): string => JSON.stringify({ body: cardLine('auto'), headRefOid: head, files: [] })
+      const result = runUpdated(argv, { gh, git: args => git(repo, ...args), fetch: () => {}, main: 'main', bus, session: 'window-s78', now: () => new Date('2026-10-19T20:00:00.000Z') })
+      const db = openBus(bus)
+      try {
+        return { updates: cleanUpdatesOf(db, 42), result }
+      }
+      finally {
+        db.close()
+      }
+    }
+
+    it('records a clean update-branch from A to B as a clean update.done the round-limit decision carries across', () => {
+      const { repo, reviewed } = reviewedPullRequest({ 'own.txt': 'the pull request\n' })
+      mainMoves(repo, { 'other.txt': 'main moved\n' })
+      git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'main')
+      const head = git(repo, 'rev-parse', 'HEAD')
+      const { updates, result } = updatedRun(repo, ['42', '--updated', reviewed], head)
+      expect(updates).toEqual([{ from: reviewed, to: head }])
+      expect(result.exitCode).toBe(0)
+    })
+
+    it('records nothing when the update-branch merge resolved a conflict', () => {
+      const { repo, reviewed } = reviewedPullRequest({ 'shared.txt': 'one\nTWO from the pull request\nthree\n' })
+      mainMoves(repo, { 'shared.txt': 'one\nTWO from main\nthree\n' })
+      expect(() => git(repo, 'merge', '-q', '--no-edit', 'main')).toThrow()
+      const head = commit(repo, { 'shared.txt': 'one\nTWO resolved\nthree\n' }, 'merge main')
+      const { updates, result } = updatedRun(repo, ['42', '--updated', reviewed], head)
+      expect(updates).toEqual([])
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr[0]).toContain('is not a clean update-branch')
+    })
+
+    it('records nothing for a from that is not a full sha, or a head that did not move', () => {
+      const { repo, reviewed } = reviewedPullRequest({ 'own.txt': 'the pull request\n' })
+      const short = updatedRun(repo, ['42', '--updated', reviewed.slice(0, 8)], reviewed)
+      const still = updatedRun(repo, ['42', '--updated', reviewed], reviewed)
+      expect([short.updates, short.result.exitCode, still.updates, still.result.exitCode]).toEqual([[], 1, [], 1])
+      expect(still.result.stderr[0]).toContain(`is still at ${reviewed}`)
+    })
   })
 })

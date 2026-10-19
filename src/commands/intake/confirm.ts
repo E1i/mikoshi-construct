@@ -57,7 +57,7 @@ export function admitCorrectionsNeedPerson(card: Pick<SlicedCard, 'corrections'>
 }
 
 function needsPerson(card: SlicedCard): boolean {
-  return correctionsNeedPerson(card) || proposesRiskSlices(card)
+  return correctionsNeedPerson(card) || proposesRiskSlices(card) || card.slices.length > 0
 }
 
 export function awaitsConfirmation(cards: readonly SlicedCard[]): boolean {

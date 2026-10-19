@@ -273,7 +273,10 @@ describe('a proposed risk seam waits for the confirmation token corrections wait
     printIntake(createUi(resolveTheme({ plain: true }), text => out.push(text)), held)
     expect(out.at(-1)).toContain(`--confirm ${token}`)
     expect(intake(touches, 0, token, root).status).toBe('written')
-    expect(JSON.parse(readFileSync(path.join(root, 'ghosts.jsonl'), 'utf8'))).toMatchObject({ event: 'intake', confirmation: 'person', corrections: [] })
+    const journalled = readFileSync(path.join(root, 'ghosts.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line) as unknown)
+    expect(journalled).toHaveLength(2)
+    for (const line of journalled)
+      expect(line).toMatchObject({ event: 'intake', confirmation: 'person', corrections: [] })
   })
 
   it('a card with no risk seam is written without a token', () => {

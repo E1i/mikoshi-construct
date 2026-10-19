@@ -1,11 +1,18 @@
 import type { Contour, Decision, Kind, Milestone, Size } from '../../card/grammar.js'
+import type { SliceSources } from '../../card/slice-depends.js'
 import type { CheckedCard, Correction } from './check.js'
 import type { DraftCard, UnclearField } from './draft.js'
 import { seamLines, splitSignal } from '../../card/complexity.js'
 import { cardLine } from '../../card/grammar.js'
-import { parkingFileText, parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
-import { riskLines, riskReading, SLICE_PREFIX } from '../../card/risk.js'
+import { createdPaths, parkingFileText, parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
+import { riskLines, riskReading, SLICE_PREFIX, TEST_SUFFIX } from '../../card/risk.js'
+import { dependsCycle, sliceDepends } from '../../card/slice-depends.js'
 import { CARD_REFERENCE, correctionText, DEFAULT_CONTOUR } from './check.js'
+
+export interface CardSlice {
+  touches: string[]
+  depends: number[]
+}
 
 export interface SlicedCard {
   id: number
@@ -16,6 +23,7 @@ export interface SlicedCard {
   corrections: Correction[]
   seam: string[]
   risk: string[]
+  slices: CardSlice[]
   text: string
 }
 
@@ -28,6 +36,7 @@ export const WHOLE_PREFIX = 'whole: '
 const DEFAULT_IMPLEMENT_DECISION = 'owner'
 const PROBE_DECISION = 'none'
 const DEFAULT_CONTINUE = 'stop'
+const SLICE_NAME_INFIX = '-slice-'
 
 function defaulted(card: DraftCard): { contour: string, decision: string, unclear: UnclearField[] } {
   const unclear = [...card.unclear]
@@ -79,7 +88,7 @@ function sorted(ids: Iterable<number>): number[] {
   return [...new Set(ids)].sort((a, b) => a - b)
 }
 
-export function sliceCards(cards: readonly CheckedCard[], numbers: readonly number[]): Slice {
+export function sliceCards(cards: readonly CheckedCard[], numbers: readonly number[], sources: SliceSources): Slice {
   const ids = new Map(cards.map((card, index) => [card.name, numbers[index]!]))
   const reasons: string[] = []
   const depends = cards.map(card => resolve(card.depends, ids, card.name, reasons))
@@ -100,13 +109,18 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       blocks: sorted([...blocks[index]!, ...blockedHere]),
     })
     const split = splitSignal({ touches: card.touches, unclear: unclear.length })
-    const seam = seamLines(split)
     const reading = riskReading(card.touches, split.slices.length > 0)
-    const risk = riskLines(reading)
-    const proposesSlices = split.slices.length > 0 || reading.slices.length > 0
-    if (proposesSlices && card.whole === undefined && slicedByItsText(card))
+    const proposed = [...split.slices, ...reading.slices].map(slice => slice.touches)
+    const order = sliceDepends(proposed, sources)
+    const seam = seamLines(split, order)
+    const risk = riskLines(reading, order)
+    const heldForSlicing = card.whole === undefined && proposed.length > 0
+    if (heldForSlicing && slicedByItsText(card))
       reasons.push(`${card.name}: the task text names its own slices and the seam proposes others; a card has one source of slicing, so cut the draft into the cards its text names, or drop the '${SLICE_PREFIX.trim()}' lines from the task`)
-    const heldForSlicing = card.whole === undefined && (split.split || reading.slices.length > 0)
+    const cycle = heldForSlicing ? dependsCycle(order) : null
+    if (cycle !== null)
+      reasons.push(`${card.name}: slices ${cycle.map(at => at + 1).join(', ')} import each other, so no order of their cards holds; keep the card whole with 'whole:' or cut the draft by hand`)
+    const slices = heldForSlicing ? proposed.map((touches, at) => ({ touches, depends: order[at]! })) : []
     const who = unclear.length > 0 || heldForSlicing ? WINDOW_WHO : (card.who ?? WINDOW_WHO)
     const file = `${id}.md`
     const text = parkingFileText({
@@ -121,7 +135,44 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')
       reasons.push(`${card.name}: ${parsed.reason}`)
-    return { id, file, line, who, unclear, corrections: card.corrections, seam, risk, text }
+    return { id, file, line, who, unclear, corrections: card.corrections, seam, risk, slices, text }
   })
   return reasons.length > 0 ? { kind: 'refused', reasons } : { kind: 'sliced', cards: sliced }
+}
+
+function sliceName(card: CheckedCard, at: number): string {
+  return `${card.name}${SLICE_NAME_INFIX}${at + 1}`
+}
+
+function witnessesOfSlice(witnesses: readonly string[], touches: readonly string[], everyTouch: readonly string[]): string[] {
+  const names = (witness: string, among: readonly string[]): boolean => among.some(touch => TEST_SUFFIX.test(touch) && witness.includes(touch))
+  return witnesses.filter(witness => names(witness, touches) || !names(witness, everyTouch))
+}
+
+function slicedCard(card: CheckedCard, slice: CardSlice, at: number, dependents: (reference: string) => string[]): CheckedCard {
+  const witnesses = witnessesOfSlice(card.witnesses, slice.touches, card.touches)
+  const { number: _number, ...rest } = card
+  return {
+    ...rest,
+    name: sliceName(card, at),
+    ...(card.branch === undefined ? {} : { branch: `${card.branch}${SLICE_NAME_INFIX}${at + 1}` }),
+    touches: slice.touches,
+    creates: card.creates.filter(entry => createdPaths([entry]).some(created => slice.touches.includes(created))),
+    depends: [...card.depends.flatMap(dependents), ...slice.depends.map(other => sliceName(card, other))],
+    blocks: card.blocks.flatMap(dependents),
+    whole: `slice ${at + 1} of ${card.name}`,
+    witnesses: witnesses.length > 0 ? witnesses : card.witnesses,
+    unclear: witnesses.length > 0 ? card.unclear : [...card.unclear, { field: 'witnesses', reason: `no witness of ${card.name} names a test of slice ${at + 1}; every witness of the card is kept until a person narrows them` }],
+  }
+}
+
+export function cutSlices(cards: readonly CheckedCard[], sliced: readonly SlicedCard[]): CheckedCard[] {
+  const cut = new Map(cards.flatMap((card, index) => (sliced[index]!.slices.length === 0 ? [] : [[card.name, sliced[index]!.slices.map((_, at) => sliceName(card, at))] as const])))
+  const dependents = (reference: string): string[] => cut.get(reference) ?? [reference]
+  return cards.flatMap((card, index) => {
+    const { slices } = sliced[index]!
+    if (slices.length === 0)
+      return [{ ...card, depends: card.depends.flatMap(dependents), blocks: card.blocks.flatMap(dependents) }]
+    return slices.map((slice, at) => slicedCard(card, slice, at, dependents))
+  })
 }

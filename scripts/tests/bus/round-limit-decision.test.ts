@@ -2,11 +2,14 @@ import type { AuthorityRule } from '../../bus/policy.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MERGE_DONE } from '../../bus/card-automaton.js'
+import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
 import { changesRoundsOf, REVIEW_ROUNDS } from '../../bus/queue.js'
 import { roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
+import { cleanUpdatesOf } from '../../bus/update-done.js'
+import { manualUpdateDone } from '../../bus/update-executor.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, spendReviewRounds } from './merge-bench.js'
 
@@ -184,6 +187,26 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(roundLimitDecisionOf(decisions, PR, sha('c'), [{ from: sha('b'), to: sha('c') }])).toBeNull()
     expect(roundLimitDecisionOf(decisions, PR + 1, sha('b'), chain)).toBeNull()
     expect(roundLimitDecisionOf(decisions, PR, sha('e'), chain)).toBeNull()
+  })
+
+  it('a manual update-branch of PR #919 from 4a4dcb5a to b808b64a queues the merge with no new decisions:add', () => {
+    const [pr, from, to] = [919, '4a4dcb5a'.padEnd(40, '0'), 'b808b64a'.padEnd(40, '0')]
+    const bench = liveBench()
+    benches.push(bench)
+    bench.gitHub.open({ number: pr, head: from, review: 'failure' })
+    spendReviewRounds(bench, pr, from)
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 187, text: `[owner] allow-merge PR #${pr} at ${from} past the round limit`, cards: [] })
+    bench.gitHub.open({ number: pr, head: to, review: 'failure' })
+    bench.tick()
+
+    expect(queuedFor(bench, pr)).toEqual([])
+
+    appendEvent(bench.db, manualUpdateDone({ ts: bench.clock.now().toISOString(), session: 'window-s78', cardId: 1070, pr, from, to }))
+    bench.tick()
+
+    expect(bench.db.prepare(`SELECT head FROM tasks WHERE pr = ? AND state = 'queued' AND queue = 'merge'`).all(pr)).toEqual([{ head: to }])
+    expect(bench.db.prepare('SELECT count(*) AS n FROM decisions').get()).toEqual({ n: 1 })
+    expect(roundLimitDecisionOf([{ decisionId: 187, text: `allow-merge PR #${pr} at ${from}`, cards: [] }], pr, to, cleanUpdatesOf(bench.db, pr))).toBe(187)
   })
 
   it('a decision whose term has lapsed, at the tick or by the merge, merges nothing', () => {
