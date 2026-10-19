@@ -61,6 +61,7 @@
     "card": "tsx scripts/bus/card.ts",
     "changeset": "changeset",
     "checks:catalog": "tsx scripts/bus/check-catalog.ts",
+    "checks:matrix": "tsx scripts/bus/check-matrix.ts",
     "ci:select": "tsx scripts/ci/select.ts",
     "ci": "pnpm run quality",
     "contract:bump": "tsx scripts/contract/bump.ts",

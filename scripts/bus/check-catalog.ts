@@ -39,13 +39,16 @@ const SCHEMA = `
     layer TEXT NOT NULL,
     killed_by TEXT,
     judged TEXT,
+    find TEXT,
+    replacement TEXT,
     PRIMARY KEY (card, id)
   );
 `
+const MUTATION_COLUMNS_ADDED_LATER = ['find', 'replacement']
 
 export interface CheckTest { test: string, layer: string, kind: string, what: string, witness: string }
 
-export interface CheckMutation { card: number, id: string, operator: string, file: string, layer: string, killedBy: string | null, judged: string | null }
+export interface CheckMutation { card: number, id: string, operator: string, file: string, layer: string, killedBy: string | null, judged: string | null, find: string | null, replacement: string | null }
 
 export interface Catalog { tests: CheckTest[], mutations: CheckMutation[] }
 
@@ -198,6 +201,8 @@ export function catalogMutations(sources: Pick<CatalogSources, 'briefs' | 'journ
       layer: layerOf(line.file) ?? NO_LAYER,
       killedBy: line.prediction.kind === 'test' ? line.prediction.file : null,
       judged: judged.get(`${brief.card}:${line.id}`) ?? null,
+      find: line.change.kind === 'find' ? line.change.find : null,
+      replacement: line.change.kind === 'find' ? line.change.replace : null,
     }]
   }))
 }
@@ -206,17 +211,28 @@ export function buildCatalog(sources: CatalogSources): Catalog {
   return { tests: catalogTests(sources), mutations: catalogMutations(sources) }
 }
 
+export function missingMutationColumns(db: DatabaseSync): string[] {
+  const present = (db.prepare('PRAGMA table_info(check_mutations)').all() as unknown as { name: string }[]).map(column => column.name)
+  return MUTATION_COLUMNS_ADDED_LATER.filter(name => !present.includes(name))
+}
+
+function addMissingMutationColumns(db: DatabaseSync): void {
+  for (const column of missingMutationColumns(db))
+    db.exec(`ALTER TABLE check_mutations ADD COLUMN ${column} TEXT`)
+}
+
 export function writeCatalog(db: DatabaseSync, catalog: Catalog): void {
   db.exec(SCHEMA)
+  addMissingMutationColumns(db)
   db.exec('BEGIN')
   try {
     db.exec('DELETE FROM check_tests; DELETE FROM check_mutations;')
     const insertTest = db.prepare('INSERT INTO check_tests (test, layer, kind, what, witness) VALUES (?, ?, ?, ?, ?)')
     for (const row of catalog.tests)
       insertTest.run(row.test, row.layer, row.kind, row.what, row.witness)
-    const insertMutation = db.prepare('INSERT OR REPLACE INTO check_mutations (card, id, operator, file, layer, killed_by, judged) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    const insertMutation = db.prepare('INSERT OR REPLACE INTO check_mutations (card, id, operator, file, layer, killed_by, judged, find, replacement) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     for (const row of catalog.mutations)
-      insertMutation.run(row.card, row.id, row.operator, row.file, row.layer, row.killedBy, row.judged)
+      insertMutation.run(row.card, row.id, row.operator, row.file, row.layer, row.killedBy, row.judged, row.find, row.replacement)
     db.exec('COMMIT')
   }
   catch (error) {
