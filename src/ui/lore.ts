@@ -309,6 +309,19 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   boardPrsClauseUnreadable: (reason: string) => string
   boardStart: string
   boardNoImplement: string
+  boardHeader: (version: string, mode: string | undefined) => string
+  boardTabFlow: string
+  boardTabBacklog: string
+  boardTabServices: string
+  boardFlowColumns: string[]
+  boardColumnLine: (title: string, cards: string[]) => string
+  boardLaneLine: (lane: string | undefined, count: number) => string
+  boardBacklogRow: (card: string, state: string) => string
+  boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => string
+  boardNoServices: string
+  boardFooter: (agents: number, failure: string | undefined, queue: number) => string
+  boardBusAbsent: (file: string) => string
+  boardBusUnreadable: (file: string, reason: string) => string
   boardEveryInvalid: string
   boardEveryWithJson: string
   boardEveryWithStdin: string
@@ -695,8 +708,21 @@ export const LORE: Lore = {
   boardNoOpenPrs: 'no open pull requests',
   boardPrsClauseNotRead: (command: string) => `pull requests not read: ${command} | construct board --prs -`,
   boardPrsClauseUnreadable: (reason: string) => `pull requests unreadable (${reason})`,
-  boardStart: 'Start one in Claude Code: /plan <feature>, then /implement <task>.',
+  boardStart: 'Miko chooses how each task runs: herself in the window, handed to the Operator, or through Ghost Protocol. With autonomy and delegation on, ask in chat and the mechanism does the rest.',
   boardNoImplement: 'This repository has no /implement, so the board lists pull requests only.',
+  boardHeader: (version: string, mode: string | undefined) => `construct ${version}${mode === undefined ? '' : ` \u00B7 ${mode.toUpperCase()}`}`,
+  boardTabFlow: 'Flow',
+  boardTabBacklog: 'Backlog',
+  boardTabServices: 'Services',
+  boardFlowColumns: ['planned', 'in work', 'in review', 'ready to merge'],
+  boardColumnLine: (title: string, cards: string[]) => `${title} (${cards.length}): ${cards.length === 0 ? '\u2014' : cards.join(' \u00B7 ')}`,
+  boardLaneLine: (lane: string | undefined, count: number) => `${lane ?? 'no lane'} (${count})`,
+  boardBacklogRow: (card: string, state: string) => `  ${card} \u00B7 ${state}`,
+  boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => `${role} \u00B7 ${task} \u00B7 ${tree ?? '\u2014'} \u00B7 ${step}`,
+  boardNoServices: 'no session is running',
+  boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
+  boardBusAbsent: (file: string) => `bus ${file}: absent`,
+  boardBusUnreadable: (file: string, reason: string) => `bus ${file}: unreadable (${reason})`,
   boardEveryInvalid: '--every takes a whole number of seconds, at least 1',
   boardEveryWithJson: '--every redraws the text board and cannot be combined with --json',
   boardEveryWithStdin: '--every re-reads --prs each frame, and stdin can be read once: pass --prs a file',
@@ -1061,8 +1087,21 @@ export const PLAIN_LORE: Lore = {
   boardNoOpenPrs: 'no open pull requests',
   boardPrsClauseNotRead: (command: string) => `pull requests not read: ${command} | construct board --prs -`,
   boardPrsClauseUnreadable: (reason: string) => `pull requests unreadable (${reason})`,
-  boardStart: 'Start one in Claude Code: /plan <feature>, then /implement <task>.',
+  boardStart: 'Miko chooses how each task runs: herself in the window, handed to the Operator, or through Ghost Protocol. With autonomy and delegation on, ask in chat and the mechanism does the rest.',
   boardNoImplement: 'This repository has no /implement, so the board lists pull requests only.',
+  boardHeader: (version: string, mode: string | undefined) => `construct ${version}${mode === undefined ? '' : ` \u00B7 ${mode.toUpperCase()}`}`,
+  boardTabFlow: 'Flow',
+  boardTabBacklog: 'Backlog',
+  boardTabServices: 'Services',
+  boardFlowColumns: ['planned', 'in work', 'in review', 'ready to merge'],
+  boardColumnLine: (title: string, cards: string[]) => `${title} (${cards.length}): ${cards.length === 0 ? '\u2014' : cards.join(' \u00B7 ')}`,
+  boardLaneLine: (lane: string | undefined, count: number) => `${lane ?? 'no lane'} (${count})`,
+  boardBacklogRow: (card: string, state: string) => `  ${card} \u00B7 ${state}`,
+  boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => `${role} \u00B7 ${task} \u00B7 ${tree ?? '\u2014'} \u00B7 ${step}`,
+  boardNoServices: 'no session is running',
+  boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
+  boardBusAbsent: (file: string) => `bus ${file}: absent`,
+  boardBusUnreadable: (file: string, reason: string) => `bus ${file}: unreadable (${reason})`,
   boardEveryInvalid: '--every takes a whole number of seconds, at least 1',
   boardEveryWithJson: '--every redraws the text board and cannot be combined with --json',
   boardEveryWithStdin: '--every re-reads --prs each frame, and stdin can be read once: pass --prs a file',

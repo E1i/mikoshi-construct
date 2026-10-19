@@ -58,6 +58,9 @@
         "every": {
           "type": "string"
         },
+        "geek": {
+          "type": "boolean"
+        },
         "johnny": {
           "type": "boolean"
         },
