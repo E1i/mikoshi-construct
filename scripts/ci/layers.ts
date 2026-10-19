@@ -14,8 +14,8 @@ export type Run
     | { kind: 'layers', layers: string[], tests: string[] }
 
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
-  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts'],
-  'scripts/': ['tests/graph-command.test.ts'],
+  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts'],
+  'scripts/': ['tests/graph-command.test.ts', 'scripts/tests/bus/sqlite.test.ts'],
   'scripts/bus/': ['scripts/tests/ci/layers.test.ts'],
 }
 
@@ -60,9 +60,9 @@ function dependents(changed: readonly string[], reverse: ReadonlyMap<string, rea
   return seen
 }
 
-function spawnedBy(file: string, tests: readonly string[], testText: (test: string) => string): string[] {
-  const named = [file, path.basename(file)]
-  return tests.filter(test => named.some(name => testText(test).includes(name)))
+function spawnedBy(files: Iterable<string>, readers: readonly string[], testText: (test: string) => string): string[] {
+  const named = [...files].flatMap(file => [file, path.basename(file)])
+  return readers.filter(reader => named.some(name => testText(reader).includes(name)))
 }
 
 function scanning(file: string, tests: readonly string[]): string[] {
@@ -80,7 +80,8 @@ export function selectRun(changed: readonly string[], graph: Graph, testText: (t
   const allTests = [...graph.keys()].filter(isTest)
   const reverse = reverseGraph(graph)
   const reached = dependents(changed, reverse)
-  const spawning = changed.flatMap(file => [...spawnedBy(file, allTests, testText), ...scanning(file, allTests)])
+  const readers = [...graph.keys()].filter(file => TEST_ROOTS.some(root => file.startsWith(root)))
+  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests))]
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].map(layerOf).filter(layer => layer !== null))].sort()
   const tests = [...closure].filter(isTest).sort()

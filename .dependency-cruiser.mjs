@@ -1,5 +1,5 @@
-export const BUS_CORE = '^scripts/bus/(db|reducer|sqlite|stored|identifiers)\\.ts$'
-export const BUS_SERVICE = '^scripts/bus/([a-z]+)-(worker|executor|starter)\\.ts$'
+const BUS_CORE = '^scripts/bus/(db|reducer|sqlite|stored|identifiers)\\.ts$'
+const BUS_SERVICE = '^scripts/bus/([a-z]+)-(worker|executor|starter)\\.ts$'
 const BUS_SERVICE_OF_SAME_NAME = '^scripts/bus/$1-(worker|executor|starter)\\.ts$'
 
 export default {

@@ -61,6 +61,20 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(run).toMatchObject({ kind: 'layers', tests: ['tests/dependency-policy.test.ts'] })
   })
 
+  it('a change in src/failure.ts selects tests/cli-exit-codes.test.ts', () => {
+    const graph: Graph = new Map([
+      ['src/failure.ts', []],
+      ['src/program.ts', ['src/failure.ts']],
+      ['src/cli.ts', ['src/program.ts']],
+      ['tests/cli-process.ts', []],
+      ['tests/cli-exit-codes.test.ts', ['tests/cli-process.ts']],
+      ['tests/unrelated.test.ts', []],
+    ])
+    const text = (file: string) => file === 'tests/cli-process.ts' ? 'spawn(node, [\'src/cli.ts\'])' : ''
+    const run = selectRun(['src/failure.ts'], graph, text)
+    expect(run).toMatchObject({ kind: 'layers', tests: ['tests/cli-exit-codes.test.ts'] })
+  })
+
   it('a change outside every scanned tree does not add the scanning tests', () => {
     const graph: Graph = new Map([
       ['scripts/notes/print.ts', []],
