@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { IsolationReader } from '../ghosts/isolation.js'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { GitHub } from './github.js'
 import type { Lease } from './lease.js'
@@ -17,6 +18,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
+import { realIsolationReader } from '../ghosts/isolation.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
 import { defaultBusPath } from './db.js'
@@ -284,6 +286,7 @@ export interface ReviewRun {
   pause: (ms: number) => Promise<unknown>
   clearLeftovers: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
+  isolation: IsolationReader
 }
 
 export function ghNotePr(cwd: string): (pr: number, line: string) => void {
@@ -304,6 +307,11 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     return 0
   }
   if (mode.kind === 'dry-run') {
+    const isolation = run.isolation()
+    if (isolation.level === 'none') {
+      console.error(`${PREFIX}no runtime isolation: ${isolation.why}; nothing reviewed`)
+      return 1
+    }
     for (const line of await dryRun(run.gitHub, run.reviewer, run.plan, mode.pr, busCardBody(run.busPath)))
       console.log(line)
     return 0
@@ -319,6 +327,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     session: run.session,
     clearLeftovers: run.clearLeftovers,
     notePr: run.notePr,
+    isolation: run.isolation,
     mode: detection,
     env,
   })
@@ -348,6 +357,7 @@ async function main(): Promise<number> {
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
     notePr: ghNotePr(cwd),
+    isolation: realIsolationReader(process.env, cwd),
   })
 }
 

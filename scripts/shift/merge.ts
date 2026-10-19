@@ -3,6 +3,7 @@ import type { Decision } from '../../src/card/grammar.js'
 import type { GitHub } from '../bus/github.js'
 import type { Step } from '../bus/review-worker.js'
 import type { GhRunner } from '../core/gh.js'
+import type { IsolationReader } from '../ghosts/isolation.js'
 import type { GitRunner } from '../ghosts/sketch.js'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { OwnerMergeKind } from '../shredder/reader.js'
@@ -221,6 +222,8 @@ export interface VerdictDeps {
 
 const QUEUED_REVIEW = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state = '${QUEUED}' ORDER BY id DESC LIMIT 1`
 const VERDICT_WORKER_SESSION = 'shift-verdict'
+const NO_SESSION_SPAWNED = 'no session spawned'
+const handGivenIsolation: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [NO_SESSION_SPAWNED] })
 const VERDICT_BY_HAND = 'by-hand'
 const VERDICT_GIVEN = 'the verdict was given by shift:merge --verdict'
 
@@ -258,6 +261,7 @@ export async function runVerdict(argv: string[], deps: VerdictDeps): Promise<Mer
       return { stdout: [], stderr: [`${VERDICT_PREFIX}PR #${review.pr} has no review task queued at ${review.commit} in the bus ${deps.bus}; nothing recorded`], exitCode: 1 }
     const reviewerSession = deps.session ?? VERDICT_BY_HAND
     const worker = new ReviewWorker({
+      isolation: handGivenIsolation,
       db,
       gitHub: deps.gitHub,
       publish: deps.publish,

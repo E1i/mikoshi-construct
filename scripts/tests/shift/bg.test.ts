@@ -1,3 +1,6 @@
+import type { GhRunner } from '../../core/gh.js'
+import type { IsolationReader } from '../../ghosts/isolation.js'
+import type { BgResult } from '../../shift/bg.js'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,6 +14,16 @@ import { settled } from './fixtures/settled.js'
 const ARRIVAL_GUARD_MS = 25_000
 
 const roots: string[] = []
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
+
+function bg(argv: string[], env: NodeJS.ProcessEnv, gh: GhRunner = ghNotCalled, isolation: IsolationReader = sandboxed): BgResult {
+  return runBg(argv, env, gh, isolation)
+}
+
+function ghNotCalled(): never {
+  throw new Error('gh was called')
+}
 
 afterEach(() => {
   for (const root of roots.splice(0))
@@ -70,7 +83,7 @@ function answerArgv(dir: string): string[] {
 describe('pnpm shift:bg', () => {
   it('with a setsid on PATH that forks and exits, never runs it and prints the PID of the running pnpm shift', async () => {
     const w = world(true)
-    const result = runBg([w.dir, '--chain'], w.env)
+    const result = bg([w.dir, '--chain'], w.env)
     expect(result.exitCode).toBe(0)
     const pid = await settled(path.join(w.out, 'pid'))
     expect(result.stdout[0]).toBe(pid)
@@ -85,7 +98,7 @@ describe('pnpm shift:bg', () => {
 
   it('without setsid on PATH starts the shift in a session of its own through the detached spawn', async () => {
     const w = world(false)
-    const result = runBg([w.dir, '--chain'], w.env)
+    const result = bg([w.dir, '--chain'], w.env)
     expect(result.exitCode).toBe(0)
     const pid = await settled(path.join(w.out, 'pid'))
     expect(result.stdout[0]).toBe(pid)
@@ -95,19 +108,33 @@ describe('pnpm shift:bg', () => {
 
   it('refuses without a dir and refuses a dir whose shift already ran, spawning nothing', () => {
     const w = world(true)
-    expect(runBg([], w.env)).toEqual({ stdout: [], stderr: [USAGE], exitCode: 2 })
-    expect(runBg(['--chain'], w.env).exitCode).toBe(2)
+    expect(bg([], w.env)).toEqual({ stdout: [], stderr: [USAGE], exitCode: 2 })
+    expect(bg(['--chain'], w.env).exitCode).toBe(2)
     mkdirSync(w.dir)
     writeFileSync(path.join(w.dir, 'shift.jsonl'), '')
-    expect(runBg([w.dir, '--chain'], w.env).exitCode).toBe(1)
+    expect(bg([w.dir, '--chain'], w.env).exitCode).toBe(1)
     expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
+  })
+
+  it('bg starts no shift without runtime isolation', () => {
+    const w = world(true)
+    const unconfined: IsolationReader = () => ({ level: 'none', why: 'sandbox.enabled is not true' })
+    const result = bg([w.dir, '--chain'], w.env, ghNotCalled, unconfined)
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toEqual([])
+    expect(result.stderr).toHaveLength(1)
+    expect(result.stderr[0]).toMatch(/^\[shift:bg\] no runtime isolation: /)
+    expect(result.stderr[0]).toMatch(/; nothing started$/)
+    expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
+    expect(existsSync(path.join(w.out, 'pnpm.argv'))).toBe(false)
+    expect(existsSync(w.dir)).toBe(false)
   })
 
   it('shift:bg --answer starts on a shift directory whose shift.jsonl exists', async () => {
     const w = world(false)
     ranShift(w.dir)
     journal(w, { event: 'path', task: '758', path: 'cheap', shift: w.dir }, { event: 'stop', task: '758', at: 'question', why: 'which way', shift: w.dir }, { event: 'intake', task: '758' }, { event: 'answer-brief', task: '758', file: path.join(w.dir, 'answer-758.md') }, { event: 'stop', task: '759', at: 'fault', shift: w.dir })
-    const result = runBg(answerArgv(w.dir), w.env)
+    const result = bg(answerArgv(w.dir), w.env)
     expect(result.stderr).toEqual([])
     expect(result.exitCode).toBe(0)
     await settled(path.join(w.out, 'pid'))
@@ -118,7 +145,7 @@ describe('pnpm shift:bg', () => {
     const w = world(false)
     ranShift(w.dir)
     journal(w, { event: 'stop', task: '758', at: 'question', why: 'which way', shift: w.dir })
-    const result = runBg([w.dir, '--chain'], w.env)
+    const result = bg([w.dir, '--chain'], w.env)
     expect(result.exitCode).toBe(1)
     expect(result.stderr[0]).toContain('shift.jsonl exists')
     expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
@@ -137,7 +164,7 @@ describe('pnpm shift:bg', () => {
     }
     for (const { lines, reason } of Object.values(cases)) {
       journal(w, ...lines)
-      const result = runBg(answerArgv(w.dir), w.env)
+      const result = bg(answerArgv(w.dir), w.env)
       expect(result.exitCode).toBe(1)
       expect(result.stderr[0]).toContain('#758')
       expect(result.stderr[0]).toContain(reason)
@@ -157,7 +184,7 @@ describe('pnpm shift:bg', () => {
     }
     for (const { lines, refused } of Object.values(cases)) {
       journal(w, ...lines)
-      const result = runBg(answerArgv(w.dir), w.env)
+      const result = bg(answerArgv(w.dir), w.env)
       if (refused === null) {
         expect(result.stderr).toEqual([])
         expect(result.exitCode).toBe(0)
@@ -191,7 +218,7 @@ describe('pnpm shift:bg', () => {
     it('a pr-review changes at the head of the card open pull request is answered', async () => {
       const w = world(false)
       reviewed(w, 'changes', HEAD)
-      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD))
+      const result = bg(answerArgv(w.dir), w.env, openPr(HEAD))
       expect(result.stderr).toEqual([])
       expect(result.exitCode).toBe(0)
       await settled(path.join(w.out, 'pid'))
@@ -201,7 +228,7 @@ describe('pnpm shift:bg', () => {
     it('a pr-review changes at an older head is refused', () => {
       const w = world(false)
       reviewed(w, 'changes', OLDER)
-      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD))
+      const result = bg(answerArgv(w.dir), w.env, openPr(HEAD))
       expect(result.exitCode).toBe(1)
       expect(result.stderr[0]).toContain(`event:pr-review changes at ${OLDER} on PR #705`)
       expect(result.stderr[0]).toContain(HEAD)
@@ -211,7 +238,7 @@ describe('pnpm shift:bg', () => {
     it('a pr-review changes on a pull request that is no longer open is refused', () => {
       const w = world(false)
       reviewed(w, 'changes', HEAD)
-      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD, 'MERGED'))
+      const result = bg(answerArgv(w.dir), w.env, openPr(HEAD, 'MERGED'))
       expect(result.exitCode).toBe(1)
       expect(result.stderr[0]).toContain('not open (MERGED)')
       expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
@@ -220,7 +247,7 @@ describe('pnpm shift:bg', () => {
     it('a pr-review pass is refused', () => {
       const w = world(false)
       reviewed(w, 'pass', HEAD)
-      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD))
+      const result = bg(answerArgv(w.dir), w.env, openPr(HEAD))
       expect(result.exitCode).toBe(1)
       expect(result.stderr[0]).toContain(`event:pr-review pass at ${HEAD} on PR #705`)
       expect(result.stderr[0]).toContain('not a changes verdict')
@@ -231,7 +258,7 @@ describe('pnpm shift:bg', () => {
       const w = world(false)
       ranShift(w.dir)
       journal(w, { event: 'stop', task: '758', at: 'merge', shift: path.join(w.root, 'other-shift') }, { event: 'pr-review', task: '758', pr: 705, verdict: 'changes', commit: HEAD })
-      const result = runBg(answerArgv(w.dir), w.env, openPr(HEAD))
+      const result = bg(answerArgv(w.dir), w.env, openPr(HEAD))
       expect(result.exitCode).toBe(1)
       expect(result.stderr[0]).toContain('other-shift')
       expect(existsSync(path.join(w.out, 'chain'))).toBe(false)
@@ -242,7 +269,7 @@ describe('pnpm shift:bg', () => {
     const w = world(false)
     ranShift(w.dir)
     journal(w, { event: 'stop', task: '758', at: 'merge', why: 'armed', shift: w.dir }, { event: 'review-missing', task: '758', pr: 705, head: 'e16c475f', greenSince: '2026-10-09T10:00:00.000Z' })
-    const result = runBg(answerArgv(w.dir), w.env)
+    const result = bg(answerArgv(w.dir), w.env)
     expect(result.stderr).toEqual([])
     expect(result.exitCode).toBe(0)
     await settled(path.join(w.out, 'pid'))
@@ -252,7 +279,7 @@ describe('pnpm shift:bg', () => {
     const w = world(false)
     ranShift(w.dir)
     journal(w, { event: 'stop', task: '758', at: 'merge', shift: w.dir }, { event: 'ready-for-owner', task: '758', pr: 705, head: 'e16c475f' })
-    const result = runBg(answerArgv(w.dir), w.env)
+    const result = bg(answerArgv(w.dir), w.env)
     expect(result.exitCode).toBe(1)
     expect(result.stderr[0]).toContain('event:ready-for-owner')
   })

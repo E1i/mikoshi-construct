@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { IsolationReader } from '../../ghosts/isolation.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -18,6 +19,8 @@ import { BusTick } from '../../bus/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectMerge } from './merge-detection.js'
 import { detectReview } from './review-detection.js'
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const roots: string[] = []
 
@@ -152,6 +155,7 @@ describe('review queue', () => {
     const { db, gitHub, clock, tick } = setUp()
     const body = cardBody(925)
     const worker = new ReviewWorker({
+      isolation: sandboxed,
       db,
       gitHub: gitHub.client,
       publish: (status) => {
@@ -201,6 +205,7 @@ describe('review queue', () => {
     const { db, gitHub, clock, tick } = setUp()
     const verdicts: ('changes' | 'pass')[] = ['changes', 'pass']
     const worker = new ReviewWorker({
+      isolation: sandboxed,
       db,
       gitHub: gitHub.client,
       publish: (status) => {
@@ -227,6 +232,7 @@ describe('review queue', () => {
 
   function passingWorker(db: DatabaseSync, gitHub: FakeGitHub, clock: Clock, pr: number): ReviewWorker {
     return new ReviewWorker({
+      isolation: sandboxed,
       db,
       gitHub: gitHub.client,
       publish: (status) => {
@@ -300,6 +306,7 @@ describe('review queue', () => {
     const edited = `${body}\n\nThe ladder: the rule is named in the body.`
     const keyOf = (prBody: string): string => taskKey({ queue: 'review', cardId: 1030, pr: 930, head: sha('a'), input: { prBody: prBodySha(prBody), cardBody: null } })
     const worker = new ReviewWorker({
+      isolation: sandboxed,
       db,
       gitHub: gitHub.client,
       publish: (status) => {
@@ -427,6 +434,7 @@ describe('the review round limit of D-104', () => {
     const notes: [number, string][] = []
     let round = 0
     const worker = new ReviewWorker({
+      isolation: sandboxed,
       db,
       gitHub: gitHub.client,
       publish: (status) => {

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { NO_ISOLATION } from '../ghosts/isolation.js'
 import type { ReviewStatus, StatusPublisher } from '../ghosts/verdict.js'
 import type { GitHub } from './github.js'
 import type { Lease } from './lease.js'
@@ -9,7 +10,7 @@ import { Meter } from './meter.js'
 import { ciOf } from './snapshot.js'
 
 export type VerdictWord = 'pass' | 'changes'
-export type TechnicalReason = 'stale_head' | 'github_error' | 'ci_not_ready' | 'ci_red' | 'review_failed'
+export type TechnicalReason = 'stale_head' | 'github_error' | 'ci_not_ready' | 'ci_red' | 'review_failed' | typeof NO_ISOLATION
 
 export type Denial
   = | { kind: 'technical', reason: TechnicalReason, detail: string }

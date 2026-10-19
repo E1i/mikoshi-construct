@@ -4,6 +4,7 @@ import type { QueuedTask } from '../../bus/queue.js'
 import type { Step } from '../../bus/review-executor.js'
 import type { ReviewNodeParts, ReviewRun } from '../../bus/review-worker.js'
 import type { Reviewer } from '../../bus/reviewer.js'
+import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
@@ -20,6 +21,8 @@ import { DRY_RUN_ACTOR, ReviewNode, ReviewWorker, runReview } from '../../bus/re
 import { cardBody } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectReview } from './review-detection.js'
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const benches: MergeBench[] = []
 
@@ -75,7 +78,7 @@ function bench(): MergeBench {
 }
 
 function partsOf(made: MergeBench, mode: DetectionMode = 'shadow', reviewer: Reviewer = passing): ReviewNodeParts {
-  return { db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'node-1', mode, env: {} }
+  return { db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'node-1', mode, env: {}, isolation: sandboxed }
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow'): ProbedReviewNode {
@@ -155,7 +158,7 @@ function cursorOf(made: MergeBench): number {
 function runOf(made: MergeBench, reviewer: Reviewer, pause: (ms: number) => Promise<unknown> = async () => {
   throw new Error('the node paused')
 }): ReviewRun {
-  return { busPath: made.busPath, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), session: 'run-1', slots: 1, pause, clearLeftovers: () => [] }
+  return { busPath: made.busPath, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), session: 'run-1', slots: 1, pause, clearLeftovers: () => [], isolation: sandboxed }
 }
 
 describe('the review node', () => {
@@ -396,7 +399,7 @@ describe('the review node', () => {
     made.tick()
     detectReview(made)
     const reviewed = vi.spyOn(ReviewExecutor.prototype, 'review')
-    const worker = new ReviewWorker({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer: passing, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'worker-1' })
+    const worker = new ReviewWorker({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer: passing, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'worker-1', isolation: sandboxed })
 
     expect(await worker.stepOn(reviewKey(1096))).toMatchObject({ kind: 'recorded', taskKey: reviewKey(1096), verdict: 'pass' })
     expect(reviewed).toHaveBeenCalledTimes(1)

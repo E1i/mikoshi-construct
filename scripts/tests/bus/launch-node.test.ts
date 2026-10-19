@@ -4,6 +4,7 @@ import type { LaunchNodeParts, LaunchStep } from '../../bus/launch-worker.js'
 import type { Lease } from '../../bus/lease.js'
 import type { DetectionMode } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
+import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -25,6 +26,8 @@ import { WORKTREE_HOME_VARIABLE } from '../../ghosts/worktree-home.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectReview } from './review-detection.js'
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const benches: MergeBench[] = []
 const roots: string[] = []
@@ -88,7 +91,7 @@ function bench(): MergeBench {
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow', starter: CardStarter = new FakeStarter()): ProbedLaunchNode {
-  const parts: LaunchNodeParts = { db: made.db, starter, clock: made.clock.now, session: 'node-1', mode, env: {} }
+  const parts: LaunchNodeParts = { db: made.db, starter, clock: made.clock.now, session: 'node-1', mode, env: {}, isolation: sandboxed }
   return new DetectingLaunchNode(parts)
 }
 
@@ -260,14 +263,14 @@ describe('the launch node', () => {
     admit(made, 970, 'lane-a')
     admit(made, 971, 'lane-b')
     made.tick()
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {} })
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
     expect(node.slots).toBe(1)
 
     await once(node)
     expect(starter.starts.map(card => card.cardId)).toEqual([970])
     expect(taskState(made.db, launchKey(970))).toMatchObject({ state: 'completed' })
     expect(taskState(made.db, launchKey(971))).toMatchObject({ state: 'queued' })
-    expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: 's-970', worktree: '/trees/mc-970', branch: 'feat/card-970', base: 'f'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' }])
+    expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: 's-970', worktree: '/trees/mc-970', branch: 'feat/card-970', base: 'f'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap', isolation: 'full', isolationGaps: [] }])
 
     await once(node)
     expect(starter.starts.map(card => card.cardId)).toEqual([970, 971])
@@ -344,7 +347,7 @@ function ladderWorld(handoffState: { brief: string, approved: string } | null): 
 }
 
 function ladderNode(made: MergeBench, world: LadderWorld, cheap: CardStarter = new FakeStarter()): ProbedLaunchNode {
-  return new ProbedLaunchNode({ db: made.db, starter: cheap, ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {} })
+  return new ProbedLaunchNode({ db: made.db, starter: cheap, ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
 }
 
 function scriptOf(run: DetachedSpawn): string {
@@ -369,7 +372,44 @@ describe('the launch node in ladder mode', () => {
     expect(scriptOf(run!)).not.toContain('claude')
     expect(scriptOf(run!)).not.toContain('ghosts:hash')
     expect(run!.args.slice(2)).toEqual(['shift', '-p', '--session-id', `sess-${LADDER_CARD}`])
-    expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: `sess-${LADDER_CARD}`, worktree: world.tree, branch: `feat/card-${LADDER_CARD}`, base: 'b'.repeat(40), pid: 4242, pgid: 4242, step: 'launch', contour: 'ladder' }])
+    expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: `sess-${LADDER_CARD}`, worktree: world.tree, branch: `feat/card-${LADDER_CARD}`, base: 'b'.repeat(40), pid: 4242, pgid: 4242, step: 'launch', contour: 'ladder', isolation: 'full', isolationGaps: [] }])
+  })
+
+  it('a launch with no runtime isolation is refused and writes no session', async () => {
+    const unconfined: IsolationReader = () => ({ level: 'none', why: 'sandbox.enabled is not true' })
+    for (const contour of ['cheap', 'ladder'] as const) {
+      const made = bench()
+      const world = approvedWorld()
+      const cheap = new FakeStarter()
+      const ladder = new FakeStarter()
+      const card = contour === 'cheap' ? 970 : LADDER_CARD
+      admit(made, card, 'lane-x', [], contour)
+      made.tick()
+      await once(new ProbedLaunchNode({ db: made.db, starter: cheap, ladder, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: unconfined }))
+
+      expect(eventsOf(made.db, CARD_STARTED)).toEqual([])
+      expect(cheap.starts).toEqual([])
+      expect(ladder.starts).toEqual([])
+      expect(world.spawned).toEqual([])
+      expect(eventsOf(made.db, 'policy.denied')).toMatchObject([{ command: 'launch', kind: 'technical', reason: 'no_isolation' }])
+      expect(taskState(made.db, launchKey(card))).toMatchObject({ state: 'queued', failures: 0 })
+    }
+  })
+
+  it('the launch event names the isolation level', async () => {
+    const gap = 'sandbox.allowUnsandboxedCommands is not false'
+    const readings: [IsolationReader, string, string[]][] = [
+      [() => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [gap] }), 'partial', [gap]],
+      [sandboxed, 'full', []],
+    ]
+    for (const [isolation, level, gaps] of readings) {
+      const made = bench()
+      admit(made, 970, 'lane-a')
+      made.tick()
+      await once(new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation }))
+
+      expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ isolation: level, isolationGaps: gaps }])
+    }
   })
 
   it('with no ghosts.jsonl and no status.md in the handoff, an admitted ladder card starts its brief step', async () => {

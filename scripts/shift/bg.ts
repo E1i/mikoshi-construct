@@ -1,4 +1,5 @@
 import type { GhRunner } from '../core/gh.js'
+import type { IsolationReader } from '../ghosts/isolation.js'
 import { spawn } from 'node:child_process'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -7,6 +8,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execGh } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { realIsolationReader } from '../ghosts/isolation.js'
 import { ANSWER_FLAG } from './answer.js'
 import { REVIEW_MISSING_EVENT } from './current.js'
 import { PR_REVIEW_EVENT } from './merge.js'
@@ -107,7 +109,7 @@ export function launchArgv(shiftArgs: string[]): string[] {
   return ['nohup', 'pnpm', 'shift', ...shiftArgs]
 }
 
-export function runBg(argv: string[], env: NodeJS.ProcessEnv = process.env, gh: GhRunner = execGh): BgResult {
+export function runBg(argv: string[], env: NodeJS.ProcessEnv, gh: GhRunner, isolation: IsolationReader): BgResult {
   const dir = argv[0]
   if (dir === undefined || dir.startsWith('-'))
     return { stdout: [], stderr: [USAGE], exitCode: 2 }
@@ -121,6 +123,9 @@ export function runBg(argv: string[], env: NodeJS.ProcessEnv = process.env, gh: 
   else if (existsSync(path.join(dir, SHIFT_JOURNAL))) {
     return { stdout: [], stderr: [`${PREFIX}${path.join(dir, SHIFT_JOURNAL)} exists — that shift already ran; pnpm shift refuses it`], exitCode: 1 }
   }
+  const reading = isolation()
+  if (reading.level === 'none')
+    return { stdout: [], stderr: [`${PREFIX}no runtime isolation: ${reading.why}; nothing started`], exitCode: 1 }
   mkdirSync(dir, { recursive: true })
   const log = path.resolve(dir, BG_LOG)
   const [command, ...args] = launchArgv(argv)
@@ -139,7 +144,7 @@ export function runBg(argv: string[], env: NodeJS.ProcessEnv = process.env, gh: 
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = runBg(process.argv.slice(2))
+  const result = runBg(process.argv.slice(2), process.env, execGh, realIsolationReader(process.env, process.cwd()))
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../bus/lease.js'
 import type { Reviewer } from '../../bus/reviewer.js'
 import type { HeavyRunParts } from '../../bus/scheduler.js'
+import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -19,6 +20,8 @@ import { SLOT_POLL_MS, SLOTS, SlotScheduler, slotsOf, slotsVariable } from '../.
 import { runSlot, slotCall, spawnInherited } from '../../bus/slot.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
+
+const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const roots: string[] = []
 
@@ -153,7 +156,7 @@ describe('heavy run scheduler', () => {
       await together
       return { verdict: 'pass', findings: [], session: `reviewer-${lease.pr}` }
     }
-    const workers = startReviewWorkers({ db, gitHub: gitHub.client, publish, reviewer, plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'parallel' }, slotsOf('review', {}))
+    const workers = startReviewWorkers({ db, gitHub: gitHub.client, publish, reviewer, plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'parallel', isolation: sandboxed }, slotsOf('review', {}))
 
     const steps = await Promise.all(workers.map(async worker => worker.step()))
 

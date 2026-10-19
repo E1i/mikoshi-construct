@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { IsolationReader } from '../ghosts/isolation.js'
 import type { ProcessTable } from './chain-process.js'
 import type { LadderSteps } from './ladder-starter.js'
 import type { Contour } from './launch-candidates.js'
@@ -16,6 +17,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
+import { realIsolationReader } from '../ghosts/isolation.js'
 import { sessionEnv } from '../ghosts/session.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
@@ -61,6 +63,7 @@ export interface LaunchNodeParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
   processes?: ProcessTable
+  isolation: IsolationReader
 }
 
 interface RunningStart {
@@ -154,12 +157,13 @@ export interface LaunchRun {
   ladder?: CardStarter
   session: string
   pause: (ms: number) => Promise<unknown>
+  isolation: IsolationReader
 }
 
 export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<number> {
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -227,7 +231,7 @@ async function main(): Promise<number> {
   const ports = realStarterPorts(process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, isolation: realIsolationReader(env, process.cwd()) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
