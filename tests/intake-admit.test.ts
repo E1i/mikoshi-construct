@@ -677,6 +677,28 @@ describe('construct intake --admit across the lanes of the parking', () => {
     expect(result).toMatchObject({ status: 'admitted', card: { unclear: [{ field: 'depends' }] } })
     expect(readFileSync(file, 'utf8')).toContain('unclear: depends')
   })
+
+  it('a card gets its lane from intake without a --parking chosen by a person', () => {
+    const w = world()
+    mkdirSync(path.join(w.repo, 'src', 'atlas'), { recursive: true })
+    writeFileSync(path.join(w.repo, 'src', 'atlas', 'map.ts'), '')
+    const card = (name: string, touches: string[]): Record<string, unknown> => ({ name, kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'auto', who: 'shift', touches, task: 'Do the thing.', witnesses: ['`pnpm run quality` is green'] })
+    const draft = path.join(w.root, 'draft.json')
+    writeFileSync(draft, JSON.stringify({ cards: [card('board-run', ['src/board/run.ts', '.changeset/**']), card('atlas-map', ['src/atlas/map.ts', '.changeset/**']), card('board-all', ['src/board/**'])] }))
+    const db = openBus(busOf(w))
+    const result = (() => {
+      try {
+        return runIntake({ draft, taken: '-', readStdin: () => '1', parking: w.parking, parkingRoot: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: true, events: busCardEvents(db) })
+      }
+      finally {
+        db.close()
+      }
+    })()
+    expect(result).toMatchObject({ status: 'written', cards: [{ file: path.join('lane-01', '2.md') }, { file: path.join('lane-02', '3.md') }, { file: path.join('lane-01', '4.md') }] })
+    expect(admittedPayloads(w).map(payload => payload.lane)).toEqual(['lane-01', 'lane-02', 'lane-01'])
+    expect(existsSync(path.join(w.parking, '2.md'))).toBe(false)
+    expect(JSON.parse(readFileSync(path.join(w.parking, 'lane-02', 'lane.json'), 'utf8'))).toMatchObject({ touches: ['src/atlas/map.ts', '.changeset/**'], createdBy: 'intake', status: 'open' })
+  })
 })
 
 describe('the parking tree draft and admit both read', () => {

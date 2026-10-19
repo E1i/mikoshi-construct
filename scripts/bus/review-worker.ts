@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { IsolationReader } from '../ghosts/isolation.js'
 import type { StatusPublisher } from '../ghosts/verdict.js'
+import type { DryRunRecord } from './dry-run-record.js'
 import type { GitHub } from './github.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode, Scope } from './node.js'
@@ -24,6 +25,7 @@ import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
 import { defaultBusPath } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
+import { keepDryRun } from './dry-run-record.js'
 import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
@@ -32,6 +34,7 @@ import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { Node, runNode, SWITCH_FLAG } from './node.js'
 import { PR_CLOSED } from './observations.js'
 import { PR_OBSERVED } from './operator-work.js'
+import { promptsDirOf } from './prompt-store.js'
 import { cardBodyShaOfCard, reviewCandidates, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
 import { shadowProblems } from './report.js'
@@ -214,6 +217,8 @@ export function reviewsDir(busDir: string, mode: ReviewMode): string {
 
 export type CardBodyOf = (cardId: number) => string | null
 
+export type KeepDryRun = (session: string, record: DryRunRecord) => void
+
 const NO_CARD_BODY: CardBodyOf = () => null
 
 export function busCardBody(busPath: string): CardBodyOf {
@@ -259,7 +264,7 @@ function releasedLines(held: HeldTree): string[] {
   return left === null ? [] : [`${PREFIX}the review tree ${held.path} was not removed: ${left}`]
 }
 
-export async function dryRun(gitHub: GitHub, reviewer: Reviewer, planner: ReviewPlanner, pr: number, cardBodyOf: CardBodyOf = NO_CARD_BODY): Promise<string[]> {
+export async function dryRun(gitHub: GitHub, reviewer: Reviewer, planner: ReviewPlanner, pr: number, cardBodyOf: CardBodyOf = NO_CARD_BODY, keep: KeepDryRun = () => {}): Promise<string[]> {
   const lease = dryRunLease(gitHub, pr, cardBodyOf)
   const plan = planned(planner, lease, null)
   let review: Review
@@ -273,6 +278,7 @@ export async function dryRun(gitHub: GitHub, reviewer: Reviewer, planner: Review
     }
     throw error
   }
+  keep(review.session, { pr, head: lease.head! })
   return [...dryRunLines(lease, plan, review), ...(review.tree === undefined ? [] : releasedLines(review.tree))]
 }
 
@@ -288,6 +294,7 @@ export interface ReviewRun {
   clearLeftovers: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
   isolation: IsolationReader
+  keepDryRun?: KeepDryRun
 }
 
 export function ghNotePr(cwd: string): (pr: number, line: string) => void {
@@ -313,7 +320,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
       console.error(`${PREFIX}no runtime isolation: ${isolation.why}; nothing reviewed`)
       return 1
     }
-    for (const line of await dryRun(run.gitHub, run.reviewer, run.plan, mode.pr, busCardBody(run.busPath)))
+    for (const line of await dryRun(run.gitHub, run.reviewer, run.plan, mode.pr, busCardBody(run.busPath), run.keepDryRun))
       console.log(line)
     return 0
   }
@@ -329,6 +336,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     clearLeftovers: run.clearLeftovers,
     notePr: run.notePr,
     isolation: run.isolation,
+    prompts: promptsDirOf(run.busPath),
     mode: detection,
     env,
   })
@@ -363,6 +371,7 @@ async function main(): Promise<number> {
     clearLeftovers: () => trees.clearLeftovers(),
     notePr: ghNotePr(cwd),
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
+    keepDryRun: keepDryRun(trees.dir),
   })
 }
 

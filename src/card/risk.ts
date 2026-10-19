@@ -59,6 +59,11 @@ const CORE: readonly (readonly [string, string])[] = [
   ['eslint.config.mjs', ALWAYS_HIGH],
   ['architecture/owner-merges.md', ALWAYS_HIGH],
   ['scripts/bus/queue.ts', FACTORY],
+  ['scripts/bus/admissions.ts', FACTORY],
+  ['scripts/bus/close-executor.ts', FACTORY],
+  ['scripts/bus/merge-executor.ts', FACTORY],
+  ['scripts/bus/round-limit-decision.ts', FACTORY],
+  ['scripts/bus/update-done.ts', FACTORY],
 ]
 const HIGH: readonly (readonly [string, string])[] = [
   ['contract', CONTRACT],
@@ -84,7 +89,7 @@ const WITNESS_ROOTS: readonly (readonly [string, string | null])[] = [
   ['scripts/tests', 'scripts'],
   ['tests', null],
 ]
-const COMMANDS_CONTAINER = 'commands'
+const MODULE_INDEX = 'index'
 export const TEST_SUFFIX = /\.(?:test|spec)\.[cm]?[jt]sx?$/
 const EXTENSION = /\.[^.]+$/
 const DELIVERY = ['templates/attach', 'templates/ai', 'src/presets', 'scripts/attach']
@@ -211,8 +216,9 @@ function witnessedNames(test: string, root: string): string[] {
   return scopeOf(test).path.slice(root.length + 1).split('/').map(segment => segment.replace(TEST_SUFFIX, ''))
 }
 
-function codeNames(code: string): string[] {
-  return scopeOf(code).path.split('/').slice(1).map(segment => segment.replace(EXTENSION, '')).filter(segment => segment !== COMMANDS_CONTAINER)
+function codeName(code: string): string | undefined {
+  const names = scopeOf(code).path.split('/').slice(1).map(segment => segment.replace(EXTENSION, ''))
+  return names.at(-1) === MODULE_INDEX ? names.at(-2) : names.at(-1)
 }
 
 function witnesses(test: string, code: string): boolean {
@@ -222,8 +228,8 @@ function witnesses(test: string, code: string): boolean {
   const [root, codeRoot] = witnessRoot
   if (codeRoot !== null && !under(scopeOf(code).path, codeRoot))
     return false
-  const segments = codeNames(code)
-  return witnessedNames(test, root).some(name => segments.some(segment => name === segment || name.startsWith(`${segment}-`)))
+  const own = codeName(code)
+  return own !== undefined && witnessedNames(test, root).some(name => name === own || name.startsWith(`${own}-`))
 }
 
 function withWitnesses(touches: readonly string[], critical: readonly boolean[]): boolean[] {

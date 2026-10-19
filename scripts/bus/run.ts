@@ -16,6 +16,8 @@ import { ghApi } from './github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from './netwatch.js'
 import { deriveQueues } from './queue.js'
 import { reduce, REDUCED } from './reducer.js'
+import { realRequestTools } from './window-request-tools.js'
+import { WINDOW_REQUEST, WindowRequests } from './window-requests.js'
 
 export const PREFIX = '[bus:run] '
 
@@ -30,7 +32,7 @@ function lastEventId(db: DatabaseSync): number {
 }
 
 export class BusTick {
-  constructor(private readonly db: DatabaseSync, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}) {}
+  constructor(private readonly db: DatabaseSync, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}) {}
 
   run(): Tick | null {
     const poll = this.netWatch.poll()
@@ -39,6 +41,7 @@ export class BusTick {
     if (poll.kind !== 'ticked')
       return { poll, reduced: null, derived: null }
     this.intake()
+    this.requests()
     const ts = this.clock().toISOString()
     const through = lastEventId(this.db)
     const reduced = reduce(this.db)
@@ -65,14 +68,19 @@ export interface ComposedTick {
 
 export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, clock: () => Date, home: string): ComposedTick {
   const board = boardProjection(db, busPath)
-  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, defaultDecisions(home), clock), board.project), boardFile: board.file }
+  const requests = new WindowRequests(db, clock, realRequestTools(db, process.cwd(), process.env, home))
+  const answer = (): void => {
+    for (const outcome of requests.run())
+      console.log(`${PREFIX}${WINDOW_REQUEST} ${outcome.request} ${outcome.kind}: ${outcome.detail}`)
+  }
+  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, defaultDecisions(home), clock), board.project, answer), boardFile: board.file }
 }
 
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   const { busTick, boardFile } = composeBusTick(db, busPath, ghApi(process.cwd()), () => new Date(), os.homedir())
-  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the reducer, the queues and ${boardFile} every ${TICK_MS / 1000} s; no workers`)
+  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues and ${boardFile} every ${TICK_MS / 1000} s; no workers`)
   try {
     for (;;) {
       const tick = busTick.run()

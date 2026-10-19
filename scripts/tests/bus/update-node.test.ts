@@ -135,7 +135,7 @@ describe('the update node', () => {
     expect(byEvent(made)).toEqual([{ key: updateKey(970), via: 'event', event_id: lastEventOf(made, 'pr.observed', 970) }])
   })
 
-  it('a policy.denied of kind authority on a behind pull request without a pass is detected by event, scoped by its card', async () => {
+  it('a policy.denied of kind authority on a behind pull request without a pass detects nothing', async () => {
     const made = bench()
     made.gitHub.open({ number: 981, mergeable_state: 'behind' })
     made.gitHub.open({ number: 982, mergeable_state: 'behind' })
@@ -144,9 +144,22 @@ describe('the update node', () => {
     await once(node)
     expect(node.found()).toEqual([])
 
-    const denied = deniedByAuthority(made, 981)
+    deniedByAuthority(made, 981)
     await once(node)
-    expect(byEvent(made)).toEqual([{ key: updateKey(981), via: 'event', event_id: denied }])
+    expect(byEvent(made)).toEqual([])
+    expect(node.found({ cardId: 1081 })).toEqual([])
+    expect(node.found({ cardId: 1082 })).toEqual([])
+  })
+
+  it('of two behind pull requests with a pass only the older is detected, scoped by its card', async () => {
+    const made = bench()
+    made.gitHub.open({ number: 981, review: 'success', mergeable_state: 'behind' })
+    made.gitHub.open({ number: 982, review: 'success', mergeable_state: 'behind' })
+    made.tick()
+    const node = nodeOf(made)
+    await once(node)
+
+    expect(node.found()).toEqual([updateKey(981)])
     expect(node.found({ cardId: 1081 })).toEqual([updateKey(981)])
     expect(node.found({ cardId: 1082 })).toEqual([])
   })
@@ -160,11 +173,11 @@ describe('the update node', () => {
     deniedByAuthority(made, 981)
     made.tick()
     const node = nodeOf(made)
-    const keys = [updateKey(980), updateKey(981, sha('c'))]
+    const keys = [updateKey(980)]
 
     expect(node.found()).toEqual(keys)
     expect(node.found()).toEqual(derivedKeys(made))
-    expect(node.found({ pr: 981 })).toEqual([updateKey(981, sha('c'))])
+    expect(node.found({ pr: 981 })).toEqual([])
 
     made.gitHub.updateStatus = 409
     const enqueued = keys.map(key => enqueuedOf(made, key))
@@ -175,14 +188,10 @@ describe('the update node', () => {
 
   it('i1: in live mode the node and deriveQueues detect one key, and there is one task row and one task.enqueued', async () => {
     const made = bench()
-    made.gitHub.open({ number: 981, mergeable_state: 'behind' })
+    made.gitHub.open({ number: 981, review: 'success', mergeable_state: 'behind' })
+    made.gitHub.updateStatus = 409
     made.tick()
     const node = nodeOf(made, 'live')
-    await once(node)
-    expect(updateTasks(made, 981)).toBe(0)
-
-    deniedByAuthority(made, 981)
-    made.gitHub.updateStatus = 409
     await once(node)
     expect(enqueuedOf(made, updateKey(981))).toBe(1)
     made.tick()
@@ -194,17 +203,19 @@ describe('the update node', () => {
     expect(eventsOf(made.db, UPDATE_DONE)).toHaveLength(1)
   })
 
-  it('i2: a failure in the middle of a batch rolls back the cursor with its records, and the restart detects each candidate once', async () => {
+  it('i2: a failure in the middle of a batch rolls back the cursor with its records, and the restart detects the candidate once', async () => {
     const made = bench()
-    made.gitHub.open({ number: 981, mergeable_state: 'behind' })
-    made.gitHub.open({ number: 982, mergeable_state: 'behind' })
+    made.gitHub.open({ number: 981, review: 'success' })
+    made.gitHub.open({ number: 982, review: 'success' })
     made.tick()
     const node = nodeOf(made)
     await once(node)
     const cursor = cursorOf(made)
 
-    const first = deniedByAuthority(made, 981)
-    const second = deniedByAuthority(made, 982)
+    made.gitHub.pulls.get(981)!.mergeable_state = 'behind'
+    made.gitHub.pulls.get(982)!.mergeable_state = 'behind'
+    made.tick()
+    const first = lastEventOf(made, 'pr.observed', 981)
     node.failOnNextCall(2)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
     expect(byEvent(made)).toEqual([])
@@ -212,7 +223,7 @@ describe('the update node', () => {
 
     await once(node)
     await once(node)
-    expect(byEvent(made)).toEqual([{ key: updateKey(981), via: 'event', event_id: first }, { key: updateKey(982), via: 'event', event_id: second }])
+    expect(byEvent(made)).toEqual([{ key: updateKey(981), via: 'event', event_id: first }])
   })
 
   it('i3: a cursor reset to 0 gives no second detection and no second task', async () => {

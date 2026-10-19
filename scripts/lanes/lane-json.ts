@@ -1,9 +1,10 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { LANE_FILE } from '../../src/commands/intake/admit.js'
 
-export const LANE_FILE = 'lane.json'
+export { LANE_FILE }
 export const UNKNOWN = 'unknown'
-export const LANE_NAME = /^lane-\d{2,}$/
+export const LANE_NAME = /^(?:lane-\d{2,}|\d{4}-\d{2}-\d{2}-[a-z]+)$/
 
 export interface LaneJson {
   purpose: string
@@ -56,12 +57,4 @@ export function writeLaneJson(lane: string, json: LaneJson): void {
   if (problems.length > 0)
     throw new Error(`${laneFile(lane)}: ${problems.join('; ')}`)
   writeFileSync(laneFile(lane), `${JSON.stringify(json, null, 2)}\n`)
-}
-
-export function laneName(number: number): string {
-  return `lane-${String(number).padStart(2, '0')}`
-}
-
-export function laneNumber(name: string): number | null {
-  return LANE_NAME.test(name) ? Number(name.slice('lane-'.length)) : null
 }

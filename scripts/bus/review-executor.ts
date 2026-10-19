@@ -4,6 +4,7 @@ import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { BusEvent } from './db.js'
 import type { GitHub } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
+import type { SessionInput } from './prompt-store.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
@@ -14,6 +15,7 @@ import { appendEvent } from './db.js'
 import { reviewInputOfKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, failTask, releaseTask, StaleLease } from './lease.js'
+import { storedInput } from './prompt-store.js'
 import { BOARD_ALARM, headsWithChangesOf, REVIEW_ROUNDS } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
@@ -40,6 +42,7 @@ export interface ExecutorParts {
   reviewer: Reviewer
   plan: ReviewPlanner
   clock: () => Date
+  prompts?: string
   clearLeftovers?: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
   isolation: IsolationReader | typeof SPAWNS_NO_SESSION
@@ -121,6 +124,11 @@ export function roundLimitLine(pr: number, rounds: number): string {
 
 function treeFields({ tree }: Review): Record<string, unknown> {
   return tree === undefined ? {} : { treeBefore: tree.before, treeAfter: tree.after, treeMutated: tree.mutated }
+}
+
+function inputFields(prompts: string | undefined, plan: ReviewPlan, input: SessionInput | undefined): Record<string, unknown> {
+  const stored = storedInput(prompts, input)
+  return 'prompt_sha' in stored && plan.depth === 'diff' ? { ...stored, since: plan.since } : stored
 }
 
 function orphaned(ts: string, actor: string, lease: Lease, tree: string, detail: string): BusEvent {
@@ -234,7 +242,7 @@ export class ReviewExecutor {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation) },
+      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
       legacy: false,
     }
   }

@@ -1,13 +1,15 @@
 import type { AnswerOutcome } from '../../bus/answer-executor.js'
 import type { AnswerNodeParts, AnswerRun, AnswerStep } from '../../bus/answer-worker.js'
-import type { Answerer } from '../../bus/answerer.js'
+import type { Answered, Answerer } from '../../bus/answerer.js'
 import type { CardTreeTools } from '../../bus/card-tree.js'
 import type { Lease } from '../../bus/lease.js'
 import type { DetectionMode, Scope } from '../../bus/node.js'
+import type { AnswerInput } from '../../bus/prompt-store.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import type { Isolation, IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -310,6 +312,43 @@ describe('the answer node', () => {
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', resumed: true, source: 'question', from: sha('a'), to: sha('e'), minutes: 7.5, tokens: 48_200 }])
+  })
+
+  it('the session input is rebuilt from card.answered alone with no handoff directory', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const cardBody = '#905 answer-input [implement/netwatch/S/cheap/auto]\n\nthe card body'
+    let given = ''
+    const answerer = async (request: Parameters<Answerer>[0]): Promise<Answered & { input: AnswerInput }> => {
+      given = answerPrompt(request, '/answers/card-session-1.1.owner.txt', cardBody)
+      return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null, input: { prompt: given, cardBody } }
+    }
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, prompts: path.join(trees, 'prompts') })
+
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
+    const [answered] = eventsOf(made.db, CARD_ANSWERED) as { prompt_sha: string, prompt_path: string, card_body_sha: string, input?: unknown }[]
+    expect(existsSync(path.join(trees, 'handoff'))).toBe(false)
+    expect(answered!.input).toBeUndefined()
+    const rebuilt = readFileSync(answered!.prompt_path, 'utf8')
+    expect(rebuilt).toBe(given)
+    expect(createHash('sha256').update(rebuilt).digest('hex')).toBe(answered!.prompt_sha)
+    expect(answered!.card_body_sha).toBe(createHash('sha256').update(cardBody).digest('hex'))
+  })
+
+  it('card.answered is recorded with the prompt sha and the reason when the prompt cannot be stored', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const blocker = path.join(trees, 'a-file')
+    writeFileSync(blocker, '')
+    const answerer = async (): Promise<Answered & { input: AnswerInput }> => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null, input: { prompt: 'the answer prompt', cardBody: 'the card body' } })
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, prompts: path.join(blocker, 'prompts') })
+
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
+    const [answered] = eventsOf(made.db, CARD_ANSWERED)
+    expect(answered).toMatchObject({ prompt_sha: createHash('sha256').update('the answer prompt').digest('hex'), prompt_unstored: expect.any(String) as unknown, card_body_sha: createHash('sha256').update('the card body').digest('hex') })
+    expect(answered).not.toHaveProperty('prompt_path')
   })
 
   it('card.answered carries no measurement from an answerer that reports no usage', async () => {

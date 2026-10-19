@@ -1,4 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ShiftTask } from '../../src/card/task-file.js'
+import { parseParkingFile } from '../../src/card/parking.js'
+import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { prOf } from './identifiers.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
@@ -62,6 +65,7 @@ interface CardLife {
   generation: string
   admittedAt: number
   lane: string | null
+  task: ShiftTask | null
   depends: number[]
   contour: Contour
   started: boolean
@@ -83,6 +87,17 @@ function payloadOf(row: LifeRow): Record<string, unknown> {
 function laneOf(payload: Record<string, unknown>): string | null {
   const lane = payload.lane ?? payload.axis
   return typeof lane === 'string' && lane !== '' ? lane : null
+}
+
+function taskOf(row: LifeRow, payload: Record<string, unknown>): ShiftTask | null {
+  if (typeof payload.text !== 'string')
+    return null
+  const parsed = parseParkingFile(`${row.card_id}.md`, payload.text)
+  return parsed.kind === 'parked' ? parsed.parked.task : null
+}
+
+function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[]): boolean {
+  return task !== null && taken.some(other => taskConflicts([other, task]).length > 0)
 }
 
 function generationOf(row: LifeRow, payload: Record<string, unknown>): string {
@@ -121,7 +136,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       const running = life !== undefined && life.started && !life.closed
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: taskOf(row, payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive })
       continue
     }
     if (life !== undefined && row.type === CARD_STARTED) {
@@ -182,10 +197,13 @@ export function launchCandidates(db: DatabaseSync): LaunchCandidate[] {
   const launching = cardSet(db, OPEN_LAUNCHES)
   const falls = fallCounts(db)
   const busy = new Set<string>()
+  const taken: ShiftTask[] = []
   for (const life of lives.values()) {
     const running = life.started && !life.closed && !merged.has(life.cardId)
     if (life.lane !== null && (running || launching.has(life.cardId)))
       busy.add(life.lane)
+    if ((running || launching.has(life.cardId)) && life.task !== null)
+      taken.push(life.task)
   }
   const chosen: LaunchCandidate[] = []
   for (const life of [...lives.values()].sort((a, b) => a.cardId - b.cardId)) {
@@ -196,9 +214,11 @@ export function launchCandidates(db: DatabaseSync): LaunchCandidate[] {
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken))
       continue
     busy.add(life.lane)
+    if (life.task !== null)
+      taken.push(life.task)
     chosen.push({ cardId: life.cardId, generation: life.generation })
   }
   return chosen
