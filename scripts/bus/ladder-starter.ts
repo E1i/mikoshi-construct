@@ -125,7 +125,7 @@ export class LadderCardStarter implements CardStarter {
       input: chain.input,
       log: path.join(this.places.launchDir, `log-${card.cardId}.txt`),
     })
-    const started: LaunchedCard = { session, worktree, branch: task.branch, base, pid, pgid: this.groupOrKill(pid), step }
+    const started: LaunchedCard = { session, worktree, branch: task.branch, base, pid, pgid: this.groupOrKill(pid), step, ...(prompt === '' ? {} : { input: { prompt } }) }
     return { kind: 'started', card: started }
   }
 

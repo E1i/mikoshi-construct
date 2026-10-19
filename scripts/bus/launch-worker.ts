@@ -39,6 +39,7 @@ import { TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './leas
 import { Node, prefixOf, runNode } from './node.js'
 import { PR_CLOSED } from './observations.js'
 import { PR_OBSERVED } from './operator-work.js'
+import { promptsDirOf } from './prompt-store.js'
 import { launchTasks, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
 
@@ -67,6 +68,7 @@ export interface LaunchNodeParts {
   processes?: ProcessTable
   resulted?: (card: StartedCard, start: SessionStart) => boolean
   isolation: IsolationReader
+  prompts?: string
 }
 
 export interface SessionStart {
@@ -257,7 +259,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {

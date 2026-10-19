@@ -31,6 +31,7 @@ import { Node, runNode } from './node.js'
 import { PR_CLOSED } from './observations.js'
 import { PR_OBSERVED } from './operator-work.js'
 import { OWNER_MERGES } from './policy.js'
+import { promptsDirOf } from './prompt-store.js'
 import { answerCandidates } from './queue.js'
 import { REDUCED } from './reducer.js'
 
@@ -66,6 +67,7 @@ export interface AnswerNodeParts {
   env: NodeJS.ProcessEnv
   trees?: CardTreeTools
   isolation?: IsolationReader
+  prompts?: string
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -138,7 +140,7 @@ export interface AnswerRun {
 }
 
 export function answerNodeOf(run: AnswerRun, db: DatabaseSync, mode: DetectionMode): AnswerNode {
-  return new AnswerNode({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation })
+  return new AnswerNode({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, prompts: promptsDirOf(run.busPath) })
 }
 
 export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<number> {
