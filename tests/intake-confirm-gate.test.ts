@@ -163,7 +163,7 @@ describe('intake confirmation gate', () => {
     expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', confirmation: 'none', corrections: [] }])
   })
 
-  it.each([['the parking root', '', null], ['a lane', 'lane-4', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted beside the journal line', (_where, lane, expected) => {
+  it.each([['the parking root', '', 'lane-01'], ['a lane', 'lane-4', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted beside the journal line', (_where, lane, expected) => {
     const w = world([card()])
     const bus: CardEvent[] = []
     expect(intake(w, { parking: path.join(w.parking, lane), parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('written')
