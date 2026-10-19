@@ -172,9 +172,13 @@ export function buildCatalog(sources: CatalogSources): Catalog {
   return { tests: catalogTests(sources), mutations: catalogMutations(sources) }
 }
 
-function addMissingMutationColumns(db: DatabaseSync): void {
+export function missingMutationColumns(db: DatabaseSync): string[] {
   const present = (db.prepare('PRAGMA table_info(check_mutations)').all() as unknown as { name: string }[]).map(column => column.name)
-  for (const column of MUTATION_COLUMNS_ADDED_LATER.filter(name => !present.includes(name)))
+  return MUTATION_COLUMNS_ADDED_LATER.filter(name => !present.includes(name))
+}
+
+function addMissingMutationColumns(db: DatabaseSync): void {
+  for (const column of missingMutationColumns(db))
     db.exec(`ALTER TABLE check_mutations ADD COLUMN ${column} TEXT`)
 }
 
