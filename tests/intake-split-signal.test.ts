@@ -223,6 +223,14 @@ describe('intake writes the slicing principle into a card the signal splits', ()
     })
   }
 
+  it('a card made from a confirmed R1 slice is not held for slicing again', () => {
+    const r1Slice = ['scripts/ghosts/hash.ts', 'scripts/ghosts/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/bus/queue.ts', 'scripts/tests/bus/round-limit-decision.test.ts', 'scripts/tests/bus/merge-queue.test.ts', 'scripts/tests/bus/answer-node.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ghosts/launch.ts', '.changeset/**']
+    const [card] = sliced(intake(scratch(), [draftCard('owner-loop-r1', r1Slice)]))
+    expect(card!.text.split('\n').filter(line => line.startsWith(SEAM_PREFIX))).toHaveLength(1)
+    expect(card!.slices).toEqual([])
+    expect(card!.who).toBe('shift')
+  })
+
   it('keeps a generated file with its sources and a template with its twin in one slice', () => {
     const touches = ['contract/surface.json', 'src/program.ts', 'scripts/contract/surface.ts', 'templates/ai/claude/_claude/skills/intake/SKILL.md', '.claude/skills/intake/SKILL.md', 'templates/attach/earlier-carriers.json', 'docs/cli.md', 'tests/intake.test.ts']
     const [card] = sliced(intake(scratch(), [draftCard('generated-with-sources', touches)]))

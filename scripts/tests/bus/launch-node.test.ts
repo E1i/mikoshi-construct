@@ -482,6 +482,10 @@ function scriptOf(run: DetachedSpawn): string {
   return run.args[1]!
 }
 
+function commandWordsOf(script: string): string[] {
+  return script.split(/[|;&]+/).map(segment => segment.trim().split(/\s+/)[0]!)
+}
+
 function approvedWorld(): LadderWorld {
   return ladderWorld({ brief: APPROVED_BRIEF, approved: APPROVED_BRIEF })
 }
@@ -497,7 +501,7 @@ describe('the launch node in ladder mode', () => {
     expect(world.spawned).toHaveLength(1)
     const [run] = world.spawned
     expect(scriptOf(run!)).toContain(`'ghosts:launch' '--tasks' '${path.join(world.handoff, `tasks-${LADDER_CARD}-a-card.json`)}'`)
-    expect(scriptOf(run!)).not.toContain('claude')
+    expect(commandWordsOf(scriptOf(run!))).toEqual(['printf', 'pnpm'])
     expect(scriptOf(run!)).not.toContain('ghosts:hash')
     expect(run!.args.slice(2)).toEqual(['shift', '-p', '--session-id', `sess-${LADDER_CARD}`])
     expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: `sess-${LADDER_CARD}`, worktree: world.tree, branch: `feat/card-${LADDER_CARD}`, base: 'b'.repeat(40), pid: 4242, pgid: 4242, step: 'launch', contour: 'ladder', isolation: 'full', isolationGaps: [] }])
