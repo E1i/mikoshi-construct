@@ -201,7 +201,8 @@ export function wakingEvent(line: string): string | undefined {
 }
 
 export function watchState(deps: WatchDeps, pids: number[]): WatchState {
-  return { offset: deps.size(), rest: '', busId: deps.lastBusId(), ciByPr: new Map(), deniedByTask: new Map(), stalls: new Set(deps.stalls().map(stallKey)), pids: new Set(pids) }
+  const busId = deps.lastBusId()
+  return { offset: deps.size(), rest: '', busId, ciByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), stalls: new Set(deps.stalls().map(stallKey)), pids: new Set(pids) }
 }
 
 function journalLines(state: WatchState, deps: WatchDeps): string[] {
@@ -244,6 +245,13 @@ function deniedAgainInARow(state: BusMemory, event: BusEvent): boolean {
   const count = before?.reason === reason ? before.count + 1 : 1
   state.deniedByTask.set(task, { reason, count })
   return count === DENIALS_IN_A_ROW
+}
+
+function denialsUpTo(deps: WatchDeps, busId: number): Map<string, DenialRun> {
+  const seen: BusMemory = { ciByPr: new Map(), deniedByTask: new Map() }
+  for (const event of deps.deniedUpTo(busId))
+    deniedAgainInARow(seen, event)
+  return seen.deniedByTask
 }
 
 export function wakesTheWindow(state: BusMemory, event: BusEvent): boolean {
@@ -305,11 +313,9 @@ function busDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefi
   const end = deps.lastBusId()
   if (end < cursor.busId)
     throw new WatchRefusal(`miko:watch: the bus ${deps.bus} ends at event ${end}, before the cursor's event ${cursor.busId}; it was replaced or cut`)
-  const seen: BusMemory = { ciByPr: new Map(), deniedByTask: new Map() }
+  const seen: BusMemory = { ciByPr: new Map(), deniedByTask: denialsUpTo(deps, cursor.busId) }
   for (const event of deps.observedUpTo(cursor.busId))
     seen.ciByPr.set(event.pr, { head: event.head, ci: ciOf(event.payload) })
-  for (const event of deps.deniedUpTo(cursor.busId))
-    deniedAgainInARow(seen, event)
   let skipped: Delivery | undefined
   for (const event of deps.busEventsAfter(cursor.busId)) {
     if (event.id > end)
@@ -338,8 +344,11 @@ export function selectOnce(cursor: WatchCursor, deps: WatchDeps, pids: number[],
   return afterSkips === cursor ? undefined : { line: null, cursor: afterSkips }
 }
 
-function stallOf(known: Set<string>, deps: WatchDeps, card: number | undefined): CardActivity | undefined {
-  return newStalls(known, deps).find(stall => card === undefined || stall.cardId === card)
+function stallLines(known: Set<string>, deps: WatchDeps, card: number | undefined, now: number): string | undefined {
+  const fresh = deps.stalls().filter(stall => !known.has(stallKey(stall)) && (card === undefined || stall.cardId === card))
+  for (const stall of fresh)
+    known.add(stallKey(stall))
+  return fresh.length === 0 ? undefined : fresh.map(stall => stallLine(stall, now)).join('\n')
 }
 
 export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: number[], card?: number, now: () => number = Date.now): Promise<void> {
@@ -352,8 +361,8 @@ export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: numbe
       store.commit()
       console.error(skippedLine(selected.cursor.busId))
     }
-    const stall = selected?.line == null ? stallOf(known, deps, card) : undefined
-    const delivery = stall === undefined ? selected : { line: stallLine(stall, now()), cursor: store.cursor() }
+    const stalled = selected?.line == null ? stallLines(known, deps, card, now()) : undefined
+    const delivery = stalled === undefined ? selected : { line: stalled, cursor: store.cursor() }
     if (delivery?.line == null) {
       await new Promise(resolve => setTimeout(resolve, POLL_MS))
       continue

@@ -863,4 +863,43 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
     expect(emitted).toEqual([`stall card 1086: no new event for 21 minutes since card.started at ${at(STALL_MS + 60_000)}, while the bus is alive`])
     expect(cursor).toEqual({ offset: statSync(file).size, busId: 0 })
   }, 10_000)
+
+  it('the streaming watch counts a policy.denied from before its start toward a second in a row, as --once does', () => {
+    const file = journal()
+    const events: BusEvent[] = [denial(1, 'no_isolation')]
+    const deps = { ...fileDeps(file, () => true, events), lastBusId: () => 1 }
+    const state = watchState(deps, [])
+    events.push(denial(2, 'no_isolation'))
+    const lines = tick(state, deps)
+    expect(lines).toEqual([`bus ${POLICY_DENIED} card 1064 pr 921 second in a row for one task: reason no_isolation; settings ${USER_SETTINGS} ${denial(2, 'no_isolation').payload}`])
+    const offset = statSync(file).size
+    const once = { ...deps, lastBusId: () => 2 }
+    expect(selectOnce({ offset, busId: 1 }, once, [])).toEqual({ line: lines[0], cursor: { offset, busId: 2 } })
+  })
+
+  it('two cards that stall in the same poll both wake a --once with no --card', async () => {
+    const now = Date.parse('2026-10-19T12:00:00.000Z')
+    const at = (ms: number): string => new Date(now - ms).toISOString()
+    const card = (cardId: number): CardActivity => ({ cardId, lastEventId: cardId, lastType: 'card.started', lastTs: at(STALL_MS + 60_000) })
+    const file = journal()
+    let cursor = { offset: statSync(file).size, busId: 0 }
+    const store = {
+      cursor: () => cursor,
+      write: (next: typeof cursor) => {
+        cursor = next
+      },
+      commit: () => {},
+    } as unknown as OnceStore
+    const emitted: string[] = []
+    let calls = 0
+    const once = {
+      ...fileDeps(file),
+      emit: async (line: string) => {
+        emitted.push(line)
+      },
+      stalls: () => calls++ < 1 ? [] : [card(1071), card(1086)],
+    }
+    await deliverOnce(store, once, [], undefined, () => now)
+    expect(emitted).toEqual([[1071, 1086].map(id => `stall card ${id}: no new event for 21 minutes since card.started at ${at(STALL_MS + 60_000)}, while the bus is alive`).join('\n')])
+  })
 })
