@@ -45,6 +45,22 @@ export interface UpdateParts {
   settle: () => void
 }
 
+export interface ManualUpdate {
+  ts: string
+  session: string
+  cardId: number
+  pr: number
+  from: string
+  to: string
+}
+
+export const MANUAL_UPDATE_WHY = 'a manual update-branch the window checked clean'
+
+export function manualUpdateDone(update: ManualUpdate): BusEvent {
+  const { from, to } = update
+  return { ts: update.ts, type: UPDATE_DONE, actor: `worker:update:${update.session}`, cardId: update.cardId, pr: update.pr, head: from, dedupeKey: `${UPDATE_DONE}:manual:${update.pr}:${from}:${to}`, payload: { from, to, carried: null, why: MANUAL_UPDATE_WHY, clean: true }, legacy: false }
+}
+
 export interface DiffFile {
   filename: string
   status: string

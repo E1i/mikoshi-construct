@@ -14,12 +14,14 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { MERGE_DONE } from '../bus/card-automaton.js'
-import { defaultBusPath, openBus } from '../bus/db.js'
+import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
 import { ghApi } from '../bus/github.js'
 import { POLICY_DENIED } from '../bus/inbox.js'
 import { QUEUED } from '../bus/queue.js'
 import { fullReview } from '../bus/review-depth.js'
 import { ReviewWorker, SPAWNS_NO_SESSION } from '../bus/review-worker.js'
+import { UPDATE_DONE } from '../bus/update-done.js'
+import { manualUpdateDone } from '../bus/update-executor.js'
 import { execGh } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { reviewCarry } from '../ghosts/review-carry.js'
@@ -335,6 +337,56 @@ export function runCarry(argv: string[], deps: CarryDeps, expected?: string): Me
   return { stdout: [`${CARRY_PREFIX}PR #${number} review ${review.verdict} carried from ${review.commit} to ${head} across ${carry.merges.length} clean update-branch merge(s)`], stderr: [], exitCode: 0 }
 }
 
+export const UPDATED_FLAG = '--updated'
+export const UPDATED_USAGE = `usage: pnpm shift:merge <pull request number> ${UPDATED_FLAG} <the head before the update-branch>`
+const UPDATED_PREFIX = '[shift:updated] '
+
+export interface UpdatedDeps extends Omit<CarryDeps, 'journal' | 'publish'> {
+  bus: string
+  session: string
+  now: () => Date
+}
+
+function updatedRefused(message: string): MergeResult {
+  return { stdout: [], stderr: [`${UPDATED_PREFIX}${message}; nothing recorded`], exitCode: 1 }
+}
+
+export function runUpdated(argv: string[], deps: UpdatedDeps): MergeResult {
+  const [number, flag, from] = argv
+  if (argv.length !== 3 || flag !== UPDATED_FLAG || number === undefined || !/^\d+$/.test(number) || from === undefined || !/^[0-9a-f]{40}$/.test(from))
+    return updatedRefused(UPDATED_USAGE)
+  let view: PrView
+  try {
+    view = readPrView(deps.gh, number)
+  }
+  catch (error) {
+    return updatedRefused(`PR #${number} not read: ${firstLine(error)}`)
+  }
+  const card = readBodyCard(view.body)
+  if (card.kind === 'refused')
+    return updatedRefused(`the first line of PR #${number} is not the task's card (${card.reason})`)
+  const to = view.headRefOid
+  if (to === from)
+    return updatedRefused(`PR #${number} is still at ${from}`)
+  try {
+    deps.fetch(number)
+  }
+  catch (error) {
+    return updatedRefused(`main and the head of PR #${number} not fetched: ${firstLine(error)}`)
+  }
+  const clean = reviewCarry(deps.git, from, to, deps.main)
+  if (!clean.ok)
+    return updatedRefused(`PR #${number} from ${from} to ${to} is not a clean update-branch: ${clean.reason}`)
+  const db = openBus(deps.bus)
+  try {
+    appendEvent(db, manualUpdateDone({ ts: deps.now().toISOString(), session: deps.session, cardId: card.card.id, pr: Number(number), from, to }))
+  }
+  finally {
+    db.close()
+  }
+  return { stdout: [`${UPDATED_PREFIX}PR #${number} clean update-branch from ${from} to ${to} recorded as ${UPDATE_DONE} in the bus ${deps.bus}; a decision on ${from} holds at ${to}`], stderr: [], exitCode: 0 }
+}
+
 function realCarryDeps(journal: string): CarryDeps {
   const git: GitRunner = args => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
   return {
@@ -360,9 +412,12 @@ function realDeps(): MergeDeps {
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2)
   const journal = path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
+  const { gh, git, fetch, main } = realCarryDeps(journal)
   const result = argv.includes(CARRY_FLAG)
     ? runCarry(argv, realCarryDeps(journal))
-    : argv.includes(VERDICT_FLAG) ? await runVerdict(argv, { gh: execGh, gitHub: ghApi(process.cwd()), bus: defaultBusPath(), session: process.env.CLAUDE_CODE_SESSION_ID || undefined, now: () => new Date(), publish: ghStatusPublisher(process.cwd()) }) : runMerge(argv, realDeps())
+    : argv.includes(UPDATED_FLAG)
+      ? runUpdated(argv, { gh, git, fetch, main, bus: defaultBusPath(), session: process.env.CLAUDE_CODE_SESSION_ID || 'by-hand', now: () => new Date() })
+      : argv.includes(VERDICT_FLAG) ? await runVerdict(argv, { gh: execGh, gitHub: ghApi(process.cwd()), bus: defaultBusPath(), session: process.env.CLAUDE_CODE_SESSION_ID || undefined, now: () => new Date(), publish: ghStatusPublisher(process.cwd()) }) : runMerge(argv, realDeps())
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)
