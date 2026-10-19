@@ -18,6 +18,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'bus:backfill': 'records a fixed set of live parked cards and admits each once into bus.db with source backfill, when run by hand; its own tests are its gate',
   'card': 'prints one card of the card_bodies projection of bus.db, as a contract\'s JSON fields, its admitted text or its chain, when run by hand; it writes nothing; its own tests are its gate',
   'bus:report': 'a read-only shadow report over bus.db and GitHub printed by hand; its own tests are its gate',
+  'bus:request': 'writes one window.request into bus.db for bus:run to answer when the window runs it; it executes nothing itself; its own tests are its gate',
   'bus:restart': 'the restart worker over bus.db, switched off unless started by hand with --on; it restarts a shift chain only at a task boundary, through pnpm shift:bg; its own tests are its gate',
   'bus:review': 'the live review worker over bus.db, switched off unless started by hand with --on or run once with --dry-run; its own tests are its gate',
   'bus:review:bg': 'starts bus:review --on as the one detached instance when run by hand, after a clean shadow report; its own tests, on nohup and pnpm stubs, are its gate',
