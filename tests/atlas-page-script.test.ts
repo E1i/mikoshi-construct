@@ -94,7 +94,7 @@ interface Run {
   location: { hash: string }
 }
 
-const IDS = ['atlas-svg', 'atlas-viewport', 'atlas-panel', 'atlas-tip', 'atlas-search', 'atlas-results']
+const IDS = ['atlas-svg', 'atlas-viewport', 'atlas-panel', 'atlas-tip', 'atlas-search', 'atlas-results', 'atlas-legend', 'atlas-hidden', 'atlas-sort']
 
 function run(script: string, hash: string): Run {
   const page = Object.fromEntries(IDS.map(id => [id, new FakeElement()])) as Record<string, FakeElement>
@@ -139,9 +139,9 @@ const MECHANICS: AtlasMechanics = {
   ],
 }
 
-function pageOf(interpretation?: unknown): string {
+function pageOf(interpretation?: unknown, mechanics: AtlasMechanics = MECHANICS): string {
   const model = parseModel(JSON.stringify(interpretation == null ? DOCUMENT : { ...DOCUMENT, interpretation }), 'M')
-  return renderAtlas({ projectName: 'shop', model, states: deriveModelState(model, tmpdir()), mechanics: MECHANICS }, 'construct.model.json')
+  return renderAtlas({ projectName: 'shop', model, states: deriveModelState(model, tmpdir()), mechanics }, 'construct.model.json')
 }
 
 function scriptOf(html: string): string {
@@ -209,6 +209,134 @@ describe('the page script reaches a file by the same handler a reader\'s click r
     results.children[0]!.dispatchEvent(new FakeEvent('click', { bubbles: true }))
     expect(searched.delivered.at(-1)).toBe(TARGET)
     expect(searched.page['atlas-panel']!.getAttribute('data-file')).toBe(TARGET)
+  })
+})
+
+const SRC_A = 'packages/a/src/x.ts'
+const LIB_A = 'packages/a/lib/y.ts'
+const INDEX_B = 'packages/b/src/index.ts'
+const INNER_B = 'packages/b/src/inner.ts'
+const SRC_C = 'packages/c/src/q.ts'
+const COMPONENT_A = 'k:packages/a:dir:packages/a/src'
+const COMPONENT_B = 'k:packages/b:dir:packages/b/src'
+const KINDS = ['inside', 'through', 'bypass', 'direct', 'runs', 'file']
+
+function found(from: string, to: string, line: number, kind: 'imports' | 'runs' = 'imports', specifier = './x.js'): AtlasMechanics['relations'][number] {
+  return { from, to, kind, specifier, status: 'found', source: { path: from, line } }
+}
+
+const SPREAD: AtlasMechanics = {
+  contours: [
+    { id: '.', name: 'shop', kind: 'package', declaredBy: 'package.json', entries: [] },
+    { id: 'packages/a', name: 'a', kind: 'workspace', declaredBy: 'packages/a/package.json', entries: [] },
+    { id: 'packages/b', name: 'b', kind: 'workspace', declaredBy: 'packages/b/package.json', entries: [INDEX_B] },
+    { id: 'packages/c', name: 'c', kind: 'workspace', declaredBy: 'packages/c/package.json', entries: [] },
+  ],
+  components: ['package.json', SRC_A, LIB_A, INDEX_B, INNER_B, 'packages/b/lib/z.ts', SRC_C, 'packages/c/lib/r.ts'].map(file => ({ id: file, path: file, relations: 'found' as const })),
+  relations: [
+    found(SRC_A, INNER_B, 1),
+    found(LIB_A, INDEX_B, 1),
+    { from: SRC_C, to: null, kind: 'imports', specifier: './gone.js', status: 'unknown', source: { path: SRC_C, line: 1 } },
+    found('package.json', INDEX_B, 3, 'runs', 'build'),
+  ],
+}
+
+function boxes(target: Run): FakeElement[] {
+  return target.page['atlas-viewport']!.querySelectorAll('[data-node]').filter(element => element.getAttribute('class') === 'box')
+}
+
+function edges(target: Run): FakeElement[] {
+  return target.page['atlas-viewport']!.querySelectorAll('[data-arrow]')
+}
+
+function toggle(target: Run, kind: string): void {
+  const button = new FakeElement(target.page['atlas-legend']!)
+  button.setAttribute('data-filter', kind)
+  button.dispatchEvent(new FakeEvent('click', { bubbles: true }))
+}
+
+function problems(target: Run): Record<string, string | null> {
+  return Object.fromEntries(boxes(target).filter(element => element.getAttribute('data-kind') !== 'component').map(element => [element.getAttribute('data-node')!, element.getAttribute('data-problem')]))
+}
+
+describe('the map reads as a selection, a filter and a search', () => {
+  it('a selected node lights its edges and neighbours and dims the rest', () => {
+    const selected = run(scriptOf(pageOf(undefined, SPREAD)), '')
+    expect(edges(selected).every(edge => !edge.attributes.has('data-near') && !edge.attributes.has('data-dim'))).toBe(true)
+    click(selected, 'data-node', COMPONENT_A)
+    const lit = (elements: FakeElement[]): string[] => elements.filter(element => element.attributes.has('data-near')).map(element => element.getAttribute('data-node') ?? element.getAttribute('data-arrow')!)
+    expect(lit(boxes(selected)).sort()).toEqual([COMPONENT_A, COMPONENT_B])
+    expect(boxes(selected).filter(element => element.attributes.has('data-dim')).length).toBe(boxes(selected).length - 2)
+    expect(lit(edges(selected))).toHaveLength(1)
+    expect(edges(selected).filter(edge => edge.attributes.has('data-dim'))).toHaveLength(edges(selected).length - 1)
+  })
+
+  it('a folded group keeps its unknown or bypass mark under every filter', () => {
+    const folded = run(scriptOf(pageOf(undefined, SPREAD)), '')
+    click(folded, 'data-node', 'c:packages/b')
+    click(folded, 'data-node', 'c:packages/c')
+    const expected = { 'c:packages/b': 'bypass', 'c:packages/c': 'unknown' }
+    expect(Object.fromEntries(Object.entries(problems(folded)).filter(([, mark]) => mark !== null))).toEqual(expected)
+    const drawn = edges(folded).length
+    expect(drawn).toBeGreaterThan(0)
+    for (const kind of KINDS) {
+      toggle(folded, kind)
+      expect(Object.fromEntries(Object.entries(problems(folded)).filter(([, mark]) => mark !== null))).toEqual(expected)
+      expect(folded.page['atlas-hidden']!.innerHTML).toContain(kind)
+    }
+    expect(edges(folded)).toHaveLength(0)
+    expect(folded.page['atlas-hidden']!.hidden).toBe(false)
+    for (const kind of KINDS)
+      toggle(folded, kind)
+    expect(edges(folded)).toHaveLength(drawn)
+    expect(folded.page['atlas-hidden']!.hidden).toBe(true)
+  })
+
+  it('search finds an entry point and reveal focuses it', () => {
+    const searched = run(scriptOf(pageOf(undefined, SPREAD)), '')
+    const search = searched.page['atlas-search']!
+    search.value = 'build'
+    search.dispatchEvent(new FakeEvent('input'))
+    const results = searched.page['atlas-results']!
+    expect(results.children.map(child => child.getAttribute('data-reveal-node'))).toEqual(['e:package.json#build'])
+    const before = searched.page['atlas-viewport']!.getAttribute('transform')
+    results.children[0]!.dispatchEvent(new FakeEvent('click', { bubbles: true }))
+    expect(searched.page['atlas-viewport']!.getAttribute('transform')).not.toBe(before)
+    expect(searched.page['atlas-panel']!.innerHTML).toContain(`data-runs="${INDEX_B}"`)
+    expect(boxes(searched).find(element => element.getAttribute('data-node') === 'e:package.json#build')!.getAttribute('aria-current')).toBe('true')
+
+    search.value = 'index'
+    search.dispatchEvent(new FakeEvent('input'))
+    results.children.find(child => child.getAttribute('data-reveal') === INDEX_B)!.dispatchEvent(new FakeEvent('click', { bubbles: true }))
+    expect(searched.page['atlas-panel']!.getAttribute('data-file')).toBe(INDEX_B)
+  })
+
+  it('search finds a contour and a component by name', () => {
+    const searched = run(scriptOf(pageOf(undefined, SPREAD)), '')
+    const search = searched.page['atlas-search']!
+    search.value = 'packages/c/lib'
+    search.dispatchEvent(new FakeEvent('input'))
+    const results = searched.page['atlas-results']!
+    expect(results.children.map(child => child.getAttribute('data-reveal-node'))).toEqual(['k:packages/c:dir:packages/c/lib'])
+    results.children[0]!.dispatchEvent(new FakeEvent('click', { bubbles: true }))
+    expect(boxes(searched).find(element => element.getAttribute('data-node') === 'k:packages/c:dir:packages/c/lib')!.getAttribute('aria-current')).toBe('true')
+  })
+
+  it('sorts the parts of a contour by edge count and back to the declared order', () => {
+    const sorted = run(scriptOf(pageOf(undefined, SPREAD)), '')
+    const order = (): string[] => boxes(sorted).filter(element => element.getAttribute('data-node')!.startsWith('k:packages/b:')).map(element => element.getAttribute('data-node')!)
+    const declared = order()
+    const press = (key: string): void => {
+      const button = new FakeElement(sorted.page['atlas-sort']!)
+      button.setAttribute('data-sort', key)
+      button.dispatchEvent(new FakeEvent('click', { bubbles: true }))
+    }
+    press('name')
+    expect(order()).toEqual([...declared].sort())
+    press('edges')
+    expect(order()[0]).toBe(COMPONENT_B)
+    press('edges')
+    expect(order()).toEqual(declared)
   })
 })
 
