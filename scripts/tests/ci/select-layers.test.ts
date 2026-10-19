@@ -138,6 +138,12 @@ describe('the window gate of D-194 takes the CI selection by layers', () => {
     })
   })
 
+  it('the window gate takes the full run when the rest of a package.json change reaches no layer', () => {
+    const run = windowGate(['package.json', 'docs/index.md'], graph, () => '')
+    expect(run).toEqual(selectRun(['docs/index.md'], graph, () => ''))
+    expect(run.kind).toBe('full')
+  })
+
   it('the window gate is the CI selection for a change without package.json', () => {
     for (const changed of [['scripts/bus/db.ts'], ['docs/index.md'], []])
       expect(windowGate(changed, graph, () => '')).toEqual(selectRun(changed, graph, () => ''))
