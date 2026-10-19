@@ -36,7 +36,20 @@ details li[data-state] { color: var(--_c); }
 #atlas-results { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.3rem; font-size: 0.8rem; }
 #atlas-results button { font: inherit; cursor: pointer; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface-raised); color: var(--ink); padding: 0.1rem 0.6rem; }
 .canvas { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 22rem); gap: 0.75rem; }
-@container (inline-size <= 48rem) { .canvas { grid-template-columns: minmax(0, 1fr); } }
+@container (inline-size <= 48rem) {
+  .canvas { grid-template-columns: minmax(0, 1fr); }
+  #atlas-panel { position: absolute; inset-inline: 0.5rem; inset-block-end: 0.5rem; max-block-size: 45%; box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 0.4); z-index: 2; }
+}
+#atlas-legend, #atlas-sort { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+#atlas-legend button, #atlas-sort button { font: inherit; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface-raised); color: var(--_edge, var(--ink)); padding: 0.1rem 0.6rem; }
+#atlas-legend button[aria-pressed='false'] { opacity: 0.5; text-decoration: line-through; }
+#atlas-sort button[aria-pressed='true'] { border-color: var(--ink); }
+#atlas-svg .edge text { display: none; }
+#atlas-svg[data-labels] .edge text, #atlas-svg .edge:hover text, #atlas-svg .edge[data-near] text { display: inline; }
+#atlas-svg [data-dim] { opacity: 0.2; }
+#atlas-svg .edge[data-near] path:first-of-type { opacity: 1; }
+#atlas-svg .box[data-near] rect:first-of-type { stroke-width: 2.5; }
+#atlas-svg text.mark { fill: var(--unsupported); text-anchor: end; font-weight: 600; }
 main { container-type: inline-size; }
 #atlas-svg { inline-size: 100%; block-size: 70vh; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 0.6rem; touch-action: none; cursor: grab; }
 #atlas-svg text { font: 0.75rem ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--ink); pointer-events: none; }
