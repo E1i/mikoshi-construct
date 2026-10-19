@@ -85,6 +85,20 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     expect(witnessOf('card: #3\ntouches: tests/x.test.ts\n\nNames the x suite.\n\nWitnesses:\n- `pnpm exec vitest run tests/y.test.ts` exits 0\n\nrisk: keeps the x\'s order')).toBe('')
   })
 
+  it('a witness is credited by an it.each or test title', () => {
+    const graph: Graph = new Map([['tests/x.test.ts', []]])
+    const testText = () => [
+      'describe(\'the x suite\', () => {',
+      '  it.each([[\'a\', 1], [\'b\', 2]])(\'orders %s before %d\', () => {})',
+      '  test(\'keeps the y\\\'s order\', () => {})',
+      '})',
+    ].join('\n')
+    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText, parking: [{ card: 3, text }] }).tests[0]!.witness
+    expect(witnessOf('Witnesses:\n- `pnpm exec vitest run -t \'orders a before 1\'` exits 0\n')).toBe('3')
+    expect(witnessOf('Witnesses:\n- `pnpm exec vitest run -t \'keeps the y\'\\\'\'s order\'` exits 0\n')).toBe('3')
+    expect(witnessOf('Witnesses:\n- `pnpm exec vitest run -t \'orders the rest\'` exits 0\n')).toBe('')
+  })
+
   it('records each well-formed brief mutation with its killing test and its judged outcome, and skips a malformed line', () => {
     const { mutations } = buildCatalog(sources())
     expect(mutations).toEqual([

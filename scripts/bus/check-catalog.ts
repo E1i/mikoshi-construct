@@ -13,7 +13,9 @@ import { openDatabase } from './sqlite.js'
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const BRIEF_FILE = /^brief-(\d+)(?:-.*)?\.md$/
 const FIRST_DESCRIBE = /describe\(\s*(['"`])(.*?)\1/
-const IT_TITLE = /\bit\(\s*(['"`])((?:\\.|(?!\1).)*)\1/g
+const IT_TITLE = /\b(?:it|test)(?:\.each\b[\s\S]*?\))?\(\s*(['"`])((?:\\.|(?!\1).)*)\1/g
+const EACH_PLACEHOLDER = /%[sdifjo#%]|\$[\w.]+/g
+const SHELL_QUOTED_APOSTROPHE = /'\\''/g
 const WITNESSES_HEADING = /^Witnesses:/
 const NO_LAYER = 'none'
 
@@ -106,11 +108,16 @@ function itTitles(text: string): string[] {
   return [...text.matchAll(IT_TITLE)].map(match => match[2]!.replaceAll(/\\(.)/g, '$1')).filter(title => title !== '')
 }
 
+function namesTitle(witnesses: string, title: string): boolean {
+  const parts = title.split(EACH_PLACEHOLDER).map(part => part.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
+  return parts.length === 1 ? witnesses.includes(title) : new RegExp(parts.join('.+?')).test(witnesses)
+}
+
 function witnessCards(test: string, titles: readonly string[], parking: readonly ParkingCard[]): string {
   return parking
     .filter((card) => {
-      const witnesses = witnessLines(card.text)
-      return namesPath(witnesses, test) || titles.some(title => witnesses.includes(title))
+      const witnesses = witnessLines(card.text).replaceAll(SHELL_QUOTED_APOSTROPHE, '\'')
+      return namesPath(witnesses, test) || titles.some(title => namesTitle(witnesses, title))
     })
     .map(card => card.card)
     .sort((a, b) => a - b)

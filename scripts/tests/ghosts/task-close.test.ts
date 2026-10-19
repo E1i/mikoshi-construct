@@ -119,8 +119,26 @@ describe('the exit card repeats the entry card', () => {
       `CONTRACT | ${ENTRY_CONTRACT}`,
       `EXPECT   | ${ENTRY_EXPECT}`,
       'ACTION   | task:close #123 --pr 460 --verification run',
-      `RESULT   | closed run · PR #460 · line written to ${JOURNAL}`,
+      `RESULT   | closed run · PR #460 · line written to ${JOURNAL} · forecast not recorded on the start line · actual tokens not recorded, minutes not recorded`,
     ])
+  })
+
+  it('the report carries the forecast and the actual tokens and minutes', () => {
+    const started = (forecast?: unknown) => JSON.stringify({ ...JSON.parse(startLine('5', 'implement', WINDOW_SESSION)) as object, started: '2026-10-03T08:47:39.000Z', ...(forecast === undefined ? {} : { forecast }) })
+    const resultOf = (line: string, extra: Partial<TaskCloseDeps> = {}) => {
+      const { deps } = world([line], [sessionFile('-work', WINDOW_SESSION)])
+      return runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...deps, tokens: () => 71_234, ...extra }).stdout[4]
+    }
+    const where = `line written to ${JOURNAL}`
+    expect(resultOf(started({ tokens: 68_352, minutes: 4.4105, class: 'implement/S', n: 8 }))).toBe(`RESULT   | closed run · PR #9 · ${where} · forecast tokens ≈ 68k, minutes ≈ 4.4 (class implement/S, n=8, start line) · actual tokens 71k, minutes 12.4`)
+    expect(resultOf(started({ kind: 'none', class: 'implement/S', n: 2 }))).toBe(`RESULT   | closed run · PR #9 · ${where} · forecast none: n=2 for implement/S (start line) · actual tokens 71k, minutes 12.4`)
+    const weighed: string[] = []
+    const byWeight = (taskClass: string) => {
+      weighed.push(taskClass)
+      return { kind: 'forecast' as const, taskClass, n: 6, tokens: 50_000, minutes: 3 }
+    }
+    expect(resultOf(started(), { forecast: byWeight })).toBe(`RESULT   | closed run · PR #9 · ${where} · forecast tokens ≈ 50k, minutes ≈ 3 (class implement/S, n=6, median) · actual tokens 71k, minutes 12.4`)
+    expect(weighed).toEqual(['implement/S'])
   })
 
   it('names the contract and the forecast as not recorded when no entry line holds them', () => {
@@ -810,7 +828,7 @@ describe('task:close after the cutoff records the closing in the bus', () => {
       const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath: bus.file, session: WINDOW_SESSION })
       expect(result.exitCode).toBe(0)
       expect(written).toEqual([])
-      expect(result.stdout.find(line => line.startsWith('RESULT'))).toBe(`RESULT   | closed run · PR #460 · ${CARD_VERIFIED} written to ${bus.file}`)
+      expect(result.stdout.find(line => line.startsWith('RESULT'))).toBe(`RESULT   | closed run · PR #460 · ${CARD_VERIFIED} written to ${bus.file} · forecast not recorded on the start line · actual tokens not recorded, minutes not recorded`)
       expect(cardVerifiedClosings(bus.file)).toEqual([{ task: '123', pr: 460, verification: 'run', actual: { tokens: null, minutes: null }, event: expect.any(Number) }])
       const db = openBus(bus.file)
       try {

@@ -1,5 +1,5 @@
 import type { Card } from '../../src/card/grammar.js'
-import type { CheapSession } from '../../src/commands/cost/cheap.js'
+import type { CheapForecast, CheapSession } from '../../src/commands/cost/cheap.js'
 import type { SignalStyle } from '../../src/ui/signal.js'
 import type { BusEvent } from '../bus/db.js'
 import type { GhRunner } from '../core/gh.js'
@@ -11,8 +11,9 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { readBodyCard } from '../../src/card/grammar.js'
-import { sessionTokens } from '../../src/commands/cost/cheap.js'
+import { cheapClass, cheapForecastOf, defaultShiftRoot, sessionTokens } from '../../src/commands/cost/cheap.js'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
+import { formatTokens } from '../../src/commands/cost/expect.js'
 import { MUTATION_JUDGED_EVENT } from '../../src/commands/mutate/journal.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db.js'
@@ -55,6 +56,7 @@ interface StartLine {
   started?: unknown
   worktree?: unknown
   session?: unknown
+  forecast?: unknown
   card: Card
 }
 
@@ -81,6 +83,7 @@ export interface TaskCloseDeps {
   session: string | undefined
   projectsDir: string
   tokens?: (session: CheapSession) => number | null
+  forecast?: (taskClass: string) => CheapForecast
   style?: SignalStyle
   prBody: (pr: number) => string | null
   prCard?: (pr: number) => number | null
@@ -285,6 +288,37 @@ function actualOf(deps: TaskCloseDeps, lines: Record<string, unknown>[], start: 
   return { tokens: actualTokens(deps, counted), minutes: actualMinutes(start, ended) }
 }
 
+function tenths(minutes: number): number {
+  return Math.round(minutes * 10) / 10
+}
+
+function recordedForecastText(recorded: Record<string, unknown>): string | undefined {
+  if (typeof recorded.tokens === 'number' && typeof recorded.minutes === 'number')
+    return `forecast tokens ≈ ${formatTokens(recorded.tokens)}, minutes ≈ ${tenths(recorded.minutes)} (class ${String(recorded.class)}, n=${String(recorded.n)}, start line)`
+  if (recorded.kind === 'none')
+    return `forecast none: n=${String(recorded.n)} for ${String(recorded.class)} (start line)`
+  return undefined
+}
+
+function computedForecastText(forecast: CheapForecast): string {
+  return forecast.kind === 'none'
+    ? `forecast none: n=${forecast.n} for ${forecast.taskClass}`
+    : `forecast tokens ≈ ${formatTokens(forecast.tokens)}, minutes ≈ ${tenths(forecast.minutes)} (class ${forecast.taskClass}, n=${forecast.n}, median)`
+}
+
+function forecastText(deps: TaskCloseDeps, start: StartLine): string {
+  const recorded = typeof start.forecast === 'object' && start.forecast !== null ? recordedForecastText(start.forecast as Record<string, unknown>) : undefined
+  if (recorded !== undefined)
+    return recorded
+  return deps.forecast === undefined ? 'forecast not recorded on the start line' : computedForecastText(deps.forecast(cheapClass(start.card)))
+}
+
+function actualText(actual: Actual): string {
+  const tokens = actual.tokens === null ? 'not recorded' : formatTokens(actual.tokens)
+  const minutes = actual.minutes === null ? 'not recorded' : String(tenths(actual.minutes))
+  return `actual tokens ${tokens}, minutes ${minutes}`
+}
+
 export function prBodyOf(gh: GhRunner): (pr: number) => string | null {
   return pr => (JSON.parse(gh(['pr', 'view', String(pr), '-R', REPO, '--json', 'body'])) as { body: string | null }).body
 }
@@ -448,7 +482,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const entry = startedEntryOf(lines, id) ?? entryOf(journalText, id)
   const searched = deps.busPath === undefined ? journal : `the bus ${deps.busPath} or ${journal}`
   const closedBy = outcome === '--pr' ? `PR #${value}` : `report ${report}`
-  const closed = `closed ${verification} · ${closedBy} · ${written.where}`
+  const closed = `closed ${verification} · ${closedBy} · ${written.where} · ${forecastText(deps, start)} · ${actualText(actual)}`
   const card = renderSignal(`task:close #${id} ${start.card.name}`, {
     CONTRACT: entry?.CONTRACT ?? `contract not recorded in ${searched}: no entry line for #${id}`,
     EXPECT: entry?.EXPECT ?? `expect not recorded in ${searched}: no entry line for #${id}`,
@@ -502,6 +536,7 @@ export function realpathOrSelf(file: string): string {
 }
 
 function realDeps(): TaskCloseDeps {
+  const handoffDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
   return {
     cwd: process.cwd(),
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
@@ -510,7 +545,7 @@ function realDeps(): TaskCloseDeps {
       appendFileSync(file, text)
     },
     now: () => new Date(),
-    handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
+    handoffDir,
     constructDir: path.join(os.homedir(), '.construct'),
     realpath: realpathOrSelf,
     busPath: defaultBusPath(),
@@ -518,6 +553,7 @@ function realDeps(): TaskCloseDeps {
     exists: existsSync,
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     projectsDir: claudeProjectsDir(),
+    forecast: taskClass => cheapForecastOf(defaultShiftRoot(), path.join(handoffDir, 'ghosts.jsonl'), taskClass, claudeProjectsDir(), defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     prBody: prBodyOf(execGh),
     decisionsFile: defaultDecisions(os.homedir()),
