@@ -70,12 +70,19 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     expect(layers).toEqual({ 'scripts/tests/morse/cli.test.ts': 'morse', 'scripts/tests/ghosts/watch.test.ts': 'ghosts' })
   })
 
-  it('credits a card that names a test by its title, and not one that names a longer path ending in the same path', () => {
+  it('credits a card that names a test by its path, and not one that names a longer path ending in the same path', () => {
     const graph: Graph = new Map([['tests/x.test.ts', []]])
-    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText: () => 'describe(\'the x title\', () => {})', parking: [{ card: 3, text }] }).tests[0]!.witness
+    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText: () => '', parking: [{ card: 3, text }] }).tests[0]!.witness
     expect(witnessOf('Witnesses: scripts/tests/x.test.ts')).toBe('')
     expect(witnessOf('Witnesses: tests/x.test.ts passes')).toBe('3')
-    expect(witnessOf('Witnesses: the x title is green')).toBe('3')
+  })
+
+  it('credits a card whose witness is an it title, not one that lists the test only on touches', () => {
+    const graph: Graph = new Map([['tests/x.test.ts', []]])
+    const testText = () => 'describe(\'the x suite\', () => {\n  it(\'keeps the x\\\'s order\', () => {})\n})'
+    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText, parking: [{ card: 3, text }] }).tests[0]!.witness
+    expect(witnessOf('card: #3\n\nWitnesses:\n- `pnpm exec vitest run -t \'keeps the x\'s order\'` exits 0\n')).toBe('3')
+    expect(witnessOf('card: #3\ntouches: tests/x.test.ts\n\nNames the x suite.\n\nWitnesses:\n- `pnpm exec vitest run tests/y.test.ts` exits 0\n\nrisk: keeps the x\'s order')).toBe('')
   })
 
   it('records each well-formed brief mutation with its killing test and its judged outcome, and skips a malformed line', () => {
