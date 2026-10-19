@@ -194,10 +194,10 @@ export abstract class Node<S extends NodeStep> {
     this.log(`the ${this.kind} node ${this.actor} takes the ${this.kind} queue, detection ${this.parts.mode}, ${this.slots} slot(s)`)
     const inFlight = new Map<string, Promise<S>>()
     let lastTick: number | null = null
-    let freeSlotWake: Promise<null> | null = null
-    const nextFreeSlotWake = async (): Promise<null> => {
+    let checkWake: Promise<null> | null = null
+    const nextCheckWake = async (): Promise<null> => {
       await ctx.pause(CHECK_MS)
-      freeSlotWake = null
+      checkWake = null
       return null
     }
     while (ctx.signal?.aborted !== true) {
@@ -214,11 +214,9 @@ export abstract class Node<S extends NodeStep> {
         continue
       }
       const settledThisTurn = await Promise.race([...inFlight.values(), nextTurn(null)])
-      if (settledThisTurn === null && inFlight.size < this.slots)
-        freeSlotWake ??= nextFreeSlotWake()
-      const step = settledThisTurn ?? await Promise.race([...inFlight.values(), ...(freeSlotWake === null ? [] : [freeSlotWake])])
+      const step = settledThisTurn ?? await Promise.race([...inFlight.values(), checkWake ??= nextCheckWake()])
       if (step !== null)
-        await ctx.pause(this.pauseAfter(step))
+        await Promise.race([ctx.pause(this.pauseAfter(step)), ...inFlight.values(), checkWake ??= nextCheckWake()])
     }
     await Promise.all(inFlight.values())
   }
