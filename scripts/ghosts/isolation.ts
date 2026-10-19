@@ -34,6 +34,7 @@ const MANAGED_SETTINGS: Record<string, string> = {
 const SANDBOX_EXEC = '/usr/bin/sandbox-exec'
 const OVERRIDE_WORDS = ['--settings', '--setting-sources', 'dangerously-skip-permissions', 'bypassPermissions']
 const ENABLE_IT = 'enable sandbox.enabled in the user or managed settings'
+const TSX_PIPE_PATH = /^\/\S*\/tsx-\d+(?:\/\d+\.pipe)?$/
 
 function fieldsOf(value: unknown): Fields | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Fields : null
@@ -85,7 +86,7 @@ function gapsOf(sandboxes: Fields[]): string[] {
     gaps.push(`sandbox.excludedCommands names ${excluded.map(String).join(', ')}; they run outside the sandbox`)
   if (setBeyondFalse(scalar(network, 'allowAllUnixSockets')))
     gaps.push('sandbox.network.allowAllUnixSockets is set; every unix socket is reachable')
-  const sockets = union(network, 'allowUnixSockets')
+  const sockets = union(network, 'allowUnixSockets').filter(socket => typeof socket !== 'string' || !TSX_PIPE_PATH.test(socket))
   if (sockets.length > 0)
     gaps.push(`sandbox.network.allowUnixSockets names ${sockets.map(String).join(', ')}`)
   if (setBeyondFalse(scalar(network, 'allowLocalBinding')))

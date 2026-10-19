@@ -65,6 +65,10 @@ const ROWS: Record<string, { facts: IsolationFacts, expected: Expected }> = {
   'allowAllUnixSockets false keeps full': { facts: closed({ network: { allowAllUnixSockets: false } }), expected: { level: 'full' } },
   'allowUnixSockets reads partial': { facts: closed({ network: { allowUnixSockets: ['/var/run/docker.sock'] } }), expected: { level: 'partial', gaps: ['sandbox.network.allowUnixSockets'] } },
   'an empty allowUnixSockets keeps full': { facts: closed({ network: { allowUnixSockets: [] } }), expected: { level: 'full' } },
+  'the tsx pipe directory in allowUnixSockets keeps full': { facts: closed({ network: { allowUnixSockets: ['/tmp/claude-501/tsx-501'] } }), expected: { level: 'full' } },
+  'a tsx pipe in allowUnixSockets keeps full': { facts: closed({ network: { allowUnixSockets: ['/tmp/claude-501/tsx-501/4242.pipe'] } }), expected: { level: 'full' } },
+  'a socket beside the tsx pipe directory stays a gap': { facts: closed({ network: { allowUnixSockets: ['/tmp/claude-501/tsx-501', '/var/run/docker.sock'] } }), expected: { level: 'partial', gaps: ['sandbox.network.allowUnixSockets'] } },
+  'a directory only named like tsx stays a gap': { facts: closed({ network: { allowUnixSockets: ['/tmp/tsx-501/docker.sock', 'tsx-501'] } }), expected: { level: 'partial', gaps: ['sandbox.network.allowUnixSockets'] } },
   'allowUnixSockets in a lower layer stays a gap': { facts: facts({ managed: { sandbox: { enabled: true, allowUnsandboxedCommands: false, network: { allowUnixSockets: [] } } }, user: { sandbox: { network: { allowUnixSockets: ['/x.sock'] } } } }), expected: { level: 'partial', gaps: ['sandbox.network.allowUnixSockets'] } },
   'allowLocalBinding reads partial': { facts: closed({ network: { allowLocalBinding: true } }), expected: { level: 'partial', gaps: ['sandbox.network.allowLocalBinding'] } },
   'enableWeakerNestedSandbox reads partial': { facts: closed({ enableWeakerNestedSandbox: true }), expected: { level: 'partial', gaps: ['sandbox.enableWeakerNestedSandbox'] } },
@@ -96,6 +100,14 @@ describe('runtimeIsolation', () => {
     expect(reading.level === 'partial' && reading.gaps.map(gap => gap.split(' ')[0])).toEqual(['sandbox.allowUnsandboxedCommands'])
     const allowed = runtimeIsolation({ ...base, project: { sandbox: { enabled: true, allowUnsandboxedCommands: true } } })
     expect(allowed).toEqual(reading)
+  })
+
+  it('a full sandbox has no excludedCommands for gh, git or pnpm task:start and allowUnsandboxedCommands false', () => {
+    const network = { allowedDomains: ['github.com', '*.github.com', '*.githubusercontent.com', 'registry.npmjs.org'], allowUnixSockets: ['/tmp/claude-501/tsx-501'] }
+    expect(runtimeIsolation(closed({ network }))).toEqual({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
+    const excluded = runtimeIsolation(closed({ network, excludedCommands: ['gh *', 'git -C * fetch *', 'pnpm task:start *'] }))
+    expect(excluded).toMatchObject({ level: 'partial', gaps: ['sandbox.excludedCommands names gh *, git -C * fetch *, pnpm task:start *; they run outside the sandbox'] })
+    expect(runtimeIsolation(facts({ user: { sandbox: { enabled: true, allowUnsandboxedCommands: true, network } } }))).toMatchObject({ level: 'partial', gaps: ['sandbox.allowUnsandboxedCommands is not false; a command may be retried outside the sandbox'] })
   })
 
   it('names the refusal word once', () => {
