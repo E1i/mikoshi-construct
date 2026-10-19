@@ -32,8 +32,14 @@ export function runSummary(run: Run): string {
   ].join('\n')
 }
 
+export function pathsOf(args: readonly string[], stdin: () => string): string[] {
+  if (!args.includes('--stdin'))
+    return [...args]
+  return [...args.filter(arg => arg !== '--stdin'), ...stdin().split('\0').filter(entry => entry !== '')]
+}
+
 function main(): void {
-  const changed = process.argv.slice(2)
+  const changed = pathsOf(process.argv.slice(2), () => readFileSync(0, 'utf8'))
   const run = changed.length === 0 ? selectRun([], new Map(), () => '') : selectRun(changed, cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8'))
   console.log(runSummary(run))
   if (process.env.GITHUB_OUTPUT) {

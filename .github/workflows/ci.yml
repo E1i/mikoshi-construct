@@ -77,7 +77,7 @@ jobs:
           fi
       - id: select
         if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
-        run: git diff --name-only --no-renames -z HEAD^1 HEAD | xargs -0 pnpm exec tsx scripts/ci/select.ts
+        run: git diff --name-only --no-renames -z HEAD^1 HEAD | pnpm exec tsx scripts/ci/select.ts --stdin
 
   checks:
     runs-on: ubuntu-24.04

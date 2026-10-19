@@ -13,17 +13,10 @@ export type Run
   = | { kind: 'full', why: string }
     | { kind: 'layers', layers: string[], tests: string[] }
 
-export interface CatalogMutation {
-  id: string
-  file: string
-  killedBy: string
-}
-
-export interface MatrixRow {
-  id: string
-  layer: string
-  killedBy: string
-  runs: boolean
+export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
+  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts'],
+  'scripts/': ['tests/graph-command.test.ts'],
+  'scripts/bus/': ['scripts/tests/ci/layers.test.ts'],
 }
 
 export function isTest(file: string): boolean {
@@ -72,6 +65,12 @@ function spawnedBy(file: string, tests: readonly string[], testText: (test: stri
   return tests.filter(test => named.some(name => testText(test).includes(name)))
 }
 
+function scanning(file: string, tests: readonly string[]): string[] {
+  return Object.entries(SCANNED_TREES)
+    .filter(([root]) => file.startsWith(root))
+    .flatMap(([, scanners]) => scanners.filter(test => tests.includes(test)))
+}
+
 export function selectRun(changed: readonly string[], graph: Graph, testText: (test: string) => string): Run {
   if (changed.length === 0)
     return { kind: 'full', why: 'no changed path was given' }
@@ -81,18 +80,9 @@ export function selectRun(changed: readonly string[], graph: Graph, testText: (t
   const allTests = [...graph.keys()].filter(isTest)
   const reverse = reverseGraph(graph)
   const reached = dependents(changed, reverse)
-  const spawning = changed.flatMap(file => spawnedBy(file, allTests, testText))
+  const spawning = changed.flatMap(file => [...spawnedBy(file, allTests, testText), ...scanning(file, allTests)])
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].map(layerOf).filter(layer => layer !== null))].sort()
   const tests = [...closure].filter(isTest).sort()
   return { kind: 'layers', layers, tests }
-}
-
-export function mutationMatrix(run: Run, mutations: readonly CatalogMutation[]): MatrixRow[] {
-  return mutations.flatMap((mutation) => {
-    const layer = layerOf(mutation.file)
-    if (layer === null || (run.kind === 'layers' && !run.layers.includes(layer)))
-      return []
-    return [{ id: mutation.id, layer, killedBy: mutation.killedBy, runs: run.kind === 'full' || run.tests.includes(mutation.killedBy) }]
-  })
 }
