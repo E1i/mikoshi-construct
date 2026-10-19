@@ -8,7 +8,7 @@ const RULES_DIR = '.claude/rules'
 const BUDGET_CHANGED_ONLY_IN_AN_OWNER_PR: Record<string, number> = {
   'AGENTS.md': 21_716,
   'CLAUDE.md': 2_655,
-  '.claude/rules/command-form.md': 478,
+  '.claude/rules/command-form.md': 466,
   '.claude/rules/conventions.md': 4_176,
   '.claude/rules/secrets.md': 612,
   '.claude/rules/tests.md': 382,
