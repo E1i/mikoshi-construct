@@ -11,6 +11,7 @@ import { completeTask } from '../../bus/lease.js'
 import { Node, NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE, SecondSubscription } from '../../bus/node.js'
 import { keyOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
+import { slotsVariable } from '../../bus/scheduler.js'
 import { Clock, sha } from './github-fake.js'
 
 const roots: string[] = []
@@ -42,8 +43,8 @@ class FakeNode extends Node<NodeStep> {
   derived: QueuedTask[] | null = null
   failAfterRecord = false
 
-  constructor(db: DatabaseSync, readonly clock: Clock, mode: DetectionMode, pattern: readonly string[] = [PROBE_SEEN, 'ci.*']) {
-    super('merge', { db, clock: clock.now, session: 'fake', mode, env: {} })
+  constructor(db: DatabaseSync, readonly clock: Clock, mode: DetectionMode, pattern: readonly string[] = [PROBE_SEEN, 'ci.*'], env: NodeJS.ProcessEnv = {}) {
+    super('merge', { db, clock: clock.now, session: 'fake', mode, env })
     this.subscribe(pattern, (event) => {
       this.detectOn(event, { pr: event.pr ?? undefined })
       if (this.failAfterRecord)
@@ -282,6 +283,73 @@ describe('a node', () => {
     expect(db.prepare(`SELECT state FROM tasks WHERE task_key = ?`).get(keyOf(task(970)))).toEqual({ state: 'completed' })
     expect(delivered).toEqual([probe])
     expect(cursorOf(db)).toBeGreaterThanOrEqual(probe)
+  })
+
+  it('a tick that hits database is locked is logged and runs again on the next turn, before TICK_MS has passed', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    let calls = 0
+    class LockedTick extends FakeNode {
+      protected override candidates(scope?: Scope): QueuedTask[] {
+        calls += 1
+        if (calls === 1)
+          throw new Error('database is locked')
+        return super.candidates(scope)
+      }
+    }
+    const node = new LockedTick(db, clock, 'shadow')
+    node.found = [task(970)]
+    const controller = new AbortController()
+    let pauses = 0
+    await node.run({
+      signal: controller.signal,
+      pause: async () => {
+        pauses += 1
+        if (pauses === 2)
+          controller.abort()
+      },
+    })
+
+    expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).filter(line => line.includes('database is locked'))).toEqual([
+      '[bus:merge] the tick hit database is locked; it is retried on the next turn, and the leases in flight keep running',
+    ])
+    expect(detections(db, 'tick').map(each => each.key)).toEqual([keyOf(task(970))])
+  })
+
+  it('a take that hits database is locked is logged, and the leases taken before it still run to completion', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    let takes = 0
+    class LockedTake extends FakeNode {
+      protected override executes(): boolean {
+        takes += 1
+        if (takes === 2)
+          throw new Error('database is locked')
+        return true
+      }
+    }
+    for (const pr of [970, 971])
+      appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: pr + 100, pr, head: sha('a'), dedupeKey: `pr.observed:${pr}`, payload: { pr, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
+    reduce(db)
+    const node = new LockedTake(db, clock, 'live', [PROBE_SEEN], { [slotsVariable('merge')]: '2' })
+    node.found = [task(970), task(971)]
+    await once(node)
+
+    expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).filter(line => line.includes('database is locked'))).toEqual([
+      '[bus:merge] the take hit database is locked; it is retried on the next turn, and the leases in flight keep running',
+    ])
+    expect(count(db, `SELECT count(*) AS n FROM tasks WHERE state = 'completed'`)).toBe(1)
+    expect(count(db, `SELECT count(*) AS n FROM tasks WHERE state = 'leased'`)).toBe(0)
+  })
+
+  it('an error other than database is locked escapes run', async () => {
+    class Broken extends FakeNode {
+      protected override candidates(): QueuedTask[] {
+        throw new Error('disk I/O error')
+      }
+    }
+    await expect(once(new Broken(newBus(), new Clock(), 'shadow'))).rejects.toThrow('disk I/O error')
+    expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).filter(line => line.includes('database is locked'))).toEqual([])
   })
 
   it('emit sets actor and ts only where the event leaves them out, and getState reads the cursor and the leases', async () => {
