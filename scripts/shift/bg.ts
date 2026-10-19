@@ -144,8 +144,12 @@ export function runBg(argv: string[], env: NodeJS.ProcessEnv, gh: GhRunner, isol
   }
 }
 
+export function shiftIsolationCommand(env: NodeJS.ProcessEnv): string[] {
+  return commandWords(env[CLAUDE_VARIABLE] ?? '')
+}
+
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = runBg(process.argv.slice(2), process.env, execGh, realIsolationReader(process.env, process.cwd(), commandWords(process.env[CLAUDE_VARIABLE] ?? '')))
+  const result = runBg(process.argv.slice(2), process.env, execGh, realIsolationReader(process.env, process.cwd(), shiftIsolationCommand(process.env)))
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)

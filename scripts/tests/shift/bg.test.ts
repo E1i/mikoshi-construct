@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BG_LOG, launchArgv, runBg, USAGE } from '../../shift/bg.js'
+import { BG_LOG, launchArgv, runBg, shiftIsolationCommand, USAGE } from '../../shift/bg.js'
 import { waitFor } from '../wait-for.js'
 import { settled } from './fixtures/settled.js'
 
@@ -287,5 +287,12 @@ describe('pnpm shift:bg', () => {
   it('launches nohup pnpm shift with the shift arguments and no setsid', () => {
     expect(launchArgv(['d', '--chain'])).toEqual(['nohup', 'pnpm', 'shift', 'd', '--chain'])
     expect(launchArgv(['d'])).toEqual(['nohup', 'pnpm', 'shift', 'd'])
+  })
+})
+
+describe('the shift isolation command', () => {
+  it('is the SHIFT_CLAUDE command the shift is spawned with, and empty when it is unset', () => {
+    expect(shiftIsolationCommand({ SHIFT_CLAUDE: ' claude  --permission-mode dontAsk ' })).toEqual(['claude', '--permission-mode', 'dontAsk'])
+    expect(shiftIsolationCommand({})).toEqual([])
   })
 })

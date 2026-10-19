@@ -218,6 +218,10 @@ export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS
   }
 }
 
+export function launchIsolationCommand(claude: string): string[] {
+  return commandWords(cardCommand(claude))
+}
+
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const env = process.env
@@ -231,7 +235,7 @@ async function main(): Promise<number> {
   const ports = realStarterPorts(process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, isolation: realIsolationReader(env, process.cwd(), commandWords(cardCommand(places.claude))) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

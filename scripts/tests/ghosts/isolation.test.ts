@@ -1,13 +1,20 @@
 import type { IsolationFacts } from '../../ghosts/isolation.js'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import os, { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { commandWords, NO_ISOLATION, readIsolationFacts, realIsolationReader, runtimeIsolation, settingsPaths } from '../../ghosts/isolation.js'
+
+vi.mock('node:fs', async (original) => {
+  const fs = await original<typeof import('node:fs')>()
+  return { ...fs, readFileSync: vi.fn(fs.readFileSync) }
+})
 
 const roots: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.mocked(readFileSync).mockReset()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -146,5 +153,22 @@ describe('readIsolationFacts', () => {
     const reading = runtimeIsolation({ ...facts, command: ['claude', '--settings', 'x'] })
     expect(reading).toMatchObject({ level: 'none', why: expect.stringContaining('remove it from the session command') as unknown })
     expect(reading).not.toMatchObject({ why: expect.stringContaining('SHIFT_CLAUDE') as unknown })
+  })
+  it('reads the managed layer from the platform path and the user layer from the home directory', async () => {
+    const fs = await vi.importActual<typeof import('node:fs')>('node:fs')
+    const home = mkdtempSync(path.join(tmpdir(), 'isolation-home-'))
+    roots.push(home)
+    mkdirSync(path.join(home, '.claude'))
+    writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ sandbox: { enabled: true } }))
+    vi.stubEnv('HOME', home)
+    const managed = settingsPaths({}, home, os.platform(), home).managed
+    vi.mocked(readFileSync).mockImplementation(((file: string, encoding: BufferEncoding) => file === managed ? JSON.stringify({ sandbox: { enabled: false } }) : fs.readFileSync(file, encoding)) as typeof readFileSync)
+
+    const read = readIsolationFacts({ PATH: '' }, home, [])
+    expect(managed).not.toBeNull()
+    expect(read.managed).toEqual({ sandbox: { enabled: false } })
+    expect(read.user).toEqual({ sandbox: { enabled: true } })
+    expect(read.platform).toBe(os.platform())
+    expect(runtimeIsolation(read)).toMatchObject({ level: 'none', why: expect.stringContaining('sandbox.enabled is not true') as unknown })
   })
 })

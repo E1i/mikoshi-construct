@@ -21,11 +21,11 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewMode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewIsolationCommand, reviewMode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { openDatabase } from '../../bus/sqlite.js'
-import { REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
+import { HEADLESS_FLAGS, REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
 import { classify } from '../../morse/rules.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -1260,5 +1260,11 @@ describe('review depth by MORSE', () => {
     expect(withinTouches('docs/a/b.md', ['docs/**'])).toBe(true)
     expect(withinTouches('docs.md', ['docs/**'])).toBe(false)
     expect(withinTouches('README.md', ['README.md'])).toBe(true)
+  })
+})
+
+describe('the review isolation command', () => {
+  it('is claude with the headless flags the reviewer is spawned with', () => {
+    expect(reviewIsolationCommand()).toEqual(['claude', ...HEADLESS_FLAGS])
   })
 })

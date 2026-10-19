@@ -343,6 +343,10 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
   }
 }
 
+export function reviewIsolationCommand(): string[] {
+  return ['claude', ...HEADLESS_FLAGS]
+}
+
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const argv = process.argv.slice(2)
@@ -358,7 +362,7 @@ async function main(): Promise<number> {
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
     notePr: ghNotePr(cwd),
-    isolation: realIsolationReader(process.env, cwd, ['claude', ...HEADLESS_FLAGS]),
+    isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
   })
 }
 

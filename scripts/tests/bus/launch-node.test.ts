@@ -16,7 +16,7 @@ import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { handoffLadderSteps, LaunchNode } from '../../bus/launch-worker.js'
+import { handoffLadderSteps, launchIsolationCommand, LaunchNode } from '../../bus/launch-worker.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
 import { keyOf, launchTasks, TASK_ENQUEUED } from '../../bus/queue.js'
@@ -472,5 +472,11 @@ describe('the launch node in ladder mode', () => {
     expect(cheap.starts).toEqual([])
     expect(world.spawned).toHaveLength(1)
     expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(1)
+  })
+})
+
+describe('the launch isolation command', () => {
+  it('is the command the card session is spawned with', () => {
+    expect(launchIsolationCommand('/opt/claude --settings /tmp/s.json')).toEqual(['/opt/claude', '--settings', '/tmp/s.json', '--permission-mode', 'dontAsk'])
   })
 })
