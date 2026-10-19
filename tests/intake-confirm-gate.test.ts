@@ -89,8 +89,8 @@ describe('intake confirmation gate', () => {
   })
 
   it('confirmed slices are parked as cards with depends and no manual step', () => {
-    const w = world([card({ touches: ['scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts'] })])
-    writeFileSync(path.join(w.repo, 'scripts/bus/queue.ts'), 'import { roundLimitDecisionOf } from \'./round-limit-decision.js\'\n')
+    const w = world([card({ touches: ['scripts/bus/queue.ts', 'scripts/bus/inbox.ts'] })])
+    writeFileSync(path.join(w.repo, 'scripts/bus/queue.ts'), 'import { inboxOf } from \'./inbox.js\'\n')
     const held = intake(w)
     expect(held.status).toBe('awaiting')
     expect(existsSync(w.parking)).toBe(false)
@@ -109,7 +109,7 @@ describe('intake confirmation gate', () => {
       expect(text).toContain('- `pnpm run quality` is green')
     }
     expect(readFileSync(path.join(w.parking, '13.md'), 'utf8')).toContain('touches: scripts/bus/queue.ts\n')
-    expect(readFileSync(path.join(w.parking, '14.md'), 'utf8')).toContain('touches: scripts/bus/round-limit-decision.ts\n')
+    expect(readFileSync(path.join(w.parking, '14.md'), 'utf8')).toContain('touches: scripts/bus/inbox.ts\n')
     expect(journalLines(w)).toMatchObject([{ task: '13', confirmation: 'person' }, { task: '14', confirmation: 'person' }])
   })
 
@@ -118,7 +118,7 @@ describe('intake confirmation gate', () => {
     const witness = '`pnpm exec vitest run scripts/tests/ghosts/hash.test.ts scripts/tests/bus/round-limit-decision.test.ts scripts/tests/bus/merge-queue.test.ts scripts/tests/bus/answer-node.test.ts scripts/tests/miko/watch.test.ts` exits 0'
     const w = world([card({ name: 'owner-loop-without-relay', milestone: 'operator', size: 'L', touches, task: 'Card A owner-loop-without-relay, eight items as one task.', witnesses: [witness] })])
     writeFileSync(path.join(w.repo, 'package.json'), '{}\n')
-    writeFileSync(path.join(w.repo, 'scripts/bus/queue.ts'), 'import { roundLimitDecisionOf } from \'./round-limit-decision.js\'\n')
+    writeFileSync(path.join(w.repo, 'scripts/bus/queue.ts'), 'import { inboxOf } from \'./inbox.js\'\n')
     const held = intake(w)
     expect(held.status).toBe('awaiting')
     const confirmed = intake(w, { confirm: held.status === 'awaiting' ? held.token : '' })
@@ -163,7 +163,7 @@ describe('intake confirmation gate', () => {
     expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', confirmation: 'none', corrections: [] }])
   })
 
-  it.each([['the parking root', '', null], ['a lane', 'lane-4', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted beside the journal line', (_where, lane, expected) => {
+  it.each([['the parking root', '', 'lane-01'], ['a lane', 'lane-4', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted beside the journal line', (_where, lane, expected) => {
     const w = world([card()])
     const bus: CardEvent[] = []
     expect(intake(w, { parking: path.join(w.parking, lane), parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('written')
