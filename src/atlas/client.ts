@@ -13,8 +13,16 @@ export const ATLAS_SCRIPT = `
   const tip = document.getElementById('atlas-tip');
   const search = document.getElementById('atlas-search');
   const results = document.getElementById('atlas-results');
+  const legend = document.getElementById('atlas-legend');
+  const hiddenNote = document.getElementById('atlas-hidden');
+  const sortBar = document.getElementById('atlas-sort');
+  const LABEL_ZOOM = 1.25;
   const open = new Set(DATA.open);
   const expanded = new Set();
+  const hiddenKinds = new Set();
+  let sortKey = null;
+  let focusId = null;
+  let lit = null;
   let selected = null;
   let view = { x: 0, y: 0, k: 1 };
   const boxes = new Map();
@@ -41,6 +49,43 @@ export const ATLAS_SCRIPT = `
   const entryOf = new Map(DATA.entries.map((entry) => [entry.id, entry]));
   const sourceOf = new Map();
   for (const source of DATA.entrySources) source.entries.forEach((id) => sourceOf.set(id, source));
+  const contourOfComponent = new Map();
+  const members = new Map();
+  for (const contour of DATA.contours) {
+    const ids = new Set([contour.id]);
+    const files = new Set();
+    for (const component of contour.components) {
+      contourOfComponent.set(component.id, contour);
+      ids.add(component.id);
+      component.files.forEach((index) => files.add(index));
+    }
+    members.set(contour.id, { ids, files });
+  }
+  for (const group of DATA.groups) {
+    const ids = new Set([group.id]);
+    const files = new Set();
+    for (const id of group.contours) {
+      members.get(id).ids.forEach((member) => ids.add(member));
+      members.get(id).files.forEach((index) => files.add(index));
+    }
+    members.set(group.id, { ids, files });
+  }
+  const kindOf = (arrow) => arrow.layer || arrow.crossing;
+  const edgeCount = (id) => DATA.arrows.filter((arrow) => arrow.from === id || arrow.to === id).length;
+  const STATE_RANK = { absent: 0, unknown: 1, held: 2 };
+  const SORTS = {
+    name: (left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
+    edges: (left, right) => edgeCount(right.id) - edgeCount(left.id),
+    state: (left, right) => STATE_RANK[left.state] - STATE_RANK[right.state],
+  };
+  const ordered = (contour) => (sortKey === null ? contour.components : contour.components.slice().sort(SORTS[sortKey]));
+  function problemsOf(id) {
+    const found = members.get(id);
+    if (!found) return [];
+    const bypass = DATA.arrows.some((arrow) => arrow.crossing === 'bypass' && (found.ids.has(arrow.from) || found.ids.has(arrow.to)));
+    const unknown = DATA.unresolved.some((entry) => found.files.has(entry[0]));
+    return (bypass ? ['bypass'] : []).concat(unknown ? ['unknown'] : []);
+  }
   const counts = (entry) => STATES.map((state, at) => entry.counts[at] + ' ' + state).join(' · ');
   const href = (path) => {
     const encoded = path.split('/').filter((segment) => segment !== '').map(encodeURIComponent).join('/');
@@ -62,13 +107,35 @@ export const ATLAS_SCRIPT = `
     return expanded.has(component.id) ? H + component.files.length * ROW + 6 : H;
   }
 
+  function focusMark(id) {
+    if (lit === null) return '';
+    return lit.has(id) ? ' data-near=""' : ' data-dim=""';
+  }
+
+  function focusOf() {
+    if (selected === null) return null;
+    let id = selected;
+    if (DATA.files.includes(selected)) id = nodeOfFile(selected);
+    else if (entryOf.has(selected) && !open.has(sourceOf.get(selected).id)) id = sourceOf.get(selected).id;
+    if (!id) return null;
+    const near = new Set([id]);
+    for (const arrow of arrows) {
+      if (arrow.from === id) near.add(arrow.to);
+      if (arrow.to === id) near.add(arrow.from);
+    }
+    focusId = id;
+    return near;
+  }
+
   function nodeMarkup(entry, x, y, kind) {
     const height = kind === 'component' ? componentHeight(entry) : H;
     boxes.set(entry.id, { x, y, w: W, h: height });
     const isOpen = kind === 'component' && expanded.has(entry.id);
     const sub = kind === 'group' ? entry.contours.length + ' contours' : kind === 'contour' ? entry.kind + ' · ' + entry.components.length + ' parts' : (entry.purpose === null ? entry.files.length + ' files · not interpreted' : entry.purpose);
-    let markup = '<g class="box" data-node="' + esc(entry.id) + '" data-kind="' + kind + '" data-state="' + entry.state + '"' + (isOpen ? ' data-open=""' : '') + (selected === entry.id ? ' aria-current="true"' : '') + ' tabindex="0">'
-      + '<title>' + esc(entry.name + ' — ' + counts(entry)) + '</title>'
+    const problems = kind === 'group' || kind === 'contour' ? problemsOf(entry.id) : [];
+    let markup = '<g class="box" data-node="' + esc(entry.id) + '" data-kind="' + kind + '" data-state="' + entry.state + '"' + (isOpen ? ' data-open=""' : '') + focusMark(entry.id) + (problems.length === 0 ? '' : ' data-problem="' + problems.join(' ') + '"') + (selected === entry.id ? ' aria-current="true"' : '') + ' tabindex="0">'
+      + '<title>' + esc(entry.name + ' — ' + counts(entry) + (problems.length === 0 ? '' : ' — hides ' + problems.join(' and ') + ' edges')) + '</title>'
+      + (problems.length === 0 ? '' : '<text class="mark" x="' + (x + W - 8) + '" y="' + (y + 20) + '">' + esc('! ' + problems.join(' · ')) + '</text>')
       + '<rect x="' + x + '" y="' + y + '" width="' + W + '" height="' + height + '" rx="6"></rect>'
       + '<text class="name" x="' + (x + 8) + '" y="' + (y + 20) + '">' + esc(entry.name.length > 30 ? '…' + entry.name.slice(-29) : entry.name) + '</text>'
       + '<text class="sub" x="' + (x + 8) + '" y="' + (y + 38) + '">' + esc(sub.length > 36 ? sub.slice(0, 35) + '…' : sub) + '</text>'
@@ -78,7 +145,7 @@ export const ATLAS_SCRIPT = `
       entry.files.forEach((index, at) => {
         const path = file(index);
         const state = DATA.states[index];
-        markup += '<g class="file" data-file="' + esc(path) + '" data-state="' + state + '"' + (selected === path ? ' aria-current="true"' : '') + '>'
+        markup += '<g class="file" data-file="' + esc(path) + '" data-state="' + state + '"' + focusMark(entry.id) + (selected === path ? ' aria-current="true"' : '') + '>'
           + '<text x="' + (x + 14) + '" y="' + (y + H + at * ROW + 12) + '">' + esc(path.split('/').pop()) + '</text></g>';
       });
     }
@@ -99,7 +166,7 @@ export const ATLAS_SCRIPT = `
 
   function plainBox(id, kind, name, sub, x, y) {
     boxes.set(id, { x, y, w: W, h: H });
-    return '<g class="box" data-node="' + esc(id) + '" data-kind="' + kind + '" data-layer="runs"' + (selected === id ? ' aria-current="true"' : '') + ' tabindex="0">'
+    return '<g class="box" data-node="' + esc(id) + '" data-kind="' + kind + '" data-layer="runs"' + focusMark(id) + (selected === id ? ' aria-current="true"' : '') + ' tabindex="0">'
       + '<title>' + esc(name) + '</title>'
       + '<rect x="' + x + '" y="' + y + '" width="' + W + '" height="' + H + '" rx="6"></rect>'
       + '<text class="name" x="' + (x + 8) + '" y="' + (y + 20) + '">' + esc(name.length > 30 ? '…' + name.slice(-29) : name) + '</text>'
@@ -171,6 +238,9 @@ export const ATLAS_SCRIPT = `
       rowHeight = Math.max(rowHeight, height);
       return at;
     };
+    const shown = visible();
+    arrows = DATA.arrows.filter((arrow) => shown.has(arrow.from) && shown.has(arrow.to)).concat(layerArrows()).filter((arrow) => !hiddenKinds.has(kindOf(arrow)));
+    lit = focusOf();
     markup += entryMarkup(place);
     const drawnGroups = new Set();
     for (const contour of DATA.contours) {
@@ -188,8 +258,9 @@ export const ATLAS_SCRIPT = `
         continue;
       }
       const columns = Math.max(1, Math.min(5, Math.ceil(Math.sqrt(contour.components.length))));
+      const parts = ordered(contour);
       const rows = [];
-      contour.components.forEach((component, index) => {
+      parts.forEach((component, index) => {
         const row = Math.floor(index / columns);
         rows[row] = Math.max(rows[row] || 0, componentHeight(component));
       });
@@ -201,18 +272,18 @@ export const ATLAS_SCRIPT = `
         + '<text class="name" x="' + (at.x + PAD) + '" y="' + (at.y + 18) + '">' + esc(contour.name + ' · ' + contour.kind + ' · ' + counts(contour)) + '</text></g>';
       let top = at.y + HEAD + PAD;
       rows.forEach((rowHeightOf, row) => {
-        contour.components.slice(row * columns, row * columns + columns).forEach((component, column) => {
+        parts.slice(row * columns, row * columns + columns).forEach((component, column) => {
           markup += nodeMarkup(component, at.x + PAD + column * (W + GAP), top, 'component');
         });
         top += rowHeightOf + GAP;
       });
     }
-    const shown = visible();
-    arrows = DATA.arrows.filter((arrow) => shown.has(arrow.from) && shown.has(arrow.to)).concat(layerArrows());
     const edges = arrows.map((arrow, index) => edgeMarkup(arrow, index)).join('');
     viewport.innerHTML = '<g class="edges">' + edges + '</g>' + markup;
     viewport.setAttribute('data-arrows', String(arrows.length));
     viewport.setAttribute('data-nodes', String(shown.size));
+    hiddenNote.hidden = hiddenKinds.size === 0;
+    hiddenNote.innerHTML = hiddenKinds.size === 0 ? '' : esc('Hidden edge kinds: ' + Array.from(hiddenKinds).join(', ') + '. Click them in the legend to show them again.');
     transform();
   }
 
@@ -236,7 +307,8 @@ export const ATLAS_SCRIPT = `
     const width = Math.min(6, 1 + Math.log2(arrow.count));
     const label = arrow.layer ? arrow.count + ' · ' + arrow.layer : arrow.crossing === 'through' ? arrow.count + ' · contract' : String(arrow.count);
     const kind = arrow.layer ? 'data-layer="' + arrow.layer + '"' : 'data-crossing="' + arrow.crossing + '"';
-    return '<g class="edge" data-arrow="' + index + '" ' + kind + '>'
+    const near = lit === null ? '' : arrow.from === focusId || arrow.to === focusId ? ' data-near=""' : ' data-dim=""';
+    return '<g class="edge" data-arrow="' + index + '" ' + kind + near + '>'
       + '<path d="M ' + start.x + ' ' + start.y + ' Q ' + mx + ' ' + my + ' ' + end.x + ' ' + end.y + '" stroke-width="' + width + '"></path>'
       + '<path class="hit" d="M ' + start.x + ' ' + start.y + ' Q ' + mx + ' ' + my + ' ' + end.x + ' ' + end.y + '"></path>'
       + '<text x="' + mx + '" y="' + my + '">' + esc(label) + '</text>'
@@ -245,6 +317,7 @@ export const ATLAS_SCRIPT = `
 
   function transform() {
     viewport.setAttribute('transform', 'translate(' + view.x + ' ' + view.y + ') scale(' + view.k + ')');
+    if (view.k >= LABEL_ZOOM) svg.setAttribute('data-labels', ''); else svg.removeAttribute('data-labels');
   }
 
   function relationsOf(path) {
@@ -343,6 +416,7 @@ export const ATLAS_SCRIPT = `
     if (!open.has(contour.id)) element('data-node', contour.id).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     if (!expanded.has(component.id)) element('data-node', component.id).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     element('data-file', path).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    zoomTo(nodeOfFile(path));
     return true;
   }
 
@@ -398,14 +472,72 @@ export const ATLAS_SCRIPT = `
     transform();
   }, { passive: false });
 
+  function zoomTo(id) {
+    const box = boxes.get(id);
+    const rect = svg.getBoundingClientRect();
+    if (!box || rect.width === 0) return;
+    view.k = Math.min(4, Math.max(view.k, 1));
+    view.x = rect.width / 2 - (box.x + box.w / 2) * view.k;
+    view.y = rect.height / 2 - (box.y + Math.min(box.h, H) / 2) * view.k;
+    transform();
+  }
+
+  function revealNode(id) {
+    const entry = entryOf.get(id);
+    const contour = DATA.contours.find((candidate) => candidate.id === id) || contourOfComponent.get(id) || null;
+    if (entry) open.add(sourceOf.get(id).id);
+    if (contour) {
+      const group = groupOfContour.get(contour.id);
+      if (group) open.add(group.id);
+      if (contour.id !== id) open.add(contour.id);
+    }
+    show(id);
+    zoomTo(id);
+  }
+
+  function matches(query) {
+    const hit = (text) => text.toLowerCase().includes(query);
+    const found = [];
+    for (const contour of DATA.contours) {
+      if (hit(contour.name) || hit(contour.id)) found.push({ id: contour.id, label: 'contour · ' + contour.name });
+      for (const component of contour.components) {
+        if (hit(component.name)) found.push({ id: component.id, label: 'component · ' + component.name + ' (' + contour.name + ')' });
+      }
+    }
+    for (const entry of DATA.entries) {
+      if (hit(entry.name) || hit(file(entry.source))) found.push({ id: entry.id, label: entry.kind + ' · ' + entry.name + ' (' + file(entry.source) + ')' });
+    }
+    return found;
+  }
+
   search.addEventListener('input', () => {
     const query = search.value.trim().toLowerCase();
-    const found = query === '' ? [] : DATA.files.filter((path) => path.split('/').pop().toLowerCase().includes(query) && componentOfFile.has(path)).slice(0, 30);
-    results.innerHTML = found.map((path) => '<li><button type="button" data-reveal="' + esc(path) + '">' + esc(path) + '</button></li>').join('');
+    const nodes = query === '' ? [] : matches(query);
+    const found = query === '' ? [] : DATA.files.filter((path) => path.split('/').pop().toLowerCase().includes(query) && componentOfFile.has(path));
+    results.innerHTML = nodes.map((hit) => '<li><button type="button" data-reveal-node="' + esc(hit.id) + '">' + esc(hit.label) + '</button></li>').concat(found.map((path) => '<li><button type="button" data-reveal="' + esc(path) + '">' + esc(path) + '</button></li>')).slice(0, 30).join('');
   });
   results.addEventListener('click', (event) => {
+    const node = event.target.closest('[data-reveal-node]');
+    if (node) { revealNode(node.getAttribute('data-reveal-node')); return; }
     const button = event.target.closest('[data-reveal]');
     if (button) reveal(button.getAttribute('data-reveal'));
+  });
+
+  legend.addEventListener('click', (event) => {
+    const toggle = event.target.closest('[data-filter]');
+    if (!toggle) return;
+    const kind = toggle.getAttribute('data-filter');
+    if (hiddenKinds.has(kind)) hiddenKinds.delete(kind); else hiddenKinds.add(kind);
+    toggle.setAttribute('aria-pressed', String(!hiddenKinds.has(kind)));
+    layout();
+  });
+
+  sortBar.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-sort]');
+    if (!button) return;
+    sortKey = sortKey === button.getAttribute('data-sort') ? null : button.getAttribute('data-sort');
+    Array.from(sortBar.children).forEach((candidate) => candidate.setAttribute('aria-pressed', String(candidate.getAttribute('data-sort') === sortKey)));
+    layout();
   });
 
   layout();
