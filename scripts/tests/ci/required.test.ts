@@ -7,7 +7,7 @@ import { blockingJobs, CLASSIFY_JOB, SKIPPED_ON_FAST_PATH } from '../../ci/requi
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
-interface Job { name?: string, needs?: string | string[], if?: string, steps: { run?: string }[], outputs?: Record<string, string> }
+interface Job { name?: string, needs?: string | string[], if?: string, steps: { id?: string, if?: string, run?: string, env?: Record<string, string> }[], outputs?: Record<string, string> }
 const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: Record<string, Job> }
 const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
 
@@ -108,6 +108,16 @@ describe('ci.yml wiring', () => {
     expect(conditional.length).toBeGreaterThan(0)
     for (const job of conditional)
       expect(job.name ?? '').not.toContain('matrix.')
+  })
+
+  it('selects tests only on a pull request that is not changeset-release/*, and narrows vitest only when the selection says so', () => {
+    const select = workflow.jobs[CLASSIFY_JOB]!.steps.find(step => step.id === 'select')
+    expect(select?.if).toContain('github.event_name == \'pull_request\'')
+    expect(select?.if).toContain('!startsWith(github.head_ref, \'changeset-release/\')')
+    expect(workflow.jobs[CLASSIFY_JOB]!.outputs?.full).toContain('|| \'true\'')
+    const narrowing = workflow.jobs.vitest!.steps.find(step => step.env?.SELECTED_TESTS !== undefined)!
+    expect(narrowing.env!.SELECTED_TESTS).toContain('needs.changes.outputs.full == \'false\'')
+    expect(narrowing.env!.PASS_WITH_NO_TESTS).toContain('needs.changes.outputs.full == \'false\'')
   })
 
   it('classifies a renamed file by both of its paths', () => {
