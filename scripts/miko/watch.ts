@@ -5,8 +5,9 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { MERGE_DONE, REVIEW_RECORDED } from '../bus/card-automaton.js'
+import { IN_REVIEW_CARD, MERGE_DONE, REVIEW_RECORDED, RUNNING_CARD } from '../bus/card-automaton.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
+import { CARD_STOPPED, POLICY_DENIED } from '../bus/inbox.js'
 import { CARD_CLOSED } from '../bus/launch-candidates.js'
 import { PR_CLOSED } from '../bus/observations.js'
 import { PR_OBSERVED } from '../bus/operator-work.js'
@@ -18,8 +19,14 @@ import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore } from './watch-store.js'
 
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT]
+export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, POLICY_DENIED]
 export const FAILED_CI = 'red'
+export const DENIALS_IN_A_ROW = 2
+export const USER_SETTINGS = '~/.claude/settings.json'
+export const STALL_MS = 20 * 60_000
+export const BUS_ALIVE_MS = 2 * 60_000
+export const BUS_PULSE = 'netwatch.tick'
+export const IN_FLIGHT_CARDS = [RUNNING_CARD, IN_REVIEW_CARD]
 export const POLL_MS = 500
 export const USAGE = 'usage: pnpm miko:watch [--once [--card <N>]] [--pid <pid>…]'
 export const ONCE = '--once'
@@ -32,12 +39,26 @@ export function skippedLine(busId: number): string {
   return `skipped through bus id ${busId}`
 }
 
+export interface DenialRun {
+  reason: string
+  count: number
+}
+
 export interface WatchState {
   offset: number
   rest: string
   busId: number
   ciByPr: Map<number | null, { head: string | null, ci: unknown }>
+  deniedByTask: Map<string, DenialRun>
+  stalls: Set<string>
   pids: Set<number>
+}
+
+export interface CardActivity {
+  cardId: number
+  lastEventId: number
+  lastType: string
+  lastTs: string
 }
 
 export interface BusEvent {
@@ -57,6 +78,8 @@ export interface WatchDeps {
   lastBusId: () => number
   busEventsAfter: (id: number) => BusEvent[]
   observedUpTo: (id: number) => BusEvent[]
+  deniedUpTo: (id: number) => BusEvent[]
+  stalls: () => CardActivity[]
   alive: (pid: number) => boolean
   emit: (line: string) => Promise<void>
   beforeCommit: () => Promise<void>
@@ -119,9 +142,51 @@ function journalCard(line: string): number | undefined {
 
 export const ROUND_LIMIT_NEEDS_OWNER = 'round limit reached, the bus queues no further review; owner decision needed: allow-merge'
 
+function payloadOf(payload: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(payload)
+    return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {}
+  }
+  catch {
+    return {}
+  }
+}
+
+function textOf(payload: Record<string, unknown>, name: string): string | undefined {
+  return typeof payload[name] === 'string' ? payload[name] : undefined
+}
+
+function denialReason(payload: Record<string, unknown>): string {
+  return textOf(payload, 'reason') ?? textOf(payload, 'rule') ?? '-'
+}
+
+export function denialLine(payload: string): string {
+  const parsed = payloadOf(payload)
+  return `second in a row for one task: reason ${denialReason(parsed)}; settings ${textOf(parsed, 'settings') ?? USER_SETTINGS}`
+}
+
 export function busLine(event: BusEvent): string {
   const head = `bus ${event.type} card ${event.cardId ?? '-'} pr ${event.pr ?? '-'}`
-  return event.type === REVIEW_ROUNDS_SPENT ? `${head} ${ROUND_LIMIT_NEEDS_OWNER} ${event.payload}` : `${head} ${event.payload}`
+  if (event.type === REVIEW_ROUNDS_SPENT)
+    return `${head} ${ROUND_LIMIT_NEEDS_OWNER} ${event.payload}`
+  if (event.type === POLICY_DENIED)
+    return `${head} ${denialLine(event.payload)} ${event.payload}`
+  return `${head} ${event.payload}`
+}
+
+export function stallKey(stall: CardActivity): string {
+  return `${stall.cardId}:${stall.lastEventId}`
+}
+
+export function stallLine(stall: CardActivity, now: number): string {
+  const minutes = Math.floor((now - Date.parse(stall.lastTs)) / 60_000)
+  return `stall card ${stall.cardId}: no new event for ${minutes} minutes since ${stall.lastType} at ${stall.lastTs}, while the bus is alive`
+}
+
+export function stalledOf(cards: CardActivity[], lastPulseTs: string | undefined, now: number): CardActivity[] {
+  if (lastPulseTs === undefined || now - Date.parse(lastPulseTs) > BUS_ALIVE_MS)
+    return []
+  return cards.filter(card => now - Date.parse(card.lastTs) > STALL_MS)
 }
 
 export function wakingEvent(line: string): string | undefined {
@@ -136,7 +201,7 @@ export function wakingEvent(line: string): string | undefined {
 }
 
 export function watchState(deps: WatchDeps, pids: number[]): WatchState {
-  return { offset: deps.size(), rest: '', busId: deps.lastBusId(), ciByPr: new Map(), pids: new Set(pids) }
+  return { offset: deps.size(), rest: '', busId: deps.lastBusId(), ciByPr: new Map(), deniedByTask: new Map(), stalls: new Set(deps.stalls().map(stallKey)), pids: new Set(pids) }
 }
 
 function journalLines(state: WatchState, deps: WatchDeps): string[] {
@@ -155,26 +220,40 @@ function journalLines(state: WatchState, deps: WatchDeps): string[] {
 }
 
 function ciOf(payload: string): unknown {
-  try {
-    const parsed: unknown = JSON.parse(payload)
-    return typeof parsed === 'object' && parsed !== null ? (parsed as { ci?: unknown }).ci : undefined
-  }
-  catch {
-    return undefined
-  }
+  return payloadOf(payload).ci
 }
 
-function turnsRed(state: Pick<WatchState, 'ciByPr'>, event: BusEvent): boolean {
+type BusMemory = Pick<WatchState, 'ciByPr' | 'deniedByTask'>
+
+function turnsRed(state: BusMemory, event: BusEvent): boolean {
   const before = state.ciByPr.get(event.pr)
   const now = { head: event.head, ci: ciOf(event.payload) }
   state.ciByPr.set(event.pr, now)
   return now.ci === FAILED_CI && (before?.ci !== FAILED_CI || before.head !== now.head)
 }
 
-export function wakesTheWindow(state: Pick<WatchState, 'ciByPr'>, event: BusEvent): boolean {
+function deniedTask(event: BusEvent, payload: Record<string, unknown>): string {
+  return [event.cardId ?? '-', event.pr ?? '-', event.head ?? '-', textOf(payload, 'command') ?? '-'].join(':')
+}
+
+function deniedAgainInARow(state: BusMemory, event: BusEvent): boolean {
+  const payload = payloadOf(event.payload)
+  const task = deniedTask(event, payload)
+  const reason = denialReason(payload)
+  const before = state.deniedByTask.get(task)
+  const count = before?.reason === reason ? before.count + 1 : 1
+  state.deniedByTask.set(task, { reason, count })
+  return count === DENIALS_IN_A_ROW
+}
+
+export function wakesTheWindow(state: BusMemory, event: BusEvent): boolean {
   if (!WAKING_BUS_EVENTS.includes(event.type))
     return false
-  return event.type !== PR_OBSERVED || turnsRed(state, event)
+  if (event.type === PR_OBSERVED)
+    return turnsRed(state, event)
+  if (event.type === POLICY_DENIED)
+    return deniedAgainInARow(state, event)
+  return true
 }
 
 function busLines(state: WatchState, deps: WatchDeps): string[] {
@@ -191,8 +270,16 @@ function exitedPids(state: WatchState, deps: WatchDeps): string[] {
   return exited.map(pid => `pid ${pid} exited`)
 }
 
-export function tick(state: WatchState, deps: WatchDeps): string[] {
-  return [...journalLines(state, deps), ...busLines(state, deps), ...exitedPids(state, deps)]
+function newStalls(known: Set<string>, deps: WatchDeps): CardActivity[] {
+  const fresh = deps.stalls().filter(stall => !known.has(stallKey(stall)))
+  for (const stall of fresh)
+    known.add(stallKey(stall))
+  return fresh
+}
+
+export function tick(state: WatchState, deps: WatchDeps, now = Date.now()): string[] {
+  const stalls = newStalls(state.stalls, deps).map(stall => stallLine(stall, now))
+  return [...journalLines(state, deps), ...busLines(state, deps), ...exitedPids(state, deps), ...stalls]
 }
 
 function journalDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefined): Delivery | undefined {
@@ -218,9 +305,11 @@ function busDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefi
   const end = deps.lastBusId()
   if (end < cursor.busId)
     throw new WatchRefusal(`miko:watch: the bus ${deps.bus} ends at event ${end}, before the cursor's event ${cursor.busId}; it was replaced or cut`)
-  const seen = { ciByPr: new Map() as WatchState['ciByPr'] }
+  const seen: BusMemory = { ciByPr: new Map(), deniedByTask: new Map() }
   for (const event of deps.observedUpTo(cursor.busId))
     seen.ciByPr.set(event.pr, { head: event.head, ci: ciOf(event.payload) })
+  for (const event of deps.deniedUpTo(cursor.busId))
+    deniedAgainInARow(seen, event)
   let skipped: Delivery | undefined
   for (const event of deps.busEventsAfter(cursor.busId)) {
     if (event.id > end)
@@ -249,14 +338,22 @@ export function selectOnce(cursor: WatchCursor, deps: WatchDeps, pids: number[],
   return afterSkips === cursor ? undefined : { line: null, cursor: afterSkips }
 }
 
-export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: number[], card?: number): Promise<void> {
+function stallOf(known: Set<string>, deps: WatchDeps, card: number | undefined): CardActivity | undefined {
+  return newStalls(known, deps).find(stall => card === undefined || stall.cardId === card)
+}
+
+export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: number[], card?: number, now: () => number = Date.now): Promise<void> {
+  const known = new Set(deps.stalls().map(stallKey))
   for (;;) {
-    const delivery = selectOnce(store.cursor(), deps, pids, card)
-    if (delivery?.line === null) {
-      store.write(delivery.cursor)
+    const cursor = store.cursor()
+    const selected = selectOnce(cursor, deps, pids, card)
+    if (selected?.line === null) {
+      store.write(selected.cursor)
       store.commit()
-      console.error(skippedLine(delivery.cursor.busId))
+      console.error(skippedLine(selected.cursor.busId))
     }
+    const stall = selected?.line == null ? stallOf(known, deps, card) : undefined
+    const delivery = stall === undefined ? selected : { line: stallLine(stall, now()), cursor: store.cursor() }
     if (delivery?.line == null) {
       await new Promise(resolve => setTimeout(resolve, POLL_MS))
       continue
@@ -357,6 +454,44 @@ function observedUpTo(bus: string, id: number): BusEvent[] {
   }
 }
 
+function deniedUpTo(bus: string, id: number): BusEvent[] {
+  const db = openBus(bus)
+  try {
+    const rows = db.prepare('SELECT id, type, card_id, pr, head, payload FROM events WHERE type = ? AND id <= ? ORDER BY id').all(POLICY_DENIED, id) as unknown as BusRow[]
+    return rows.map(eventOfRow)
+  }
+  finally {
+    db.close()
+  }
+}
+
+interface ActivityRow {
+  card_id: number
+  id: number
+  type: string
+  ts: string
+}
+
+function stalls(bus: string, now: number): CardActivity[] {
+  const db = openBus(bus)
+  try {
+    const pulse = db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(BUS_PULSE) as { ts: string } | undefined
+    const states = IN_FLIGHT_CARDS.map(() => '?').join(', ')
+    const rows = db.prepare(`
+      SELECT card_id, id, type, ts FROM events WHERE id IN (
+        SELECT MAX(event.id) FROM events AS event JOIN cards AS card ON card.card_id = event.card_id
+        WHERE card.state IN (${states}) AND event.id >= (SELECT COALESCE(MIN(event_id), 0) FROM cards WHERE state IN (${states}))
+        GROUP BY event.card_id
+      ) ORDER BY id
+    `).all(...IN_FLIGHT_CARDS, ...IN_FLIGHT_CARDS) as unknown as ActivityRow[]
+    const cards = rows.map(row => ({ cardId: Number(row.card_id), lastEventId: Number(row.id), lastType: row.type, lastTs: row.ts }))
+    return stalledOf(cards, pulse?.ts, now)
+  }
+  finally {
+    db.close()
+  }
+}
+
 function legacyCursor(file: string): string | undefined {
   return existsSync(file) ? readFileSync(file, 'utf8') : undefined
 }
@@ -381,6 +516,8 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     lastBusId: () => lastBusId(bus),
     busEventsAfter: id => busEventsAfter(bus, id),
     observedUpTo: id => observedUpTo(bus, id),
+    deniedUpTo: id => deniedUpTo(bus, id),
+    stalls: () => stalls(bus, Date.now()),
     alive,
     emit: emitLine,
     beforeCommit: async () => {},
