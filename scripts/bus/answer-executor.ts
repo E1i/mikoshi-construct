@@ -5,6 +5,7 @@ import type { Answered, Answerer } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
+import type { AnswerInput } from './prompt-store.js'
 import { riskOf } from '../../src/card/risk.js'
 import { matchGlob } from '../shredder/glob.js'
 import { answerSourceOf } from './answer-source.js'
@@ -14,6 +15,7 @@ import { messageOf } from './errors.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
+import { sha256, storedInput } from './prompt-store.js'
 import { QUESTION_AGENT, QUESTION_OWNER } from './queue.js'
 import { activeDecisionsShard, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, SHARD_DECIDED, unspentShard } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
@@ -43,6 +45,7 @@ export interface AnswerParts {
   clock: () => Date
   trees?: CardTreeTools
   isolation?: IsolationReader
+  prompts?: string
 }
 
 const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
@@ -68,6 +71,10 @@ const MS_PER_MINUTE = 60_000
 
 function minutesSince(start: number, end: number): number {
   return Math.round((end - start) / MS_PER_MINUTE * 10) / 10
+}
+
+function cardBodyOf(input: AnswerInput | undefined): { card_body_sha: string } | Record<string, never> {
+  return input === undefined || input.cardBody === null ? {} : { card_body_sha: sha256(input.cardBody) }
 }
 
 function measurementOf(answered: Answered, minutes: number): { minutes: number, tokens: number | null } | Record<string, never> {
@@ -150,7 +157,7 @@ export class AnswerExecutor {
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, scope)
     }
-    const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...measurementOf(answered, minutes) }
+    const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...measurementOf(answered, minutes), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }

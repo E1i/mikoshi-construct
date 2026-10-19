@@ -49,7 +49,7 @@ interface Tools {
   recreating: () => void
 }
 
-function answerBench() {
+function answerBench(storesPrompts = false) {
   const bench = mergeBench()
   const trees = mkdtempSync(path.join(tmpdir(), 'bus-answer-trees-'))
   const treeOf = (cardId: number): string => path.join(trees, `mc-${cardId}`)
@@ -81,7 +81,7 @@ function answerBench() {
       tools.published.push({ branch: card.branch, commitMessage })
     },
   })
-  const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees })
+  const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees, ...(storesPrompts ? { prompts: path.join(trees, 'prompts') } : {}) })
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
@@ -176,6 +176,19 @@ describe('the answer queue', () => {
     expect(prompt).toContain('Do not commit and do not push')
     expect(prompt).not.toContain('commit and push to')
     expect(bench.tools.published).toEqual([{ branch: 'feat/card-1098', commitMessage: 'answer for #1098 on PR #998\n\nCommitted by the bus from the card\'s worktree after its answer session ended.' }])
+    bench.close()
+  })
+
+  it('card.answered names the stored prompt the answer session was given', async () => {
+    const bench = answerBench(true)
+    bench.started(1098)
+    bench.gitHub.open({ number: 998, review: 'failure' })
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', head: PUSHED })
+    const [answered] = eventsOf(bench.db, CARD_ANSWERED) as { prompt_sha: string, prompt_path: string }[]
+    expect(readFileSync(answered!.prompt_path, 'utf8')).toBe(bench.tools.runs[0]!.argv.at(-1))
+    expect(answered).not.toHaveProperty('card_body_sha')
     bench.close()
   })
 

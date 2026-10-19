@@ -8,6 +8,7 @@ import type { QueuedTask } from '../../bus/queue.js'
 import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -18,10 +19,12 @@ import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
+import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { handoffLadderSteps, hasCommitsAhead, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
-import { keyOf, launchTasks, TASK_ENQUEUED } from '../../bus/queue.js'
+import { keyOf, launchTasks, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ghosts/worktree-home.js'
@@ -276,6 +279,52 @@ describe('the launch node', () => {
 
     await once(node)
     expect(starter.starts.map(card => card.cardId)).toEqual([970, 971])
+  })
+
+  it('the session input is rebuilt from card.started alone with no handoff directory', () => {
+    const made = bench()
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-input-'))
+    roots.push(root)
+    const prompt = 'Shift task 970\n\nthe card body'
+    const starter: CardStarter = {
+      start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242, input: { prompt } } }),
+      stop: () => {},
+    }
+    admit(made, 970, 'lane-a')
+    made.tick()
+    const ts = made.clock.now().toISOString()
+    queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
+    const executor = new LaunchExecutor({ db: made.db, starter, clock: made.clock.now, isolation: sandboxed, prompts: path.join(root, 'prompts') })
+
+    expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
+    const [started] = eventsOf(made.db, CARD_STARTED) as { prompt_sha: string, prompt_path: string, input?: unknown }[]
+    expect(existsSync(path.join(root, 'handoff'))).toBe(false)
+    expect(started!.input).toBeUndefined()
+    const rebuilt = readFileSync(started!.prompt_path, 'utf8')
+    expect(rebuilt).toBe(prompt)
+    expect(createHash('sha256').update(rebuilt).digest('hex')).toBe(started!.prompt_sha)
+  })
+
+  it('card.started is recorded with the prompt sha and the reason when the prompt cannot be stored', () => {
+    const made = bench()
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-input-'))
+    roots.push(root)
+    const blocker = path.join(root, 'a-file')
+    writeFileSync(blocker, '')
+    const starter: CardStarter = {
+      start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242, input: { prompt: 'the launch prompt' } } }),
+      stop: () => {},
+    }
+    admit(made, 970, 'lane-a')
+    made.tick()
+    const ts = made.clock.now().toISOString()
+    queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
+    const executor = new LaunchExecutor({ db: made.db, starter, clock: made.clock.now, isolation: sandboxed, prompts: path.join(blocker, 'prompts') })
+
+    expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
+    const [started] = eventsOf(made.db, CARD_STARTED)
+    expect(started).toMatchObject({ prompt_sha: createHash('sha256').update('the launch prompt').digest('hex'), prompt_unstored: expect.any(String) as unknown })
+    expect(started).not.toHaveProperty('prompt_path')
   })
 
   it('in shadow the launch node writes node.detected and starts no session', async () => {

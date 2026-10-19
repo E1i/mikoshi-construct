@@ -32,6 +32,7 @@ import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { Node, runNode, SWITCH_FLAG } from './node.js'
 import { PR_CLOSED } from './observations.js'
 import { PR_OBSERVED } from './operator-work.js'
+import { promptsDirOf } from './prompt-store.js'
 import { cardBodyShaOfCard, reviewCandidates, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
 import { shadowProblems } from './report.js'
@@ -313,6 +314,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     clearLeftovers: run.clearLeftovers,
     notePr: run.notePr,
     isolation: run.isolation,
+    prompts: promptsDirOf(run.busPath),
     mode: detection,
     env,
   })

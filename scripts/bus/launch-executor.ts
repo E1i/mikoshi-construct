@@ -4,11 +4,13 @@ import type { BusEvent } from './db.js'
 import type { DiskReader } from './disk.js'
 import type { Contour } from './launch-candidates.js'
 import type { AfterFailure, Lease } from './lease.js'
+import type { SessionInput } from './prompt-store.js'
 import { NO_ISOLATION } from '../ghosts/isolation.js'
 import { DISK_LOW, diskLowDetail, statfsReader } from './disk.js'
 import { CARD_STARTED, POLICY_DENIED } from './inbox.js'
 import { launchableCard } from './launch-candidates.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
+import { storedInput } from './prompt-store.js'
 
 export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached' | 'ladder_running' | 'ladder_fault' | typeof DISK_LOW | typeof NO_ISOLATION
 
@@ -26,6 +28,7 @@ export interface LaunchedCard {
   pid: number
   pgid: number
   step?: string
+  input?: SessionInput
 }
 
 export interface StartedCard extends LaunchedCard {
@@ -56,6 +59,7 @@ export interface LaunchParts {
   clock: () => Date
   disk?: DiskReader
   isolation: IsolationReader
+  prompts?: string
 }
 
 const WITHDRAW_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set(['card_not_queued'])
@@ -114,7 +118,9 @@ export class LaunchExecutor {
   }
 
   private started(lease: Lease, card: StartedCard, starter: CardStarter, isolation: Exclude<Isolation, { level: 'none' }>): LaunchOutcome {
-    const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload: { ...card, isolation: isolation.level, isolationGaps: isolation.gaps }, legacy: false }
+    const { input, ...started } = card
+    const payload = { ...started, isolation: isolation.level, isolationGaps: isolation.gaps, ...storedInput(this.parts.prompts, input) }
+    const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload, legacy: false }
     try {
       completeTask(this.parts.db, this.ts(), lease, [event], (db) => {
         if (launchableCard(db, lease.cardId) === null)

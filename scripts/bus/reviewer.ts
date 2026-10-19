@@ -1,5 +1,6 @@
 import type { SpawnSessionParams } from '../ghosts/session.js'
 import type { Lease } from './lease.js'
+import type { SessionInput } from './prompt-store.js'
 import type { VerdictWord } from './record-verdict.js'
 import type { ReviewPlan } from './review-depth.js'
 import { Buffer } from 'node:buffer'
@@ -35,6 +36,7 @@ export interface Review {
   model?: string
   cache?: CacheTokens
   tree?: ReviewedTree
+  input?: SessionInput
 }
 
 export interface CacheTokens {
@@ -295,7 +297,7 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
         throw new Error(`the review tree ${tree} changed outside the review session ${session}, whose transcript has no command that writes: ${mutated.slice(0, 5).join(', ')}${mutated.length > 5 ? `, and ${mutated.length - 5} more` : ''}; a node fault, not a changes verdict`)
       const model = existsSync(params.stdoutPath) ? sessionModelOf(readFileSync(params.stdoutPath, 'utf8')) : undefined
       const cache = cacheTokensOf(readResultFields(params.stdoutPath).usage)
-      return { ...review, ...withoutPassOnMutation(review, mutated), model, cache, tree: { ...held, before, after, mutated } }
+      return { ...review, ...withoutPassOnMutation(review, mutated), model, cache, tree: { ...held, before, after, mutated }, input: { prompt: params.prompt } }
     }
     catch (error) {
       if (!trees.holds(tree))

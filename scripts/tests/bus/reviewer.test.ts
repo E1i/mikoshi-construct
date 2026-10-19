@@ -102,7 +102,9 @@ describe('reviewer', () => {
         if (args[0] === 'worktree' && args[1] === 'remove')
           throw new Error('fatal: the tree is locked')
       }
+      let given = ''
       const passing = async (params: SpawnSessionParams): Promise<number> => {
+        given = params.prompt
         writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
         return 0
       }
@@ -110,6 +112,8 @@ describe('reviewer', () => {
       const trees = new ReviewTrees('/repo', dir, { git, worktrees: () => [], ...cleanTree })
       const review = await claudeReviewer(trees, passing)(lease, full)
       expect(review).toMatchObject({ verdict: 'pass', findings: [] })
+      expect(given).toContain(`[review:${lease.taskKey}]`)
+      expect(review.input).toEqual({ prompt: given })
       expect(review.tree!.path.startsWith(`${dir}/`)).toBe(true)
       expect(review.tree!.release()).toBe('fatal: the tree is locked')
       const failed = await claudeReviewer(trees, async () => 1)(lease, full).catch((error: unknown) => error)
