@@ -163,7 +163,7 @@ export class BusSupervisor {
 
   private watchLimit(): string[] {
     const sha = this.pending ?? this.outdatedBy
-    if (sha === null || this.draining !== null) {
+    if (sha === null || this.drainWaits()) {
       this.waiting = null
       return []
     }
@@ -180,6 +180,10 @@ export class BusSupervisor {
     }
     this.waiting.reported = true
     return [`${PREFIX}the restart onto ${sha} did not happen within ${RESTART_LIMIT_MS / 60_000} min (waited ${Math.round(waitedMs / 1000)}s); ${RESTART_MISSED} is on the bus and the board`]
+  }
+
+  private drainWaits(): boolean {
+    return this.draining !== null && this.parts.now() - this.draining.since < DRAIN_LIMIT_MS
   }
 
   private async moveModes(): Promise<string[]> {

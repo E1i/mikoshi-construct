@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
-import { completeTask, drainOpen, leaseNext, leaseWhileFree, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
+import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
 import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, recordStarted, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
@@ -538,6 +538,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
         busChangedSince: sha => sha !== head,
       },
       journal: () => {},
+      missed: (sha, waitedMs) => recordRestartMissed(db, ts(), sha, waitedMs),
       now: () => MERGED_AT + clock.now,
     }, 0)
     return { db, lease, alive: () => alive, supervisor, ts }
@@ -597,6 +598,40 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(lines).not.toContain('waits for the leases in flight')
     expect(lines).toContain('restarting every running bus process')
     expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get('leases.draining')).toEqual({ n: 1 })
+    db.close()
+  })
+
+  it('a restart that keeps failing after the drain limit still reaches the missed-restart limit', async () => {
+    const clock = { now: 0 }
+    const { db, supervisor } = drainBench(clock, { sha: NEW_MAIN, id: 1 }, { left: Number.POSITIVE_INFINITY })
+    const missedRows = (): unknown[] => db.prepare('SELECT payload FROM events WHERE type = ?').all(RESTART_MISSED)
+
+    await supervisor.step()
+    clock.now = DRAIN_LIMIT_MS
+    expect((await supervisor.step()).join('\n')).toContain('supervisor step failed: stop failed')
+    clock.now = DRAIN_LIMIT_MS + RESTART_LIMIT_MS - 1
+    expect((await supervisor.step()).join('\n')).not.toContain(RESTART_MISSED)
+    expect(missedRows()).toEqual([])
+
+    clock.now = DRAIN_LIMIT_MS + RESTART_LIMIT_MS
+    const lines = (await supervisor.step()).join('\n')
+    expect(lines).toContain(`the restart onto ${NEW_MAIN} did not happen within ${RESTART_LIMIT_MS / 60_000} min`)
+    expect(missedRows()).toHaveLength(1)
+    db.close()
+  })
+
+  it('a drain reopened on the same sha with a later deadline is recorded and read, as a new supervisor after a failed restart opens it', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-drain-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const at = (ms: number): string => new Date(MERGED_AT + ms).toISOString()
+
+    openDrain(db, at(0), NEW_MAIN, at(DRAIN_LIMIT_MS))
+    expect(drainOpen(db, at(DRAIN_LIMIT_MS))).toBe(false)
+
+    openDrain(db, at(DRAIN_LIMIT_MS + 60_000), NEW_MAIN, at(2 * DRAIN_LIMIT_MS + 60_000))
+    expect(drainOpen(db, at(DRAIN_LIMIT_MS + 120_000))).toBe(true)
+    expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get('leases.draining')).toEqual({ n: 2 })
     db.close()
   })
 
