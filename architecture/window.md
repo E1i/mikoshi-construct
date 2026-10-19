@@ -518,6 +518,15 @@ After every Ghost, a `scan` agent first runs a blind Design check (about two min
 This step is a trial until the first three Ghosts after 2026-09-28 have been through it; then the owner
 keeps, changes or drops it.
 
+### The ladder's four risks
+
+Each is held by a test under `scripts/tests/` (D-154):
+
+1. No journal, no `status.md`, the ladder still works: `bus/launch-node.test.ts` › `with no ghosts.jsonl and no status.md in the handoff, an admitted ladder card starts its brief step`; `ghosts/status.test.ts` › `with no status.md in the handoff the row reaches the bus and no file is created`.
+2. Two falls in the bus, no third launch: `bus/launch-node.test.ts` › `a ladder card with two card.fell in the bus gets no launch task and spawns nothing`.
+3. A brief changed after approval gets no Ghost on it: `bus/launch-node.test.ts` › `a brief edited after its approval is not launched on it`.
+4. Launched once, never by the cheap path: `bus/launch-node.test.ts` › `an admitted ladder card is started once, by the ladder starter, never by the cheap one`.
+
 ### Two falls cut the task
 
 A task that fell twice gets no third brief: it is cut into sub-cards (the owner, 2026-10-05, after #55
