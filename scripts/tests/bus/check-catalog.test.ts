@@ -99,6 +99,40 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     expect(witnessOf('Witnesses:\n- `pnpm exec vitest run -t \'orders the rest\'` exits 0\n')).toBe('')
   })
 
+  it('a member .test call, a literal $ or %% and a bare placeholder title credit no witness', () => {
+    const graph: Graph = new Map([['tests/x.test.ts', []]])
+    const witnessOf = (body: string, text: string) => buildCatalog({ ...sources(), graph, testText: () => `describe('the x suite', () => {\n${body}\n})`, parking: [{ card: 3, text }] }).tests[0]!.witness
+    expect(witnessOf('  it(\'reads\', () => { expect(/a/.test(\'abc\')).toBe(true) })', 'Witnesses:\n- `pnpm exec vitest run -t \'abc\'` exits 0\n')).toBe('')
+    expect(witnessOf('  it(\'costs $5 at 100%% of x\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'costs 7 at 100 of x\'` exits 0\n')).toBe('')
+    expect(witnessOf('  it(\'costs $5 at 100%% of x\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'costs $5 at 100%% of x\'` exits 0\n')).toBe('3')
+    expect(witnessOf('  it.each([[\'a\']])(\'%s\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'anything\'` exits 0\n')).toBe('')
+    expect(witnessOf('  it.each([{ n: 1 }])(\'counts $n at 100%% of $5\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'counts 1 at 100%% of $5\'` exits 0\n')).toBe('3')
+  })
+
+  it('an it.each tagged template or a table holding parentheses keeps its own title and the next one', () => {
+    const graph: Graph = new Map([['tests/x.test.ts', []]])
+    const testText = () => [
+      'describe(\'the x suite\', () => {',
+      '  it.each`',
+      '    a    | b',
+      '    1    | 2',
+      '  `(\'adds $a to $b\', () => {})',
+      '  it(\'keeps the tail\', () => {})',
+      '  it.each([[f(g(1))], [(2)]])(\'wraps %s\', () => {})',
+      '  it(\'keeps the end\', () => {})',
+      '  it.each(rows)',
+      '  it(\'stands alone\', () => {})',
+      '})',
+    ].join('\n')
+    const witnessOf = (title: string) => buildCatalog({ ...sources(), graph, testText, parking: [{ card: 3, text: `Witnesses:\n- \`pnpm exec vitest run -t '${title}'\` exits 0\n` }] }).tests[0]!.witness
+    expect(witnessOf('adds 1 to 2')).toBe('3')
+    expect(witnessOf('keeps the tail')).toBe('3')
+    expect(witnessOf('wraps 1')).toBe('3')
+    expect(witnessOf('keeps the end')).toBe('3')
+    expect(witnessOf('stands alone')).toBe('3')
+    expect(witnessOf('adds the rest')).toBe('')
+  })
+
   it('records each well-formed brief mutation with its killing test and its judged outcome, and skips a malformed line', () => {
     const { mutations } = buildCatalog(sources())
     expect(mutations).toEqual([

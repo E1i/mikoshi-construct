@@ -303,14 +303,21 @@ function recordedForecastText(recorded: Record<string, unknown>): string | undef
 function computedForecastText(forecast: CheapForecast): string {
   return forecast.kind === 'none'
     ? `forecast none: n=${forecast.n} for ${forecast.taskClass}`
-    : `forecast tokens ≈ ${formatTokens(forecast.tokens)}, minutes ≈ ${tenths(forecast.minutes)} (class ${forecast.taskClass}, n=${forecast.n}, median)`
+    : `forecast tokens ≈ ${formatTokens(forecast.tokens)}, minutes ≈ ${tenths(forecast.minutes)} (class ${forecast.taskClass}, n=${forecast.n}, median at close: the start line holds none)`
 }
 
 function forecastText(deps: TaskCloseDeps, start: StartLine): string {
   const recorded = typeof start.forecast === 'object' && start.forecast !== null ? recordedForecastText(start.forecast as Record<string, unknown>) : undefined
   if (recorded !== undefined)
     return recorded
-  return deps.forecast === undefined ? 'forecast not recorded on the start line' : computedForecastText(deps.forecast(cheapClass(start.card)))
+  if (deps.forecast === undefined)
+    return 'forecast not recorded on the start line'
+  try {
+    return computedForecastText(deps.forecast(cheapClass(start.card)))
+  }
+  catch (error) {
+    return `forecast not recorded: the forecast read failed (${error instanceof Error ? error.message : String(error)})`
+  }
 }
 
 function actualText(actual: Actual): string {

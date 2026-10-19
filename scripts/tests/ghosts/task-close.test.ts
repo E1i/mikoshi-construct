@@ -137,8 +137,20 @@ describe('the exit card repeats the entry card', () => {
       weighed.push(taskClass)
       return { kind: 'forecast' as const, taskClass, n: 6, tokens: 50_000, minutes: 3 }
     }
-    expect(resultOf(started(), { forecast: byWeight })).toBe(`RESULT   | closed run · PR #9 · ${where} · forecast tokens ≈ 50k, minutes ≈ 3 (class implement/S, n=6, median) · actual tokens 71k, minutes 12.4`)
+    expect(resultOf(started(), { forecast: byWeight })).toBe(`RESULT   | closed run · PR #9 · ${where} · forecast tokens ≈ 50k, minutes ≈ 3 (class implement/S, n=6, median at close: the start line holds none) · actual tokens 71k, minutes 12.4`)
     expect(weighed).toEqual(['implement/S'])
+  })
+
+  it('a forecast read that throws is reported as not recorded and the closing still completes', () => {
+    const line = JSON.stringify({ ...JSON.parse(startLine('5', 'implement', WINDOW_SESSION)) as object, started: '2026-10-03T08:47:39.000Z' })
+    const { deps, written } = world([line], [sessionFile('-work', WINDOW_SESSION)])
+    const failing = () => {
+      throw new Error('bus.db is locked')
+    }
+    const result = runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...deps, tokens: () => 71_234, forecast: failing })
+    expect(result.exitCode).toBe(0)
+    expect(written).toHaveLength(1)
+    expect(result.stdout[4]).toBe(`RESULT   | closed run · PR #9 · line written to ${JOURNAL} · forecast not recorded: the forecast read failed (bus.db is locked) · actual tokens 71k, minutes 12.4`)
   })
 
   it('names the contract and the forecast as not recorded when no entry line holds them', () => {
