@@ -13,7 +13,13 @@ import { openDatabase } from './sqlite.js'
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const BRIEF_FILE = /^brief-(\d+)(?:-.*)?\.md$/
 const FIRST_DESCRIBE = /describe\(\s*(['"`])(.*?)\1/
-const IT_TITLE = /\bit\(\s*(['"`])((?:\\.|(?!\1).)*)\1/g
+const EACH_ARGUMENTS = String.raw`\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)`
+const QUOTES = '\'"`'
+const EACH_TABLE = '`(?:\\\\.|[^`\\\\])*`'
+const IT_TITLE = new RegExp(String.raw`(?<![.\w$])(?:it|test)(\.each\s*(?:${EACH_TABLE}|${EACH_ARGUMENTS}))?\(\s*([${QUOTES}])((?:\\.|(?!\2).)*)\2`, 'g')
+const EACH_TOKEN = /(%%)|%[sdifjo#]|\$[a-z_][\w.]*/gi
+const RENDERED_PERCENT = '%'
+const SHELL_QUOTED_APOSTROPHE = /'\\''/g
 const WITNESSES_HEADING = /^Witnesses:/
 const NO_LAYER = 'none'
 
@@ -105,15 +111,48 @@ function witnessLines(text: string): string {
   return lines.slice(start, end === -1 ? undefined : end).join('\n')
 }
 
-function itTitles(text: string): string[] {
-  return [...text.matchAll(IT_TITLE)].map(match => match[2]!.replaceAll(/\\(.)/g, '$1')).filter(title => title !== '')
+interface TestTitle {
+  title: string
+  each: boolean
 }
 
-function witnessCards(test: string, titles: readonly string[], parking: readonly ParkingCard[]): string {
+function itTitles(text: string): TestTitle[] {
+  return [...text.matchAll(IT_TITLE)]
+    .map(match => ({ title: match[3]!.replaceAll(/\\(.)/g, '$1'), each: match[1] !== undefined }))
+    .filter(({ title }) => title !== '')
+}
+
+function escapeRegExp(text: string): string {
+  return text.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
+}
+
+function renderedEachParts(title: string): string[] {
+  const parts = ['']
+  let last = 0
+  for (const match of title.matchAll(EACH_TOKEN)) {
+    parts[parts.length - 1] += title.slice(last, match.index) + (match[1] === undefined ? '' : RENDERED_PERCENT)
+    if (match[1] === undefined)
+      parts.push('')
+    last = match.index + match[0].length
+  }
+  parts[parts.length - 1] += title.slice(last)
+  return parts
+}
+
+function namesTitle(witnesses: string, { title, each }: TestTitle): boolean {
+  const parts = each ? renderedEachParts(title) : [title]
+  if (parts.length === 1)
+    return witnesses.includes(parts[0]!)
+  if (parts.join('').trim() === '')
+    return false
+  return new RegExp(parts.map(escapeRegExp).join('[^\\n]+?')).test(witnesses)
+}
+
+function witnessCards(test: string, titles: readonly TestTitle[], parking: readonly ParkingCard[]): string {
   return parking
     .filter((card) => {
-      const witnesses = witnessLines(card.text)
-      return namesPath(witnesses, test) || titles.some(title => witnesses.includes(title))
+      const witnesses = witnessLines(card.text).replaceAll(SHELL_QUOTED_APOSTROPHE, '\'')
+      return namesPath(witnesses, test) || titles.some(title => namesTitle(witnesses, title))
     })
     .map(card => card.card)
     .sort((a, b) => a - b)

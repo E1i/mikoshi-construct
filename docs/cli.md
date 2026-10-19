@@ -1634,7 +1634,14 @@ runs is `none — <reason>`, never the overall median.
 
 Shows where each task stands in this repository, from what the repository holds: the ladder runs in
 `.construct/runs.jsonl` and the pull request list that `gh pr list` wrote. The CLI runs no `gh` and
-writes no file, `--every` included; you fetch the list and hand it over.
+writes no file, `--every` included; you fetch the list and hand it over. When the bus database
+(`~/.construct/bus.db`) is there, the board reads it read-only and shows three screens — Flow (planned,
+in work, in review, ready to merge), Backlog (every card, grouped by lane) and Services (each running
+session and node with the step its task is at; a window subagent with no end recorded drops out after
+12 hours) — under a header with the construct version and the mode (`HIJACK` when `CONSTRUCT_MODE=hijack`,
+nothing otherwise), and a footer naming the agents at work, the last failure and the review queue.
+`--geek`, `--prs`, `--all` and a `--stale` other than `4` show the raw sections of the earlier board in
+place of the three screens, so none of them is silently dropped.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -1642,7 +1649,8 @@ writes no file, `--every` included; you fetch the list and hand it over.
 | `--all` | `false` | Also show what is older than 12 hours, superseded or closed. |
 | `--stale <hours>` | `4` | The hours after which an open row is stale. |
 | `--every <seconds>` | | Redraw every `<seconds>`, re-reading each source; refused with `--json` and with `--prs -`. |
-| `--json` | `false` | The board as a JSON object. |
+| `--geek` | `false` | The raw sections of the earlier board in place of the three screens. |
+| `--json` | `false` | The raw board as a JSON object (`user-board/1`); it does not read the bus. |
 
 ```bash
 gh pr list --state all --limit 100 --json number,title,state,createdAt,closedAt,mergedAt,statusCheckRollup | npx mikoshi-construct board --prs -

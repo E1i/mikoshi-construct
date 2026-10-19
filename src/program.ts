@@ -8,14 +8,15 @@ import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
 import { printAtlas, runAtlas } from './atlas/index.js'
 import { ATTACH_EXIT, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
-import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, readBoard, STALE_HOURS } from './commands/board/index.js'
+import { busReaderAt } from './commands/board/bus.js'
+import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, rawSectionsAsked, readBoard, STALE_HOURS } from './commands/board/index.js'
 import { COST_EXIT, costExpect, costJson, costReport, defaultWindowJournal, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
 import { printAdmit, runAdmit } from './commands/intake/admit.js'
-import { busExpected } from './commands/intake/bus-path.js'
+import { busExpected, defaultBusPath } from './commands/intake/bus-path.js'
 import { defaultParking, INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
 import { printMove, runMove } from './commands/intake/move.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
@@ -200,6 +201,7 @@ const board = withKnownFlags(defineCommand({
     stale: { type: 'string', description: 'Hours after which an open row is stale', default: String(STALE_HOURS) },
     every: { type: 'string', description: 'Redraw every <seconds>' },
     json: { type: 'boolean', description: 'Machine-readable board (format user-board/1)', default: false },
+    geek: { type: 'boolean', description: 'Show the raw ledger and pull request sections instead of Flow, Backlog and Services', default: false },
   },
   async run({ args }) {
     const console = ui(args, stderrWriter)
@@ -219,7 +221,7 @@ const board = withKnownFlags(defineCommand({
     if (everySeconds !== undefined && args.prs === PRS_FROM_STDIN)
       return refuse(lore.boardEveryWithStdin)
     const dir = path.resolve(args.dir)
-    const frame = (): BoardReading => readBoard(dir, { all: args.all, staleHours, prs: args.prs, readStdin: () => readStdinToEnd() })
+    const frame = (): BoardReading => readBoard(dir, { all: args.all, staleHours, prs: args.prs, readStdin: () => readStdinToEnd(), bus: args.json ? undefined : busReaderAt(defaultBusPath()), version: VERSION, mode: process.env.CONSTRUCT_MODE === 'hijack' ? 'hijack' : undefined, geek: rawSectionsAsked({ geek: args.geek, all: args.all, staleHours, prs: args.prs }) })
     try {
       if (args.json) {
         process.stdout.write(`${JSON.stringify(boardJson(frame()), null, 2)}\n`)

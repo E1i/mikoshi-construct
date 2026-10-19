@@ -4,13 +4,14 @@ USAGE construct board [OPTIONS]
 
 OPTIONS
 
-      --dir=<dir>    Target directory (Default: .)                                               
-          --plain    No colors, no lore (CI-friendly) (Default: false)                           
-         --johnny    Wake up, Netrunner. (Default: false)                                        
-      --prs=<prs>    JSON file written by gh pr list, or - for stdin                             
-            --all    Also show what is older than 12 hours, superseded or closed (Default: false)
-  --stale=<stale>    Hours after which an open row is stale (Default: 4)                         
-  --every=<every>    Redraw every <seconds>                                                      
-           --json    Machine-readable board (format user-board/1) (Default: false)               
+      --dir=<dir>    Target directory (Default: .)                                                                       
+          --plain    No colors, no lore (CI-friendly) (Default: false)                                                   
+         --johnny    Wake up, Netrunner. (Default: false)                                                                
+      --prs=<prs>    JSON file written by gh pr list, or - for stdin                                                     
+            --all    Also show what is older than 12 hours, superseded or closed (Default: false)                        
+  --stale=<stale>    Hours after which an open row is stale (Default: 4)                                                 
+  --every=<every>    Redraw every <seconds>                                                                              
+           --json    Machine-readable board (format user-board/1) (Default: false)                                       
+           --geek    Show the raw ledger and pull request sections instead of Flow, Backlog and Services (Default: false)
 
 

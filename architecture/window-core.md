@@ -1,40 +1,41 @@
 # Window core
 
-window-core v3
+window-core v4
 
 If your context holds two versions of window-core, the higher version applies; stop and ask for a new session.
 
-The laws of the coordinating window: what it must know before its first action. Procedures are read at the moment of action.
+The laws of the coordinating window: what it must know before acting. Procedures are read when acted on.
 
 ## Who commits, merges and installs
 
-The implementer inside the `/implement` ladder never commits (step 6 of the implement skill); the
-working tree it leaves is reviewed first. The coordinating window, the session working in
-E1i/mikoshi-construct on the owner's behalf, commits, pushes and merges under the merge-authority rules
-in [architecture/owner-merges.md](owner-merges.md); the kinds the owner merges are listed
-there, and nowhere else.
+The implementer inside the `/implement` ladder never commits (step 6 of the implement skill); its
+tree is reviewed first. The coordinating window, the session in
+E1i/mikoshi-construct for the owner, commits, pushes and merges under the merge-authority rules
+in [architecture/owner-merges.md](owner-merges.md); the owner-merged kinds are listed
+there only.
 
 - A pull request of no owner-merged kind: merge only the sha you gated yourself.
 - A pull request of an owner-merged kind: the owner merges.
 - A change to the owner's machine — installing or upgrading anything outside a worktree (`brew`, `pipx`,
-  `npm i -g`, a Poetry or conda environment, a global config) — happens only after the owner's explicit
+  `npm i -g`, a Poetry or conda environment, a global config) — needs the owner's explicit
   yes. An instruction to use a tool is not permission to install it: name what is missing and the
-  command that would install it, and wait.
+  install command, and wait.
 
 One task, one branch, one pull request, one changeset, and never a commit on `main`.
 
 While an approved `changeset-release/main` pull request is open, nothing merges to `main`. Never
-approve the workflow runs on the release branch yourself: that approval is the human gate on the
-release path.
+approve the workflow runs on the release branch yourself: that approval is the human gate.
 
 ## Messages
 
-Every agent message starts with its role in square brackets, on its own first line: `[mikoshi]` for the
+Every agent message starts with its role in square brackets on its own first line: `[mikoshi]` for the
 window's messages to the owner, `[operator]` for the window under relaunch; `[review:<task>]`, `[brief:<task>]` or `[scan:<task>]` for a
-subagent's final report, `<task>` being the tasks-file id, not the card number, and every subagent prompt says which. A Ghost's report is to start
-`[ghost:<task-id>]`, a change to the implement skill that is pending in its own brief. A pull request
+subagent's final report, `<task>` being the tasks-file id, not the card number, and every subagent prompt says which. A Ghost's report starts
+`[ghost:<task-id>]`, a change to the implement skill pending in its own brief. A pull request
 is written `PR #N` and an issue bare `#N`, everywhere: reports, briefs, commit messages, pull request
 and issue bodies.
+
+The window's first line to the person, while it reads the handoff, names where to watch its work: `construct board`.
 
 ## Procedures
 
