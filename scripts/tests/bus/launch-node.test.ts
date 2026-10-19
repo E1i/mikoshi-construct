@@ -7,17 +7,18 @@ import type { DetectionMode } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { CARD_FELL, STOPPED_CARD } from '../../bus/card-automaton.js'
+import { CARD_FELL, GHOST_ROW, STOPPED_CARD } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { handoffLadderSteps, launchIsolationCommand, LaunchNode, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { handoffLadderSteps, hasCommitsAhead, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
 import { keyOf, launchTasks, TASK_ENQUEUED } from '../../bus/queue.js'
@@ -363,6 +364,46 @@ describe('the launch node', () => {
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
   })
 
+  it('in shadow stopOverdue neither stops a dead session nor signals an overdue one', async () => {
+    const made = bench()
+    admit(made, 979, 'lane-a')
+    admit(made, 980, 'lane-b')
+    made.tick()
+    let alive979 = true
+    const signalled: number[] = []
+    const processes: ProcessTable = { commandLine: pid => pid === 979 ? (alive979 ? 'sh -c claude -p --session-id s-979' : null) : 'sh -c claude -p --session-id s-980', signalGroup: pgid => signalled.push(pgid) }
+    const starter: CardStarter = { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: card.cardId, pgid: card.cardId } }), stop: card => signalled.push(card.pgid) }
+    const live = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+    await once(live)
+    await once(live)
+    expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(2)
+    made.tick()
+
+    alive979 = false
+    made.clock.advance(LAUNCH_LIMIT_MINUTES * 60_000 + 1)
+    const shadow = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-2', mode: 'shadow', env: {}, processes, isolation: sandboxed })
+    expect(shadow.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(signalled).toEqual([])
+  })
+
+  it('a launched session that left a shift report or a Ghost row is not stopped', async () => {
+    for (const left of ['report', 'ghost-row'] as const) {
+      const made = bench()
+      admit(made, 981, 'lane-a')
+      made.tick()
+      const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+      const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: (_card, start) => left === 'report' && start.cardId === 981, isolation: sandboxed })
+      await once(node)
+      made.tick()
+      if (left === 'ghost-row')
+        appendEvent(made.db, { ts: made.clock.now().toISOString(), type: GHOST_ROW, actor: 'policy', cardId: 981, pr: null, head: null, dedupeKey: `${GHOST_ROW}:981`, payload: { state: 'running' }, legacy: false })
+
+      expect(node.stopOverdue()).toEqual([])
+      expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    }
+  })
+
   it('a task of an old head is superseded by deriveQueues beside the launch node as before', async () => {
     const made = bench()
     const node = nodeOf(made)
@@ -460,6 +501,24 @@ describe('the launch node in ladder mode', () => {
     expect(scriptOf(run!)).not.toContain('ghosts:hash')
     expect(run!.args.slice(2)).toEqual(['shift', '-p', '--session-id', `sess-${LADDER_CARD}`])
     expect(eventsOf(made.db, CARD_STARTED)).toEqual([{ session: `sess-${LADDER_CARD}`, worktree: world.tree, branch: `feat/card-${LADDER_CARD}`, base: 'b'.repeat(40), pid: 4242, pgid: 4242, step: 'launch', contour: 'ladder', isolation: 'full', isolationGaps: [] }])
+  })
+
+  it('a ladder session that ends with no result gives card.stopped and the card is queued again; the sessionless launch step does not', async () => {
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    for (const [world, step, stops] of [[ladderWorld(null), 'brief', 1], [approvedWorld(), 'launch', 0]] as const) {
+      const made = bench()
+      admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+      made.tick()
+      const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => false, isolation: sandboxed })
+      await once(node)
+      expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step, contour: 'ladder' }])
+      made.tick()
+
+      expect(node.stopOverdue()).toEqual(stops === 1 ? [LADDER_CARD] : [])
+      expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(stops)
+      made.tick()
+      expect(made.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'launch' AND card_id = ? AND state = 'queued'`).get(LADDER_CARD)).toEqual({ n: stops })
+    }
   })
 
   it('a launch with no runtime isolation is refused and writes no session', async () => {
@@ -565,5 +624,43 @@ describe('the launch node in ladder mode', () => {
 describe('the launch isolation command', () => {
   it('is the command the card session is spawned with', () => {
     expect(launchIsolationCommand('/opt/claude --settings /tmp/s.json')).toEqual(['/opt/claude', '--settings', '/tmp/s.json', '--permission-mode', 'dontAsk'])
+  })
+})
+
+describe('what a launched session left behind', () => {
+  function scratch(): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'launch-result-'))
+    roots.push(root)
+    return root
+  }
+
+  it('a commit ahead of the base is a result, none is not, and a tree git cannot read counts as a result', () => {
+    const tree = scratch()
+    const git = (...args: string[]): string => execFileSync('git', ['-C', tree, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
+    git('init', '-q')
+    git('commit', '-q', '--allow-empty', '-m', 'base')
+    const base = git('rev-parse', 'HEAD')
+    const card: StartedCard = { session: 's', worktree: tree, branch: 'b', base, pid: 1, pgid: 1, contour: 'cheap' }
+
+    expect(hasCommitsAhead(card)).toBe(false)
+    git('commit', '-q', '--allow-empty', '-m', 'work')
+    expect(hasCommitsAhead(card)).toBe(true)
+    expect(hasCommitsAhead({ ...card, worktree: path.join(tree, 'gone') })).toBe(true)
+  })
+
+  it('a shift report written since the session started is a result, an older one is not', () => {
+    const launchDir = scratch()
+    const start = { cardId: 982, ts: '2026-10-19T12:00:00.000Z' }
+    expect(reportWrittenSince(launchDir, start)).toBe(false)
+
+    for (const file of ['report-982.md', 'report-982-brief.md']) {
+      const report = path.join(launchDir, file)
+      writeFileSync(report, 'PR #1\n')
+      utimesSync(report, new Date('2026-10-19T11:00:00.000Z'), new Date('2026-10-19T11:00:00.000Z'))
+      expect(reportWrittenSince(launchDir, start)).toBe(false)
+      utimesSync(report, new Date('2026-10-19T12:00:01.000Z'), new Date('2026-10-19T12:00:01.000Z'))
+      expect(reportWrittenSince(launchDir, start)).toBe(true)
+      rmSync(report)
+    }
   })
 })

@@ -10,7 +10,7 @@ import type { DetectionMode } from './node.js'
 import type { QueuedTask } from './queue.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -65,8 +65,13 @@ export interface LaunchNodeParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
   processes?: ProcessTable
-  resulted?: (card: StartedCard) => boolean
+  resulted?: (card: StartedCard, start: SessionStart) => boolean
   isolation: IsolationReader
+}
+
+export interface SessionStart {
+  cardId: number
+  ts: string
 }
 
 interface RunningStart {
@@ -90,6 +95,10 @@ const STOPPED_SINCE = `SELECT 1 FROM events WHERE type = '${CARD_STOPPED}' AND l
 export const SESSION_DEATH_CAP = 3
 
 const SESSION_DEATHS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND dedupe_key LIKE '${CARD_STOPPED}:session-end:%'`
+
+const GHOST_ROW_SINCE = `SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
+
+export const SESSIONLESS_LADDER_STEP = 'launch'
 
 const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
 
@@ -129,7 +138,7 @@ export class LaunchNode extends Node<LaunchStep> {
       const card = startedCardOf(start.payload)
       if (card === null)
         continue
-      if (this.endedWithoutResult(card)) {
+      if (this.endedWithoutResult(start, card)) {
         if (this.db.prepare(STOPPED_SINCE).get(start.card_id, start.id) === undefined && this.stopEnded(start, card))
           stopped.push(start.card_id)
         continue
@@ -149,8 +158,12 @@ export class LaunchNode extends Node<LaunchStep> {
     return stopped
   }
 
-  private endedWithoutResult(card: StartedCard): boolean {
-    return card.contour === 'cheap' && launchProcess({ pgid: card.pgid, session: card.session }, this.processes) === 'gone' && !(this.launchParts.resulted?.(card) ?? false)
+  private endedWithoutResult(start: RunningStart, card: StartedCard): boolean {
+    if (card.step === SESSIONLESS_LADDER_STEP || launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
+      return false
+    if (this.db.prepare(GHOST_ROW_SINCE).get(start.card_id, start.id) !== undefined)
+      return false
+    return !(this.launchParts.resulted?.(card, { cardId: start.card_id, ts: start.ts }) ?? false)
   }
 
   private stopEnded(start: RunningStart, card: StartedCard): boolean {
@@ -201,6 +214,7 @@ export interface LaunchRun {
   session: string
   pause: (ms: number) => Promise<unknown>
   isolation: IsolationReader
+  launchDir: string
 }
 
 export function runWithdrawLegacy(busPath: string, clock: () => Date): number {
@@ -217,13 +231,25 @@ export function runWithdrawLegacy(busPath: string, clock: () => Date): number {
   }
 }
 
-function hasCommitsAhead(card: StartedCard): boolean {
+export function hasCommitsAhead(card: StartedCard): boolean {
   try {
-    return Number(execFileSync('git', ['-C', card.worktree, 'rev-list', '--count', `${card.base}..HEAD`], { encoding: 'utf8' }).trim()) > 0
+    return Number(execFileSync('git', ['-C', card.worktree, 'rev-list', '--count', `${card.base}..HEAD`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()) > 0
   }
   catch {
     return true
   }
+}
+
+export function reportWrittenSince(launchDir: string, start: SessionStart): boolean {
+  const since = Date.parse(start.ts)
+  return [`report-${start.cardId}.md`, `report-${start.cardId}-brief.md`].some((file) => {
+    const report = path.join(launchDir, file)
+    return existsSync(report) && statSync(report).mtimeMs >= since
+  })
+}
+
+export function sessionLeftAResult(launchDir: string): (card: StartedCard, start: SessionStart) => boolean {
+  return (card, start) => reportWrittenSince(launchDir, start) || hasCommitsAhead(card)
 }
 
 export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<number> {
@@ -231,7 +257,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: hasCommitsAhead })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -303,7 +329,7 @@ async function main(): Promise<number> {
   const ports = realStarterPorts(process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, launchDir: places.launchDir, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
