@@ -8,10 +8,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
-import { completeTask, leaseNext, leaseWhileFree, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
+import { completeTask, drainOpen, leaseNext, leaseWhileFree, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, recordStarted, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, recordStarted, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
 import { workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
@@ -500,6 +500,81 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(() => completeTask(db, killedAt, killed, [])).toThrow(StaleLease)
     completeTask(db, killedAt, fresh, [])
     expect(state(killed.taskKey)).toEqual({ state: 'completed', lease_gen: 2 })
+    db.close()
+  })
+
+  const MERGED_AT = Date.parse('2026-10-19T15:00:00.000Z')
+
+  function drainBench(clock: { now: number }): { db: ReturnType<typeof openBus>, lease: NonNullable<ReturnType<typeof leaseWhileFree>>, alive: () => RunningProcess[], supervisor: BusSupervisor, ts: () => string } {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-drain-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const ts = (): string => new Date(MERGED_AT + clock.now).toISOString()
+    const lease = leaseWhileFree(db, ts(), { queue: 'answer', cardId: 1089, pr: 927, head: OLD_MAIN }, 'worker:answer:alive', 1)!
+    const answer = workerLaunches(() => []).answer
+    let alive: RunningProcess[] = [{ pid: 600, args: `node pnpm.cjs --silent ${launchName(answer)} --on` }]
+    let head = OLD_MAIN
+    const supervisor = new BusSupervisor({
+      known: [answer],
+      wanted: () => [answer],
+      start: ok,
+      stop: async (instance) => {
+        alive = alive.filter(candidate => candidate.pid !== instance.pid)
+      },
+      freeLeases: stopped => freeLeasesOf(db, ts(), stopped),
+      drain: busDrain(db, ts),
+      processes: () => alive,
+      mainSince: () => [{ id: 1, sha: NEW_MAIN }],
+      code: {
+        head: () => head,
+        holds: sha => sha === head,
+        pull: () => {
+          head = NEW_MAIN
+        },
+        busChangedSince: sha => sha !== head,
+      },
+      journal: () => {},
+      now: () => MERGED_AT + clock.now,
+    }, 0)
+    return { db, lease, alive: () => alive, supervisor, ts }
+  }
+
+  const holderStopped = (db: ReturnType<typeof openBus>): unknown[] => db.prepare('SELECT payload FROM events WHERE type = ?').all(TASK_EXPIRED).map(row => JSON.parse(String(row.payload)) as Record<string, unknown>).filter(payload => payload.reason === 'holder_stopped')
+
+  it('a merge under scripts/bus with an answer lease in flight frees no lease as holder_stopped and restarts once the lease completes', async () => {
+    const clock = { now: 0 }
+    const { db, lease, alive, supervisor, ts } = drainBench(clock)
+
+    const waiting = (await supervisor.step()).join('\n')
+    expect(waiting).toContain(`the restart onto ${NEW_MAIN} waits for the leases in flight to finish, and no worker takes a new one: ${lease.taskKey}`)
+    expect(alive()).toHaveLength(1)
+    expect(drainOpen(db, ts())).toBe(true)
+
+    clock.now = 60_000
+    expect((await supervisor.step()).join('\n')).not.toContain('restarting every running bus process')
+    expect(alive()).toHaveLength(1)
+
+    completeTask(db, ts(), lease, [])
+    clock.now = 120_000
+    expect((await supervisor.step()).join('\n')).toContain(`main advanced to ${NEW_MAIN} with a change under scripts/bus; restarting every running bus process on ${NEW_MAIN}`)
+    expect(holderStopped(db)).toEqual([])
+    db.close()
+  })
+
+  it('a lease still in flight after the drain limit is freed as holder_stopped and the restart names the wait', async () => {
+    const clock = { now: 0 }
+    const { db, lease, supervisor } = drainBench(clock)
+
+    await supervisor.step()
+    clock.now = DRAIN_LIMIT_MS - 1
+    expect((await supervisor.step()).join('\n')).not.toContain('restarting every running bus process')
+    expect(holderStopped(db)).toEqual([])
+
+    clock.now = DRAIN_LIMIT_MS
+    const lines = (await supervisor.step()).join('\n')
+    expect(lines).toContain(`the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${NEW_MAIN} anyway, and these are freed as ${TASK_EXPIRED}: ${lease.taskKey}`)
+    expect(lines).toContain('restarting every running bus process')
+    expect(holderStopped(db)).toEqual([expect.objectContaining({ task_key: lease.taskKey, reason: 'holder_stopped' })])
     db.close()
   })
 

@@ -22,6 +22,8 @@ import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.j
 import { CARD_STARTED } from '../bus/inbox.js'
 import { CARD_ADMITTED } from '../bus/launch-candidates.js'
 import { cardBodyAdmissionOf, LEASED } from '../bus/queue.js'
+import { slotsOf, slotsVariable } from '../bus/scheduler.js'
+import { STARTER_ACTOR, windowOpenPrs } from '../bus/window-prs.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from './entry.js'
 import { busCardStates } from './tasks.js'
@@ -52,7 +54,10 @@ export interface TaskStartDeps {
   readJournal: TaskStartJournalReader
   style?: SignalStyle
   parking?: { dir: string, read: (file: string) => string | null }
+  windowLimit?: number
 }
+
+const WINDOW_LIMIT_SLOTS = 'review'
 
 export type TaskStartJournalReader = (file: string) => string | null
 
@@ -83,6 +88,25 @@ interface AdmittedRow { ts: string, dedupe_key: string, payload: string }
 
 const LAUNCH_LEASE = `SELECT 1 FROM tasks WHERE queue = 'launch' AND state = '${LEASED}' AND card_id = ?`
 const STARTER_SESSION_BY_HAND = 'by-hand'
+
+function heldByWindow(bus: string): number[] {
+  const db = openBus(bus)
+  try {
+    return windowOpenPrs(db).map(open => open.pr)
+  }
+  finally {
+    db.close()
+  }
+}
+
+function windowAtLimit(deps: TaskStartDeps, id: string): string | null {
+  if (deps.windowLimit === undefined)
+    return null
+  const held = heldByWindow(deps.bus)
+  if (held.length < deps.windowLimit)
+    return null
+  return `the window holds ${held.length} open pull requests (${held.map(pr => `PR #${pr}`).join(', ')}), at its limit of ${deps.windowLimit} from ${slotsVariable(WINDOW_LIMIT_SLOTS)}: move one to its merge or close before starting #${id}; nothing written`
+}
 
 const ADMIT_COMMAND = 'pnpm intake --admit'
 
@@ -387,6 +411,9 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   }
   if (admitted.kind === 'refused')
     return refuse(`${admitted.reason}; nothing written`)
+  const atLimit = windowAtLimit(deps, id)
+  if (atLimit !== null)
+    return refuse(atLimit)
   const cardFile = readCardFile(deps, card, args.parking)
   const edited = editedPastAdmission(admitted, cardFile, card)
   if (edited !== null)
@@ -402,7 +429,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const start = { path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, ...(args.adopt === undefined ? {} : { adopts: worktree }), branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted) }
   const unsessioned = deps.session === undefined ? `; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : ''
   const entry = { ...contract, ACTION: `task:start ${branch} #${id}: ${ready.how}; ${CARD_STARTED} written to ${deps.bus}${unsessioned}`, RESULT: ENTRY_RESULT }
-  const event: BusEvent = { ts: at, type: CARD_STARTED, actor: `worker:start:${deps.session ?? STARTER_SESSION_BY_HAND}`, cardId: card.id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}:${branch}:${at}`, payload: { ...start, entry: { schema: ENTRY_SCHEMA, ...entry } }, legacy: false }
+  const event: BusEvent = { ts: at, type: CARD_STARTED, actor: `${STARTER_ACTOR}${deps.session ?? STARTER_SESSION_BY_HAND}`, cardId: card.id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}:${branch}:${at}`, payload: { ...start, entry: { schema: ENTRY_SCHEMA, ...entry } }, legacy: false }
   let written: StartWrite
   try {
     written = recordStart(deps.bus, event)
@@ -435,6 +462,7 @@ function realDeps(): TaskStartDeps {
     readJournal: readJournalFile,
     parking: { dir: path.join(os.homedir(), '.construct', 'parking'), read: readJournalFile },
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
+    windowLimit: slotsOf(WINDOW_LIMIT_SLOTS, process.env),
   }
 }
 

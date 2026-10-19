@@ -249,6 +249,42 @@ describe('task:start reads the admission from the bus and writes the start to it
   })
 })
 
+describe('task:start refuses while the window holds its limit of open pull requests', () => {
+  function openPr(world: World, pr: number, cardId: number, started: Record<string, unknown> = {}): void {
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_STARTED, actor: `worker:start:${SESSION}`, cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}`, payload: { path: 'cheap', ...started }, legacy: false })
+    const eventId = (db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id
+    db.prepare('INSERT INTO prs (pr, card_id, state, event_id) VALUES (?, ?, ?, ?)').run(pr, cardId, 'open', eventId)
+    db.close()
+  }
+
+  it('with three open pull requests of the window and a limit of three, task:start refuses naming them and cuts no branch', () => {
+    const world = newWorld()
+    openPr(world, 901, 2)
+    openPr(world, 902, 3)
+    openPr(world, 903, 4)
+    const before = starts(world).length
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: 3 })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[task:start] the window holds 3 open pull requests (PR #901, PR #902, PR #903), at its limit of 3 from CONSTRUCT_BUS_SLOTS_REVIEW: move one to its merge or close before starting #42; nothing written'])
+    expect(git(world.repo, ['branch', '--list', 'feat/wip'])).toBe('')
+    expect(existsSync(path.join(world.root, 'mc-42'))).toBe(false)
+    expect(starts(world)).toHaveLength(before)
+  })
+
+  it('a pull request a shift started and a closed one are not the window\'s, so two of its own under a limit of three start the card', () => {
+    const world = newWorld()
+    openPr(world, 901, 2)
+    openPr(world, 902, 3)
+    openPr(world, 903, 4, { shift: 'shift-1' })
+    openPr(world, 904, 5)
+    const db = openBus(world.bus)
+    db.prepare('UPDATE prs SET state = ? WHERE pr = ?').run('closed', 904)
+    db.close()
+    expect(runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: 3 }).exitCode).toBe(0)
+  })
+})
+
 describe('w1: task:start cuts the tree and writes the start', () => {
   it('w1: cuts ../mc-<id> on the branch from origin/main and writes one card.started with worktree, branch, session and the card', () => {
     const world = newWorld()

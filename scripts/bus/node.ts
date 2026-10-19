@@ -7,7 +7,7 @@ import type { SlotKind } from './scheduler.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { appendEvent, inTransaction, openBus } from './db.js'
-import { expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease, TASK_LEASED } from './lease.js'
+import { drainOpen, expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease, TASK_LEASED } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { lastEventId } from './operator-work.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
@@ -303,6 +303,8 @@ export abstract class Node<S extends NodeStep> {
   private take(): Lease | null {
     const ts = this.ts()
     expireLeases(this.db, ts)
+    if (drainOpen(this.db, ts))
+      return null
     return leaseNext(this.db, ts, this.kind, this.actor, this.leaseOrder())
   }
 

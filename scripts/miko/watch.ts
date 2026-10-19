@@ -1,3 +1,4 @@
+import type { WindowPr } from '../bus/window-prs.js'
 import type { WatchCursor } from './watch-store.js'
 import { Buffer } from 'node:buffer'
 import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync } from 'node:fs'
@@ -5,13 +6,15 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { IN_REVIEW_CARD, MERGE_DONE, REVIEW_RECORDED, RUNNING_CARD } from '../bus/card-automaton.js'
+import { PRIORITIES } from '../../src/card/parking.js'
+import { IN_REVIEW_CARD, MERGE_DONE, REVIEW_RECORDED, RUNNING_CARD, STOPPED_CARD } from '../bus/card-automaton.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { CARD_STOPPED, POLICY_DENIED } from '../bus/inbox.js'
 import { CARD_CLOSED } from '../bus/launch-candidates.js'
 import { PR_CLOSED } from '../bus/observations.js'
 import { PR_OBSERVED } from '../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../bus/review-executor.js'
+import { windowOpenPrs } from '../bus/window-prs.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { GHOST_JOURNAL } from '../shift/places.js'
 import { STOP_EVENT } from '../shift/relaunch.js'
@@ -51,6 +54,7 @@ export interface WatchState {
   ciByPr: Map<number | null, { head: string | null, ci: unknown }>
   deniedByTask: Map<string, DenialRun>
   stalls: Set<string>
+  stuck: Set<string>
   pids: Set<number>
 }
 
@@ -59,6 +63,14 @@ export interface CardActivity {
   lastEventId: number
   lastType: string
   lastTs: string
+}
+
+export interface StuckPr {
+  pr: number
+  cardId: number
+  head: string | null
+  reason: string
+  priority: string | null
 }
 
 export interface BusEvent {
@@ -80,6 +92,7 @@ export interface WatchDeps {
   observedUpTo: (id: number) => BusEvent[]
   deniedUpTo: (id: number) => BusEvent[]
   stalls: () => CardActivity[]
+  stuck: () => StuckPr[]
   alive: (pid: number) => boolean
   emit: (line: string) => Promise<void>
   beforeCommit: () => Promise<void>
@@ -189,6 +202,34 @@ export function stalledOf(cards: CardActivity[], lastPulseTs: string | undefined
   return cards.filter(card => now - Date.parse(card.lastTs) > STALL_MS)
 }
 
+function stuckReason(open: WindowPr): string | null {
+  if (open.ci === FAILED_CI)
+    return 'red CI'
+  return open.cardState === STOPPED_CARD ? 'card stopped' : null
+}
+
+function priorityRank(priority: string | null): number {
+  const rank = (PRIORITIES as readonly (string | null)[]).indexOf(priority)
+  return rank === -1 ? PRIORITIES.length : rank
+}
+
+export function stuckOf(open: WindowPr[]): StuckPr[] {
+  return open
+    .flatMap((each) => {
+      const reason = stuckReason(each)
+      return reason === null ? [] : [{ pr: each.pr, cardId: each.cardId, head: each.head, reason, priority: each.priority }]
+    })
+    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.pr - b.pr)
+}
+
+export function stuckKey(stuck: StuckPr): string {
+  return `${stuck.pr}:${stuck.head ?? '-'}:${stuck.reason}`
+}
+
+export function stuckLine(stuck: StuckPr): string {
+  return `stuck PR #${stuck.pr} card ${stuck.cardId}: ${stuck.reason}, priority ${stuck.priority ?? '-'}; the window moves it before it takes a new card`
+}
+
 export function wakingEvent(line: string): string | undefined {
   try {
     const parsed: unknown = JSON.parse(line)
@@ -202,7 +243,7 @@ export function wakingEvent(line: string): string | undefined {
 
 export function watchState(deps: WatchDeps, pids: number[]): WatchState {
   const busId = deps.lastBusId()
-  return { offset: deps.size(), rest: '', busId, ciByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), stalls: new Set(deps.stalls().map(stallKey)), pids: new Set(pids) }
+  return { offset: deps.size(), rest: '', busId, ciByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)), pids: new Set(pids) }
 }
 
 function journalLines(state: WatchState, deps: WatchDeps): string[] {
@@ -285,9 +326,17 @@ function newStalls(known: Set<string>, deps: WatchDeps): CardActivity[] {
   return fresh
 }
 
+function newStuck(known: Set<string>, deps: WatchDeps): StuckPr[] {
+  const fresh = deps.stuck().filter(stuck => !known.has(stuckKey(stuck)))
+  for (const stuck of fresh)
+    known.add(stuckKey(stuck))
+  return fresh
+}
+
 export function tick(state: WatchState, deps: WatchDeps, now = Date.now()): string[] {
+  const stuck = newStuck(state.stuck, deps).map(stuckLine)
   const stalls = newStalls(state.stalls, deps).map(stall => stallLine(stall, now))
-  return [...journalLines(state, deps), ...busLines(state, deps), ...exitedPids(state, deps), ...stalls]
+  return [...journalLines(state, deps), ...busLines(state, deps), ...exitedPids(state, deps), ...stuck, ...stalls]
 }
 
 function journalDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefined): Delivery | undefined {
@@ -344,15 +393,22 @@ export function selectOnce(cursor: WatchCursor, deps: WatchDeps, pids: number[],
   return afterSkips === cursor ? undefined : { line: null, cursor: afterSkips }
 }
 
-function stallLines(known: Set<string>, deps: WatchDeps, card: number | undefined, now: number): string | undefined {
-  const fresh = deps.stalls().filter(stall => !known.has(stallKey(stall)) && (card === undefined || stall.cardId === card))
-  for (const stall of fresh)
-    known.add(stallKey(stall))
-  return fresh.length === 0 ? undefined : fresh.map(stall => stallLine(stall, now)).join('\n')
+function stuckLines(known: WatchKnown, deps: WatchDeps, card: number | undefined, now: number): string | undefined {
+  const ofCard = (cardId: number): boolean => card === undefined || cardId === card
+  const stuck = deps.stuck().filter(each => !known.stuck.has(stuckKey(each)) && ofCard(each.cardId))
+  const stalled = deps.stalls().filter(stall => !known.stalls.has(stallKey(stall)) && ofCard(stall.cardId))
+  for (const each of stuck)
+    known.stuck.add(stuckKey(each))
+  for (const stall of stalled)
+    known.stalls.add(stallKey(stall))
+  const lines = [...stuck.map(stuckLine), ...stalled.map(stall => stallLine(stall, now))]
+  return lines.length === 0 ? undefined : lines.join('\n')
 }
 
+type WatchKnown = Pick<WatchState, 'stalls' | 'stuck'>
+
 export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: number[], card?: number, now: () => number = Date.now): Promise<void> {
-  const known = new Set(deps.stalls().map(stallKey))
+  const known: WatchKnown = { stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
   for (;;) {
     const cursor = store.cursor()
     const selected = selectOnce(cursor, deps, pids, card)
@@ -361,7 +417,7 @@ export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: numbe
       store.commit()
       console.error(skippedLine(selected.cursor.busId))
     }
-    const stalled = selected?.line == null ? stallLines(known, deps, card, now()) : undefined
+    const stalled = selected?.line == null ? stuckLines(known, deps, card, now()) : undefined
     const delivery = stalled === undefined ? selected : { line: stalled, cursor: store.cursor() }
     if (delivery?.line == null) {
       await new Promise(resolve => setTimeout(resolve, POLL_MS))
@@ -501,6 +557,16 @@ function stalls(bus: string, now: number): CardActivity[] {
   }
 }
 
+function stuckPrs(bus: string): StuckPr[] {
+  const db = openBus(bus)
+  try {
+    return stuckOf(windowOpenPrs(db))
+  }
+  finally {
+    db.close()
+  }
+}
+
 function legacyCursor(file: string): string | undefined {
   return existsSync(file) ? readFileSync(file, 'utf8') : undefined
 }
@@ -527,6 +593,7 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     observedUpTo: id => observedUpTo(bus, id),
     deniedUpTo: id => deniedUpTo(bus, id),
     stalls: () => stalls(bus, Date.now()),
+    stuck: () => stuckPrs(bus),
     alive,
     emit: emitLine,
     beforeCommit: async () => {},

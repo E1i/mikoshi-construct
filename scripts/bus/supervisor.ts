@@ -13,7 +13,7 @@ import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
 import { ghApi } from './github.js'
 import { RESTART_MISSED, RESTARTED } from './inbox.js'
-import { expireLeasesHeldBy, TASK_EXPIRED } from './lease.js'
+import { expireLeasesHeldBy, LEASE_MS, leasesHeldBy, openDrain, TASK_EXPIRED } from './lease.js'
 import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
 import { CHECK_MS } from './netwatch.js'
 import { LIVE_FLAG } from './node.js'
@@ -29,6 +29,7 @@ export const BUS_CODE_PATH = 'scripts/bus'
 export const STOP_WAIT_MS = 10_000
 export const STOP_POLL_MS = 100
 export const RESTART_LIMIT_MS = 5 * 60_000
+export const DRAIN_LIMIT_MS = LEASE_MS
 
 export const SUPERVISOR_LAUNCH: DetachedLaunch = {
   prefix: PREFIX,
@@ -110,6 +111,7 @@ export interface SupervisorParts {
   start: (launch: DetachedLaunch) => BgResult
   stop: (running: RunningProcess, launch: DetachedLaunch) => Promise<void>
   freeLeases?: (stopped: DetachedLaunch[]) => string[]
+  drain?: Drain
   processes: ProcessList
   mainSince: (afterId: number) => MainAdvance[]
   code: BusCode
@@ -118,9 +120,19 @@ export interface SupervisorParts {
   now: () => number
 }
 
+export interface Drain {
+  held: (running: DetachedLaunch[]) => string[]
+  open: (sha: string, untilMs: number) => void
+}
+
 interface Restarted {
   lines: string[]
   down: string[]
+}
+
+interface Drained {
+  waits: boolean
+  lines: string[]
 }
 
 export class BusSupervisor {
@@ -128,6 +140,7 @@ export class BusSupervisor {
   private pending: string | null = null
   private outdatedBy: string | null = null
   private waiting: { sha: string, since: number, reported: boolean } | null = null
+  private draining: { sha: string, since: number } | null = null
 
   constructor(private readonly parts: SupervisorParts, private seen: number) {
     this.codeSha = parts.code.head()
@@ -150,7 +163,7 @@ export class BusSupervisor {
 
   private watchLimit(): string[] {
     const sha = this.pending ?? this.outdatedBy
-    if (sha === null) {
+    if (sha === null || this.draining !== null) {
       this.waiting = null
       return []
     }
@@ -210,12 +223,38 @@ export class BusSupervisor {
       this.settle(head)
       return [...lines, `${PREFIX}main advanced to ${sha} with no change under ${BUS_CODE_PATH}; nothing restarted`]
     }
+    const drained = this.drain(head)
+    if (drained.waits)
+      return [...lines, ...drained.lines]
     const wanted = this.parts.wanted()
     const restarted = await this.restart(wanted, head)
     this.settle(head)
     this.outdatedBy = head
     const notBack = restarted.down.length === 0 ? '' : `; not brought back: ${restarted.down.join(', ')}`
-    return [...lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}${notBack}`, ...restarted.lines]
+    return [...lines, ...drained.lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}${notBack}`, ...restarted.lines]
+  }
+
+  private drain(head: string): Drained {
+    const drain = this.parts.drain
+    if (drain === undefined)
+      return { waits: false, lines: [] }
+    const processes = this.parts.processes()
+    const held = drain.held(this.parts.known.filter(launch => runningInstance(processes, launch.markers) !== undefined))
+    const draining = this.draining
+    if (held.length === 0) {
+      this.draining = null
+      return { waits: false, lines: [] }
+    }
+    const now = this.parts.now()
+    if (draining?.sha !== head) {
+      drain.open(head, now + DRAIN_LIMIT_MS)
+      this.draining = { sha: head, since: now }
+      return { waits: true, lines: [`${PREFIX}the restart onto ${head} waits for the leases in flight to finish, and no worker takes a new one: ${held.join(', ')}`] }
+    }
+    if (now - draining.since < DRAIN_LIMIT_MS)
+      return { waits: true, lines: [] }
+    this.draining = null
+    return { waits: false, lines: [`${PREFIX}the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${head} anyway, and these are freed as ${TASK_EXPIRED}: ${held.join(', ')}`] }
   }
 
   private pullFailure(): string | null {
@@ -287,9 +326,19 @@ export function startingBaseline(db: DatabaseSync, code: BusCode): number {
   return readable === undefined ? lastId : baselineAdvance(readable, code)
 }
 
+function workerKindsOf(launches: DetachedLaunch[]): string[] {
+  return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
+}
+
+export function busDrain(db: DatabaseSync, ts: () => string): Drain {
+  return {
+    held: running => leasesHeldBy(db, workerKindsOf(running)),
+    open: (sha, untilMs) => openDrain(db, ts(), sha, new Date(untilMs).toISOString()),
+  }
+}
+
 export function freeLeasesOf(db: DatabaseSync, ts: string, stopped: DetachedLaunch[]): string[] {
-  const kinds = stopped.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
-  const freed = expireLeasesHeldBy(db, ts, kinds)
+  const freed = expireLeasesHeldBy(db, ts, workerKindsOf(stopped))
   return freed.length === 0 ? [] : [`${PREFIX}freed the leases of the stopped workers at once as ${TASK_EXPIRED}: ${freed.join(', ')}`]
 }
 
@@ -536,6 +585,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     start: launch => startReviewWorker(launch, busDir, process.env, processes),
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
     freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
+    drain: busDrain(db, () => new Date().toISOString()),
     processes,
     mainSince: afterId => mainAdvancedSince(db, afterId),
     code,
