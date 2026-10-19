@@ -7,11 +7,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../bus/db.js'
-import { releaseTask, TASK_LEASED } from '../../bus/lease.js'
+import { openDrain, releaseTask, TASK_LEASED } from '../../bus/lease.js'
 import { CHECK_MS, TICK_MS } from '../../bus/netwatch.js'
 import { Node } from '../../bus/node.js'
 import { keyOf, queueTaskWithin } from '../../bus/queue.js'
 import { slotsVariable } from '../../bus/scheduler.js'
+import { DRAIN_LIMIT_MS, recordRestarted } from '../../bus/supervisor.js'
 import { Clock } from './github-fake.js'
 
 const roots: string[] = []
@@ -117,6 +118,26 @@ function leasedEvents(db: DatabaseSync, key: string): number {
 function leaseGen(db: DatabaseSync, key: string): number {
   return Number((db.prepare('SELECT lease_gen FROM tasks WHERE task_key = ?').get(key) as { lease_gen: number }).lease_gen)
 }
+
+describe('a drain before a restart', () => {
+  it('while leases.draining is open a fill pass takes no task, and after supervisor.restarted it takes it', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    const node = new ReleasingNode(db, clock, 3)
+    const ts = clock.now().toISOString()
+    queueTaskWithin(db, ts, task(970))
+    const key = keyOf(task(970))
+    openDrain(db, ts, 'b'.repeat(40), new Date(clock.now().getTime() + DRAIN_LIMIT_MS).toISOString())
+    await onePass(node)
+
+    expect(leasedEvents(db, key)).toBe(0)
+
+    recordRestarted(db, ts, 'b'.repeat(40))
+    await onePass(node)
+
+    expect(leasedEvents(db, key)).toBe(1)
+  })
+})
 
 describe('a fill pass', () => {
   it('a node whose handle releases its task synchronously takes each key once in one fill pass, lease_gen grows by exactly 1 and the lease is not fenced before its settle', async () => {

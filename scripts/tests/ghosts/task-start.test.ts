@@ -11,6 +11,7 @@ import { BACKFILL_ACTOR } from '../../bus/backfill.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
+import { slotsOf } from '../../bus/scheduler.js'
 import { readJournalFile, runTaskStart } from '../../ghosts/task-start.js'
 import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ghosts/worktree-home.js'
 
@@ -246,6 +247,52 @@ describe('task:start reads the admission from the bus and writes the start to it
     expect(result.exitCode).toBe(0)
     expect(starts(world)).toEqual([])
     expect(result.stdout[3]).toBe(`ACTION   | task:start feat/a6 #41: cut ${path.join(world.root, 'mc-41')} from origin/main; card.started is the launch worker's, which holds the launch of #41`)
+  })
+})
+
+describe('task:start refuses while the window holds its limit of open pull requests', () => {
+  function openPr(world: World, pr: number, cardId: number, started: Record<string, unknown> = {}): void {
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_STARTED, actor: `worker:start:${SESSION}`, cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}`, payload: { path: 'cheap', ...started }, legacy: false })
+    const eventId = (db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id
+    db.prepare('INSERT INTO prs (pr, card_id, state, event_id) VALUES (?, ?, ?, ?)').run(pr, cardId, 'open', eventId)
+    db.close()
+  }
+
+  it('with three open pull requests of the window and a limit of three, task:start refuses naming them and cuts no branch', () => {
+    const world = newWorld()
+    openPr(world, 901, 2)
+    openPr(world, 902, 3)
+    openPr(world, 903, 4)
+    const before = starts(world).length
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: () => 3 })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[task:start] the window holds 3 open pull requests (PR #901, PR #902, PR #903), at its limit of 3 from CONSTRUCT_BUS_SLOTS_REVIEW: move one to its merge or close before starting #42; nothing written'])
+    expect(git(world.repo, ['branch', '--list', 'feat/wip'])).toBe('')
+    expect(existsSync(path.join(world.root, 'mc-42'))).toBe(false)
+    expect(starts(world)).toHaveLength(before)
+  })
+
+  it('an unreadable slot count refuses the start naming the variable and cuts no branch, instead of throwing', () => {
+    const world = newWorld()
+    const before = starts(world).length
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: () => slotsOf('review', { CONSTRUCT_BUS_SLOTS_REVIEW: 'three' }) })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[task:start] the window limit cannot be read: CONSTRUCT_BUS_SLOTS_REVIEW is not a positive integer: three; nothing written'])
+    expect(git(world.repo, ['branch', '--list', 'feat/wip'])).toBe('')
+    expect(starts(world)).toHaveLength(before)
+  })
+
+  it('a pull request a shift started and a closed one are not the window\'s, so two of its own under a limit of three start the card', () => {
+    const world = newWorld()
+    openPr(world, 901, 2)
+    openPr(world, 902, 3)
+    openPr(world, 903, 4, { shift: 'shift-1' })
+    openPr(world, 904, 5)
+    const db = openBus(world.bus)
+    db.prepare('UPDATE prs SET state = ? WHERE pr = ?').run('closed', 904)
+    db.close()
+    expect(runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: () => 3 }).exitCode).toBe(0)
   })
 })
 

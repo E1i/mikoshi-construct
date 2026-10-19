@@ -5,7 +5,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import { CARD_FOLDED_ON_APPEND, CARD_FOLDS } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
-import { CARD_STOPPED } from './inbox.js'
+import { CARD_STOPPED, RESTARTED } from './inbox.js'
 import { BOARD_ALARM, COMPLETED, FAILURES_TO_STOP, generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
@@ -16,6 +16,7 @@ export const TASK_COMPLETED = 'task.completed'
 export const TASK_FAILED = 'task.failed'
 export const TASK_EXPIRED = 'task.expired'
 export const TASK_RELEASED = 'task.released'
+export const LEASES_DRAINING = 'leases.draining'
 
 export const LEASE_MS = 30 * 60_000
 export const RENEW_MS = 10 * 60_000
@@ -89,6 +90,12 @@ const LAPSED = `SELECT * FROM tasks WHERE state = '${LEASED}' AND lease_until < 
 const HELD_BY_KIND = `
   SELECT tasks.* FROM tasks JOIN events ON events.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
   WHERE tasks.state = '${LEASED}' AND events.actor LIKE ? ORDER BY tasks.id
+`
+
+const LAST_DRAIN_SINCE_RESTART = `
+  SELECT payload FROM events WHERE type = '${LEASES_DRAINING}'
+    AND id > (SELECT coalesce(max(id), 0) FROM events WHERE type = '${RESTARTED}')
+  ORDER BY id DESC LIMIT 1
 `
 
 function rowOf(db: DatabaseSync, key: string): LeaseRow | undefined {
@@ -303,9 +310,26 @@ export function expireLeases(db: DatabaseSync, ts: string): string[] {
   return inTransaction(db, () => expired(db, ts, db.prepare(LAPSED).all(ts) as unknown as LeaseRow[], 'lease_expired'))
 }
 
+function heldBy(db: DatabaseSync, workerKinds: readonly string[]): LeaseRow[] {
+  return workerKinds.flatMap(kind => db.prepare(HELD_BY_KIND).all(`worker:${kind}:%`) as unknown as LeaseRow[])
+}
+
+export function leasesHeldBy(db: DatabaseSync, workerKinds: readonly string[]): string[] {
+  return heldBy(db, workerKinds).map(row => row.task_key)
+}
+
 export function expireLeasesHeldBy(db: DatabaseSync, ts: string, workerKinds: readonly string[]): string[] {
-  return inTransaction(db, () => {
-    const held = workerKinds.flatMap(kind => db.prepare(HELD_BY_KIND).all(`worker:${kind}:%`) as unknown as LeaseRow[])
-    return expired(db, ts, held, 'holder_stopped')
-  })
+  return inTransaction(db, () => expired(db, ts, heldBy(db, workerKinds), 'holder_stopped'))
+}
+
+export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string): void {
+  appendEvent(db, { ts, type: LEASES_DRAINING, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${LEASES_DRAINING}:${sha}:${until}`, payload: { sha, until }, legacy: false })
+}
+
+export function drainOpen(db: DatabaseSync, ts: string): boolean {
+  const row = db.prepare(LAST_DRAIN_SINCE_RESTART).get() as { payload: string } | undefined
+  if (row === undefined)
+    return false
+  const until = (JSON.parse(row.payload) as { until?: unknown }).until
+  return typeof until === 'string' && until > ts
 }

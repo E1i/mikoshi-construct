@@ -1,3 +1,4 @@
+import type { WindowPr } from '../../bus/window-prs.js'
 import type { BusEvent, CardActivity, WatchDeps } from '../../miko/watch.js'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
@@ -16,7 +17,7 @@ import { PR_CLOSED, prClosed } from '../../bus/observations.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../../bus/review-executor.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
-import { BUS_ALIVE_MS, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, skippedLine, STALL_MS, stalledOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
+import { BUS_ALIVE_MS, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, skippedLine, STALL_MS, stalledOf, stuckOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 
@@ -57,6 +58,7 @@ function fileDeps(file: string, alive: (pid: number) => boolean = () => true, ev
     observedUpTo: id => [...new Map(events.filter(event => event.type === PR_OBSERVED && event.id <= id).map(event => [event.pr, event])).values()],
     deniedUpTo: id => events.filter(event => event.type === POLICY_DENIED && event.id <= id),
     stalls: () => [...stalls],
+    stuck: () => [],
     emit: async () => {},
     beforeCommit: async () => {},
     lastBusId: () => 0,
@@ -901,5 +903,50 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
     }
     await deliverOnce(store, once, [], undefined, () => now)
     expect(emitted).toEqual([[1071, 1086].map(id => `stall card ${id}: no new event for 21 minutes since card.started at ${at(STALL_MS + 60_000)}, while the bus is alive`).join('\n')])
+  })
+
+  it('the continuous watch wakes on a pull request that turns stuck after it started, not on one stuck before, and names a stopped card', () => {
+    const open = (pr: number, cardId: number, ci: string, priority: string | null, cardState = 'in_review'): WindowPr => ({ pr, cardId, head: `h${pr}`, ci, cardState, priority })
+    let windowPrs = [open(920, 1070, 'red', null), open(926, 1079, 'green', null), open(931, 1095, 'pending', 'p0')]
+    const deps = { ...fileDeps(journal()), stuck: () => stuckOf(windowPrs) }
+    const state = watchState(deps, [])
+    expect(tick(state, deps)).toEqual([])
+
+    windowPrs = [open(920, 1070, 'red', null), open(926, 1079, 'red', null), open(931, 1095, 'pending', 'p0', 'stopped')]
+    expect(tick(state, deps)).toEqual([
+      'stuck PR #931 card 1095: card stopped, priority p0; the window moves it before it takes a new card',
+      'stuck PR #926 card 1079: red CI, priority -; the window moves it before it takes a new card',
+    ])
+    expect(tick(state, deps)).toEqual([])
+  })
+
+  it('an open pull request of the window that turns red wakes a --once, the highest-priority stuck one first', async () => {
+    const open = (pr: number, cardId: number, ci: string, priority: string | null, cardState = 'in_review'): WindowPr => ({ pr, cardId, head: `h${pr}`, ci, cardState, priority })
+    const green = [open(926, 1079, 'green', null), open(929, 1074, 'green', 'p0'), open(931, 1095, 'pending', null, 'stopped')]
+    const red = [open(926, 1079, 'red', null), open(929, 1074, 'red', 'p0'), open(931, 1095, 'pending', null, 'stopped')]
+    expect(stuckOf(red).map(stuck => stuck.pr)).toEqual([929, 926, 931])
+    const file = journal()
+    let cursor = { offset: statSync(file).size, busId: 0 }
+    const store = {
+      cursor: () => cursor,
+      write: (next: typeof cursor) => {
+        cursor = next
+      },
+      commit: () => {},
+    } as unknown as OnceStore
+    const emitted: string[] = []
+    let calls = 0
+    const once = {
+      ...fileDeps(file),
+      emit: async (line: string) => {
+        emitted.push(line)
+      },
+      stuck: () => stuckOf(calls++ < 1 ? green : red),
+    }
+    await deliverOnce(store, once, [])
+    expect(emitted).toEqual([[
+      'stuck PR #929 card 1074: red CI, priority p0; the window moves it before it takes a new card',
+      'stuck PR #926 card 1079: red CI, priority -; the window moves it before it takes a new card',
+    ].join('\n')])
   })
 })
