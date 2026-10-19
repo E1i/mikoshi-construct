@@ -103,6 +103,12 @@ and `.construct/high-effort-areas.md`.
    implementer's transcript in the session's `subagents/workflows/<run>/` shows whether it received
    anything besides the computed prompt. Note the run identifier the
    Workflow tool reports when it launches the run and again when it completes; step 4 records it.
+   The Workflow tool launches the run in the background and reports its end as a task notification,
+   which reaches the session only while a turn is open; a headless session (`claude -p`, a Ghost) that
+   ends its turn ends the run with it. After the launch, keep the turn open: start Monitor on the command
+   `sleep 1500` (a foreground `sleep` in Bash may be refused), and start it again each time it ends,
+   until a task notification for this run reports it completed, failed or killed; only then go on to
+   step 4.
    The harness agent reports, on every call, the sha256 that `shasum -a 256 <argsPath>` prints as
    `argsSha256`, and the ladder compares it with the handle's before it reads anything else of the
    verdict.
