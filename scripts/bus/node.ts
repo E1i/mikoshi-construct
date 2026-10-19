@@ -95,6 +95,12 @@ const LEASED_BY = `
   WHERE tasks.state = '${LEASED}' AND events.actor = ? ORDER BY tasks.id
 `
 
+export const DATABASE_LOCKED = 'database is locked'
+
+export function isDatabaseLocked(error: unknown): boolean {
+  return error instanceof Error && error.message.includes(DATABASE_LOCKED)
+}
+
 export function prefixOf(kind: Queue): string {
   return `[bus:${kind}] `
 }
@@ -201,12 +207,10 @@ export abstract class Node<S extends NodeStep> {
       return null
     }
     while (ctx.signal?.aborted !== true) {
-      this.deliver()
+      this.retryWhenLocked('deliver', () => this.deliver())
       const now = this.parts.clock().getTime()
-      if (lastTick === null || now - lastTick >= TICK_MS) {
-        this.tick()
+      if ((lastTick === null || now - lastTick >= TICK_MS) && this.retryWhenLocked('tick', () => this.tick()))
         lastTick = now
-      }
       this.fill(inFlight)
       if (inFlight.size === 0) {
         this.lastStep = IDLE
@@ -314,14 +318,29 @@ export abstract class Node<S extends NodeStep> {
     return leaseNext(this.db, ts, this.kind, this.actor, this.leaseOrder())
   }
 
+  private retryWhenLocked(step: string, work: () => void): boolean {
+    try {
+      work()
+      return true
+    }
+    catch (error) {
+      if (!isDatabaseLocked(error))
+        throw error
+      this.log(`the ${step} hit ${DATABASE_LOCKED}; it is retried on the next turn, and the leases in flight keep running`)
+      return false
+    }
+  }
+
   private fill(inFlight: Map<string, Promise<S>>): void {
     const taken: Lease[] = []
-    while (inFlight.size + taken.length < this.slots) {
-      const lease = this.take()
-      if (lease === null)
-        break
-      taken.push(lease)
-    }
+    this.retryWhenLocked('take', () => {
+      while (inFlight.size + taken.length < this.slots) {
+        const lease = this.take()
+        if (lease === null)
+          break
+        taken.push(lease)
+      }
+    })
     for (const lease of taken) {
       inFlight.set(lease.taskKey, (async () => {
         try {
