@@ -30,7 +30,7 @@ function pr(db: DatabaseSync, number: number, cardId: number | null, state: stri
 }
 
 describe('the open pull requests of the window', () => {
-  it('are the open ones whose card the window started by task:start, not a shift, a closed one or one with no card', () => {
+  it('are the open ones whose card the window started by task:start, not a shift, a closed one or one with no card, each with its card body priority', () => {
     const db = newBus()
     pr(db, 901, 1, 'open', 'red', started(db, 1, 'worker:start:s1'))
     pr(db, 902, 2, 'open', 'green', started(db, 2, 'worker:start:s1', { shift: 'shift-1' }))
@@ -40,9 +40,10 @@ describe('the open pull requests of the window', () => {
     const sixStarted = started(db, 6, 'worker:start:by-hand')
     pr(db, 906, 6, 'open', 'pending', sixStarted)
     db.prepare('INSERT OR REPLACE INTO cards (card_id, state, pr, event_id) VALUES (?, ?, ?, ?)').run(6, 'stopped', 906, sixStarted)
+    db.prepare('INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, priority, lane) VALUES (?, ?, ?, ?, ?, ?)').run(1, sixStarted, 'card: #1', 'sha-1', 'p0', 'lane-1')
 
     expect(windowOpenPrs(db)).toEqual([
-      { pr: 901, cardId: 1, head: 'h901', ci: 'red', cardState: null, priority: null },
+      { pr: 901, cardId: 1, head: 'h901', ci: 'red', cardState: null, priority: 'p0' },
       { pr: 906, cardId: 6, head: 'h906', ci: 'pending', cardState: 'stopped', priority: null },
     ])
   })

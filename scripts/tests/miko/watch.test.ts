@@ -905,6 +905,21 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
     expect(emitted).toEqual([[1071, 1086].map(id => `stall card ${id}: no new event for 21 minutes since card.started at ${at(STALL_MS + 60_000)}, while the bus is alive`).join('\n')])
   })
 
+  it('the continuous watch wakes on a pull request that turns stuck after it started, not on one stuck before, and names a stopped card', () => {
+    const open = (pr: number, cardId: number, ci: string, priority: string | null, cardState = 'in_review'): WindowPr => ({ pr, cardId, head: `h${pr}`, ci, cardState, priority })
+    let windowPrs = [open(920, 1070, 'red', null), open(926, 1079, 'green', null), open(931, 1095, 'pending', 'p0')]
+    const deps = { ...fileDeps(journal()), stuck: () => stuckOf(windowPrs) }
+    const state = watchState(deps, [])
+    expect(tick(state, deps)).toEqual([])
+
+    windowPrs = [open(920, 1070, 'red', null), open(926, 1079, 'red', null), open(931, 1095, 'pending', 'p0', 'stopped')]
+    expect(tick(state, deps)).toEqual([
+      'stuck PR #931 card 1095: card stopped, priority p0; the window moves it before it takes a new card',
+      'stuck PR #926 card 1079: red CI, priority -; the window moves it before it takes a new card',
+    ])
+    expect(tick(state, deps)).toEqual([])
+  })
+
   it('an open pull request of the window that turns red wakes a --once, the highest-priority stuck one first', async () => {
     const open = (pr: number, cardId: number, ci: string, priority: string | null, cardState = 'in_review'): WindowPr => ({ pr, cardId, head: `h${pr}`, ci, cardState, priority })
     const green = [open(926, 1079, 'green', null), open(929, 1074, 'green', 'p0'), open(931, 1095, 'pending', null, 'stopped')]

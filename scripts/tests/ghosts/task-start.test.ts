@@ -11,6 +11,7 @@ import { BACKFILL_ACTOR } from '../../bus/backfill.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
+import { slotsOf } from '../../bus/scheduler.js'
 import { readJournalFile, runTaskStart } from '../../ghosts/task-start.js'
 import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ghosts/worktree-home.js'
 
@@ -264,11 +265,21 @@ describe('task:start refuses while the window holds its limit of open pull reque
     openPr(world, 902, 3)
     openPr(world, 903, 4)
     const before = starts(world).length
-    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: 3 })
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: () => 3 })
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toEqual(['[task:start] the window holds 3 open pull requests (PR #901, PR #902, PR #903), at its limit of 3 from CONSTRUCT_BUS_SLOTS_REVIEW: move one to its merge or close before starting #42; nothing written'])
     expect(git(world.repo, ['branch', '--list', 'feat/wip'])).toBe('')
     expect(existsSync(path.join(world.root, 'mc-42'))).toBe(false)
+    expect(starts(world)).toHaveLength(before)
+  })
+
+  it('an unreadable slot count refuses the start naming the variable and cuts no branch, instead of throwing', () => {
+    const world = newWorld()
+    const before = starts(world).length
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: () => slotsOf('review', { CONSTRUCT_BUS_SLOTS_REVIEW: 'three' }) })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[task:start] the window limit cannot be read: CONSTRUCT_BUS_SLOTS_REVIEW is not a positive integer: three; nothing written'])
+    expect(git(world.repo, ['branch', '--list', 'feat/wip'])).toBe('')
     expect(starts(world)).toHaveLength(before)
   })
 
@@ -281,7 +292,7 @@ describe('task:start refuses while the window holds its limit of open pull reque
     const db = openBus(world.bus)
     db.prepare('UPDATE prs SET state = ? WHERE pr = ?').run('closed', 904)
     db.close()
-    expect(runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: 3 }).exitCode).toBe(0)
+    expect(runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: () => 3 }).exitCode).toBe(0)
   })
 })
 

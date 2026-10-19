@@ -228,6 +228,7 @@ export class BusSupervisor {
       return [...lines, ...drained.lines]
     const wanted = this.parts.wanted()
     const restarted = await this.restart(wanted, head)
+    this.draining = null
     this.settle(head)
     this.outdatedBy = head
     const notBack = restarted.down.length === 0 ? '' : `; not brought back: ${restarted.down.join(', ')}`
@@ -247,13 +248,15 @@ export class BusSupervisor {
     }
     const now = this.parts.now()
     if (draining?.sha !== head) {
-      drain.open(head, now + DRAIN_LIMIT_MS)
-      this.draining = { sha: head, since: now }
-      return { waits: true, lines: [`${PREFIX}the restart onto ${head} waits for the leases in flight to finish, and no worker takes a new one: ${held.join(', ')}`] }
+      const since = draining?.since ?? now
+      drain.open(head, since + DRAIN_LIMIT_MS)
+      this.draining = { sha: head, since }
+      if (now - since < DRAIN_LIMIT_MS)
+        return { waits: true, lines: [`${PREFIX}the restart onto ${head} waits for the leases in flight to finish, and no worker takes a new one: ${held.join(', ')}`] }
     }
-    if (now - draining.since < DRAIN_LIMIT_MS)
+    else if (now - draining.since < DRAIN_LIMIT_MS) {
       return { waits: true, lines: [] }
-    this.draining = null
+    }
     return { waits: false, lines: [`${PREFIX}the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${head} anyway, and these are freed as ${TASK_EXPIRED}: ${held.join(', ')}`] }
   }
 

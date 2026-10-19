@@ -505,7 +505,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
 
   const MERGED_AT = Date.parse('2026-10-19T15:00:00.000Z')
 
-  function drainBench(clock: { now: number }): { db: ReturnType<typeof openBus>, lease: NonNullable<ReturnType<typeof leaseWhileFree>>, alive: () => RunningProcess[], supervisor: BusSupervisor, ts: () => string } {
+  function drainBench(clock: { now: number }, main = { sha: NEW_MAIN, id: 1 }, failStops = { left: 0 }): { db: ReturnType<typeof openBus>, lease: NonNullable<ReturnType<typeof leaseWhileFree>>, alive: () => RunningProcess[], supervisor: BusSupervisor, ts: () => string } {
     const root = mkdtempSync(path.join(tmpdir(), 'supervisor-drain-'))
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
@@ -519,17 +519,21 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
       wanted: () => [answer],
       start: ok,
       stop: async (instance) => {
+        if (failStops.left > 0) {
+          failStops.left -= 1
+          throw new Error('stop failed')
+        }
         alive = alive.filter(candidate => candidate.pid !== instance.pid)
       },
       freeLeases: stopped => freeLeasesOf(db, ts(), stopped),
       drain: busDrain(db, ts),
       processes: () => alive,
-      mainSince: () => [{ id: 1, sha: NEW_MAIN }],
+      mainSince: () => [{ id: main.id, sha: main.sha }],
       code: {
         head: () => head,
         holds: sha => sha === head,
         pull: () => {
-          head = NEW_MAIN
+          head = main.sha
         },
         busChangedSince: sha => sha !== head,
       },
@@ -575,6 +579,44 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(lines).toContain(`the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${NEW_MAIN} anyway, and these are freed as ${TASK_EXPIRED}: ${lease.taskKey}`)
     expect(lines).toContain('restarting every running bus process')
     expect(holderStopped(db)).toEqual([expect.objectContaining({ task_key: lease.taskKey, reason: 'holder_stopped' })])
+    db.close()
+  })
+
+  it('a restart that fails after the drain limit is retried on the next tick, with no second wait and no reopened drain', async () => {
+    const clock = { now: 0 }
+    const failStops = { left: 1 }
+    const { db, supervisor, ts } = drainBench(clock, { sha: NEW_MAIN, id: 1 }, failStops)
+
+    await supervisor.step()
+    clock.now = DRAIN_LIMIT_MS
+    expect((await supervisor.step()).join('\n')).toContain('supervisor step failed: stop failed')
+    expect(drainOpen(db, ts())).toBe(false)
+
+    clock.now = DRAIN_LIMIT_MS + 60_000
+    const lines = (await supervisor.step()).join('\n')
+    expect(lines).not.toContain('waits for the leases in flight')
+    expect(lines).toContain('restarting every running bus process')
+    expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get('leases.draining')).toEqual({ n: 1 })
+    db.close()
+  })
+
+  it('a second merge under scripts/bus while the drain waits keeps the first deadline, so continuous merges do not postpone the restart', async () => {
+    const clock = { now: 0 }
+    const main = { sha: NEW_MAIN, id: 1 }
+    const { db, lease, supervisor, ts } = drainBench(clock, main)
+
+    await supervisor.step()
+    clock.now = DRAIN_LIMIT_MS - 60_000
+    main.sha = 'c'.repeat(40)
+    main.id = 2
+    expect((await supervisor.step()).join('\n')).toContain(`the restart onto ${main.sha} waits for the leases in flight to finish`)
+    expect(drainOpen(db, ts())).toBe(true)
+
+    clock.now = DRAIN_LIMIT_MS
+    expect(drainOpen(db, ts())).toBe(false)
+    const lines = (await supervisor.step()).join('\n')
+    expect(lines).toContain(`restarting on ${main.sha} anyway, and these are freed as ${TASK_EXPIRED}: ${lease.taskKey}`)
+    expect(lines).toContain('restarting every running bus process')
     db.close()
   })
 

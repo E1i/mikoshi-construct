@@ -54,7 +54,7 @@ export interface TaskStartDeps {
   readJournal: TaskStartJournalReader
   style?: SignalStyle
   parking?: { dir: string, read: (file: string) => string | null }
-  windowLimit?: number
+  windowLimit?: () => number
 }
 
 const WINDOW_LIMIT_SLOTS = 'review'
@@ -102,10 +102,17 @@ function heldByWindow(bus: string): number[] {
 function windowAtLimit(deps: TaskStartDeps, id: string): string | null {
   if (deps.windowLimit === undefined)
     return null
+  let limit: number
+  try {
+    limit = deps.windowLimit()
+  }
+  catch (error) {
+    return `the window limit cannot be read: ${error instanceof Error ? error.message : String(error)}; nothing written`
+  }
   const held = heldByWindow(deps.bus)
-  if (held.length < deps.windowLimit)
+  if (held.length < limit)
     return null
-  return `the window holds ${held.length} open pull requests (${held.map(pr => `PR #${pr}`).join(', ')}), at its limit of ${deps.windowLimit} from ${slotsVariable(WINDOW_LIMIT_SLOTS)}: move one to its merge or close before starting #${id}; nothing written`
+  return `the window holds ${held.length} open pull requests (${held.map(pr => `PR #${pr}`).join(', ')}), at its limit of ${limit} from ${slotsVariable(WINDOW_LIMIT_SLOTS)}: move one to its merge or close before starting #${id}; nothing written`
 }
 
 const ADMIT_COMMAND = 'pnpm intake --admit'
@@ -462,7 +469,7 @@ function realDeps(): TaskStartDeps {
     readJournal: readJournalFile,
     parking: { dir: path.join(os.homedir(), '.construct', 'parking'), read: readJournalFile },
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
-    windowLimit: slotsOf(WINDOW_LIMIT_SLOTS, process.env),
+    windowLimit: () => slotsOf(WINDOW_LIMIT_SLOTS, process.env),
   }
 }
 

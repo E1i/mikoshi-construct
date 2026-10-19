@@ -323,7 +323,7 @@ export function expireLeasesHeldBy(db: DatabaseSync, ts: string, workerKinds: re
 }
 
 export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string): void {
-  appendEvent(db, { ts, type: LEASES_DRAINING, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${LEASES_DRAINING}:${sha}`, payload: { sha, until }, legacy: false })
+  appendEvent(db, { ts, type: LEASES_DRAINING, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${LEASES_DRAINING}:${sha}:${until}`, payload: { sha, until }, legacy: false })
 }
 
 export function drainOpen(db: DatabaseSync, ts: string): boolean {
