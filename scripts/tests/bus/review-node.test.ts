@@ -8,7 +8,7 @@ import type { Review, Reviewer } from '../../bus/reviewer.js'
 import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -439,6 +439,38 @@ describe('the review node', () => {
       expect(rebuilt).toBe(given)
       expect(rebuilt).toContain(`${recorded!.since}..${recorded!.head}`)
       expect(createHash('sha256').update(rebuilt).digest('hex')).toBe(recorded!.prompt_sha)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('review.recorded carries since only beside the stored input of a diff review, and keeps the verdict when the prompt cannot be stored', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-review-input-'))
+    const blocker = path.join(root, 'a-file')
+    writeFileSync(blocker, '')
+    const since = 'b'.repeat(40)
+    const diff: ReviewPlan = { depth: 'diff', round: 'first', why: 'a fixed plan', since, touchFindings: [] }
+    const cases: { name: string, plan: ReviewPlan, input: boolean, prompts: string | undefined, fields: string[] }[] = [
+      { name: 'diff, stored', plan: diff, input: true, prompts: path.join(root, 'prompts'), fields: ['prompt_path', 'prompt_sha', 'since'] },
+      { name: 'full, stored', plan: fullReview('a fixed plan'), input: true, prompts: path.join(root, 'prompts'), fields: ['prompt_path', 'prompt_sha'] },
+      { name: 'diff, no input', plan: diff, input: false, prompts: path.join(root, 'prompts'), fields: [] },
+      { name: 'diff, no prompts directory', plan: diff, input: true, prompts: undefined, fields: [] },
+      { name: 'diff, unwritable prompts directory', plan: diff, input: true, prompts: path.join(blocker, 'prompts'), fields: ['prompt_sha', 'prompt_unstored', 'since'] },
+    ]
+    try {
+      for (const each of cases) {
+        const made = bench()
+        openGreen(made, 1097)
+        made.tick()
+        detectReview(made)
+        const reviewer = async (lease: Lease): Promise<Review & { input?: SessionInput }> => ({ verdict: 'pass', findings: [], session: `reviewer-${lease.pr}`, ...(each.input ? { input: { prompt: 'the review prompt' } } : {}) })
+        const worker = new ReviewWorker({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => each.plan, clock: made.clock.now, session: 'worker-1', isolation: sandboxed, prompts: each.prompts })
+
+        expect(await worker.stepOn(reviewKey(1097)), each.name).toMatchObject({ kind: 'recorded', verdict: 'pass' })
+        const [recorded] = eventsOf(made.db, REVIEW_RECORDED)
+        expect(['prompt_path', 'prompt_sha', 'prompt_unstored', 'since'].filter(field => field in recorded!), each.name).toEqual(each.fields)
+      }
     }
     finally {
       rmSync(root, { recursive: true, force: true })

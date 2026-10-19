@@ -53,7 +53,7 @@ export interface SessionInput {
   prompt: string
 }
 
-type StoredInput = { prompt_sha: string, prompt_path: string } | Record<string, never>
+type StoredInput = { prompt_sha: string, prompt_path: string } | { prompt_sha: string, prompt_unstored: string } | Record<string, never>
 
 type InputReview = Review & { input?: SessionInput }
 
@@ -140,9 +140,14 @@ function storedInput(prompts: string | undefined, input: SessionInput | undefine
     return {}
   const sha = createHash('sha256').update(input.prompt).digest('hex')
   const file = path.join(prompts, `${sha}.md`)
-  mkdirSync(prompts, { recursive: true })
-  writeFileSync(file, input.prompt)
-  return { prompt_sha: sha, prompt_path: file }
+  try {
+    mkdirSync(prompts, { recursive: true })
+    writeFileSync(file, input.prompt)
+    return { prompt_sha: sha, prompt_path: file }
+  }
+  catch (error) {
+    return { prompt_sha: sha, prompt_unstored: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 function inputFields(prompts: string | undefined, plan: ReviewPlan, input: SessionInput | undefined): Record<string, unknown> {

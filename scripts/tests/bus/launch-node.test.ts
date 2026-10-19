@@ -305,6 +305,28 @@ describe('the launch node', () => {
     expect(createHash('sha256').update(rebuilt).digest('hex')).toBe(started!.prompt_sha)
   })
 
+  it('card.started is recorded with the prompt sha and the reason when the prompt cannot be stored', () => {
+    const made = bench()
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-input-'))
+    roots.push(root)
+    const blocker = path.join(root, 'a-file')
+    writeFileSync(blocker, '')
+    const starter: CardStarter = {
+      start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242, input: { prompt: 'the launch prompt' } } }),
+      stop: () => {},
+    }
+    admit(made, 970, 'lane-a')
+    made.tick()
+    const ts = made.clock.now().toISOString()
+    queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
+    const executor = new LaunchExecutor({ db: made.db, starter, clock: made.clock.now, isolation: sandboxed, prompts: path.join(blocker, 'prompts') })
+
+    expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
+    const [started] = eventsOf(made.db, CARD_STARTED)
+    expect(started).toMatchObject({ prompt_sha: createHash('sha256').update('the launch prompt').digest('hex'), prompt_unstored: expect.any(String) as unknown })
+    expect(started).not.toHaveProperty('prompt_path')
+  })
+
   it('in shadow the launch node writes node.detected and starts no session', async () => {
     const made = bench()
     const starter = new FakeStarter()
