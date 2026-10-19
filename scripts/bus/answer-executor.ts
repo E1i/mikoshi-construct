@@ -64,6 +64,12 @@ const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = '
 
 const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone'])
 
+const MS_PER_MINUTE = 60_000
+
+function minutesSince(start: number, end: number): number {
+  return Math.round((end - start) / MS_PER_MINUTE * 10) / 10
+}
+
 export class AnswerExecutor {
   constructor(private readonly parts: AnswerParts) {}
 
@@ -93,10 +99,11 @@ export class AnswerExecutor {
         return this.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started, no start line with a worktree and a branch, and no open pull request` })
       if ('kind' in card)
         return this.denied(lease, card)
+      const sessionStart = this.parts.clock().getTime()
       const answered = await this.session(lease, source, widened, card)
       if ('kind' in answered)
         return this.denied(lease, answered)
-      return this.settled(lease, source, widened, answered)
+      return this.settled(lease, source, widened, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -131,7 +138,7 @@ export class AnswerExecutor {
     }
   }
 
-  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, answered: Answered): AnswerOutcome {
+  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, answered: Answered, minutes: number): AnswerOutcome {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
@@ -139,7 +146,7 @@ export class AnswerExecutor {
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, scope)
     }
-    const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after }
+    const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, minutes, tokens: answered.tokens ?? null }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }

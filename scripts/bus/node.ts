@@ -5,6 +5,7 @@ import type { Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { SlotKind } from './scheduler.js'
 import type { StoredEvent } from './stored.js'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { appendEvent, inTransaction, openBus } from './db.js'
 import { expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease, TASK_LEASED } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
@@ -193,6 +194,12 @@ export abstract class Node<S extends NodeStep> {
     this.log(`the ${this.kind} node ${this.actor} takes the ${this.kind} queue, detection ${this.parts.mode}, ${this.slots} slot(s)`)
     const inFlight = new Map<string, Promise<S>>()
     let lastTick: number | null = null
+    let freeSlotWake: Promise<null> | null = null
+    const nextFreeSlotWake = async (): Promise<null> => {
+      await ctx.pause(CHECK_MS)
+      freeSlotWake = null
+      return null
+    }
     while (ctx.signal?.aborted !== true) {
       this.deliver()
       const now = this.parts.clock().getTime()
@@ -201,9 +208,17 @@ export abstract class Node<S extends NodeStep> {
         lastTick = now
       }
       this.fill(inFlight)
-      const step = inFlight.size === 0 ? IDLE : await Promise.race(inFlight.values())
-      this.lastStep = step
-      await ctx.pause(this.pauseAfter(step))
+      if (inFlight.size === 0) {
+        this.lastStep = IDLE
+        await ctx.pause(this.pauseAfter(IDLE))
+        continue
+      }
+      const settledThisTurn = await Promise.race([...inFlight.values(), nextTurn(null)])
+      if (settledThisTurn === null && inFlight.size < this.slots)
+        freeSlotWake ??= nextFreeSlotWake()
+      const step = settledThisTurn ?? await Promise.race([...inFlight.values(), ...(freeSlotWake === null ? [] : [freeSlotWake])])
+      if (step !== null)
+        await ctx.pause(this.pauseAfter(step))
     }
     await Promise.all(inFlight.values())
   }
@@ -304,7 +319,9 @@ export abstract class Node<S extends NodeStep> {
     for (const lease of taken) {
       inFlight.set(lease.taskKey, (async () => {
         try {
-          return await this.settle(lease)
+          const step = await this.settle(lease)
+          this.lastStep = step
+          return step
         }
         finally {
           inFlight.delete(lease.taskKey)

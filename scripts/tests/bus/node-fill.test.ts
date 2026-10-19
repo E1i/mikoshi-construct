@@ -55,6 +55,38 @@ class ReleasingNode extends Node<NodeStep> {
   }
 }
 
+class BlockingNode extends Node<NodeStep> {
+  readonly handledWhileFirstRuns: string[] = []
+  private firstRunning = false
+  private releaseFirst: () => void = () => {}
+
+  constructor(db: DatabaseSync, clock: Clock, slots: number, private readonly blocked: string) {
+    super('review', { db, clock: clock.now, session: 'fill', mode: 'live', env: { [slotsVariable('review')]: String(slots) } })
+  }
+
+  protected candidates(_scope?: Scope): QueuedTask[] {
+    return []
+  }
+
+  protected async handle(lease: Lease): Promise<NodeStep> {
+    if (lease.taskKey !== this.blocked) {
+      if (this.firstRunning)
+        this.handledWhileFirstRuns.push(lease.taskKey)
+      return { kind: 'fenced', taskKey: lease.taskKey }
+    }
+    this.firstRunning = true
+    await new Promise<void>((resolve) => {
+      this.releaseFirst = resolve
+    })
+    this.firstRunning = false
+    return { kind: 'fenced', taskKey: lease.taskKey }
+  }
+
+  finishFirst(): void {
+    this.releaseFirst()
+  }
+}
+
 async function onePass(node: Node<NodeStep>): Promise<void> {
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })
@@ -94,5 +126,30 @@ describe('a fill pass', () => {
       expect(leasedEvents(db, keyOf(each))).toBe(1)
       expect(leaseGen(db, keyOf(each))).toBe(1)
     }
+  })
+
+  it('with three slots a second task is leased while the first still runs', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    const first = keyOf(task(970))
+    const node = new BlockingNode(db, clock, 3, first)
+    queueTaskWithin(db, clock.now().toISOString(), task(970))
+    const controller = new AbortController()
+    let pauses = 0
+    await node.run({
+      pause: async () => {
+        pauses += 1
+        if (pauses === 1) {
+          queueTaskWithin(db, clock.now().toISOString(), task(971))
+          return
+        }
+        controller.abort()
+        node.finishFirst()
+      },
+      signal: controller.signal,
+    })
+
+    expect(node.handledWhileFirstRuns).toEqual([keyOf(task(971))])
+    expect(leasedEvents(db, first)).toBe(1)
   })
 })
