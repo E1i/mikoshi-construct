@@ -34,7 +34,7 @@
     "templates"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "approve": "tsx scripts/ghosts/approve.ts",
