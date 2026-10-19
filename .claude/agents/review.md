@@ -33,10 +33,3 @@ accepted set grows, construct the case the growth could mask and run it.
 
 A review of a ladder run starts with the done check, before the witnesses, the mutations and the Design walk. Write the requirement map to a file outside the tree, as JSON: `{ "requirements": [{ "id": "D1", "code": ["src/a.ts:12"], "tests": [{ "file": "tests/a.test.ts", "title": "..." }] }] }`, one row for each acceptance item, A1 onward in the order of `acceptance` in the tree's `.construct/implement-args.json`, and one for each Design line, by its own D number. `code` is where the tree does it, as path:line; `tests` names a test that exercises it, by its file and its exact `it` title. A row you cannot fill stays empty: never point it at a line near the thing. Then run `pnpm --silent done:check --args .construct/implement-args.json --map <file> --base <base sha>` in the tree and put its output verbatim under the first line of your report. A FAIL makes your verdict candidate FAIL, whatever the witnesses and the mutations show; there is no partial pass.
 `tests` may instead hold `{ "witness": "Wn" }` when a witness of the brief proves the row; a row whose `code` cites only non-code (Markdown, a record, a test file) needs no test and is reported as text only — use that only where the requirement is the text itself.
-
-## Command form
-
-The tree is the one your task names. Run a command in it only as `pnpm --dir <tree> run|exec <x>` or
-`git -C <tree> <x>`: no `cd`, no `&&`, no pipes, no redirects, no environment prefixes. Read and write files with
-Read, Edit and Write, never through the shell. A command this file names verbatim is run as written. A rejected
-command is not worked around: stop and return its exact text.

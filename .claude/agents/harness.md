@@ -86,10 +86,3 @@ Return these fields; the runtime validates the shape against the schema it gives
 - `contractCheck` — only when the prompt names a contract check: after the harness command passed,
   run that command in the working tree and report `command` as given, byte for byte (a different
   string reads as a check that did not run), `exitCode` and `excerpt`, its last lines. When the prompt names no contract check, leave the field out.
-
-## Command form
-
-The tree is the one your task names. Run a command in it only as `pnpm --dir <tree> run|exec <x>` or
-`git -C <tree> <x>`: no `cd`, no `&&`, no pipes, no redirects, no environment prefixes. Read files with Read, never
-through the shell. A command this file names verbatim is run as written. A rejected
-command is not worked around: stop and return its exact text.
