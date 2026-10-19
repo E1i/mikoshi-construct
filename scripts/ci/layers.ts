@@ -18,6 +18,7 @@ export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
   'scripts/': ['tests/graph-command.test.ts', 'scripts/tests/bus/sqlite.test.ts'],
   'scripts/bus/': ['scripts/tests/ci/layers.test.ts'],
   'scripts/ghosts/': ['scripts/tests/shredder/owner-merges.test.ts'],
+  'scripts/shift/': ['tests/decisions-read-through-reader.test.ts'],
 }
 
 export function isTest(file: string): boolean {

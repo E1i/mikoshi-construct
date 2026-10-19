@@ -6,8 +6,8 @@ import { SCANNED_TREES } from '../../ci/layers.js'
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const TEST_DIRS = ['tests', path.join('scripts', 'tests')]
 const THIS_FILE = path.relative(REPO_ROOT, import.meta.filename)
-const WALKS_A_TREE = /\b(?:readdirSync|globSync)\b/
-const NAMES_A_TREE = /\b(?:\w*[Rr]oot|\w*dirname)\b[^)\n]*['"`](?:src|scripts)(?:\/[\w-]+)*['"`](?:,\s*['"`][\w-]+['"`])*\)/
+const WALKS_A_TREE = /\b(?:readdirSync|globSync)\b|['"`]ls-files['"`]/
+const NAMES_A_TREE = /\b(?:\w*[Rr]oot|\w*dirname)\b[^)\n]*['"`](?:src|scripts)(?:\/[\w-]+)*['"`](?:,\s*['"`][\w-]+['"`])*\)|\b\w*ROOTS\s*=\s*\[[^\]\n]*['"`](?:src|scripts)(?:\/[\w-]+)*['"`]/
 
 function testFiles(): string[] {
   return TEST_DIRS.flatMap(dir =>
@@ -23,6 +23,12 @@ describe('the detector of a tree-naming path', () => {
     expect(NAMES_A_TREE.test('readdirSync(path.join(repoRoot, \'src\', \'commands\'))')).toBe(true)
     expect(NAMES_A_TREE.test('path.join(REPO_ROOT, \'scripts\', \'morse\', \'cli.ts\')')).toBe(false)
     expect(NAMES_A_TREE.test('path.join(dir, \'src\')')).toBe(false)
+  })
+
+  it('sees a git ls-files walk over a list of roots that names a src or scripts tree', () => {
+    expect(WALKS_A_TREE.test('execFileSync(\'git\', [\'ls-files\', \'--\', ...SCANNED_ROOTS])')).toBe(true)
+    expect(NAMES_A_TREE.test('const SCANNED_ROOTS = [\'architecture\', \'.claude\', \'scripts/shift\']')).toBe(true)
+    expect(NAMES_A_TREE.test('const SCANNED_ROOTS = [\'architecture\', \'.claude\']')).toBe(false)
   })
 })
 
