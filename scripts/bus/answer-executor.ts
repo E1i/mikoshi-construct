@@ -15,7 +15,7 @@ import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
 import { QUESTION_AGENT, QUESTION_OWNER } from './queue.js'
-import { activeDecisionsShard, DECISIONS_SCOPE, decisionsInForceAt, SHARD_DECIDED, unspentShard } from './shards.js'
+import { activeDecisionsShard, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, SHARD_DECIDED, unspentShard } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { ownerGlobs, wideningOf } from './widening.js'
 
@@ -44,8 +44,6 @@ export interface AnswerParts {
   trees?: CardTreeTools
   isolation?: IsolationReader
 }
-
-const OWNERS_UNDER_ANY_SHARD = /version pull request|changeset-release|\bnpm\b|security-invariants/i
 
 const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
 
@@ -150,8 +148,11 @@ export class AnswerExecutor {
     if (!this.ownersQuestion(lease, question))
       return this.stopped(lease, QUESTION_AGENT, question, scope)
     const shard = activeDecisionsShard(this.parts.db, this.parts.clock())
-    if (shard === null || reservationOf(lease.cardId, question) || OWNERS_UNDER_ANY_SHARD.test(question))
+    if (shard === null || reservationOf(lease.cardId, question))
       return this.stopped(lease, QUESTION_OWNER, question, scope)
+    const reserved = ownersUnderAnyShard(question)
+    if (reserved !== null)
+      return this.stopped(lease, QUESTION_OWNER, `${question} (${reserved} stays the owner's under any shard)`, scope)
     const isolation: Isolation = this.parts.isolation?.() ?? { level: 'none', why: 'the answer worker reads no isolation' }
     if (isolation.level === 'none')
       return this.stopped(lease, QUESTION_OWNER, `${question} (the ${DECISIONS_SCOPE} shard ${shard.id} is refused without isolation: ${isolation.why})`, scope)

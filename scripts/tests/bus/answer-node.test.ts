@@ -1,5 +1,5 @@
 import type { AnswerOutcome } from '../../bus/answer-executor.js'
-import type { AnswerNodeParts, AnswerStep } from '../../bus/answer-worker.js'
+import type { AnswerNodeParts, AnswerRun, AnswerStep } from '../../bus/answer-worker.js'
 import type { Answerer } from '../../bus/answerer.js'
 import type { CardTreeTools } from '../../bus/card-tree.js'
 import type { Lease } from '../../bus/lease.js'
@@ -12,13 +12,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnswerExecutor } from '../../bus/answer-executor.js'
-import { AnswerNode } from '../../bus/answer-worker.js'
+import { AnswerNode, answerNodeOf } from '../../bus/answer-worker.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
-import { DECISIONS_SCOPE, SHARD_DECIDED, SHARD_ISSUED } from '../../bus/shards.js'
+import { DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, SHARD_DECIDED, SHARD_ISSUED, VERSION_PR_RESERVATION } from '../../bus/shards.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -32,6 +32,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   for (const made of benches.splice(0))
     made.close()
@@ -136,22 +137,43 @@ function openEach(made: MergeBench, base: number): string[] {
   return [prKey(base), prKey(base + 1), prKey(base + 2)]
 }
 
-async function askedUnderShard(made: MergeBench, question: string, isolation?: IsolationReader): Promise<AnswerOutcome> {
+interface ShardIssue {
+  scope: string
+  untilMs: number
+}
+
+const LIVE_DECISIONS: ShardIssue = { scope: DECISIONS_SCOPE, untilMs: 3_600_000 }
+const PARTIAL: IsolationReader = () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] })
+
+function questionUnderShard(made: MergeBench, now: Date, shard: ShardIssue | null): { trees: string, lease: () => Lease } {
   const trees = mkdtempSync(path.join(tmpdir(), 'bus-answer-shard-'))
   roots.push(trees)
   const worktree = path.join(trees, 'mc-905')
   mkdirSync(worktree)
-  const ts = made.clock.now().toISOString()
-  const until = new Date(made.clock.now().getTime() + 3_600_000).toISOString()
-  appendEvent(made.db, { ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'Eli', scope: DECISIONS_SCOPE, until, window: 1 }, legacy: false })
+  const ts = now.toISOString()
+  if (shard !== null)
+    appendEvent(made.db, { ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'Eli', scope: shard.scope, until: new Date(now.getTime() + shard.untilMs).toISOString(), window: 1 }, legacy: false })
   appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STARTED}:905`, payload: { session: 'card-session-1', worktree, branch: 'feat/card-905', base: sha('1') }, legacy: false })
   const stop = stopped(made, 905)
   queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
-  const lease = leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
-  const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: question })
+  return { trees, lease: () => leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')! }
+}
+
+function askingAnswerer(question: string): Answerer {
+  return async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: question })
+}
+
+async function askedUnderShard(made: MergeBench, question: string, isolation?: IsolationReader, shard: ShardIssue | null = LIVE_DECISIONS): Promise<AnswerOutcome> {
+  const { trees, lease } = questionUnderShard(made, made.clock.now(), shard)
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation })
-  return executor.answer(lease)
+  const executor = new AnswerExecutor({ db: made.db, answerer: askingAnswerer(question), ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation })
+  return executor.answer(lease())
+}
+
+const KEPT_BY_THE_OWNER: Record<string, string[]> = {
+  [VERSION_PR_RESERVATION]: ['may the version pull request merge?', 'is changeset-release/main ready?', 'merge chore: version packages?'],
+  'npm-stage': ['approve the npm stage?'],
+  'security-invariants': ['may it edit security-invariants?'],
 }
 
 describe('the answer node', () => {
@@ -270,7 +292,7 @@ describe('the answer node', () => {
 
   it('a question under a decisions shard is recorded as decided under shard and work does not stop', async () => {
     const made = bench()
-    const outcome = await askedUnderShard(made, OWNER_QUESTION, () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }))
+    const outcome = await askedUnderShard(made, OWNER_QUESTION, PARTIAL)
     expect(outcome).toEqual({ kind: 'decided', taskKey: expect.any(String) as unknown, shard: 'ws-1', question: OWNER_QUESTION })
     expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([{ shard: 'ws-1', question: OWNER_QUESTION, ground: expect.stringContaining('partial isolation') as unknown, options: expect.any(Array) as unknown }])
     expect(eventsOf(made.db, CARD_STOPPED).map(each => each.reason)).toEqual(['question.agent'])
@@ -283,6 +305,46 @@ describe('the answer node', () => {
       expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining(`the ${DECISIONS_SCOPE} shard ws-1 is refused without isolation`) as unknown })
       expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
     }
+  })
+
+  it('an owner question without a live decisions shard stops for the owner: no shard, an expired one, a merge-scope one', async () => {
+    for (const shard of [null, { scope: DECISIONS_SCOPE, untilMs: -1 }, { scope: 'merge', untilMs: 3_600_000 }]) {
+      const made = bench()
+      expect(await askedUnderShard(made, OWNER_QUESTION, PARTIAL, shard)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: OWNER_QUESTION })
+      expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+    }
+  })
+
+  it('a reserved card question stays the owner\'s under a decisions shard', async () => {
+    const made = bench()
+    const question = `${OWNER_QUESTION} #905 reserved`
+    expect(await askedUnderShard(made, question, PARTIAL)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: question })
+    expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+  })
+
+  it('the version pull request, the npm stage and security-invariants stay the owner\'s under any shard', async () => {
+    expect(Object.keys(KEPT_BY_THE_OWNER).sort()).toEqual(Object.keys(OWNERS_UNDER_ANY_SHARD).sort())
+    for (const [reservation, asks] of Object.entries(KEPT_BY_THE_OWNER)) {
+      for (const ask of asks) {
+        const made = bench()
+        const question = `${OWNER_QUESTION} ${ask}`
+        expect(await askedUnderShard(made, question, PARTIAL)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: `${question} (${reservation} stays the owner's under any shard)` })
+        expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+      }
+    }
+  })
+
+  it('the answer worker hands its isolation reader to the node and logs the question it decided under the shard', async () => {
+    const made = bench()
+    vi.useFakeTimers({ toFake: ['Date'], now: made.clock.now() })
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    questionUnderShard(made, made.clock.now(), LIVE_DECISIONS)
+    const isolation = vi.fn(PARTIAL)
+    const run: AnswerRun = { busPath: ':memory:', answerer: askingAnswerer(OWNER_QUESTION), ownerMerges: () => OWNER_MERGES, cardText: () => null, session: 'worker-1', pause: async () => {}, isolation }
+    await once(answerNodeOf(run, made.db, 'shadow'))
+    expect(isolation).toHaveBeenCalled()
+    expect(eventsOf(made.db, SHARD_DECIDED)).toHaveLength(1)
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`decided under shard ws-1, the card goes on: ${OWNER_QUESTION}`))
   })
 
   it('an answer stopped on no card tree is requeued and a task of an old head is superseded by deriveQueues beside the node as before', async () => {

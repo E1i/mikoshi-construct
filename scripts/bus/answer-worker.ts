@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Priority } from '../../src/card/parking.js'
+import type { IsolationReader } from '../ghosts/isolation.js'
 import type { AnswerOutcome } from './answer-executor.js'
 import type { Answerer, CardText } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
@@ -16,6 +17,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
+import { realIsolationReader } from '../ghosts/isolation.js'
+import { HEADLESS_FLAGS } from '../ghosts/session.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { claudeAnswerer, parkedCardText, PREFIX, realAnswererTools } from './answerer.js'
 import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
@@ -62,6 +65,7 @@ export interface AnswerNodeParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
   trees?: CardTreeTools
+  isolation?: IsolationReader
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -113,6 +117,8 @@ export class AnswerNode extends Node<AnswerStep> {
       return `${step.taskKey}: answered in ${step.resumed ? 'the card session' : 'a new session'} ${step.session}; the head is ${step.head}`
     if (step.kind === 'stopped')
       return `${step.taskKey}: card.stopped (${step.reason}): ${step.detail}`
+    if (step.kind === 'decided')
+      return `${step.taskKey}: decided under shard ${step.shard}, the card goes on: ${step.question}`
     if (step.kind === 'denied')
       return `${step.taskKey}: denied (${step.denial.kind}, ${step.denial.reason}): ${step.denial.detail}; the task is ${step.next}`
     if (step.kind === 'faulted')
@@ -128,10 +134,19 @@ export interface AnswerRun {
   cardText: CardText
   session: string
   pause: (ms: number) => Promise<unknown>
+  isolation: IsolationReader
+}
+
+export function answerNodeOf(run: AnswerRun, db: DatabaseSync, mode: DetectionMode): AnswerNode {
+  return new AnswerNode({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation })
 }
 
 export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<number> {
-  return runNode(argv, 'answer', run.busPath, (db, mode) => new AnswerNode({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env }), { pause: run.pause })
+  return runNode(argv, 'answer', run.busPath, (db, mode) => answerNodeOf(run, db, mode), { pause: run.pause })
+}
+
+export function answerIsolationCommand(): string[] {
+  return ['claude', ...HEADLESS_FLAGS]
 }
 
 async function main(): Promise<number> {
@@ -144,6 +159,7 @@ async function main(): Promise<number> {
     cardText: parkedCardText(parking),
     session: randomUUID(),
     pause: sleep,
+    isolation: realIsolationReader(process.env, cwd, answerIsolationCommand()),
   })
 }
 

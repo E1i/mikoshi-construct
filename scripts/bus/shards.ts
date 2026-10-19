@@ -12,6 +12,12 @@ export const WINDOW_SHARD_HOURS = 6
 export const SHARD_DECIDED = 'shard.decided'
 export const DECISIONS_SCOPE = 'merge+decisions'
 export const WINDOW_SCOPES = ['merge', DECISIONS_SCOPE] as const
+export const VERSION_PR_RESERVATION = 'version-pr'
+export const OWNERS_UNDER_ANY_SHARD: Readonly<Record<string, RegExp>> = {
+  [VERSION_PR_RESERVATION]: /version pull request|changeset-release|chore: version packages/i,
+  'npm-stage': /\bnpm\b/i,
+  'security-invariants': /security-invariants/i,
+}
 
 export type WindowScope = typeof WINDOW_SCOPES[number]
 
@@ -56,6 +62,10 @@ export function activeWindowShards(db: DatabaseSync, now: Date): WindowShard[] {
 
 export function activeDecisionsShard(db: DatabaseSync, now: Date): WindowShard | null {
   return activeWindowShards(db, now).find(shard => shard.scope === DECISIONS_SCOPE) ?? null
+}
+
+export function ownersUnderAnyShard(question: string): string | null {
+  return Object.entries(OWNERS_UNDER_ANY_SHARD).find(([, words]) => words.test(question))?.[0] ?? null
 }
 
 export function windowShardEnded(type: typeof SHARD_REVOKED | typeof SHARD_EXPIRED, actor: string, id: string, now: Date): BusEvent {

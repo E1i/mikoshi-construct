@@ -11,7 +11,7 @@ import { parkingLanes, readBoard } from '../bus/board.js'
 import { MERGE_DONE } from '../bus/card-automaton.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { busParkingReads } from '../bus/parking-reads.js'
-import { activeDecisionsShard } from '../bus/shards.js'
+import { activeDecisionsShard, VERSION_PR_RESERVATION } from '../bus/shards.js'
 import { windowOf } from '../bus/window.js'
 import { execGh } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
@@ -26,8 +26,7 @@ import { HANDOFF_VARIABLE, statusOf } from './relaunch.js'
 export const PREFIX = '[handoff:write] '
 export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md> [--parking <dir>]'
 export const ARCHIVE_DIR = 'archive'
-export const OWNER_BOUNDARIES = ['version-pr', 'owner-merged-kind', 'missing-right', 'owner-question'] as const
-const OWNERS_UNDER_ANY_SHARD = OWNER_BOUNDARIES[0]
+export const OWNER_BOUNDARIES = [VERSION_PR_RESERVATION, 'owner-merged-kind', 'missing-right', 'owner-question'] as const
 
 const ARCHIVED = /^(\d{4,})\.md$/
 const STOP_HEADING = /^#{1,6} +STOP\b/
@@ -243,9 +242,9 @@ export function ownerWhileWorkIsFreeRefusal(text: string, reading: StateReading)
 
 export function ownerUnderDecisionsShardRefusal(text: string, shard: WindowShard | null): string | null {
   const statusLine = statusLineOf(text) ?? ''
-  if (shard === null || statusOf(statusLine) !== 'OWNER' || NAMED_BOUNDARY.exec(statusLine)?.[1] === OWNERS_UNDER_ANY_SHARD)
+  if (shard === null || statusOf(statusLine) !== 'OWNER' || NAMED_BOUNDARY.exec(statusLine)?.[1] === VERSION_PR_RESERVATION)
     return null
-  return `${PREFIX}STATUS: OWNER under the active ${shard.scope} shard ${shard.id} (by ${shard.by}, until ${shard.until}); the window decides the question under the shard, and only boundary: ${OWNERS_UNDER_ANY_SHARD} stays the owner's`
+  return `${PREFIX}STATUS: OWNER under the active ${shard.scope} shard ${shard.id} (by ${shard.by}, until ${shard.until}); the window decides the question under the shard, and only boundary: ${VERSION_PR_RESERVATION} stays the owner's`
 }
 
 export function readingRefusals(draft: string): string[] {
