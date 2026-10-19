@@ -9,8 +9,10 @@ import { entryMap } from './entries.js'
 
 const WORDS = {
   label: 'The map of contours, their parts and the arrows between them',
-  search: 'Find a file by name',
-  hint: 'Click a contour to unfold its parts, a part to list its files, a file to see what it reaches and what reaches it. Drag to pan, scroll to zoom.',
+  search: 'Find a file, contour, part or entry point by name',
+  filters: 'Show or hide a kind of edge',
+  sorts: 'Sort the parts inside a contour',
+  hint: 'Click a contour to unfold its parts, a part to list its files, a file to see what it reaches and what reaches it. Selecting a node lights its edges and neighbours. Drag to pan, scroll to zoom; edge labels show on hover, on the selection and when zoomed in.',
   states: {
     held: 'read, and its relations found',
     unknown: 'not read: discovery reads no file of this type, or could not read it',
@@ -27,6 +29,8 @@ const WORDS = {
     file: 'a file name that a module calling a node:fs write and a module calling a node:fs read both name; a candidate, not traced',
   },
 }
+
+const SORTS = ['name', 'edges', 'state']
 
 const SCRIPT_SAFE: Record<string, string> = { '<': '\\u003c', '>': '\\u003e', '&': '\\u0026', '\u2028': '\\u2028', '\u2029': '\\u2029' }
 
@@ -97,12 +101,24 @@ function legend(): string {
   return `<ul class="legend">${states}${crossings}${layers}</ul>`
 }
 
+function filters(): string {
+  const crossings = CROSSINGS.map(crossing => `<button type="button" data-filter="${crossing}" data-crossing="${crossing}" aria-pressed="true" title="${escaped(WORDS.crossings[crossing])}">${crossing}</button>`)
+  const layers = Object.entries(WORDS.layers).map(([layer, meaning]) => `<button type="button" data-filter="${layer}" data-layer="${layer}" aria-pressed="true" title="${escaped(meaning)}">${layer}</button>`)
+  return `<div id="atlas-legend" role="group" aria-label="${escaped(WORDS.filters)}">${[...crossings, ...layers].join('')}</div>`
+}
+
+function sorts(): string {
+  return `<div id="atlas-sort" role="group" aria-label="${escaped(WORDS.sorts)}">${SORTS.map(sort => `<button type="button" data-sort="${sort}" aria-pressed="false">${sort}</button>`).join('')}</div>`
+}
+
 export function mapSection(script: string | null): string {
   if (script == null)
     return ''
   return `<section class="atlas-map" aria-label="${escaped(WORDS.label)}">
 <p class="prose">${escaped(WORDS.hint)}</p>
 <div class="tools"><input id="atlas-search" type="search" placeholder="${escaped(WORDS.search)}" aria-label="${escaped(WORDS.search)}"><ul id="atlas-results"></ul></div>
+<div class="tools">${filters()}${sorts()}</div>
+<p id="atlas-hidden" class="empty" hidden></p>
 <div class="canvas"><svg id="atlas-svg" role="img" aria-label="${escaped(WORDS.label)}"><g id="atlas-viewport"></g></svg><div id="atlas-tip" hidden></div><aside id="atlas-panel"></aside></div>
 ${legend()}
 </section>`
