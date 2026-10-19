@@ -200,13 +200,17 @@ interface Candidate {
   card_body?: unknown
 }
 
-const CHANGES_ROUNDS_OF_A_PR = `
-  SELECT count(*) AS rounds FROM events
+const HEADS_WITH_CHANGES_OF_A_PR = `
+  SELECT DISTINCT head FROM events
   WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.verdict') = 'changes'
 `
 
+export function headsWithChangesOf(db: DatabaseSync, pr: number): Set<string | null> {
+  return new Set((db.prepare(HEADS_WITH_CHANGES_OF_A_PR).all(pr) as { head: string | null }[]).map(row => row.head))
+}
+
 export function changesRoundsOf(db: DatabaseSync, pr: number): number {
-  return Number((db.prepare(CHANGES_ROUNDS_OF_A_PR).get(pr) as { rounds: number }).rounds)
+  return headsWithChangesOf(db, pr).size
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']

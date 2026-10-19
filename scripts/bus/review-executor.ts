@@ -14,7 +14,7 @@ import { appendEvent } from './db.js'
 import { reviewInputOfKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, failTask, releaseTask, StaleLease } from './lease.js'
-import { BOARD_ALARM, changesRoundsOf, REVIEW_ROUNDS } from './queue.js'
+import { BOARD_ALARM, headsWithChangesOf, REVIEW_ROUNDS } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
 import { PREFIX, ReviewFailed } from './reviewer.js'
@@ -200,7 +200,7 @@ export class ReviewExecutor {
   private roundsSpent(lease: Lease, review: Review): BusEvent | null {
     if (review.verdict !== 'changes' || lease.pr === null)
       return null
-    const rounds = changesRoundsOf(this.parts.db, lease.pr) + 1
+    const rounds = headsWithChangesOf(this.parts.db, lease.pr).add(lease.head).size
     if (rounds < REVIEW_ROUNDS)
       return null
     return {
