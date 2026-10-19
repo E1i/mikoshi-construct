@@ -116,7 +116,7 @@ describe('a path AGENTS.md names always high or a publish reads R1, never R3 or 
   })
 })
 
-it.each(['scripts/bus/queue.ts', 'scripts/bus/admissions.ts', 'scripts/bus/close-executor.ts', 'scripts/bus/lease.ts', 'scripts/bus/merge-executor.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts'])('the bus core files read as core, not R4 through the scripts root: %s', (touch) => {
+it.each(['scripts/bus/queue.ts', 'scripts/bus/admissions.ts', 'scripts/bus/close-executor.ts', 'scripts/bus/merge-executor.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts'])('the bus core files read as core, not R4 through the scripts root: %s', (touch) => {
   expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('the factory mechanism') })
 })
 

@@ -61,7 +61,6 @@ const CORE: readonly (readonly [string, string])[] = [
   ['scripts/bus/queue.ts', FACTORY],
   ['scripts/bus/admissions.ts', FACTORY],
   ['scripts/bus/close-executor.ts', FACTORY],
-  ['scripts/bus/lease.ts', FACTORY],
   ['scripts/bus/merge-executor.ts', FACTORY],
   ['scripts/bus/round-limit-decision.ts', FACTORY],
   ['scripts/bus/update-done.ts', FACTORY],
