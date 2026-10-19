@@ -5,9 +5,7 @@ import type { Answered, Answerer } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
-import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
+import type { AnswerInput } from './prompt-store.js'
 import { riskOf } from '../../src/card/risk.js'
 import { matchGlob } from '../shredder/glob.js'
 import { answerSourceOf } from './answer-source.js'
@@ -17,6 +15,7 @@ import { messageOf } from './errors.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
+import { sha256, storedInput } from './prompt-store.js'
 import { QUESTION_AGENT, QUESTION_OWNER } from './queue.js'
 import { activeDecisionsShard, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, SHARD_DECIDED, unspentShard } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
@@ -39,18 +38,9 @@ export type AnswerOutcome
     | { kind: 'denied', taskKey: string, denial: AnswerDenial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
 
-export interface AnswerInput {
-  prompt: string
-  cardBody: string
-}
-
-type StoredInput = { prompt_sha: string, prompt_path: string } | { prompt_sha: string, prompt_unstored: string } | Record<string, never>
-
-type InputAnswered = Answered & { input?: AnswerInput }
-
 export interface AnswerParts {
   db: DatabaseSync
-  answerer: (...args: Parameters<Answerer>) => Promise<InputAnswered>
+  answerer: Answerer
   ownerMerges: () => string
   clock: () => Date
   trees?: CardTreeTools
@@ -83,23 +73,8 @@ function minutesSince(start: number, end: number): number {
   return Math.round((end - start) / MS_PER_MINUTE * 10) / 10
 }
 
-function storedInput(prompts: string | undefined, input: AnswerInput | undefined): StoredInput {
-  if (prompts === undefined || input === undefined)
-    return {}
-  const sha = createHash('sha256').update(input.prompt).digest('hex')
-  const file = path.join(prompts, `${sha}.md`)
-  try {
-    mkdirSync(prompts, { recursive: true })
-    writeFileSync(file, input.prompt)
-    return { prompt_sha: sha, prompt_path: file }
-  }
-  catch (error) {
-    return { prompt_sha: sha, prompt_unstored: error instanceof Error ? error.message : String(error) }
-  }
-}
-
 function cardBodyOf(input: AnswerInput | undefined): { card_body_sha: string } | Record<string, never> {
-  return input === undefined ? {} : { card_body_sha: createHash('sha256').update(input.cardBody).digest('hex') }
+  return input === undefined || input.cardBody === null ? {} : { card_body_sha: sha256(input.cardBody) }
 }
 
 function measurementOf(answered: Answered, minutes: number): { minutes: number, tokens: number | null } | Record<string, never> {
@@ -165,7 +140,7 @@ export class AnswerExecutor {
     }
   }
 
-  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession): Promise<InputAnswered | AnswerDenial> {
+  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession): Promise<Answered | AnswerDenial> {
     try {
       return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card })
     }
@@ -174,7 +149,7 @@ export class AnswerExecutor {
     }
   }
 
-  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, answered: InputAnswered, minutes: number): AnswerOutcome {
+  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, answered: Answered, minutes: number): AnswerOutcome {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)

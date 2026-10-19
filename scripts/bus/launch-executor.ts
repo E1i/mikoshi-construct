@@ -4,14 +4,13 @@ import type { BusEvent } from './db.js'
 import type { DiskReader } from './disk.js'
 import type { Contour } from './launch-candidates.js'
 import type { AfterFailure, Lease } from './lease.js'
-import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
+import type { SessionInput } from './prompt-store.js'
 import { NO_ISOLATION } from '../ghosts/isolation.js'
 import { DISK_LOW, diskLowDetail, statfsReader } from './disk.js'
 import { CARD_STARTED, POLICY_DENIED } from './inbox.js'
 import { launchableCard } from './launch-candidates.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
+import { storedInput } from './prompt-store.js'
 
 export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached' | 'ladder_running' | 'ladder_fault' | typeof DISK_LOW | typeof NO_ISOLATION
 
@@ -19,27 +18,6 @@ export interface LaunchDenial {
   kind: 'technical'
   reason: LaunchTechnicalReason
   detail: string
-}
-
-export interface SessionInput {
-  prompt: string
-}
-
-type StoredInput = { prompt_sha: string, prompt_path: string } | { prompt_sha: string, prompt_unstored: string } | Record<string, never>
-
-function storedInput(prompts: string | undefined, input: SessionInput | undefined): StoredInput {
-  if (prompts === undefined || input === undefined)
-    return {}
-  const sha = createHash('sha256').update(input.prompt).digest('hex')
-  const file = path.join(prompts, `${sha}.md`)
-  try {
-    mkdirSync(prompts, { recursive: true })
-    writeFileSync(file, input.prompt)
-    return { prompt_sha: sha, prompt_path: file }
-  }
-  catch (error) {
-    return { prompt_sha: sha, prompt_unstored: error instanceof Error ? error.message : String(error) }
-  }
 }
 
 export interface LaunchedCard {

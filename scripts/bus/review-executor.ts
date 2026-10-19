@@ -4,12 +4,10 @@ import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { BusEvent } from './db.js'
 import type { GitHub } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
+import type { SessionInput } from './prompt-store.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
-import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
 import { NO_ISOLATION } from '../ghosts/isolation.js'
 import { REVIEW_RECORDED } from './card-automaton.js'
 import { ARTIFACT_REMOVED } from './close-executor.js'
@@ -17,6 +15,7 @@ import { appendEvent } from './db.js'
 import { reviewInputOfKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { completeTask, failTask, releaseTask, StaleLease } from './lease.js'
+import { storedInput } from './prompt-store.js'
 import { BOARD_ALARM, headsWithChangesOf, REVIEW_ROUNDS } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
@@ -40,7 +39,7 @@ export interface ExecutorParts {
   db: DatabaseSync
   gitHub: GitHub
   publish: StatusPublisher
-  reviewer: (...args: Parameters<Reviewer>) => Promise<InputReview>
+  reviewer: Reviewer
   plan: ReviewPlanner
   clock: () => Date
   prompts?: string
@@ -49,16 +48,8 @@ export interface ExecutorParts {
   isolation: IsolationReader | typeof SPAWNS_NO_SESSION
 }
 
-export interface SessionInput {
-  prompt: string
-}
-
-type StoredInput = { prompt_sha: string, prompt_path: string } | { prompt_sha: string, prompt_unstored: string } | Record<string, never>
-
-type InputReview = Review & { input?: SessionInput }
-
 interface Reviewed {
-  review: InputReview
+  review: Review
   plan: ReviewPlan
   ms: number
   isolation: Held | null
@@ -133,21 +124,6 @@ export function roundLimitLine(pr: number, rounds: number): string {
 
 function treeFields({ tree }: Review): Record<string, unknown> {
   return tree === undefined ? {} : { treeBefore: tree.before, treeAfter: tree.after, treeMutated: tree.mutated }
-}
-
-function storedInput(prompts: string | undefined, input: SessionInput | undefined): StoredInput {
-  if (prompts === undefined || input === undefined)
-    return {}
-  const sha = createHash('sha256').update(input.prompt).digest('hex')
-  const file = path.join(prompts, `${sha}.md`)
-  try {
-    mkdirSync(prompts, { recursive: true })
-    writeFileSync(file, input.prompt)
-    return { prompt_sha: sha, prompt_path: file }
-  }
-  catch (error) {
-    return { prompt_sha: sha, prompt_unstored: error instanceof Error ? error.message : String(error) }
-  }
 }
 
 function inputFields(prompts: string | undefined, plan: ReviewPlan, input: SessionInput | undefined): Record<string, unknown> {

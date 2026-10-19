@@ -154,6 +154,19 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
 }
 
 describe('the launch queue', () => {
+  it('the shift starter returns as its input the prompt it pipes to the card session', () => {
+    let piped: string | undefined
+    const starter = realStarter(tempRoot(), undefined, 905, { spawnDetached: (run) => {
+      piped = run.input
+      return 4242
+    }, pgidOf: () => 4242 })
+
+    const start = starter.start({ cardId: 905, lane: 'lane-x' })
+    expect(start.kind).toBe('started')
+    expect(piped).toContain('card #905')
+    expect((start as Extract<CardStart, { kind: 'started' }>).card.input).toEqual({ prompt: piped })
+  })
+
   it('a queued card whose depends are merged and whose lane is free enters launch', () => {
     const bench = launchBench()
     bench.mergedPr(800)
