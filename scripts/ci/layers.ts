@@ -14,9 +14,10 @@ export type Run
     | { kind: 'layers', layers: string[], tests: string[] }
 
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
-  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts'],
+  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts'],
   'scripts/': ['tests/graph-command.test.ts', 'scripts/tests/bus/sqlite.test.ts'],
   'scripts/bus/': ['scripts/tests/ci/layers.test.ts'],
+  'scripts/ghosts/': ['scripts/tests/shredder/owner-merges.test.ts'],
 }
 
 export function isTest(file: string): boolean {

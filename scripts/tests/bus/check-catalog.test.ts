@@ -57,6 +57,14 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     ])
   })
 
+  it('credits a card that names a test by its title, and not one that names a longer path ending in the same path', () => {
+    const graph: Graph = new Map([['tests/x.test.ts', []]])
+    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText: () => 'describe(\'the x title\', () => {})', parking: [{ card: 3, text }] }).tests[0]!.witness
+    expect(witnessOf('Witnesses: scripts/tests/x.test.ts')).toBe('')
+    expect(witnessOf('Witnesses: tests/x.test.ts passes')).toBe('3')
+    expect(witnessOf('Witnesses: the x title is green')).toBe('3')
+  })
+
   it('records each well-formed brief mutation with its killing test and its judged outcome, and skips a malformed line', () => {
     const { mutations } = buildCatalog(sources())
     expect(mutations).toEqual([

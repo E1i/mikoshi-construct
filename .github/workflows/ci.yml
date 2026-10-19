@@ -5,7 +5,7 @@
 #              that list. They run on every change, the fast path included, because most of them read
 #              docs/ and architecture/*.md. checks also runs scripts/release/version-pr-guard.ts, red on a
 #              changeset-release/* pull request whose merged tree still carries a changeset.
-#              On a pull request that is not changeset-release/* it runs only the tests that
+#              On a pull request that is not changeset-release/* the vitest job runs only the tests that
 #              scripts/ci/select.ts reaches: the touched layers and every layer that depends on them,
 #              by the dependency-cruiser graph. A path in no layer, push, merge_group and
 #              changeset-release/* run them all.

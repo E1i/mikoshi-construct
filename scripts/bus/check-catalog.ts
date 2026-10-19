@@ -64,18 +64,30 @@ function layersOfTest(test: string, graph: Graph): string {
   return [...new Set(layers)].sort().join(',') || NO_LAYER
 }
 
-function witnessCards(test: string, parking: readonly ParkingCard[]): string {
-  return parking.filter(card => card.text.includes(test)).map(card => card.card).sort((a, b) => a - b).join(',')
+function namesPath(text: string, test: string): boolean {
+  const escaped = test.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
+  return new RegExp(`(?<![\\w./-])${escaped}(?!\\w)`).test(text)
+}
+
+function witnessCards(test: string, title: string, parking: readonly ParkingCard[]): string {
+  return parking
+    .filter(card => namesPath(card.text, test) || (title !== '' && card.text.includes(title)))
+    .map(card => card.card)
+    .sort((a, b) => a - b)
+    .join(',')
 }
 
 export function catalogTests(sources: CatalogSources): CheckTest[] {
-  return [...sources.graph.keys()].filter(isTest).sort().map(test => ({
-    test,
-    layer: layersOfTest(test, sources.graph),
-    kind: kindOf(test),
-    what: FIRST_DESCRIBE.exec(sources.testText(test))?.[2] ?? '',
-    witness: witnessCards(test, sources.parking),
-  }))
+  return [...sources.graph.keys()].filter(isTest).sort().map((test) => {
+    const what = FIRST_DESCRIBE.exec(sources.testText(test))?.[2] ?? ''
+    return {
+      test,
+      layer: layersOfTest(test, sources.graph),
+      kind: kindOf(test),
+      what,
+      witness: witnessCards(test, what, sources.parking),
+    }
+  })
 }
 
 function judgedOutcomes(journal: string): Map<string, string> {

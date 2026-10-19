@@ -75,6 +75,32 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(run).toMatchObject({ kind: 'layers', tests: ['tests/cli-exit-codes.test.ts'] })
   })
 
+  it('a change in src/ui/lore.ts selects tests/delivery-boundary.test.ts, which builds the bundle from the tsup config', () => {
+    const graph: Graph = new Map([
+      ['src/ui/lore.ts', []],
+      ['tests/delivery-boundary.test.ts', []],
+    ])
+    expect(selectRun(['src/ui/lore.ts'], graph, () => '')).toMatchObject({ kind: 'layers', tests: ['tests/delivery-boundary.test.ts'] })
+  })
+
+  it('a change in scripts/ghosts/launch.ts selects scripts/tests/shredder/owner-merges.test.ts, which lists the directory', () => {
+    const graph: Graph = new Map([
+      ['scripts/ghosts/launch.ts', []],
+      ['scripts/tests/shredder/owner-merges.test.ts', []],
+    ])
+    expect(selectRun(['scripts/ghosts/launch.ts'], graph, () => '')).toMatchObject({ kind: 'layers', tests: ['scripts/tests/shredder/owner-merges.test.ts'] })
+  })
+
+  it('a test that names a changed script only by its file name is selected', () => {
+    const run = layersRun(['scripts/notes/print.ts'], test => test === 'scripts/tests/notes/spawn.test.ts' ? 'tsx print.ts' : '')
+    expect(run.tests).toEqual(['scripts/tests/notes/spawn.test.ts'])
+  })
+
+  it('a change to only a test file selects that test', () => {
+    const run = layersRun(['scripts/tests/bus/merge-worker.test.ts'])
+    expect(run.tests).toEqual(['scripts/tests/bus/merge-worker.test.ts'])
+  })
+
   it('a change outside every scanned tree does not add the scanning tests', () => {
     const graph: Graph = new Map([
       ['scripts/notes/print.ts', []],
