@@ -15,7 +15,7 @@ import { taskKey } from '../../bus/identifiers.js'
 import { legacyEventOf } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { CARD_CLOSED } from '../../bus/queue.js'
+import { BOARD_ALARM, CARD_CLOSED, FAILURES_TO_STOP, TASK_REQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { CARD_VERIFIED, runTaskClose } from '../../ghosts/task-close.js'
 import { appendToJournal, journalLine } from '../../ghosts/task-merged.js'
@@ -232,6 +232,33 @@ describe('the close queue', () => {
 
     expect(bench.closeCard(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'card_closed' }, next: 'withdrawn' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toHaveLength(1)
+    bench.close()
+  })
+
+  it('an alarm goes back to the queue once its cause is gone, at most D-104 attempts per cause', () => {
+    const bench = closeBench()
+    bench.merged(1018)
+    const stoppedOnNoVerification = (): void => {
+      for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+        expect(bench.closeCard(bench.leaseClose()!)).toMatchObject({ kind: 'denied', denial: { reason: 'no_verification' } })
+      bench.tick()
+      expect(taskState(bench.db, close(1018)).state).toBe('stopped')
+    }
+
+    stoppedOnNoVerification()
+    expect(eventsOf(bench.db, BOARD_ALARM)).toMatchObject([{ task_key: close(1018), reason: 'fault' }])
+    for (const verification of ['code-reading', 'measurement', 'review']) {
+      verified(bench, 1018, verification)
+      bench.tick()
+      expect(taskState(bench.db, close(1018)).state).toBe('queued')
+      stoppedOnNoVerification()
+    }
+    verified(bench, 1018, 'mutation')
+    bench.tick()
+
+    expect(taskState(bench.db, close(1018)).state).toBe('stopped')
+    expect(eventsOf(bench.db, TASK_REQUEUED)).toHaveLength(FAILURES_TO_STOP)
+    expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
     bench.close()
   })
 

@@ -278,6 +278,20 @@ describe('the close node', () => {
     }
   })
 
+  it('a closed pull request has its tasks taken off', async () => {
+    const made = bench()
+    opened(made, 980)
+    detectReview(made)
+    queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: 1080, pr: 980, head: sha('a') })
+    expect(taskStatesOf(made, 'review', 980)).toEqual([{ head: sha('a'), state: 'queued' }])
+    made.gitHub.close(980, false)
+    made.tick()
+    await once(nodeOf(made))
+
+    expect(taskStatesOf(made, 'review', 980)).toEqual([{ head: sha('a'), state: 'withdrawn' }])
+    expect(taskStatesOf(made, 'answer', 980)).toEqual([{ head: sha('a'), state: 'withdrawn' }])
+  })
+
   it('a queued review task of an old head is superseded by deriveQueues beside the close node as before', async () => {
     const made = bench()
     const node = nodeOf(made)

@@ -2,16 +2,19 @@ import type { MergeNodeParts } from '../../bus/merge-worker.js'
 import type { DetectionMode, Scope } from '../../bus/node.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
+import { textSha } from '../../../src/card/text-sha.js'
+import { CARD_MOVED } from '../../../src/commands/intake/index.js'
+import { DROPPED_LANE, MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
+import { POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { keyOf, MERGE_CANDIDATES, mergeCandidates, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { cardBody, sha } from './github-fake.js'
-import { eventsOf, mergeBench, spendReviewRounds } from './merge-bench.js'
+import { eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
 
 const benches: MergeBench[] = []
@@ -64,6 +67,15 @@ function dependsOn(made: MergeBench, cardId: number, dependency: number): void {
 function mergeDone(made: MergeBench, cardId: number, pr: number): number {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: MERGE_DONE, actor: 'worker:merge:worker-0', cardId, pr, head: sha('e'), dedupeKey: `${MERGE_DONE}:${pr}`, payload: { commit: sha('f'), rule: 'auto' }, legacy: false })
   return Number((made.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+}
+
+function admitted(made: MergeBench, cardId: number): void {
+  const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nMerge it.\n`
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: `#${cardId}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+}
+
+function dropped(made: MergeBench, cardId: number): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_MOVED}:${cardId}`, payload: { lane: DROPPED_LANE }, legacy: false })
 }
 
 function mergeTasks(made: MergeBench, pr: number): number {
@@ -187,6 +199,39 @@ describe('the merge node', () => {
 
     expect(eventsOf(made.db, NODE_DETECTED).filter(each => each.key === mergeKey(970))).toEqual([expect.objectContaining({ key: mergeKey(970), via: 'event', event_id: recorded, outcome: 'queued' })])
     expect(mergeTasks(made, 970)).toBe(1)
+  })
+
+  it('merge skips a candidate cardContract reads as not mine', async () => {
+    const made = bench()
+    admitted(made, 1070)
+    made.gitHub.open({ number: 970, review: 'success' })
+    made.tick()
+    dropped(made, 1070)
+    made.tick()
+    const node = nodeOf(made, 'live')
+    const asked = made.gitHub.calls.length
+    await once(node)
+    await once(node)
+
+    expect(made.gitHub.calls.slice(asked)).toEqual([])
+    expect(made.gitHub.puts).toEqual([])
+    expect(eventsOf(made.db, MERGE_DONE).filter(each => each.commit !== sha('f'))).toEqual([])
+    expect(eventsOf(made.db, POLICY_DENIED)).toEqual([expect.objectContaining({ command: 'merge', kind: 'technical', reason: 'not_mine' })])
+    expect(taskState(made.db, mergeKey(970)).state).toBe('withdrawn')
+  })
+
+  it('merge takes a candidate cardContract reads as its own', async () => {
+    const made = bench()
+    admitted(made, 1070)
+    made.gitHub.open({ number: 970, review: 'success' })
+    made.tick()
+    const node = nodeOf(made, 'live')
+    await once(node)
+    await once(node)
+
+    expect(eventsOf(made.db, POLICY_DENIED)).toEqual([])
+    expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto' })])
+    expect(made.gitHub.puts.map(each => each.endpoint)).toEqual(['repos/{owner}/{repo}/pulls/970/merge'])
   })
 
   it('i3: a cursor reset to 0 after the merge gives no second detection, no second task and no second merge.done', async () => {
