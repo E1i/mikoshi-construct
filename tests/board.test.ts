@@ -1,8 +1,11 @@
+import type { BusReader } from '../src/commands/board/bus.js'
 import type { Theme } from '../src/ui/theme.js'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
+import { busReaderAt } from '../src/commands/board/bus.js'
 import { BOARD_FORMAT, boardJson, IMPLEMENT_SKILL, printBoard, readBoard } from '../src/commands/board/index.js'
 import { ciOf } from '../src/commands/board/prs.js'
 import { createUi } from '../src/ui/console.js'
@@ -49,11 +52,47 @@ function prsFile(dir: string, prs: unknown[]): string {
   return file
 }
 
-function render(dir: string, options: { prs?: string, all?: boolean, staleHours?: number, theme?: Theme } = {}): string[] {
+interface RenderOptions {
+  prs?: string
+  all?: boolean
+  staleHours?: number
+  theme?: Theme
+  bus?: BusReader
+  version?: string
+  mode?: string
+  geek?: boolean
+}
+
+function render(dir: string, options: RenderOptions = {}): string[] {
   const lines: string[] = []
   const ui = createUi(options.theme ?? resolveTheme({ plain: true }), text => lines.push(text.replace(/\n$/, '')))
-  printBoard(ui, readBoard(dir, { all: options.all ?? false, staleHours: options.staleHours ?? 4, prs: options.prs, readStdin: NO_STDIN, now: NOW }))
+  printBoard(ui, readBoard(dir, { all: options.all ?? false, staleHours: options.staleHours ?? 4, prs: options.prs, readStdin: NO_STDIN, now: NOW, bus: options.bus, version: options.version, mode: options.mode, geek: options.geek }))
   return lines
+}
+
+const BUS_SCHEMA = `
+CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, payload TEXT NOT NULL);
+CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER);
+CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT);
+CREATE TABLE prs (pr INTEGER PRIMARY KEY, verdict_on_head TEXT);
+CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL);
+`
+
+function busFile(dir: string): string {
+  const file = path.join(dir, 'bus.db')
+  const db = new DatabaseSync(file)
+  db.exec(BUS_SCHEMA)
+  const card = db.prepare('INSERT INTO cards (card_id, state, pr) VALUES (?, ?, ?)')
+  const body = db.prepare('INSERT INTO card_bodies (card_id, lane, card_line) VALUES (?, ?, ?)')
+  for (const [id, state, lane, name] of [[1, 'queued', 'a', 'alpha'], [2, 'running', null, 'beta'], [3, 'in_review', 'a', 'gamma'], [4, 'ready', null, 'delta']] as const) {
+    card.run(id, state, null)
+    body.run(id, lane, `card: #${id} ${name}`)
+  }
+  db.prepare('INSERT INTO prs (pr, verdict_on_head) VALUES (9, \'approve\')').run()
+  db.prepare('INSERT INTO tasks (queue, card_id, pr, head, state) VALUES (\'review\', 3, 9, NULL, \'leased\')').run()
+  db.prepare('INSERT INTO events (ts, type, card_id, payload) VALUES (?, \'window.subagent\', NULL, ?)').run(ago(MINUTE), JSON.stringify({ session: 's1', role: 'implementer', task: '#1071', tree: '/t', phase: 'started' }))
+  db.close()
+  return file
 }
 
 function json(dir: string, prs?: string): ReturnType<typeof boardJson> {
@@ -162,8 +201,8 @@ describe('construct board', () => {
     const withSkill = repository({ implement: true })
     const without = repository()
     const file = prsFile(withSkill, [])
-    const tail = (lines: string[]): string[] => lines.filter(line => line.startsWith('nothing open') || line.startsWith('Start one') || line.startsWith('This repository'))
-    expect(tail(render(withSkill, { prs: file }))).toEqual(['nothing open — no ladder runs in .construct/runs.jsonl and no open pull requests.', 'Start one in Claude Code: /plan <feature>, then /implement <task>.'])
+    const tail = (lines: string[]): string[] => lines.filter(line => line.startsWith('nothing open') || line.startsWith('Miko chooses') || line.startsWith('This repository'))
+    expect(tail(render(withSkill, { prs: file }))).toEqual(['nothing open — no ladder runs in .construct/runs.jsonl and no open pull requests.', 'Miko chooses how each task runs: herself in the window, handed to the Operator, or through Ghost Protocol. With autonomy and delegation on, ask in chat and the mechanism does the rest.'])
     expect(tail(render(without, { prs: file }))).toEqual(['nothing open — no open pull requests.', 'This repository has no /implement, so the board lists pull requests only.'])
     expect(tail(render(withSkill))[0]).toBe(`nothing open — no ladder runs in .construct/runs.jsonl; pull requests not read: ${command} | construct board --prs -`)
     expect(tail(render(without))[0]).toBe(`nothing open — pull requests not read: ${command} | construct board --prs -`)
@@ -185,6 +224,40 @@ describe('construct board', () => {
     expect(all.find(row => row[0] === '#7 seven')!.slice(5)).toEqual(['—', '—'])
     expect(json(dir, file).rows).toEqual(boardJson(readBoard(dir, { all: false, staleHours: 4, prs: file, readStdin: NO_STDIN, now: NOW })).rows)
     expect(Object.keys((json(dir, file).rows as Array<Record<string, unknown>>)[0]!)).toEqual(['task', 'path', 'stage', 'state', 'at', 'next', 'tone', 'stale', 'shown'])
+  })
+
+  it('construct board reads the bus and shows Flow, Backlog and Services', () => {
+    const dir = repository()
+    const lines = render(dir, { bus: busReaderAt(busFile(dir)), version: '0.44.0' })
+    expect(lines).toEqual([
+      'construct 0.44.0',
+      'Flow',
+      'planned (1): #1',
+      'in work (1): #2',
+      'in review (1): #3',
+      'ready to merge (1): #4',
+      'Backlog',
+      'a (2)',
+      '  #1 alpha · queued',
+      '  #3 gamma · in_review',
+      'no lane (2)',
+      '  #2 beta · running',
+      '  #4 delta · ready',
+      'Services',
+      'review · #3 · — · review approve',
+      'implementer · #1071 · /t · started',
+      'agents at work: 2 · last failure: none · review queue: 1 · geek mode: --geek',
+    ])
+    const geek = render(dir, { bus: busReaderAt(busFile(repository())), version: '0.44.0', geek: true })
+    expect(geek[1]).toMatch(/^open 0:/)
+    expect(render(dir, { bus: busReaderAt(path.join(dir, 'missing.db')) })[0]).toBe(`bus ${path.join(dir, 'missing.db')}: absent`)
+  })
+
+  it('the header names the version and the mode', () => {
+    const dir = repository()
+    expect(render(dir, { version: '0.44.0', mode: 'hijack' })[0]).toBe('construct 0.44.0 · HIJACK')
+    expect(render(dir, { version: '0.44.0' })[0]).toBe('construct 0.44.0')
+    expect(render(dir)[0]).toMatch(/^open 0:/)
   })
 
   it('the --json output names its own format and says which rows are shown', () => {

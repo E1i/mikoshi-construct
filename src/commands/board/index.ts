@@ -1,5 +1,6 @@
 import type { Ui } from '../../ui/console.js'
 import type { LedgerReading } from '../cost/ledger.js'
+import type { BusReader, BusReading } from './bus.js'
 import type { PrsReading } from './prs.js'
 import type { BoardView } from './view.js'
 import { existsSync } from 'node:fs'
@@ -7,6 +8,7 @@ import path from 'node:path'
 import { LEDGER_FILE, readLedger } from '../cost/ledger.js'
 import { ladderItems, prItems } from './items.js'
 import { PRS_COMMAND, readPrs } from './prs.js'
+import { screenLines } from './screens.js'
 import { tableLines } from './table.js'
 import { buildView, FINISHED_SHOWN_HOURS, STALE_HOURS } from './view.js'
 
@@ -25,9 +27,16 @@ export interface BoardOptions {
   prs: string | undefined
   readStdin: () => string
   now?: Date
+  bus?: BusReader
+  version?: string
+  mode?: string
+  geek?: boolean
 }
 
 export interface BoardReading {
+  header: { version: string, mode: string | undefined } | undefined
+  geek: boolean
+  bus: BusReading | undefined
   ledgerPresent: boolean
   ledger: LedgerReading
   prs: PrsReading
@@ -41,6 +50,9 @@ export function readBoard(dir: string, options: BoardOptions): BoardReading {
   const prs = readPrs(options.prs, options.readStdin)
   const items = [...ladderItems(ledger.entries), ...(prs.status === 'read' ? prItems(prs.prs) : [])]
   return {
+    header: options.version === undefined ? undefined : { version: options.version, mode: options.mode },
+    geek: options.geek ?? false,
+    bus: options.bus?.(),
     ledgerPresent: existsSync(path.join(dir, LEDGER_FILE)),
     ledger,
     prs,
@@ -91,7 +103,23 @@ function mergedLines(ui: Ui, view: BoardView): string[] {
   return [ui.lore.boardMerged(view.merged.map(row => row.task), view.hidden > 0)]
 }
 
+function busLines(ui: Ui, bus: BusReading): string[] {
+  switch (bus.status) {
+    case 'read': return screenLines(bus.facts, ui.lore)
+    case 'absent': return [ui.lore.boardBusAbsent(bus.file)]
+    case 'unreadable': return [ui.lore.boardBusUnreadable(bus.file, bus.reason)]
+  }
+}
+
 export function printBoard(ui: Ui, reading: BoardReading): number {
+  if (reading.header !== undefined)
+    ui.line(ui.lore.boardHeader(reading.header.version, reading.header.mode))
+  if (reading.bus !== undefined && !(reading.geek && reading.bus.status === 'read')) {
+    for (const line of busLines(ui, reading.bus))
+      ui.line(line)
+    if (reading.bus.status === 'read')
+      return BOARD_EXIT.shown
+  }
   const { view } = reading
   const { summary } = view
   ui.line(ui.lore.boardSummary(summary.open, summary.running, summary.waiting, summary.blocked, summary.stale, FINISHED_SHOWN_HOURS, summary.merged))

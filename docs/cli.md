@@ -1634,7 +1634,11 @@ runs is `none — <reason>`, never the overall median.
 
 Shows where each task stands in this repository, from what the repository holds: the ladder runs in
 `.construct/runs.jsonl` and the pull request list that `gh pr list` wrote. The CLI runs no `gh` and
-writes no file, `--every` included; you fetch the list and hand it over.
+writes no file, `--every` included; you fetch the list and hand it over. When the bus database
+(`~/.construct/bus.db`) is there, the board reads it read-only and shows three screens — Flow (planned,
+in work, in review, ready to merge), Backlog (every card, grouped by lane) and Services (each running
+session and node with the step its task is at) — under a header with the construct version and the
+mode, and a footer naming the agents at work, the last failure and the review queue.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -1642,6 +1646,7 @@ writes no file, `--every` included; you fetch the list and hand it over.
 | `--all` | `false` | Also show what is older than 12 hours, superseded or closed. |
 | `--stale <hours>` | `4` | The hours after which an open row is stale. |
 | `--every <seconds>` | | Redraw every `<seconds>`, re-reading each source; refused with `--json` and with `--prs -`. |
+| `--geek` | `false` | The raw sections of the earlier board in place of the three screens. |
 | `--json` | `false` | The board as a JSON object. |
 
 ```bash

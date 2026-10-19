@@ -36,6 +36,8 @@ subagent's final report, `<task>` being the tasks-file id, not the card number, 
 is written `PR #N` and an issue bare `#N`, everywhere: reports, briefs, commit messages, pull request
 and issue bodies.
 
+The window's first line to the person, while it reads the handoff, names where to watch its work: `construct board`.
+
 ## Procedures
 
 - Before a question about the state of work, or while any Ghost is running, read [architecture/window.md § Status and the board](window.md#status-and-the-board).
