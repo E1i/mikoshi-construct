@@ -32,6 +32,17 @@ describe('the window subagent event', () => {
     db.close()
   })
 
+  it('advances the step a running session shows in Services', () => {
+    const file = busFile()
+    const db = openBus(file)
+    const started = { session: 's1', role: 'implementer', task: '#1071', phase: 'started' as const, tree: '/t' }
+    expect(recordWindowSubagent(db, { ...started, step: 'implement 1/3 @ low' }, AT)).toBe(true)
+    expect(recordWindowSubagent(db, { ...started, step: 'implement 2/3 @ medium' }, AT)).toBe(true)
+    const running = busReaderAt(file)()
+    expect(running.status === 'read' && running.facts.services).toEqual([{ role: 'implementer', task: '#1071', tree: '/t', step: 'implement 2/3 @ medium' }])
+    db.close()
+  })
+
   it('feeds Services while it runs and stops when it ends', () => {
     const file = busFile()
     const db = openBus(file)

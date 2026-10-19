@@ -22,7 +22,7 @@ export function recordWindowSubagent(db: DatabaseSync, subagent: WindowSubagent,
     cardId: null,
     pr: null,
     head: null,
-    dedupeKey: `${WINDOW_SUBAGENT_EVENT}:${session}:${phase}`,
+    dedupeKey: `${WINDOW_SUBAGENT_EVENT}:${session}:${phase}:${step ?? ''}`,
     payload: { session, role, task, phase, tree: tree ?? null, step: step ?? null },
     legacy: false,
   })
