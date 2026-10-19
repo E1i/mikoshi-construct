@@ -21,6 +21,8 @@ export const SESSION_HEARTBEAT = 'session.heartbeat'
 
 export const LEASE_MS = 30 * 60_000
 export const RENEW_MS = 10 * 60_000
+export const LEASE_EXPIRED = 'lease_expired'
+export const HEARTBEAT_QUEUES: readonly Queue[] = ['review']
 
 const NEXT_STATES = new Set([QUEUED, WITHDRAWN, STOPPED])
 
@@ -157,8 +159,11 @@ function foldReleased(db: DatabaseSync, event: StoredEvent): void {
 function foldHeartbeat(db: DatabaseSync, event: StoredEvent): void {
   if (event.card_id === null)
     reject('a heartbeat names no card')
-  db.prepare(`UPDATE tasks SET lease_until = ? WHERE state = '${LEASED}' AND card_id = ? AND (? IS NULL OR pr = ?)`)
-    .run(leaseUntil(event.ts), event.card_id, event.pr, event.pr)
+  const payload = payloadOf(event)
+  if (typeof payload.task_key !== 'string')
+    return
+  db.prepare(`UPDATE tasks SET lease_until = ? WHERE state = '${LEASED}' AND task_key = ? AND lease_gen = ? AND card_id = ? AND queue IN (SELECT value FROM json_each(?))`)
+    .run(leaseUntil(event.ts), payload.task_key, generationOf(payload), event.card_id, JSON.stringify(HEARTBEAT_QUEUES))
 }
 
 export const LEASE_FOLDS: Record<string, Fold> = {
@@ -316,7 +321,7 @@ function expired(db: DatabaseSync, ts: string, rows: LeaseRow[], reason: string)
 }
 
 export function expireLeases(db: DatabaseSync, ts: string): string[] {
-  return inTransaction(db, () => expired(db, ts, db.prepare(LAPSED).all(ts) as unknown as LeaseRow[], 'lease_expired'))
+  return inTransaction(db, () => expired(db, ts, db.prepare(LAPSED).all(ts) as unknown as LeaseRow[], LEASE_EXPIRED))
 }
 
 function heldBy(db: DatabaseSync, workerKinds: readonly string[]): LeaseRow[] {

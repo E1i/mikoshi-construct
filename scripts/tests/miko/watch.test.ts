@@ -187,6 +187,21 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     expect(tick(state, deps)).toEqual([])
   })
 
+  it('an expiry forced on a stopped holder or of a lease the timer renews does not wake the window', () => {
+    const events: BusEvent[] = []
+    const deps = fileDeps(journal(), () => true, events)
+    const state = watchState(deps, [])
+    const forced = JSON.stringify({ task_key: 'review:1110', queue: 'review', lease_gen: 1, reason: 'holder_stopped', next: 'queued' })
+    const timed = JSON.stringify({ task_key: 'merge:1110', queue: 'merge', lease_gen: 1, reason: 'lease_expired', next: 'queued' })
+    const slot = JSON.stringify({ task_key: 'quality:1110', queue: 'quality', lease_gen: 1, reason: 'lease_expired', next: 'queued' })
+    events.push(
+      { id: 1, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: forced },
+      { id: 2, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: timed },
+      { id: 3, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: slot },
+    )
+    expect(tick(state, deps)).toEqual([])
+  })
+
   it.each(BUS_EVENT_WAKES)('$name in the bus wakes the window: $wakes', ({ type, payload, wakes }) => {
     const file = journal()
     const events: BusEvent[] = []

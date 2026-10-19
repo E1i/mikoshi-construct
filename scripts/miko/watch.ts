@@ -11,7 +11,7 @@ import { IN_REVIEW_CARD, MERGE_DONE, REVIEW_RECORDED, RUNNING_CARD, STOPPED_CARD
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { CARD_STOPPED, POLICY_DENIED } from '../bus/inbox.js'
 import { CARD_CLOSED } from '../bus/launch-candidates.js'
-import { TASK_EXPIRED } from '../bus/lease.js'
+import { HEARTBEAT_QUEUES, LEASE_EXPIRED, TASK_EXPIRED } from '../bus/lease.js'
 import { PR_CLOSED } from '../bus/observations.js'
 import { PR_OBSERVED } from '../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../bus/review-executor.js'
@@ -303,7 +303,14 @@ export function wakesTheWindow(state: BusMemory, event: BusEvent): boolean {
     return turnsRed(state, event)
   if (event.type === POLICY_DENIED)
     return deniedAgainInARow(state, event)
+  if (event.type === TASK_EXPIRED)
+    return sessionLeaseLapsed(payloadOf(event.payload))
   return true
+}
+
+function sessionLeaseLapsed(payload: Record<string, unknown>): boolean {
+  const queue = textOf(payload, 'queue')
+  return textOf(payload, 'reason') === LEASE_EXPIRED && HEARTBEAT_QUEUES.includes(queue)
 }
 
 function busLines(state: WatchState, deps: WatchDeps): string[] {

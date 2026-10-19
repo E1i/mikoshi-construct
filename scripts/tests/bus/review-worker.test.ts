@@ -301,8 +301,8 @@ describe('review worker', () => {
     }
     expect(events(db, 'task.renewed')).toEqual([])
     expect(vi.getTimerCount()).toBe(0)
-    const { card_id: card } = db.prepare('SELECT card_id FROM tasks').get() as { card_id: number }
-    recordHeartbeat(db, clock.now().toISOString(), { card, pr: 946, head: sha('a'), step: 'review', session: 'reviewer-1' })
+    const { card_id: card, task_key: taskKey, lease_gen: leaseGen } = db.prepare('SELECT card_id, task_key, lease_gen FROM tasks').get() as { card_id: number, task_key: string, lease_gen: number }
+    recordHeartbeat(db, clock.now().toISOString(), { card, pr: 946, head: sha('a'), step: 'review', session: 'reviewer-1', lease: { taskKey, leaseGen } })
     expect((db.prepare('SELECT lease_until FROM tasks').get() as { lease_until: string }).lease_until).toBe(new Date(clock.ms + LEASE_MS).toISOString())
     finish()
     expect(await step).toMatchObject({ kind: 'recorded' })

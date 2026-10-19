@@ -10,9 +10,10 @@ import { AnswerNode, priorityOf } from '../../bus/answer-worker.js'
 import { claudeAnswerer } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
-import { LEASE_MS, RENEW_MS } from '../../bus/lease.js'
+import { expireLeases, LEASE_MS, RENEW_MS } from '../../bus/lease.js'
 import { queueTask } from '../../bus/queue.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../bus/scheduler.js'
+import { openDatabase } from '../../bus/sqlite.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -205,7 +206,46 @@ describe('answer slots', () => {
     bench.close()
   })
 
-  it('a round that throws in one slot ends no slot: the peer answers, the fault goes to stderr, and no timer renews the lease while a round runs', async () => {
+  it('the node timer survives a busy database and stops on a stale lease', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const printed = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const bench = slotsBench()
+    bench.asked(904)
+    bench.tick()
+    const inFlight = bench.whenInFlight(1)
+    const running = runUntil(bench.node(1), () => bench.answered.length > 0)
+    await inFlight
+    const { task_key: key } = bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND card_id = 904`).get() as { task_key: string }
+    const beat = async (): Promise<void> => {
+      bench.clock.advance(RENEW_MS)
+      await vi.advanceTimersByTimeAsync(RENEW_MS)
+    }
+
+    bench.db.exec('PRAGMA busy_timeout = 0')
+    const other = openDatabase(bench.busPath)
+    other.exec('BEGIN IMMEDIATE')
+    await beat()
+    other.exec('ROLLBACK')
+    other.close()
+    expect(eventsOf(bench.db, 'task.renewed')).toEqual([])
+    const notRenewed = printed.mock.calls.map(call => String(call[0])).filter(line => line.includes(`${key}: the lease was not renewed this beat`))
+    expect(notRenewed).toHaveLength(1)
+    expect(notRenewed[0]).toContain('database is locked')
+
+    await beat()
+    expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(1)
+
+    bench.clock.advance(LEASE_MS + 1)
+    expect(expireLeases(bench.db, bench.clock.now().toISOString())).toEqual([key])
+    await beat()
+    await beat()
+    expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(1)
+    bench.finishAll()
+    await running
+    bench.close()
+  })
+
+  it('a round that throws in one slot ends no slot: the peer answers, the fault goes to stderr, and the lease is renewed while a round runs', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const bench = slotsBench()
     const answer = AnswerExecutor.prototype.answer
@@ -228,9 +268,9 @@ describe('answer slots', () => {
       bench.clock.advance(RENEW_MS)
       await vi.advanceTimersByTimeAsync(RENEW_MS)
     }
-    expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(0)
+    expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(2)
     const peer = bench.db.prepare(`SELECT lease_until FROM tasks WHERE queue = 'answer' AND card_id = 901`).get() as { lease_until: string }
-    expect(peer.lease_until < new Date(bench.clock.now().getTime() + LEASE_MS).toISOString()).toBe(true)
+    expect(peer.lease_until).toBe(new Date(bench.clock.now().getTime() + LEASE_MS).toISOString())
     bench.finishAll()
     await running
 

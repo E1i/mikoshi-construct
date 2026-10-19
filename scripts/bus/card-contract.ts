@@ -57,7 +57,7 @@ export const CONTRACT_FIELDS: Record<Contract, readonly (keyof CardFields)[]> = 
   start: ['id', 'name', 'cardLine', 'branch', 'contour', 'path', 'touches', 'who', 'risk', 'lane', 'textSha', 'lastHeartbeat'],
   review: ['id', 'cardLine', 'branch', 'continue', 'touches', 'risk', 'prose', 'witnesses', 'unclear', 'text', 'lastHeartbeat'],
   close: ['id', 'cardLine', 'text'],
-  board: ['id', 'name', 'contour', 'priority', 'who', 'depends', 'touches', 'creates', 'lane', 'state', 'lastHeartbeat'],
+  board: ['id', 'name', 'contour', 'priority', 'who', 'depends', 'touches', 'creates', 'lane', 'state'],
 }
 
 export function isContract(name: string): name is Contract {

@@ -5,8 +5,6 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-// PostToolUse: every tool call of a session that holds a bus lease records a heartbeat;
-// the heartbeat, not a node timer, renews the lease of that session's task (#1110).
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
 const SESSION_ID = /^[\w-]{1,128}$/
 
