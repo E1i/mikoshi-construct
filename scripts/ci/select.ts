@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { selectRun } from './layers.js'
+import { selectRun, windowGate } from './layers.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const DEPCRUISE = path.join(REPO_ROOT, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruiser.mjs')
@@ -49,9 +49,41 @@ export function outputLines(run: Run): string {
   return `full=${run.kind === 'full'}\ntests=${tests}\n`
 }
 
+export function changedPathsOf(diff: string, untracked: string): string[] {
+  return [...new Set([...diff.split('\n'), ...untracked.split('\n')].filter(entry => entry !== ''))].sort()
+}
+
+export function windowLines(run: Run): string {
+  const tests = run.kind === 'layers' ? `pnpm exec vitest run ${run.tests.join(' ')}` : 'pnpm test'
+  return `${runSummary(run)}\nWindow gate (D-194): the card's witnesses, then ${tests}, pnpm typecheck and pnpm lint, each as its own command.`
+}
+
+function git(args: readonly string[]): string {
+  const run = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })
+  if (run.status !== 0)
+    throw new Error(`git ${args.join(' ')} failed: ${run.stderr}`)
+  return run.stdout
+}
+
+function treeChanges(): string[] {
+  const base = git(['merge-base', 'HEAD', 'origin/main']).trim()
+  return changedPathsOf(git(['diff', '--name-only', base]), git(['ls-files', '--others', '--exclude-standard']))
+}
+
+function readTest(test: string): string {
+  return readFileSync(path.join(REPO_ROOT, test), 'utf8')
+}
+
+function windowMain(): void {
+  const changed = treeChanges()
+  console.log(windowLines(reportedRun(changed.length === 0 ? windowGate([], new Map(), () => '') : windowGate(changed, cruise(), readTest))))
+}
+
 function main(): void {
+  if (process.argv.includes('--window'))
+    return windowMain()
   const changed = pathsOf(process.argv.slice(2), () => readFileSync(0, 'utf8'))
-  const run = reportedRun(changed.length === 0 ? selectRun([], new Map(), () => '') : selectRun(changed, cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8')))
+  const run = reportedRun(changed.length === 0 ? selectRun([], new Map(), () => '') : selectRun(changed, cruise(), readTest))
   console.log(runSummary(run))
   if (process.env.GITHUB_OUTPUT)
     appendFileSync(process.env.GITHUB_OUTPUT, outputLines(run))

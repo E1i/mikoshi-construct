@@ -13,7 +13,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnswerExecutor } from '../../bus/answer-executor.js'
 import { AnswerNode, answerNodeOf } from '../../bus/answer-worker.js'
-import { tokensOf } from '../../bus/answerer.js'
+import { answerPrompt, tokensOf } from '../../bus/answerer.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
@@ -320,6 +320,21 @@ describe('the answer node', () => {
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', resumed: true, source: 'question', from: sha('a'), to: sha('e') }])
+  })
+
+  it('the answer round prompt names the window gate of D-194, not pnpm run quality', () => {
+    const prompt = answerPrompt({
+      lease: { taskKey: 'answer:1079:925:head', queue: 'answer', cardId: 1079, pr: 925, head: sha('a'), leaseGen: 1, actor: 'worker:answer:s' },
+      source: { kind: 'changes', findings: ['a.ts:1 a finding'], events: [] },
+      widened: null,
+      card: { session: 's', worktree: '/trees/mc-1079', branch: 'feat/window-gate-by-layers' },
+    }, '/answers/s.1.owner.txt', null)
+
+    expect(prompt).toContain('D-194')
+    expect(prompt).toContain('pnpm gate:window')
+    expect(prompt).toContain('pnpm typecheck')
+    expect(prompt).toContain('pnpm lint')
+    expect(prompt).not.toContain('pnpm run quality')
   })
 
   it('tokensOf sums the input, output and cache counts of a result usage and is null without one', () => {
