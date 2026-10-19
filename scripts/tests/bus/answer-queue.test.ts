@@ -160,7 +160,7 @@ describe('the answer queue', () => {
     expect(run!.cwd).toBe(bench.treeOf(1093))
     expect(run!.argv.slice(-3, -1)).toEqual(['--resume', CARD_SESSION])
     expect(run!.argv).not.toContain('--session-id')
-    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, resumed: true, source: 'changes', from: sha('a'), to: PUSHED, minutes: 0, tokens: null }])
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, resumed: true, source: 'changes', from: sha('a'), to: PUSHED }])
     expect(taskState(bench.db, answer(1093, 993, sha('a'))).state).toBe('completed')
     bench.close()
   })
@@ -332,7 +332,7 @@ describe('the answer queue', () => {
 
     expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', taskKey: answer(1101, 1001, sha('a')), head: PUSHED })
     expect(bench.tools.runs[0]!.argv.at(-1)).toContain('The failed checks: lint, vitest (1/2).')
-    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, resumed: true, source: 'ci', from: sha('a'), to: PUSHED, minutes: 0, tokens: null }])
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, resumed: true, source: 'ci', from: sha('a'), to: PUSHED }])
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     bench.close()

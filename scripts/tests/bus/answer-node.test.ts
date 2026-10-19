@@ -312,6 +312,16 @@ describe('the answer node', () => {
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', resumed: true, source: 'question', from: sha('a'), to: sha('e'), minutes: 7.5, tokens: 48_200 }])
   })
 
+  it('card.answered carries no measurement from an answerer that reports no usage', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null })
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
+    expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', resumed: true, source: 'question', from: sha('a'), to: sha('e') }])
+  })
+
   it('tokensOf sums the input, output and cache counts of a result usage and is null without one', () => {
     expect(tokensOf({ input_tokens: 10, output_tokens: 200, cache_creation_input_tokens: 3_000, cache_read_input_tokens: 45_000 })).toBe(48_210)
     expect(tokensOf({ output_tokens: 5 })).toBe(5)

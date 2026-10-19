@@ -70,6 +70,10 @@ function minutesSince(start: number, end: number): number {
   return Math.round((end - start) / MS_PER_MINUTE * 10) / 10
 }
 
+function measurementOf(answered: Answered, minutes: number): { minutes: number, tokens: number | null } | Record<string, never> {
+  return answered.tokens === undefined ? {} : { minutes, tokens: answered.tokens }
+}
+
 export class AnswerExecutor {
   constructor(private readonly parts: AnswerParts) {}
 
@@ -146,7 +150,7 @@ export class AnswerExecutor {
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, scope)
     }
-    const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, minutes, tokens: answered.tokens ?? null }
+    const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...measurementOf(answered, minutes) }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }

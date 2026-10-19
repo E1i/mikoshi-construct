@@ -209,6 +209,8 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const owner = ownerQuestionIn(ownerQuestion)
     if (owner === null)
       tools.publish(card, answerCommitMessage(request.lease))
-    return { session, resumed, before, after: tools.remoteHead(card), owner, tokens: tokensOf(readResultFields(stdoutPath).usage) }
+    const result = readResultFields(stdoutPath)
+    const measured = result.resultLine === 'present' ? { tokens: tokensOf(result.usage) } : {}
+    return { session, resumed, before, after: tools.remoteHead(card), owner, ...measured }
   }
 }
