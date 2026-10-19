@@ -1,4 +1,5 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../bus/bg.js'
+import type { InForceDecision } from '../../bus/decisions.js'
 import type { BusCode, MainAdvance, SupervisingParts } from '../../bus/supervisor.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,7 +13,7 @@ import { completeTask, leaseNext, leaseWhileFree, StaleLease, TASK_EXPIRED } fro
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
 import { backoffMs, baselineAdvance, BusSupervisor, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, recordStarted, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
-import { workerLaunches } from '../../bus/workers.js'
+import { switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
 
@@ -308,6 +309,19 @@ describe('the supervisor keeps every switched-on worker alive', () => {
 
   it('the backoff stops growing at its ceiling', () => {
     expect(backoffMs(100)).toBe(KEEP_MAX_MS)
+  })
+})
+
+describe('the supervisor starts the launch node in the mode an owner decision allows', () => {
+  it('the supervisor starts the launch node with --live under an owner decision in force naming the launch queue and in shadow without one', () => {
+    const busDir = mkdtempSync(path.join(tmpdir(), 'supervisor-live-'))
+    roots.push(busDir)
+    switchWorker(busDir, 'launch', true)
+    const argsOf = (decisions: InForceDecision[]): string[] => wantedLaunches(busDir, () => [], decisions).find(launch => launch.script === 'bus:launch')!.args
+
+    expect(argsOf([])).not.toContain('--live')
+    expect(argsOf([{ decisionId: 5, text: 'allow-live review', cards: [] }])).not.toContain('--live')
+    expect(argsOf([{ decisionId: 74, text: 'allow-live launch', cards: [] }])).toContain('--live')
   })
 })
 
