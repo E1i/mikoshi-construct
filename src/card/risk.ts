@@ -4,6 +4,7 @@ export const RISK_LEVELS = ['R1', 'R2', 'R3', 'R4'] as const
 export const RISK_PREFIX = 'risk: '
 export const SEAM_PREFIX = 'seam: '
 export const SLICE_PREFIX = 'slice: '
+export const SLICE_DEPENDS = '· depends '
 export const CHANGESET_COMPANION = `.changeset${PREFIX_SUFFIX}`
 
 export type RiskLevel = typeof RISK_LEVELS[number]
@@ -84,7 +85,7 @@ const WITNESS_ROOTS: readonly (readonly [string, string | null])[] = [
   ['tests', null],
 ]
 const COMMANDS_CONTAINER = 'commands'
-const TEST_SUFFIX = /\.(?:test|spec)\.[cm]?[jt]sx?$/
+export const TEST_SUFFIX = /\.(?:test|spec)\.[cm]?[jt]sx?$/
 const EXTENSION = /\.[^.]+$/
 const DELIVERY = ['templates/attach', 'templates/ai', 'src/presets', 'scripts/attach']
 const CAPABILITY = ['src', 'scripts']
@@ -120,6 +121,10 @@ function under(path: string, root: string): boolean {
 function reaches(entry: string, root: string): boolean {
   const scope = scopeOf(entry)
   return under(scope.path, root) || (scope.prefix && under(root, scope.path))
+}
+
+export function covers(entry: string, file: string): boolean {
+  return under(file, scopeOf(entry).path)
 }
 
 function overlaps(a: string, b: string): boolean {
@@ -240,7 +245,11 @@ export function riskReading(touches: readonly string[], complexitySliced: boolea
   return { level, why, slices, capabilityDelivery: slices.length > 0 && isCapabilityDelivery(high, rest) }
 }
 
-export function riskLines(reading: RiskReading): string[] {
+export function sliceLine(index: number, label: string, touches: readonly string[], depends: readonly number[] = []): string {
+  return `${SLICE_PREFIX}${index + 1} ${label} — ${touches.join(', ')}${depends.length === 0 ? '' : ` ${SLICE_DEPENDS}${depends.map(at => at + 1).join(', ')}`}`
+}
+
+export function riskLines(reading: RiskReading, depends: readonly (readonly number[])[] = []): string[] {
   const line = `${RISK_PREFIX}${reading.level} — ${RISK_MEANING[reading.level]} — ${reading.why}`
   if (reading.slices.length === 0)
     return [line]
@@ -248,6 +257,6 @@ export function riskLines(reading: RiskReading): string[] {
   return [
     line,
     `${SEAM_PREFIX}risk${reading.capabilityDelivery ? ' (capability / delivery)' : ''} — ${NO_COMPLEXITY_SLICES} — ${PRINCIPLE}`,
-    ...reading.slices.map((slice, index) => `${SLICE_PREFIX}${index + 1} ${slice.level}${names[index] === undefined ? '' : ` ${names[index]}`} — ${slice.touches.join(', ')}`),
+    ...reading.slices.map((slice, index) => sliceLine(index, `${slice.level}${names[index] === undefined ? '' : ` ${names[index]}`}`, slice.touches, depends[index])),
   ]
 }

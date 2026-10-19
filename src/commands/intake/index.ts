@@ -18,7 +18,7 @@ import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedNumbers, nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
 import { isDirectory, isWithin, parkingTree } from './parking-tree.js'
-import { sliceCards } from './slice.js'
+import { cutSlices, sliceCards } from './slice.js'
 
 export const FROM_STDIN = '-'
 
@@ -232,17 +232,19 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     return refused('invalid', [taken.reason])
   const parked = parkingsSharingNumbers(options.parking, options.parkingRoot ?? defaultParking()).flatMap(dir => parkedNumbers(parkedFiles(dir)))
   const cards = options.cardStates?.()
-  const numbers = nextFreeNumbers([...taken.numbers, ...parked, ...admittedNumbers(journalText, cards)], draft.cards.length)
+  const used = [...taken.numbers, ...parked, ...admittedNumbers(journalText, cards)]
+  const numbers = nextFreeNumbers(used, draft.cards.length)
+  const repository = new DirectoryFacts(options.dir, process.env.PATH ?? '')
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
     parked: new Set(parked),
     done: new Set(closedTasks(journalText, cards).keys()),
     merged: mergedTasks(journalText, cards),
-    repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
+    repository,
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
   })
-  const slice = sliceCards(checked, numbers)
+  const slice = sliceCards(checked, numbers, repository)
   if (slice.kind === 'refused')
     return refused('invalid', slice.reasons)
   if (options.dryRun)
@@ -250,12 +252,18 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const token = confirmationToken(slice.cards)
   if (!options.autoConfirm && awaitsConfirmation(slice.cards) && options.confirm !== token)
     return { status: 'awaiting', parking: options.parking, cards: slice.cards, token, stale: options.confirm !== undefined }
+  const cutBySlices = slice.cards.some(card => card.slices.length > 0)
+  const cut = cutBySlices ? cutSlices(checked, slice.cards) : checked
+  const parkedSlice = cutBySlices ? sliceCards(cut, nextFreeNumbers(used, cut.length), repository) : slice
+  if (parkedSlice.kind === 'refused')
+    return refused('invalid', parkedSlice.reasons)
   mkdirSync(options.parking, { recursive: true })
-  for (const card of slice.cards)
+  for (const card of parkedSlice.cards)
     writeFileSync(path.join(options.parking, card.file), card.text, { flag: 'wx' })
   const at = new Date()
-  recordIntake(options.journal, slice.cards.map(card => admittedRecord(card, confirmationOf(card, options.autoConfirm), at, laneOf(options.parkingRoot ?? defaultParking(), options.parking))), options.events)
-  return { status: 'written', parking: options.parking, cards: slice.cards, autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
+  const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? 'person' : confirmationOf(card, options.autoConfirm))
+  recordIntake(options.journal, parkedSlice.cards.map(card => admittedRecord(card, confirmation(card), at, laneOf(options.parkingRoot ?? defaultParking(), options.parking))), options.events)
+  return { status: 'written', parking: options.parking, cards: parkedSlice.cards, autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
 }
 
 export function printIntake(ui: Ui, result: IntakeResult): number {
