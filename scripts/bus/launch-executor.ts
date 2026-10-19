@@ -4,6 +4,9 @@ import type { BusEvent } from './db.js'
 import type { DiskReader } from './disk.js'
 import type { Contour } from './launch-candidates.js'
 import type { AfterFailure, Lease } from './lease.js'
+import { createHash } from 'node:crypto'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { NO_ISOLATION } from '../ghosts/isolation.js'
 import { DISK_LOW, diskLowDetail, statfsReader } from './disk.js'
 import { CARD_STARTED, POLICY_DENIED } from './inbox.js'
@@ -18,6 +21,22 @@ export interface LaunchDenial {
   detail: string
 }
 
+export interface SessionInput {
+  prompt: string
+}
+
+type StoredInput = { prompt_sha: string, prompt_path: string } | Record<string, never>
+
+function storedInput(prompts: string | undefined, input: SessionInput | undefined): StoredInput {
+  if (prompts === undefined || input === undefined)
+    return {}
+  const sha = createHash('sha256').update(input.prompt).digest('hex')
+  const file = path.join(prompts, `${sha}.md`)
+  mkdirSync(prompts, { recursive: true })
+  writeFileSync(file, input.prompt)
+  return { prompt_sha: sha, prompt_path: file }
+}
+
 export interface LaunchedCard {
   session: string
   worktree: string
@@ -26,6 +45,7 @@ export interface LaunchedCard {
   pid: number
   pgid: number
   step?: string
+  input?: SessionInput
 }
 
 export interface StartedCard extends LaunchedCard {
@@ -56,6 +76,7 @@ export interface LaunchParts {
   clock: () => Date
   disk?: DiskReader
   isolation: IsolationReader
+  prompts?: string
 }
 
 const WITHDRAW_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set(['card_not_queued'])
@@ -114,7 +135,9 @@ export class LaunchExecutor {
   }
 
   private started(lease: Lease, card: StartedCard, starter: CardStarter, isolation: Exclude<Isolation, { level: 'none' }>): LaunchOutcome {
-    const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload: { ...card, isolation: isolation.level, isolationGaps: isolation.gaps }, legacy: false }
+    const { input, ...started } = card
+    const payload = { ...started, isolation: isolation.level, isolationGaps: isolation.gaps, ...storedInput(this.parts.prompts, input) }
+    const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload, legacy: false }
     try {
       completeTask(this.parts.db, this.ts(), lease, [event], (db) => {
         if (launchableCard(db, lease.cardId) === null)

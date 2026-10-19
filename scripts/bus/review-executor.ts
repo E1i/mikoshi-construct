@@ -7,6 +7,9 @@ import type { AfterFailure, Lease } from './lease.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
+import { createHash } from 'node:crypto'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { NO_ISOLATION } from '../ghosts/isolation.js'
 import { REVIEW_RECORDED } from './card-automaton.js'
 import { ARTIFACT_REMOVED } from './close-executor.js'
@@ -37,16 +40,25 @@ export interface ExecutorParts {
   db: DatabaseSync
   gitHub: GitHub
   publish: StatusPublisher
-  reviewer: Reviewer
+  reviewer: (...args: Parameters<Reviewer>) => Promise<InputReview>
   plan: ReviewPlanner
   clock: () => Date
+  prompts?: string
   clearLeftovers?: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
   isolation: IsolationReader | typeof SPAWNS_NO_SESSION
 }
 
+export interface SessionInput {
+  prompt: string
+}
+
+type StoredInput = { prompt_sha: string, prompt_path: string } | Record<string, never>
+
+type InputReview = Review & { input?: SessionInput }
+
 interface Reviewed {
-  review: Review
+  review: InputReview
   plan: ReviewPlan
   ms: number
   isolation: Held | null
@@ -121,6 +133,21 @@ export function roundLimitLine(pr: number, rounds: number): string {
 
 function treeFields({ tree }: Review): Record<string, unknown> {
   return tree === undefined ? {} : { treeBefore: tree.before, treeAfter: tree.after, treeMutated: tree.mutated }
+}
+
+function storedInput(prompts: string | undefined, input: SessionInput | undefined): StoredInput {
+  if (prompts === undefined || input === undefined)
+    return {}
+  const sha = createHash('sha256').update(input.prompt).digest('hex')
+  const file = path.join(prompts, `${sha}.md`)
+  mkdirSync(prompts, { recursive: true })
+  writeFileSync(file, input.prompt)
+  return { prompt_sha: sha, prompt_path: file }
+}
+
+function inputFields(prompts: string | undefined, plan: ReviewPlan, input: SessionInput | undefined): Record<string, unknown> {
+  const stored = storedInput(prompts, input)
+  return 'prompt_sha' in stored && plan.depth === 'diff' ? { ...stored, since: plan.since } : stored
 }
 
 function orphaned(ts: string, actor: string, lease: Lease, tree: string, detail: string): BusEvent {
@@ -234,7 +261,7 @@ export class ReviewExecutor {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation) },
+      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
       legacy: false,
     }
   }

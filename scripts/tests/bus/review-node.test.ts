@@ -1,11 +1,16 @@
 import type { Lease } from '../../bus/lease.js'
 import type { DetectionMode, Scope } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
-import type { Step } from '../../bus/review-executor.js'
+import type { ReviewPlan } from '../../bus/review-depth.js'
+import type { SessionInput, Step } from '../../bus/review-executor.js'
 import type { ReviewNodeParts, ReviewRun } from '../../bus/review-worker.js'
-import type { Reviewer } from '../../bus/reviewer.js'
+import type { Review, Reviewer } from '../../bus/reviewer.js'
 import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
@@ -18,6 +23,7 @@ import { keyOf, reviewCandidates, TASK_ENQUEUED } from '../../bus/queue.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { ReviewExecutor } from '../../bus/review-executor.js'
 import { DRY_RUN_ACTOR, ReviewNode, ReviewWorker, runReview } from '../../bus/review-worker.js'
+import { reviewPrompt } from '../../bus/reviewer.js'
 import { cardBody } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectReview } from './review-detection.js'
@@ -407,5 +413,35 @@ describe('the review node', () => {
     expect(taskState(made.db, reviewKey(1096)).state).toBe('completed')
     expect(taskState(made.db, reviewKey(1095)).state).toBe('queued')
     expect(made.db.prepare('SELECT actor FROM events WHERE type = ?').all(REVIEW_RECORDED)).toEqual([{ actor: 'worker:review:worker-1' }])
+  })
+
+  it('the session input is rebuilt from review.recorded alone with no handoff directory', async () => {
+    const made = bench()
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-review-input-'))
+    try {
+      openGreen(made, 1097)
+      made.tick()
+      detectReview(made)
+      const since = 'b'.repeat(40)
+      const plan: ReviewPlan = { depth: 'diff', round: 'first', why: 'a fixed plan', since, touchFindings: [] }
+      let given = ''
+      const reviewer = async (lease: Lease, planned: ReviewPlan): Promise<Review & { input: SessionInput }> => {
+        given = reviewPrompt(lease, planned, '/trees/review-1097', '/verdicts/1097.json')
+        return { verdict: 'pass', findings: [], session: `reviewer-${lease.pr}`, input: { prompt: given } }
+      }
+      const worker = new ReviewWorker({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => plan, clock: made.clock.now, session: 'worker-1', isolation: sandboxed, prompts: path.join(root, 'prompts') })
+
+      expect(await worker.stepOn(reviewKey(1097))).toMatchObject({ kind: 'recorded', verdict: 'pass' })
+      const [recorded] = eventsOf(made.db, REVIEW_RECORDED) as { head: string, since: string, prompt_sha: string, prompt_path: string }[]
+      expect(existsSync(path.join(root, 'handoff'))).toBe(false)
+      expect(recorded).toMatchObject({ head: headOf(1097), since })
+      const rebuilt = readFileSync(recorded!.prompt_path, 'utf8')
+      expect(rebuilt).toBe(given)
+      expect(rebuilt).toContain(`${recorded!.since}..${recorded!.head}`)
+      expect(createHash('sha256').update(rebuilt).digest('hex')).toBe(recorded!.prompt_sha)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

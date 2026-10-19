@@ -5,6 +5,9 @@ import type { Answered, Answerer } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
+import { createHash } from 'node:crypto'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { riskOf } from '../../src/card/risk.js'
 import { matchGlob } from '../shredder/glob.js'
 import { answerSourceOf } from './answer-source.js'
@@ -36,13 +39,23 @@ export type AnswerOutcome
     | { kind: 'denied', taskKey: string, denial: AnswerDenial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
 
+export interface AnswerInput {
+  prompt: string
+  cardBody: string
+}
+
+type StoredInput = { prompt_sha: string, prompt_path: string } | Record<string, never>
+
+type InputAnswered = Answered & { input?: AnswerInput }
+
 export interface AnswerParts {
   db: DatabaseSync
-  answerer: Answerer
+  answerer: (...args: Parameters<Answerer>) => Promise<InputAnswered>
   ownerMerges: () => string
   clock: () => Date
   trees?: CardTreeTools
   isolation?: IsolationReader
+  prompts?: string
 }
 
 const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
@@ -68,6 +81,20 @@ const MS_PER_MINUTE = 60_000
 
 function minutesSince(start: number, end: number): number {
   return Math.round((end - start) / MS_PER_MINUTE * 10) / 10
+}
+
+function storedInput(prompts: string | undefined, input: AnswerInput | undefined): StoredInput {
+  if (prompts === undefined || input === undefined)
+    return {}
+  const sha = createHash('sha256').update(input.prompt).digest('hex')
+  const file = path.join(prompts, `${sha}.md`)
+  mkdirSync(prompts, { recursive: true })
+  writeFileSync(file, input.prompt)
+  return { prompt_sha: sha, prompt_path: file }
+}
+
+function cardBodyOf(input: AnswerInput | undefined): { card_body_sha: string } | Record<string, never> {
+  return input === undefined ? {} : { card_body_sha: createHash('sha256').update(input.cardBody).digest('hex') }
 }
 
 function measurementOf(answered: Answered, minutes: number): { minutes: number, tokens: number | null } | Record<string, never> {
@@ -133,7 +160,7 @@ export class AnswerExecutor {
     }
   }
 
-  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession): Promise<Answered | AnswerDenial> {
+  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession): Promise<InputAnswered | AnswerDenial> {
     try {
       return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card })
     }
@@ -142,7 +169,7 @@ export class AnswerExecutor {
     }
   }
 
-  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, answered: Answered, minutes: number): AnswerOutcome {
+  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, answered: InputAnswered, minutes: number): AnswerOutcome {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
@@ -150,7 +177,7 @@ export class AnswerExecutor {
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, scope)
     }
-    const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...measurementOf(answered, minutes) }
+    const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...measurementOf(answered, minutes), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }
