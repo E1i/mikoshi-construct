@@ -47,6 +47,12 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(selectRun([], GRAPH, () => '').kind).toBe('full')
   })
 
+  it('a change to the test infrastructure every test runs under takes the full run', () => {
+    const graph: Graph = new Map([...GRAPH, ['scripts/scratch/vitest-bus.ts', []], ['scripts/ci/shard.ts', []]])
+    for (const file of ['vitest.config.ts', 'vitest-workspace.ts', 'scripts/scratch/vitest-setup.ts', 'scripts/scratch/vitest-bus.ts', 'scripts/ci/shard.ts', 'scripts/ci/test-weights.json'])
+      expect(selectRun([file, 'scripts/bus/merge-worker.ts'], graph, () => '').kind).toBe('full')
+  })
+
   it('a test that spawns a changed script is selected though it imports nothing', () => {
     const run = layersRun(['scripts/notes/print.ts'], test => test === 'scripts/tests/notes/spawn.test.ts' ? 'tsx scripts/notes/print.ts' : '')
     expect(run.tests).toEqual(['scripts/tests/notes/spawn.test.ts'])

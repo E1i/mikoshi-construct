@@ -6,6 +6,7 @@ const TEST_FILE = /\.test\.ts$/
 const TEST_ROOTS = ['tests/', 'scripts/tests/']
 const SCRIPT_DIR = /^scripts\/([^/]+)\//
 const SOURCE_FILE = /\.ts$/
+const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
 
 export type Graph = ReadonlyMap<string, readonly string[]>
 
@@ -76,6 +77,9 @@ function scanning(file: string, tests: readonly string[]): string[] {
 export function selectRun(changed: readonly string[], graph: Graph, testText: (test: string) => string): Run {
   if (changed.length === 0)
     return { kind: 'full', why: 'no changed path was given' }
+  const infrastructure = changed.find(file => TEST_INFRASTRUCTURE.test(file))
+  if (infrastructure !== undefined)
+    return { kind: 'full', why: `${infrastructure} is test infrastructure every test runs under` }
   const unmapped = changed.find(file => !isTest(file) && (layerOf(file) === null || !graph.has(file)))
   if (unmapped !== undefined)
     return { kind: 'full', why: `${unmapped} belongs to no layer of the dependency graph` }
