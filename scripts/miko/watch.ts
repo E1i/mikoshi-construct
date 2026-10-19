@@ -310,7 +310,7 @@ export function wakesTheWindow(state: BusMemory, event: BusEvent): boolean {
 
 function sessionLeaseLapsed(payload: Record<string, unknown>): boolean {
   const queue = textOf(payload, 'queue')
-  return textOf(payload, 'reason') === LEASE_EXPIRED && HEARTBEAT_QUEUES.includes(queue)
+  return textOf(payload, 'reason') === LEASE_EXPIRED && queue !== undefined && (HEARTBEAT_QUEUES as readonly string[]).includes(queue)
 }
 
 function busLines(state: WatchState, deps: WatchDeps): string[] {
