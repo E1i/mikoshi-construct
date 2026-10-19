@@ -136,6 +136,18 @@ describe('the update queue', () => {
     bench.close()
   })
 
+  it('a first-ranked pass PR out of review rounds with no owner decision does not hold the update slot from the next one', () => {
+    const bench = updateBench()
+    bench.gitHub.open({ number: 957, head: sha('e'), review: 'success', mergeable_state: 'behind' })
+    bench.gitHub.open({ number: 958, head: sha('f'), review: 'success', mergeable_state: 'behind' })
+    for (const round of ['1', '2', '3'])
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1057, pr: 957, head: sha(round), dedupeKey: `${REVIEW_RECORDED}:957:${round}`, payload: { head: sha(round), verdict: 'changes', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
+    bench.tick()
+
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)).toEqual([958])
+    bench.close()
+  })
+
   it('a PR that is not behind, has no pass and waits for no one, or is a draft, does not enter update', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 982, mergeable_state: 'behind' })

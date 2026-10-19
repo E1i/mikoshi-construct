@@ -238,9 +238,9 @@ type Admits = (row: Candidate) => boolean
 
 const everyRow: Admits = () => true
 
-function passOrDecided(db: DatabaseSync, ts: string): Admits {
+function aMergeCandidate(db: DatabaseSync, ts: string): Admits {
   const decided = decidedPastRoundLimit(db, ts)
-  return row => row.verdict_on_head === 'pass' || decided(row)
+  return row => (row.verdict_on_head === 'pass' || decided(row)) && !closedByRounds(db, ts, 'merge', row.pr, row.head)
 }
 
 function decidedPastRoundLimit(db: DatabaseSync, ts: string): Admits {
@@ -371,7 +371,7 @@ export function reviewCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
 }
 
 export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  return openCandidates(db, ts, 'update', candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, passOrDecided(db, ts)).slice(0, 1))
+  return openCandidates(db, ts, 'update', candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)).slice(0, 1))
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
