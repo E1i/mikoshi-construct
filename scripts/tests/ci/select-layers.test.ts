@@ -126,7 +126,7 @@ describe('the lines written for the workflow are the contract with ci.yml', () =
     expect(outputLines({ kind: 'full', why: 'no changed path was given' })).toBe('full=true\ntests=\n')
   })
 
-  it('a layer run that selects no test is reported as a full run', () => {
+  it('an empty selection is reported as a full run', () => {
     const run = reportedRun({ kind: 'layers', layers: ['notes'], tests: [] })
     expect(outputLines(run)).toBe('full=true\ntests=\n')
     expect(runSummary(run)).toMatch(/^Full run: /)
