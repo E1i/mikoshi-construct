@@ -26,13 +26,14 @@ import { GHOST_JOURNAL } from '../shift/places.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
-import { appendEvent, defaultBusPath } from './db.js'
+import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { journalPath } from './import.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { LadderCardStarter } from './ladder-starter.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
+import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
 import { TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { PR_CLOSED } from './observations.js'
@@ -160,7 +161,23 @@ export interface LaunchRun {
   isolation: IsolationReader
 }
 
+export function runWithdrawLegacy(busPath: string, clock: () => Date): number {
+  const db = openBus(busPath)
+  try {
+    const keys = withdrawLegacyLaunchTasks(db, clock().toISOString())
+    for (const key of keys)
+      console.log(`${PREFIX}${key}: withdrawn (${LEGACY_REASON}); nothing started`)
+    console.log(`${PREFIX}${keys.length} withdrawn`)
+    return 0
+  }
+  finally {
+    db.close()
+  }
+}
+
 export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<number> {
+  if (argv.includes(WITHDRAW_LEGACY_FLAG))
+    return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
     node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation })
