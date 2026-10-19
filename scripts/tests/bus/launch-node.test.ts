@@ -1,3 +1,4 @@
+import type { ProcessTable } from '../../bus/chain-process.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../bus/launch-executor.js'
 import type { DetachedSpawn, StarterPorts } from '../../bus/launch-starter.js'
 import type { LaunchNodeParts, LaunchStep } from '../../bus/launch-worker.js'
@@ -11,12 +12,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { CARD_FELL } from '../../bus/card-automaton.js'
+import { CARD_FELL, STOPPED_CARD } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { handoffLadderSteps, launchIsolationCommand, LaunchNode } from '../../bus/launch-worker.js'
+import { handoffLadderSteps, launchIsolationCommand, LaunchNode, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
 import { keyOf, launchTasks, TASK_ENQUEUED } from '../../bus/queue.js'
@@ -263,7 +264,7 @@ describe('the launch node', () => {
     admit(made, 970, 'lane-a')
     admit(made, 971, 'lane-b')
     made.tick()
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
     expect(node.slots).toBe(1)
 
     await once(node)
@@ -274,6 +275,92 @@ describe('the launch node', () => {
 
     await once(node)
     expect(starter.starts.map(card => card.cardId)).toEqual([970, 971])
+  })
+
+  it('in shadow the launch node writes node.detected and starts no session', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 975, 'lane-a')
+    made.tick()
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+
+    await once(node)
+    await once(node)
+    expect(starter.starts).toEqual([])
+    expect(eventsOf(made.db, CARD_STARTED)).toEqual([])
+    expect(taskState(made.db, launchKey(975))).toMatchObject({ state: 'queued' })
+
+    const detecting = bench()
+    admit(detecting, 975, 'lane-a')
+    const detectingStarter = new FakeStarter()
+    await once(new ProbedLaunchNode({ db: detecting.db, starter: detectingStarter, clock: detecting.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed }))
+    expect(detectingStarter.starts).toEqual([])
+    expect(eventsOf(detecting.db, NODE_DETECTED)).toEqual([{ key: launchKey(975), via: 'tick', event_id: expect.any(Number) as unknown }])
+  })
+
+  it('a launched session that ends with no PR, commit or handoff gives card.stopped with a reason and the card is queued again', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 976, 'lane-a')
+    made.tick()
+    let alive = true
+    const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-976' : null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+
+    await once(node)
+    expect(starter.starts).toHaveLength(1)
+    made.tick()
+    expect(node.stopOverdue()).toEqual([])
+    expect(node.found()).toEqual([])
+
+    alive = false
+    expect(node.stopOverdue()).toEqual([976])
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: expect.stringContaining('session-end') as unknown }])
+
+    made.tick()
+    expect(launchRows(made, 976)).toBe(2)
+    expect(taskState(made.db, keyOf({ queue: 'launch', cardId: 976, generation: 'session-end:card.started:launch:976:admission-976' }))).toMatchObject({ state: 'queued' })
+  })
+
+  it('the third session death of one card gives a final card.stopped naming D-104 and the card is not queued again', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 978, 'lane-a')
+    made.tick()
+    let alive = true
+    const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-978' : null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+
+    for (let death = 1; death <= SESSION_DEATH_CAP; death++) {
+      alive = true
+      await once(node)
+      made.tick()
+      alive = false
+      expect(node.stopOverdue()).toEqual([978])
+      made.tick()
+    }
+
+    expect(starter.starts).toHaveLength(SESSION_DEATH_CAP)
+    const stops = eventsOf(made.db, CARD_STOPPED) as { detail: string }[]
+    expect(stops.map(stop => stop.detail.includes('D-104'))).toEqual([false, false, true])
+    expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 978`).get()).toEqual({ state: STOPPED_CARD })
+    expect(made.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'launch' AND card_id = 978 AND state = 'queued'`).get()).toEqual({ n: 0 })
+    await once(node)
+    expect(starter.starts).toHaveLength(SESSION_DEATH_CAP)
+  })
+
+  it('a launched session that ends with a commit is not stopped', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 977, 'lane-a')
+    made.tick()
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, isolation: sandboxed })
+
+    await once(node)
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
   })
 
   it('a task of an old head is superseded by deriveQueues beside the launch node as before', async () => {
@@ -347,7 +434,7 @@ function ladderWorld(handoffState: { brief: string, approved: string } | null): 
 }
 
 function ladderNode(made: MergeBench, world: LadderWorld, cheap: CardStarter = new FakeStarter()): ProbedLaunchNode {
-  return new ProbedLaunchNode({ db: made.db, starter: cheap, ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+  return new ProbedLaunchNode({ db: made.db, starter: cheap, ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
 }
 
 function scriptOf(run: DetachedSpawn): string {
@@ -385,7 +472,7 @@ describe('the launch node in ladder mode', () => {
       const card = contour === 'cheap' ? 970 : LADDER_CARD
       admit(made, card, 'lane-x', [], contour)
       made.tick()
-      await once(new ProbedLaunchNode({ db: made.db, starter: cheap, ladder, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: unconfined }))
+      await once(new ProbedLaunchNode({ db: made.db, starter: cheap, ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: unconfined }))
 
       expect(eventsOf(made.db, CARD_STARTED)).toEqual([])
       expect(cheap.starts).toEqual([])
@@ -406,7 +493,7 @@ describe('the launch node in ladder mode', () => {
       const made = bench()
       admit(made, 970, 'lane-a')
       made.tick()
-      await once(new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation }))
+      await once(new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation }))
 
       expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ isolation: level, isolationGaps: gaps }])
     }

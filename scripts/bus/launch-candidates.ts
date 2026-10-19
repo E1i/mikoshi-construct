@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { prOf } from './identifiers.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
+import { namesQueueLive } from './live-decision.js'
 
 export const CARD_ADMITTED = 'card.admitted'
 export const CARD_CLOSED = 'card.closed'
@@ -33,6 +34,8 @@ const LEGACY_MERGED_CARDS = `SELECT DISTINCT card_id FROM events WHERE legacy = 
 const LEGACY_LATEST_START_OR_CLOSE = `SELECT card_id, MAX(id) AS id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type = 'path' GROUP BY card_id`
 
 const ADMISSION_SOURCE = `SELECT id FROM events WHERE legacy = 1 AND dedupe_key = ?`
+
+const LIVE_DECISIONS = `SELECT text, event_id FROM decisions`
 
 const OPEN_LAUNCHES = `SELECT card_id FROM tasks WHERE queue = 'launch' AND state IN ('queued', 'leased')`
 
@@ -94,21 +97,31 @@ function dependsOf(payload: Record<string, unknown>): number[] {
   return Array.isArray(payload.depends) ? payload.depends.map(prOf).filter(each => each !== null) : []
 }
 
-function admittedAtOf(db: DatabaseSync, row: LifeRow, payload: Record<string, unknown>): number {
+function admittedAtOf(db: DatabaseSync, row: LifeRow, payload: Record<string, unknown>): { at: number, legacyLine: boolean } {
   if (typeof payload.admission !== 'string')
-    return row.id
+    return { at: row.id, legacyLine: false }
   const source = db.prepare(ADMISSION_SOURCE).get(payload.admission) as { id: number } | undefined
-  return source?.id ?? row.id
+  return { at: source?.id ?? row.id, legacyLine: source !== undefined }
+}
+
+function liveCutoff(db: DatabaseSync): number | null {
+  const cutoffs = (db.prepare(LIVE_DECISIONS).all() as { text: string, event_id: number }[])
+    .filter(decision => namesQueueLive(decision.text, 'launch'))
+    .map(decision => Number(decision.event_id))
+  return cutoffs.length === 0 ? null : Math.min(...cutoffs)
 }
 
 function cardLives(db: DatabaseSync): Map<number, CardLife> {
   const lives = new Map<number, CardLife>()
+  const cutoff = liveCutoff(db)
   for (const row of db.prepare(CARD_LIFE).all() as unknown as LifeRow[]) {
     const life = lives.get(row.card_id)
     if (row.type === CARD_ADMITTED) {
       const payload = payloadOf(row)
       const running = life !== undefined && life.started && !life.closed
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admittedAtOf(db, row, payload), lane: laneOf(payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: false })
+      const admitted = admittedAtOf(db, row, payload)
+      const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive })
       continue
     }
     if (life !== undefined && row.type === CARD_STARTED) {
