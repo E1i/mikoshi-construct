@@ -13,6 +13,7 @@ import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STOPPED, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_CLOSED } from '../../bus/launch-candidates.js'
+import { TASK_EXPIRED } from '../../bus/lease.js'
 import { PR_CLOSED, prClosed } from '../../bus/observations.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../../bus/review-executor.js'
@@ -173,6 +174,16 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     expect(tick(state, deps)).toEqual([])
     events.push({ id: 7, type: STOP_EVENT, cardId: null, pr: null, head: null, payload: '{"event":"relaunch-stop","reason":"max"}' })
     expect(tick(state, deps)).toEqual(['bus relaunch-stop card - pr - {"event":"relaunch-stop","reason":"max"}'])
+    expect(tick(state, deps)).toEqual([])
+  })
+
+  it('an expired lease wakes the window', () => {
+    const events: BusEvent[] = []
+    const deps = fileDeps(journal(), () => true, events)
+    const state = watchState(deps, [])
+    const text = JSON.stringify({ task_key: 'review:1110', queue: 'review', lease_gen: 1, reason: 'lease_expired', next: 'queued' })
+    events.push({ id: 1, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: text })
+    expect(tick(state, deps)).toEqual([`bus ${TASK_EXPIRED} card 1110 pr 940 ${text}`])
     expect(tick(state, deps)).toEqual([])
   })
 

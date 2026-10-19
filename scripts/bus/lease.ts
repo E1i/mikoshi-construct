@@ -17,6 +17,7 @@ export const TASK_FAILED = 'task.failed'
 export const TASK_EXPIRED = 'task.expired'
 export const TASK_RELEASED = 'task.released'
 export const LEASES_DRAINING = 'leases.draining'
+export const SESSION_HEARTBEAT = 'session.heartbeat'
 
 export const LEASE_MS = 30 * 60_000
 export const RENEW_MS = 10 * 60_000
@@ -153,7 +154,15 @@ function foldReleased(db: DatabaseSync, event: StoredEvent): void {
   db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, event_id = ? WHERE task_key = ?').run(QUEUED, event.id, row.task_key)
 }
 
+function foldHeartbeat(db: DatabaseSync, event: StoredEvent): void {
+  if (event.card_id === null)
+    reject('a heartbeat names no card')
+  db.prepare(`UPDATE tasks SET lease_until = ? WHERE state = '${LEASED}' AND card_id = ? AND (? IS NULL OR pr = ?)`)
+    .run(leaseUntil(event.ts), event.card_id, event.pr, event.pr)
+}
+
 export const LEASE_FOLDS: Record<string, Fold> = {
+  [SESSION_HEARTBEAT]: foldHeartbeat,
   [TASK_RELEASED]: foldReleased,
   [TASK_LEASED]: foldLeased,
   [TASK_RENEWED]: foldRenewed,

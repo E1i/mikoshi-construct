@@ -1,4 +1,5 @@
 import type { ParkedTask } from '../../src/card/parking.js'
+import type { LastHeartbeat } from './heartbeat.js'
 import { RISK_PREFIX, SEAM_PREFIX, SLICE_PREFIX } from '../../src/card/risk.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
@@ -14,6 +15,7 @@ export interface CardBody {
   textSha: string
   lane: string | null
   state: string | null
+  lastHeartbeat: LastHeartbeat | null
 }
 
 export interface CardFields {
@@ -45,16 +47,17 @@ export interface CardFields {
   textSha: string
   admissionEventId: number
   state: string | null
+  lastHeartbeat: LastHeartbeat | null
 }
 
 const CARD_FIELDS = ['id', 'name', 'kind', 'milestone', 'size', 'contour', 'decision', 'depends', 'blocks', 'cardLine', 'branch', 'touches', 'continue', 'who', 'priority', 'creates', 'prose', 'witnesses', 'unclear', 'risk', 'seam', 'slice', 'path', 'lane'] as const satisfies readonly (keyof CardFields)[]
 
 export const CONTRACT_FIELDS: Record<Contract, readonly (keyof CardFields)[]> = {
   intake: [...CARD_FIELDS, 'text'],
-  start: ['id', 'name', 'cardLine', 'branch', 'contour', 'path', 'touches', 'who', 'risk', 'lane', 'textSha'],
-  review: ['id', 'cardLine', 'branch', 'continue', 'touches', 'risk', 'prose', 'witnesses', 'unclear', 'text'],
+  start: ['id', 'name', 'cardLine', 'branch', 'contour', 'path', 'touches', 'who', 'risk', 'lane', 'textSha', 'lastHeartbeat'],
+  review: ['id', 'cardLine', 'branch', 'continue', 'touches', 'risk', 'prose', 'witnesses', 'unclear', 'text', 'lastHeartbeat'],
   close: ['id', 'cardLine', 'text'],
-  board: ['id', 'name', 'contour', 'priority', 'who', 'depends', 'touches', 'creates', 'lane', 'state'],
+  board: ['id', 'name', 'contour', 'priority', 'who', 'depends', 'touches', 'creates', 'lane', 'state', 'lastHeartbeat'],
 }
 
 export function isContract(name: string): name is Contract {
@@ -103,6 +106,7 @@ export function cardFields(parked: ParkedTask, body: CardBody): CardFields {
     textSha: body.textSha,
     admissionEventId: body.admissionEventId,
     state: body.state,
+    lastHeartbeat: body.lastHeartbeat,
   }
 }
 

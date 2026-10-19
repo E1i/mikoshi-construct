@@ -94,6 +94,7 @@ describe('pnpm card reads a card from card_bodies', () => {
       risk: 'R3 — moderate: src/a.ts',
       lane: 'lane-7',
       textSha: createHash('sha256').update(text).digest('hex'),
+      lastHeartbeat: null,
     })
   })
 

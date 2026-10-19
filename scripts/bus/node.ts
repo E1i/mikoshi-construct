@@ -355,8 +355,12 @@ export abstract class Node<S extends NodeStep> {
     }
   }
 
+  protected renewsByTimer(): boolean {
+    return true
+  }
+
   private async settle(lease: Lease): Promise<S> {
-    const heartbeat = setInterval(() => this.renew(lease, heartbeat), RENEW_MS)
+    const heartbeat = this.renewsByTimer() ? setInterval(() => this.renew(lease, heartbeat), RENEW_MS) : undefined
     try {
       const step = await this.handle(lease)
       const line = this.stepLine(step)
@@ -369,7 +373,7 @@ export abstract class Node<S extends NodeStep> {
     }
   }
 
-  private renew(lease: Lease, heartbeat: NodeJS.Timeout): void {
+  private renew(lease: Lease, heartbeat: NodeJS.Timeout | undefined): void {
     try {
       renewLease(this.db, this.ts(), lease)
     }

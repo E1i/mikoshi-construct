@@ -10,6 +10,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { readResultFields } from '../ghosts/result.js'
 import { reviewModelOf, sessionModelOf, spawnSession } from '../ghosts/session.js'
+import { heartbeatEnv } from './heartbeat.js'
 
 export interface TreeState {
   head: string
@@ -266,6 +267,7 @@ export function reviewSession(repo: string, dir: string, session: string, lease:
     stdoutPath: path.join(dir, `${session}.out.jsonl`),
     stderrPath: path.join(dir, `${session}.err.log`),
     model: reviewModelOf(env),
+    env: { ...env, ...heartbeatEnv(lease) },
     tree,
     verdictPath,
   }

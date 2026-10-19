@@ -27,7 +27,7 @@ import { gitReviewPlanner } from './depth-sources.js'
 import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
-import { expireLeases, leaseNext, leaseQueued, RENEW_MS, renewLease, StaleLease, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
+import { expireLeases, leaseNext, leaseQueued, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { Node, runNode, SWITCH_FLAG } from './node.js'
 import { PR_CLOSED } from './observations.js'
@@ -91,6 +91,10 @@ export class ReviewNode extends Node<Step> {
     this.subscribe(REVIEW_ON, event => this.detectOn(event, scopeOf(event)))
   }
 
+  protected override renewsByTimer(): boolean {
+    return false
+  }
+
   protected override before(): void {
     const { db, gitHub, clock, clearLeftovers } = this.reviewParts
     const problems = shadowProblems(db, gitHub, () => clock().getTime())
@@ -138,33 +142,13 @@ export class ReviewWorker {
   async step(): Promise<Step> {
     expireLeases(this.parts.db, this.ts())
     const lease = leaseNext(this.parts.db, this.ts(), 'review', this.actor)
-    return lease === null ? { kind: 'idle' } : this.review(lease)
+    return lease === null ? { kind: 'idle' } : this.executor.review(lease)
   }
 
   async stepOn(key: string): Promise<Step> {
     expireLeases(this.parts.db, this.ts())
     const lease = leaseQueued(this.parts.db, this.ts(), key, this.actor)
-    return lease === null ? { kind: 'idle' } : this.review(lease)
-  }
-
-  private async review(lease: Lease): Promise<Step> {
-    const heartbeat = setInterval(() => {
-      try {
-        renewLease(this.parts.db, this.ts(), lease)
-      }
-      catch (error) {
-        if (error instanceof StaleLease)
-          clearInterval(heartbeat)
-        else
-          console.error(`${PREFIX}${lease.taskKey}: the lease was not renewed this beat, the heartbeat keeps running: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }, RENEW_MS)
-    try {
-      return await this.executor.review(lease)
-    }
-    finally {
-      clearInterval(heartbeat)
-    }
+    return lease === null ? { kind: 'idle' } : this.executor.review(lease)
   }
 }
 

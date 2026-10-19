@@ -28,6 +28,7 @@ import { NOT_A_BACKFILL } from './backfill-source.js'
 import { GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
+import { heartbeatEnv } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { LadderCardStarter } from './ladder-starter.js'
@@ -279,7 +280,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     pgidOf: psPgid,
     kill: killQuietly,
     uuid,
-    envOf: cardId => sessionEnv(env, cardId),
+    envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }) }),
     prompt: (task, places) => renderPrompt(header, task, places),
   }
 }

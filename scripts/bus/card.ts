@@ -8,6 +8,7 @@ import { CARD_BODIES } from './card-bodies.js'
 import { cardChain } from './card-chain.js'
 import { cardFields, contractOf, CONTRACTS, isContract } from './card-contract.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
+import { lastHeartbeat } from './heartbeat.js'
 import { openDatabase } from './sqlite.js'
 
 export const PREFIX = '[card] '
@@ -63,7 +64,7 @@ function readBodies<T>(bus: string, read: (db: DatabaseSync) => T | null): T | n
 function bodyOf(bus: string, card: number): CardBody | null {
   return readBodies(bus, (db) => {
     const row = db.prepare(BODY_OF_CARD).get(card) as BodyRow | undefined
-    return row === undefined ? null : { admissionEventId: row.admission_event_id, text: row.text, textSha: row.text_sha, lane: row.lane, state: row.state }
+    return row === undefined ? null : { admissionEventId: row.admission_event_id, text: row.text, textSha: row.text_sha, lane: row.lane, state: row.state, lastHeartbeat: lastHeartbeat(db, card) }
   })
 }
 

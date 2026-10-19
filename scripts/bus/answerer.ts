@@ -10,6 +10,7 @@ import { readResultFields } from '../ghosts/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ghosts/session.js'
 import { commitAndPush } from '../shift/tree-pr.js'
 import { parkedCardFile } from './card-archive.js'
+import { heartbeatEnv } from './heartbeat.js'
 
 export const PREFIX = '[bus:answer] '
 const SESSION_ID_FLAG = '--session-id'
@@ -202,7 +203,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       argv: resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]),
       stdoutPath,
       stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}.err.log`),
-      env: sessionEnv(process.env, request.lease.cardId),
+      env: { ...sessionEnv(process.env, request.lease.cardId), ...heartbeatEnv(request.lease) },
     })
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)

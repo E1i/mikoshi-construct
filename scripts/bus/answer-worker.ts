@@ -97,6 +97,10 @@ export class AnswerNode extends Node<AnswerStep> {
     return answerCandidates(this.db, ts)
   }
 
+  protected override renewsByTimer(): boolean {
+    return false
+  }
+
   protected override leaseOrder(): LeaseOrder {
     return answerLeaseOrder(this.db, this.answerParts.cardText)
   }

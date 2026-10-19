@@ -205,7 +205,7 @@ describe('answer slots', () => {
     bench.close()
   })
 
-  it('a round that throws in one slot ends no slot: the peer answers, the fault goes to stderr, and the lease is renewed while a round runs', async () => {
+  it('a round that throws in one slot ends no slot: the peer answers, the fault goes to stderr, and no timer renews the lease while a round runs', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const bench = slotsBench()
     const answer = AnswerExecutor.prototype.answer
@@ -228,9 +228,9 @@ describe('answer slots', () => {
       bench.clock.advance(RENEW_MS)
       await vi.advanceTimersByTimeAsync(RENEW_MS)
     }
-    expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(2)
+    expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(0)
     const peer = bench.db.prepare(`SELECT lease_until FROM tasks WHERE queue = 'answer' AND card_id = 901`).get() as { lease_until: string }
-    expect(peer.lease_until).toBe(new Date(bench.clock.now().getTime() + LEASE_MS).toISOString())
+    expect(peer.lease_until < new Date(bench.clock.now().getTime() + LEASE_MS).toISOString()).toBe(true)
     bench.finishAll()
     await running
 

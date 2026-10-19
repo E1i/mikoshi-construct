@@ -281,7 +281,7 @@ describe('the review node', () => {
     }
   })
 
-  it('three review tasks run at once in the three slots of one node through the ReviewExecutor, and the lease is renewed while a review runs', async () => {
+  it('three review tasks run at once in the three slots of one node through the ReviewExecutor, and no timer renews the lease while a review runs', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const made = bench()
     for (const pr of [1070, 1071, 1072, 1073])
@@ -309,7 +309,7 @@ describe('the review node', () => {
 
     made.clock.advance(RENEW_MS)
     vi.advanceTimersByTime(RENEW_MS)
-    expect(eventsOf(made.db, TASK_RENEWED)).toHaveLength(3)
+    expect(eventsOf(made.db, TASK_RENEWED)).toHaveLength(0)
 
     for (const open of gates)
       open()
