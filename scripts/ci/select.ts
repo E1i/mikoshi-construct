@@ -38,14 +38,17 @@ export function pathsOf(args: readonly string[], stdin: () => string): string[] 
   return [...args.filter(arg => arg !== '--stdin'), ...stdin().split('\0').filter(entry => entry !== '')]
 }
 
+export function outputLines(run: Run): string {
+  const tests = run.kind === 'layers' ? run.tests.join(' ') : ''
+  return `full=${run.kind === 'full'}\ntests=${tests}\n`
+}
+
 function main(): void {
   const changed = pathsOf(process.argv.slice(2), () => readFileSync(0, 'utf8'))
   const run = changed.length === 0 ? selectRun([], new Map(), () => '') : selectRun(changed, cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8'))
   console.log(runSummary(run))
-  if (process.env.GITHUB_OUTPUT) {
-    const tests = run.kind === 'layers' ? run.tests.join(' ') : ''
-    appendFileSync(process.env.GITHUB_OUTPUT, `full=${run.kind === 'full'}\ntests=${tests}\n`)
-  }
+  if (process.env.GITHUB_OUTPUT)
+    appendFileSync(process.env.GITHUB_OUTPUT, outputLines(run))
   if (process.env.GITHUB_STEP_SUMMARY)
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${runSummary(run)}\n`)
 }

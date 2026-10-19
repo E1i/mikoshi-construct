@@ -57,6 +57,19 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     ])
   })
 
+  it('gives a test the layer it reaches by spawning a script or through a helper it imports', () => {
+    const graph: Graph = new Map([
+      ['scripts/morse/cli.ts', []],
+      ['scripts/tests/morse/cli.test.ts', []],
+      ['scripts/ghosts/launch.ts', []],
+      ['scripts/tests/ghosts/helper.ts', []],
+      ['scripts/tests/ghosts/watch.test.ts', ['scripts/tests/ghosts/helper.ts']],
+    ])
+    const text = (test: string) => test === 'scripts/tests/morse/cli.test.ts' ? 'execFileSync(tsx, [\'scripts/morse/cli.ts\'])' : test === 'scripts/tests/ghosts/helper.ts' ? 'spawn(\'scripts/ghosts/launch.ts\')' : ''
+    const layers = Object.fromEntries(buildCatalog({ ...sources(), graph, testText: text, parking: [] }).tests.map(row => [row.test, row.layer]))
+    expect(layers).toEqual({ 'scripts/tests/morse/cli.test.ts': 'morse', 'scripts/tests/ghosts/watch.test.ts': 'ghosts' })
+  })
+
   it('credits a card that names a test by its title, and not one that names a longer path ending in the same path', () => {
     const graph: Graph = new Map([['tests/x.test.ts', []]])
     const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText: () => 'describe(\'the x title\', () => {})', parking: [{ card: 3, text }] }).tests[0]!.witness

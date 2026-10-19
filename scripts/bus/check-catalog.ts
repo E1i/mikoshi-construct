@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
-import { isTest, layerOf } from '../ci/layers.js'
+import { isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { defaultBusPath } from './db.js'
 import { openDatabase } from './sqlite.js'
@@ -59,9 +59,31 @@ export function kindOf(test: string): string {
   return test.includes('contract') ? 'contract' : 'unit'
 }
 
-function layersOfTest(test: string, graph: Graph): string {
-  const layers = (graph.get(test) ?? []).map(layerOf).filter(layer => layer !== null)
-  return [...new Set(layers)].sort().join(',') || NO_LAYER
+function layersByTest(graph: Graph, testText: (test: string) => string): Map<string, string[]> {
+  const modulesByLayer = new Map<string, string[]>()
+  for (const file of graph.keys()) {
+    const layer = layerOf(file)
+    if (layer !== null)
+      modulesByLayer.set(layer, [...(modulesByLayer.get(layer) ?? []), file])
+  }
+  const byTest = new Map<string, string[]>()
+  for (const [layer, files] of [...modulesByLayer].sort(([a], [b]) => a.localeCompare(b))) {
+    const run = selectRun(files, graph, testText)
+    if (run.kind === 'layers') {
+      for (const test of run.tests)
+        byTest.set(test, [...(byTest.get(test) ?? []), layer])
+    }
+  }
+  return byTest
+}
+
+function memoized(read: (test: string) => string): (test: string) => string {
+  const texts = new Map<string, string>()
+  return (test) => {
+    if (!texts.has(test))
+      texts.set(test, read(test))
+    return texts.get(test)!
+  }
 }
 
 function namesPath(text: string, test: string): boolean {
@@ -78,11 +100,13 @@ function witnessCards(test: string, title: string, parking: readonly ParkingCard
 }
 
 export function catalogTests(sources: CatalogSources): CheckTest[] {
+  const testText = memoized(sources.testText)
+  const layers = layersByTest(sources.graph, testText)
   return [...sources.graph.keys()].filter(isTest).sort().map((test) => {
-    const what = FIRST_DESCRIBE.exec(sources.testText(test))?.[2] ?? ''
+    const what = FIRST_DESCRIBE.exec(testText(test))?.[2] ?? ''
     return {
       test,
-      layer: layersOfTest(test, sources.graph),
+      layer: layers.get(test)?.join(',') ?? NO_LAYER,
       kind: kindOf(test),
       what,
       witness: witnessCards(test, what, sources.parking),

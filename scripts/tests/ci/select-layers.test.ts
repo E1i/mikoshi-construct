@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BUS_CORE as CORE_PATTERN, layerOf, selectRun, BUS_SERVICE as SERVICE_PATTERN } from '../../ci/layers.js'
-import { pathsOf } from '../../ci/select.js'
+import { outputLines, pathsOf } from '../../ci/select.js'
 
 const GRAPH: Graph = new Map([
   ['scripts/bus/db.ts', []],
@@ -108,6 +108,16 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     ])
     const run = selectRun(['scripts/notes/print.ts'], graph, () => '')
     expect(run).toMatchObject({ kind: 'layers', tests: [] })
+  })
+})
+
+describe('the lines written for the workflow are the contract with ci.yml', () => {
+  it('gives the tests of a layer run separated by spaces', () => {
+    expect(outputLines({ kind: 'layers', layers: ['src'], tests: ['a', 'b'] })).toBe('full=false\ntests=a b\n')
+  })
+
+  it('gives no tests for a full run', () => {
+    expect(outputLines({ kind: 'full', why: 'no changed path was given' })).toBe('full=true\ntests=\n')
   })
 })
 
