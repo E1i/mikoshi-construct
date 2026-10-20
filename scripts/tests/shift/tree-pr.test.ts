@@ -20,6 +20,7 @@ const CARD: TreeCard = {
   cardLine: '#1 x [implement/infra/S/cheap/auto] · depends — · blocks —',
   contour: 'cheap',
   touches: ['scripts/x.ts'],
+  runs: [],
   namedPathReason: null,
 }
 

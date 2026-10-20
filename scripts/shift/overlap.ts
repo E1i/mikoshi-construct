@@ -1,4 +1,5 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
+import { touchesWithoutRuns } from '../../src/card/covering-tests.js'
 import { PREFIX_SUFFIX } from '../../src/card/task-file.js'
 
 export interface OpenPr {
@@ -53,7 +54,7 @@ export function taskConflicts(tasks: readonly ShiftTask[]): string[] {
       ...(a.id === b.id ? [`${head}task ${a.id} twice`] : []),
       ...(a.branch === b.branch ? [`${head}branch ${a.branch} twice`] : []),
     ]
-    const touched = a.touches.flatMap(left => b.touches.flatMap((right) => {
+    const touched = touchesWithoutRuns(a.touches, a.body).flatMap(left => touchesWithoutRuns(b.touches, b.body).flatMap((right) => {
       const sign = taskRelation(left, right)
       return sign === null ? [] : [`${head}${left} ${sign} ${right}`]
     }))
