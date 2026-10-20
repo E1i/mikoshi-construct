@@ -182,6 +182,15 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(taskStart(w, CLEAN)).toBe(0)
   })
 
+  it('refuses a card whose milestone the repository\'s construct.json does not list, names the list and writes nothing, and admits one it lists', () => {
+    const w = world()
+    writeFileSync(path.join(w.repo, 'construct.json'), JSON.stringify({ manifestVersion: 6, milestones: ['ghosts', 'ice'] }))
+    const outside = '#81 port-card [implement/moon/S/cheap/auto] · depends — · blocks —'
+    expect(admit(w, park(w, 81, outside))).toEqual({ status: 'refused', why: `milestone 'moon' is not one of ghosts, ice` })
+    expect(journalLines(w)).toEqual([])
+    expect(admit(w, park(w, 82, '#82 port-card [implement/ice/S/cheap/auto] · depends — · blocks —')).status).toBe('admitted')
+  })
+
   it('a card with no file in the parking is admitted from its bus body', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
