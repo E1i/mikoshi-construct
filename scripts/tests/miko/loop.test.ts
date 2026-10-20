@@ -568,6 +568,18 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     expect(existsSync(file)).toBe(false)
   }, 10_000)
 
+  it('runs the session as the loop\'s own child, so the SIGTERM of a request reaches the session and not only its shell', async () => {
+    const file = request()
+    const seen = `${file}.parent`
+    const session = `${file}.session.sh`
+    writeFileSync(session, `#!/bin/sh\necho "$PPID" > '${seen}'\nexec sleep 30\n`, { mode: 0o755 })
+    const ending = runSession(session, undefined, file, POLL_MS)
+    await waitFor(() => existsSync(seen) && readFileSync(seen, 'utf8').trim() !== '', () => 'the session to name its parent', 5_000)
+    writeFileSync(file, '1\n')
+    expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
+    expect(readFileSync(seen, 'utf8').trim()).toBe(String(process.pid))
+  }, 10_000)
+
   it('names the loop and the request to the session through its environment', async () => {
     const file = request()
     const seen = `${file}.seen`

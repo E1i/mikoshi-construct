@@ -57,7 +57,7 @@ export function takeExitRequest(request: string): boolean {
 }
 
 export function claudeArgv(command: string, prompt: string | undefined): string[] {
-  return ['-c', `${command} "$@"`, 'miko', ...(prompt === undefined ? [] : [prompt])]
+  return ['-c', `exec ${command} "$@"`, 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
 
 export function doubleCtrlCWatcher(now: () => number = Date.now): { press: () => void, seen: () => boolean, presses: () => number } {
