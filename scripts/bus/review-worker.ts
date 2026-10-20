@@ -4,8 +4,9 @@ import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { DryRunRecord } from './dry-run-record.js'
 import type { GitHub } from './github.js'
 import type { Lease } from './lease.js'
-import type { DetectionMode, Scope } from './node.js'
+import type { DetectionMode, NodeContext, Scope } from './node.js'
 import type { QueuedTask } from './queue.js'
+import type { ShadowReading } from './report.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { ExecutorParts, Step } from './review-executor.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
@@ -30,6 +31,7 @@ import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
 import { expireLeases, leaseNext, leaseQueued, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
+import { RateLimited } from './meter.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { Node, runNode, SWITCH_FLAG } from './node.js'
 import { PR_CLOSED } from './observations.js'
@@ -37,7 +39,7 @@ import { PR_OBSERVED } from './operator-work.js'
 import { promptsDirOf } from './prompt-store.js'
 import { cardBodyShaOfCard, reviewCandidates, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
-import { shadowProblems } from './report.js'
+import { shadowProblems, shadowReading } from './report.js'
 import { planned, recordLeftovers, ReviewExecutor } from './review-executor.js'
 import { claudeReviewer, PREFIX, ReviewFailed, ReviewTrees } from './reviewer.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
@@ -64,6 +66,23 @@ export interface WorkerParts extends ExecutorParts {
 export class ShadowNotClean extends Error {
   constructor(readonly problems: string[]) {
     super(`the shadow report is not clean: ${problems.join('; ')}`)
+  }
+}
+
+class PreflightWaits extends Error {
+  constructor(readonly ms: number, readonly reason: string) {
+    super(reason)
+  }
+}
+
+function shadowReadingOrWait(db: DatabaseSync, gitHub: GitHub, clock: () => Date): ShadowReading {
+  try {
+    return shadowReading(db, gitHub, () => clock().getTime())
+  }
+  catch (error) {
+    if (error instanceof RateLimited)
+      throw new PreflightWaits(error.retryAfterSeconds * 1000, error.message)
+    throw error
   }
 }
 
@@ -98,11 +117,27 @@ export class ReviewNode extends Node<Step> {
     return false
   }
 
+  override async run(ctx: NodeContext): Promise<void> {
+    while (ctx.signal?.aborted !== true) {
+      try {
+        return await super.run(ctx)
+      }
+      catch (error) {
+        if (!(error instanceof PreflightWaits))
+          throw error
+        this.log(`waits ${error.ms} ms before it takes the queue: ${error.reason}`)
+        await ctx.pause(error.ms)
+      }
+    }
+  }
+
   protected override before(): void {
     const { db, gitHub, clock, clearLeftovers } = this.reviewParts
-    const problems = shadowProblems(db, gitHub, () => clock().getTime())
+    const { headLag, problems } = shadowReadingOrWait(db, gitHub, clock)
     if (problems.length > 0)
-      throw new ShadowNotClean(problems)
+      throw new ShadowNotClean([...problems, ...headLag])
+    if (headLag.length > 0)
+      throw new PreflightWaits(TICK_MS, `the prs head is behind GitHub until the next netwatch tick: ${headLag.join('; ')}`)
     if (clearLeftovers !== undefined)
       recordLeftovers(db, this.actor, this.ts(), clearLeftovers())
   }

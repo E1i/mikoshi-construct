@@ -59,7 +59,7 @@ export class ReviewFailed extends Error {
   }
 }
 
-export type Reviewer = (lease: Lease, plan: ReviewPlan) => Promise<Review>
+export type Reviewer = (lease: Lease, plan: ReviewPlan, card?: string | null) => Promise<Review>
 
 export interface TreeTools {
   git: (cwd: string, args: string[]) => void
@@ -125,12 +125,25 @@ function depthLines(lease: Lease, plan: ReviewPlan): string[] {
   return [depth, `Review the whole pull request and walk every module it touches.`, ...ladder, ONE_PASS]
 }
 
-export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string): string {
+const HANDS_OFF = 'Change nothing, commit nothing, push nothing, and post nothing to GitHub.'
+
+function cardLines(card: string | null): string[] {
+  if (card === null)
+    return [`Review it against its card (the first line of the pull request description) and the repository's rules. ${HANDS_OFF}`]
+  return [
+    `Review it against its card, which the bus holds and which follows between the card markers, and the repository's rules; do not read the card from GitHub. ${HANDS_OFF}`,
+    '<card>',
+    card.trimEnd(),
+    '</card>',
+  ]
+}
+
+export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string, card: string | null = null): string {
   return [
     `[review:${lease.taskKey}]`,
     `Act as the review role defined in .claude/agents/review.md. Pull request #${lease.pr} of card #${lease.cardId} is checked out at ${tree}, at its head ${lease.head}; read it there.`,
     PREPARED_TREE_LINE,
-    `Review it against its card (the first line of the pull request description) and the repository's rules. Change nothing, commit nothing, push nothing, and post nothing to GitHub.`,
+    ...cardLines(card),
     ...depthLines(lease, plan),
     `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"]}.`,
   ].join('\n')
@@ -258,14 +271,14 @@ export class ReviewTrees {
   }
 }
 
-export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan, env: NodeJS.ProcessEnv = process.env): SpawnSessionParams & { tree: string, verdictPath: string } {
+export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan, env: NodeJS.ProcessEnv = process.env, card: string | null = null): SpawnSessionParams & { tree: string, verdictPath: string } {
   const tree = path.join(dir, session)
   const verdictPath = path.join(dir, `${session}.verdict.json`)
   return {
     cwd: repo,
     addDirs: [dir],
     sessionId: session,
-    prompt: reviewPrompt(lease, plan, tree, verdictPath),
+    prompt: reviewPrompt(lease, plan, tree, verdictPath, card),
     stdoutPath: path.join(dir, `${session}.out.jsonl`),
     stderrPath: path.join(dir, `${session}.err.log`),
     model: reviewModelOf(env),
@@ -276,9 +289,9 @@ export function reviewSession(repo: string, dir: string, session: string, lease:
 }
 
 export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession): Reviewer {
-  return async (lease, plan) => {
+  return async (lease, plan, card = null) => {
     const session = randomUUID()
-    const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan)
+    const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card)
     mkdirSync(trees.dir, { recursive: true })
     trees.fetch(`pull/${lease.pr}/head`)
     const held: HeldTree = { path: tree, release: () => trees.release(tree) }
