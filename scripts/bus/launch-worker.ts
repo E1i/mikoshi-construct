@@ -46,6 +46,7 @@ import { promptsDirOf, storedInput } from './prompt-store.js'
 import { launchTasks, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
 import { openDatabase } from './sqlite.js'
+import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
@@ -515,5 +516,7 @@ async function main(): Promise<number> {
   return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}
