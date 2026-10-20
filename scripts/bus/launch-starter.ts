@@ -1,10 +1,12 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
+import type { PromptPlaces } from '../shift/prompt.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from './launch-executor.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { continuationBody } from '../shift/prompt.js'
 import { messageOf } from './errors.js'
 import { technical } from './launch-executor.js'
 
@@ -66,10 +68,31 @@ export function launchArgv(session: { command: string, treePr: string, cardFile:
   return ['-c', `env ${session.command} "$@" && ${session.treePr} ${shellWord(session.cardFile)} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', '-p', '--session-id', session.id]
 }
 
-export class ShiftCardStarter implements CardStarter {
+export interface SessionContinuer {
+  continueFrom: (card: QueuedCard, from: StartedCard) => CardStart
+}
+
+interface SessionTree {
+  worktree: string
+  base: string
+  body: (task: ShiftTask, places: PromptPlaces) => string
+}
+
+export class ShiftCardStarter implements CardStarter, SessionContinuer {
   constructor(private readonly places: StarterPlaces, private readonly ports: StarterPorts) {}
 
   start(card: QueuedCard): CardStart {
+    return this.session(card, (task, laneDir) => {
+      const worktree = this.ports.cut(task, laneDir)
+      return { worktree, base: this.ports.base(worktree), body: each => each.body }
+    })
+  }
+
+  continueFrom(card: QueuedCard, from: StartedCard): CardStart {
+    return this.session(card, () => ({ worktree: from.worktree, base: from.base, body: continuationBody }))
+  }
+
+  private session(card: QueuedCard, treeOf: (task: ShiftTask, laneDir: string) => SessionTree): CardStart {
     const laneDir = path.join(this.places.parking, card.lane)
     const file = `${card.cardId}.md`
     const text = this.ports.read(path.join(laneDir, file))
@@ -80,11 +103,10 @@ export class ShiftCardStarter implements CardStarter {
       return { kind: 'refused', denial: technical('card_unreadable', parsed.reason) }
     const { task } = parsed.parked
     try {
-      const worktree = this.ports.cut(task, laneDir)
-      const base = this.ports.base(worktree)
+      const { worktree, base, body } = treeOf(task, laneDir)
       const session = this.ports.uuid()
       const report = path.join(this.places.launchDir, `report-${card.cardId}.md`)
-      const prompt = this.ports.prompt(task, { worktree, report })
+      const prompt = this.ports.prompt({ ...task, body: body(task, { worktree, report }) }, { worktree, report })
       const pid = this.ports.spawnDetached({
         command: 'sh',
         args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardFile: path.join(laneDir, file), worktree, report, id: session }),
