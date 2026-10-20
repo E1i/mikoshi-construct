@@ -1807,15 +1807,17 @@ writes a tracked file of a repository it was not asked to own:
 |---|---|---|
 | made by `init` (`construct.json` is here) | `construct.model.json`, its `mechanics` replaced, every fact, claim and node kept | `.construct/atlas.html`, which the construct's `.gitignore` ignores |
 | attached by `attach`, with no `init` | `~/.construct/engram/<repo>-<hash>/construct.model.json` | `.construct/atlas.html`, the directory `attach` excludes in `.git/info/exclude` |
-| neither | `~/.construct/engram/<repo>-<hash>/construct.model.json` | `~/.construct/engram/<repo>-<hash>/atlas.html` |
+
+A repository with neither a `construct.json` from `init` nor an attach record is refused: `atlas`
+writes nothing, names `construct attach` as the way in, and exits `1`.
 
 `<repo>` is the repository directory's name and `<hash>` the first 12 hex digits of the sha256 of the
 real path of its root, so `work/api` and `oss/api` keep an Engram each. `construct detach` removes
 `.construct/atlas.html` with the other files the construct wrote into `.construct/`.
 
 In a repository `init` made, `atlas` also writes `atlas-docs.html` beside the page (`<name>-docs.html`
-beside `--out <name>.html`): the same Engram read in order, stage by stage, with a Map / Docs switch on both pages. An attached repository and one
-with neither get the map alone, since the Atlas writes no documentation into a tree it does not own.
+beside `--out <name>.html`): the same Engram read in order, stage by stage, with a Map / Docs switch on both pages. An attached repository gets
+the map alone, since the Atlas writes no documentation into a tree it does not own.
 
 After `atlas` in an attached repository `git status` is as clean as before. Running it again on the
 same commit writes the same Engram and the same page, byte for byte. Every "Open the source" link is
@@ -1981,7 +1983,7 @@ or printed, `1` when the draft was refused, `2` when corrections wait for a pers
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw, `atlas` once its page is written and every `soulkill` exit `0`. |
-| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused; `intake` refused a draft; `atlas` met an Engram from a later build or failed to write. |
+| `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused; `intake` refused a draft; `atlas` found neither a `construct.json` nor an attach record, met an Engram from a later build, or failed to write. |
 | `2` | `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness; `intake` holds corrected cards, or a corrected card under `--admit`, until a person confirms them. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`); `mutate judge` met a hard failure; `intake --admit` left a card parked because a card it depends on is not merged. |
 
