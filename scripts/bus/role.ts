@@ -1,11 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Fold, StoredEvent } from './stored.js'
+import type { IncrementalProjection } from './watermark.js'
 import { appendEvent, inTransaction } from './db.js'
 import { CARD_STOPPED } from './inbox.js'
 import { LEASE_MS, StaleLease } from './lease.js'
 import { FAILURES_TO_STOP } from './queue.js'
-import { payloadOf, reject, storedByKey } from './stored.js'
+import { payloadOf, reject } from './stored.js'
+import { reduceProjection } from './watermark.js'
+import { WINDOW_HEARTBEAT } from './window-heartbeat.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
 export const ROLE_STOPPED = 'role.stopped'
@@ -19,8 +22,10 @@ export const THRESHOLDS = ['context', 'spend'] as const
 export const RAISED_STATUS = 'CONTINUE'
 export const RAISED_VARIABLE = 'CONSTRUCT_BUS_RAISED'
 export const RAISES_PER_HANDOFF = 3
+export const WINDOW_ENDS = ['eddies', 'miko:exit', 'close'] as const
 
 export type Role = typeof ROLES[number]
+export type WindowEnd = typeof WINDOW_ENDS[number]
 
 export interface RoleStop {
   role: Role
@@ -84,7 +89,7 @@ const PAST_THE_CEILING = `
 
 const SILENT_OWNER_SESSION = `
   SELECT roles.role, roles.handoff, roles.event_id, max(signs.ts) AS last_sign FROM roles
-  JOIN events AS signs ON signs.id > roles.event_id AND signs.actor LIKE '${WINDOW_ACTOR}%'
+  JOIN events AS signs ON signs.id > roles.event_id AND (signs.type = '${WINDOW_HEARTBEAT}' OR signs.actor LIKE '${WINDOW_ACTOR}%')
   WHERE roles.state = '${OWNER}'
   GROUP BY roles.role HAVING max(signs.ts) < ?
   ORDER BY roles.role LIMIT 1
@@ -200,13 +205,16 @@ export const ROLE_FOLDS: Record<string, Fold> = {
   [ROLE_RETURNED]: foldReturned,
 }
 
-function folded(db: DatabaseSync, event: BusEvent): void {
-  if (appendEvent(db, event))
-    ROLE_FOLDS[event.type]!(db, storedByKey(db, event.dedupeKey))
+export const ROLES_PROJECTION: IncrementalProjection = { table: 'roles', folds: ROLE_FOLDS }
+
+function reduced(db: DatabaseSync, event: BusEvent): boolean {
+  const appended = appendEvent(db, event)
+  reduceProjection(db, ROLES_PROJECTION)
+  return appended
 }
 
 export function observeRoleStop(db: DatabaseSync, ts: string, actor: string, stop: RoleStop): boolean {
-  return appendEvent(db, { ts, type: ROLE_STOPPED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_STOPPED}:${stop.role}:${ts}`, payload: { ...stop }, legacy: false })
+  return inTransaction(db, () => reduced(db, { ts, type: ROLE_STOPPED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_STOPPED}:${stop.role}:${ts}`, payload: { ...stop }, legacy: false }))
 }
 
 export function leaseRole(db: DatabaseSync, ts: string, actor: string): RoleLease | null {
@@ -215,7 +223,7 @@ export function leaseRole(db: DatabaseSync, ts: string, actor: string): RoleLeas
     if (row === undefined)
       return null
     const leaseGen = row.lease_gen + 1
-    folded(db, { ts, type: ROLE_LEASED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_LEASED}:${row.role}:${leaseGen}`, payload: { role: row.role, lease_gen: leaseGen }, legacy: false })
+    reduced(db, { ts, type: ROLE_LEASED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_LEASED}:${row.role}:${leaseGen}`, payload: { role: row.role, lease_gen: leaseGen }, legacy: false })
     return { role: row.role, handoff: row.handoff, leaseGen, actor }
   })
 }
@@ -232,7 +240,7 @@ export function roleToOwner(db: DatabaseSync, ts: string, actor: string): RoleTo
     if (row === undefined)
       return null
     const detail = ceilingDetail(row)
-    folded(db, { ts, type: ROLE_TO_OWNER, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_TO_OWNER}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, detail }, legacy: false })
+    reduced(db, { ts, type: ROLE_TO_OWNER, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_TO_OWNER}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, detail }, legacy: false })
     appendEvent(db, { ts, type: CARD_STOPPED, actor, cardId: null, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${ROLE_TO_OWNER}:${row.role}:${row.event_id}`, payload: { reason: 'question.owner', role: row.role, handoff: row.handoff, detail }, legacy: false })
     return { role: row.role, handoff: row.handoff, detail }
   })
@@ -244,8 +252,18 @@ export function returnSilentRole(db: DatabaseSync, ts: string, actor: string): R
     const row = db.prepare(SILENT_OWNER_SESSION).get(silentSince) as { role: Role, handoff: string, event_id: number, last_sign: string } | undefined
     if (row === undefined)
       return null
-    folded(db, { ts, type: ROLE_RETURNED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RETURNED}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, last_sign: row.last_sign }, legacy: false })
+    reduced(db, { ts, type: ROLE_RETURNED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RETURNED}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, last_sign: row.last_sign }, legacy: false })
     return { role: row.role, handoff: row.handoff, lastSign: row.last_sign }
+  })
+}
+
+export function returnEndedRole(db: DatabaseSync, ts: string, actor: string, role: Role, end: WindowEnd): RoleReturned | null {
+  return inTransaction(db, () => {
+    const row = rowOf(db, role)
+    if (row?.state !== OWNER)
+      return null
+    reduced(db, { ts, type: ROLE_RETURNED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RETURNED}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, last_sign: ts, ended: end }, legacy: false })
+    return { role: row.role, handoff: row.handoff, lastSign: ts }
   })
 }
 
@@ -258,13 +276,13 @@ export function assertRoleHeld(db: DatabaseSync, lease: RoleLease): void {
 export function raiseRole(db: DatabaseSync, ts: string, lease: RoleLease, pid: number): void {
   inTransaction(db, () => {
     assertRoleHeld(db, lease)
-    folded(db, { ts, type: ROLE_RAISED, actor: lease.actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RAISED}:${lease.role}:${lease.leaseGen}`, payload: { role: lease.role, handoff: lease.handoff, lease_gen: lease.leaseGen, pid }, legacy: false })
+    reduced(db, { ts, type: ROLE_RAISED, actor: lease.actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RAISED}:${lease.role}:${lease.leaseGen}`, payload: { role: lease.role, handoff: lease.handoff, lease_gen: lease.leaseGen, pid }, legacy: false })
   })
 }
 
 export function failRaise(db: DatabaseSync, ts: string, lease: RoleLease, detail: string): void {
   inTransaction(db, () => {
     assertRoleHeld(db, lease)
-    folded(db, { ts, type: ROLE_RAISE_FAILED, actor: lease.actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RAISE_FAILED}:${lease.role}:${lease.leaseGen}`, payload: { role: lease.role, handoff: lease.handoff, lease_gen: lease.leaseGen, detail }, legacy: false })
+    reduced(db, { ts, type: ROLE_RAISE_FAILED, actor: lease.actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RAISE_FAILED}:${lease.role}:${lease.leaseGen}`, payload: { role: lease.role, handoff: lease.handoff, lease_gen: lease.leaseGen, detail }, legacy: false })
   })
 }

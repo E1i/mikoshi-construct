@@ -6,8 +6,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { openBus } from '../../bus/db.js'
+import { FAILURES_TO_STOP } from '../../bus/queue.js'
+import { reduce } from '../../bus/reducer.js'
+import { failRaise, leaseRole, observeRoleStop, ROLE_RETURNED, roleToOwner } from '../../bus/role.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
-import { claudeCommand, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, MIKO_HANDOFF_NAME, mikoHandoff, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
+import { claudeCommand, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -327,10 +331,11 @@ interface Script {
   doubleCtrlCs?: boolean[]
 }
 
-async function drive({ statuses, pauseEnds = [], doubleCtrlCs = [] }: Script): Promise<{ code: number, prompts: (string | undefined)[], pauses: number[], lines: string[] }> {
+async function drive({ statuses, pauseEnds = [], doubleCtrlCs = [] }: Script): Promise<{ code: number, prompts: (string | undefined)[], pauses: number[], lines: string[], ends: number }> {
   const prompts: (string | undefined)[] = []
   const pauses: number[] = []
   const lines: string[] = []
+  let ends = 0
   const code = await runMikoLoop({
     status: () => statuses.shift(),
     handoffMtime: () => prompts.length,
@@ -344,8 +349,11 @@ async function drive({ statuses, pauseEnds = [], doubleCtrlCs = [] }: Script): P
     },
     doubleCtrlC: () => doubleCtrlCs.shift() ?? false,
     err: line => lines.push(line),
+    ended: () => {
+      ends += 1
+    },
   })
-  return { code, prompts, pauses, lines }
+  return { code, prompts, pauses, lines, ends }
 }
 
 describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause', () => {
@@ -363,6 +371,12 @@ describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause',
     expect(CONTINUE_PROMPT).toContain(`прочитай ~/.construct/handoff/${MIKO_HANDOFF_NAME}`)
     expect(CONTINUE_PROMPT).toContain('последняя строка STATUS: в нём — CONTINUE')
     expect(CONTINUE_PROMPT).toContain('не спрашивая владельца')
+  })
+
+  it('reports the end of the window once, after its last session and never between sessions', async () => {
+    const continued = await drive({ statuses: [undefined, 'CONTINUE', 'CONTINUE', 'DONE'] })
+    expect({ prompts: continued.prompts.length, ends: continued.ends }).toEqual({ prompts: 3, ends: 1 })
+    expect((await drive({ statuses: [undefined, 'CONTINUE', 'CONTINUE'], pauseEnds: ['ctrl-c'] })).ends).toBe(1)
   })
 
   it('stops when miko.md carries no STATUS line', async () => {
@@ -397,6 +411,7 @@ describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause',
       pause: async () => 'elapsed',
       doubleCtrlC: () => false,
       err: () => {},
+      ended: () => {},
     })
     expect(code).toBe(1)
   })
@@ -457,4 +472,61 @@ describe('doubleCtrlCWatcher sees two Ctrl-C within DOUBLE_CTRL_C_WINDOW_MS as a
     presses.forEach(() => watcher.press())
     expect({ seen: watcher.seen(), presses: watcher.presses() }).toEqual({ seen, presses: presses.length })
   })
+})
+
+function roleWithTheOwner(file: string): void {
+  const db = openBus(file)
+  const at = (ms: number): string => new Date(Date.parse('2026-10-20T10:00:00.000Z') + ms).toISOString()
+  observeRoleStop(db, at(0), 'worker:miko:7', { role: 'miko', handoff: '/handoff/miko.md', status: 'CONTINUE', reason: 'context', raised: false })
+  reduce(db)
+  for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+    failRaise(db, at(failure), leaseRole(db, at(failure), 'worker:restart:w')!, 'relaunch did not start')
+  roleToOwner(db, at(10), 'worker:restart:w')
+  db.close()
+}
+
+function returnedEnds(file: string): { ended: string, state: string } {
+  const db = openBus(file)
+  try {
+    const events = db.prepare('SELECT payload FROM events WHERE type = ?').all(ROLE_RETURNED) as { payload: string }[]
+    const state = (db.prepare('SELECT state FROM roles WHERE role = ?').get('miko') as { state: string }).state
+    return { ended: events.map(row => (JSON.parse(row.payload) as { ended: string }).ended).join(','), state }
+  }
+  finally {
+    db.close()
+  }
+}
+
+describe('the end of the window the loop runs returns the role', () => {
+  it('reports the end once, however many times it is called', () => {
+    let ends = 0
+    const ended = once(() => {
+      ends += 1
+    })
+    ended()
+    ended()
+    expect(ends).toBe(1)
+    expect(HANGUPS).toEqual(['SIGHUP', 'SIGTERM'])
+  })
+
+  it.each(['SIGHUP', 'SIGTERM'] as const)('a window closed under the loop (%s) returns the role as an event before the loop exits', async (signal) => {
+    const dir = home(['hang'])
+    const bus = path.join(dir, '.construct', 'bus.db')
+    roleWithTheOwner(bus)
+    const loop = startLoop(dir)
+    await sessionReady(dir)
+    process.kill(-loop.pid, signal)
+    const { code } = await loop.done
+    expect(code).toBe(128 + (signal === 'SIGHUP' ? 1 : 15))
+    expect(returnedEnds(bus)).toEqual({ ended: 'close', state: 'stopped' })
+  }, 20_000)
+
+  it('a loop that returns after its last session returns the role once', async () => {
+    const dir = home(['owner 0'])
+    const bus = path.join(dir, '.construct', 'bus.db')
+    roleWithTheOwner(bus)
+    const { code } = await startLoop(dir).done
+    expect(code).toBe(0)
+    expect(returnedEnds(bus)).toEqual({ ended: 'close', state: 'stopped' })
+  }, 20_000)
 })

@@ -148,7 +148,7 @@ describe('review worker', () => {
 
     expect(await worker(reviewing()).step()).toEqual({ kind: 'recorded', taskKey: review(939), verdict: 'pass', depth: 'full' })
     expect(statuses.map(status => status.state)).toEqual(['success'])
-    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: [], isolation: 'full', isolationGaps: [] }])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), card_body: null, verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: [], isolation: 'full', isolationGaps: [] }])
     expectReplayIdentical(db)
     db.close()
   })
@@ -162,7 +162,7 @@ describe('review worker', () => {
     const step = await worker(ran).step()
     expect(step).toEqual({ kind: 'recorded', taskKey: review(941), verdict: 'pass', depth: 'full', model: 'claude-haiku-5-5' })
     expect(stepLine(step)).toBe(`[bus:review] ${review(941)}: pass recorded, review depth full, model claude-haiku-5-5`)
-    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', model: 'claude-haiku-5-5', findings: [], isolation: 'full', isolationGaps: [] }])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), card_body: null, verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', model: 'claude-haiku-5-5', findings: [], isolation: 'full', isolationGaps: [] }])
     expectReplayIdentical(db)
     db.close()
   })
@@ -174,7 +174,7 @@ describe('review worker', () => {
 
     expect(await worker(reviewing('reviewer-1', 'changes')).step()).toEqual({ kind: 'recorded', taskKey: review(940), verdict: 'changes', depth: 'full' })
     expect(statuses).toEqual([{ commit: sha('a'), state: 'failure', context: 'review', description: 'review verdict changes for card #1040 by reviewer-1' }])
-    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), verdict: 'changes', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: ['a finding'], isolation: 'full', isolationGaps: [] }])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), card_body: null, verdict: 'changes', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: ['a finding'], isolation: 'full', isolationGaps: [] }])
     expect(task(db, review(940))).toEqual({ state: 'completed', lease_gen: 1, failures: 0 })
 
     tick()
@@ -217,7 +217,7 @@ describe('review worker', () => {
     }
 
     const step = await worker(moving).step()
-    expect(step).toMatchObject({ kind: 'denied', taskKey: review(942), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
+    expect(step).toMatchObject({ kind: 'denied', taskKey: review(942), denial: { kind: 'technical', reason: 'stale_head' }, next: 'superseded' })
     expect(statuses).toEqual([])
     expect(events(db, 'review.recorded')).toEqual([])
 
@@ -409,6 +409,69 @@ describe('review worker', () => {
     await expect(node.run({ pause })).rejects.toThrow(/#964 open on GitHub, missing here/)
     expect(pause).not.toHaveBeenCalled()
     db.close()
+  })
+
+  describe('a divergence on a table the review node does not read', () => {
+    const insertRole = (db: DatabaseSync): void => {
+      const eventId = Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+      db.prepare(`INSERT INTO roles (role, handoff, status, reason, state, event_id) VALUES ('window', 'miko.md', 'CONTINUE', 'context', 'idle', ?)`).run(eventId)
+    }
+    const startOnce = async (bench: Bench): Promise<string[]> => {
+      const printed = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const node = new ReviewNode({ db: bench.db, gitHub: bench.gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: bench.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+      const controller = new AbortController()
+      await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+      const lines = printed.mock.calls.map(call => String(call[0]))
+      printed.mockRestore()
+      return lines
+    }
+    const divergent = (): Bench => {
+      const bench = setUp()
+      bench.tick()
+      insertRole(bench.db)
+      return bench
+    }
+
+    it('a roles divergence raises one alarm and the review node still starts', async () => {
+      const bench = divergent()
+
+      const lines = await startOnce(bench)
+
+      expect(events(bench.db, 'board.alarm')).toMatchObject([{ reason: 'foreign-divergence', detail: 'replay byte-diff: roles window: live only' }])
+      expect(lines.some(line => line.includes('the review node worker:review:node-1 takes the review queue'))).toBe(true)
+      bench.db.close()
+    })
+
+    it('a second check of the same divergence adds no event and no alarm', async () => {
+      const bench = divergent()
+      await startOnce(bench)
+      const divergenceEvents = (): number => events(bench.db, 'board.alarm').length + events(bench.db, 'board.alarm.cleared').length
+      const before = divergenceEvents()
+
+      await startOnce(bench)
+
+      expect(divergenceEvents()).toBe(before)
+      expect(events(bench.db, 'board.alarm')).toHaveLength(1)
+      bench.db.close()
+    })
+
+    it('a divergence that is gone clears its alarm with an event', async () => {
+      const bench = divergent()
+      await startOnce(bench)
+      const [alarm] = events(bench.db, 'board.alarm')
+
+      bench.db.prepare(`DELETE FROM roles WHERE role = 'window'`).run()
+      await startOnce(bench)
+      expect(events(bench.db, 'board.alarm.cleared')).toEqual([{ reason: 'foreign-divergence', digest: alarm!.digest, alarm: `board.alarm:foreign-divergence:${String(alarm!.digest)}:0` }])
+
+      await startOnce(bench)
+      expect(events(bench.db, 'board.alarm.cleared')).toHaveLength(1)
+
+      insertRole(bench.db)
+      await startOnce(bench)
+      expect(events(bench.db, 'board.alarm')).toHaveLength(2)
+      bench.db.close()
+    })
   })
 
   it('review reads the card from bus.db with GitHub offline', async () => {
@@ -633,11 +696,11 @@ describe('review worker', () => {
     }
 
     gitHub.pulls.get(952)!.head = sha('b')
-    expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(952), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
+    expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(952), denial: { kind: 'technical', reason: 'stale_head' }, next: 'superseded' })
     expect(leases).toEqual([])
     expect(events(db, 'review.recorded')).toEqual([])
     expect(events(db, 'policy.denied')).toMatchObject([{ command: 'record_verdict', kind: 'technical', reason: 'stale_head' }])
-    expect(task(db, review(952))).toEqual({ state: 'queued', lease_gen: 1, failures: 1 })
+    expect(task(db, review(952))).toEqual({ state: 'superseded', lease_gen: 1, failures: 0 })
     expectReplayIdentical(db)
     db.close()
   })
@@ -1239,6 +1302,7 @@ describe('review depth by MORSE', () => {
 
     expect(events(bench.db, 'review.recorded')).toEqual([{
       head: sha('a'),
+      card_body: null,
       verdict: 'pass',
       depth: 'diff',
       depth_why: 'MORSE predicts cheap by rule docs-only, and only the instructions rule takes the full review',

@@ -6,7 +6,7 @@ import { CARD_FOLDED_ON_APPEND, CARD_FOLDS } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { CARD_STOPPED, RESTARTED } from './inbox.js'
-import { BOARD_ALARM, COMPLETED, FAILURES_TO_STOP, generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
+import { BOARD_ALARM, COMPLETED, FAILURES_TO_STOP, generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, TASK_FOLDS, TASK_SUPERSEDED, WITHDRAWN } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
 
@@ -47,6 +47,8 @@ export interface Failure {
 
 export type AfterFailure = typeof QUEUED | typeof WITHDRAWN | typeof STOPPED
 
+export const SUPERSEDED_LEASE = 'superseded'
+
 interface LeaseRow {
   id: number
   task_key: string
@@ -58,6 +60,7 @@ interface LeaseRow {
   lease_gen: number
   lease_until: string | null
   failures: number
+  event_id: number
 }
 
 const LEASABLE_FROM = `
@@ -311,6 +314,18 @@ export function releaseTask(db: DatabaseSync, ts: string, lease: Lease, reason: 
     for (const event of context)
       appendedOnCard(db, event)
     folded(db, taskEvent(ts, TASK_RELEASED, lease.actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason }))
+  })
+}
+
+export function supersedeLease(db: DatabaseSync, ts: string, lease: Lease, context: BusEvent[] = []): typeof SUPERSEDED_LEASE {
+  return inTransaction(db, () => {
+    const row = held(db, lease)
+    for (const event of context)
+      appendedOnCard(db, event)
+    const superseded = taskEvent(ts, TASK_SUPERSEDED, lease.actor, row, row.lease_gen, `${TASK_SUPERSEDED}:${row.task_key}:after-${row.event_id}`)
+    if (appendEvent(db, superseded))
+      TASK_FOLDS[TASK_SUPERSEDED]!(db, storedByKey(db, superseded.dedupeKey))
+    return SUPERSEDED_LEASE
   })
 }
 

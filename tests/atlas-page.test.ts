@@ -1,10 +1,11 @@
 import type { AtlasMechanics } from '../src/atlas/view.js'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { renderAtlas } from '../src/atlas/page.js'
+import { editorTemplate, RELATIVE_LINKS } from '../src/atlas/source-link.js'
 import { ATLAS_STYLE } from '../src/atlas/style.js'
 import { parseModel } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
@@ -210,5 +211,31 @@ describe('what the review of the renderer found', () => {
 
   it('sizes no text in pixels', () => {
     expect(ATLAS_STYLE.split(';').filter(declaration => declaration.includes('font') && declaration.includes('px'))).toEqual([])
+  })
+})
+
+describe('source links carry no path of the machine that built the page', () => {
+  it('the built HTML holds no absolute path of the machine', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'atlas-'))
+    const model = parseModel(JSON.stringify(DOCUMENT), 'M')
+    const links = { template: editorTemplate('vscode'), remote: null }
+    const html = renderAtlas({ projectName: 'orchard', model, states: deriveModelState(model, root), mechanics: MECHANICS, links }, 'construct.model.json', '..')
+    expect(pageData(html)).toMatchObject({ source: { template: 'vscode://file/{abs}:{line}', remote: null } })
+    for (const machinePath of [root, realpathSync(root), homedir(), tmpdir()])
+      expect(html).not.toContain(machinePath)
+  })
+
+  it('with neither a template nor a remote a source link is relative as before', () => {
+    const model = parseModel(JSON.stringify(DOCUMENT), 'M')
+    const html = renderAtlas({ projectName: 'orchard', model, states: deriveModelState(model, tmpdir()), mechanics: MECHANICS, links: RELATIVE_LINKS }, 'construct.model.json', '..')
+    expect(pageData(html)).toMatchObject({ root: '..', source: { template: null, remote: null } })
+    expect([...html.replace(/<script>[\s\S]*?<\/script>/g, '').matchAll(/href="([^"#][^"]*)" data-source/g)].map(match => match[1])).toEqual(['../press', '../lids/none.ts', '../crate/index.ts', '../route'])
+  })
+
+  it('with a remote and no editor a source link opens the file at the recorded commit', () => {
+    const remote = 'https://github.com/acme/orchard/blob/0123456789abcdef0123456789abcdef01234567'
+    const model = parseModel(JSON.stringify(DOCUMENT), 'M')
+    const html = renderAtlas({ projectName: 'orchard', model, states: deriveModelState(model, tmpdir()), links: { template: editorTemplate('vscode'), remote } }, 'construct.model.json', '..')
+    expect(html).toContain(`href="${remote}/press" data-source`)
   })
 })

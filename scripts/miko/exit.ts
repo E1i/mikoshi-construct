@@ -1,4 +1,4 @@
-import type { RoleStop, THRESHOLDS } from '../bus/role.js'
+import type { RoleStop, THRESHOLDS, WindowEnd } from '../bus/role.js'
 import type { ExitLine, ExitReadings, Reading } from './eddies-measure.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
@@ -12,6 +12,7 @@ import { statusOf } from '../shift/relaunch.js'
 import { realRoleStopObserver } from '../shift/role-bus.js'
 import { appendExitLine, exitLineOf, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX } from './loop.js'
+import { windowEndObserver } from './role-end.js'
 
 export const FRESH_MS = 2 * 60 * 1000
 export const LOOP_SCRIPT = path.join('scripts', 'miko', 'loop.ts')
@@ -40,6 +41,7 @@ export interface MikoExitDeps {
   status?: () => string | null
   raised?: boolean
   observeStop?: (stop: RoleStop) => void
+  endWindow?: (end: WindowEnd) => void
 }
 
 export function parsePs(text: string): ProcessRow[] {
@@ -123,8 +125,13 @@ export function runMikoExit(deps: MikoExitDeps): number {
     deps.err(`${PREFIX}${decision.refuse}`)
     return 1
   }
-  if (decision.stopped === true)
+  if (decision.stopped === true) {
+    deps.endWindow?.('eddies')
     deps.observeStop?.({ role: 'miko', handoff: deps.handoff ?? '', status: RAISED_STATUS, reason: decision.reason, raised: deps.raised ?? false })
+  }
+  else if (decision.reason === 'done') {
+    deps.endWindow?.('miko:exit')
+  }
   try {
     deps.recordExit(exitLineOf(readings, decision.reason, new Date(deps.now()).toISOString()))
   }
@@ -160,6 +167,7 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
     status: () => existsSync(handoff) ? statusOf(readFileSync(handoff, 'utf8')) : null,
     raised: raisedByTheBus(process.env),
     observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
+    endWindow: windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) }),
   }
 }
 

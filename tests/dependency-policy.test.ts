@@ -112,6 +112,12 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/presets/probe.ts', ahead('..'))).toEqual(['no-restricted-imports'])
   })
 
+  it('lets the atlas read the manifest through its loader, and spawn nothing to read the git remote', async () => {
+    expect(await violations('src/atlas/probe.ts', 'import { readAtlasRecord } from \'../manifest.js\'\n\nexport const probe = readAtlasRecord\n')).toEqual([])
+    expect(await violations('src/atlas/probe.ts', 'import { applyPlan } from \'../materialize/apply.js\'\n\nexport const probe = applyPlan\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/atlas/probe.ts', 'import { execFileSync } from \'node:child_process\'\n\nexport const probe = execFileSync\n')).toEqual(['no-restricted-syntax'])
+  })
+
   it('keeps the model and the manifest apart in both directions', async () => {
     expect(await violations('src/model/probe.ts', 'import { readManifest } from \'../manifest.js\'\n\nexport const probe = readManifest\n')).toEqual(['no-restricted-imports'])
     expect(await violations('src/manifest.ts', 'import { parseModel } from \'./model/schema.js\'\n\nexport const probe = parseModel\n')).toEqual(['no-restricted-imports'])

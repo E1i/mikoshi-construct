@@ -60,10 +60,15 @@ function fileDeps(file: string, alive: (pid: number) => boolean = () => true, ev
     bus: path.join(path.dirname(file), 'bus.db'),
     observedUpTo: id => [...new Map(events.filter(event => event.type === PR_OBSERVED && event.id <= id).map(event => [event.pr, event])).values()],
     deniedUpTo: id => events.filter(event => event.type === POLICY_DENIED && event.id <= id),
+    observedHeads: (pr) => {
+      const observed = events.filter(event => event.type === PR_OBSERVED && event.pr === pr && event.head !== null)
+      return [...new Map(observed.map(event => [event.head!, event.id])).entries()].sort((a, b) => a[1] - b[1]).map(([head]) => head)
+    },
     stalls: () => [...stalls],
     stuck: () => [],
     emit: async () => {},
     beforeCommit: async () => {},
+    beat: () => {},
     lastBusId: () => 0,
     busEventsAfter: id => events.filter(event => event.id > id),
     size: () => statSync(file).size,
@@ -264,6 +269,52 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     observe(5, 801, 'a', 'pending')
     const again = observe(6, 801, 'a', 'red')
     expect(tick(state, deps)).toEqual([`bus ${PR_OBSERVED} card - pr 801 ${again}`])
+  })
+
+  describe('an event of a superseded head does not wake the window', () => {
+    const OLD_HEAD_EVENTS: Array<{ type: string, payload: object }> = [
+      { type: REVIEW_RECORDED, payload: { verdict: 'changes', findings: ['x'] } },
+      { type: REVIEW_ROUNDS_SPENT, payload: { rounds: 3 } },
+      { type: CARD_STOPPED, payload: { reason: 'ended', detail: 'answer session' } },
+      { type: STOP_EVENT, payload: { event: STOP_EVENT, reason: 'max' } },
+    ]
+    const green = (head: string): string => JSON.stringify({ head, ci: 'green' })
+
+    function pushed(): BusEvent[] {
+      return [
+        { id: 1, type: PR_OBSERVED, cardId: 1130, pr: 923, head: 'f48dd3b9', payload: green('f48dd3b9') },
+        { id: 2, type: PR_OBSERVED, cardId: 1130, pr: 923, head: '64e26987', payload: green('64e26987') },
+      ]
+    }
+
+    it.each(OLD_HEAD_EVENTS)('a $type of the head the PR moved past wakes no watch', ({ type, payload }) => {
+      const events = pushed()
+      const deps = { ...fileDeps(journal(), () => true, events), lastBusId: () => 2 }
+      const state = watchState(deps, [])
+      events.push({ id: 3, type, cardId: 1130, pr: 923, head: 'f48dd3b9', payload: JSON.stringify(payload) })
+      expect(tick(state, deps)).toEqual([])
+      const once = { ...deps, lastBusId: () => 3 }
+      expect(selectOnce({ offset: deps.size(), busId: 2 }, once, [], 1130)).toEqual({ line: null, cursor: { offset: deps.size(), busId: 3 } })
+    })
+
+    it('the same event of the current head wakes, and so does one of a head not observed yet', () => {
+      const events = pushed()
+      const deps = fileDeps(journal(), () => true, events)
+      const state = watchState({ ...deps, lastBusId: () => 2 }, [])
+      const current = JSON.stringify({ verdict: 'changes' })
+      events.push({ id: 3, type: REVIEW_RECORDED, cardId: 1130, pr: 923, head: '64e26987', payload: current })
+      events.push({ id: 4, type: CARD_STOPPED, cardId: 1130, pr: 923, head: 'a1b2c3d4', payload: current })
+      expect(tick(state, deps)).toEqual([`bus ${REVIEW_RECORDED} card 1130 pr 923 ${current}`, `bus ${CARD_STOPPED} card 1130 pr 923 ${current}`])
+    })
+
+    it('a merge of a head the PR moved past still wakes the window', () => {
+      const events = pushed()
+      const deps = fileDeps(journal(), () => true, events)
+      const state = watchState({ ...deps, lastBusId: () => 2 }, [])
+      const merged = JSON.stringify({ commit: '99225d31' })
+      events.push({ id: 3, type: MERGE_DONE, cardId: 1130, pr: 923, head: 'f48dd3b9', payload: merged })
+      expect(tick(state, deps)).toEqual([`bus ${MERGE_DONE} card 1130 pr 923 ${merged}`])
+    })
   })
 
   it('red on head A, then red on head B with no pending between, wakes twice', () => {
