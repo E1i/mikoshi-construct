@@ -649,11 +649,11 @@ describe('the launch queue', () => {
       bench.close()
     })
 
-    it('does not stop a session whose command line does not name its session id', () => {
+    it('does not signal a session whose command line does not name its session id', () => {
       const { bench, starter, node, advanceToLimitPlus } = runningCard('/usr/bin/vim notes.md')
 
       advanceToLimitPlus(0)
-      expect(node.stopOverdue()).toEqual([])
+      expect(node.stopOverdue()).toEqual([947])
       expect(starter.stops).toEqual([])
       expect(timeLimitStops(bench)).toEqual([])
       bench.close()

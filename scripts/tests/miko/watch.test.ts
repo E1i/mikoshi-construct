@@ -13,7 +13,7 @@ import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STOPPED, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_CLOSED } from '../../bus/launch-candidates.js'
-import { noPullRequestDetail } from '../../bus/launch-worker.js'
+import { CARD_WAITING, LADDER_APPROVAL, noPullRequestDetail } from '../../bus/launch-worker.js'
 import { TASK_EXPIRED } from '../../bus/lease.js'
 import { PR_CLOSED, prClosed } from '../../bus/observations.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
@@ -854,6 +854,16 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
     const once = { ...fileDeps(file, () => true, events.slice(0, 3)), lastBusId: () => 3 }
     expect(selectOnce({ offset, busId: 1 }, once, [], 1064)).toEqual({ line: lines[0], cursor: { offset, busId: 2 } })
     expect(selectOnce({ offset, busId: 2 }, once, [], 1064)).toBeUndefined()
+  })
+
+  it('a card.waiting for a ladder approval wakes the window', () => {
+    const file = journal()
+    const offset = statSync(file).size
+    const waiting: BusEvent = { id: 2, type: CARD_WAITING, cardId: 9301, pr: null, head: null, payload: JSON.stringify({ reason: LADDER_APPROVAL, step: 'brief', session: 's', detail: 'its next step waits for the approval of its brief' }) }
+    const deps = { ...fileDeps(file, () => true, [waiting]), lastBusId: () => 2 }
+    expect(selectOnce({ offset, busId: 1 }, deps, [], 9301)).toEqual({ line: `bus ${CARD_WAITING} card 9301 pr - ${waiting.payload}`, cursor: { offset, busId: 2 } })
+    const state = watchState({ ...fileDeps(file, () => true, []), lastBusId: () => 1 }, [])
+    expect(tick(state, { ...fileDeps(file, () => true, [waiting]), lastBusId: () => 2 })).toEqual([`bus ${CARD_WAITING} card 9301 pr - ${waiting.payload}`])
   })
 
   it('wakes on card.stopped after a session death', () => {
