@@ -354,6 +354,18 @@ export const KEEP_MAX_MS = 10 * 60_000
 export const FAILURES_REPORTED = 3
 export const SUPERVISOR_JOURNAL = 'supervisor.jsonl'
 export const REDUCE_SCRIPT = 'bus:reduce'
+export const WORKER_DOWN = 'worker.down'
+
+export interface WorkerDown {
+  worker: string
+  failures: number
+  cause: string
+  nextAttemptAt: number
+}
+
+export function recordWorkerDown(db: DatabaseSync, ts: string, down: WorkerDown): void {
+  appendEvent(db, { ts, type: WORKER_DOWN, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${WORKER_DOWN}:${down.worker}:${ts}`, payload: { worker: down.worker, failures: down.failures, cause: down.cause, next_attempt_at: new Date(down.nextAttemptAt).toISOString() }, legacy: false })
+}
 
 export interface KeeperParts {
   wanted: () => DetachedLaunch[]
@@ -361,6 +373,7 @@ export interface KeeperParts {
   processes: ProcessList
   reduce: () => string[]
   journal: (entry: Record<string, unknown>) => void
+  down?: (down: WorkerDown) => void
   now: () => number
 }
 
@@ -449,10 +462,22 @@ export class WorkerKeeper {
   private failed(name: string, streak: Streak | undefined, cause: string, refused: boolean): string[] {
     const causes = [...streak?.causes ?? [], cause]
     const wait = backoffMs(causes.length)
+    const retryAt = this.parts.now() + wait
     return [
       `${PREFIX}${name} failed to start ${causes.length} time(s) in a row; the next attempt in ${Math.round(wait / 1000)}s`,
-      ...this.counted(name, { causes, retryAt: this.parts.now() + wait, awaitingSight: false, refused }),
+      ...this.counted(name, { causes, retryAt, awaitingSight: false, refused }),
+      ...causes.length > 1 ? this.downPastBackoff({ worker: name, failures: causes.length, cause, nextAttemptAt: retryAt }) : [],
     ]
+  }
+
+  private downPastBackoff(down: WorkerDown): string[] {
+    try {
+      this.parts.down?.(down)
+      return []
+    }
+    catch (error) {
+      return [`${PREFIX}recording ${WORKER_DOWN} for ${down.worker} failed: ${error instanceof Error ? error.message : String(error)}; written again on its next failed attempt`]
+    }
   }
 
   private counted(name: string, streak: Streak): string[] {
@@ -606,6 +631,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     processes,
     reduce: () => runReducer(cwd),
     journal,
+    down: down => recordWorkerDown(db, new Date().toISOString(), down),
     now: () => Date.now(),
   })
   console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and a switched-on worker that is not running is started again`)

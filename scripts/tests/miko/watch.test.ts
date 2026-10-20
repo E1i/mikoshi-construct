@@ -18,6 +18,7 @@ import { TASK_EXPIRED } from '../../bus/lease.js'
 import { PR_CLOSED, prClosed } from '../../bus/observations.js'
 import { PR_OBSERVED } from '../../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../../bus/review-executor.js'
+import { recordWorkerDown, WORKER_DOWN } from '../../bus/supervisor.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
 import { BUS_ALIVE_MS, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, selectOnce, skippedLine, STALL_MS, stalledOf, stuckOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
@@ -102,6 +103,7 @@ const BUS_EVENT_WAKES: Array<{ name: string, type: string, payload: object, wake
   { name: 'a card.closed', type: CARD_CLOSED, payload: { verification: 'run' }, wakes: true },
   { name: 'a relaunch-stop', type: STOP_EVENT, payload: { event: STOP_EVENT, reason: 'max' }, wakes: true },
   { name: 'a card.stopped', type: CARD_STOPPED, payload: { reason: 'fault', detail: 'the session died' }, wakes: true },
+  { name: 'a worker.down past its backoff', type: WORKER_DOWN, payload: { worker: 'bus:merge --on', failures: 2, cause: 'spawn failed', next_attempt_at: '2026-10-20T19:49:20.000Z' }, wakes: true },
   { name: 'a first policy.denied of a task', type: POLICY_DENIED, payload: { command: 'record_verdict', kind: 'technical', reason: 'no_isolation' }, wakes: false },
   { name: 'a pr.observed with green CI', type: PR_OBSERVED, payload: { ci: 'green' }, wakes: false },
   { name: 'a pr.observed with pending CI', type: PR_OBSERVED, payload: { ci: 'pending' }, wakes: false },
@@ -864,6 +866,24 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
     expect(selectOnce({ offset, busId: 1 }, deps, [], 9301)).toEqual({ line: `bus ${CARD_WAITING} card 9301 pr - ${waiting.payload}`, cursor: { offset, busId: 2 } })
     const state = watchState({ ...fileDeps(file, () => true, []), lastBusId: () => 1 }, [])
     expect(tick(state, { ...fileDeps(file, () => true, [waiting]), lastBusId: () => 2 })).toEqual([`bus ${CARD_WAITING} card 9301 pr - ${waiting.payload}`])
+  })
+
+  it('a worker down past its backoff wakes the window', () => {
+    const file = journal()
+    const offset = statSync(file).size
+    const bus = path.join(path.dirname(file), 'bus.db')
+    const db = openBus(bus)
+    recordWorkerDown(db, '2026-10-20T19:48:00.000Z', { worker: 'bus:review --on --live', failures: 5, cause: '[bus:bg] spawn failed', nextAttemptAt: Date.parse('2026-10-20T19:49:20.000Z') })
+    const row = db.prepare('SELECT id, type, card_id, pr, head, payload FROM events WHERE type = ?').get(WORKER_DOWN) as { id: number, type: string, payload: string }
+    db.close()
+    const down: BusEvent = { id: Number(row.id), type: row.type, cardId: null, pr: null, head: null, payload: row.payload }
+    const line = `bus ${WORKER_DOWN} card - pr - ${down.payload}`
+    expect(down.payload).toContain('"next_attempt_at":"2026-10-20T19:49:20.000Z"')
+
+    const deps = { ...fileDeps(file, () => true, [down]), lastBusId: () => down.id }
+    expect(selectOnce({ offset, busId: down.id - 1 }, deps, [])).toEqual({ line, cursor: { offset, busId: down.id } })
+    const state = watchState({ ...fileDeps(file, () => true, []), lastBusId: () => down.id - 1 }, [])
+    expect(tick(state, deps)).toEqual([line])
   })
 
   it('wakes on card.stopped after a session death', () => {
