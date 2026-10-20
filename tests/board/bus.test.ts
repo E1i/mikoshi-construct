@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { busReaderAt, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
-import { subagent, writeBus } from './bus-fixture.js'
+import { checkMatrix, subagent, writeBus } from './bus-fixture.js'
 
 const NOW = new Date('2026-10-02T12:00:00.000Z')
 const HOUR = 3_600_000
@@ -106,6 +106,22 @@ describe('the board bus reader', () => {
       subagent(ago(SUBAGENT_SHOWN_HOURS * HOUR), { session: 'edge', role: 'implementer', task: '#3', phase: 'started' }),
     ] }).services
     expect(services.map(service => service.task)).toEqual(['#3'])
+  })
+
+  it('the board shows the check matrix of a PR', () => {
+    const head = 'b'.repeat(40)
+    expect(facts({}).matrices).toEqual([])
+    expect(facts({ events: [
+      checkMatrix(922, 'a'.repeat(40), { full: null, killed: 9, survived: 9, notRun: 9 }),
+      checkMatrix(922, head, { full: null, killed: 3, survived: 1, notRun: 2, skipped: 4 }),
+      checkMatrix(921, null, { full: 'the change touches the harness', killed: 0, survived: 0, notRun: 0 }),
+      checkMatrix(null, null, { killed: 1 }),
+      checkMatrix(930, null, 'not json'),
+    ] }).matrices).toEqual([
+      { pr: 921, head: null, full: 'the change touches the harness', killed: 0, survived: 0, notRun: 0 },
+      { pr: 922, head, full: null, killed: 3, survived: 1, notRun: 2 },
+      { pr: 930, head: null, full: null, killed: 0, survived: 0, notRun: 0 },
+    ])
   })
 
   it('reports a missing file as absent and a file it cannot query as unreadable, with the reason', () => {

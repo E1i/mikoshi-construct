@@ -5,14 +5,18 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { parseArgs } from 'node:util'
 import { selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { missingMutationColumns } from './check-catalog.js'
-import { defaultBusPath } from './db.js'
+import { appendEvent, defaultBusPath, openBus } from './db.js'
+import { isFullSha, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const HELD_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+export const CHECKS_MATRIX_EVENT = 'checks.matrix'
+export const CHECKS_MATRIX_ACTOR_PREFIX = 'worker:checks-matrix:'
 
 export interface MatrixMutation { card: number, id: string, file: string, layer: string, operator: string, find: string | null, replacement: string | null, killedBy: string | null }
 
@@ -195,15 +199,64 @@ export function matrixSummary(matrix: Matrix, results: readonly MatrixResult[]):
   return [...lines, ...skipped].join('\n')
 }
 
+export interface MatrixTarget { pr: number, head: string | null }
+
+export interface MatrixArguments { changed: string[], target: MatrixTarget | null }
+
+export function matrixArguments(args: readonly string[]): MatrixArguments {
+  const { values, positionals } = parseArgs({ args: [...args], options: { pr: { type: 'string' }, head: { type: 'string' } }, allowPositionals: true })
+  if (values.pr === undefined) {
+    if (values.head !== undefined)
+      throw new Error('--head needs --pr')
+    return { changed: positionals, target: null }
+  }
+  const pr = prOf(Number(values.pr))
+  if (pr === null)
+    throw new Error(`--pr is not a positive integer: ${values.pr}`)
+  if (values.head !== undefined && !isFullSha(values.head))
+    throw new Error(`--head is not a full sha: ${values.head}`)
+  return { changed: positionals, target: { pr, head: values.head ?? null } }
+}
+
+export function matrixCounts(results: readonly MatrixResult[]): Record<MutationOutcome, number> {
+  const count = (outcome: MutationOutcome) => results.filter(result => result.outcome === outcome).length
+  return { 'killed': count('killed'), 'survived': count('survived'), 'not-run': count('not-run') }
+}
+
+export function appendMatrix(db: DatabaseSync, target: MatrixTarget, matrix: Matrix, results: readonly MatrixResult[], ts: string, session = String(process.pid)): boolean {
+  const counts = matrixCounts(results)
+  return appendEvent(db, {
+    ts,
+    type: CHECKS_MATRIX_EVENT,
+    actor: `${CHECKS_MATRIX_ACTOR_PREFIX}${session}`,
+    cardId: null,
+    pr: target.pr,
+    head: target.head,
+    dedupeKey: `${CHECKS_MATRIX_EVENT}:${target.pr}:${target.head ?? ts}`,
+    payload: { full: matrix.full, killed: counts.killed, survived: counts.survived, notRun: counts['not-run'], skipped: matrix.skipped.length, summary: matrixSummary(matrix, results) },
+    legacy: false,
+  })
+}
+
 async function main(): Promise<void> {
-  const changed = process.argv.slice(2)
+  const { changed, target } = matrixArguments(process.argv.slice(2))
   const db = openDatabase(defaultBusPath(), { readOnly: true })
   const matrix = buildMatrix(changed, cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8'), db)
   db.close()
   const guard = new MutationGuard()
   holdSignalsUntilRestored(guard)
-  const summary = matrixSummary(matrix, await runMatrix(matrix, REPO_ROOT, vitestRun, guard))
+  const results = await runMatrix(matrix, REPO_ROOT, vitestRun, guard)
+  const summary = matrixSummary(matrix, results)
   console.log(summary)
+  if (target !== null) {
+    const bus = openBus(defaultBusPath())
+    try {
+      appendMatrix(bus, target, matrix, results, new Date().toISOString())
+    }
+    finally {
+      bus.close()
+    }
+  }
   if (process.env.GITHUB_STEP_SUMMARY)
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`)
 }
