@@ -244,7 +244,7 @@ export class ReviewExecutor {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
+      payload: { head: lease.head, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
       legacy: false,
     }
   }

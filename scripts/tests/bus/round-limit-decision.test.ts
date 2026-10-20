@@ -4,13 +4,16 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
+import { importJournal } from '../../bus/import.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
 import { changesRoundsOf, closedByRounds, REVIEW_ROUNDS } from '../../bus/queue.js'
+import { fullReview } from '../../bus/review-depth.js'
+import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../bus/review-worker.js'
 import { roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { cleanUpdatesOf } from '../../bus/update-done.js'
 import { manualUpdateDone } from '../../bus/update-executor.js'
-import { sha } from './github-fake.js'
+import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, spendReviewRounds } from './merge-bench.js'
 
 const PR = 970
@@ -48,19 +51,40 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(queuedFor(bench, PR)).toEqual([])
   })
 
-  it('a card amend on the same head spends no round', () => {
+  it('a card amend on the same head spends no round', async () => {
     const bench = liveBench()
     benches.push(bench)
-    bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
-    const changes = (head: string, task: string): void => {
-      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:session-1', cardId: PR + 100, pr: PR, head, dedupeKey: `${REVIEW_RECORDED}:${task}:1`, payload: { head, verdict: 'changes', reviewer_session: 'session-1', findings: [] }, legacy: false })
-    }
-    changes(sha('1'), 'first-head')
-    for (const amend of Array.from({ length: REVIEW_ROUNDS }, (_, at) => `card-body-amend-${at}`))
-      changes(HEAD, amend)
+    const worker = new ReviewWorker({
+      isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
+      db: bench.db,
+      gitHub: bench.gitHub.client,
+      publish: (status) => {
+        bench.gitHub.pulls.get(PR)!.review = status.state
+      },
+      reviewer: async () => ({ verdict: 'changes', findings: ['a.ts:1 the finding'], session: 'reviewer-1' }),
+      plan: () => fullReview('a fixed plan'),
+      clock: bench.clock.now,
+      session: 'worker-1',
+    })
+    const amends = Array.from({ length: REVIEW_ROUNDS }, (_, at) => `${at + 1}123abcd4567ef89`)
+    const reviewed = (): { head: string, card_body: unknown }[] => (bench.db.prepare(`SELECT head, json_extract(payload, '$.card_body') AS card_body FROM events WHERE type = ? AND pr = ? ORDER BY id`).all(REVIEW_RECORDED, PR) as { head: string, card_body: unknown }[]).map(row => ({ head: row.head, card_body: row.card_body }))
 
+    for (const head of [sha('1'), HEAD]) {
+      bench.gitHub.open({ number: PR, head, body: cardBody(PR) })
+      bench.tick()
+      expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
+    }
+    for (const amend of amends) {
+      bench.tick()
+      importJournal(bench.db, JSON.stringify({ event: 'intake', task: String(PR + 100), card: `#${PR + 100} a-card [implement/netwatch/S/cheap/auto] · depends — · blocks —`, confirmation: 'auto', corrections: [], bodySha: amend, source: 'admit', ts: '2026-10-11T14:00:00.000Z' }))
+      bench.tick()
+      expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes', taskKey: expect.stringContaining(`:card-body-${amend}`) })
+    }
+
+    expect(reviewed()).toEqual([{ head: sha('1'), card_body: null }, { head: HEAD, card_body: null }, ...amends.map(amend => ({ head: HEAD, card_body: amend }))])
     expect(changesRoundsOf(bench.db, PR)).toBe(2)
-    for (const queue of ['review', 'answer', 'merge'] as const)
+    expect(eventsOf(bench.db, REVIEW_ROUNDS_SPENT)).toEqual([])
+    for (const queue of ['review', 'answer'] as const)
       expect(closedByRounds(bench.db, bench.clock.now().toISOString(), queue, PR, HEAD), queue).toBe(false)
   })
 
