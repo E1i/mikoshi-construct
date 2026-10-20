@@ -1,5 +1,6 @@
 import type { Prediction, RuleId } from '../morse/rules.js'
 import type { Lease } from './lease.js'
+import { isTest } from '../../src/card/covering-tests.js'
 import { PREFIX_SUFFIX } from '../../src/card/task-file.js'
 
 export const REVIEW_DEPTHS = ['full', 'diff'] as const
@@ -60,7 +61,7 @@ function touchFindings(cardId: number, files: readonly string[], sources: DepthS
   const touches = sources.touches(cardId)
   if (touches === null)
     return [`the touches of card #${cardId} could not be read, so no changed file is shown inside them`]
-  return files.filter(file => !withinTouches(file, touches)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})`)
+  return files.filter(file => !isTest(file) && !withinTouches(file, touches)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})`)
 }
 
 function firstReview(lease: Lease, head: string, sources: DepthSources): ReviewPlan {

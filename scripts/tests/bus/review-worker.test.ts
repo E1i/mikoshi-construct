@@ -1254,7 +1254,7 @@ describe('review depth by MORSE', () => {
 
     expect(diff.world.predictions).toEqual([{ task: review(961), verdict: 'cheap', rule: 'docs-only' }])
     expect(diff.seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts cheap by rule docs-only, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [] }])
-    expect(reviewPrompt(diff.seen[0]!.lease, diff.seen[0]!.plan, '/t', '/v.json')).toContain(`Read only the diff ${MERGE_BASE}..${sha('a')} against the card, its witnesses and its touches; do not walk the modules it touches.`)
+    expect(reviewPrompt(diff.seen[0]!.lease, diff.seen[0]!.plan, '/t', '/v.json')).toContain(`Read only the diff ${MERGE_BASE}..${sha('a')} against the card, its witnesses, its touches and its runs (the tests the card's Runs: line names); do not walk the modules it touches.`)
     expect(today.seen.map(each => each.plan.depth)).toEqual(['full'])
     const [diffMs] = recordedMs(diff.bench.db)
     const [fullMs] = recordedMs(today.bench.db)
@@ -1394,6 +1394,12 @@ describe('review depth by MORSE', () => {
     expect(await bench.worker(timedReviewer(bench.clock, seen), undefined, new DepthWorld().planner).step()).toMatchObject({ kind: 'recorded', depth: 'full' })
     expect(seen[0]!.plan).toEqual({ depth: 'full', why: `the depth could not be planned: no diff ${MERGE_BASE}..${sha('a')} in the world`, prediction: null })
     bench.db.close()
+  })
+
+  it('a test outside the card touches is one the card runs and is no finding of the review', () => {
+    const world = new DepthWorld().change(MERGE_BASE, sha('a'), [edited('scripts/bus/a.ts'), edited('scripts/tests/bus/a.test.ts'), edited('scripts/tests/bus/helper.ts')]).card(1071, ['scripts/bus/a.ts'])
+    const lease = { taskKey: review(971), queue: 'review' as const, cardId: 1071, pr: 971, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
+    expect(planReview(lease, null, world.sources)).toMatchObject({ depth: 'diff', round: 'first', touchFindings: ['scripts/tests/bus/helper.ts is outside the touches of card #1071 (scripts/bus/a.ts)'] })
   })
 
   it('touches that cannot be read stay a diff review and become a finding of it', () => {

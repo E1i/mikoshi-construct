@@ -4,7 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { treePr } from '../../shift/tree-pr.js'
+import { runsLine } from '../../../src/card/covering-tests.js'
+import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
+import { shiftTreeCard, treePr } from '../../shift/tree-pr.js'
 
 const roots: string[] = []
 
@@ -20,6 +22,7 @@ const CARD: TreeCard = {
   cardLine: '#1128 review-worker [implement/netwatch/S/ladder/auto] · depends — · blocks —',
   contour: 'ladder',
   touches: ['scripts/bus/review-worker.ts'],
+  runs: [],
   namedPathReason: null,
 }
 
@@ -83,6 +86,21 @@ describe('the shift gate lets the tests that cover the touched files follow the 
       'scripts/tests/bus/review-worker.test.ts': 'import { runReviewWorker } from \'../../bus/review-worker.js\'\n\nexport const ran = runReviewWorker() + 1\n',
     })
     expect(treePr(ports(), CARD, worktree, null)).toEqual({ kind: 'pr', number: '954' })
+  })
+
+  it('an edit of a test the card runs outside touches does not stop the card, and the same edit of a test it neither runs nor covers does', () => {
+    const edit = { 'scripts/bus/review-worker.ts': 'export function runReviewWorker(): number {\n  return 2\n}\n', 'scripts/tests/bus/merge-worker.test.ts': 'export const ran = 1\n' }
+    const running = cardTree()
+    write(running, edit)
+    expect(treePr(ports(), { ...CARD, runs: ['scripts/tests/bus/merge-worker.test.ts'] }, running, null)).toEqual({ kind: 'pr', number: '954' })
+    const notRunning = cardTree()
+    write(notRunning, edit)
+    expect(treePr(ports(), CARD, notRunning, null)).toMatchObject({ kind: 'problem' })
+  })
+
+  it('a card read from its parking file runs what its Runs: line names', () => {
+    const parsed = parseParkingFile('1128.md', parkingFileText({ card: CARD.cardLine, branch: CARD.branch, touches: CARD.touches, continue: 'stop', who: 'shift', body: `Do it.\n\n${runsLine(['scripts/tests/bus/**'])}` }))
+    expect(parsed.kind === 'parked' && shiftTreeCard(parsed.parked.task).runs).toEqual(['scripts/tests/bus/**'])
   })
 
   it('an edit of code outside touches still stops the card', () => {

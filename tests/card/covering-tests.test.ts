@@ -1,6 +1,8 @@
+import type { RepositoryFacts } from '../../src/commands/intake/facts.js'
 import { describe, expect, it } from 'vitest'
 import { isTest as layersIsTest } from '../../scripts/ci/layers.js'
-import { coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TestCoverage, withinTouches } from '../../src/card/covering-tests.js'
+import { COVERING_REASON, coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
+import { checkDraft } from '../../src/commands/intake/check.js'
 
 const FILES: Record<string, string> = {
   'src/card/risk.ts': 'export const RISK = 1\n',
@@ -125,5 +127,36 @@ describe('the tests that reach a touched file other than by a static import', ()
 
   it('the CI layer selection reads what a test is from this rule, not from a copy of its own', () => {
     expect(layersIsTest).toBe(isTest)
+  })
+})
+
+describe('a card runs the tests that cover its touches, apart from what it touches', () => {
+  const repository: RepositoryFacts = {
+    exists: file => file in FILES || Object.keys(FILES).some(known => known.startsWith(`${file}/`)),
+    pathsNamed: () => [],
+    commandResolves: () => true,
+    testsCovering: touches => covering([...touches]),
+  }
+  const facts = { taken: new Set<number>(), parked: new Set<number>(), done: new Set<string>(), merged: new Set<string>(), repository }
+  const draft = { name: 'risk-card', kind: 'implement', milestone: 'netwatch', size: 'S', contour: 'cheap', decision: 'auto', touches: ['src/card/risk.ts', 'tests/**'], depends: [], blocks: [], creates: [], task: 'Change the risk.', witnesses: ['`pnpm run quality` is green'], unclear: [] }
+
+  it('covering tests go to runs, not touches', () => {
+    const [checked] = checkDraft([{ ...draft, touches: ['src/card/risk.ts'] }], [1], facts)
+    expect(checked!.touches).toEqual(['src/card/risk.ts'])
+    expect(checked!.corrections.filter(correction => correction.reason === COVERING_REASON)).toEqual([])
+    expect(checked!.covering).toEqual(['tests/intake.test.ts', 'tests/lazy.test.ts', 'tests/through-helper.test.ts'])
+    expect(runsOf(checked!.task)).toEqual(checked!.covering)
+    expect(checked!.task).toBe(`Change the risk.\n\n${runsLine(checked!.covering)}`)
+  })
+
+  it('a test the touches already cover is not run apart from them, and a card with no runs writes no runs line', () => {
+    const [checked] = checkDraft([draft], [1], facts)
+    expect([checked!.covering, checked!.task]).toEqual([[], 'Change the risk.'])
+  })
+
+  it('the runs of an older card are its covering tests intake put into touches, and touches without runs drop them', () => {
+    const body = `Do it.\n\ncorrected: touches — (absent) → tests/a.test.ts — ${COVERING_REASON}\ncorrected: touches — (absent) → CONTRIBUTING.md — every change of this kind carries it\n${runsLine(['tests/b.test.ts', 'scripts/tests/bus/**'])}`
+    expect(runsOf(body)).toEqual(['tests/a.test.ts', 'tests/b.test.ts', 'scripts/tests/bus/**'])
+    expect(touchesWithoutRuns(['src/x.ts', 'tests/a.test.ts', 'CONTRIBUTING.md', 'scripts/tests/bus/**'], body)).toEqual(['src/x.ts', 'CONTRIBUTING.md'])
   })
 })
