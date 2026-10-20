@@ -4,7 +4,8 @@ import type { IsolationReader } from '../ghosts/isolation.js'
 import type { AnswerOutcome } from './answer-executor.js'
 import type { Answerer, CardText } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
-import type { Lease, LeaseOrder } from './lease.js'
+import type { BusEvent } from './db.js'
+import type { AfterFailure, Lease, LeaseOrder } from './lease.js'
 import type { DetectionMode, Scope } from './node.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
@@ -22,11 +23,12 @@ import { HEADLESS_FLAGS } from '../ghosts/session.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { claudeAnswerer, parkedCardText, PREFIX, realAnswererTools } from './answerer.js'
 import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
+import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { defaultBusPath } from './db.js'
 import { DECISIONS_IMPORTED } from './decisions.js'
 import { messageOf } from './errors.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED } from './inbox.js'
-import { queuedCards } from './lease.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, POLICY_DENIED } from './inbox.js'
+import { assertHeld, failTask, queuedCards, StaleLease } from './lease.js'
 import { Node, runNode } from './node.js'
 import { PR_CLOSED } from './observations.js'
 import { PR_OBSERVED } from './operator-work.js'
@@ -54,7 +56,13 @@ export function answerLeaseOrder(db: DatabaseSync, cardText: CardText): LeaseOrd
   return { onePerCard: true, firstCards: queuedCards(db, 'answer').filter(cardId => priorityOf(cardText, cardId) === 'p0') }
 }
 
-export type AnswerStep = AnswerOutcome | { kind: 'faulted', taskKey: string, detail: string }
+export interface NotMineDenial {
+  kind: 'technical'
+  reason: typeof NOT_MINE
+  detail: string
+}
+
+export type AnswerStep = AnswerOutcome | { kind: 'denied', taskKey: string, denial: NotMineDenial, next: AfterFailure } | { kind: 'faulted', taskKey: string, detail: string }
 
 export interface AnswerNodeParts {
   db: DatabaseSync
@@ -103,9 +111,28 @@ export class AnswerNode extends Node<AnswerStep> {
     return answerLeaseOrder(this.db, this.answerParts.cardText)
   }
 
+  private withdrawnIfNotMine(lease: Lease): AnswerStep | null {
+    try {
+      assertHeld(this.db, lease)
+      const detail = notMine(cardContract(this.db, lease.cardId), 'answer')
+      if (detail === null)
+        return null
+      const denial: NotMineDenial = { kind: 'technical', reason: NOT_MINE, detail }
+      const ts = this.ts()
+      const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'answer', ...denial }, legacy: false }
+      const next = failTask(this.db, ts, lease, { reason: NOT_MINE, withdraw: true }, [event])
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next }
+    }
+    catch (error) {
+      if (error instanceof StaleLease)
+        return { kind: 'fenced', taskKey: lease.taskKey }
+      throw error
+    }
+  }
+
   protected async handle(lease: Lease): Promise<AnswerStep> {
     try {
-      return await this.executor.answer(lease)
+      return this.withdrawnIfNotMine(lease) ?? await this.executor.answer(lease)
     }
     catch (error) {
       const detail = messageOf(error)

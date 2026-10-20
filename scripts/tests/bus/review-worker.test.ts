@@ -12,17 +12,19 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, RENEW_MS, renewLease, StaleLease } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewIsolationCommand, reviewMode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { HEADLESS_FLAGS, REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
@@ -338,6 +340,103 @@ describe('review worker', () => {
     db.prepare(`UPDATE prs SET state = 'closed' WHERE pr = 947`).run()
     expect(() => startReviewWorkers(parts, 1)).toThrow(/replay byte-diff: prs 947: state live "closed", replay "open"/)
     db.close()
+  })
+
+  it('a prs head one tick behind GitHub waits for the next tick', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const printed = vi.spyOn(console, 'log').mockImplementation(() => {})
+    gitHub.open({ number: 961 })
+    tick()
+    gitHub.open({ number: 961, head: sha('c') })
+    const node = new ReviewNode({ db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+    const controller = new AbortController()
+    const pauses: number[] = []
+
+    await node.run({
+      pause: async (ms) => {
+        pauses.push(ms)
+        if (pauses.length === 1)
+          tick()
+        else
+          controller.abort()
+      },
+      signal: controller.signal,
+    })
+
+    expect(pauses[0]).toBe(TICK_MS)
+    const lines = printed.mock.calls.map(call => String(call[0]))
+    expect(lines[0]).toContain(`waits ${TICK_MS} ms before it takes the queue: the prs head is behind GitHub until the next netwatch tick: prs vs GitHub: #961 at ${sha('a')} here, ${sha('c')} on GitHub`)
+    expect(lines[1]).toContain('the review node worker:review:node-1 takes the review queue')
+    db.close()
+  })
+
+  it('a RateLimited in the preflight waits retry-after and does not throw', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const printed = vi.spyOn(console, 'log').mockImplementation(() => {})
+    gitHub.open({ number: 962 })
+    tick()
+    gitHub.limited = { status: 403, headers: { 'retry-after': '42' }, body: { message: 'secondary rate limit' } }
+    const node = new ReviewNode({ db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+    const controller = new AbortController()
+    const pauses: number[] = []
+
+    await node.run({
+      pause: async (ms) => {
+        pauses.push(ms)
+        if (pauses.length === 1)
+          gitHub.limited = null
+        else
+          controller.abort()
+      },
+      signal: controller.signal,
+    })
+
+    expect(pauses[0]).toBe(42_000)
+    const lines = printed.mock.calls.map(call => String(call[0]))
+    expect(lines[0]).toContain('waits 42000 ms before it takes the queue: GitHub answered 403; retry after 42 s')
+    expect(lines[1]).toContain('takes the review queue')
+    db.close()
+  })
+
+  it('a preflight that finds more than head lag still refuses to start', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    gitHub.open({ number: 963 })
+    tick()
+    gitHub.open({ number: 964 })
+    const node = new ReviewNode({ db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+    const pause = vi.fn(async () => {})
+
+    await expect(node.run({ pause })).rejects.toThrow(/#964 open on GitHub, missing here/)
+    expect(pause).not.toHaveBeenCalled()
+    db.close()
+  })
+
+  it('review reads the card from bus.db with GitHub offline', async () => {
+    const { db, gitHub, tick, worker } = setUp()
+    const card = '#1065 a-card-held-by-the-bus [implement/netwatch/S/cheap/auto] · depends — · blocks —\n\nThe card text the bus holds.\n'
+    appendEvent(db, { ts: '2026-10-20T10:00:00.000Z', type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 1065, pr: null, head: null, dedupeKey: 'admitted-1065', payload: { card: 1065, lane: 'lane-1', text: card, textSha: textSha(card) }, legacy: false })
+    gitHub.open({ number: 965 })
+    tick()
+    const prompts: string[] = []
+    const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-card'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {
+      gitHub.failing = true
+      prompts.push(params.prompt)
+      throw new Error('stop after the spawn')
+    })
+
+    await worker(reviewer).step()
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain(`<card>\n${card.trimEnd()}\n</card>`)
+    expect(prompts[0]).toContain('do not read the card from GitHub')
+    expect(prompts[0]).not.toContain('pull request description')
+    db.close()
+  })
+
+  it('a review of a card the bus holds no body for falls back to the pull request description', () => {
+    const lease: Lease = { taskKey: review(966), queue: 'review', cardId: 1066, pr: 966, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
+    expect(reviewPrompt(lease, fixedPlan(lease, null), '/t', '/v.json')).toContain('the first line of the pull request description')
+    expect(reviewPrompt(lease, fixedPlan(lease, null), '/t', '/v.json')).not.toContain('<card>')
   })
 
   it('a review with no runtime isolation is refused', async () => {

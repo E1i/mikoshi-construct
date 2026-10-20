@@ -3,11 +3,14 @@ import type { QueuedTask } from '../../bus/queue.js'
 import type { UpdateNodeParts } from '../../bus/update-worker.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
+import { textSha } from '../../../src/card/text-sha.js'
+import { CARD_MOVED } from '../../../src/commands/intake/index.js'
+import { DROPPED_LANE, MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { POLICY_DENIED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { keyOf, TASK_ENQUEUED, updateCandidates } from '../../bus/queue.js'
+import { CARD_CLOSED, keyOf, TASK_ENQUEUED, updateCandidates } from '../../bus/queue.js'
 import { UpdateNode } from '../../bus/update-worker.js'
 import { MAIN_2, sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -100,6 +103,22 @@ function enqueuedOf(made: MergeBench, key: string): number {
 function cursorOf(made: MergeBench): number {
   return Number((made.db.prepare(`SELECT event_id FROM ${NODE_CURSORS} WHERE kind = 'update'`).get() as { event_id: number }).event_id)
 }
+
+function admitted(made: MergeBench, cardId: number): void {
+  const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nUpdate it.\n`
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: `#${cardId}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+}
+
+function dropped(made: MergeBench, cardId: number): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_MOVED}:${cardId}`, payload: { lane: DROPPED_LANE }, legacy: false })
+}
+
+function closedAfterAnEarlierMerge(made: MergeBench, cardId: number): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: MERGE_DONE, actor: 'worker:merge:worker-0', cardId, pr: 979, head: sha('e'), dedupeKey: `${MERGE_DONE}:979`, payload: { commit: sha('f'), rule: 'auto' }, legacy: false })
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:worker-0', cardId, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${cardId}`, payload: { verification: 'run' }, legacy: false })
+}
+
+const NOT_MINE: Record<string, (made: MergeBench, cardId: number) => void> = { dropped, closed: closedAfterAnEarlierMerge }
 
 describe('the update node', () => {
   it('a behind pull request with a pass is detected by its pr.observed and by a tick', async () => {
@@ -263,5 +282,27 @@ describe('the update node', () => {
     expect(taskState(made.db, updateKey(980)).state).toBe('superseded')
     expect(detectedKeysBy(made, node)).not.toContain(updateKey(980))
     expect(made.gitHub.puts.map(put => put.fields.expected_head_sha)).toEqual([sha('b')])
+  })
+
+  it('update skips a candidate cardContract reads as not mine', async () => {
+    for (const [state, endedInTheBus] of Object.entries(NOT_MINE)) {
+      const made = bench()
+      admitted(made, 1080)
+      made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
+      made.tick()
+      detectUpdate(made)
+      endedInTheBus(made, 1080)
+      made.tick()
+      const node = nodeOf(made, 'live')
+      const asked = made.gitHub.calls.length
+      await once(node)
+      await once(node)
+
+      expect(made.gitHub.calls.slice(asked), state).toEqual([])
+      expect(made.gitHub.puts, state).toEqual([])
+      expect(eventsOf(made.db, UPDATE_DONE), state).toEqual([])
+      expect(eventsOf(made.db, POLICY_DENIED), state).toEqual([expect.objectContaining({ command: 'update_branch', kind: 'technical', reason: 'not_mine', detail: expect.stringContaining(`is ${state} in the bus`) })])
+      expect(taskState(made.db, updateKey(980)).state, state).toBe('withdrawn')
+    }
   })
 })
