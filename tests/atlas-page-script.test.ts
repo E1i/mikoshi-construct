@@ -1,8 +1,10 @@
+import type { SourceLinks } from '../src/atlas/source-link.js'
 import type { AtlasMechanics } from '../src/atlas/view.js'
 import { tmpdir } from 'node:os'
 import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { renderAtlas } from '../src/atlas/page.js'
+import { editorTemplate, RELATIVE_LINKS } from '../src/atlas/source-link.js'
 import { parseModel } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
 
@@ -91,12 +93,12 @@ interface Run {
   page: Record<string, FakeElement>
   delivered: string[]
   window: FakeElement
-  location: { hash: string }
+  location: { hash: string, href?: string }
 }
 
 const IDS = ['atlas-svg', 'atlas-viewport', 'atlas-panel', 'atlas-tip', 'atlas-search', 'atlas-results', 'atlas-legend', 'atlas-hidden', 'atlas-sort']
 
-function run(script: string, hash: string): Run {
+function run(script: string, hash: string, href?: string): Run {
   const page = Object.fromEntries(IDS.map(id => [id, new FakeElement()])) as Record<string, FakeElement>
   const viewport = page['atlas-viewport']!
   const delivered: string[] = []
@@ -110,7 +112,7 @@ function run(script: string, hash: string): Run {
   const context = {
     document: { getElementById: (id: string) => page[id] },
     window: new FakeElement(),
-    location: { hash },
+    location: { hash, href },
     MouseEvent: FakeEvent,
   }
   vm.runInNewContext(script, context)
@@ -347,5 +349,39 @@ describe('the data the script carries', () => {
     expect(html.match(/<\/script/gi)).toHaveLength(1)
     const navigated = run(scriptOf(html), '#packages/core/src/tax.ts')
     expect(navigated.page['atlas-panel']!.getAttribute('data-file')).toBe('packages/core/src/tax.ts')
+  })
+})
+
+describe('a source link opens where the manifest and the remote say', () => {
+  const SOURCE = 'src/x.ts'
+  const LINKED: AtlasMechanics = {
+    components: [SOURCE, 'src/y.ts'].map(file => ({ id: file, path: file, relations: 'found' as const })),
+    relations: [found(SOURCE, 'src/y.ts', 7, 'imports', './y.js')],
+  }
+
+  function linkedPage(links: SourceLinks): string {
+    const model = parseModel(JSON.stringify(DOCUMENT), 'M')
+    return renderAtlas({ projectName: 'shop', model, states: deriveModelState(model, tmpdir()), mechanics: LINKED, links }, 'construct.model.json', '..')
+  }
+
+  it('with the vscode template a source link is vscode://file/<root from location>/src/x.ts:N', () => {
+    const opened = run(scriptOf(linkedPage({ template: editorTemplate('vscode'), remote: null })), `#${SOURCE}`, `file:///Users/someone/my%20shop/.construct/atlas.html#${SOURCE}`)
+    const panel = opened.page['atlas-panel']!.innerHTML
+    expect(panel).toContain(`href="vscode://file/Users/someone/my%20shop/${SOURCE}:7"`)
+    expect(panel).toContain(`href="vscode://file/Users/someone/my%20shop/${SOURCE}:1" data-source=""`)
+  })
+
+  it('a page opened over http skips the editor template for the remote, then for the relative link', () => {
+    const remote = 'https://github.com/acme/shop/blob/0123456789abcdef0123456789abcdef01234567'
+    const served = run(scriptOf(linkedPage({ template: editorTemplate('vscode'), remote })), `#${SOURCE}`, `http://localhost/atlas.html#${SOURCE}`)
+    expect(served.page['atlas-panel']!.innerHTML).toContain(`href="${remote}/${SOURCE}#L7"`)
+    const relative = run(scriptOf(linkedPage(RELATIVE_LINKS)), `#${SOURCE}`, `file:///Users/someone/shop/.construct/atlas.html#${SOURCE}`)
+    expect(relative.page['atlas-panel']!.innerHTML).toContain(`href="../${SOURCE}" data-source=""`)
+  })
+
+  it('refuses a template whose scheme runs script, and keeps the relative link', () => {
+    expect(editorTemplate('javascript:alert({abs})')).toBeNull()
+    expect(editorTemplate('vscode://file/{abs}:{line}')).toBe('vscode://file/{abs}:{line}')
+    expect(editorTemplate(undefined)).toBeNull()
   })
 })

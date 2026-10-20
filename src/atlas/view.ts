@@ -2,6 +2,7 @@ import type { AbilityFinding } from '../model/ability.js'
 import type { PictureClass } from '../model/graph.js'
 import type { AbilityNode, Fact, Mechanics, RepositoryModel } from '../model/schema.js'
 import type { EngramStateReport } from '../model/state.js'
+import type { SourceLinks } from './source-link.js'
 import { factClass, factLines, reportBackedIn, RUNTIME_REPORT } from '../model/graph.js'
 
 export type AtlasMechanics = Pick<Mechanics, 'components' | 'relations'> & Partial<Pick<Mechanics, 'contours'>>
@@ -11,6 +12,7 @@ export interface AtlasInput {
   model: RepositoryModel
   states: EngramStateReport
   mechanics?: AtlasMechanics
+  links?: SourceLinks
 }
 
 export interface AtlasEvidence {
