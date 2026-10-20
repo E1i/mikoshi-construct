@@ -71,6 +71,15 @@ export function isClaude(row: ProcessRow): boolean {
   return row.args.split(/\s+/).slice(0, ARGV_HEAD_NAMING_THE_PROGRAM).some(word => path.basename(word) === CLAUDE)
 }
 
+export function sessionClaudeOf(table: () => ProcessRow[], pid: number): number | undefined {
+  try {
+    return ancestors(table(), pid).find(isClaude)?.pid
+  }
+  catch {
+    return undefined
+  }
+}
+
 export function isMikoLoop(row: ProcessRow): boolean {
   return row.args.includes(LOOP_SCRIPT)
 }
@@ -196,22 +205,8 @@ export function runMikoExit(deps: MikoExitDeps): number {
   return 0
 }
 
-export function isNestedClaude(chain: ProcessRow[]): boolean {
-  const at = chain.findIndex(isClaude)
-  return at !== -1 && chain.slice(at + 1).some(isClaude)
-}
-
-export function loopRequestOf(env: NodeJS.ProcessEnv, chain: () => ProcessRow[]): string | undefined {
-  if (env[LOOP_PID_VARIABLE] === undefined)
-    return undefined
-  try {
-    return isNestedClaude(chain()) ? undefined : env[EXIT_REQUEST_VARIABLE]
-  }
-  catch (error) {
-    if (isPermissionDenied(error))
-      return env[EXIT_REQUEST_VARIABLE]
-    throw error
-  }
+export function loopRequestOf(env: NodeJS.ProcessEnv): string | undefined {
+  return env[LOOP_PID_VARIABLE] === undefined ? undefined : env[EXIT_REQUEST_VARIABLE]
 }
 
 function mtimeOf(file: string): number | undefined {
@@ -232,10 +227,10 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
     handoffMtime: () => mtimeOf(handoff),
     now: () => Date.now(),
     kill: pid => process.kill(pid, 'SIGTERM'),
-    loopRequest: loopRequestOf(process.env, () => ancestors(table(), process.pid)),
+    loopRequest: loopRequestOf(process.env),
     requestEnd: (request) => {
       mkdirSync(path.dirname(request), { recursive: true })
-      writeFileSync(request, `${process.pid}\n`)
+      writeFileSync(request, `${sessionClaudeOf(table, process.pid) ?? ''}\n`)
     },
     err: line => console.error(line),
     readings: () => realExitReadings(process.env, os.homedir(), root, defaultBusPath()),

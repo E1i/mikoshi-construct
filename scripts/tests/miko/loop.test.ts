@@ -11,7 +11,8 @@ import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { failRaise, leaseRole, observeRoleStop, ROLE_RETURNED, roleToOwner } from '../../bus/role.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
-import { CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
+import { parsePs } from '../../miko/exit.js'
+import { CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -555,7 +556,7 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     mkdirSync(path.dirname(mine), { recursive: true })
     const ending = runSession('sleep 30', undefined, mine, POLL_MS)
     const staying = runSession('sleep 1', undefined, other, POLL_MS)
-    setTimeout(writeFileSync, 100, mine, '1\n')
+    setTimeout(writeFileSync, 100, mine, '\n')
     expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
     expect(await staying).toEqual({ code: 0, signal: null })
   }, 10_000)
@@ -572,7 +573,7 @@ describe('the loop owns the end of a session: a request file asks it to end the 
   it('ends the session with SIGTERM when a request appears, and removes the request', async () => {
     const file = request()
     const ending = runSession('sleep 30', undefined, file, POLL_MS)
-    setTimeout(writeFileSync, 100, file, '1\n')
+    setTimeout(writeFileSync, 100, file, '\n')
     expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
     expect(existsSync(file)).toBe(false)
   }, 10_000)
@@ -591,7 +592,7 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     writeFileSync(session, `#!/bin/sh\necho "$PPID" > '${seen}'\nexec sleep 30\n`, { mode: 0o755 })
     const ending = runSession(session, undefined, file, POLL_MS)
     await waitFor(() => existsSync(seen) && readFileSync(seen, 'utf8').trim() !== '', () => 'the session to name its parent', 5_000)
-    writeFileSync(file, '1\n')
+    writeFileSync(file, '\n')
     expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
     expect(readFileSync(seen, 'utf8').trim()).toBe(String(process.pid))
   }, 10_000)
@@ -618,6 +619,37 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     expect(compoundCommandRefusal('true && sleep 30')).toBe(`${PREFIX}${CLAUDE_VARIABLE} contains shell syntax (true && sleep 30): an exit request could not end the claude it starts; name one command`)
     expect(compoundCommandRefusal(DEFAULT_CLAUDE)).toBeNull()
     expect(compoundCommandRefusal('MIKO_SEEN=yes /opt/claude')).toBeNull()
+  })
+
+  describe('an exit request ends the session only from a pid that descends from the claude the loop started', () => {
+    const table = parsePs(' 10 1 node tsx scripts/miko/loop.ts\n 11 10 claude\n 12 11 zsh\n 13 12 node exit.ts\n 20 1 zsh\n 21 20 claude\n 22 21 node exit.ts\n')
+
+    it('ends it for a pid under the session', () => {
+      expect(requestEndsSession(table, 13, 11)).toBe(true)
+    })
+
+    it('ends it when the request names the session claude itself', () => {
+      expect(requestEndsSession(table, 11, 11)).toBe(true)
+    })
+
+    it('ignores a pid outside the session, including one under another claude', () => {
+      expect(requestEndsSession(table, 22, 11)).toBe(false)
+      expect(requestEndsSession(table, 1, 11)).toBe(false)
+    })
+
+    it('ends it when the table cannot be read or the request names no pid', () => {
+      expect(requestEndsSession(null, 22, 11)).toBe(true)
+      expect(requestEndsSession(table, undefined, 11)).toBe(true)
+    })
+
+    it('reads the requester pid from the request file', () => {
+      const file = request()
+      writeFileSync(file, '13\n')
+      expect(requesterOf(file)).toBe(13)
+      writeFileSync(file, 'junk\n')
+      expect(requesterOf(file)).toBeUndefined()
+      expect(requesterOf(`${file}.missing`)).toBeUndefined()
+    })
   })
 
   it('names the loop and the request to the session through its environment', async () => {
