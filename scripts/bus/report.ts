@@ -275,15 +275,27 @@ function replayLine(db: DatabaseSync): string {
   return `${EXIT_CRITERIA.replay}: ${differences.length === 0 ? `none, ${live} bytes identical` : differences.join(' | ')}`
 }
 
-export function shadowProblems(db: DatabaseSync, gitHub: GitHub, nowMs: () => number): string[] {
+export interface ShadowReading {
+  headLag: string[]
+  problems: string[]
+}
+
+export function shadowReading(db: DatabaseSync, gitHub: GitHub, nowMs: () => number): ShadowReading {
   const { mismatches, missing, headMismatches } = compared(db, gitHub, nowMs)
   const { differences } = replayDifferences(db)
-  return [
-    ...mismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
-    ...missing.map(pr => `${EXIT_CRITERIA.prs}: ${pr} open on GitHub, missing here`),
-    ...headMismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
-    ...differences.map(difference => `${EXIT_CRITERIA.replay}: ${difference}`),
-  ]
+  return {
+    headLag: headMismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
+    problems: [
+      ...mismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
+      ...missing.map(pr => `${EXIT_CRITERIA.prs}: ${pr} open on GitHub, missing here`),
+      ...differences.map(difference => `${EXIT_CRITERIA.replay}: ${difference}`),
+    ],
+  }
+}
+
+export function shadowProblems(db: DatabaseSync, gitHub: GitHub, nowMs: () => number): string[] {
+  const { headLag, problems } = shadowReading(db, gitHub, nowMs)
+  return [...problems, ...headLag]
 }
 
 export function shadowReport(db: DatabaseSync, gitHub: GitHub, since: string, nowMs: () => number): string[] {
