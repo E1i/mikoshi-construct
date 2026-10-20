@@ -9,6 +9,7 @@ export function beatsLive(ts: string, nowMs: number): boolean {
 
 export const KNOWN_LIVENESS_SITES = 'scripts/bus/liveness-sites.known.json'
 export const LIVENESS_JUDGE = 'scripts/bus/supervisor.ts'
+export const LIVENESS_RULE = 'scripts/bus/liveness-sites.ts'
 
 const SCANNED_ROOTS = ['scripts', 'src']
 const UNSCANNED = 'scripts/tests/'
@@ -22,9 +23,9 @@ export interface LivenessSite {
 }
 
 const PATTERNS: Record<LivenessKind, RegExp> = {
-  'ps': /\b(?:execFileSync|execFile|spawnSync|spawn)\(\s*'ps'/,
-  'pid-file': /\.pid['"`]/,
-  'kill': /\bprocess\.kill\(/,
+  'ps': /['"`]ps['"`\s]|\bps\s+-\w|\bpgrep\b/,
+  'pid-file': /\.pid['"`]|\bpid[-_]?file\b/i,
+  'kill': /\bkill\(|['"`]p?kill['"`\s]|\bkillall\b/,
 }
 
 function siteKey(site: LivenessSite): string {
@@ -36,7 +37,7 @@ export function sortedLivenessSites(sites: LivenessSite[]): LivenessSite[] {
 }
 
 export function livenessSites(sources: ReadonlyMap<string, string>): LivenessSite[] {
-  return sortedLivenessSites([...sources].filter(([file]) => file !== LIVENESS_JUDGE).flatMap(([file, text]) =>
+  return sortedLivenessSites([...sources].filter(([file]) => file !== LIVENESS_JUDGE && file !== LIVENESS_RULE).flatMap(([file, text]) =>
     (Object.keys(PATTERNS) as LivenessKind[]).filter(kind => PATTERNS[kind].test(text)).map(kind => ({ file, kind }))))
 }
 

@@ -14,7 +14,7 @@ import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLea
 import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../bus/liveness-sites.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, restartSilent, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
 
@@ -945,7 +945,9 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     return db.prepare('SELECT actor, payload FROM events WHERE type = ? ORDER BY id').all(PROCESS_JUDGED).map(row => ({ actor: String(row.actor), payload: JSON.parse(String(row.payload)) as Record<string, unknown> }))
   }
 
-  it('a process without a heartbeat past SILENT_MS is judged silent by the supervisor alone', () => {
+  const expecting = (...names: string[]): (() => (name: string) => boolean) => () => name => names.includes(name)
+
+  it('a process without a heartbeat past SILENT_MS is judged silent by the supervisor alone', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-'))
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
@@ -955,24 +957,61 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     recordHeartbeat(db, at(0), { card: 1160, pr: null, head: null, step: 'launch', session: 's-1160', lease: null })
     recordWindowHeartbeat(db, at(SILENT_MS), 'w-1')
     expect(lastProcessBeats(db).map(beat => beat.process)).toEqual(['bus:merge', `${CARD_PROCESS}1160`, 'netwatch', `${WINDOW_PROCESS}w-1`])
-    const judge = new LivenessJudge(db, () => clock.now)
+    const restarted: string[] = []
+    const judge = new LivenessJudge(db, () => clock.now, expecting('bus:merge', 'netwatch', `${CARD_PROCESS}1160`, SUPERVISOR_PROCESS), async (name) => {
+      restarted.push(name)
+      return []
+    })
 
-    expect(judge.step()).toEqual([])
+    expect(await judge.step()).toEqual([])
     expect(judgedRows(db)).toEqual([])
 
     clock.now += 1
-    expect(judge.step().join('\n')).toContain(`bus:merge has not beaten for ${SILENT_MS / 60_000} min`)
+    expect((await judge.step()).join('\n')).toContain(`bus:merge has not beaten for ${SILENT_MS / 60_000} min`)
     expect(judgedRows(db)).toEqual([
       { actor: JUDGE_ACTOR, payload: { process: 'bus:merge', verdict: 'silent', last_beat: at(0), silent_ms: SILENT_MS + 1, limit_ms: SILENT_MS } },
       { actor: JUDGE_ACTOR, payload: { process: `${CARD_PROCESS}1160`, verdict: 'silent', last_beat: at(0), silent_ms: SILENT_MS + 1, limit_ms: SILENT_MS } },
     ])
-    expect(judge.step()).toEqual([])
+    expect(restarted).toEqual(['bus:merge', `${CARD_PROCESS}1160`])
+    expect(await judge.step()).toEqual([])
     expect(judgedRows(db)).toHaveLength(2)
     expect(lastProcessBeats(db).find(beat => beat.process === SUPERVISOR_PROCESS)?.ts).toBe(at(SILENT_MS))
 
     const writers = [...livenessSources(path.resolve(import.meta.dirname, '..', '..', '..'))].filter(([, text]) => text.includes('PROCESS_JUDGED') || text.includes('recordJudged')).map(([file]) => file)
     expect(writers).toEqual([LIVENESS_JUDGE])
     db.close()
+  })
+
+  it('a process that finished cleanly is not judged: a final beat, a card no longer running, a window', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-clean-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    recordProcessHeartbeat(db, at(0), 'bus:review')
+    recordProcessHeartbeat(db, at(1), 'bus:review', true)
+    recordHeartbeat(db, at(0), { card: 1170, pr: null, head: null, step: 'launch', session: 's-1170', lease: null })
+    recordWindowHeartbeat(db, at(0), 'w-2')
+    const judge = new LivenessJudge(db, () => BEAT_AT + 2 * SILENT_MS, () => expectedRunning(db, [workerLaunches(() => []).review]))
+
+    expect(await judge.step()).toEqual([])
+    expect(judgedRows(db)).toEqual([])
+    db.close()
+  })
+
+  it('a silent worker the supervisor wants is restarted by its own stop and start', async () => {
+    const merge = workerLaunches(() => []).merge
+    let alive: RunningProcess[] = [{ pid: 7, args: `node pnpm.cjs --silent ${launchName(merge)} --on` }]
+    const stopped: number[] = []
+    const lines = await restartSilent(launchName(merge), [merge], {
+      processes: () => alive,
+      stop: async (running) => {
+        stopped.push(running.pid)
+        alive = []
+      },
+      start: ok,
+    })
+    expect(stopped).toEqual([7])
+    expect(lines).toEqual([`${PREFIX}${launchName(merge)} was judged silent; restarting it`, `${PREFIX}pnpm ${launchName(merge)}`])
+    expect(await restartSilent(`${CARD_PROCESS}1160`, [merge], { processes: () => alive, stop: async () => {}, start: ok })).toEqual([])
   })
 })
 

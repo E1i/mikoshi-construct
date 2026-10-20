@@ -31,6 +31,23 @@ describe('only the supervisor judges liveness, and every other ps, pid file and 
     expect(unrecordedLivenessSites(livenessSites(withExtra(LIVENESS_JUDGE, `process.kill(1, 0)`)), known)).toEqual([])
   })
 
+  it('a ps, pid file or kill spelled another way is still a site', () => {
+    const spellings = [
+      `const PS = 'ps'\nexecFileSync(PS, ['-ax'])`,
+      `execSync('ps -axo pid=,args=')`,
+      `spawnSync('sh', ['-c', 'pgrep -f bus'])`,
+      `const { kill } = process\nkill(1, 'SIGTERM')`,
+      `child.kill('SIGKILL')`,
+      `execFileSync('kill', ['-9', '1'])`,
+      `execSync('pkill -f bus')`,
+      `const pidFile = path.join(dir, 'bus')`,
+    ]
+    for (const [index, spelling] of spellings.entries()) {
+      const file = `scripts/bus/sneak-${index}.ts`
+      expect(livenessSites(new Map([[file, spelling]])).map(site => site.file), spelling).toEqual([file])
+    }
+  })
+
   it('a recorded site that is gone fails, so the list only shrinks', () => {
     const gone = { file: 'scripts/bus/netwatch.ts', kind: 'ps' } as const
     expect(staleLivenessSites(found, [...known, gone])).toEqual([gone])

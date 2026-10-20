@@ -29,12 +29,12 @@ const LAST_HEARTBEAT = `
 `
 
 const LAST_PROCESS_BEATS = `
-  SELECT name, max(ts) AS ts FROM (
-    SELECT json_extract(payload, '$.process') AS name, ts FROM events WHERE type = '${PROCESS_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
+  SELECT name, max(ts) AS ts, final FROM (
+    SELECT json_extract(payload, '$.process') AS name, ts, coalesce(json_extract(payload, '$.final'), 0) AS final FROM events WHERE type = '${PROCESS_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
     UNION ALL
-    SELECT '${CARD_PROCESS}' || card_id AS name, ts FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL
+    SELECT '${CARD_PROCESS}' || card_id AS name, ts, 0 AS final FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL
     UNION ALL
-    SELECT '${WINDOW_PROCESS}' || json_extract(payload, '$.session') AS name, ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
+    SELECT '${WINDOW_PROCESS}' || json_extract(payload, '$.session') AS name, ts, 0 AS final FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
   )
   WHERE name IS NOT NULL
   GROUP BY name
@@ -44,14 +44,15 @@ const LAST_PROCESS_BEATS = `
 export interface ProcessBeat {
   process: string
   ts: string
+  final: boolean
 }
 
-export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string): boolean {
-  return appendEvent(db, { ts, type: PROCESS_HEARTBEAT, actor: `worker:process:${name.replaceAll(':', '-')}`, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_HEARTBEAT}:${name}:${ts}`, payload: { process: name }, legacy: false })
+export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string, final = false): boolean {
+  return appendEvent(db, { ts, type: PROCESS_HEARTBEAT, actor: `worker:process:${name.replaceAll(':', '-')}`, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_HEARTBEAT}:${name}:${ts}${final ? ':final' : ''}`, payload: { process: name, ...(final ? { final: true } : {}) }, legacy: false })
 }
 
 export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {
-  return (db.prepare(LAST_PROCESS_BEATS).all() as { name: string, ts: string }[]).map(row => ({ process: row.name, ts: row.ts }))
+  return (db.prepare(LAST_PROCESS_BEATS).all() as { name: string, ts: string, final: number }[]).map(row => ({ process: row.name, ts: row.ts, final: Number(row.final) === 1 }))
 }
 
 export interface HeldLease {
