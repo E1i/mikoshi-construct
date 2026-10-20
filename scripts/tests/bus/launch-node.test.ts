@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { COVERING_REASON, runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { CARD_FELL, DROPPED_CARD, DROPPED_LANE, GHOST_ROW, PR_OPENED, STOPPED_CARD } from '../../bus/card-automaton.js'
@@ -515,6 +516,24 @@ describe('the launch node', () => {
     expect(node.found()).toEqual([launchKey(1103)])
     made.tick()
     expect(taskState(made.db, launchKey(1103))).toMatchObject({ state: 'queued' })
+  })
+
+  it('two cards sharing only runs do not overlap', async () => {
+    const made = bench()
+    const shared = 'scripts/tests/bus/shared.test.ts'
+    const admitRunning = (cardId: number, lane: string, touches: string[], body: string): void => {
+      const text = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches, continue: 'stop', who: 'shift', body })
+      appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}`, text }, legacy: false })
+    }
+    admitRunning(1104, 'lane-a', ['scripts/bus/a.ts', shared], `Do the card.\n\ncorrected: touches — (absent) → ${shared} — ${COVERING_REASON}`)
+    made.tick()
+    const processes: ProcessTable = { commandLine: () => 'sh -c claude -p --session-id s-1104', signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, isolation: sandboxed })
+    await once(node)
+    admitRunning(1105, 'lane-b', ['scripts/bus/b.ts', shared], `Do the card.\n\n${runsLine([shared])}`)
+    expect(node.found()).toEqual([launchKey(1105)])
+    made.tick()
+    expect(launchRows(made, 1105)).toBe(1)
   })
 
   it('a live launched session writes a pulse to the bus every N minutes', async () => {

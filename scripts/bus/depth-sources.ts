@@ -1,7 +1,8 @@
-import type { DepthSources, ReviewPlanner } from './review-depth.js'
+import type { CardScope, DepthSources, ReviewPlanner } from './review-depth.js'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { runsOf } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { predict } from '../morse/predict.js'
 import { parkedCardFile } from './card-archive.js'
@@ -13,12 +14,12 @@ function git(repo: string, args: string[]): string {
   return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
-function cardTouches(parking: string, cardId: number): string[] | null {
+function cardScope(parking: string, cardId: number): CardScope | null {
   const file = parkedCardFile(parking, cardId)
   if (file === undefined)
     return null
   const parsed = parseParkingFile(path.basename(file), readFileSync(file, 'utf8'))
-  return parsed.kind === 'parked' ? parsed.parked.task.touches : null
+  return parsed.kind === 'parked' ? { touches: parsed.parked.task.touches, runs: runsOf(parsed.parked.task.body) } : null
 }
 
 export function gitDepthSources(repo: string, journal: string, parking: string): DepthSources {
@@ -29,7 +30,7 @@ export function gitDepthSources(repo: string, journal: string, parking: string):
       const { line, files } = predict({ task, base, head, journal, repo })
       return { prediction: line, files: files.map(file => file.path) }
     },
-    touches: cardId => cardTouches(parking, cardId),
+    scope: cardId => cardScope(parking, cardId),
   }
 }
 
