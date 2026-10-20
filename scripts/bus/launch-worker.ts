@@ -28,13 +28,13 @@ import { NOT_A_BACKFILL } from './backfill-source.js'
 import { GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
-import { heartbeatEnv } from './heartbeat.js'
+import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { LadderCardStarter } from './ladder-starter.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
-import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
+import { cardCommand, HTTPS_ORIGIN_ENV, killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
 import { TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
 import { Node, prefixOf, runNode } from './node.js'
@@ -47,9 +47,17 @@ import { REDUCED } from './reducer.js'
 export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
 
+export function launchDirOf(home: string): string {
+  return path.join(home, '.construct', 'shift', LAUNCH_DIR)
+}
+
 export const LAUNCH_LIMIT_MINUTES = 600
 
 const LAUNCH_LIMIT_MS = LAUNCH_LIMIT_MINUTES * 60_000
+
+export const HEARTBEAT_SILENCE_MINUTES = 20
+
+const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
 
 const LEGACY_MERGE = 'merge'
 const LEGACY_PATH = 'path'
@@ -99,7 +107,9 @@ export const SESSION_DEATH_CAP = 3
 
 const SESSION_DEATHS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND dedupe_key LIKE '${CARD_STOPPED}:session-end:%'`
 
-const GHOST_ROW_SINCE = `SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
+const PR_SINCE = `SELECT 1 FROM events WHERE card_id = ? AND id > ? AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') LIMIT 1`
+
+const GHOST_ROW_SINCE =`SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
 
 export const SESSIONLESS_LADDER_STEP = 'launch'
 
@@ -146,19 +156,33 @@ export class LaunchNode extends Node<LaunchStep> {
           stopped.push(start.card_id)
         continue
       }
-      if (this.parts.clock().getTime() - Date.parse(start.ts) < LAUNCH_LIMIT_MS)
+      const now = this.parts.clock().getTime()
+      if (now - Date.parse(start.ts) >= LAUNCH_LIMIT_MS) {
+        if (this.stopLive(start, card, 'time-limit', `card #${start.card_id} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}`))
+          stopped.push(start.card_id)
         continue
-      if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'live')
-        continue
-      this.starters[card.contour]?.stop(card)
-      if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
-        continue
-      const detail = `time-limit: card #${start.card_id} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}`
-      const recorded = appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:time-limit:${start.dedupe_key}`, payload: { reason: 'fault', detail }, legacy: false })
-      if (recorded)
-        stopped.push(start.card_id)
+      }
+      const sign = this.lastSignOf(start)
+      if (card.step !== SESSIONLESS_LADDER_STEP && now - Date.parse(sign) >= HEARTBEAT_SILENCE_MS && this.db.prepare(PR_SINCE).get(start.card_id, start.id) === undefined) {
+        if (this.stopLive(start, card, 'no-heartbeat', `card #${start.card_id} session ${card.session} has no pull request and no heartbeat for ${HEARTBEAT_SILENCE_MINUTES} minutes since ${sign}`))
+          stopped.push(start.card_id)
+      }
     }
     return stopped
+  }
+
+  private lastSignOf(start: RunningStart): string {
+    const beat = lastHeartbeat(this.db, start.card_id)
+    return beat !== null && Date.parse(beat.ts) > Date.parse(start.ts) ? beat.ts : start.ts
+  }
+
+  private stopLive(start: RunningStart, card: StartedCard, cause: string, why: string): boolean {
+    if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'live')
+      return false
+    this.starters[card.contour]?.stop(card)
+    if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
+      return false
+    return appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, payload: { reason: 'fault', detail: `${cause}: ${why}` }, legacy: false })
   }
 
   private endedWithoutResult(start: RunningStart, card: StartedCard): boolean {
@@ -282,7 +306,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     pgidOf: psPgid,
     kill: killQuietly,
     uuid,
-    envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }) }),
+    envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
     prompt: (task, places) => renderPrompt(header, task, places),
   }
 }
@@ -324,7 +348,7 @@ async function main(): Promise<number> {
   const env = process.env
   const places = {
     parking: defaultParking(os.homedir()),
-    launchDir: path.join(os.homedir(), '.construct', 'bus', LAUNCH_DIR),
+    launchDir: launchDirOf(os.homedir()),
     claude: 'claude',
     treePr: treePrCommand(process.cwd()),
   }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
-import { busPrOpened, PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
+import { busCardStopped, busPrOpened, PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
 
 const roots: string[] = []
 
@@ -97,9 +97,12 @@ const FORMAT_GAPS: Record<string, { diff: ShiftedDiff, gaps: string[] }> = {
 
 function NOT_OPENED(): void {}
 
+function NOT_STOPPED(): void {}
+
 function shiftedPorts(diff: ShiftedDiff, bodies: string[]): TreePrCliPorts {
   return {
     opened: NOT_OPENED,
+    stopped: NOT_STOPPED,
     git: (_cwd, args) => {
       if (args[0] === 'status')
         return ''
@@ -138,10 +141,42 @@ describe('tree-pr for a finished card session', () => {
     roots.push(root)
     const cardFile = path.join(root, 'lane-q', '951.md')
     const lines: string[] = []
+    const stops: [number, string][] = []
 
-    const code = runTreePr([cardFile, root], { git: untouchable, gh: untouchable, opened: untouchable }, line => lines.push(line))
+    const code = runTreePr([cardFile, root], { git: untouchable, gh: untouchable, opened: untouchable, stopped: (cardId, why) => stops.push([cardId, why]) }, line => lines.push(line))
 
-    expect({ code, lines }).toEqual({ code: 1, lines: [`${PREFIX}951.md: the card file ${cardFile} is gone (moved to another lane or archived while the session ran); the tree is left uncommitted`] })
+    const why = `the card file ${cardFile} is gone (moved to another lane or archived while the session ran); the tree is left uncommitted`
+    expect({ code, lines, stops }).toEqual({ code: 1, lines: [`${PREFIX}951.md: ${why}`], stops: [[951, why]] })
+  })
+
+  it('a tree-pr refusal after a launched session gives card.stopped with its reason', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+    roots.push(root)
+    const { diff, gaps } = FORMAT_GAPS['tests shrunk on a cheap card with an assertion removed']!
+    const { cardFile } = parkCard(root, diff.contour)
+    const busPath = path.join(root, 'bus.db')
+    const bus = { busPath, pid: 4242, now: () => new Date('2026-10-20T05:00:00.000Z'), err: untouchable }
+
+    const code = runTreePr([cardFile, root], { ...shiftedPorts(diff, []), opened: untouchable, stopped: busCardStopped(bus) }, () => {})
+
+    const db = openBus(busPath)
+    const events = db.prepare(`SELECT type, actor, card_id, pr, dedupe_key, payload FROM events WHERE type = 'card.stopped'`).all()
+    db.close()
+    const detail = `tree-pr: card #951: the shift opened no pull request for feat/x: it lacks ${gaps.join('; ')}`
+    expect({ code, events }).toEqual({ code: 1, events: [{ type: 'card.stopped', actor: 'worker:shift:4242', card_id: 951, pr: null, dedupe_key: 'card.stopped:tree-pr:951:2026-10-20T05:00:00.000Z', payload: JSON.stringify({ reason: 'fault', detail }) }] })
+  })
+
+  it('a pull request opened or a clean tree writes no card.stopped', () => {
+    const { diff } = PATH_LINES['scripts on a ladder card']!
+    const observed = [diff, { ...diff, files: [] }].map((shifted) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+      roots.push(root)
+      const { cardFile } = parkCard(root, shifted.contour)
+      const ports = shiftedPorts(shifted, [])
+      return runTreePr([cardFile, root], { ...ports, git: (cwd, args) => args[0] === 'rev-list' && shifted.files.length === 0 ? '0\n' : ports.git(cwd, args), stopped: untouchable }, () => {})
+    })
+
+    expect(observed).toEqual([0, 0])
   })
 
   it('the PR body names the path and its reason after the card line', () => {
