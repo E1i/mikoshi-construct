@@ -16,6 +16,7 @@ import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-co
 import { formatTokens } from '../../src/commands/cost/expect.js'
 import { MUTATION_JUDGED_EVENT } from '../../src/commands/mutate/journal.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
+import { NOT_A_BACKFILL } from '../bus/backfill-source.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db.js'
 import { legacyHistory } from '../bus/legacy-history.js'
 import { openDatabase } from '../bus/sqlite.js'
@@ -219,14 +220,18 @@ function cloudStartOf(lines: Record<string, unknown>[], id: string): StartLine |
   return start === undefined ? undefined : { event: 'path', task: id, path: start.card.contour, session: start.run, card: start.card }
 }
 
-const LATEST_ADMITTED = `SELECT payload FROM events WHERE type = 'card.admitted' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
+const LATEST_ADMITTED_WITH_A_CARD = `
+  SELECT payload FROM events
+  WHERE type = 'card.admitted' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} AND json_type(payload, '$.card') = 'text'
+  ORDER BY id DESC LIMIT 1
+`
 
 function admittedCardOf(busPath: string, id: string): Card | undefined {
   if (!existsSync(busPath) || !PR_NUMBER.test(id))
     return undefined
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const row = db.prepare(LATEST_ADMITTED).get(Number(id)) as { payload: string } | undefined
+    const row = db.prepare(LATEST_ADMITTED_WITH_A_CARD).get(Number(id)) as { payload: string } | undefined
     const line = row === undefined ? undefined : journalLines(row.payload)[0]?.card
     const parsed = typeof line === 'string' ? parseCard(line) : undefined
     return parsed?.kind === 'card' ? parsed.card : undefined
