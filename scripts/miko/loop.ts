@@ -160,6 +160,27 @@ function runSession(command: string, prompt: string | undefined): Promise<Sessio
   })
 }
 
+export const HANGUPS = ['SIGHUP', 'SIGTERM'] as const
+
+export function once(work: () => void): () => void {
+  let done = false
+  return () => {
+    if (done)
+      return
+    done = true
+    work()
+  }
+}
+
+export function endOnHangup(ended: () => void, exit: (code: number) => void): void {
+  for (const signal of HANGUPS) {
+    process.on(signal, () => {
+      ended()
+      exit(128 + os.constants.signals[signal])
+    })
+  }
+}
+
 export function claudeCommand(env: NodeJS.ProcessEnv): string {
   return env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
 }
@@ -169,12 +190,14 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   process.on('SIGINT', ctrlC.press)
   const handoff = mikoHandoff(os.homedir())
   const command = claudeCommand(process.env)
+  const ended = once(() => windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) })('close'))
+  endOnHangup(ended, code => process.exit(code))
   process.exitCode = await runMikoLoop({
     status: () => statusOfFile(handoff),
     handoffMtime: () => mtimeOf(handoff),
     ...sessionAndPauseSharingCtrlCs(ctrlC, prompt => runSession(command, prompt)),
     doubleCtrlC: ctrlC.seen,
     err: line => console.error(line),
-    ended: () => windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) })('close'),
+    ended,
   })
 }

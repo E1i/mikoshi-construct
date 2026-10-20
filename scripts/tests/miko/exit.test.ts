@@ -305,6 +305,15 @@ describe('pnpm miko:exit reports the end of the window', () => {
     expect(exit({ readings: () => AT_CONTEXT }).ends).toEqual([])
     expect(exit({ readings: () => BELOW }).ends).toEqual([])
   })
+
+  it('each exit reports at most one end, whatever the status and the readings', () => {
+    for (const status of ['DONE', 'CONTINUE', 'OWNER']) {
+      for (const readings of [UNREAD, BELOW, AT_CONTEXT, AT_SPEND]) {
+        for (const table of [underLoop, outsideLoop])
+          expect(exit({ table: () => table, status: () => status, readings: () => readings, raised: false }).ends.length).toBeLessThanOrEqual(1)
+      }
+    }
+  })
 })
 
 describe('a Miko window outside the pnpm miko loop that stops at a threshold', () => {

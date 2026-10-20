@@ -125,11 +125,12 @@ export function runMikoExit(deps: MikoExitDeps): number {
     deps.err(`${PREFIX}${decision.refuse}`)
     return 1
   }
-  if (decision.reason === 'done')
-    deps.endWindow?.('miko:exit')
   if (decision.stopped === true) {
     deps.endWindow?.('eddies')
     deps.observeStop?.({ role: 'miko', handoff: deps.handoff ?? '', status: RAISED_STATUS, reason: decision.reason, raised: deps.raised ?? false })
+  }
+  else if (decision.reason === 'done') {
+    deps.endWindow?.('miko:exit')
   }
   try {
     deps.recordExit(exitLineOf(readings, decision.reason, new Date(deps.now()).toISOString()))
