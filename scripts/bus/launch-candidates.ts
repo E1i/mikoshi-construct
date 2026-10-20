@@ -45,6 +45,8 @@ const OPEN_LAUNCHES = `SELECT card_id FROM tasks WHERE queue = 'launch' AND stat
 
 const OPEN_PR_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'open' AND card_id IS NOT NULL`
 
+const ENDED_CARDS = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged', 'stopped')`
+
 const STARTED_TREES = `
   SELECT DISTINCT card_id, json_extract(payload, '$.worktree') AS worktree FROM events
   WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, '$.worktree') = 'text'
@@ -215,11 +217,12 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const launching = cardSet(db, OPEN_LAUNCHES)
   const openPrs = cardSet(db, OPEN_PR_CARDS)
   const liveTrees = cardsWithLiveTree(db, treeLive)
+  const ended = cardSet(db, ENDED_CARDS)
   const falls = fallCounts(db)
   const busy = new Set<string>()
   const taken: ShiftTask[] = []
   for (const life of lives.values()) {
-    const running = life.started && !life.closed && !merged.has(life.cardId)
+    const running = life.started && !life.closed && !merged.has(life.cardId) && !ended.has(life.cardId)
     if (life.lane !== null && (running || launching.has(life.cardId)))
       busy.add(life.lane)
     if ((running || launching.has(life.cardId)) && life.task !== null)

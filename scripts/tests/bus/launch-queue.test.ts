@@ -11,7 +11,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { runIntake } from '../../../src/commands/intake/index.js'
+import { CARD_MOVED, runIntake } from '../../../src/commands/intake/index.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
@@ -230,6 +230,20 @@ describe('the launch queue', () => {
     expect(taskState(bench.db, launch(922))).toMatchObject({ state: 'queued' })
     expect(taskState(bench.db, launch(924))).toBeUndefined()
     expect(taskState(bench.db, launch(925))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a dropped card that had started holds neither its lane nor its touches', () => {
+    const bench = launchBench()
+    bench.admitTouching(889, 'lane-a', ['scripts/bus/queue.ts', 'scripts/bus/answer-worker.ts'])
+    bench.started(889)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_MOVED, actor: 'policy', cardId: 889, pr: null, head: null, dedupeKey: `${CARD_MOVED}:889:dropped`, payload: { lane: 'dropped' }, legacy: false })
+    bench.admitTouching(1112, 'lane-b', ['scripts/bus/answer-worker.ts', '.changeset/**'])
+    bench.admitTouching(1113, 'lane-a', ['scripts/miko/watch.ts'])
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1112))).toMatchObject({ state: 'queued' })
+    expect(taskState(bench.db, launch(1113))).toMatchObject({ state: 'queued' })
     bench.close()
   })
 
