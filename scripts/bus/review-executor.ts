@@ -10,6 +10,7 @@ import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './r
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
 import { NO_ISOLATION } from '../ghosts/isolation.js'
 import { REVIEW_RECORDED } from './card-automaton.js'
+import { cardBodyText } from './card-bodies.js'
 import { ARTIFACT_REMOVED } from './close-executor.js'
 import { appendEvent } from './db.js'
 import { reviewInputOfKey } from './identifiers.js'
@@ -175,7 +176,7 @@ export class ReviewExecutor {
     const plan = planned(this.parts.plan, lease, earlierVerdict(db, lease))
     try {
       const started = clock().getTime()
-      const review = await this.parts.reviewer(lease, plan)
+      const review = await this.parts.reviewer(lease, plan, cardBodyText(db, lease.cardId))
       return { outcome: { review, plan, ms: clock().getTime() - started, isolation }, held: review.tree ?? null }
     }
     catch (error) {
