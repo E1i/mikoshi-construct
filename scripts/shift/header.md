@@ -6,8 +6,9 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 
 - Your tree is `{{worktree}}`, already cut on branch `{{branch}}` from `origin/main`. Work only there.
   Do not run `git pull`, do not cut another branch or worktree.
-- Change only the paths this task declares: {{touches}}. Another task of this shift owns everything
-  else; a file outside these paths is not yours to edit, even to fix it.
+- Change only the paths this task declares: {{touches}}, and a test that imports one of them, directly
+  or through other modules. Another task of this shift owns everything else; any other file outside
+  these paths is not yours to edit, even to fix it.
 - Never approve a workflow run and never run `gh pr merge` yourself. The first line of the pull request's
   description is the task's card:
   `{{card}}`

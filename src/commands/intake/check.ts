@@ -61,6 +61,8 @@ export const COMPANION_TABLE: readonly CompanionRow[] = [
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
 ]
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
+const MAX_LISTED_TESTS_PER_DIRECTORY = 6
+export const COVERING_REASON = 'a test that imports a touched file, directly or through other modules, follows the touches: the rule in src/card/covering-tests.ts'
 
 export interface Correction {
   field: string
@@ -71,6 +73,7 @@ export interface Correction {
 
 export interface CheckedCard extends DraftCard {
   corrections: Correction[]
+  covering: string[]
 }
 
 export interface CheckFacts {
@@ -270,7 +273,7 @@ function covers(touch: string, companion: string): boolean {
   return touch === companion || (touch.endsWith(PREFIX_SUFFIX) && under(companion, scopeOf(touch)))
 }
 
-function withCompanions(touched: Touched, repository: RepositoryFacts, published: readonly string[]): Touched {
+function withCompanions<T extends Touched>(touched: T, repository: RepositoryFacts, published: readonly string[]): T {
   const missing: string[] = []
   for (const row of COMPANION_TABLE) {
     if (!repository.exists(row.keptBy))
@@ -287,6 +290,30 @@ function withCompanions(touched: Touched, repository: RepositoryFacts, published
     ...touched,
     touches: [...touched.touches, ...missing],
     corrections: [...touched.corrections, ...missing.map(companion => ({ field: 'touches', was: '(absent)', now: companion, reason: COMPANION_REASON }))],
+  }
+}
+
+function directoryOf(file: string): string {
+  return file.slice(0, file.lastIndexOf('/'))
+}
+
+function listedCovering(tests: readonly string[]): string[] {
+  const byDirectory = new Map<string, string[]>()
+  for (const test of tests)
+    byDirectory.set(directoryOf(test), [...(byDirectory.get(directoryOf(test)) ?? []), test])
+  return [...byDirectory].flatMap(([directory, members]) => members.length > MAX_LISTED_TESTS_PER_DIRECTORY ? [`${directory}${PREFIX_SUFFIX}`] : members)
+}
+
+function withCoveringTests(touched: Touched, repository: RepositoryFacts): Touched & { covering: string[] } {
+  const tests = repository.testsCovering(touched.touches)
+  const listed = listedCovering(tests.filter(test => !touched.touches.some(touch => covers(touch, test))))
+  const covering = [...new Set([...tests, ...listed])]
+  const missing = listed
+  return {
+    ...touched,
+    touches: [...touched.touches, ...missing],
+    corrections: [...touched.corrections, ...missing.map(test => ({ field: 'touches', was: '(absent)', now: test, reason: COVERING_REASON }))],
+    covering,
   }
 }
 
@@ -346,7 +373,7 @@ function byFieldOrder(corrections: Correction[]): Correction[] {
 }
 
 function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): CheckedCard {
-  const touched = withCompanions(touchesChecked(card, facts.repository), facts.repository, facts.published ?? [])
+  const touched = withCompanions(withCoveringTests(touchesChecked(card, facts.repository), facts.repository), facts.repository, facts.published ?? [])
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)
@@ -356,6 +383,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
     contour: contour[0]?.now ?? card.contour,
     decision: decision[0]?.now ?? card.decision ?? unstatedDecision(card, touched.touches, facts.ownerMerges),
     touches: touched.touches,
+    covering: touched.covering.filter(test => touched.touches.includes(test)),
     depends: depends.kept,
     blocks: blocks.kept,
     unclear: [

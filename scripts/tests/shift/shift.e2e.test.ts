@@ -235,7 +235,7 @@ describe('w2: each task runs in its own tree, on the board, with the runner sess
     await runShift([world.shift], shiftDeps(world, captured()))
     const prompt = stubSaw(world, '1', 'prompt')
     expect(prompt).toContain(`Your tree is \`${path.join(world.root, 'mc-1')}\`, already cut on branch \`feat/1\``)
-    expect(prompt).toContain('declares: `scripts/a/**`, `docs/a.md`.')
+    expect(prompt).toContain('declares: `scripts/a/**`, `docs/a.md`, and a test that imports one of them')
     expect(prompt).toContain('Run no background command, no monitor and no wait for a notification')
     expect(prompt).not.toContain('{{')
     expect(prompt.endsWith(`---\n\ndo a\n${CHEAP_PATH}`)).toBe(true)

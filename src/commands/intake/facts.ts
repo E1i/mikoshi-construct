@@ -1,6 +1,7 @@
 import type { Dirent } from 'node:fs'
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { TestCoverage } from '../../card/covering-tests.js'
 import { unresolvedCommandWord } from './command-word.js'
 
 const SKIPPED_DIRECTORIES = new Set(['.git', 'node_modules'])
@@ -10,6 +11,7 @@ export interface RepositoryFacts {
   exists: (relative: string) => boolean
   pathsNamed: (segment: string) => string[]
   commandResolves: (word: string) => boolean
+  testsCovering: (touches: readonly string[]) => string[]
 }
 
 function isFile(file: string): boolean {
@@ -42,6 +44,7 @@ function entriesOf(directory: string): Dirent[] {
 
 export class DirectoryFacts implements RepositoryFacts {
   private walked: string[] | undefined
+  private readonly coverage = new TestCoverage(() => this.walkedFiles(), relative => this.read(relative))
 
   constructor(private readonly root: string, private readonly searchPath: string) {}
 
@@ -57,6 +60,10 @@ export class DirectoryFacts implements RepositoryFacts {
   filesUnder(directory: string): string[] {
     this.walked ??= this.walk('')
     return this.walked.filter(relative => relative.startsWith(`${directory}/`)).sort()
+  }
+
+  testsCovering(touches: readonly string[]): string[] {
+    return this.coverage.of(touches)
   }
 
   read(relative: string): string | null {
@@ -77,6 +84,11 @@ export class DirectoryFacts implements RepositoryFacts {
     const file = path.resolve(this.root, relative)
     const inside = path.relative(this.root, file)
     return inside !== '' && !inside.startsWith('..') && isFile(file)
+  }
+
+  private walkedFiles(): string[] {
+    this.walked ??= this.walk('')
+    return this.walked
   }
 
   private walk(relative: string): string[] {
