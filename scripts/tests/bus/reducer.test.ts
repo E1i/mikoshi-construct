@@ -1,5 +1,5 @@
 import type { BusEvent } from '../../bus/db.js'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -8,6 +8,7 @@ import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { cardIdOfDescription } from '../../bus/identifiers.js'
 import { reduce } from '../../bus/reducer.js'
 import { REJECTED } from '../../bus/rejection.js'
+import { ghostLines } from '../../ghosts/journal.js'
 import { recordFall } from '../../ghosts/supervise.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -313,7 +314,6 @@ describe('the card automaton', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-ladder-fall-'))
     roots.push(root)
     const file = path.join(root, 'bus.db')
-    const journal = path.join(root, 'ghosts.jsonl')
     const before = openBus(file)
     appendEvent(before, admitted(890))
     appendEvent(before, started(890))
@@ -321,7 +321,7 @@ describe('the card automaton', () => {
     const isolated = process.env[BUS_DB_VARIABLE]
     process.env[BUS_DB_VARIABLE] = file
     try {
-      await recordFall(journal, 890, 'ladder-not-done', 's890')
+      recordFall(890, 'ladder-not-done', 's890')
     }
     finally {
       process.env[BUS_DB_VARIABLE] = isolated
@@ -331,7 +331,7 @@ describe('the card automaton', () => {
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[890, 'fallen']])
     expect(db.prepare(`SELECT actor, json_extract(payload, '$.kind') AS kind FROM events WHERE type = 'card.fell'`).all()).toEqual([{ actor: 'worker:ladder:s890', kind: 'ladder-not-done' }])
     expect(rejections(db)).toEqual([])
-    expect(JSON.parse(readFileSync(journal, 'utf8'))).toMatchObject({ event: 'fall', card: 890, kind: 'ladder-not-done' })
+    expect(ghostLines(file)).toMatchObject([{ event: 'fall', card: 890, kind: 'ladder-not-done' }])
     db.close()
   })
 

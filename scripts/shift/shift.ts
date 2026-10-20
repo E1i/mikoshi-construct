@@ -348,7 +348,6 @@ function closeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
   const closed = runTaskClose([task.id, ...outcome, '--verification', word], {
     cwd: session.worktree,
     read: file => deps.exists(file) ? deps.read(file) : null,
-    append: deps.append,
     now: deps.now,
     handoffDir: deps.handoffDir,
     constructDir: path.dirname(deps.handoffDir),

@@ -1,4 +1,7 @@
 import type { TaskCloseDeps } from '../../ghosts/task-close.js'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { entryOf } from '../../ghosts/entry.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
@@ -15,7 +18,7 @@ function closeCard(journal: string[], id: string): string[] {
   const deps: TaskCloseDeps = {
     cwd: '/work',
     read: file => file === JOURNAL ? `${journal.join('\n')}\n` : null,
-    append: () => undefined,
+    busPath: path.join(mkdtempSync(path.join(tmpdir(), 'entry-versions-')), 'bus.db'),
     now: () => new Date('2026-10-05T09:00:00.000Z'),
     handoffDir: '/handoff',
     constructDir: '/',

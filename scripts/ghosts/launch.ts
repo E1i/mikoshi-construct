@@ -16,7 +16,7 @@ import { approvedHashPath, approverOf, cardNumberOf, checkApproval, fallsOf, jou
 import { ENTRY_RESULT, entryEvent } from './entry.js'
 import { launchStepExpects } from './expect-sample.js'
 import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from './expect.js'
-import { appendJournalEvent } from './journal.js'
+import { journalText, recordGhostLine } from './journal.js'
 import { lookupMatrixRow } from './matrix.js'
 import { REGENERATED_PATHS } from './regenerated.js'
 import { describeSketch, parseSketch, rangeDiffVerdict } from './sketch.js'
@@ -209,7 +209,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
 
   const statusText = existsSync(statusPath) ? await readFile(statusPath, 'utf8') : undefined
   const journalPath = journalPathOf(out)
-  const journalText = existsSync(journalPath) ? await readFile(journalPath, 'utf8') : ''
+  const journal = journalText(journalPath)
   const prepared: PreparedTask[] = []
   const byMorse = new Set<string>()
   const events = journalEvents(journalPath)
@@ -254,7 +254,7 @@ async function prepareAndPreflight(repo: string, statusPath: string, out: string
       continue
     }
 
-    const tree = startedTree(journalText, task.card)
+    const tree = startedTree(journal, task.card)
     const startSha = sketchCheck.refusals.length > 0 ? undefined : sketch.kind === 'branch' ? sketch.sha : baseSha
     const refusal = treeRefusal(task, tree, journalPath, startSha, baseSha)
     if (refusal !== undefined)
@@ -350,13 +350,13 @@ async function main(): Promise<void> {
   const { repo, status, out, tasks, matrix } = readTasksFile(tasksFile)
 
   if (fall !== null) {
-    await appendJournalEvent(journalPathOf(out), fallEvent(fall.card, fall.kind))
+    recordGhostLine('launch', fallEvent(fall.card, fall.kind))
     console.log(`card #${fall.card}: fall ${fall.kind} recorded, ${fallsOf(journalEvents(journalPathOf(out)), fall.card).length} in ${journalPathOf(out)}`)
     return
   }
 
   if (revoke !== null) {
-    await appendJournalEvent(journalPathOf(out), revokeEvent(revoke.sha256, revoke.card, new Date().toISOString()))
+    recordGhostLine('launch', revokeEvent(revoke.sha256, revoke.card, new Date().toISOString()))
     console.log(`card #${revoke.card}: approval ${revoke.sha256.slice(0, 7)} revoked in ${journalPathOf(out)}`)
     return
   }
@@ -386,9 +386,9 @@ async function main(): Promise<void> {
   const journalPath = journalPathOf(out)
   const ctx: TaskContext = { repo, statusPath: status, journalPath, baseSha, out, matrixPath: matrix }
   for (const event of ownerAllowsEvents(prepared, ownerAllows))
-    await appendJournalEvent(journalPath, event)
+    recordGhostLine('launch', event)
   for (const task of prepared)
-    await appendJournalEvent(journalPath, launchEntryEvent(task, baseSha, byMorse))
+    recordGhostLine('launch', launchEntryEvent(task, baseSha, byMorse))
   const results = await superviseBatch({ ctx, tasks: prepared })
   if (results === null)
     return

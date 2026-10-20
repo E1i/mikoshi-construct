@@ -12,7 +12,7 @@ import { riskReading } from '../../src/card/risk.js'
 import { readContourSchema, violations } from '../contract/contours.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { approvedHashPath, extractApprovedHash } from './approval.js'
-import { recordGhostLine } from './journal.js'
+import { journalText, recordGhostLine } from './journal.js'
 import { reviewCarry } from './review-carry.js'
 
 const JOURNAL_FILE = 'ghosts.jsonl'
@@ -157,9 +157,7 @@ function treeReasons(tree: string, target: ReviewTarget, resolved: ResolvedCommi
 
 function reviewedCommit(dir: string, task: string, tree: string, file: Digest): string | undefined {
   const journal = path.join(dir, JOURNAL_FILE)
-  if (!existsSync(journal))
-    return undefined
-  const commits = readFileSync(journal, 'utf8').split('\n').flatMap((text) => {
+  const commits = journalText(journal).split('\n').flatMap((text) => {
     try {
       const line = JSON.parse(text) as { event?: unknown, task?: unknown, tree?: unknown, commit?: unknown, file?: { sha256?: unknown } }
       return line.event === 'review' && line.task === task && line.tree === tree && line.file?.sha256 === file.sha256 && typeof line.commit === 'string' ? [line.commit] : []

@@ -40,14 +40,15 @@ export const GHOST_LINE = 'ghost.line'
 
 const GHOST_LINES = `SELECT payload FROM events WHERE type = '${GHOST_LINE}' AND legacy = 0 ORDER BY id`
 
-export function recordGhostLine(writer: string, line: GhostLine, busPath: string = defaultBusPath()): void {
+export function recordGhostLine(writer: string, line: object, busPath: string = defaultBusPath()): void {
+  const fields = line as GhostLine
   const db = openBus(busPath)
   try {
     appendEvent(db, {
-      ts: typeof line.ts === 'string' ? line.ts : new Date().toISOString(),
+      ts: typeof fields.ts === 'string' ? fields.ts : new Date().toISOString(),
       type: GHOST_LINE,
       actor: `worker:${writer}:${process.pid}`,
-      cardId: cardIdOf(line.card),
+      cardId: cardIdOf(fields.card),
       pr: null,
       head: null,
       dedupeKey: `${GHOST_LINE}:${randomUUID()}`,
@@ -76,10 +77,14 @@ export function ghostLinesText(busPath: string = defaultBusPath()): string {
   return ghostLines(busPath).map(line => `${JSON.stringify(line)}\n`).join('')
 }
 
+export function withGhostLines(file: string | null, busPath: string = defaultBusPath()): string {
+  const text = file ?? ''
+  const separator = text === '' || text.endsWith('\n') ? '' : '\n'
+  return `${text}${separator}${ghostLinesText(busPath)}`
+}
+
 export function journalText(journalPath: string, busPath: string = defaultBusPath()): string {
-  const file = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : ''
-  const separator = file === '' || file.endsWith('\n') ? '' : '\n'
-  return `${file}${separator}${ghostLinesText(busPath)}`
+  return withGhostLines(existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : null, busPath)
 }
 
 export function taskLine(entry: JournalEntry, ts: string = new Date().toISOString()): GhostLine {
