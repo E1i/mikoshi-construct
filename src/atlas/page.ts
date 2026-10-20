@@ -1,10 +1,12 @@
 import type { PictureClass } from '../model/graph.js'
+import type { SourceLinks } from './source-link.js'
 import type { AtlasMode } from './switch.js'
 import type { Atlas, AtlasInput, AtlasLink, AtlasNode } from './view.js'
 import { PICTURE_CLASSES } from '../model/graph.js'
 import { escaped } from '../model/page.js'
 import { STATE_LEGEND } from '../model/svg.js'
 import { atlasScript, contentPolicy, mapSection } from './map.js'
+import { RELATIVE_LINKS, staticSourceHref } from './source-link.js'
 import { ATLAS_STYLE } from './style.js'
 import { switchHtml } from './switch.js'
 import { atlasOf } from './view.js'
@@ -23,9 +25,8 @@ const WORDS = {
   footer: (name: string) => `Every state is derived on read, never stored. Rendered from ${name}; nothing here is fetched when you open it, and the page runs only the script written into it.`,
 }
 
-export function sourceHref(sourcePath: string, rootFromPage: string): string {
-  const encoded = sourcePath.split('/').filter(segment => segment !== '').map(encodeURIComponent).join('/')
-  return escaped(`${rootFromPage === '' ? '' : `${rootFromPage.split('/').map(encodeURIComponent).join('/')}/`}${encoded}`)
+export function sourceHref(sourcePath: string, rootFromPage: string, links: SourceLinks = RELATIVE_LINKS): string {
+  return escaped(staticSourceHref(sourcePath, rootFromPage, links))
 }
 
 const indent = (text: string, spaces: number): string => text.split('\n').map(line => `${' '.repeat(spaces)}${line}`).join('\n')
@@ -43,7 +44,7 @@ function evidence(node: AtlasNode): string {
   return `<details><summary>${escaped(WORDS.evidence)}</summary>${items}</details>`
 }
 
-function nodeHtml(node: AtlasNode, rootFromPage: string): string {
+function nodeHtml(node: AtlasNode, rootFromPage: string, sourceLinks: SourceLinks): string {
   return [
     `<li><article class="node" id="${escaped(node.anchor)}" data-state="${node.state}">`,
     `  <h3><a class="name" href="#${escaped(node.anchor)}">${escaped(node.label)}</a></h3>`,
@@ -51,19 +52,19 @@ function nodeHtml(node: AtlasNode, rootFromPage: string): string {
     `  <p class="status">${escaped(abilityWords(node.ability))}</p>`,
     `  <div class="panel">`,
     `    <p class="here">${escaped(WORDS.here)}</p>`,
-    indent([evidence(node), links(WORDS.leadsFrom, node.leadsFrom), links(WORDS.leadsTo, node.leadsTo), `<a href="${sourceHref(node.sourcePath, rootFromPage)}" data-source>${escaped(WORDS.source)}: ${escaped(node.sourcePath)}</a>`].filter(part => part !== '').join('\n'), 4),
+    indent([evidence(node), links(WORDS.leadsFrom, node.leadsFrom), links(WORDS.leadsTo, node.leadsTo), `<a href="${sourceHref(node.sourcePath, rootFromPage, sourceLinks)}" data-source>${escaped(WORDS.source)}: ${escaped(node.sourcePath)}</a>`].filter(part => part !== '').join('\n'), 4),
     `  </div>`,
     `</article></li>`,
   ].join('\n')
 }
 
-function stagesHtml(atlas: Atlas, rootFromPage: string): string {
+function stagesHtml(atlas: Atlas, rootFromPage: string, sourceLinks: SourceLinks): string {
   return atlas.stages.map(stage => [
     `<section class="stage" data-stage="${escaped(stage.id)}">`,
     `  <h2>${escaped(stage.label)}</h2>`,
     stage.nodes.length === 0
       ? `  <p class="empty">${escaped(WORDS.emptyStage)}</p>`
-      : `  <ul>\n${indent(stage.nodes.map(node => nodeHtml(node, rootFromPage)).join('\n'), 4)}\n  </ul>`,
+      : `  <ul>\n${indent(stage.nodes.map(node => nodeHtml(node, rootFromPage, sourceLinks)).join('\n'), 4)}\n  </ul>`,
     `</section>`,
   ].join('\n')).join('\n')
 }
@@ -92,7 +93,7 @@ ${modeFiles == null ? '' : switchHtml('map', modeFiles)}
 ${mapSection(script)}
 <p class="prose">${escaped(WORDS.prose)}</p>
 <div class="map">
-${indent(stagesHtml(atlas, rootFromPage), 2)}
+${indent(stagesHtml(atlas, rootFromPage, input.links ?? RELATIVE_LINKS), 2)}
 </div>
 <ul class="legend">${legend(atlas)}</ul>
 <footer>${escaped(WORDS.footer(generatedFrom))}</footer>
