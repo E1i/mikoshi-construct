@@ -6,6 +6,7 @@ import { writeEngram } from '../model/discovery.js'
 import { MODEL_FILE } from '../model/schema.js'
 import { deriveModelState } from '../model/state.js'
 import { readModel } from '../model/write.js'
+import { PLAIN_LORE } from '../ui/lore.js'
 import { renderAtlasDocs } from './docs.js'
 import { renderAtlas } from './page.js'
 import { docsFileOf } from './switch.js'
@@ -29,6 +30,12 @@ export interface AtlasWritten {
   page: string
 }
 
+export class AtlasRefusedUnconstructed extends Error {
+  constructor() {
+    super(PLAIN_LORE.atlasRefusedUnconstructed)
+  }
+}
+
 function defaultPage(root: string, ownsDir: boolean, engram: string): string {
   return ownsDir ? path.join(root, OWNED_ATLAS_PAGE) : path.join(path.dirname(engram), ATLAS_PAGE_FILE)
 }
@@ -40,6 +47,8 @@ function rootFrom(page: string, root: string): string {
 export function runAtlas(options: AtlasOptions): AtlasWritten {
   const root = path.resolve(options.dir)
   const constructed = detectExisting(root).constructJson
+  if (!constructed && !options.attached)
+    throw new AtlasRefusedUnconstructed()
   const engram = writeEngram(root, { attached: !constructed, home: options.home })
   const model = readModel(path.dirname(engram))
   if (model == null)
