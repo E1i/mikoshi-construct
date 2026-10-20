@@ -196,22 +196,8 @@ export function runMikoExit(deps: MikoExitDeps): number {
   return 0
 }
 
-export function isNestedClaude(chain: ProcessRow[]): boolean {
-  const at = chain.findIndex(isClaude)
-  return at !== -1 && chain.slice(at + 1).some(isClaude)
-}
-
-export function loopRequestOf(env: NodeJS.ProcessEnv, chain: () => ProcessRow[]): string | undefined {
-  if (env[LOOP_PID_VARIABLE] === undefined)
-    return undefined
-  try {
-    return isNestedClaude(chain()) ? undefined : env[EXIT_REQUEST_VARIABLE]
-  }
-  catch (error) {
-    if (isPermissionDenied(error))
-      return env[EXIT_REQUEST_VARIABLE]
-    throw error
-  }
+export function loopRequestOf(env: NodeJS.ProcessEnv): string | undefined {
+  return env[LOOP_PID_VARIABLE] === undefined ? undefined : env[EXIT_REQUEST_VARIABLE]
 }
 
 function mtimeOf(file: string): number | undefined {
@@ -225,14 +211,13 @@ function mtimeOf(file: string): number | undefined {
 
 export function realMikoExitDeps(handoff: string): MikoExitDeps {
   const root = projectRoot(process.env)
-  const table = (): ProcessRow[] => parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' }))
   return {
     pid: process.pid,
-    table,
+    table: () => parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' })),
     handoffMtime: () => mtimeOf(handoff),
     now: () => Date.now(),
     kill: pid => process.kill(pid, 'SIGTERM'),
-    loopRequest: loopRequestOf(process.env, () => ancestors(table(), process.pid)),
+    loopRequest: loopRequestOf(process.env),
     requestEnd: (request) => {
       mkdirSync(path.dirname(request), { recursive: true })
       writeFileSync(request, `${process.pid}\n`)
