@@ -217,7 +217,7 @@ describe('review worker', () => {
     }
 
     const step = await worker(moving).step()
-    expect(step).toMatchObject({ kind: 'denied', taskKey: review(942), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
+    expect(step).toMatchObject({ kind: 'denied', taskKey: review(942), denial: { kind: 'technical', reason: 'stale_head' }, next: 'superseded' })
     expect(statuses).toEqual([])
     expect(events(db, 'review.recorded')).toEqual([])
 
@@ -633,11 +633,11 @@ describe('review worker', () => {
     }
 
     gitHub.pulls.get(952)!.head = sha('b')
-    expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(952), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
+    expect(await worker(counting).step()).toMatchObject({ kind: 'denied', taskKey: review(952), denial: { kind: 'technical', reason: 'stale_head' }, next: 'superseded' })
     expect(leases).toEqual([])
     expect(events(db, 'review.recorded')).toEqual([])
     expect(events(db, 'policy.denied')).toMatchObject([{ command: 'record_verdict', kind: 'technical', reason: 'stale_head' }])
-    expect(task(db, review(952))).toEqual({ state: 'queued', lease_gen: 1, failures: 1 })
+    expect(task(db, review(952))).toEqual({ state: 'superseded', lease_gen: 1, failures: 0 })
     expectReplayIdentical(db)
     db.close()
   })
