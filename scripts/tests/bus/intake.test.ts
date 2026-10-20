@@ -9,9 +9,10 @@ import { CARD_ADMITTED, CARD_MOVED, CARD_WAITING } from '../../../src/commands/i
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
 import { parkingLane } from '../../bus/admissions.js'
+import { WINDOW_LANE } from '../../bus/card-bodies.js'
 import { BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { importJournalFile } from '../../bus/import.js'
-import { busCardEvents, busIntakePorts, WINDOW_LANE } from '../../bus/intake.js'
+import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
 import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
 
 const NOW = new Date('2026-10-12T16:00:00.000Z')

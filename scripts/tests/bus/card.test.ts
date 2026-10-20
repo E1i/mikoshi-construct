@@ -5,10 +5,11 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { CARD_ADMITTED } from '../../../src/commands/intake/index.js'
+import { WINDOW_LANE } from '../../bus/card-bodies.js'
 import { CONTRACT_FIELDS, CONTRACTS } from '../../bus/card-contract.js'
 import { runCard } from '../../bus/card.js'
 import { BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
-import { busIntakePorts, WINDOW_LANE } from '../../bus/intake.js'
+import { busIntakePorts } from '../../bus/intake.js'
 import { reduce } from '../../bus/reducer.js'
 
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')

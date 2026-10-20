@@ -8,20 +8,18 @@ import { fileURLToPath } from 'node:url'
 import { runMain } from 'citty'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { isLaneName, laneName, laneNumber } from '../../src/commands/intake/admit.js'
+import { isLaneName } from '../../src/commands/intake/admit.js'
 import { CARD_ADMITTED, CARD_MOVED } from '../../src/commands/intake/index.js'
 import { createMain } from '../../src/program.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
-import { cardBodyText } from './card-bodies.js'
+import { admittedLane, cardBodyText } from './card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from './db.js'
 import { openDatabase } from './sqlite.js'
-import { factoryMode } from './window-requests.js'
 
 const INTAKE_SUBCOMMAND = 'intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SESSION_BY_HAND = 'by-hand'
-export const WINDOW_LANE = 'lane-window'
 
 const INTAKE_ADMISSIONS = `
   SELECT id, ts, card_id, payload FROM events
@@ -32,10 +30,6 @@ const INTAKE_ADMISSIONS = `
 const ANY_ADMISSION = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? LIMIT 1`
 
 const PREVIOUS_ADMISSION = `SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
-
-const LANE_OF_CARD = `SELECT json_extract(payload, '$.lane') AS lane FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
-
-const ADMITTED_LANES = `SELECT DISTINCT json_extract(payload, '$.lane') AS lane FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}'`
 
 export interface IntakeAdmission extends RecordedIntake {
   task: string
@@ -98,25 +92,6 @@ export function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
     return event
   const previous = db.prepare(PREVIOUS_ADMISSION).get(event.cardId) as { id: number, payload: string } | undefined
   return { ...event, payload: { ...event.payload, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
-}
-
-function laneOfCard(db: DatabaseSync, cardId: unknown): string | null {
-  if (typeof cardId !== 'number')
-    return null
-  const lane = (db.prepare(LANE_OF_CARD).get(cardId) as { lane: unknown } | undefined)?.lane
-  return typeof lane === 'string' && isLaneName(lane) ? lane : null
-}
-
-function newLane(db: DatabaseSync): string {
-  const lanes = (db.prepare(ADMITTED_LANES).all() as { lane: unknown }[]).flatMap(row => typeof row.lane === 'string' ? [laneNumber(row.lane) ?? 0] : [])
-  return laneName(Math.max(0, ...lanes) + 1)
-}
-
-export function admittedLane(db: DatabaseSync, cardId: number, depends: unknown): string {
-  if (factoryMode(db) === 'window')
-    return WINDOW_LANE
-  const parents = Array.isArray(depends) ? depends : []
-  return laneOfCard(db, cardId) ?? parents.map(parent => laneOfCard(db, parent)).find(lane => lane !== null) ?? newLane(db)
 }
 
 function laid(db: DatabaseSync, event: CardEvent): CardEvent {
