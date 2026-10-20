@@ -30,6 +30,7 @@ import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
 import { busCardBodies, busStarterPorts, cardTextReader, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { reduce } from '../../bus/reducer.js'
+import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
 import { busLaunches } from '../../bus/workers.js'
 import { sessionEnv } from '../../ghosts/session.js'
 import { taskConflicts } from '../../shift/overlap.js'
@@ -261,7 +262,7 @@ describe('the launch queue', () => {
     bench.close()
   })
 
-  it('the cards intake made from card A of probe 1075 lay out over lanes and launch takes no two with overlapping touches', () => {
+  it('in parallel the cards intake made from card A of probe 1075 lay out over lanes and launch takes no two with overlapping touches', () => {
     const bench = launchBench()
     const root = tempRoot()
     const parking = path.join(root, 'parking')
@@ -272,6 +273,11 @@ describe('the launch queue', () => {
       slice('owner-loop-r3', ['scripts/bus/inbox.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts', 'scripts/bus/merge-executor.ts', 'scripts/bus/answerer.ts', 'scripts/bus/lease.ts', 'scripts/miko/watch.ts', 'scripts/bus/launch-worker.ts', '.changeset/**']),
       slice('owner-loop-item-3', ['scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts', '.changeset/**']),
     ] }))
+    const refuse = (): never => {
+      throw new Error('a mode request uses no tool')
+    }
+    requestFromWindow(bench.db, new Date().toISOString(), 'test', { kind: 'mode', mode: 'parallel' })
+    new WindowRequests(bench.db, () => new Date(), { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse }).run()
     const result = runIntake({ draft, taken: '-', readStdin: () => '1075', parking, parkingRoot: parking, dir: process.cwd(), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, events: busCardEvents(bench.db) })
     expect(result.status).toBe('written')
     const cards = result.status === 'written' ? result.cards : []

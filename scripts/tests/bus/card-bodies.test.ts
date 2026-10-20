@@ -8,7 +8,7 @@ import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { CARD_ADMITTED } from '../../../src/commands/intake/index.js'
 import { cardBodyText } from '../../bus/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
-import { busCardAdmissions, busIntakePorts, intakeAdmissions } from '../../bus/intake.js'
+import { busCardAdmissions, busIntakePorts, intakeAdmissions, WINDOW_LANE } from '../../bus/intake.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { replayDifferences } from '../../bus/report.js'
 
@@ -90,7 +90,7 @@ describe('the reducer folds every admitted text into card_bodies', () => {
         admission_event_id: admissionIds(db)[1],
         text: amended,
         text_sha: sha256(amended),
-        lane: 'lane-7',
+        lane: WINDOW_LANE,
         who: 'shift',
         priority: null,
         branch: 'feat/body-card',
@@ -133,7 +133,7 @@ describe('the reducer folds every admitted text into card_bodies', () => {
     withBus(w, (db) => {
       appendAdmission(db, 'without-text', { card: CARD, lane: 'lane-9' })
       reduce(db)
-      expect(bodyRow(db)).toMatchObject({ admission_event_id: admissionIds(db)[0], lane: 'lane-7' })
+      expect(bodyRow(db)).toMatchObject({ admission_event_id: admissionIds(db)[0], lane: WINDOW_LANE })
     })
   })
 })
