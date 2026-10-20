@@ -118,6 +118,13 @@ describe('the docs page reads as parts, not as a file list', () => {
     expect(docs.match(/How to bind it/g)).toHaveLength(1)
   })
 
+  it('with parts and no scanned file the summary names what would count them instead of reading 0 of 0', () => {
+    const document = { ...EMPTY, stages: [{ id: 'grow', label: 'Grow' }], nodes: [{ id: 'press', label: 'Juice press', stage: 'grow', source: { path: 'press' }, supportedBy: [] }] }
+    const docs = docsOf(document)
+    expect(docs).toContain('<p class="summary">1 part · no file scanned yet, so none is counted as bound; construct atlas scans the tracked files</p>')
+    expect(docs).not.toContain('0 of 0')
+  })
+
   it('a model with mechanics and no stages or nodes shows parts from the components, not a file list', () => {
     const docs = docsOf(EMPTY, MANY)
     const map = componentMap({ contours: [], ...MANY }, [], 'orchard')

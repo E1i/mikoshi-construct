@@ -4,10 +4,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ATLAS_EXIT, AtlasRefusedUnconstructed, printAtlas, runAtlas } from '../src/atlas/index.js'
+import { readRemoteBlob } from '../src/atlas/remote.js'
+import { EDITOR_PRESETS, editorTemplate } from '../src/atlas/source-link.js'
 import { readAttachRecord, runAttach } from '../src/commands/attach/index.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { FAILED_EXIT, reported } from '../src/failure.js'
+import { readAtlasRecord } from '../src/manifest.js'
 import { ENGRAM_HOME_DIR, engramDirectoryName } from '../src/model/discovery.js'
 import { MODEL_FILE, parseModel } from '../src/model/schema.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -307,6 +310,117 @@ describe('a source link opens the editor or the remote the repository names', ()
     const html = readFileSync(atlasOf(dir).page, 'utf8')
     expect((pageData(html) as unknown as { source: unknown }).source).toEqual({ template: 'zed://file/{abs}:{line}', remote: null })
     expect(html).not.toContain(dir)
+  })
+})
+
+const SHA = '0123456789abcdef0123456789abcdef01234567'
+const OTHER_SHA = 'fedcba9876543210fedcba9876543210fedcba98'
+
+interface GitFixture {
+  config: string
+  head?: string
+  refs?: Record<string, string>
+  packed?: string
+}
+
+function gitTree(fixture: GitFixture): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'construct-atlas-remote-'))
+  const dotGit = path.join(root, '.git')
+  mkdirSync(dotGit)
+  writeFileSync(path.join(dotGit, 'config'), fixture.config)
+  writeFileSync(path.join(dotGit, 'HEAD'), `${fixture.head ?? 'ref: refs/heads/main'}\n`)
+  for (const [ref, sha] of Object.entries(fixture.refs ?? { 'refs/heads/main': SHA })) {
+    mkdirSync(path.dirname(path.join(dotGit, ref)), { recursive: true })
+    writeFileSync(path.join(dotGit, ref), `${sha}\n`)
+  }
+  if (fixture.packed != null)
+    writeFileSync(path.join(dotGit, 'packed-refs'), fixture.packed)
+  return root
+}
+
+function remote(name: string, url: string): string {
+  return `[remote "${name}"]\n\turl = ${url}\n\tfetch = +refs/heads/*:refs/remotes/${name}/*\n`
+}
+
+const REMOTE_CASES: { name: string, fixture: GitFixture, blob: string | null }[] = [
+  { name: 'an scp-style GitHub url with a .git suffix', fixture: { config: remote('origin', 'git@github.com:acme/shop.git') }, blob: `https://github.com/acme/shop/blob/${SHA}` },
+  { name: 'an https url whose user and token never reach the link', fixture: { config: remote('origin', 'https://bot:ghp_SECRET@github.com/acme/shop.git') }, blob: `https://github.com/acme/shop/blob/${SHA}` },
+  { name: 'an ssh url with a user and a port', fixture: { config: remote('origin', 'ssh://git@gitlab.com:22/acme/group/shop.git') }, blob: `https://gitlab.com/acme/group/shop/blob/${SHA}` },
+  { name: 'a trailing slash and no .git suffix', fixture: { config: remote('origin', 'https://github.com/acme/shop/') }, blob: `https://github.com/acme/shop/blob/${SHA}` },
+  { name: 'origin chosen over a remote declared before it', fixture: { config: remote('fork', 'git@github.com:someone/shop.git') + remote('origin', 'git@github.com:acme/shop.git') }, blob: `https://github.com/acme/shop/blob/${SHA}` },
+  { name: 'the first remote when there is no origin', fixture: { config: remote('upstream', 'git@gitlab.com:acme/shop.git') }, blob: `https://gitlab.com/acme/shop/blob/${SHA}` },
+  { name: 'a host that is neither GitHub nor GitLab', fixture: { config: remote('origin', 'git@git.example.com:acme/shop.git') }, blob: null },
+  { name: 'a remote with no url', fixture: { config: '[remote "origin"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n' }, blob: null },
+  { name: 'a config with no remote', fixture: { config: '[core]\n\tbare = false\n' }, blob: null },
+  { name: 'a detached HEAD', fixture: { config: remote('origin', 'git@github.com:acme/shop.git'), head: OTHER_SHA, refs: {} }, blob: `https://github.com/acme/shop/blob/${OTHER_SHA}` },
+  { name: 'a ref held only in packed-refs', fixture: { config: remote('origin', 'git@github.com:acme/shop.git'), refs: {}, packed: `# pack-refs with: peeled fully-peeled sorted\n${OTHER_SHA} refs/heads/main\n` }, blob: `https://github.com/acme/shop/blob/${OTHER_SHA}` },
+  { name: 'a branch with no commit yet', fixture: { config: remote('origin', 'git@github.com:acme/shop.git'), refs: {} }, blob: null },
+]
+
+describe('the remote blob read from git files', () => {
+  for (const { name, fixture, blob } of REMOTE_CASES) {
+    it(`gives ${blob == null ? 'no link' : 'the blob link'} for ${name}`, () => {
+      const read = readRemoteBlob(gitTree(fixture))
+      expect(read).toBe(blob)
+      expect(read ?? '').not.toMatch(/SECRET|bot|@/)
+    })
+  }
+
+  it('gives no link where there is no .git at all', () => {
+    expect(readRemoteBlob(mkdtempSync(path.join(tmpdir(), 'construct-atlas-nogit-')))).toBeNull()
+  })
+})
+
+const ATLAS_RECORDS: { name: string, atlas: unknown, read: { open: string } | undefined }[] = [
+  { name: 'no atlas key', atlas: undefined, read: undefined },
+  { name: 'a preset name', atlas: { open: 'vscode' }, read: { open: 'vscode' } },
+  { name: 'a template', atlas: { open: 'vscode://file/{abs}:{line}' }, read: { open: 'vscode://file/{abs}:{line}' } },
+  { name: 'an empty open', atlas: { open: '' }, read: undefined },
+  { name: 'a non-string open', atlas: { open: 7 }, read: undefined },
+  { name: 'a null atlas', atlas: null, read: undefined },
+  { name: 'a string atlas', atlas: 'vscode', read: undefined },
+]
+
+describe('the atlas record read through the manifest loader', () => {
+  for (const { name, atlas, read } of ATLAS_RECORDS) {
+    it(`reads ${read == null ? 'nothing' : read.open} from construct.json with ${name}`, () => {
+      const root = mkdtempSync(path.join(tmpdir(), 'construct-atlas-record-'))
+      const manifest = { manifestVersion: 6, construct: '0.0.0', vars: {}, files: {}, ...(atlas === undefined ? {} : { atlas }) }
+      writeFileSync(path.join(root, 'construct.json'), JSON.stringify(manifest))
+      expect(readAtlasRecord(root)).toEqual(read)
+    })
+  }
+
+  it('reads nothing where there is no construct.json', () => {
+    expect(readAtlasRecord(mkdtempSync(path.join(tmpdir(), 'construct-atlas-record-')))).toBeUndefined()
+  })
+})
+
+const TEMPLATES: { open: string | undefined, template: string | null }[] = [
+  { open: 'vscode', template: 'vscode://file/{abs}:{line}' },
+  { open: 'cursor', template: 'cursor://file/{abs}:{line}' },
+  { open: 'zed', template: 'zed://file/{abs}:{line}' },
+  { open: 'idea', template: 'idea://open?file=/{abs}&line={line}' },
+  { open: 'subl://open?url=file:///{abs}&line={line}', template: 'subl://open?url=file:///{abs}&line={line}' },
+  { open: 'javascript:alert({abs})', template: null },
+  { open: 'data:text/html,{abs}', template: null },
+  { open: 'vbscript:{abs}', template: null },
+  { open: 'blob:{abs}', template: null },
+  { open: 'vscode://file/README.md', template: null },
+  { open: '{abs}:{line}', template: null },
+  { open: 'notepad', template: null },
+  { open: undefined, template: null },
+]
+
+describe('the editor template a construct.json open names', () => {
+  for (const { open, template } of TEMPLATES) {
+    it(`${String(open)} gives ${template ?? 'no template'}`, () => {
+      expect(editorTemplate(open)).toBe(template)
+    })
+  }
+
+  it('names a template for every preset', () => {
+    expect(Object.keys(EDITOR_PRESETS).sort()).toEqual(['cursor', 'idea', 'vscode', 'zed'])
   })
 })
 

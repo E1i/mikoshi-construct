@@ -18,7 +18,7 @@ const DISCOVER_COMMAND = '/construct-discover'
 const WORDS = {
   title: (project: string) => `${project}, read in order`,
   prose: 'The same Engram as the map, read from the first stage to the last. Each part says what it does, what holds it up and where its code lies; the explanation is this page’s, the facts are the document’s.',
-  summary: (parts: number, bound: number, total: number) => `${parts} ${parts === 1 ? 'part' : 'parts'} · ${bound} of ${total} files bound to a part (${total === 0 ? 0 : Math.round(bound * 100 / total)}%) · ${total - bound} not bound`,
+  summary: (parts: number, bound: number, total: number) => `${parts} ${parts === 1 ? 'part' : 'parts'} · ${total === 0 ? 'no file scanned yet, so none is counted as bound; construct atlas scans the tracked files' : `${bound} of ${total} files bound to a part (${Math.round(bound * 100 / total)}%) · ${total - bound} not bound`}`,
   fromMechanics: `No part is named in the Engram yet, so these parts are the packages and directories the code itself declares. ${DISCOVER_COMMAND} splits the code into parts in its interpretation step; its parts replace these.`,
   noModel: (name: string) => `${name} holds no part and no mechanics yet, so there is nothing to read in order. Run ${DISCOVER_COMMAND} to start the model.`,
   contents: 'Contents',
