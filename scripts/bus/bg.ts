@@ -2,6 +2,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { STAMP_ENV } from './stamp.js'
 
 export const PREFIX = '[bus:bg] '
 export const SHADOW_LOG = 'shadow.log'
@@ -138,7 +139,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
     const [command, ...args] = launchArgv(launch)
     const fd = openSync(log, 'a')
     try {
-      const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env })
+      const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env: { ...env, [STAMP_ENV]: '1' } })
       child.on('error', () => {})
       child.unref()
       if (child.pid === undefined)

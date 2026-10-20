@@ -21,6 +21,7 @@ import { Node, runNode } from './node.js'
 import { CARD_ADMITTED, PR_OBSERVED } from './operator-work.js'
 import { updateCandidates } from './queue.js'
 import { REDUCED } from './reducer.js'
+import { stampLogOutput } from './stamp.js'
 import { UpdateExecutor } from './update-executor.js'
 
 export const SETTLE_MS = 2000
@@ -112,5 +113,7 @@ async function main(): Promise<number> {
   return runUpdateWorker(process.argv.slice(2), { busPath: defaultBusPath(), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), settle: () => blockFor(SETTLE_MS), session: randomUUID(), pause: sleep })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}
