@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
-import { CARD_DROPPED, CARD_MOVED, DROPPED_LANE } from '../../src/commands/intake/index.js'
+import { CARD_DROPPED, CARD_MOVED, DROPPED_LANE, TERMINAL_LANES } from '../../src/commands/intake/index.js'
 import { CARD_VERIFIED } from '../ghosts/task-close.js'
 import { isBackfill } from './backfill-source.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, QUESTION_OWNER } from './inbox.js'
@@ -25,8 +25,6 @@ export const STOPPED_CARD = 'stopped'
 export const DROPPED_CARD = 'dropped'
 
 export { DROPPED_LANE }
-
-const TERMINAL_LANES = new Set<unknown>(['archive', DROPPED_LANE, 'superseded'])
 
 type CardState = string | null
 
@@ -150,7 +148,8 @@ function foldFell(db: DatabaseSync, event: StoredEvent): void {
 
 function foldMoved(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_MOVED} needs a card_id`)
-  if (TERMINAL_LANES.has(payloadOf(event).lane) && !ENDED.has(stateOf(db, cardId)))
+  const lane = payloadOf(event).lane
+  if (typeof lane === 'string' && TERMINAL_LANES.has(lane) && !ENDED.has(stateOf(db, cardId)))
     moveCard(db, cardId, DROPPED_CARD, event.id)
 }
 

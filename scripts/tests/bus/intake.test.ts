@@ -268,12 +268,12 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(cardEvents(w)).toEqual([])
   })
 
-  it('a parked card the bus never admitted is dropped with card.dropped', () => {
+  it.each(['dropped', 'archive', 'superseded'])('a parked card the bus never admitted is dropped with card.dropped when it moves into %s', (lane) => {
     const w = world()
     park(w, '')
-    expect(withPort(w, events => runMove({ move: '#90', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
-    expect(existsSync(path.join(w.parking, 'dropped', '90.md'))).toBe(true)
-    expect(cardEvents(w)).toMatchObject([{ type: CARD_DROPPED, actor: 'worker:intake:s1', cardId: 90, payload: { lane: 'dropped' } }])
+    expect(withPort(w, events => runMove({ move: '#90', to: lane, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    expect(existsSync(path.join(w.parking, lane, '90.md'))).toBe(true)
+    expect(cardEvents(w)).toMatchObject([{ type: CARD_DROPPED, actor: 'worker:intake:s1', cardId: 90, payload: { lane } }])
   })
 
   it('a backfilled card counts as admitted: its move into dropped is held by the bus', () => {

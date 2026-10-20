@@ -75,6 +75,7 @@ export const CARD_ADMITTED = 'card.admitted'
 export const CARD_MOVED = 'card.moved'
 export const CARD_DROPPED = 'card.dropped'
 export const DROPPED_LANE = 'dropped'
+export const TERMINAL_LANES: ReadonlySet<string> = new Set(['archive', DROPPED_LANE, 'superseded'])
 export const CARD_WAITING = 'card.waiting'
 
 export interface CardEvent {

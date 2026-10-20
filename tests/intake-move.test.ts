@@ -115,7 +115,7 @@ describe('intake --move', () => {
     const text = readFileSync(file, 'utf8')
     const bus: CardEvent[] = []
     const result = move(w, 709, 'notes', event => bus.push(event))
-    expect(result).toEqual({ status: 'recordedInPlace', file })
+    expect(result).toEqual({ status: 'recordedInPlace', file, event: CARD_MOVED })
     expect(printed(result).lines.join('\n')).toContain('the file was not moved')
     expect(readFileSync(file, 'utf8')).toBe(text)
     expect(bus).toMatchObject([{ type: CARD_MOVED, cardId: 709, payload: { from: path.dirname(file), to: path.dirname(file), lane: 'notes' } }])
@@ -127,12 +127,24 @@ describe('intake --move', () => {
     const inPlace = park(path.join(w.parking, 'dropped'), 711)
     const bus: CardEvent[] = []
     expect(move(w, 710, 'dropped', event => bus.push(event)).status).toBe('moved')
-    expect(move(w, 711, 'dropped', event => bus.push(event))).toEqual({ status: 'recordedInPlace', file: inPlace })
+    const recorded = move(w, 711, 'dropped', event => bus.push(event))
+    expect(recorded).toEqual({ status: 'recordedInPlace', file: inPlace, event: CARD_DROPPED })
+    expect(printed(recorded).lines.join('\n')).toContain('The bus holds the move as card.dropped; the file was not moved.')
     const to = path.join(w.parking, 'dropped')
     expect(bus).toMatchObject([
       { type: CARD_DROPPED, cardId: 710, dedupeKey: `${CARD_DROPPED}:710:${to}:${NOW.toISOString()}`, payload: { from: w.parking, to, lane: 'dropped' } },
       { type: CARD_DROPPED, cardId: 711, payload: { from: to, to, lane: 'dropped' } },
     ])
+  })
+
+  it.each(['archive', 'superseded'])('a move into %s is a drop: it writes card.dropped and says so', (lane) => {
+    const w = world()
+    park(w.parking, 713)
+    const bus: CardEvent[] = []
+    const result = move(w, 713, lane, event => bus.push(event))
+    expect(result).toMatchObject({ status: 'moved', event: CARD_DROPPED })
+    expect(printed(result).lines.join('\n')).toContain('The bus holds the move as card.dropped; the card is unchanged.')
+    expect(bus).toMatchObject([{ type: CARD_DROPPED, cardId: 713, payload: { lane } }])
   })
 
   it('a move the bus refuses puts the file back, removes the directory it created and leaves no journal line', () => {

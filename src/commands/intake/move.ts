@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync
 import path from 'node:path'
 import { parseParkingFile } from '../../card/parking.js'
 import { bodySha } from './confirm.js'
-import { CARD_DROPPED, CARD_MOVED, DROPPED_LANE, INTAKE_EXIT, recordIntake } from './index.js'
+import { CARD_DROPPED, CARD_MOVED, INTAKE_EXIT, recordIntake, TERMINAL_LANES } from './index.js'
 
 export const INTAKE_MOVE_EVENT = 'intake-move'
 
@@ -23,8 +23,8 @@ export interface MoveOptions {
 
 export type MoveResult
   = | { status: 'refused', why: (ui: Ui) => string }
-    | { status: 'moved', from: string, to: string }
-    | { status: 'recordedInPlace', file: string }
+    | { status: 'moved', from: string, to: string, event: string }
+    | { status: 'recordedInPlace', file: string, event: string }
 
 function refused(why: (ui: Ui) => string): MoveResult {
   return { status: 'refused', why }
@@ -75,7 +75,7 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   const ts = now().toISOString()
   const moved = { from: path.dirname(from), to: targetDir, bodySha: bodySha(text) }
   const lane = path.basename(targetDir)
-  const type = lane === DROPPED_LANE ? CARD_DROPPED : CARD_MOVED
+  const type = TERMINAL_LANES.has(lane) ? CARD_DROPPED : CARD_MOVED
   try {
     recordIntake(options.journal, [{
       journalLine: JSON.stringify({ event: INTAKE_MOVE_EVENT, task: String(number), ...moved, ts }),
@@ -89,7 +89,7 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
       rmdirSync(createdDir)
     throw error
   }
-  return inPlace ? { status: 'recordedInPlace', file: target } : { status: 'moved', from, to: target }
+  return inPlace ? { status: 'recordedInPlace', file: target, event: type } : { status: 'moved', from, to: target, event: type }
 }
 
 export function printMove(ui: Ui, result: MoveResult): number {
@@ -97,6 +97,6 @@ export function printMove(ui: Ui, result: MoveResult): number {
     ui.flatline(result.why(ui))
     return INTAKE_EXIT.refused
   }
-  ui.ok(result.status === 'moved' ? ui.lore.intakeMoved(result.from, result.to) : ui.lore.intakeMoveRecordedInPlace(result.file))
+  ui.ok(result.status === 'moved' ? ui.lore.intakeMoved(result.from, result.to, result.event) : ui.lore.intakeMoveRecordedInPlace(result.file, result.event))
   return INTAKE_EXIT.admitted
 }
