@@ -1,6 +1,6 @@
 import type { ProcessTable } from '../../bus/chain-process.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../bus/launch-executor.js'
-import type { DetachedSpawn, StarterPorts } from '../../bus/launch-starter.js'
+import type { DetachedSpawn, SessionContinuer, StarterPorts } from '../../bus/launch-starter.js'
 import type { LaunchNodeParts, LaunchStep } from '../../bus/launch-worker.js'
 import type { Lease } from '../../bus/lease.js'
 import type { DetectionMode } from '../../bus/node.js'
@@ -22,14 +22,17 @@ import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
-import { CARD_PULSE, handoffLadderSteps, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { ShiftCardStarter } from '../../bus/launch-starter.js'
+import { CARD_CONTINUED, CARD_PULSE, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
 import { keyOf, launchTasks, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
+import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ghosts/worktree-home.js'
+import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectReview } from './review-detection.js'
@@ -64,6 +67,17 @@ class FakeStarter implements CardStarter {
     this.stops.push(card)
   }
 }
+
+class ContinuingStarter extends FakeStarter implements SessionContinuer {
+  continued: { card: QueuedCard, from: StartedCard }[] = []
+
+  continueFrom(card: QueuedCard, from: StartedCard): CardStart {
+    this.continued.push({ card, from })
+    return { kind: 'started', card: { ...from, session: `s-${card.cardId}-c${this.continued.length}` } }
+  }
+}
+
+const HANDOFF_REPORT = `#1123 a-card\n${HANDOFF_FIELDS.map(field => `${field.label}: ${field.id === 'queue' ? '#1123' : `the ${field.id} of the card`}`).join('\n')}\nboundary: eddies warn\n`
 
 class ProbedLaunchNode extends LaunchNode {
   failOnCall: number | null = null
@@ -555,6 +569,86 @@ describe('the launch node', () => {
     expect(eventsOf(made.db, CARD_PULSE)).toEqual([])
   })
 
+  function boundarySession(made: MergeBench, cardId: number): { node: ProbedLaunchNode, starter: ContinuingStarter } {
+    admit(made, cardId, 'lane-a')
+    made.tick()
+    const starter = new ContinuingStarter()
+    const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: start => start.cardId === cardId, isolation: sandboxed })
+    return { node, starter }
+  }
+
+  it('a session that exits at the Eddies boundary with a handoff is relaunched from it', async () => {
+    const made = bench()
+    const { node, starter } = boundarySession(made, 1123)
+    await once(node)
+    made.tick()
+
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.continued).toEqual([{ card: { cardId: 1123, lane: 'lane-a' }, from: { session: 's-1123', worktree: '/trees/mc-1123', branch: 'feat/card-1123', base: 'f'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' } }])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, CARD_CONTINUED)).toEqual([{ session: 's-1123-c1', worktree: '/trees/mc-1123', branch: 'feat/card-1123', base: 'f'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap', continuation: 1, from: 's-1123' }])
+    made.tick()
+    expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 1123`).get()).toEqual({ state: 'running' })
+    expect(launchRows(made, 1123)).toBe(1)
+    expect(starter.starts).toHaveLength(1)
+  })
+
+  it('a fourth Eddies exit of one card stops it at the D-104 limit', async () => {
+    const made = bench()
+    const { node, starter } = boundarySession(made, 1124)
+    await once(node)
+    made.tick()
+
+    for (let exit = 1; exit <= MAX_RESTARTS; exit++) {
+      expect(node.stopOverdue()).toEqual([])
+      made.tick()
+    }
+    expect(starter.continued.map(each => each.from.session)).toEqual(['s-1124', 's-1124-c1', 's-1124-c2'])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+
+    expect(node.stopOverdue()).toEqual([1124])
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.continued).toHaveLength(MAX_RESTARTS)
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: `continuation-limit: card #1124 session s-1124-c3 exited at a boundary with its handoff written; ${MAX_RESTARTS} of ${MAX_RESTARTS} continuations used (D-104), the card is not continued again` }])
+    made.tick()
+    expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 1124`).get()).toEqual({ state: STOPPED_CARD })
+    expect(launchRows(made, 1124)).toBe(1)
+  })
+
+  it('a session that exits with no handoff is stopped as before and not continued', async () => {
+    const made = bench()
+    admit(made, 1125, 'lane-a')
+    made.tick()
+    const starter = new ContinuingStarter()
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, isolation: sandboxed })
+    await once(node)
+    made.tick()
+
+    expect(node.stopOverdue()).toEqual([1125])
+    expect(starter.continued).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: noPullRequestDetail(1125, 's-1125', null) }])
+  })
+
+  it('a launch whose pgid names another session is stopped as gone', async () => {
+    const made = bench()
+    admit(made, 1126, 'lane-a')
+    made.tick()
+    const signalled: number[] = []
+    const processes: ProcessTable = { commandLine: () => 'sh -c claude -p --session-id someone-else', signalGroup: pgid => signalled.push(pgid) }
+    const starter = new FakeStarter()
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+    await once(node)
+    made.tick()
+
+    expect(node.stopOverdue()).toEqual([1126])
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: expect.stringMatching(/^session-end: card #1126 session s-1126 ended/) as unknown }])
+    expect(starter.stops).toEqual([])
+    expect(signalled).toEqual([])
+  })
+
   function silentSession(made: MergeBench, cardId: number): { node: ProbedLaunchNode, starter: FakeStarter } {
     admit(made, cardId, 'lane-a')
     made.tick()
@@ -901,6 +995,59 @@ describe('what a launched session left behind', () => {
       expect(reportWrittenSince(launchDir, start)).toBe(true)
       rmSync(report)
     }
+  })
+
+  it('a shift report written since the start that carries every handoff field is a handoff, a plain or older one is not', () => {
+    const launchDir = scratch()
+    const start = { cardId: 1123, ts: '2026-10-19T12:00:00.000Z' }
+    const handedOff = handoffWrittenSince(launchDir)
+    expect(handedOff(start)).toBe(false)
+
+    const report = path.join(launchDir, 'report-1123.md')
+    writeFileSync(report, '#1123 a-card\nresult: stopped before PR — quality red\nno PR\n')
+    utimesSync(report, new Date('2026-10-19T12:00:01.000Z'), new Date('2026-10-19T12:00:01.000Z'))
+    expect(handedOff(start)).toBe(false)
+    writeFileSync(report, HANDOFF_REPORT)
+    utimesSync(report, new Date('2026-10-19T11:00:00.000Z'), new Date('2026-10-19T11:00:00.000Z'))
+    expect(handedOff(start)).toBe(false)
+    utimesSync(report, new Date('2026-10-19T12:00:01.000Z'), new Date('2026-10-19T12:00:01.000Z'))
+    expect(handedOff(start)).toBe(true)
+  })
+
+  it('a continued session is spawned in the tree it left, on its base, with the continuation prompt and no new cut', () => {
+    const root = scratch()
+    const parking = path.join(root, 'parking')
+    mkdirSync(path.join(parking, 'lane-a'), { recursive: true })
+    writeFileSync(path.join(parking, 'lane-a', '1123.md'), parkingFileText({ card: '#1123 a-card [implement/netwatch/S/cheap/auto] · depends — · blocks —', branch: 'feat/a-card', touches: ['scripts/bus/**'], continue: 'auto', who: 'shift', body: 'Do the card.' }))
+    const spawned: DetachedSpawn[] = []
+    const cuts: string[] = []
+    const ports: StarterPorts = {
+      read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+      cut: (task) => {
+        cuts.push(task.branch)
+        return '/trees/new'
+      },
+      base: () => 'n'.repeat(40),
+      spawnDetached: (run) => {
+        spawned.push(run)
+        return 5151
+      },
+      pgidOf: () => 5151,
+      kill: () => {},
+      uuid: () => 'sess-next',
+      envOf: () => ({}),
+      prompt: task => task.body,
+    }
+    const starter = new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
+    const from: StartedCard = { session: 'sess-first', worktree: '/trees/mc-1123', branch: 'feat/a-card', base: 'b'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' }
+
+    const begun = starter.continueFrom({ cardId: 1123, lane: 'lane-a' }, from)
+    expect(begun).toMatchObject({ kind: 'started', card: { session: 'sess-next', worktree: '/trees/mc-1123', branch: 'feat/a-card', base: 'b'.repeat(40), pid: 5151, pgid: 5151 } })
+    expect(cuts).toEqual([])
+    expect(spawned.map(run => run.cwd)).toEqual(['/trees/mc-1123'])
+    expect(spawned[0]!.input).toContain(CONTINUE_PROMPT)
+    expect(spawned[0]!.input).toContain(path.join(root, 'launch', 'report-1123.md'))
+    expect(spawned[0]!.input).not.toContain('Do the card.')
   })
 
   it('the reason a session ended with is the result line of its shift report written since the start', () => {
