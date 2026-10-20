@@ -5,7 +5,7 @@ import type { GhRunner } from '../core/gh.js'
 import type { ChangedFile, Prediction } from '../morse/rules.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { runsOf, TestCoverage, withinTouches } from '../../src/card/covering-tests.js'
+import { runsCover, runsOf, TestCoverage, withinTouches } from '../../src/card/covering-tests.js'
 import { COMPANION_TABLE, PACKAGE_MANIFEST, publishedRootsOf } from '../../src/commands/intake/check.js'
 import { changedFilesFrom } from '../morse/diff.js'
 import { classify, MorseRefusal } from '../morse/rules.js'
@@ -126,7 +126,7 @@ function readOrNull(file: string): string | null {
 }
 
 function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, paths: readonly string[], touches: readonly string[], runs: readonly string[]): string[] {
-  const outside = paths.filter(file => !withinTouches(file, touches) && !withinTouches(file, runs))
+  const outside = paths.filter(file => !withinTouches(file, touches) && !runsCover(file, runs))
   if (outside.length === 0)
     return []
   const coverage = new TestCoverage(() => git(worktree, ['ls-files']).split('\n').filter(file => file !== ''), file => readOrNull(path.join(worktree, file)))

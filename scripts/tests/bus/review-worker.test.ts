@@ -1166,6 +1166,7 @@ function edited(file: string, additions = 1, deletions = 1): ChangedFile {
 class DepthWorld {
   readonly ranges = new Map<string, ChangedFile[]>()
   readonly touches = new Map<number, string[]>()
+  readonly runs = new Map<number, string[]>()
   readonly asked: string[] = []
   readonly predictions: { task: string, verdict: string, rule: string }[] = []
 
@@ -1174,8 +1175,9 @@ class DepthWorld {
     return this
   }
 
-  card(cardId: number, touches: string[]): this {
+  card(cardId: number, touches: string[], runs: string[] = []): this {
     this.touches.set(cardId, touches)
+    this.runs.set(cardId, runs)
     return this
   }
 
@@ -1196,7 +1198,10 @@ class DepthWorld {
       this.predictions.push({ task, verdict: prediction.verdict, rule: prediction.rule })
       return { prediction, files: files.map(file => file.path) }
     },
-    touches: cardId => this.touches.get(cardId) ?? null,
+    scope: (cardId) => {
+      const touches = this.touches.get(cardId)
+      return touches === undefined ? null : { touches, runs: this.runs.get(cardId) ?? [] }
+    },
   }
 
   readonly planner: ReviewPlanner = (lease, earlier) => planReview(lease, earlier, this.sources)
@@ -1396,10 +1401,11 @@ describe('review depth by MORSE', () => {
     bench.db.close()
   })
 
-  it('a test outside the card touches is one the card runs and is no finding of the review', () => {
-    const world = new DepthWorld().change(MERGE_BASE, sha('a'), [edited('scripts/bus/a.ts'), edited('scripts/tests/bus/a.test.ts'), edited('scripts/tests/bus/helper.ts')]).card(1071, ['scripts/bus/a.ts'])
+  it('a test the card runs is no finding of the review; a test it does not run, a helper under its runs and code its runs name are', () => {
+    const changed = ['scripts/bus/a.ts', 'scripts/tests/bus/a.test.ts', 'scripts/tests/bus/helper.ts', 'scripts/tests/other/x.test.ts', 'src/foo.ts']
+    const world = new DepthWorld().change(MERGE_BASE, sha('a'), changed.map(file => edited(file))).card(1071, ['scripts/bus/a.ts'], ['scripts/tests/bus/**', 'src/foo.ts'])
     const lease = { taskKey: review(971), queue: 'review' as const, cardId: 1071, pr: 971, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
-    expect(planReview(lease, null, world.sources)).toMatchObject({ depth: 'diff', round: 'first', touchFindings: ['scripts/tests/bus/helper.ts is outside the touches of card #1071 (scripts/bus/a.ts)'] })
+    expect(planReview(lease, null, world.sources)).toMatchObject({ depth: 'diff', round: 'first', touchFindings: ['scripts/tests/bus/helper.ts', 'scripts/tests/other/x.test.ts', 'src/foo.ts'].map(file => `${file} is outside the touches of card #1071 (scripts/bus/a.ts)`) })
   })
 
   it('touches that cannot be read stay a diff review and become a finding of it', () => {

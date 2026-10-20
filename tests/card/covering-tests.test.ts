@@ -157,6 +157,8 @@ describe('a card runs the tests that cover its touches, apart from what it touch
   it('the runs of an older card are its covering tests intake put into touches, and touches without runs drop them', () => {
     const body = `Do it.\n\ncorrected: touches — (absent) → tests/a.test.ts — ${COVERING_REASON}\ncorrected: touches — (absent) → CONTRIBUTING.md — every change of this kind carries it\n${runsLine(['tests/b.test.ts', 'scripts/tests/bus/**'])}`
     expect(runsOf(body)).toEqual(['tests/a.test.ts', 'tests/b.test.ts', 'scripts/tests/bus/**'])
+    expect(runsOf(`${runsLine(['src/foo.ts', 'src/**', 'tests/helper.ts', 'tests/c.test.ts'])}\ncorrected: touches — (absent) → src/bar.ts — ${COVERING_REASON}`)).toEqual(['tests/c.test.ts'])
+    expect(touchesWithoutRuns(['src/foo.ts', 'tests/c.test.ts'], runsLine(['src/foo.ts', 'tests/c.test.ts']))).toEqual(['src/foo.ts'])
     expect(touchesWithoutRuns(['src/x.ts', 'tests/a.test.ts', 'CONTRIBUTING.md', 'scripts/tests/bus/**'], body)).toEqual(['src/x.ts', 'CONTRIBUTING.md'])
   })
 })

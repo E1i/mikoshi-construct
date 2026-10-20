@@ -25,6 +25,10 @@ export function isTest(file: string): boolean {
   return TEST_FILE.test(file) && TEST_ROOTS.some(root => file.startsWith(`${root}/`))
 }
 
+function isTestScope(entry: string): boolean {
+  return isTest(entry) || (entry.endsWith(PREFIX_SUFFIX) && TEST_ROOTS.some(root => `${entry.slice(0, -PREFIX_SUFFIX.length)}/`.startsWith(`${root}/`)))
+}
+
 export function runsLine(runs: readonly string[]): string {
   return `${RUNS_PREFIX}${runs.join(RUNS_SEPARATOR)}`
 }
@@ -42,7 +46,11 @@ function runsOfLine(line: string): string[] {
 }
 
 export function runsOf(body: string): string[] {
-  return [...new Set(body.split('\n').flatMap(line => runsOfLine(line.trim())))]
+  return [...new Set(body.split('\n').flatMap(line => runsOfLine(line.trim())))].filter(isTestScope)
+}
+
+export function runsCover(file: string, runs: readonly string[]): boolean {
+  return isTest(file) && withinTouches(file, runs)
 }
 
 export function touchesWithoutRuns(touches: readonly string[], body: string): string[] {

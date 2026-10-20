@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
-import { touchesWithoutRuns } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
@@ -108,10 +107,7 @@ function taskOf(row: LifeRow, payload: Record<string, unknown>): ShiftTask | nul
   if (typeof payload.text !== 'string')
     return null
   const parsed = parseParkingFile(`${row.card_id}.md`, payload.text)
-  if (parsed.kind !== 'parked')
-    return null
-  const { task } = parsed.parked
-  return { ...task, touches: touchesWithoutRuns(task.touches, task.body) }
+  return parsed.kind === 'parked' ? parsed.parked.task : null
 }
 
 function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[]): boolean {

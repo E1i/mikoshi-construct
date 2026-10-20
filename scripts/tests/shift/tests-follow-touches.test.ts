@@ -98,6 +98,13 @@ describe('the shift gate lets the tests that cover the touched files follow the 
     expect(treePr(ports(), CARD, notRunning, null)).toMatchObject({ kind: 'problem' })
   })
 
+  it('a Runs: entry that names code, not a test, lets no code change outside the touches', () => {
+    const worktree = cardTree()
+    write(worktree, { 'scripts/bus/merge-worker.ts': 'export function runMergeWorker(): number {\n  return 2\n}\n' })
+    const result = treePr(ports(), { ...CARD, runs: ['scripts/bus/merge-worker.ts', 'scripts/bus/**'] }, worktree, null)
+    expect(result.kind === 'problem' && result.why).toContain('the card\'s touches for scripts/bus/merge-worker.ts')
+  })
+
   it('a card read from its parking file runs what its Runs: line names', () => {
     const parsed = parseParkingFile('1128.md', parkingFileText({ card: CARD.cardLine, branch: CARD.branch, touches: CARD.touches, continue: 'stop', who: 'shift', body: `Do it.\n\n${runsLine(['scripts/tests/bus/**'])}` }))
     expect(parsed.kind === 'parked' && shiftTreeCard(parsed.parked.task).runs).toEqual(['scripts/tests/bus/**'])
