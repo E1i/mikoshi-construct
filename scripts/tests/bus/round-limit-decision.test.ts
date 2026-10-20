@@ -1,12 +1,12 @@
 import type { AuthorityRule } from '../../bus/policy.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MERGE_DONE } from '../../bus/card-automaton.js'
+import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
-import { changesRoundsOf, REVIEW_ROUNDS } from '../../bus/queue.js'
+import { changesRoundsOf, closedByRounds, REVIEW_ROUNDS } from '../../bus/queue.js'
 import { roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { cleanUpdatesOf } from '../../bus/update-done.js'
 import { manualUpdateDone } from '../../bus/update-executor.js'
@@ -46,6 +46,22 @@ describe('a merge past the review round limit by an owner decision', () => {
 
     expect(changesRoundsOf(bench.db, PR)).toBe(REVIEW_ROUNDS)
     expect(queuedFor(bench, PR)).toEqual([])
+  })
+
+  it('a card amend on the same head spends no round', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
+    const changes = (head: string, task: string): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:session-1', cardId: PR + 100, pr: PR, head, dedupeKey: `${REVIEW_RECORDED}:${task}:1`, payload: { head, verdict: 'changes', reviewer_session: 'session-1', findings: [] }, legacy: false })
+    }
+    changes(sha('1'), 'first-head')
+    for (const amend of Array.from({ length: REVIEW_ROUNDS }, (_, at) => `card-body-amend-${at}`))
+      changes(HEAD, amend)
+
+    expect(changesRoundsOf(bench.db, PR)).toBe(2)
+    for (const queue of ['review', 'answer', 'merge'] as const)
+      expect(closedByRounds(bench.db, bench.clock.now().toISOString(), queue, PR, HEAD), queue).toBe(false)
   })
 
   it('a decision naming the PR and its head makes it a merge candidate and queues no review or answer', () => {

@@ -8,10 +8,11 @@ import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
+import { CARD_STOPPED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
-import { cardBodyShaOfCard, queueTask, supersedeTask, TASK_SUPERSEDED } from '../../bus/queue.js'
+import { BOARD_ALARM, cardBodyShaOfCard, FAILURES_TO_STOP, queueTask, supersedeTask, TASK_SUPERSEDED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../bus/review-worker.js'
@@ -227,6 +228,29 @@ describe('review queue', () => {
     tick()
     expect(gitHub.pulls.get(931)!.review).toBe('failure')
     expect(tasks(db).filter(task => task.task_key.startsWith('merge:'))).toEqual([])
+    db.close()
+  })
+
+  it('a head that moved past a review lease supersedes it without a failure', async () => {
+    const { db, gitHub, clock, tick } = setUp()
+    const worker = passingWorker(db, gitHub, clock, 935)
+    const heads = ['a', 'b', 'c', 'd', 'e'].map(letter => sha(letter)).slice(0, FAILURES_TO_STOP + 2)
+    const keyOf = (head: string): string => taskKey({ queue: 'review', cardId: 1035, pr: 935, head, input: { prBody: prBodySha(cardBody(935)), cardBody: null } })
+    gitHub.open({ number: 935, body: cardBody(935), head: heads[0] })
+    tick()
+    for (const [at, head] of heads.slice(0, -1).entries()) {
+      gitHub.open({ number: 935, body: cardBody(935), head: heads[at + 1] })
+      expect(await worker.step()).toMatchObject({ kind: 'denied', taskKey: keyOf(head), denial: { reason: 'stale_head' }, next: 'superseded' })
+      tick()
+    }
+    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'pass', taskKey: keyOf(heads.at(-1)!) })
+
+    const reviews = db.prepare(`SELECT task_key, state, failures FROM tasks WHERE queue = 'review' ORDER BY id`).all() as { task_key: string, state: string, failures: number }[]
+    expect(reviews).toEqual([...heads.slice(0, -1).map(head => ({ task_key: keyOf(head), state: 'superseded', failures: 0 })), { task_key: keyOf(heads.at(-1)!), state: 'completed', failures: 0 }])
+    expect(db.prepare(`SELECT type FROM events WHERE type IN (?, ?, 'task.failed')`).all(CARD_STOPPED, BOARD_ALARM)).toEqual([])
+    const live = projectionDump(db)
+    reduce(db)
+    expect(projectionDump(db)).toBe(live)
     db.close()
   })
 

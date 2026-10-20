@@ -3,7 +3,7 @@ import type { Isolation, IsolationReader } from '../ghosts/isolation.js'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { BusEvent } from './db.js'
 import type { GitHub } from './github.js'
-import type { AfterFailure, Lease } from './lease.js'
+import type { AfterFailure, Lease, SUPERSEDED_LEASE } from './lease.js'
 import type { SessionInput } from './prompt-store.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
@@ -15,7 +15,7 @@ import { ARTIFACT_REMOVED } from './close-executor.js'
 import { appendEvent } from './db.js'
 import { reviewInputOfKey } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
-import { completeTask, failTask, releaseTask, StaleLease } from './lease.js'
+import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from './lease.js'
 import { storedInput } from './prompt-store.js'
 import { BOARD_ALARM, headsWithChangesOf, REVIEW_ROUNDS } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
@@ -23,6 +23,7 @@ import { fullReview } from './review-depth.js'
 import { PREFIX, ReviewFailed } from './reviewer.js'
 
 const CI_NOT_READY = 'ci_not_ready'
+const STALE_HEAD = 'stale_head'
 export const TREE_LEFT = 'tree_left'
 export const REVIEW_ROUNDS_SPENT = 'review.rounds_spent'
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
@@ -32,7 +33,7 @@ export const SPAWNS_NO_SESSION = 'spawns-no-session'
 export type Step
   = | { kind: 'idle' }
     | { kind: 'recorded', taskKey: string, verdict: VerdictWord, depth: ReviewDepth, model?: string }
-    | { kind: 'denied', taskKey: string, denial: Denial, next: AfterFailure }
+    | { kind: 'denied', taskKey: string, denial: Denial, next: AfterFailure | typeof SUPERSEDED_LEASE }
     | { kind: 'fenced', taskKey: string }
     | { kind: 'waiting', taskKey: string, detail: string }
 
@@ -271,6 +272,8 @@ export class ReviewExecutor {
       releaseTask(this.parts.db, ts, lease, reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
+    if (reason === STALE_HEAD)
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.parts.db, ts, lease, [event]) }
     const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
