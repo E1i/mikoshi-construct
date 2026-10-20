@@ -124,10 +124,14 @@ function admissionOfMove(move: CardEvent): CardEvent | null {
   }
 }
 
+function needsAnAdmission(event: CardEvent): boolean {
+  return event.type === CARD_MOVED
+}
+
 export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}${session}`
   return event => inTransaction(db, () => {
-    if (event.type === CARD_MOVED && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
+    if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
     append(db, actor, laid(db, event))
     const admitted = event.type === CARD_MOVED ? admissionOfMove(event) : null

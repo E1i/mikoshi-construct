@@ -1961,9 +1961,10 @@ the parking grammar. A move is held only by the bus: a run with no bus wired ref
 nothing and names `pnpm intake --move`, so the published CLI, which has no bus, always refuses a move. With
 a bus, the file is moved unchanged, so it is the same record with no new number, and a `card.moved` is
 written to the bus with no journal line; a card the bus holds no `card.admitted` for is refused and the file
-goes back. A move to the directory the card already sits in leaves the file where it is and writes the
-`card.moved` all the same. A move into `archive`, `dropped` or `superseded` ends the card as `dropped`
-unless it is already merged, closed or dropped. With `--draft`, `--taken` or `--admit` the move refuses.
+goes back. A move into `archive`, `dropped` or `superseded` is a drop: it writes `card.dropped` instead,
+which ends the card as `dropped` unless it is already merged, closed or dropped, and it is taken for a card
+the bus never admitted too. A move to the directory the card already sits in leaves the file where it is
+and writes the same event all the same. The printed line names the event the bus holds. With `--draft`, `--taken` or `--admit` the move refuses.
 
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under

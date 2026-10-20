@@ -343,6 +343,15 @@ describe('the card automaton', () => {
     db.close()
   })
 
+  it('card.dropped moves the automaton to dropped from a started card, a queued card and a card the bus never admitted, and leaves a merged card merged', () => {
+    const dropped = (cardId: number): BusEvent => event('card.dropped', { actor: 'worker:intake:by-hand', cardId, payload: { lane: 'dropped' } })
+    const db = busWith(admitted(930), started(930), dropped(930), admitted(931), dropped(931), dropped(932), admitted(933), event('merge.done', { actor: 'worker:merge:s1', cardId: 933, pr: 933, payload: {} }), dropped(933))
+    reduce(db)
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[930, 'dropped'], [931, 'dropped'], [932, 'dropped'], [933, 'merged']])
+    expect(rejections(db)).toEqual([])
+    db.close()
+  })
+
   it.each(['archive', 'dropped', 'superseded'])('a queued card moved into %s ends dropped, as does a backfilled card without state', (lane) => {
     const backfilled = event('card.admitted', { actor: 'worker:backfill:window', cardId: 918, payload: { source: 'backfill' } })
     const moved = (cardId: number): BusEvent => event('card.moved', { actor: 'worker:intake:by-hand', cardId, payload: { lane } })
