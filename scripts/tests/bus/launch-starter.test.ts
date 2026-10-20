@@ -1,9 +1,13 @@
 import { execFileSync } from 'node:child_process'
+import { devNull, tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { HTTPS_ORIGIN_ENV } from '../../bus/launch-starter.js'
 
+const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }
+
 function gitConfig(args: string[]): string {
-  return execFileSync('git', ['config', ...args], { encoding: 'utf8', env: { ...process.env, ...HTTPS_ORIGIN_ENV } }).replace(/\n$/, '')
+  const { GIT_DIR: _gitDir, GIT_WORK_TREE: _workTree, ...outsideAnyRepository } = process.env
+  return execFileSync('git', ['config', ...args], { encoding: 'utf8', cwd: tmpdir(), env: { ...outsideAnyRepository, ...NO_FILE_CONFIG_ENV, ...HTTPS_ORIGIN_ENV } }).replace(/\n$/, '')
 }
 
 describe('the launch env', () => {

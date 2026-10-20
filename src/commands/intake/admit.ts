@@ -14,6 +14,7 @@ import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/c
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
+import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, INTAKE_EVENT, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
@@ -311,6 +312,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (parsed.kind === 'refused')
     return { status: 'refused', why: parsed.reason }
   const { card } = parsed.parked.task
+  const listed = parseCard(card.line, readMilestones(options.dir))
+  if (listed.kind === 'refused')
+    return { status: 'refused', why: listed.reason }
   const draft = draftOf(parsed.parked)
   const invalidPatterns = invalidTestPatterns([draft])
   if (invalidPatterns.length > 0)

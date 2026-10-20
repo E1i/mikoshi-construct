@@ -4,7 +4,7 @@ import type { ProcessTable } from './chain-process.js'
 import type { LadderSteps } from './ladder-starter.js'
 import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
-import type { StarterPlaces, StarterPorts } from './launch-starter.js'
+import type { SessionContinuer, StarterPlaces, StarterPorts } from './launch-starter.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode } from './node.js'
 import type { QueuedTask } from './queue.js'
@@ -21,11 +21,12 @@ import { commandWords, realIsolationReader } from '../ghosts/isolation.js'
 import { sessionEnv } from '../ghosts/session.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
+import { continuationRefusal, MAX_RESTARTS } from '../shift/continuation.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../shift/ladder.js'
 import { GHOST_JOURNAL } from '../shift/places.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
-import { GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
+import { DROPPED_CARD, GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
 import { cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
@@ -41,7 +42,7 @@ import { TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './leas
 import { Node, prefixOf, runNode } from './node.js'
 import { PR_CLOSED } from './observations.js'
 import { PR_OBSERVED } from './operator-work.js'
-import { promptsDirOf } from './prompt-store.js'
+import { promptsDirOf, storedInput } from './prompt-store.js'
 import { launchTasks, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
 import { openDatabase } from './sqlite.js'
@@ -84,6 +85,8 @@ export interface LaunchNodeParts {
   processes?: ProcessTable
   resulted?: (card: StartedCard, start: SessionStart) => boolean
   endedWith?: (start: SessionStart) => string | null
+  handedOff?: (start: SessionStart) => boolean
+  continuer?: SessionContinuer
   isolation: IsolationReader
   prompts?: string
 }
@@ -101,19 +104,39 @@ interface RunningStart {
   payload: string
 }
 
-const RUNNING_STARTS = `
+export const CARD_CONTINUED = 'card.continued'
+
+export const CARD_WAITING = 'card.waiting'
+
+export const LADDER_APPROVAL = 'ladder.approval'
+
+export const CARD_SESSION_ENDED = 'card.session.ended'
+
+const SESSION_STARTS = `'${CARD_STARTED}', '${CARD_CONTINUED}'`
+
+function latestStartsOf(state: string, condition = ''): string {
+  return `
   SELECT e.id, e.card_id, e.ts, e.dedupe_key, e.payload FROM cards AS c
-  JOIN events AS e ON e.card_id = c.card_id AND e.type = '${CARD_STARTED}' AND e.legacy = 0
-    AND e.id = (SELECT MAX(id) FROM events WHERE card_id = c.card_id AND type = '${CARD_STARTED}' AND legacy = 0)
-  WHERE c.state = '${RUNNING_CARD}'
+  JOIN events AS e ON e.card_id = c.card_id AND e.type IN (${SESSION_STARTS}) AND e.legacy = 0
+    AND e.id = (SELECT MAX(id) FROM events WHERE card_id = c.card_id AND type IN (${SESSION_STARTS}) AND legacy = 0)
+  WHERE c.state = '${state}'${condition}
   ORDER BY c.card_id
 `
+}
+
+const RUNNING_STARTS = latestStartsOf(RUNNING_CARD)
+
+const DROPPED_STARTS = latestStartsOf(DROPPED_CARD, `
+    AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = c.card_id AND id > e.id AND legacy = 0 AND type IN ('${CARD_STOPPED}', '${CARD_SESSION_ENDED}'))`)
 
 const STOPPED_SINCE = `SELECT 1 FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND id > ? LIMIT 1`
 
 export const SESSION_DEATH_CAP = 3
 
 const SESSION_DEATHS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND dedupe_key LIKE '${CARD_STOPPED}:session-end:%'`
+
+const CONTINUATIONS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_CONTINUED}' AND legacy = 0 AND card_id = ?
+  AND id > (SELECT coalesce(MAX(id), 0) FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0 AND card_id = ?)`
 
 const PR_SINCE = `SELECT 1 FROM events WHERE card_id = ? AND id > ? AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') LIMIT 1`
 
@@ -176,7 +199,7 @@ export class LaunchNode extends Node<LaunchStep> {
           stopped.push(start.card_id)
         continue
       }
-      if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'live')
+      if (this.sessionProcess(card) !== 'live')
         continue
       this.pulse(start, card)
       const now = this.parts.clock().getTime()
@@ -191,7 +214,23 @@ export class LaunchNode extends Node<LaunchStep> {
           stopped.push(start.card_id)
       }
     }
+    for (const start of this.db.prepare(DROPPED_STARTS).all() as unknown as RunningStart[]) {
+      const card = startedCardOf(start.payload)
+      if (card !== null && this.endDropped(start, card))
+        stopped.push(start.card_id)
+    }
     return stopped
+  }
+
+  private endDropped(start: RunningStart, card: StartedCard): boolean {
+    const live = this.sessionProcess(card) === 'live'
+    if (live)
+      this.starters[card.contour]?.stop(card)
+    if (this.sessionProcess(card) !== 'gone')
+      return false
+    const end = live ? 'was stopped at the drop' : 'ended on its own'
+    const detail = `card #${start.card_id} is dropped; its session ${card.session} ${end}`
+    return appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: live, detail }, legacy: false })
   }
 
   private pulse(start: RunningStart, card: StartedCard): void {
@@ -208,17 +247,21 @@ export class LaunchNode extends Node<LaunchStep> {
     return beat !== null && Date.parse(beat.ts) > Date.parse(start.ts) ? beat.ts : start.ts
   }
 
+  private sessionProcess(card: StartedCard): 'live' | 'gone' {
+    return launchProcess({ pgid: card.pgid, session: card.session }, this.processes) === 'live' ? 'live' : 'gone'
+  }
+
   private stopLive(start: RunningStart, card: StartedCard, cause: string, why: string): boolean {
-    if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'live')
+    if (this.sessionProcess(card) !== 'live')
       return false
     this.starters[card.contour]?.stop(card)
-    if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
+    if (this.sessionProcess(card) !== 'gone')
       return false
     return appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, payload: { reason: 'fault', detail: `${cause}: ${why}` }, legacy: false })
   }
 
   private endedWithoutPullRequest(start: RunningStart, card: StartedCard): boolean {
-    if (card.step === SESSIONLESS_LADDER_STEP || launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
+    if (card.step === SESSIONLESS_LADDER_STEP || this.sessionProcess(card) !== 'gone')
       return false
     return this.db.prepare(GHOST_ROW_SINCE).get(start.card_id, start.id) === undefined
       && this.db.prepare(PR_SINCE).get(start.card_id, start.id) === undefined
@@ -226,9 +269,43 @@ export class LaunchNode extends Node<LaunchStep> {
 
   private stopEnded(start: RunningStart, card: StartedCard): boolean {
     const session: SessionStart = { cardId: start.card_id, ts: start.ts }
+    if (card.contour === 'cheap' && this.launchParts.continuer !== undefined && (this.launchParts.handedOff?.(session) ?? false))
+      return this.continueFromHandoff(start, card, this.launchParts.continuer)
     if (!(this.launchParts.resulted?.(card, session) ?? false))
       return this.stopDeadSession(start, card)
-    return card.contour === 'cheap' && this.stopWithoutPullRequest(start, card, session)
+    if (card.contour === 'ladder')
+      return this.waitForApproval(start, card)
+    return this.stopWithoutPullRequest(start, card, session)
+  }
+
+  private waitForApproval(start: RunningStart, card: StartedCard): boolean {
+    const detail = `card #${start.card_id} ladder step ${card.step ?? '-'} of session ${card.session} ended with a result and no ghost row; its next step waits for the approval of its brief`
+    appendEvent(this.db, { ts: this.ts(), type: CARD_WAITING, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${start.dedupe_key}`, payload: { reason: LADDER_APPROVAL, step: card.step ?? null, session: card.session, detail }, legacy: false })
+    return false
+  }
+
+  private continueFromHandoff(start: RunningStart, card: StartedCard, continuer: SessionContinuer): boolean {
+    const used = Number((this.db.prepare(CONTINUATIONS).get(start.card_id, start.card_id) as { n: number }).n)
+    const exited = `card #${start.card_id} session ${card.session} exited at a boundary with its handoff written`
+    if (used >= MAX_RESTARTS)
+      return this.stopContinuation(start, 'continuation-limit', `${exited}; ${used} of ${MAX_RESTARTS} continuations used (D-104), the card is not continued again`)
+    const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
+    const lane = admitted === undefined ? null : (JSON.parse(admitted.payload) as Record<string, unknown>).lane
+    if (typeof lane !== 'string')
+      return this.stopContinuation(start, 'continuation-refused', `${exited}; its admission names no lane, so no session continues from it`)
+    const begun = continuer.continueFrom({ cardId: start.card_id, lane }, card)
+    if (begun.kind === 'refused')
+      return this.stopContinuation(start, 'continuation-refused', `${exited}; the continuation was refused: ${begun.denial.detail}`)
+    const { input, ...launched } = begun.card
+    const next: StartedCard = { ...launched, contour: card.contour }
+    const payload = { ...next, continuation: used + 1, from: card.session, ...storedInput(this.launchParts.prompts, input) }
+    if (!appendEvent(this.db, { ts: this.ts(), type: CARD_CONTINUED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_CONTINUED}:${start.dedupe_key}`, payload, legacy: false }))
+      this.starters[card.contour]?.stop(next)
+    return false
+  }
+
+  private stopContinuation(start: RunningStart, cause: string, detail: string): boolean {
+    return appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, payload: { reason: 'fault', detail: `${cause}: ${detail}` }, legacy: false })
   }
 
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
@@ -281,6 +358,7 @@ export interface LaunchRun {
   busPath: string
   starter: CardStarter
   ladder?: CardStarter
+  continuer?: SessionContinuer
   session: string
   pause: (ms: number) => Promise<unknown>
   isolation: IsolationReader
@@ -322,6 +400,13 @@ export function sessionLeftAResult(launchDir: string): (card: StartedCard, start
   return (card, start) => reportWrittenSince(launchDir, start) || hasCommitsAhead(card)
 }
 
+export function handoffWrittenSince(launchDir: string): (start: SessionStart) => boolean {
+  return (start) => {
+    const report = path.join(launchDir, `report-${start.cardId}.md`)
+    return existsSync(report) && statSync(report).mtimeMs >= Date.parse(start.ts) && continuationRefusal(readFileSync(report, 'utf8')) === null
+  }
+}
+
 export function reportResultLine(launchDir: string): (start: SessionStart) => string | null {
   return (start) => {
     const report = path.join(launchDir, `report-${start.cardId}.md`)
@@ -336,7 +421,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -427,7 +512,7 @@ async function main(): Promise<number> {
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, launchDir: places.launchDir, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))

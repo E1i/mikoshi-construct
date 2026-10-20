@@ -13,7 +13,8 @@ import { CloseNode, closingVerification, runCloseWorker } from '../../bus/close-
 import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { legacyEventOf } from '../../bus/import.js'
-import { ownerInbox } from '../../bus/inbox.js'
+import { CARD_STARTED, ownerInbox } from '../../bus/inbox.js'
+import { CARD_ADMITTED, launchCandidates } from '../../bus/launch-candidates.js'
 import { expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { PR_CLOSED } from '../../bus/observations.js'
 import { BOARD_ALARM, CARD_CLOSED, FAILURES_TO_STOP, queueTask, TASK_REQUEUED } from '../../bus/queue.js'
@@ -157,6 +158,45 @@ describe('the close queue', () => {
     const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', journal: bench.journal, parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', taskKey: close(988), verification: 'code-reading' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'code-reading' }])
+    bench.close()
+  })
+
+  it('a card verified on a shared PR gets card.closed and gives up its lane', () => {
+    const bench = closeBench({ 1120: 'run', 1121: 'code-reading' })
+    const ts = bench.clock.now().toISOString()
+    const admitted = (cardId: number): void => {
+      appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-bus-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
+    }
+    admitted(1121)
+    appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 1121, pr: null, head: null, dedupeKey: `${CARD_STARTED}:1121`, payload: { session: 'card-session-1121', worktree: path.join(bench.parking, 'tree-1121'), branch: 'feat/card-1121', base: sha('1') }, legacy: false })
+    admitted(1123)
+    bench.tick()
+    expect(bench.db.prepare('SELECT state FROM cards WHERE card_id = 1121').get()).toEqual({ state: 'running' })
+    expect(launchCandidates(bench.db, () => false).map(candidate => candidate.cardId)).not.toContain(1123)
+    const parked = bench.park(1121)
+    appendEvent(bench.db, { ts, type: CARD_VERIFIED, actor: 'worker:task-close:window', cardId: 1121, pr: 1020, head: null, dedupeKey: `${CARD_VERIFIED}:1121:1020`, payload: { path: 'cheap', pr: 1020, sharedBy: 'D-189', verification: 'code-reading' }, legacy: false })
+    bench.merged(1020)
+
+    const shared = taskKey({ queue: 'close', cardId: 1121, pr: 1020, head: sha('a') })
+    expect(bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'close' ORDER BY task_key`).all()).toEqual([{ task_key: close(1020) }, { task_key: shared }].sort((a, b) => a.task_key.localeCompare(b.task_key)))
+    const outcomes = [bench.closeCard(bench.leaseClose()!), bench.closeCard(bench.leaseClose()!)]
+    expect(outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'closed', taskKey: close(1020), verification: 'run' }),
+      expect.objectContaining({ kind: 'closed', taskKey: shared, verification: 'code-reading', cycle: expect.objectContaining({ cardFile: 'moved' }) }),
+    ]))
+    expect(bench.db.prepare(`SELECT card_id, pr FROM events WHERE type = '${CARD_CLOSED}' ORDER BY card_id`).all()).toEqual([{ card_id: 1120, pr: 1020 }, { card_id: 1121, pr: 1020 }])
+    expect(launchCandidates(bench.db, () => false).map(candidate => candidate.cardId)).toContain(1123)
+    expect(existsSync(parked)).toBe(false)
+    expect(existsSync(path.join(bench.parking, 'archive', '1121.md'))).toBe(true)
+    bench.close()
+  })
+
+  it('a card verified on another card\'s PR without --shared-by does not enter close', () => {
+    const bench = closeBench()
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_VERIFIED, actor: 'worker:task-close:window', cardId: 1122, pr: 1021, head: null, dedupeKey: `${CARD_VERIFIED}:1122:1021`, payload: { path: 'cheap', pr: 1021, verification: 'run' }, legacy: false })
+    bench.merged(1021, false)
+
+    expect(bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'close'`).all()).toEqual([])
     bench.close()
   })
 
