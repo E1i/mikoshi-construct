@@ -15,7 +15,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { CARD_FELL, GHOST_ROW, PR_OPENED, STOPPED_CARD } from '../../bus/card-automaton.js'
+import { CARD_MOVED } from '../../../src/commands/intake/index.js'
+import { CARD_FELL, DROPPED_CARD, DROPPED_LANE, GHOST_ROW, PR_OPENED, STOPPED_CARD } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
@@ -23,7 +24,7 @@ import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { ShiftCardStarter } from '../../bus/launch-starter.js'
-import { CARD_CONTINUED, CARD_PULSE, CARD_WAITING, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LADDER_APPROVAL, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_WAITING, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LADDER_APPROVAL, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
@@ -682,6 +683,36 @@ describe('the launch node', () => {
     expect(node.stopOverdue()).toEqual([])
     expect(starter.stops).toHaveLength(1)
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: expect.stringMatching(/^no-heartbeat: card #983 session s-983 has no pull request and no heartbeat for 20 minutes since /) as unknown }])
+  })
+
+  function drop(made: MergeBench, cardId: number): void {
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_MOVED}:${cardId}`, payload: { lane: DROPPED_LANE }, legacy: false })
+    made.tick()
+  }
+
+  it('the live session of a dropped card is stopped and its end is an event', async () => {
+    const made = bench()
+    const { node, starter } = silentSession(made, 986)
+    await once(node)
+    made.tick()
+    admit(made, 987, 'lane-b')
+    made.tick()
+    await once(node)
+    made.tick()
+    expect(made.db.prepare(`SELECT count(*) AS n FROM cards WHERE card_id IN (986, 987) AND state = 'running'`).get()).toEqual({ n: 2 })
+
+    drop(made, 986)
+    drop(made, 987)
+    expect(node.stopOverdue()).toEqual([986, 987])
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.stops.map(each => each.session)).toEqual(['s-986'])
+    expect(eventsOf(made.db, CARD_SESSION_ENDED)).toEqual([
+      { session: 's-986', pgid: 4242, stopped: true, detail: 'card #986 is dropped; its session s-986 was stopped at the drop' },
+      { session: 's-987', pgid: 4242, stopped: false, detail: 'card #987 is dropped; its session s-987 ended on its own' },
+    ])
+    made.tick()
+    expect(made.db.prepare(`SELECT card_id, state FROM cards WHERE card_id IN (986, 987) ORDER BY card_id`).all()).toEqual([{ card_id: 986, state: DROPPED_CARD }, { card_id: 987, state: DROPPED_CARD }])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
   })
 
   it('a silent session whose card has a pull request is not stopped by the heartbeat watchdog', async () => {

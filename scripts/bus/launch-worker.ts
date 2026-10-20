@@ -26,7 +26,7 @@ import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksF
 import { GHOST_JOURNAL } from '../shift/places.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
-import { GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
+import { DROPPED_CARD, GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
 import { cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
@@ -110,15 +110,24 @@ export const CARD_WAITING = 'card.waiting'
 
 export const LADDER_APPROVAL = 'ladder.approval'
 
+export const CARD_SESSION_ENDED = 'card.session.ended'
+
 const SESSION_STARTS = `'${CARD_STARTED}', '${CARD_CONTINUED}'`
 
-const RUNNING_STARTS = `
+function latestStartsOf(state: string, condition = ''): string {
+  return `
   SELECT e.id, e.card_id, e.ts, e.dedupe_key, e.payload FROM cards AS c
   JOIN events AS e ON e.card_id = c.card_id AND e.type IN (${SESSION_STARTS}) AND e.legacy = 0
     AND e.id = (SELECT MAX(id) FROM events WHERE card_id = c.card_id AND type IN (${SESSION_STARTS}) AND legacy = 0)
-  WHERE c.state = '${RUNNING_CARD}'
+  WHERE c.state = '${state}'${condition}
   ORDER BY c.card_id
 `
+}
+
+const RUNNING_STARTS = latestStartsOf(RUNNING_CARD)
+
+const DROPPED_STARTS = latestStartsOf(DROPPED_CARD, `
+    AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = c.card_id AND id > e.id AND legacy = 0 AND type IN ('${CARD_STOPPED}', '${CARD_SESSION_ENDED}'))`)
 
 const STOPPED_SINCE = `SELECT 1 FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND id > ? LIMIT 1`
 
@@ -205,7 +214,23 @@ export class LaunchNode extends Node<LaunchStep> {
           stopped.push(start.card_id)
       }
     }
+    for (const start of this.db.prepare(DROPPED_STARTS).all() as unknown as RunningStart[]) {
+      const card = startedCardOf(start.payload)
+      if (card !== null && this.endDropped(start, card))
+        stopped.push(start.card_id)
+    }
     return stopped
+  }
+
+  private endDropped(start: RunningStart, card: StartedCard): boolean {
+    const live = this.sessionProcess(card) === 'live'
+    if (live)
+      this.starters[card.contour]?.stop(card)
+    if (this.sessionProcess(card) !== 'gone')
+      return false
+    const end = live ? 'was stopped at the drop' : 'ended on its own'
+    const detail = `card #${start.card_id} is dropped; its session ${card.session} ${end}`
+    return appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: live, detail }, legacy: false })
   }
 
   private pulse(start: RunningStart, card: StartedCard): void {
