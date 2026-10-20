@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { legacyEventOf } from '../../bus/import.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
-import { CARD_VERIFIED, cardVerifiedClosings, runTaskClose } from '../../ghosts/task-close.js'
+import { CARD_VERIFIED, cardVerifiedClosings, closingHistoryLines, runTaskClose } from '../../ghosts/task-close.js'
 import { prCardOf } from '../../ghosts/tasks.js'
 import { busWithCardStarted } from './card-started-bus.js'
 
@@ -975,5 +975,26 @@ describe('task:close after the cutoff records the closing in the bus', () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr.join('\n')).toContain(`the closing record goes to the bus as ${CARD_VERIFIED}, and no bus is wired; nothing written`)
     expect(written).toEqual([])
+  })
+
+  it('the closing history reads as path lines only the card.verified rows written before the cutoff', () => {
+    const bus = busWithCardStarted([])
+    try {
+      const { deps } = world([startLine('123', 'implement')])
+      expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath: bus.file, session: WINDOW_SESSION }).exitCode).toBe(0)
+      const before = '2026-10-11T09:00:00.000Z'
+      const db = openBus(bus.file)
+      try {
+        appendEvent(db, { ts: before, type: CARD_VERIFIED, actor: 'worker:task-close:t', cardId: 124, pr: 461, head: null, dedupeKey: `${CARD_VERIFIED}:124:${before}`, payload: { path: 'cheap', pr: 461, verification: 'review' }, legacy: false })
+      }
+      finally {
+        db.close()
+      }
+      expect(closingHistoryLines(bus.file)).toEqual([{ event: 'path', task: '124', path: 'cheap', pr: 461, verification: 'review', ts: before }])
+      expect(closingHistoryLines(path.join(path.dirname(bus.file), 'absent.db'))).toEqual([])
+    }
+    finally {
+      bus.remove()
+    }
   })
 })

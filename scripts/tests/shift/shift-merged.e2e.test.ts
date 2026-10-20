@@ -8,6 +8,7 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { runClaude } from '../../shift/claude.js'
 import { runShift } from '../../shift/shift.js'
 import { admitCards } from './fixtures/admitted.js'
+import { verifiedClosings } from './fixtures/verified.js'
 
 const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub.sh')
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
@@ -64,7 +65,7 @@ function depsOf(world: World, gh: (args: string[]) => string, out: string[], err
     claude: `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${STUB}`,
     header: HEADER,
     handoffDir: world.handoff,
-    bus: path.join(world.root, 'bus', 'bus.db'),
+    bus: busOf(world),
     readJournal: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     projectsDir: path.join(world.root, 'projects'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
@@ -170,8 +171,16 @@ describe('the shift records merged pull requests', () => {
   })
 })
 
+function busOf(world: World): string {
+  return path.join(world.root, 'bus', 'bus.db')
+}
+
 function closingLines(world: World): Record<string, unknown>[] {
-  return readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event === 'path' && 'pr' in line)
+  return verifiedClosings(busOf(world)).filter(line => 'pr' in line)
+}
+
+function reportClosings(world: World): Record<string, unknown>[] {
+  return verifiedClosings(busOf(world)).filter(line => 'report' in line)
 }
 
 describe('the shift closes a task from its report', () => {
@@ -239,7 +248,7 @@ describe('the shift closes a probe from its report', () => {
     const out: string[] = []
     const written = reportUnderConstruct(world, 'probe-3.md')
     await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, out, []), run: probeRun(['result: measured', 'no PR', `Report: ${written}`, 'verification: measurement']) })
-    const closing = readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event === 'path' && 'report' in line)
+    const closing = reportClosings(world)
     expect(closing).toMatchObject([{ task: '3', report: written, verification: 'measurement' }])
     expect(out.some(line => line.includes(`closed measurement · report ${written}`))).toBe(true)
     expect(calls.filter(args => args[1] === 'merge')).toEqual([])
@@ -252,7 +261,7 @@ describe('the shift closes a probe from its report', () => {
     const outside = path.join(world.root, 'probe-3.md')
     writeFileSync(outside, '')
     await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, out, []), run: probeRun(['no PR', `Report: ${outside}`, 'verification: run']) })
-    const closing = readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event === 'path' && 'report' in line)
+    const closing = reportClosings(world)
     expect(closing).toEqual([])
     expect(out.some(line => line.includes(`#3 not closed: --report ${outside} is outside`))).toBe(true)
   })
@@ -274,7 +283,7 @@ describe('the shift closes a probe from its report', () => {
     const out: string[] = []
     const paint = (tone: string | undefined, text: string): string => tone === 'red' ? `<red>${text}</red>` : text
     await runShift([world.shift, '--parking', world.parking], { ...depsOf(world, gh, out, []), style: { ascii: true, paint }, run: probeRun(['no PR', 'verification: run']) })
-    expect(readFileSync(world.journal, 'utf8')).not.toContain('"verification"')
+    expect(verifiedClosings(busOf(world))).toEqual([])
     expect(out).toContain('<red>[shift] #3 not closed: the probe report has no Report: <path> line; no closing line written</red>')
   })
 })

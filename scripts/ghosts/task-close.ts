@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { JOURNAL_HISTORY_ENDS } from '../../src/card/closed.js'
+import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { parseCard, readBodyCard } from '../../src/card/grammar.js'
 import { cheapClass, cheapForecastOf, defaultShiftRoot, sessionTokens } from '../../src/commands/cost/cheap.js'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
@@ -40,7 +40,7 @@ const DECISION_REFERENCE = /^D-[1-9]\d*$/
 const CARD_MENTION = /(?<!PR )#([1-9]\d*)/g
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const CLOSER_SESSION_BY_HAND = 'by-hand'
-const CARD_VERIFIED_ROWS = `SELECT id, card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
+const CARD_VERIFIED_ROWS = `SELECT id, ts, card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
 const REPORT_ROOTS = ['reports', 'probes'] as const
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const SURVIVED = 'nothing-red'
@@ -169,6 +169,21 @@ export function cardVerifiedClosings(busPath: string): VerifiedClosing[] {
       const payload = journalLines(row.payload)[0]
       return payload === undefined ? [] : [{ task: String(row.card_id), pr: row.pr, verification: payload.verification, actual: payload.actual, event: row.id }]
     })
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function closingHistoryLines(busPath: string): Record<string, unknown>[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const rows = db.prepare(CARD_VERIFIED_ROWS).all() as unknown as { ts: string, card_id: number, payload: string }[]
+    return rows
+      .flatMap(row => journalLines(row.payload).map(payload => ({ event: 'path', task: String(row.card_id), ...payload, ts: row.ts })))
+      .filter(line => writtenBeforeHistoryEnds(line))
   }
   finally {
     db.close()

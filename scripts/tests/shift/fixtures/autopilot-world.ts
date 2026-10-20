@@ -8,6 +8,7 @@ import { afterEach } from 'vitest'
 import { runClaude } from '../../../shift/claude.js'
 import { HANDED_TO_THE_BUS } from '../../../shift/merge.js'
 import { admitCards } from './admitted.js'
+import { verifiedClosings } from './verified.js'
 import './stub-handoff.js'
 
 const STUB = path.join(import.meta.dirname, 'claude-stub-pr.sh')
@@ -181,7 +182,8 @@ export function lines(file: string): Record<string, unknown>[] {
 }
 
 export function eventsOf(world: World, event: string): Record<string, unknown>[] {
-  return lines(world.journal).filter(line => line.event === event)
+  const closings = event === 'path' ? verifiedClosings(world.bus).map(closing => ({ event, ...closing })) : []
+  return [...lines(world.journal).filter(line => line.event === event), ...closings]
 }
 
 export function stubRuns(world: World, id: number): number {
