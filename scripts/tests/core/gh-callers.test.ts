@@ -27,7 +27,30 @@ describe('gh is spawned through one port, and every other spawn is recorded', ()
   it('a file that names gh without spawning anything, or spawns something else, is no caller', () => {
     expect(spawnsGh('a.ts', `export const tokens = ['gh', 'pr']\n`)).toBe(false)
     expect(spawnsGh('b.ts', `import { execFileSync } from 'node:child_process'\nexecFileSync('git', ['status'])\nthrow new Error('gh unavailable')\n`)).toBe(false)
-    expect(spawnsGh('c.ts', `import { spawnSync } from 'node:child_process'\nexport function api(command = 'gh') { return spawnSync(command, []) }\n`)).toBe(true)
+    expect(spawnsGh('c.ts', `import { execFileSync } from 'node:child_process'\nexport const line = \`gh pr merge 1\`\nexecFileSync('git', ['log'])\n`)).toBe(false)
+  })
+
+  const ESCAPES: Record<string, Map<string, string>> = {
+    'a default parameter': new Map([['scripts/x.ts', `import { spawnSync } from 'node:child_process'\nexport function api(command = 'gh') { return spawnSync(command, []) }\n`]]),
+    'a default import of child_process': new Map([['scripts/x.ts', `import cp from 'node:child_process'\nexport const run = () => cp.execFileSync('gh', ['pr', 'list'])\n`]]),
+    'a namespace import of child_process': new Map([['scripts/x.ts', `import * as cp from 'child_process'\nexport const run = () => cp.spawnSync('gh', [])\n`]]),
+    'a dynamic import': new Map([['scripts/x.ts', `export async function run() {\n  const { execFileSync } = await import('node:child_process')\n  return execFileSync('gh', ['pr', 'list'])\n}\n`]]),
+    'a require': new Map([['scripts/x.mjs', `const { execFileSync } = require('child_process')\nexecFileSync('gh', ['pr', 'list'])\n`]]),
+    'a local constant': new Map([['scripts/x.ts', `import { execFileSync } from 'node:child_process'\nconst BIN = 'gh'\nexecFileSync(BIN, ['pr', 'list'])\n`]]),
+    'a constant from another module': new Map([['scripts/names.ts', `export const GH_BIN = 'gh'\n`], ['scripts/x.ts', `import { execFileSync } from 'node:child_process'\nimport { GH_BIN as BIN } from './names.js'\nexecFileSync(BIN, ['pr', 'list'])\n`]]),
+    'a shell line': new Map([['scripts/x.ts', `import { execSync } from 'node:child_process'\nexport const run = (pr: number) => execSync(\`gh pr view \${pr}\`)\n`]]),
+    'a spawn helper of another module': new Map([['scripts/x.js', `import { run } from './proc.js'\nrun('gh', ['pr', 'list'])\n`]]),
+  }
+
+  for (const [form, files] of Object.entries(ESCAPES)) {
+    it(`gh spawned through ${form} is a caller`, () => {
+      expect(ghCallers(files)).toEqual(['scripts/x.ts', 'scripts/x.mjs', 'scripts/x.js'].filter(file => files.has(file)))
+    })
+  }
+
+  it('a command read at run time, or a module name built at run time, is beyond the scan and left to review', () => {
+    expect(spawnsGh('scripts/x.ts', `import { execFileSync } from 'node:child_process'\nexecFileSync(process.env.GH_BIN!, ['pr', 'list'])\n`)).toBe(false)
+    expect(spawnsGh('scripts/x.ts', `const name = ['child', 'process'].join('_')\nconst { execFileSync } = require(name)\nexecFileSync(['g', 'h'].join(''), [])\n`)).toBe(false)
   })
 
   it('a recorded caller that no longer spawns gh fails, so the list only shrinks', () => {

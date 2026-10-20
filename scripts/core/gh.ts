@@ -5,7 +5,7 @@ export type GhRunner = (args: string[]) => string
 export type GhFailureCause = 'timeout' | 'transient' | 'failed' | 'budget'
 
 export type GhCall = { kind: 'ran', stdout: string, attempts: number }
-  | { kind: 'failed', cause: GhFailureCause, reason: string, stdout: string, stderr: string, attempts: number }
+  | { kind: 'failed', cause: GhFailureCause, reason: string, stdout: string, stderr: string, attempts: number, retryAfterSeconds?: number }
 
 export interface GhSpawned {
   status: number | null
@@ -32,10 +32,9 @@ export interface GhPortOptions {
   timeoutSeconds: number
   attempts: number
   pauseMs: number
-  budget: GhBudget
+  budget: GhBudgetWindow
   spawn: GhSpawn
   pause: (ms: number) => void
-  now: () => number
 }
 
 export interface GhCallOptions {
@@ -71,36 +70,49 @@ function callOutcome(run: GhSpawned, args: string[], timeoutSeconds: number, att
   return failed(TRANSIENT_STDERR.test(run.stderr) ? 'transient' : 'failed', `gh ${args.join(' ')}: ${detail}`)
 }
 
-export class GhPort {
+export type GhSpend = { kind: 'spent' } | { kind: 'spent-out', reason: string, retryAfterSeconds: number }
+
+export class GhBudgetWindow {
   private readonly spent: number[] = []
 
+  constructor(private readonly budget: GhBudget, private readonly now: () => number) {}
+
+  spend(): GhSpend {
+    const now = this.now()
+    while (this.spent.length > 0 && this.spent[0]! <= now - this.budget.windowMs)
+      this.spent.shift()
+    if (this.spent.length < this.budget.calls) {
+      this.spent.push(now)
+      return { kind: 'spent' }
+    }
+    const freedAt = this.spent[0]! + this.budget.windowMs
+    return { kind: 'spent-out', reason: `the gh budget of ${this.budget.calls} calls per ${this.budget.windowMs / 1000} s is spent`, retryAfterSeconds: Math.max(1, Math.ceil((freedAt - now) / 1000)) }
+  }
+}
+
+export const PROCESS_GH_BUDGET = new GhBudgetWindow(GH_HOURLY_BUDGET, Date.now)
+
+export class GhPort {
   constructor(private readonly options: GhPortOptions) {}
 
   call(args: string[], call: GhCallOptions = {}): GhCall {
     for (let attempt = 1; ; attempt += 1) {
-      if (!this.spend())
-        return { kind: 'failed', cause: 'budget', reason: `the gh budget of ${this.options.budget.calls} calls per ${this.options.budget.windowMs / 1000} s is spent`, stdout: '', stderr: '', attempts: attempt - 1 }
+      const spend = this.options.budget.spend()
+      if (spend.kind === 'spent-out')
+        return { kind: 'failed', cause: 'budget', reason: spend.reason, stdout: '', stderr: '', attempts: attempt - 1, retryAfterSeconds: spend.retryAfterSeconds }
       const outcome = callOutcome(this.options.spawn(this.options.command, args, { ...call, timeoutMs: this.options.timeoutSeconds * 1000 }), args, this.options.timeoutSeconds, attempt)
       if (outcome.kind === 'ran' || outcome.cause === 'failed' || attempt >= this.options.attempts)
         return outcome
       this.options.pause(this.options.pauseMs * attempt)
     }
   }
-
-  private spend(): boolean {
-    const now = this.options.now()
-    while (this.spent.length > 0 && this.spent[0]! <= now - this.options.budget.windowMs)
-      this.spent.shift()
-    if (this.spent.length >= this.options.budget.calls)
-      return false
-    this.spent.push(now)
-    return true
-  }
 }
 
 export function ghPort(overrides: Partial<GhPortOptions> = {}): GhPort {
-  return new GhPort({ command: 'gh', timeoutSeconds: GH_TIMEOUT_SECONDS, attempts: GH_ATTEMPTS, pauseMs: GH_PAUSE_MS, budget: GH_HOURLY_BUDGET, spawn: spawnGh, pause: blockFor, now: Date.now, ...overrides })
+  return new GhPort({ command: 'gh', timeoutSeconds: GH_TIMEOUT_SECONDS, attempts: GH_ATTEMPTS, pauseMs: GH_PAUSE_MS, budget: PROCESS_GH_BUDGET, spawn: spawnGh, pause: blockFor, ...overrides })
 }
+
+export const PROCESS_GH_PORT = ghPort()
 
 export interface PullRequest {
   number: number
