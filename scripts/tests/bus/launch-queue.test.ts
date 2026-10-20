@@ -323,6 +323,18 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  it('a legacy card.started naming a live tree mc-N does not hold a card out of the launch queue', () => {
+    const bench = launchBench()
+    const tree = path.join(tempRoot(), 'mc-1097')
+    mkdirSync(tree)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:legacy', cardId: 1097, pr: null, head: null, dedupeKey: `${CARD_STARTED}:legacy-1097`, payload: { session: 'legacy', worktree: tree }, legacy: true })
+    bench.admit(1097, 'lane-a')
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1097))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
   it('a launch is spawned detached as its own process group leader and records card.started', async () => {
     const root = tempRoot()
     const stub = stubClaude(root)

@@ -535,6 +535,20 @@ describe('the launch node', () => {
     expect(pulses()).toBe(2)
   })
 
+  it('a pid reused by a process that does not name the session writes no pulse', async () => {
+    const made = bench()
+    admit(made, 985, 'lane-a')
+    made.tick()
+    const processes: ProcessTable = { commandLine: () => 'sh -c claude -p --session-id someone-else', signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+    await once(node)
+    made.tick()
+
+    made.clock.advance(PULSE_MINUTES * 60_000)
+    node.stopOverdue()
+    expect(eventsOf(made.db, CARD_PULSE)).toEqual([])
+  })
+
   function silentSession(made: MergeBench, cardId: number): { node: ProbedLaunchNode, starter: FakeStarter } {
     admit(made, cardId, 'lane-a')
     made.tick()
