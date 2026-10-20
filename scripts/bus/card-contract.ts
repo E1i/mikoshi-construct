@@ -1,13 +1,29 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { LastHeartbeat } from './heartbeat.js'
+import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_PREFIX, SEAM_PREFIX, SLICE_PREFIX } from '../../src/card/risk.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { CARD_PATH_REASON } from '../shift/tree-pr.js'
+import { CLOSED_CARD, DROPPED_CARD } from './card-automaton.js'
+import { CARD_BODIES } from './card-bodies.js'
+import { lastHeartbeat } from './heartbeat.js'
 
 export const CONTRACTS = ['intake', 'start', 'review', 'close', 'board'] as const
 
 export type Contract = typeof CONTRACTS[number]
+
+export const NOT_MINE = 'not_mine'
+
+const NOT_THE_BUS_CARD_STATES: ReadonlySet<string | null> = new Set([CLOSED_CARD, DROPPED_CARD])
+const BODY_OF_CARD = `
+  SELECT body.admission_event_id, body.text, body.text_sha, body.lane, cards.state
+  FROM ${CARD_BODIES} body LEFT JOIN cards ON cards.card_id = body.card_id
+  WHERE body.card_id = ?
+`
+
+interface BodyRow { admission_event_id: number, text: string, text_sha: string, lane: string | null, state: string | null }
 
 export interface CardBody {
   admissionEventId: number
@@ -112,4 +128,20 @@ export function cardFields(parked: ParkedTask, body: CardBody): CardFields {
 
 export function contractOf(fields: CardFields, contract: Contract): Partial<CardFields> {
   return Object.fromEntries(CONTRACT_FIELDS[contract].map(field => [field, fields[field]]))
+}
+
+export function cardContract(db: DatabaseSync, cardId: number): CardFields | null {
+  const row = db.prepare(BODY_OF_CARD).get(cardId) as BodyRow | undefined
+  if (row === undefined)
+    return null
+  const parsed = parseParkingFile(`${cardId}.md`, row.text)
+  if (parsed.kind === 'refused')
+    return null
+  return cardFields(parsed.parked, { admissionEventId: row.admission_event_id, text: row.text, textSha: row.text_sha, lane: row.lane, state: row.state, lastHeartbeat: lastHeartbeat(db, cardId) })
+}
+
+export function notMine(card: CardFields | null, command: string): string | null {
+  if (card === null || !NOT_THE_BUS_CARD_STATES.has(card.state))
+    return null
+  return `card #${card.id} is ${card.state} in the bus, so no ${command} of it is the bus's to run`
 }

@@ -13,14 +13,18 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
+import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { AnswerExecutor } from '../../bus/answer-executor.js'
 import { AnswerNode, answerNodeOf } from '../../bus/answer-worker.js'
 import { answerPrompt, tokensOf } from '../../bus/answerer.js'
+import { DROPPED_LANE, MERGE_DONE } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
+import { answerCandidates, CARD_CLOSED, FAILURES_TO_STOP, keyOf, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, SHARD_DECIDED, SHARD_ISSUED, VERSION_PR_RESERVATION } from '../../bus/shards.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -178,6 +182,22 @@ const KEPT_BY_THE_OWNER: Record<string, string[]> = {
   'npm-stage': ['approve the npm stage?'],
   'security-invariants': ['may it edit security-invariants?'],
 }
+
+function admitted(made: MergeBench, cardId: number): void {
+  const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nAnswer it.\n`
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: `#${cardId}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+}
+
+function dropped(made: MergeBench, cardId: number): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_MOVED}:${cardId}`, payload: { lane: DROPPED_LANE }, legacy: false })
+}
+
+function closedAfterAnEarlierMerge(made: MergeBench, cardId: number): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: MERGE_DONE, actor: 'worker:merge:worker-0', cardId, pr: 989, head: sha('e'), dedupeKey: `${MERGE_DONE}:989`, payload: { commit: sha('f'), rule: 'auto' }, legacy: false })
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:worker-0', cardId, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${cardId}`, payload: { verification: 'run' }, legacy: false })
+}
+
+const NOT_MINE: Record<string, (made: MergeBench, cardId: number) => void> = { dropped, closed: closedAfterAnEarlierMerge }
 
 describe('the answer node', () => {
   it('a question stop, a changes verdict, a red CI and a dirty pull request are each detected by their event and by a tick', async () => {
@@ -452,5 +472,27 @@ describe('the answer node', () => {
     await once(node)
     made.tick()
     expect(taskState(made.db, prKey(1016)).state).toBe('superseded')
+  })
+
+  it('answer skips a candidate cardContract reads as not mine', async () => {
+    for (const [state, endedInTheBus] of Object.entries(NOT_MINE)) {
+      const made = bench()
+      admitted(made, 1090)
+      const stop = stopped(made, 1090)
+      queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: 1090, stop })
+      endedInTheBus(made, 1090)
+      made.tick()
+      const answerer = vi.fn<Answerer>(async () => {
+        throw new Error('a card that is not the bus\'s is never answered')
+      })
+      const node = new AnswerNode({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {} })
+      await once(node)
+      await once(node)
+
+      expect(answerer, state).not.toHaveBeenCalled()
+      expect(eventsOf(made.db, CARD_ANSWERED), state).toEqual([])
+      expect(eventsOf(made.db, POLICY_DENIED), state).toEqual([expect.objectContaining({ command: 'answer', kind: 'technical', reason: 'not_mine', detail: expect.stringContaining(`is ${state} in the bus`) })])
+      expect(taskState(made.db, questionKey(1090, stop)).state, state).toBe('withdrawn')
+    }
   })
 })

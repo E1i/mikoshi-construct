@@ -6,6 +6,7 @@ import type { AfterFailure, Lease } from './lease.js'
 import type { TechnicalReason } from './record-verdict.js'
 import type { VerdictOnHead } from './snapshot.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
+import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { messageOf } from './errors.js'
 import { pollHead } from './head-poll.js'
 import { POLICY_DENIED } from './inbox.js'
@@ -21,7 +22,7 @@ const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
 const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
 
-export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base'
+export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof NOT_MINE
 
 export interface UpdateDenial {
   kind: 'technical'
@@ -139,6 +140,9 @@ export class UpdateExecutor {
   update(lease: Lease): UpdateOutcome {
     try {
       assertHeld(this.parts.db, lease)
+      const foreign = notMine(cardContract(this.parts.db, lease.cardId), 'update')
+      if (foreign !== null)
+        return this.denied(lease, technical(NOT_MINE, foreign))
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
@@ -239,7 +243,7 @@ export class UpdateExecutor {
       releaseTask(this.parts.db, ts, lease, denial.reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: false }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === NOT_MINE }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }
