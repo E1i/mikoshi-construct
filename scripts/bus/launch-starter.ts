@@ -38,6 +38,14 @@ export interface StarterPlaces {
 
 export const CARD_PERMISSION_MODE = 'dontAsk'
 
+export const HTTPS_ORIGIN_ENV: Record<string, string> = {
+  GIT_CONFIG_COUNT: '2',
+  GIT_CONFIG_KEY_0: 'url.https://github.com/.insteadOf',
+  GIT_CONFIG_VALUE_0: 'git@github.com:',
+  GIT_CONFIG_KEY_1: 'url.https://github.com/.insteadOf',
+  GIT_CONFIG_VALUE_1: 'ssh://git@github.com/',
+}
+
 export function cardCommand(claude: string): string {
   return `${claude} --permission-mode ${CARD_PERMISSION_MODE}`
 }

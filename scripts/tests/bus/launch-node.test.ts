@@ -12,15 +12,17 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { CARD_FELL, GHOST_ROW, STOPPED_CARD } from '../../bus/card-automaton.js'
+import { CARD_FELL, GHOST_ROW, PR_OPENED, STOPPED_CARD } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
+import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
-import { handoffLadderSteps, hasCommitsAhead, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { handoffLadderSteps, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, realStarterPorts, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
@@ -453,6 +455,54 @@ describe('the launch node', () => {
     }
   })
 
+  function silentSession(made: MergeBench, cardId: number): { node: ProbedLaunchNode, starter: FakeStarter } {
+    admit(made, cardId, 'lane-a')
+    made.tick()
+    let alive = true
+    const starter = new FakeStarter()
+    const stopping: CardStarter = { start: card => starter.start(card), stop: (card) => {
+      starter.stop(card)
+      alive = false
+    } }
+    const processes: ProcessTable = { commandLine: () => alive ? `sh -c claude -p --session-id s-${cardId}` : null, signalGroup: () => {} }
+    return { node: new ProbedLaunchNode({ db: made.db, starter: stopping, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed }), starter }
+  }
+
+  function beat(made: MergeBench, cardId: number): void {
+    recordHeartbeat(made.db, made.clock.now().toISOString(), { card: cardId, pr: null, head: null, step: 'PostToolUse', session: `s-${cardId}`, lease: null })
+  }
+
+  it('a card.started with no pull request and no heartbeat for 20 minutes gives card.stopped', async () => {
+    const made = bench()
+    const { node, starter } = silentSession(made, 983)
+    await once(node)
+    made.tick()
+
+    made.clock.advance((HEARTBEAT_SILENCE_MINUTES - 1) * 60_000)
+    beat(made, 983)
+    made.clock.advance((HEARTBEAT_SILENCE_MINUTES - 1) * 60_000)
+    expect(node.stopOverdue()).toEqual([])
+
+    made.clock.advance(2 * 60_000)
+    expect(node.stopOverdue()).toEqual([983])
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.stops).toHaveLength(1)
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: expect.stringMatching(/^no-heartbeat: card #983 session s-983 has no pull request and no heartbeat for 20 minutes since /) as unknown }])
+  })
+
+  it('a silent session whose card has a pull request is not stopped by the heartbeat watchdog', async () => {
+    const made = bench()
+    const { node, starter } = silentSession(made, 984)
+    await once(node)
+    made.tick()
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 984, pr: 9840, head: null, dedupeKey: `${PR_OPENED}:984:9840`, payload: { pr: 9840 }, legacy: false })
+
+    made.clock.advance((HEARTBEAT_SILENCE_MINUTES + 1) * 60_000)
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.stops).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+  })
+
   it('a task of an old head is superseded by deriveQueues beside the launch node as before', async () => {
     const made = bench()
     const node = nodeOf(made)
@@ -677,6 +727,27 @@ describe('the launch node in ladder mode', () => {
 describe('the launch isolation command', () => {
   it('is the command the card session is spawned with', () => {
     expect(launchIsolationCommand('/opt/claude --settings /tmp/s.json')).toEqual(['/opt/claude', '--settings', '/tmp/s.json', '--permission-mode', 'dontAsk'])
+  })
+})
+
+describe('where a launched session works', () => {
+  it('a launched tree fetches and pushes over https, not ssh', () => {
+    const tree = mkdtempSync(path.join(tmpdir(), 'launch-origin-'))
+    roots.push(tree)
+    execFileSync('git', ['-C', tree, 'init', '-q'])
+    execFileSync('git', ['-C', tree, 'remote', 'add', 'origin', 'git@github.com:o/r.git'])
+    execFileSync('git', ['-C', tree, 'remote', 'add', 'upstream', 'ssh://git@github.com/o/u.git'])
+    const env = { ...process.env, ...realStarterPorts(tree, {}, '', () => 'u').envOf(1114) }
+    const url = (remote: string, ...args: string[]): string => execFileSync('git', ['-C', tree, 'remote', 'get-url', ...args, remote], { encoding: 'utf8', env }).trim()
+
+    expect({ fetch: url('origin'), push: url('origin', '--push') }).toEqual({ fetch: 'https://github.com/o/r.git', push: 'https://github.com/o/r.git' })
+    expect({ fetch: url('upstream'), push: url('upstream', '--push') }).toEqual({ fetch: 'https://github.com/o/u.git', push: 'https://github.com/o/u.git' })
+  })
+
+  it('the launch session report is written under an allowed path', () => {
+    const { launchDir } = launchPlaces('/home/x', '/repo')
+    expect(path.relative('/home/x/.construct/shift', launchDir)).toBe('launch')
+    expect(launchDir.startsWith(path.join('/home/x', '.construct', 'bus'))).toBe(false)
   })
 })
 
