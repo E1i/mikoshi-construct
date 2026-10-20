@@ -4,9 +4,16 @@ import { PREFIX_SUFFIX } from './task-file.js'
 export const TEST_ROOTS = ['tests', 'scripts/tests']
 export const PACKAGE_MANIFEST = 'package.json'
 export const PACKAGE_SCRIPT_READERS = ['tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts']
+export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
+  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts'],
+  'scripts/': ['tests/graph-command.test.ts', 'scripts/tests/bus/sqlite.test.ts'],
+  'scripts/bus/': ['scripts/tests/ci/layers.test.ts'],
+  'scripts/ghosts/': ['scripts/tests/shredder/owner-merges.test.ts'],
+  'scripts/shift/': ['tests/decisions-read-through-reader.test.ts'],
+}
 const TEST_FILE = /\.test\.ts$/
 const MODULE_FILE = /\.[cm]?[jt]s$/
-const RELATIVE_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
+const RELATIVE_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\b(?:import|require|vi\.(?:mock|doMock|importActual|importMock))\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
 const COMPILED_TO_SOURCE: readonly (readonly [RegExp, string])[] = [[/\.js$/, '.ts'], [/\.mjs$/, '.mts'], [/\.cjs$/, '.cts']]
 
 export function isTest(file: string): boolean {
@@ -37,7 +44,18 @@ export function importersOf(files: readonly string[], read: (file: string) => st
   return importers
 }
 
-export function coveringTests(touches: readonly string[], files: readonly string[], importers: ReadonlyMap<string, readonly string[]>): string[] {
+function scanning(touched: readonly string[], known: ReadonlySet<string>): string[] {
+  return Object.entries(SCANNED_TREES)
+    .filter(([root]) => touched.some(file => file.startsWith(root)))
+    .flatMap(([, scanners]) => scanners.filter(test => known.has(test)))
+}
+
+function spawning(touched: readonly string[], files: readonly string[], read: (file: string) => string | null): string[] {
+  const named = touched.flatMap(file => [file, path.posix.basename(file)])
+  return files.filter(isTest).filter(test => named.some(name => (read(test) ?? '').includes(name)))
+}
+
+export function coveringTests(touches: readonly string[], files: readonly string[], importers: ReadonlyMap<string, readonly string[]>, read: (file: string) => string | null): string[] {
   const touched = files.filter(file => !isTest(file) && withinTouches(file, touches))
   const reached = new Set(touched)
   const queue = [...touched]
@@ -51,7 +69,7 @@ export function coveringTests(touches: readonly string[], files: readonly string
   }
   const known = new Set(files)
   const readers = touches.includes(PACKAGE_MANIFEST) ? PACKAGE_SCRIPT_READERS.filter(reader => known.has(reader)) : []
-  return [...new Set([...[...reached].filter(isTest), ...readers])].sort()
+  return [...new Set([...[...reached].filter(isTest), ...readers, ...scanning(touched, known), ...spawning(touched, files, read)])].sort()
 }
 
 export class TestCoverage {
@@ -63,6 +81,6 @@ export class TestCoverage {
   of(touches: readonly string[]): string[] {
     this.files ??= this.list()
     this.importers ??= importersOf(this.files, this.read)
-    return coveringTests(touches, this.files, this.importers)
+    return coveringTests(touches, this.files, this.importers, this.read)
   }
 }

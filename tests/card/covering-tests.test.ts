@@ -18,7 +18,8 @@ const FILES: Record<string, string> = {
 
 function covering(touches: string[]): string[] {
   const files = Object.keys(FILES)
-  return coveringTests(touches, files, importersOf(files, file => FILES[file] ?? null))
+  const read = (file: string): string | null => FILES[file] ?? null
+  return coveringTests(touches, files, importersOf(files, read), read)
 }
 
 describe('the tests that cover a touched file', () => {
@@ -32,6 +33,31 @@ describe('the tests that cover a touched file', () => {
 
   it('a mask covers every file under it', () => {
     expect(covering(['src/commands/**'])).toEqual(['tests/intake.test.ts'])
+  })
+
+  it('a test that scans a touched tree, or spawns a touched script by name, covers it', () => {
+    const files: Record<string, string> = {
+      'scripts/shift/tree-pr.ts': 'export {}\n',
+      'tests/decisions-read-through-reader.test.ts': 'readdirSync(root)\n',
+      'scripts/tests/shift/spawned.test.ts': 'spawnSync(\'tsx\', [\'scripts/shift/tree-pr.ts\'])\n',
+      'scripts/tests/shift/unrelated.test.ts': 'export {}\n',
+    }
+    const read = (file: string): string | null => files[file] ?? null
+    const list = Object.keys(files)
+    expect(coveringTests(['scripts/shift/tree-pr.ts'], list, importersOf(list, read), read)).toEqual(['scripts/tests/shift/spawned.test.ts', 'tests/decisions-read-through-reader.test.ts'])
+  })
+
+  it('a test reaches a touched file through vi.mock, require or a re-export split over lines', () => {
+    const files: Record<string, string> = {
+      'src/x.ts': 'export const X = 1\n',
+      'tests/mocked.test.ts': 'vi.mock(\'../src/x.js\')\n',
+      'tests/required.test.ts': 'const x = require(\'../src/x.js\')\n',
+      'tests/barrel.ts': 'export {\n  X,\n}\n  from \'../src/x.js\'\n',
+      'tests/barrel.test.ts': 'import \'./barrel.js\'\n',
+    }
+    const read = (file: string): string | null => files[file] ?? null
+    const list = Object.keys(files)
+    expect(coveringTests(['src/x.ts'], list, importersOf(list, read), read)).toEqual(['tests/barrel.test.ts', 'tests/mocked.test.ts', 'tests/required.test.ts'])
   })
 
   it('package.json is covered by the readers of its scripts', () => {
@@ -60,5 +86,43 @@ describe('the tests that cover a touched file', () => {
     coverage.of(['src/other.ts'])
     expect(coverage.of(['src/card/risk.ts'])).toHaveLength(3)
     expect(lists).toBe(1)
+  })
+})
+
+describe('the tests that reach a touched file other than by a static import', () => {
+  const reaching: Record<string, string> = {
+    'scripts/shift/shift.ts': 'export function runShift() {}\n',
+    'scripts/bus/review-worker.ts': 'export function runReviewWorker() {}\n',
+    'scripts/bus/answer-executor.ts': 'export const A = 1\n',
+    'scripts/bus/barrel.ts': 'export * from\n  \'./answer-executor.js\'\n',
+    'tests/decisions-read-through-reader.test.ts': 'readdirSync(\'scripts\')\n',
+    'scripts/tests/bus/spawns.test.ts': 'spawnSync(\'tsx\', [\'scripts/bus/review-worker.ts\'])\n',
+    'scripts/tests/bus/mocks.test.ts': 'vi.mock(\'../../bus/answer-executor.js\')\n',
+    'scripts/tests/bus/requires.test.ts': 'const worker = require(\'../../bus/review-worker.js\')\n',
+    'scripts/tests/bus/actual.test.ts': 'await vi.importActual(\'../../bus/answer-executor.js\')\n',
+    'scripts/tests/bus/through-barrel.test.ts': 'import { A } from \'../../bus/barrel.js\'\n',
+  }
+
+  function reached(touches: string[]): string[] {
+    const files = Object.keys(reaching)
+    const read = (file: string): string | null => reaching[file] ?? null
+    return coveringTests(touches, files, importersOf(files, read), read)
+  }
+
+  it('a test that scans the tree of a touched file covers it (SCANNED_TREES)', () => {
+    expect(reached(['scripts/shift/shift.ts'])).toEqual(['tests/decisions-read-through-reader.test.ts'])
+    expect(SCANNED_TREES['scripts/shift/']).toContain('tests/decisions-read-through-reader.test.ts')
+  })
+
+  it('a test that spawns a touched script by its path, or loads it through require, covers it', () => {
+    expect(reached(['scripts/bus/review-worker.ts'])).toEqual(['scripts/tests/bus/requires.test.ts', 'scripts/tests/bus/spawns.test.ts', 'scripts/tests/ci/layers.test.ts'].filter(test => test in reaching))
+  })
+
+  it('vi.mock, vi.importActual and an export * split over lines reach a touched module', () => {
+    expect(reached(['scripts/bus/answer-executor.ts'])).toEqual(['scripts/tests/bus/actual.test.ts', 'scripts/tests/bus/mocks.test.ts', 'scripts/tests/bus/through-barrel.test.ts'])
+  })
+
+  it('the CI layer selection reads what a test is from this rule, not from a copy of its own', () => {
+    expect(layersIsTest).toBe(isTest)
   })
 })
