@@ -1,16 +1,15 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../bus/bg.js'
-import type { Stamper } from '../../bus/stamp.js'
 import type { BusCode } from '../../bus/supervisor.js'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { startReviewWorker } from '../../bus/review-bg.js'
-import { TSX_STAMPER } from '../../bus/stamp.js'
 import { applySwitch, bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
@@ -82,24 +81,8 @@ function detachedSleep(): number {
 
 const ARRIVAL_GUARD_MS = 25_000
 const ISO_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z (?=\S)/
-
-function startLines(stamper: Stamper): { log: string, result: BgResult } {
-  const w = world()
-  const bin = path.join(path.dirname(w.out), 'bin')
-  rmSync(path.join(bin, 'pnpm'))
-  stub(bin, 'pnpm', `echo "first line"\necho "to stderr" >&2\nprintf 'no newline'`)
-  const log = path.join(w.busDir, SHADOW_LOG)
-  mkdirSync(w.busDir, { recursive: true })
-  writeFileSync(log, 'written before\n')
-  const result = startDetached(BUS_RUN_LAUNCH, w.busDir, w.env, () => [], stamper)
-  started.push(...pidsOf(result))
-  return { log, result }
-}
-
-async function loggedLines(log: string): Promise<string> {
-  await waitFor(() => /no newline\n?$/.test(readFileSync(log, 'utf8')) && readFileSync(log, 'utf8').includes('to stderr'), () => `every line in ${log} (read: ${JSON.stringify(readFileSync(log, 'utf8'))})`, ARRIVAL_GUARD_MS)
-  return readFileSync(log, 'utf8').trimEnd()
-}
+const TSX_LOADER = pathToFileURL(path.resolve(import.meta.dirname, '..', '..', '..', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs')).href
+const STAMPED_ENTRY = path.join(import.meta.dirname, 'stamp-entry.ts')
 
 function readArgv(w: World): string[] {
   const file = path.join(w.out, 'pnpm.argv')
@@ -141,24 +124,21 @@ describe('pnpm bus:bg', () => {
   })
 
   it('every line a detached bus process appends to its log starts with an ISO timestamp', async () => {
-    const { log, result } = startLines(TSX_STAMPER)
+    const w = world()
+    const bin = path.join(path.dirname(w.out), 'bin')
+    rmSync(path.join(bin, 'pnpm'))
+    stub(bin, 'pnpm', `TSX_DISABLE_CACHE=1 exec "${process.execPath}" --import "${TSX_LOADER}" "${STAMPED_ENTRY}"`)
+    const log = path.join(w.busDir, SHADOW_LOG)
+    mkdirSync(w.busDir, { recursive: true })
+    writeFileSync(log, 'written before\n')
+    const result = startDetached(BUS_RUN_LAUNCH, w.busDir, w.env, () => [])
+    started.push(...pidsOf(result))
     expect(result.exitCode).toBe(0)
-    const [before, ...appended] = (await loggedLines(log)).split('\n')
+    await waitFor(() => readFileSync(log, 'utf8').endsWith('no newline'), () => `the last line in ${log} (read: ${JSON.stringify(readFileSync(log, 'utf8'))})`, ARRIVAL_GUARD_MS)
+    const [before, ...appended] = readFileSync(log, 'utf8').split('\n')
     expect(before).toBe('written before')
-    expect(appended.map(line => line.replace(ISO_STAMP, '')).sort()).toEqual(['first line', 'no newline', 'to stderr'])
+    expect(appended.map(line => line.replace(ISO_STAMP, '')).sort()).toEqual(['env cleared', 'first line', 'no newline', 'to stderr'])
     expect(appended.every(line => ISO_STAMP.test(line))).toBe(true)
-  })
-
-  it('a stamper whose loader is missing leaves the bus process writing its lines straight to the log', async () => {
-    const { log, result } = startLines({ ...TSX_STAMPER, ready: () => false })
-    expect(result.exitCode).toBe(0)
-    expect((await loggedLines(log)).split('\n').sort()).toEqual(['first line', 'no newline', 'to stderr', 'written before'])
-  })
-
-  it('a stamper that cannot be spawned leaves the bus process writing its lines straight to the log', async () => {
-    const { log, result } = startLines({ command: '/nonexistent/stamper', args: [], ready: () => true })
-    expect(result.exitCode).toBe(0)
-    expect((await loggedLines(log)).split('\n').sort()).toEqual(['first line', 'no newline', 'to stderr', 'written before'])
   })
 
   it('a second start while bus:run is alive leaves it alone and names its pid', async () => {

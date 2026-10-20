@@ -1,58 +1,51 @@
-import { existsSync, realpathSync } from 'node:fs'
-import path from 'node:path'
+import { Buffer } from 'node:buffer'
 import process from 'node:process'
-import { fileURLToPath, pathToFileURL } from 'node:url'
 
-export const STAMP_SCRIPT = fileURLToPath(import.meta.url)
-const TSX_LOADER = path.resolve(import.meta.dirname, '..', '..', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs')
-
-export interface Stamper {
-  command: string
-  args: string[]
-  ready: () => boolean
-}
-
-export const TSX_STAMPER: Stamper = {
-  command: process.execPath,
-  args: ['--import', pathToFileURL(TSX_LOADER).href, STAMP_SCRIPT],
-  ready: () => existsSync(TSX_LOADER) && existsSync(STAMP_SCRIPT),
-}
-
-export function stampEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return { ...env, TSX_DISABLE_CACHE: '1' }
-}
+export const STAMP_ENV = 'BUS_LOG_STAMP'
 
 export class LineStamper {
-  private carry = ''
+  private atLineStart = true
+  private readonly now: () => Date
 
-  constructor(private readonly now: () => Date = () => new Date()) {}
-
-  push(chunk: string): string {
-    const lines = `${this.carry}${chunk}`.split('\n')
-    this.carry = lines.pop()!
-    return lines.map(line => this.stamp(line)).join('')
+  constructor(now: () => Date = () => new Date()) {
+    this.now = now
   }
 
-  end(): string {
-    const rest = this.carry
-    this.carry = ''
-    return rest === '' ? '' : this.stamp(rest)
+  stamp(chunk: string): string {
+    if (chunk === '')
+      return ''
+    const prefix = this.atLineStart ? this.mark() : ''
+    this.atLineStart = chunk.endsWith('\n')
+    const body = this.atLineStart ? chunk.slice(0, -1) : chunk
+    return `${prefix}${body.replaceAll('\n', `\n${this.mark()}`)}${this.atLineStart ? '\n' : ''}`
   }
 
-  private stamp(line: string): string {
-    return `${this.now().toISOString()} ${line}\n`
+  private mark(): string {
+    return `${this.now().toISOString()} `
   }
 }
 
-function stampStdin(): void {
-  const stamper = new LineStamper()
-  for (const signal of ['SIGHUP', 'SIGINT'] as const)
-    process.on(signal, () => {})
-  process.stdout.on('error', () => {})
-  process.stdin.setEncoding('utf8')
-  process.stdin.on('data', (chunk: string) => process.stdout.write(stamper.push(chunk)))
-  process.stdin.on('end', () => process.stdout.write(stamper.end()))
+function isText(encoding: unknown): boolean {
+  return typeof encoding !== 'string' || encoding === 'utf8' || encoding === 'utf-8'
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === STAMP_SCRIPT)
-  stampStdin()
+export function stampStream(stream: NodeJS.WritableStream, stamper: LineStamper = new LineStamper()): void {
+  const write = stream.write.bind(stream) as (...args: unknown[]) => boolean
+  stream.write = ((chunk: unknown, ...rest: unknown[]) => {
+    if (!isText(rest[0]))
+      return write(chunk, ...rest)
+    if (typeof chunk === 'string')
+      return write(stamper.stamp(chunk), ...rest)
+    if (chunk instanceof Uint8Array)
+      return write(stamper.stamp(Buffer.from(chunk).toString('utf8')), ...rest)
+    return write(chunk, ...rest)
+  }) as typeof stream.write
+}
+
+export function stampLogOutput(env: NodeJS.ProcessEnv = process.env): void {
+  if (env[STAMP_ENV] !== '1')
+    return
+  delete env[STAMP_ENV]
+  stampStream(process.stdout)
+  stampStream(process.stderr)
+}

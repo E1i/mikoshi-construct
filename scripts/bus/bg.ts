@@ -1,10 +1,8 @@
-import type { Writable } from 'node:stream'
-import type { Stamper } from './stamp.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { stampEnv, TSX_STAMPER } from './stamp.js'
+import { STAMP_ENV } from './stamp.js'
 
 export const PREFIX = '[bus:bg] '
 export const SHADOW_LOG = 'shadow.log'
@@ -122,20 +120,7 @@ function startHolder(lock: string, processes: ProcessList): number | null {
   return readStartLock(lock)?.holder ?? 0
 }
 
-function logOutput(stamper: Stamper, fd: number, env: NodeJS.ProcessEnv): Writable | number {
-  if (!stamper.ready())
-    return fd
-  const child = spawn(stamper.command, stamper.args, { detached: true, stdio: ['pipe', fd, fd], env: stampEnv(env) })
-  child.on('error', () => {})
-  child.unref()
-  if (child.pid === undefined || child.stdin === null) {
-    child.stdin?.destroy()
-    return fd
-  }
-  return child.stdin
-}
-
-export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env), stamper: Stamper = TSX_STAMPER): BgResult {
+export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
   const { prefix, script } = launch
   const instance = path.join(busDir, launch.instanceFile)
   const lock = path.join(busDir, launch.startLock)
@@ -154,10 +139,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
     const [command, ...args] = launchArgv(launch)
     const fd = openSync(log, 'a')
     try {
-      const output = logOutput(stamper, fd, env)
-      const child = spawn(command!, args, { detached: true, stdio: ['ignore', output, output], env })
-      if (typeof output !== 'number')
-        output.destroy()
+      const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env: { ...env, [STAMP_ENV]: '1' } })
       child.on('error', () => {})
       child.unref()
       if (child.pid === undefined)

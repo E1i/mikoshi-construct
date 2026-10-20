@@ -18,6 +18,7 @@ import { FAILURES_TO_STOP } from './queue.js'
 import { relaunchKey, RestartExecutor } from './restart-executor.js'
 import { SWITCH_FLAG } from './review-worker.js'
 import { leaseRole, RAISED_VARIABLE, returnSilentRole, roleToOwner } from './role.js'
+import { stampLogOutput } from './stamp.js'
 import { switchedOn } from './workers.js'
 
 export const PREFIX = '[bus:restart] '
@@ -147,5 +148,7 @@ async function main(): Promise<number> {
   return runRestartWorker(process.argv.slice(2), { busPath: defaultBusPath(), roles: roleLauncher(), processes: REAL_PROCESSES, launchSwitchedOn: () => launchSwitchedOn(busDir), session: randomUUID(), pause: sleep })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}

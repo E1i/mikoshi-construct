@@ -23,6 +23,7 @@ import { CARD_ADMITTED, PR_OBSERVED } from './operator-work.js'
 import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from './queue.js'
 import { REDUCED } from './reducer.js'
 import { DRY_RUN_ACTOR } from './review-worker.js'
+import { stampLogOutput } from './stamp.js'
 
 export const LIVE_REVIEWER = 'worker:review:'
 export const PR_CLOSED = 'pr.closed'
@@ -131,5 +132,7 @@ async function main(): Promise<number> {
   return runMergeWorker(process.argv.slice(2), { busPath: defaultBusPath(), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}

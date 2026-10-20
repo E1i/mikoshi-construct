@@ -36,6 +36,7 @@ import { OWNER_MERGES } from './policy.js'
 import { promptsDirOf } from './prompt-store.js'
 import { answerCandidates } from './queue.js'
 import { REDUCED } from './reducer.js'
+import { stampLogOutput } from './stamp.js'
 
 const ANSWERS_DIR = path.join(os.homedir(), '.construct', 'bus', 'answers')
 
@@ -192,5 +193,7 @@ async function main(): Promise<number> {
   })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}
