@@ -51,6 +51,6 @@ describe('the projection tables are written by the reducer, and every other writ
 
   it('a recorded site that no longer exists fails, so the list only shrinks', () => {
     const gone = { file: 'scripts/bus/role.ts', unit: 'folded', table: 'roles', operation: 'update' } as const
-    expect(staleSites(found, [...known, gone])).toContainEqual(gone)
+    expect(staleSites(found, [...known, gone])).toEqual([gone])
   })
 })
