@@ -27,5 +27,10 @@ article p { margin-block: 0.3rem; }
 article ul { margin-block: 0.2rem; padding-inline-start: 1.2rem; font-size: 0.9rem; }
 article li[data-state] { color: var(--_c); }
 article a { color: var(--runtime-report); }
+[data-state='absent'] { --_c: var(--unsupported); --_fill: var(--unsupported-fill); }
+.summary { font-weight: 600; margin-block: 0 0.5rem; }
+.does { margin-block: 0.3rem; }
+.tree { list-style: none; margin-block: 0.2rem; padding-inline-start: 1rem; font-size: 0.9rem; }
+details > summary { cursor: pointer; }
 .empty, p.prose, footer { color: var(--ink-dim); font-size: 0.85rem; }
 `

@@ -54,6 +54,10 @@ export interface PolicyRecord {
   workspaceImports: WorkspaceImports
 }
 
+export interface AtlasRecord {
+  open: string
+}
+
 export interface Manifest {
   manifestVersion: number
   construct: string
@@ -72,6 +76,7 @@ export interface Manifest {
   sync: SyncRecord | null
   policy: PolicyRecord | null
   milestones?: string[]
+  atlas?: AtlasRecord
 }
 
 export function sha256(content: string): string {
@@ -192,6 +197,11 @@ function upgradeSync(raw: unknown): SyncRecord | null {
   }
 }
 
+function upgradeAtlas(raw: unknown): AtlasRecord | undefined {
+  const value = (raw ?? {}) as Partial<AtlasRecord>
+  return typeof value.open === 'string' && value.open !== '' ? { open: value.open } : undefined
+}
+
 function declaredVersion(raw: unknown): number {
   const value = (raw as { manifestVersion?: unknown }).manifestVersion
   return typeof value === 'number' && Number.isInteger(value) ? value : 0
@@ -220,7 +230,12 @@ export function upgradeManifest(raw: unknown): Manifest {
     },
     sync: upgradeSync(manifest.sync),
     policy: upgradePolicy(manifest.policy),
+    atlas: upgradeAtlas(manifest.atlas),
   }
+}
+
+export function readAtlasRecord(root: string): AtlasRecord | undefined {
+  return readManifest(root)?.atlas
 }
 
 export function recordSync(manifest: Manifest, run: { ranAt: string, toVersion: string, files: Record<string, string>, variants?: Record<string, TemplateVariant>, blocks?: Record<string, BlockRecord> }): Manifest {

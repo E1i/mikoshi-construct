@@ -2,6 +2,7 @@ import type { Ui } from '../ui/console.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { detectExisting } from '../detect/existing.js'
+import { readAtlasRecord } from '../manifest.js'
 import { writeEngram } from '../model/discovery.js'
 import { MODEL_FILE } from '../model/schema.js'
 import { deriveModelState } from '../model/state.js'
@@ -9,6 +10,8 @@ import { readModel } from '../model/write.js'
 import { PLAIN_LORE } from '../ui/lore.js'
 import { renderAtlasDocs } from './docs.js'
 import { renderAtlas } from './page.js'
+import { readRemoteBlob } from './remote.js'
+import { editorTemplate } from './source-link.js'
 import { docsFileOf } from './switch.js'
 
 export const ATLAS_PAGE_FILE = 'atlas.html'
@@ -55,7 +58,8 @@ export function runAtlas(options: AtlasOptions): AtlasWritten {
     throw new Error(`${engram} was written and cannot be read back`)
   const page = options.out == null ? defaultPage(root, constructed || options.attached, engram) : path.resolve(options.out)
   mkdirSync(path.dirname(page), { recursive: true })
-  const input = { projectName: path.basename(root), model, states: deriveModelState(model, root), mechanics: model.mechanics }
+  const links = { template: constructed ? editorTemplate(readAtlasRecord(root)?.open) : null, remote: readRemoteBlob(root) }
+  const input = { projectName: path.basename(root), model, states: deriveModelState(model, root), mechanics: model.mechanics, links }
   const modeFiles = constructed && !options.attached ? { map: path.basename(page), docs: docsFileOf(page) } : undefined
   writeFileSync(page, renderAtlas(input, MODEL_FILE, rootFrom(page, root), modeFiles))
   if (modeFiles != null)

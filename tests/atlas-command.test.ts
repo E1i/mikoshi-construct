@@ -264,6 +264,52 @@ describe('construct atlas over a repository whose files discovery mostly cannot 
   })
 })
 
+describe('a source link opens the editor or the remote the repository names', () => {
+  const ORIGIN = 'git@github.com:acme/shop.git'
+
+  function sourceHrefs(page: string): string[] {
+    return [...markupOf(readFileSync(page, 'utf8')).matchAll(/href="([^"#][^"]*)" data-source/g)].map(match => match[1]!)
+  }
+
+  it('the remote is read from .git/config in an ordinary repository', async () => {
+    const dir = await initRepository()
+    git(dir, 'remote', 'add', 'origin', ORIGIN)
+    const sha = git(dir, 'rev-parse', 'HEAD').trim()
+    const { page } = atlasOf(dir)
+    const blob = `https://github.com/acme/shop/blob/${sha}`
+    expect((pageData(readFileSync(page, 'utf8')) as unknown as { source: unknown }).source).toEqual({ template: null, remote: blob })
+    expect(sourceHrefs(page)).toEqual([`${blob}/src`])
+    expect(sourceHrefs(path.join(path.dirname(page), 'atlas-docs.html'))).toEqual([`${blob}/src`])
+  })
+
+  it('the remote is read through gitdir and commondir in a worktree whose .git is a file', async () => {
+    const dir = await initRepository()
+    git(dir, 'remote', 'add', 'upstream', 'https://gitlab.com/acme/shop.git')
+    const worktree = path.join(mkdtempSync(path.join(tmpdir(), 'construct-atlas-wt-')), 'wt')
+    git(dir, 'worktree', 'add', '-q', '-b', 'side', worktree)
+    expect(readFileSync(path.join(worktree, '.git'), 'utf8')).toMatch(/^gitdir: /)
+    const sha = git(worktree, 'rev-parse', 'HEAD').trim()
+    const { page } = runAtlas({ dir: worktree, home: home(), attached: false })
+    expect(sourceHrefs(page)).toEqual([`https://gitlab.com/acme/shop/blob/${sha}/src`])
+  })
+
+  it('a repository with no remote gets the link of step 3 and no error', async () => {
+    const dir = await initRepository()
+    const { page } = atlasOf(dir)
+    expect((pageData(readFileSync(page, 'utf8')) as unknown as { source: unknown }).source).toEqual({ template: null, remote: null })
+    expect(sourceHrefs(page)).toEqual(['../src'])
+  })
+
+  it('reads the editor template from construct.json through the manifest loader', async () => {
+    const dir = await initRepository()
+    const manifest = JSON.parse(readFileSync(path.join(dir, 'construct.json'), 'utf8')) as Record<string, unknown>
+    writeFileSync(path.join(dir, 'construct.json'), `${JSON.stringify({ ...manifest, atlas: { open: 'zed' } }, null, 2)}\n`)
+    const html = readFileSync(atlasOf(dir).page, 'utf8')
+    expect((pageData(html) as unknown as { source: unknown }).source).toEqual({ template: 'zed://file/{abs}:{line}', remote: null })
+    expect(html).not.toContain(dir)
+  })
+})
+
 describe('printAtlas', () => {
   it('names the page it wrote and exits 0', () => {
     const lines: string[] = []
