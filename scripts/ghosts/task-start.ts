@@ -457,7 +457,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const merged = mergedTasks(journalText, busCardStates(deps.bus))
   const unmerged = card.depends.filter(dependency => !merged.has(String(dependency)))
   if (unmerged.length > 0)
-    return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; run pnpm task:merged once their pull requests are merged; nothing written`)
+    return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; nothing written`)
   let admitted: Admission
   try {
     admitted = admission(deps.bus, card, args.waiver)

@@ -160,7 +160,7 @@ describe('the shift records merged pull requests', () => {
     expect(mergeLines(world)).toEqual([])
   })
 
-  it('--check writes no merge line, runs no pr view and prints the hint to run pnpm task:merged', async () => {
+  it('--check writes no merge line, runs no pr view and prints the hint to run without --check', async () => {
     const world = newWorld([DONE_1], [{ id: 2, depends: '#1' }, { id: 3 }])
     const before = readFileSync(world.journal, 'utf8')
     const { gh, calls } = ghMerged({ 600: 1 })
@@ -168,7 +168,7 @@ describe('the shift records merged pull requests', () => {
     const code = await runShift([world.shift, '--parking', world.parking, '--check'], depsOf(world, gh, out, []))
     expect(readFileSync(world.journal, 'utf8')).toBe(before)
     expect(calls.filter(args => args[1] === 'view')).toEqual([])
-    expect(out).toContain('[shift] hint: depends are met by merge lines; run pnpm task:merged to record merged pull requests')
+    expect(out).toContain('[shift] hint: depends are met by merge lines; a run without --check records merged pull requests')
     expect(code).toBe(0)
   })
 })

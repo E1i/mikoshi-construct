@@ -7,6 +7,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { approvedHashPath } from '../../ghosts/approval.js'
+import { ghostLines } from '../../ghosts/journal.js'
 import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, eventsOf, fakeGh, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
@@ -204,6 +205,19 @@ describe('a refused brief waits in the owner queue', () => {
     expect(next.ladder.calls.map(call => call.args[0])).toEqual(['ghosts:launch'])
     expect(stubRuns(world, 1)).toBe(1)
     expect(eventsOf(world, 'stop')).toHaveLength(1)
+  })
+
+  it('a hash stop on the bus and an approval only in the legacy ghosts.jsonl are read as one journal for the same card', async () => {
+    const world = newLadderWorld()
+    await shiftOver(world, { morse: 'refuses' })
+    approve(world, 1)
+    expect(ghostLines(world.bus).filter(line => line.event === 'stop')).toMatchObject([{ task: '1', at: 'hash' }])
+    expect(lines(world.journal).filter(line => line.event === 'stop')).toEqual([])
+    expect(lines(world.journal).filter(line => line.event === 'approval')).toMatchObject([{ card: 1 }])
+    expect(ghostLines(world.bus).filter(line => line.event === 'approval')).toEqual([])
+    const next = await shiftOver(world, { launch: 'running' }, path.join(world.root, 'shift-2'))
+    expect(next.io.out).toContain('[shift] parking: takes #1')
+    expect(next.ladder.calls.map(call => call.args[0])).toEqual(['ghosts:launch'])
   })
 
   async function heldAfter(world: World, change: () => void): Promise<Run> {

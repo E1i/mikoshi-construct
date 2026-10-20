@@ -114,7 +114,7 @@ export const USAGE = [
   'whose session no guard refused and did not stop on its Eddies budget, and whose required checks are not red or unknown goes to the bus at its reviewed head, where owner_under_shard allows it, and ghosts.jsonl gets owner decision delegated, shard <id>.',
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
   '--chain (with --parking) makes the run a chain of one card in work at a time: once a card closes with a pull request, that pull request is in review, and the chain takes the next card whose depends are merged only after it merges,',
-  'cut by task:start from a fresh origin/main. Merges are recorded as pnpm task:merged does, holding through a closed terminal (SIGHUP).',
+  'cut by task:start from a fresh origin/main. Merges are recorded from the closing records, holding through a closed terminal (SIGHUP).',
   'A card left on depends that are not merged gets one event:chain line (step blocked, reason waiting on #N) whenever what it waits on changes; while nothing of the chain is in review and a card it depends on is in work (a task:start line and no merge),',
   `the chain keeps waiting instead of ending, and the bus gets a chain.observed with state ${WAITING} naming the card and waitingOn.`,
   `The chain hands a pull request to the bus only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step. The chain calls no gh pr merge and arms no auto-merge: the bus is the one merger, and the chain waits for its ${MERGE_DONE} at the head it handed over, or stops on its ${POLICY_DENIED} with the denial's rule. The review depth follows the card's risk (reviewDepth in scripts/ghosts/verdict.ts): R4 none, so the chain hands over after CI with no verdict when the pull request's changed files read R4 too (otherwise the deeper depth, and an empty or unread set is full); R3 a diff review; R1 and R2 the full review.`,
@@ -187,7 +187,7 @@ function readTasks(deps: ShiftDeps, dir: string): { tasks: ShiftTask[], errors: 
   }
 }
 
-const MERGE_HINT = `${PREFIX}hint: depends are met by merge lines; run pnpm task:merged to record merged pull requests`
+const MERGE_HINT = `${PREFIX}hint: depends are met by merge lines; a run without --check records merged pull requests`
 
 function keepCurrent(deps: ShiftDeps, journal: string): void {
   if (deps.current === undefined)

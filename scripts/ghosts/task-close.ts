@@ -435,7 +435,7 @@ function ownershipOf(deps: TaskCloseDeps, id: string, pr: number, reference: str
 function cardLineNote(id: string, pr: number, ownership: Ownership): string[] {
   if (ownership.cardLine !== null)
     return []
-  return [`${PREFIX}warning: the body of PR #${pr} does not open with the card line, so task:merged would skip it for #${id}; fix the body, then pnpm task:merged --recheck ${pr}`]
+  return [`${PREFIX}warning: the body of PR #${pr} does not open with the card line, so its merge is recorded for no card and #${id} stays unmerged for its depends; fix the body before the merge`]
 }
 
 function namesCard(issue: OpenIssue, card: Card): boolean {
