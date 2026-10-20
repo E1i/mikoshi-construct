@@ -5,7 +5,7 @@ import path from 'node:path'
 import { runMain } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { CARD_ADMITTED, CARD_MOVED, CARD_WAITING } from '../../../src/commands/intake/index.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../../../src/commands/intake/index.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
 import { parkingLane } from '../../bus/admissions.js'
@@ -263,9 +263,17 @@ describe('pnpm intake writes card events to bus.db', () => {
   it('a move of a card with no card.admitted in the bus is refused, and the file stays where it was', () => {
     const w = world()
     const file = park(w, '')
-    expect(() => withPort(w, events => runMove({ move: '#90', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF))).toThrow('#90 has no card.admitted in the bus')
+    expect(() => withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF))).toThrow('#90 has no card.admitted in the bus')
     expect(existsSync(file)).toBe(true)
     expect(cardEvents(w)).toEqual([])
+  })
+
+  it.each(['dropped', 'archive', 'superseded'])('a parked card the bus never admitted is dropped with card.dropped when it moves into %s', (lane) => {
+    const w = world()
+    park(w, '')
+    expect(withPort(w, events => runMove({ move: '#90', to: lane, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    expect(existsSync(path.join(w.parking, lane, '90.md'))).toBe(true)
+    expect(cardEvents(w)).toMatchObject([{ type: CARD_DROPPED, actor: 'worker:intake:s1', cardId: 90, payload: { lane } }])
   })
 
   it('a backfilled card counts as admitted: its move into dropped is held by the bus', () => {
@@ -279,7 +287,7 @@ describe('pnpm intake writes card events to bus.db', () => {
       db.close()
     }
     expect(withPort(w, events => runMove({ move: '#90', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
-    expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_MOVED])
+    expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_DROPPED])
   })
 
   it('with the bus a second --admit of an unchanged card is alreadyAdmitted, the bus holds one card.admitted and the journal no intake line', () => {
