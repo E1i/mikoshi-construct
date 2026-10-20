@@ -23,7 +23,7 @@ import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { ShiftCardStarter } from '../../bus/launch-starter.js'
-import { CARD_CONTINUED, CARD_PULSE, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { CARD_CONTINUED, CARD_PULSE, CARD_WAITING, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LADDER_APPROVAL, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
@@ -830,6 +830,22 @@ describe('the launch node in ladder mode', () => {
     made.tick()
 
     expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+  })
+
+  it('a ladder session gone with a brief and no ghost row writes card.waiting', async () => {
+    const made = bench()
+    const world = ladderWorld(null)
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    made.tick()
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, isolation: sandboxed })
+    await once(node)
+    made.tick()
+
+    expect(node.stopOverdue()).toEqual([])
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_WAITING)).toEqual([{ reason: LADDER_APPROVAL, step: 'brief', session: `sess-${LADDER_CARD}`, detail: `card #${LADDER_CARD} ladder step brief of session sess-${LADDER_CARD} ended with a result and no ghost row; its next step waits for the approval of its brief` }])
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
   })
 

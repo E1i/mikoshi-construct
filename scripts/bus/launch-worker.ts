@@ -106,6 +106,10 @@ interface RunningStart {
 
 export const CARD_CONTINUED = 'card.continued'
 
+export const CARD_WAITING = 'card.waiting'
+
+export const LADDER_APPROVAL = 'ladder.approval'
+
 const SESSION_STARTS = `'${CARD_STARTED}', '${CARD_CONTINUED}'`
 
 const RUNNING_STARTS = `
@@ -244,7 +248,15 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.continueFromHandoff(start, card, this.launchParts.continuer)
     if (!(this.launchParts.resulted?.(card, session) ?? false))
       return this.stopDeadSession(start, card)
-    return card.contour === 'cheap' && this.stopWithoutPullRequest(start, card, session)
+    if (card.contour === 'ladder')
+      return this.waitForApproval(start, card)
+    return this.stopWithoutPullRequest(start, card, session)
+  }
+
+  private waitForApproval(start: RunningStart, card: StartedCard): boolean {
+    const detail = `card #${start.card_id} ladder step ${card.step ?? '-'} of session ${card.session} ended with a result and no ghost row; its next step waits for the approval of its brief`
+    appendEvent(this.db, { ts: this.ts(), type: CARD_WAITING, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${start.dedupe_key}`, payload: { reason: LADDER_APPROVAL, step: card.step ?? null, session: card.session, detail }, legacy: false })
+    return false
   }
 
   private continueFromHandoff(start: RunningStart, card: StartedCard, continuer: SessionContinuer): boolean {
