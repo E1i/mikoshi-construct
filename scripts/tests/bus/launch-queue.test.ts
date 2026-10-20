@@ -287,6 +287,54 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  it('a card with an open pull request does not join the launch queue the #1094 case, PR #935', () => {
+    const bench = launchBench()
+    bench.gitHub.open({ number: 935, body: '#1094 ladder-risks-named [implement/netwatch/S/cheap/auto] · depends — · blocks —' })
+    bench.tick()
+    bench.admit(1094, 'lane-a')
+    bench.admit(1095, 'lane-b')
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1094))).toBeUndefined()
+    expect(taskState(bench.db, launch(1095))).toMatchObject({ state: 'queued' })
+
+    bench.gitHub.close(935, false)
+    bench.tick()
+    expect(taskState(bench.db, launch(1094))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a card with a live tree mc-N does not join the launch queue', () => {
+    const bench = launchBench()
+    const tree = path.join(tempRoot(), 'mc-1096')
+    mkdirSync(tree)
+    const ts = bench.clock.now().toISOString()
+    bench.admit(1096, 'lane-a')
+    appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-1096`, payload: { session: 'earlier', worktree: tree }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:earlier', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:1096`, payload: { reason: 'fault', detail: 'session-end' }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1096:again`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'again-1096' }, legacy: false })
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1096, 'again-1096'))).toBeUndefined()
+
+    rmSync(tree, { recursive: true })
+    bench.tick()
+    expect(taskState(bench.db, launch(1096, 'again-1096'))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a legacy card.started naming a live tree mc-N does not hold a card out of the launch queue', () => {
+    const bench = launchBench()
+    const tree = path.join(tempRoot(), 'mc-1097')
+    mkdirSync(tree)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:legacy', cardId: 1097, pr: null, head: null, dedupeKey: `${CARD_STARTED}:legacy-1097`, payload: { session: 'legacy', worktree: tree }, legacy: true })
+    bench.admit(1097, 'lane-a')
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1097))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
   it('a launch is spawned detached as its own process group leader and records card.started', async () => {
     const root = tempRoot()
     const stub = stubClaude(root)

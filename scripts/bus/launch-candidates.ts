@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ShiftTask } from '../../src/card/task-file.js'
+import { existsSync } from 'node:fs'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
@@ -41,6 +42,15 @@ const ADMISSION_SOURCE = `SELECT id FROM events WHERE legacy = 1 AND dedupe_key 
 const LIVE_DECISIONS = `SELECT text, event_id FROM decisions`
 
 const OPEN_LAUNCHES = `SELECT card_id FROM tasks WHERE queue = 'launch' AND state IN ('queued', 'leased')`
+
+const OPEN_PR_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'open' AND card_id IS NOT NULL`
+
+const STARTED_TREES = `
+  SELECT DISTINCT card_id, json_extract(payload, '$.worktree') AS worktree FROM events
+  WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, '$.worktree') = 'text'
+`
+
+export type TreeReader = (worktree: string) => boolean
 
 interface LifeRow {
   id: number
@@ -190,11 +200,21 @@ export function launchableCard(db: DatabaseSync, cardId: number): LaunchableCard
   return isQueued(life, settled) || reviewDue(life, settled) ? { lane: life.lane, contour: life.contour } : null
 }
 
-export function launchCandidates(db: DatabaseSync): LaunchCandidate[] {
+function cardsWithLiveTree(db: DatabaseSync, treeLive: TreeReader): Set<number> {
+  return new Set((db.prepare(STARTED_TREES).all() as { card_id: number, worktree: string }[]).filter(row => treeLive(row.worktree)).map(row => row.card_id))
+}
+
+function heldOutside(life: CardLife, openPrs: Set<number>, liveTrees: Set<number>): boolean {
+  return openPrs.has(life.cardId) || (life.contour === 'cheap' && liveTrees.has(life.cardId))
+}
+
+export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync): LaunchCandidate[] {
   const lives = cardLives(db)
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
   const launching = cardSet(db, OPEN_LAUNCHES)
+  const openPrs = cardSet(db, OPEN_PR_CARDS)
+  const liveTrees = cardsWithLiveTree(db, treeLive)
   const falls = fallCounts(db)
   const busy = new Set<string>()
   const taken: ShiftTask[] = []
@@ -214,7 +234,7 @@ export function launchCandidates(db: DatabaseSync): LaunchCandidate[] {
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, liveTrees))
       continue
     busy.add(life.lane)
     if (life.task !== null)
