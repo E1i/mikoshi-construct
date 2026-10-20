@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { FACTORY_MODE, FACTORY_MODES, isFactoryMode } from './card-bodies.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
@@ -19,12 +20,12 @@ import { cleanUpdatesOf } from './update-done.js'
 export const WINDOW_REQUEST = 'window.request'
 export const REQUEST_DONE = 'window.request.done'
 export const REQUEST_REFUSED = 'window.request.refused'
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'requeue'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'requeue', 'mode'] as const
 export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_UNDER = 186
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | requeue --task <task_key>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')}`
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -123,7 +124,7 @@ export class WindowRequests {
     const kind = payload.kind
     if (!isRequestKind(kind))
       return { kind: 'owner', request, detail: `the window asked for ${JSON.stringify(kind ?? null)}, not one of ${REQUEST_KINDS.join(', ')}; refused, the owner decides` }
-    const executed = kind === 'tree.cut' ? this.treeCut(payload) : kind === 'allow-merge' ? this.allowMerge(payload) : this.requeue(request, payload)
+    const executed = kind === 'tree.cut' ? this.treeCut(payload) : kind === 'allow-merge' ? this.allowMerge(payload) : kind === 'mode' ? this.setMode(request, payload) : this.requeue(request, payload)
     return { kind: executed.done ? 'done' : 'refused', request, detail: executed.why }
   }
 
@@ -213,6 +214,14 @@ export class WindowRequests {
     return { done: true, why: `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}` }
   }
 
+  private setMode(request: number, payload: Record<string, unknown>): Executed {
+    const mode = payload.mode
+    if (!isFactoryMode(mode))
+      return { done: false, why: `mode names ${JSON.stringify(mode ?? null)}, not one of ${FACTORY_MODES.join(', ')}` }
+    appendEvent(this.db, { ts: this.clock().toISOString(), type: FACTORY_MODE, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${FACTORY_MODE}:request-${request}`, payload: { mode, request }, legacy: false })
+    return { done: true, why: `the factory mode is ${mode}` }
+  }
+
   private appendRequeue(ts: string, request: number, task: TaskRow): void {
     const plain = { queue: task.queue, cardId: task.card_id, pr: task.pr ?? undefined, head: task.head ?? undefined }
     const generation = generationOfKey(task.task_key, plain)
@@ -248,6 +257,10 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   if (kind === 'requeue') {
     const task = flag(argv, '--task')
     return task === undefined ? null : { kind, task_key: task }
+  }
+  if (kind === 'mode') {
+    const mode = flag(argv, '--set')
+    return isFactoryMode(mode) ? { kind, mode } : null
   }
   return { kind }
 }
