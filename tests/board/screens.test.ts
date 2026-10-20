@@ -1,6 +1,6 @@
 import type { BusCard, BusFacts } from '../../src/commands/board/bus.js'
 import { describe, expect, it } from 'vitest'
-import { backlogLines, flowLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
+import { backlogLines, flowLines, matrixLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
 function card(id: number, state: string | null, lane: string | null = null, line: string | null = null): BusCard {
@@ -8,7 +8,7 @@ function card(id: number, state: string | null, lane: string | null = null, line
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
-  return { cards: [], services: [], failure: null, reviewQueue: 0, ...overrides }
+  return { cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
 }
 
 describe('the board screens', () => {
@@ -43,6 +43,19 @@ describe('the board screens', () => {
       'answer · #5 · — · answer abcdef1',
       'implementer · #6 · /t · started',
     ])
+  })
+
+  it('the services screen shows the latest check matrix of each PR: its counts at its head, or why it was a full run', () => {
+    const facts = noFacts({ matrices: [
+      { pr: 921, head: null, full: 'the change touches the harness', killed: 0, survived: 0, notRun: 0 },
+      { pr: 922, head: 'abcdef1234567890abcdef1234567890abcdef12', full: null, killed: 3, survived: 1, notRun: 2 },
+    ] })
+    expect(matrixLines(facts, PLAIN_LORE)).toEqual([
+      'matrix · PR #921 · — · full run: the change touches the harness',
+      'matrix · PR #922 · — · killed 3 · survived 1 · not run 2 @ abcdef1',
+    ])
+    expect(screenLines(facts, PLAIN_LORE).slice(-3, -1)).toEqual(matrixLines(facts, PLAIN_LORE))
+    expect(matrixLines(noFacts(), PLAIN_LORE)).toEqual([])
   })
 
   it('the footer names the agents at work, the last failure and the review queue', () => {

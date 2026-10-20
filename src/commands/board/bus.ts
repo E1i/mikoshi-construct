@@ -4,7 +4,8 @@ import { withReadOnlyBus } from '../cost/bus.js'
 
 export const WINDOW_SUBAGENT_EVENT = 'window.subagent'
 const CARD_FELL_EVENT = 'card.fell'
-const SHORT_SHA = 7
+export const CHECKS_MATRIX_EVENT = 'checks.matrix'
+export const SHORT_SHA = 7
 export const SUBAGENT_SHOWN_HOURS = 12
 const HOUR_MS = 3_600_000
 
@@ -22,9 +23,19 @@ export interface BusService {
   step: string
 }
 
+export interface BusMatrix {
+  pr: number
+  head: string | null
+  full: string | null
+  killed: number
+  survived: number
+  notRun: number
+}
+
 export interface BusFacts {
   cards: BusCard[]
   services: BusService[]
+  matrices: BusMatrix[]
   failure: string | null
   reviewQueue: number
 }
@@ -99,6 +110,26 @@ function windowServices(db: BusDb, now: Date): BusService[] {
   return [...running.values()]
 }
 
+interface MatrixRow {
+  pr: number
+  head: string | null
+  payload: string
+}
+
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
+}
+
+function checkMatrices(db: BusDb): BusMatrix[] {
+  const rows = db.prepare('SELECT pr, head, payload FROM events WHERE type = ? AND pr IS NOT NULL ORDER BY id').all(CHECKS_MATRIX_EVENT) as unknown as MatrixRow[]
+  const latest = new Map<number, BusMatrix>()
+  for (const row of rows) {
+    const payload = payloadOf(row.payload)
+    latest.set(row.pr, { pr: row.pr, head: row.head, full: text(payload.full), killed: count(payload.killed), survived: count(payload.survived), notRun: count(payload.notRun) })
+  }
+  return [...latest.values()].sort((a, b) => a.pr - b.pr)
+}
+
 function lastFailure(db: BusDb): string | null {
   const row = db.prepare('SELECT card_id, ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(CARD_FELL_EVENT) as { card_id: number | null, ts: string | null } | undefined
   return row === undefined ? null : `card #${row.card_id ?? '?'} fell${row.ts === null ? '' : ` at ${row.ts}`}`
@@ -107,7 +138,7 @@ function lastFailure(db: BusDb): string | null {
 function factsOf(db: BusDb, now: Date): BusFacts {
   const cards = db.prepare('SELECT c.card_id AS id, c.state, b.lane, b.card_line AS line FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id ORDER BY c.card_id').all() as unknown as BusCard[]
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
-  return { cards, services: [...taskServices(db), ...windowServices(db, now)], failure: lastFailure(db), reviewQueue: Number(queue.n) }
+  return { cards, services: [...taskServices(db), ...windowServices(db, now)], matrices: checkMatrices(db), failure: lastFailure(db), reviewQueue: Number(queue.n) }
 }
 
 export function busReaderAt(file: string, clock: () => Date = () => new Date()): BusReader {

@@ -1,8 +1,10 @@
 import type { Lore } from '../../ui/lore.js'
-import type { BusCard, BusFacts } from './bus.js'
+import type { BusCard, BusFacts, BusMatrix } from './bus.js'
+import { SHORT_SHA } from './bus.js'
 
 const FLOW_STATES = [['queued'], ['running', 'changes'], ['in_review'], ['ready']]
 const CARD_PREFIX = /^card:\s*/
+const MATRIX_ROLE = 'matrix'
 
 function cardName(card: BusCard): string {
   return card.line === null ? `#${card.id}` : card.line.replace(CARD_PREFIX, '')
@@ -30,6 +32,15 @@ export function servicesLines(facts: BusFacts, lore: Lore): string[] {
   return facts.services.map(service => lore.boardServiceLine(service.role, service.task, service.tree ?? undefined, service.step))
 }
 
+function matrixStep(matrix: BusMatrix): string {
+  const counts = matrix.full === null ? `killed ${matrix.killed} \u00B7 survived ${matrix.survived} \u00B7 not run ${matrix.notRun}` : `full run: ${matrix.full}`
+  return matrix.head === null ? counts : `${counts} @ ${matrix.head.slice(0, SHORT_SHA)}`
+}
+
+export function matrixLines(facts: BusFacts, lore: Lore): string[] {
+  return facts.matrices.map(matrix => lore.boardServiceLine(MATRIX_ROLE, `PR #${matrix.pr}`, undefined, matrixStep(matrix)))
+}
+
 export function screenLines(facts: BusFacts, lore: Lore): string[] {
   return [
     lore.boardTabFlow,
@@ -38,6 +49,7 @@ export function screenLines(facts: BusFacts, lore: Lore): string[] {
     ...backlogLines(facts.cards, lore),
     lore.boardTabServices,
     ...servicesLines(facts, lore),
+    ...matrixLines(facts, lore),
     lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),
   ]
 }

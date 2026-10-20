@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 
 const BUS_SCHEMA = `
-CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, payload TEXT NOT NULL);
+CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, pr INTEGER, head TEXT, payload TEXT NOT NULL);
 CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER);
 CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT);
 CREATE TABLE prs (pr INTEGER PRIMARY KEY, verdict_on_head TEXT);
@@ -28,6 +28,8 @@ export interface SeedEvent {
   type: string
   card: number | null
   payload: string
+  pr?: number | null
+  head?: string | null
 }
 
 export interface BusSeed {
@@ -50,7 +52,7 @@ export function writeBus(file: string, seed: BusSeed): string {
     for (const task of seed.tasks ?? [])
       db.prepare('INSERT INTO tasks (queue, card_id, pr, head, state) VALUES (?, ?, ?, ?, ?)').run(task.queue, task.card, task.pr, task.head, task.state)
     for (const event of seed.events ?? [])
-      db.prepare('INSERT INTO events (ts, type, card_id, payload) VALUES (?, ?, ?, ?)').run(event.ts, event.type, event.card, event.payload)
+      db.prepare('INSERT INTO events (ts, type, card_id, pr, head, payload) VALUES (?, ?, ?, ?, ?, ?)').run(event.ts, event.type, event.card, event.pr ?? null, event.head ?? null, event.payload)
   }
   finally {
     db.close()
@@ -60,4 +62,8 @@ export function writeBus(file: string, seed: BusSeed): string {
 
 export function subagent(ts: string | null, payload: Record<string, unknown> | string): SeedEvent {
   return { ts, type: 'window.subagent', card: null, payload: typeof payload === 'string' ? payload : JSON.stringify(payload) }
+}
+
+export function checkMatrix(pr: number | null, head: string | null, payload: Record<string, unknown> | string): SeedEvent {
+  return { ts: null, type: 'checks.matrix', card: null, pr, head, payload: typeof payload === 'string' ? payload : JSON.stringify(payload) }
 }
