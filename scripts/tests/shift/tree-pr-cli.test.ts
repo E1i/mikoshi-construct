@@ -216,6 +216,26 @@ describe('tree-pr for a finished card session', () => {
     expect({ code, stops: stopsOn(bus.busPath).map(stop => stop.dedupe_key) }).toEqual({ code: 1, stops: [`card.stopped:tree-pr:${START_KEY}`] })
   })
 
+  it('a refusal after a relaunch keys card.stopped on the latest card.started, once per start', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+    roots.push(root)
+    const cardFile = path.join(root, 'lane-q', '951.md')
+    mkdirSync(path.dirname(cardFile), { recursive: true })
+    writeFileSync(cardFile, 'not a card\n')
+    const bus = launchedBus(root, 951)
+    const ports = { git: untouchable, gh: untouchable, opened: untouchable, stopped: busCardStopped(bus) }
+    const relaunchKey = 'card.started:launch:951:2'
+
+    const firstCode = runTreePr([cardFile, root], ports, () => {})
+    const db = openBus(bus.busPath)
+    appendEvent(db, { ts: '2026-10-20T04:30:00.000Z', type: 'card.started', actor: 'worker:launch:1', cardId: 951, pr: null, head: null, dedupeKey: relaunchKey, payload: {}, legacy: false })
+    appendEvent(db, { ts: '2026-10-20T04:40:00.000Z', type: 'pr.opened', actor: 'worker:shift:1', cardId: 951, pr: 901, head: null, dedupeKey: 'pr.opened:951:901', payload: { pr: 901 }, legacy: false })
+    db.close()
+    const laterCodes = [1, 2].map(() => runTreePr([cardFile, root], ports, () => {}))
+
+    expect({ codes: [firstCode, ...laterCodes], stops: stopsOn(bus.busPath).map(stop => stop.dedupe_key) }).toEqual({ codes: [1, 1, 1], stops: [`card.stopped:tree-pr:${START_KEY}`, `card.stopped:tree-pr:${relaunchKey}`] })
+  })
+
   it('a refusal for a card file whose name is no card number writes nothing to the bus', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
     roots.push(root)
