@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
-import { CARD_MOVED } from '../../src/commands/intake/index.js'
+import { CARD_DROPPED, CARD_MOVED, DROPPED_LANE } from '../../src/commands/intake/index.js'
 import { CARD_VERIFIED } from '../ghosts/task-close.js'
 import { isBackfill } from './backfill-source.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, QUESTION_OWNER } from './inbox.js'
@@ -24,7 +24,7 @@ export const FALLEN_CARD = 'fallen'
 export const STOPPED_CARD = 'stopped'
 export const DROPPED_CARD = 'dropped'
 
-export const DROPPED_LANE = 'dropped'
+export { DROPPED_LANE }
 
 const TERMINAL_LANES = new Set<unknown>(['archive', DROPPED_LANE, 'superseded'])
 
@@ -154,6 +154,12 @@ function foldMoved(db: DatabaseSync, event: StoredEvent): void {
     moveCard(db, cardId, DROPPED_CARD, event.id)
 }
 
+function foldDropped(db: DatabaseSync, event: StoredEvent): void {
+  const cardId = event.card_id ?? reject(`${CARD_DROPPED} needs a card_id`)
+  if (!ENDED.has(stateOf(db, cardId)))
+    moveCard(db, cardId, DROPPED_CARD, event.id)
+}
+
 function foldStopped(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_STOPPED} needs a card_id`)
   const reason = payloadOf(event).reason
@@ -176,4 +182,5 @@ export const CARD_FOLDS: Record<string, Fold> = {
   [CARD_CLOSED]: foldClosed,
   [CARD_FELL]: foldFell,
   [CARD_MOVED]: foldMoved,
+  [CARD_DROPPED]: foldDropped,
 }

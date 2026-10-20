@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync
 import path from 'node:path'
 import { parseParkingFile } from '../../card/parking.js'
 import { bodySha } from './confirm.js'
-import { CARD_MOVED, INTAKE_EXIT, recordIntake } from './index.js'
+import { CARD_DROPPED, CARD_MOVED, DROPPED_LANE, INTAKE_EXIT, recordIntake } from './index.js'
 
 export const INTAKE_MOVE_EVENT = 'intake-move'
 
@@ -74,10 +74,12 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
     renameSync(from, target)
   const ts = now().toISOString()
   const moved = { from: path.dirname(from), to: targetDir, bodySha: bodySha(text) }
+  const lane = path.basename(targetDir)
+  const type = lane === DROPPED_LANE ? CARD_DROPPED : CARD_MOVED
   try {
     recordIntake(options.journal, [{
       journalLine: JSON.stringify({ event: INTAKE_MOVE_EVENT, task: String(number), ...moved, ts }),
-      event: { type: CARD_MOVED, cardId: number, ts, dedupeKey: `${CARD_MOVED}:${number}:${targetDir}:${ts}`, payload: { ...moved, lane: path.basename(targetDir) } },
+      event: { type, cardId: number, ts, dedupeKey: `${type}:${number}:${targetDir}:${ts}`, payload: { ...moved, lane } },
     }], options.events)
   }
   catch (error) {
