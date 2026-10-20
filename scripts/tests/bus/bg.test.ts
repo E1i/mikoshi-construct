@@ -119,6 +119,24 @@ describe('pnpm bus:bg', () => {
     await waitFor(() => readFileSync(log, 'utf8').includes('bus:run output'), () => `"bus:run output" in ${log}`, ARRIVAL_GUARD_MS)
   })
 
+  it('every line a detached bus process appends to its log starts with an ISO timestamp', async () => {
+    const w = world()
+    const bin = path.join(path.dirname(w.out), 'bin')
+    rmSync(path.join(bin, 'pnpm'))
+    stub(bin, 'pnpm', `echo "first line"\necho "to stderr" >&2\nprintf 'no newline'`)
+    const log = path.join(w.busDir, SHADOW_LOG)
+    mkdirSync(w.busDir, { recursive: true })
+    writeFileSync(log, 'written before\n')
+    const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, w.processes)
+    expect(result.exitCode).toBe(0)
+    started.push(Number(result.stdout[0]))
+    await waitFor(() => readFileSync(log, 'utf8').endsWith('no newline\n'), () => `the last line in ${log} (read: ${JSON.stringify(readFileSync(log, 'utf8'))})`, ARRIVAL_GUARD_MS)
+    const [before, ...appended] = readFileSync(log, 'utf8').trimEnd().split('\n')
+    expect(before).toBe('written before')
+    expect(appended.map(line => line.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /, '')).sort()).toEqual(['first line', 'no newline', 'to stderr'])
+    expect(appended.every(line => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \S/.test(line))).toBe(true)
+  })
+
   it('a second start while bus:run is alive leaves it alone and names its pid', async () => {
     const w = world()
     const first = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, w.processes)
