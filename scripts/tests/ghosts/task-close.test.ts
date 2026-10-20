@@ -705,8 +705,8 @@ describe('task:close reads the start of a task from card.started in the bus', ()
     }
     try {
       admitted('1102', { card: '#1102 a-probe [probe/netwatch/S/cheap/none] · depends — · blocks —', lane: 'lane-a', contour: 'cheap' })
-      admitted('1102:backfill', { source: 'backfill', card: '#1102 an-implement [implement/netwatch/S/cheap/auto] · depends — · blocks —', lane: 'lane-a', contour: 'cheap' })
       admitted('1102:session-end', { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'session-end:card.started:launch:1102' })
+      admitted('1102:backfill', { source: 'backfill', card: '#1102 an-implement [implement/netwatch/S/ladder/auto] · depends — · blocks —', lane: 'lane-a', contour: 'ladder' })
     }
     finally {
       db.close()
@@ -715,7 +715,7 @@ describe('task:close reads the start of a task from card.started in the bus', ()
       const { deps, written } = world([])
       const result = runTaskClose(['1102', '--report', 'probe-1102.md', '--verification', 'run'], { ...deps, cwd: REPORTS, busPath: bus.file })
       expect(result.stderr).toEqual([])
-      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '1102', report: `${REPORTS}/probe-1102.md`, sessions: [{ id: '4fc53af7' }] })
+      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '1102', path: 'cheap', report: `${REPORTS}/probe-1102.md`, sessions: [{ id: '4fc53af7' }] })
     }
     finally {
       bus.remove()

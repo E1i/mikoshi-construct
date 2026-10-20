@@ -7,22 +7,23 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
+import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { CloseExecutor } from '../../bus/close-executor.js'
 import { CloseNode, closingVerification, runCloseWorker } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { legacyEventOf } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
-import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { CARD_CLOSED } from '../../bus/queue.js'
+import { expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
+import { PR_CLOSED } from '../../bus/observations.js'
+import { BOARD_ALARM, CARD_CLOSED, FAILURES_TO_STOP, queueTask, TASK_REQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { CARD_VERIFIED, runTaskClose } from '../../ghosts/task-close.js'
 import { appendToJournal, journalLine } from '../../ghosts/task-merged.js'
 import { writeLaneJson } from '../../lanes/lane-json.js'
 import { detectClose } from './close-detection.js'
 import { MAIN_2, MERGER, sha } from './github-fake.js'
-import { cardVerified, eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
+import { cardVerified, eventCount, eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -233,6 +234,91 @@ describe('the close queue', () => {
     expect(bench.closeCard(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'card_closed' }, next: 'withdrawn' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toHaveLength(1)
     bench.close()
+  })
+
+  it('an alarm goes back to the queue once its cause is gone, at most D-104 attempts per cause', () => {
+    const bench = closeBench()
+    bench.merged(1018)
+    const stoppedOnNoVerification = (): void => {
+      for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+        expect(bench.closeCard(bench.leaseClose()!)).toMatchObject({ kind: 'denied', denial: { reason: 'no_verification' } })
+      bench.tick()
+      expect(taskState(bench.db, close(1018)).state).toBe('stopped')
+    }
+
+    stoppedOnNoVerification()
+    expect(eventsOf(bench.db, BOARD_ALARM)).toMatchObject([{ task_key: close(1018), reason: 'fault' }])
+    for (const verification of ['code-reading', 'measurement', 'review']) {
+      verified(bench, 1018, verification)
+      bench.tick()
+      expect(taskState(bench.db, close(1018)).state).toBe('queued')
+      stoppedOnNoVerification()
+    }
+    verified(bench, 1018, 'mutation')
+    bench.tick()
+
+    expect(taskState(bench.db, close(1018)).state).toBe('stopped')
+    expect(eventsOf(bench.db, TASK_REQUEUED)).toHaveLength(FAILURES_TO_STOP)
+    expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
+    bench.close()
+  })
+
+  it('an alarm on no_merge_commit goes back to the queue on a later merge.done or merged pr.closed, and an alarm on a cause with no clearing event stays stopped', () => {
+    const clearing: Record<string, (bench: ReturnType<typeof closeBench>, pr: number) => void> = {
+      [MERGE_DONE]: (bench, pr) => appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: MERGE_DONE, actor: 'worker:merge:worker-0', cardId: pr + 100, pr, head: sha('a'), dedupeKey: `${MERGE_DONE}:${pr}`, payload: { commit: MAIN_2, rule: 'auto' }, legacy: false }),
+      [PR_CLOSED]: (bench, pr) => appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: PR_CLOSED, actor: 'netwatch', cardId: pr + 100, pr, head: sha('a'), dedupeKey: `${PR_CLOSED}:${pr}:again`, payload: { merged: 1, merge_commit: MAIN_2 }, legacy: false }),
+      [CARD_VERIFIED]: (bench, pr) => verified(bench, pr, 'measurement'),
+    }
+    const cases: { cause: string, cleared: string, after: string }[] = [
+      { cause: 'no_merge_commit', cleared: MERGE_DONE, after: 'queued' },
+      { cause: 'no_merge_commit', cleared: PR_CLOSED, after: 'queued' },
+      { cause: 'no_merge_commit', cleared: CARD_VERIFIED, after: 'stopped' },
+      { cause: 'card_closed', cleared: MERGE_DONE, after: 'stopped' },
+      { cause: 'card_closed', cleared: PR_CLOSED, after: 'stopped' },
+      { cause: 'card_closed', cleared: CARD_VERIFIED, after: 'stopped' },
+    ]
+    for (const { cause, cleared, after } of cases) {
+      const bench = closeBench()
+      bench.merged(1018)
+      const ts = bench.clock.now().toISOString()
+      for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+        failTask(bench.db, ts, bench.leaseClose()!, { reason: cause, withdraw: false })
+      bench.tick()
+      expect(taskState(bench.db, close(1018)).state, `${cause} before ${cleared}`).toBe('stopped')
+      clearing[cleared]!(bench, 1018)
+      bench.tick()
+
+      expect(taskState(bench.db, close(1018)).state, `${cause} after ${cleared}`).toBe(after)
+      bench.close()
+    }
+  })
+
+  it('an alarm stays stopped once its cause is gone while its pull request is closed, its head is old or its review rounds are spent', () => {
+    const settings: Record<string, { after: string, before: (bench: ReturnType<typeof closeBench>) => void }> = {
+      'an open pull request at the stopped head': { after: 'queued', before: () => {} },
+      'a closed pull request': { after: 'withdrawn', before: bench => bench.gitHub.close(1019, false) },
+      'an old head': { after: 'stopped', before: bench => bench.gitHub.open({ number: 1019, head: sha('b') }) },
+      'spent review rounds': { after: 'stopped', before: bench => spendReviewRounds(bench, 1019, sha('a')) },
+    }
+    for (const [setting, { after, before }] of Object.entries(settings)) {
+      const bench = closeBench()
+      bench.gitHub.open({ number: 1019 })
+      bench.tick()
+      const ts = bench.clock.now().toISOString()
+      const merge = taskKey({ queue: 'merge', cardId: 1119, pr: 1019, head: sha('a') })
+      queueTask(bench.db, ts, { queue: 'merge', cardId: 1119, pr: 1019, head: sha('a') })
+      for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+        failTask(bench.db, ts, leaseNext(bench.db, ts, 'merge', 'worker:merge:worker-1')!, { reason: 'no_verification', withdraw: false })
+      bench.tick()
+      expect(taskState(bench.db, merge).state, setting).toBe('stopped')
+      before(bench)
+      bench.tick()
+      verified(bench, 1019)
+      bench.tick()
+
+      expect(taskState(bench.db, merge).state, setting).toBe(after)
+      bench.close()
+    }
   })
 
   it('a close with a stale lease_gen is refused and writes nothing', () => {
