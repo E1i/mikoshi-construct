@@ -6,12 +6,14 @@ import { CARD_STOPPED } from './inbox.js'
 import { LEASE_MS, StaleLease } from './lease.js'
 import { FAILURES_TO_STOP } from './queue.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
+import { WINDOW_ACTOR } from './window-requests.js'
 
 export const ROLE_STOPPED = 'role.stopped'
 export const ROLE_LEASED = 'role.leased'
 export const ROLE_RAISED = 'role.raised'
 export const ROLE_RAISE_FAILED = 'role.raise_failed'
 export const ROLE_TO_OWNER = 'role.to_owner'
+export const ROLE_RETURNED = 'role.returned'
 export const ROLES = ['operator', 'miko'] as const
 export const THRESHOLDS = ['context', 'spend'] as const
 export const RAISED_STATUS = 'CONTINUE'
@@ -39,6 +41,12 @@ export interface RoleToOwner {
   role: Role
   handoff: string
   detail: string
+}
+
+export interface RoleReturned {
+  role: Role
+  handoff: string
+  lastSign: string
 }
 
 const STOPPED = 'stopped'
@@ -72,6 +80,14 @@ const PAST_THE_CEILING = `
   SELECT ${ROLE_COLUMNS} FROM roles
   WHERE ${AT_A_THRESHOLD} AND state = '${STOPPED}' AND NOT (${WITHIN_CEILING})
   ORDER BY role LIMIT 1
+`
+
+const SILENT_OWNER_SESSION = `
+  SELECT roles.role, roles.handoff, roles.event_id, max(signs.ts) AS last_sign FROM roles
+  JOIN events AS signs ON signs.id > roles.event_id AND signs.actor LIKE '${WINDOW_ACTOR}%'
+  WHERE roles.state = '${OWNER}'
+  GROUP BY roles.role HAVING max(signs.ts) < ?
+  ORDER BY roles.role LIMIT 1
 `
 
 export interface RoleReading {
@@ -167,12 +183,21 @@ function foldToOwner(db: DatabaseSync, event: StoredEvent): void {
   db.prepare('UPDATE roles SET state = ?, event_id = ? WHERE role = ?').run(OWNER, event.id, role)
 }
 
+function foldReturned(db: DatabaseSync, event: StoredEvent): void {
+  const role = roleOf(payloadOf(event))
+  const row = rowOf(db, role) ?? reject(`role ${role} never stopped`)
+  if (row.state !== OWNER)
+    reject(`role ${role} is ${row.state}, not with the owner`)
+  db.prepare('UPDATE roles SET state = ?, lease_until = NULL, pid = NULL, raises = 0, failures = 0, event_id = ? WHERE role = ?').run(STOPPED, event.id, role)
+}
+
 export const ROLE_FOLDS: Record<string, Fold> = {
   [ROLE_STOPPED]: foldStopped,
   [ROLE_LEASED]: foldLeased,
   [ROLE_RAISED]: foldRaised,
   [ROLE_RAISE_FAILED]: foldRaiseFailed,
   [ROLE_TO_OWNER]: foldToOwner,
+  [ROLE_RETURNED]: foldReturned,
 }
 
 function folded(db: DatabaseSync, event: BusEvent): void {
@@ -210,6 +235,17 @@ export function roleToOwner(db: DatabaseSync, ts: string, actor: string): RoleTo
     folded(db, { ts, type: ROLE_TO_OWNER, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_TO_OWNER}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, detail }, legacy: false })
     appendEvent(db, { ts, type: CARD_STOPPED, actor, cardId: null, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${ROLE_TO_OWNER}:${row.role}:${row.event_id}`, payload: { reason: 'question.owner', role: row.role, handoff: row.handoff, detail }, legacy: false })
     return { role: row.role, handoff: row.handoff, detail }
+  })
+}
+
+export function returnSilentRole(db: DatabaseSync, ts: string, actor: string): RoleReturned | null {
+  return inTransaction(db, () => {
+    const silentSince = new Date(Date.parse(ts) - LEASE_MS).toISOString()
+    const row = db.prepare(SILENT_OWNER_SESSION).get(silentSince) as { role: Role, handoff: string, event_id: number, last_sign: string } | undefined
+    if (row === undefined)
+      return null
+    folded(db, { ts, type: ROLE_RETURNED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RETURNED}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, last_sign: row.last_sign }, legacy: false })
+    return { role: row.role, handoff: row.handoff, lastSign: row.last_sign }
   })
 }
 
