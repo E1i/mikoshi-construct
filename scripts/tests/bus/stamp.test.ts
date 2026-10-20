@@ -1,8 +1,24 @@
 import { Buffer } from 'node:buffer'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { Writable } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import { LineStamper, STAMP_ENV, stampLogOutput, stampStream } from '../../bus/stamp.js'
+import { SUPERVISOR_LAUNCH } from '../../bus/supervisor.js'
+import { busLaunches } from '../../bus/workers.js'
+
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
+const PACKAGE_SCRIPTS = (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
+const DETACHED_SCRIPTS = [...busLaunches(() => []), SUPERVISOR_LAUNCH].map(launch => launch.script)
+
+function entryOf(script: string): string {
+  const command = PACKAGE_SCRIPTS[script] ?? ''
+  const match = /^tsx (\S+)$/.exec(command)
+  if (match === null)
+    throw new Error(`package.json script ${script} is "${command}", not "tsx <entry>"`)
+  return readFileSync(path.join(REPO_ROOT, match[1]!), 'utf8')
+}
 
 const AT = '2026-10-20T11:36:00.000Z'
 const stamper = (): LineStamper => new LineStamper(() => new Date(AT))
@@ -52,5 +68,15 @@ describe('the bus log stamper', () => {
       process.stdout.write = write
       process.stderr.write = writeErr
     }
+  })
+
+  it('names every script a detached bus start launches, the supervisor and bus:run included', () => {
+    expect(new Set(DETACHED_SCRIPTS)).toEqual(new Set(['bus:run', 'bus:bg', 'bus:review', 'bus:merge', 'bus:update', 'bus:launch', 'bus:restart', 'bus:answer', 'bus:close']))
+  })
+
+  it.each(DETACHED_SCRIPTS)('the entry behind %s imports stampLogOutput and calls it', (script) => {
+    const source = entryOf(script)
+    expect(source).toMatch(/^import \{ stampLogOutput \} from '\.\/stamp\.js'$/m)
+    expect(source).toMatch(/^\s+stampLogOutput\(\)$/m)
   })
 })
