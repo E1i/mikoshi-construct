@@ -411,6 +411,69 @@ describe('review worker', () => {
     db.close()
   })
 
+  describe('a divergence on a table the review node does not read', () => {
+    const insertRole = (db: DatabaseSync): void => {
+      const eventId = Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+      db.prepare(`INSERT INTO roles (role, handoff, status, reason, state, event_id) VALUES ('window', 'miko.md', 'CONTINUE', 'context', 'idle', ?)`).run(eventId)
+    }
+    const startOnce = async (bench: Bench): Promise<string[]> => {
+      const printed = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const node = new ReviewNode({ db: bench.db, gitHub: bench.gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: bench.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+      const controller = new AbortController()
+      await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+      const lines = printed.mock.calls.map(call => String(call[0]))
+      printed.mockRestore()
+      return lines
+    }
+    const divergent = (): Bench => {
+      const bench = setUp()
+      bench.tick()
+      insertRole(bench.db)
+      return bench
+    }
+
+    it('a roles divergence raises one alarm and the review node still starts', async () => {
+      const bench = divergent()
+
+      const lines = await startOnce(bench)
+
+      expect(events(bench.db, 'board.alarm')).toMatchObject([{ reason: 'foreign-divergence', detail: 'replay byte-diff: roles window: live only' }])
+      expect(lines.some(line => line.includes('the review node worker:review:node-1 takes the review queue'))).toBe(true)
+      bench.db.close()
+    })
+
+    it('a second check of the same divergence adds no event and no alarm', async () => {
+      const bench = divergent()
+      await startOnce(bench)
+      const divergenceEvents = (): number => events(bench.db, 'board.alarm').length + events(bench.db, 'board.alarm.cleared').length
+      const before = divergenceEvents()
+
+      await startOnce(bench)
+
+      expect(divergenceEvents()).toBe(before)
+      expect(events(bench.db, 'board.alarm')).toHaveLength(1)
+      bench.db.close()
+    })
+
+    it('a divergence that is gone clears its alarm with an event', async () => {
+      const bench = divergent()
+      await startOnce(bench)
+      const [alarm] = events(bench.db, 'board.alarm')
+
+      bench.db.prepare(`DELETE FROM roles WHERE role = 'window'`).run()
+      await startOnce(bench)
+      expect(events(bench.db, 'board.alarm.cleared')).toEqual([{ reason: 'foreign-divergence', digest: alarm!.digest, alarm: `board.alarm:foreign-divergence:${String(alarm!.digest)}:0` }])
+
+      await startOnce(bench)
+      expect(events(bench.db, 'board.alarm.cleared')).toHaveLength(1)
+
+      insertRole(bench.db)
+      await startOnce(bench)
+      expect(events(bench.db, 'board.alarm')).toHaveLength(2)
+      bench.db.close()
+    })
+  })
+
   it('review reads the card from bus.db with GitHub offline', async () => {
     const { db, gitHub, tick, worker } = setUp()
     const card = '#1065 a-card-held-by-the-bus [implement/netwatch/S/cheap/auto] · depends — · blocks —\n\nThe card text the bus holds.\n'
