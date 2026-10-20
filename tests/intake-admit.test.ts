@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runCommand } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cardBodyText } from '../scripts/bus/card-bodies.js'
 import { BUS_DB_VARIABLE, openBus } from '../scripts/bus/db.js'
 import { busCardAdmissions, busCardEvents } from '../scripts/bus/intake.js'
 import { reduce } from '../scripts/bus/reducer.js'
@@ -20,6 +21,7 @@ import { resolveTheme } from '../src/ui/theme.js'
 const NOW = new Date('2026-10-05T09:00:00.000Z')
 const A_MINUTE_LATER = new Date(NOW.getTime() + 60_000)
 const AN_HOUR_LATER = new Date(NOW.getTime() + 3_600_000)
+const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
 const roots: string[] = []
 
 afterEach(() => {
@@ -62,6 +64,18 @@ function admit(w: World, file: string, options: Partial<AdmitOptions> = {}, at: 
   const db = openBus(busOf(w))
   try {
     return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), ...options }, () => at)
+  }
+  finally {
+    db.close()
+  }
+}
+
+function admitThroughBus(w: World, file: string, options: Partial<AdmitOptions> = {}): AdmitResult {
+  const db = openBus(busOf(w))
+  try {
+    const result = runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), ...options }, () => AFTER_THE_CUTOFF)
+    reduce(db)
+    return result
   }
   finally {
     db.close()
@@ -138,6 +152,22 @@ const WAITING = '#82 waiting-card [implement/runner/S/cheap/owner] · depends #8
 const STALE_WAITING = '#83 stale-waiting-card [implement/runner/S/cheap/owner] · depends #70 #80 · blocks #90 the board card'
 const STALE_WAITING_ADMITTED = '#83 stale-waiting-card [implement/runner/S/cheap/owner] · depends — · blocks #90 the board card'
 
+function stalePark(w: World): string {
+  park(w, 80, CLEAN)
+  park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
+  return park(w, 81, STALE)
+}
+
+function mergedSeventy(w: World): void {
+  journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+}
+
+function admittedCardText(result: AdmitResult): string {
+  if (!('card' in result))
+    throw new Error(`no card in a ${result.status} result`)
+  return result.card.text
+}
+
 describe('construct intake --admit takes a card parked before the intake door', () => {
   it('writes an intake line for a card with nothing to correct, leaves the file as it was, and task:start takes the card', () => {
     const w = world()
@@ -156,24 +186,55 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const w = world()
     const file = park(w, 80, CLEAN)
     const text = readFileSync(file, 'utf8')
-    const afterTheCutoff = new Date('2026-10-13T09:00:00.000Z')
-    const viaBus = (): AdmitResult => {
-      const db = openBus(busOf(w))
-      try {
-        const result = runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db) }, () => afterTheCutoff)
-        reduce(db)
-        return result
-      }
-      finally {
-        db.close()
-      }
-    }
-    expect(viaBus().status).toBe('admitted')
+    expect(admitThroughBus(w, file).status).toBe('admitted')
     rmSync(file)
 
-    expect(viaBus()).toMatchObject({ status: 'alreadyAdmitted', card: { line: CLEAN, text } })
+    expect(admitThroughBus(w, file)).toMatchObject({ status: 'alreadyAdmitted', card: { line: CLEAN, text } })
     expect(existsSync(file)).toBe(false)
     expect(admittedPayloads(w).map(payload => payload.text)).toEqual([text])
+  })
+
+  it('a parking file that is there wins over the bus body', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    expect(admitThroughBus(w, file).status).toBe('admitted')
+    const edited = readFileSync(file, 'utf8').replace('Do the thing.', 'Do the edited thing.')
+    writeFileSync(file, edited)
+
+    expect(admitThroughBus(w, file, { autoConfirm: true })).toMatchObject({ status: 'admitted', source: 'amend', card: { text: edited } })
+    expect(admittedPayloads(w).at(-1)?.text).toBe(edited)
+  })
+
+  it('a corrected admission of a card whose parking file is there is written back to the file, with a bus body present', () => {
+    const w = world()
+    const file = stalePark(w)
+    expect(admitThroughBus(w, file, { autoConfirm: true }).status).toBe('admitted')
+    mergedSeventy(w)
+
+    const amended = admitThroughBus(w, file, { autoConfirm: true })
+    expect(amended).toMatchObject({ status: 'admitted', source: 'amend', card: { line: STALE_ADMITTED } })
+    expect(readFileSync(file, 'utf8')).toBe(admittedCardText(amended))
+  })
+
+  it('a corrected admission from the bus body writes no parking file and is carried by its card.admitted event and card_bodies alone', () => {
+    const w = world()
+    const file = stalePark(w)
+    expect(admitThroughBus(w, file, { autoConfirm: true }).status).toBe('admitted')
+    mergedSeventy(w)
+    rmSync(file)
+
+    const amended = admitThroughBus(w, file, { autoConfirm: true })
+    expect(amended).toMatchObject({ status: 'admitted', source: 'amend', card: { line: STALE_ADMITTED } })
+    const corrected = admittedCardText(amended)
+    expect(existsSync(file)).toBe(false)
+    expect(admittedPayloads(w).at(-1)?.text).toBe(corrected)
+    const db = openBus(busOf(w))
+    try {
+      expect(cardBodyText(db, 81)).toBe(corrected)
+    }
+    finally {
+      db.close()
+    }
   })
 
   it('an admission that only drops merged depends is held behind a token', () => {
