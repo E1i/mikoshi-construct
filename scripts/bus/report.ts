@@ -205,21 +205,26 @@ function fieldDifferences(live: ProjectionRow, replayed: ProjectionRow): string[
   return fields.filter(field => shown(live[field]) !== shown(replayed[field])).map(field => `${field} live ${shown(live[field])}, replay ${shown(replayed[field])}`)
 }
 
-function rowDifferences(live: Projection, replayed: Projection): string[] {
-  const differences: string[] = []
+export interface ReplayDifference {
+  table: string | null
+  line: string
+}
+
+function rowDifferences(live: Projection, replayed: Projection): ReplayDifference[] {
+  const differences: ReplayDifference[] = []
   for (const table of [...new Set([...Object.keys(live), ...Object.keys(replayed)])]) {
     const liveRows = rowsByKey(table, live[table] ?? [])
     const replayRows = rowsByKey(table, replayed[table] ?? [])
     for (const [key, row] of liveRows) {
       const other = replayRows.get(key)
       if (other === undefined)
-        differences.push(`${table} ${key}: live only`)
+        differences.push({ table, line: `${table} ${key}: live only` })
       else if (fieldDifferences(row, other).length > 0)
-        differences.push(`${table} ${key}: ${fieldDifferences(row, other).join('; ')}`)
+        differences.push({ table, line: `${table} ${key}: ${fieldDifferences(row, other).join('; ')}` })
     }
     for (const key of replayRows.keys()) {
       if (!liveRows.has(key))
-        differences.push(`${table} ${key}: replay only`)
+        differences.push({ table, line: `${table} ${key}: replay only` })
     }
   }
   return differences
@@ -244,7 +249,7 @@ function oneSnapshot(db: DatabaseSync): Snapshot {
   }
 }
 
-export function replayDifferences(db: DatabaseSync): { live: number, differences: string[] } {
+export function replayDifferences(db: DatabaseSync): { live: number, differences: ReplayDifference[] } {
   const { liveDump, through, events } = oneSnapshot(db)
   const live = Buffer.from(liveDump)
   const replay = openBus(':memory:')
@@ -263,7 +268,7 @@ export function replayDifferences(db: DatabaseSync): { live: number, differences
     if (differences.length > 0)
       return { live: live.length, differences }
     const at = [...live].findIndex((byte, index) => byte !== replayed[index])
-    return { live: live.length, differences: [`differs from byte ${at === -1 ? Math.min(live.length, replayed.length) : at} (live ${live.length} bytes, replay ${replayed.length})`] }
+    return { live: live.length, differences: [{ table: null, line: `differs from byte ${at === -1 ? Math.min(live.length, replayed.length) : at} (live ${live.length} bytes, replay ${replayed.length})` }] }
   }
   finally {
     replay.close()
@@ -272,24 +277,33 @@ export function replayDifferences(db: DatabaseSync): { live: number, differences
 
 function replayLine(db: DatabaseSync): string {
   const { live, differences } = replayDifferences(db)
-  return `${EXIT_CRITERIA.replay}: ${differences.length === 0 ? `none, ${live} bytes identical` : differences.join(' | ')}`
+  return `${EXIT_CRITERIA.replay}: ${differences.length === 0 ? `none, ${live} bytes identical` : differences.map(difference => difference.line).join(' | ')}`
 }
 
 export interface ShadowReading {
   headLag: string[]
   problems: string[]
+  foreign: string[]
 }
 
-export function shadowReading(db: DatabaseSync, gitHub: GitHub, nowMs: () => number): ShadowReading {
+export type ReadSet = ReadonlySet<string>
+
+function readBy(readSet: ReadSet | undefined, difference: ReplayDifference): boolean {
+  return readSet === undefined || difference.table === null || readSet.has(difference.table)
+}
+
+export function shadowReading(db: DatabaseSync, gitHub: GitHub, nowMs: () => number, readSet?: ReadSet): ShadowReading {
   const { mismatches, missing, headMismatches } = compared(db, gitHub, nowMs)
   const { differences } = replayDifferences(db)
+  const replayLines = (read: boolean): string[] => differences.filter(difference => readBy(readSet, difference) === read).map(difference => `${EXIT_CRITERIA.replay}: ${difference.line}`)
   return {
     headLag: headMismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
     problems: [
       ...mismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
       ...missing.map(pr => `${EXIT_CRITERIA.prs}: ${pr} open on GitHub, missing here`),
-      ...differences.map(difference => `${EXIT_CRITERIA.replay}: ${difference}`),
+      ...replayLines(true),
     ],
+    foreign: replayLines(false),
   }
 }
 
