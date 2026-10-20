@@ -467,7 +467,7 @@ describe('w3: task:start installs the dependencies in the new tree', () => {
 
 describe('w2: task:start refuses a card of the wrong form, and the old call', () => {
   it.each([
-    ['an unknown milestone', card(11, 'implement/moon/S/cheap/auto'), `milestone 'moon' is not one of`],
+    ['a milestone that is not a slug', card(11, 'implement/Moon_1/S/cheap/auto'), `milestone 'Moon_1' must be a slug`],
     ['kind probe with decision owner', card(12, 'probe/ghosts/S/cheap/owner'), 'kind probe takes decision none, not owner'],
     ['a bad size', card(13, 'implement/ghosts/XL/cheap/auto'), `size 'XL' is not one of XS, S, M, L`],
     ['no · depends', '#14 x [implement/ghosts/S/cheap/auto] · blocks —', `'· depends <#id …|—>' must follow`],

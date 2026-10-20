@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import construct from '../../construct.json' with { type: 'json' }
 import { cardHead, cardLine, decisionsOf, parseCard, readBodyCard } from '../../src/card/grammar.js'
-import { MILESTONES } from '../../src/card/milestones.js'
+
+const MILESTONES = construct.milestones
 
 const VALID = '#123 task-card [implement/ghosts/M/cheap/owner] · depends #86, #90 · blocks #124 the board card'
 
@@ -17,13 +19,27 @@ describe('parseCard', () => {
     expect(parsed).toMatchObject({ kind: 'card', card: { kind: 'probe', decision: 'none', depends: [], blocks: [] } })
   })
 
-  it('accepts every milestone of the list', () => {
+  it('accepts every milestone of the list construct.json holds', () => {
     for (const milestone of MILESTONES)
-      expect(parseCard(`#1 x [implement/${milestone}/S/cheap/auto] · depends — · blocks —`).kind).toBe('card')
+      expect(parseCard(`#1 x [implement/${milestone}/S/cheap/auto] · depends — · blocks —`, MILESTONES).kind).toBe('card')
+  })
+
+  it('a card with milestone checkout and a card with milestone — parse with no milestone list', () => {
+    expect(parseCard('#1 x [implement/checkout/S/cheap/auto] · depends — · blocks —')).toMatchObject({ kind: 'card', card: { milestone: 'checkout' } })
+    expect(parseCard('#1 x [implement/—/S/cheap/auto] · depends — · blocks —')).toMatchObject({ kind: 'card', card: { milestone: '—' } })
+  })
+
+  it('with no milestone list a milestone that is not a slug is refused', () => {
+    expect(parseCard('#1 x [implement/Check_out/S/cheap/auto] · depends — · blocks —')).toEqual({ kind: 'refused', reason: `milestone 'Check_out' must be a slug of a-z, 0-9 and '-', or '—'` })
+  })
+
+  it('with a milestone list an unknown milestone is refused', () => {
+    expect(parseCard('#1 x [implement/checkout/S/cheap/auto] · depends — · blocks —', ['ghosts', 'ice'])).toEqual({ kind: 'refused', reason: `milestone 'checkout' is not one of ghosts, ice` })
+    expect(parseCard('#1 x [implement/—/S/cheap/auto] · depends — · blocks —', ['ghosts', 'ice'])).toEqual({ kind: 'refused', reason: `milestone '—' is not one of ghosts, ice` })
+    expect(parseCard('#1 x [implement/ice/S/cheap/auto] · depends — · blocks —', ['ghosts', 'ice']).kind).toBe('card')
   })
 
   it.each([
-    ['an unknown milestone', '#1 x [implement/moon/S/cheap/auto] · depends — · blocks —', `milestone 'moon' is not one of ${MILESTONES.join(', ')}`],
     ['probe with decision owner', '#1 x [probe/ice/S/cheap/owner] · depends — · blocks —', 'kind probe takes decision none, not owner'],
     ['implement with decision none', '#1 x [implement/ice/S/cheap/none] · depends — · blocks —', 'kind implement takes decision owner or auto, not none'],
     ['a bad size', '#1 x [implement/ice/XL/cheap/auto] · depends — · blocks —', `size 'XL' is not one of XS, S, M, L`],
