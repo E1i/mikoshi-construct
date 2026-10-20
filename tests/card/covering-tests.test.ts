@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, TestCoverage, withinTouches } from '../../src/card/covering-tests.js'
+import { isTest as layersIsTest } from '../../scripts/ci/layers.js'
+import { coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TestCoverage, withinTouches } from '../../src/card/covering-tests.js'
 
 const FILES: Record<string, string> = {
   'src/card/risk.ts': 'export const RISK = 1\n',
@@ -115,7 +116,7 @@ describe('the tests that reach a touched file other than by a static import', ()
   })
 
   it('a test that spawns a touched script by its path, or loads it through require, covers it', () => {
-    expect(reached(['scripts/bus/review-worker.ts'])).toEqual(['scripts/tests/bus/requires.test.ts', 'scripts/tests/bus/spawns.test.ts', 'scripts/tests/ci/layers.test.ts'].filter(test => test in reaching))
+    expect(reached(['scripts/bus/review-worker.ts'])).toEqual(['scripts/tests/bus/requires.test.ts', 'scripts/tests/bus/spawns.test.ts'])
   })
 
   it('vi.mock, vi.importActual and an export * split over lines reach a touched module', () => {

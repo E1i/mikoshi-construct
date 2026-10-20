@@ -27,6 +27,8 @@ const BASE: Record<string, string> = {
   'scripts/bus/review-worker.ts': 'export function runReviewWorker(): number {\n  return 1\n}\n',
   'scripts/bus/merge-worker.ts': 'export function runMergeWorker(): number {\n  return 1\n}\n',
   'scripts/tests/bus/review-worker.test.ts': 'import { runReviewWorker } from \'../../bus/review-worker.js\'\n\nexport const ran = runReviewWorker()\n',
+  'scripts/shift/shift.ts': 'export function runShift(): number {\n  return 1\n}\n',
+  'tests/decisions-read-through-reader.test.ts': 'export const scanned = \'scripts/shift\'\n',
 }
 
 function git(cwd: string, args: string[]): string {
@@ -92,5 +94,13 @@ describe('the shift gate lets the tests that cover the touched files follow the 
     const result = treePr(ports(), CARD, worktree, null)
     expect(result.kind).toBe('problem')
     expect(result.kind === 'problem' && result.why).toContain('the card\'s touches for scripts/bus/merge-worker.ts, which it changes outside them')
+  })
+  it('an edit of a test that scans the tree of a touched file outside touches does not stop the card', () => {
+    const worktree = cardTree()
+    write(worktree, {
+      'scripts/shift/shift.ts': 'export function runShift(): number {\n  return 2\n}\n',
+      'tests/decisions-read-through-reader.test.ts': 'export const scanned = \'scripts/shift/\'\n',
+    })
+    expect(treePr(ports(), { ...CARD, touches: ['scripts/shift/**'] }, worktree, null)).toEqual({ kind: 'pr', number: '954' })
   })
 })
