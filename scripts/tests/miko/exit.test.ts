@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, stopReasonOf } from '../../miko/exit.js'
+import { ancestors, exitDecision, FRESH_MS, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, stopReasonOf } from '../../miko/exit.js'
 import { mikoHandoff } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -137,7 +137,7 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
     const { code, stderr } = await run(dir, TSX, [LOOP])
     expect(code).toBe(0)
     expect(read(dir, 'calls').split('\n').filter(Boolean)).toEqual(['1', '2'])
-    expect(read(dir, 'exit.err')).toContain('ending claude')
+    expect(read(dir, 'exit.err')).toContain('the loop ends the session at the context limit')
     expect(read(dir, 'survived')).toBe('')
     expect(stderr).toContain('STATUS: CONTINUE: next session')
     expect(journal(dir)).toEqual([expect.objectContaining({ event: 'session-exit', session_id: SESSION, reason: 'context', start: { input: CONTEXT_WARN, cache_write: 0, cache_read: 0 } })])
@@ -343,5 +343,58 @@ describe('a Miko window outside the pnpm miko loop that stops at a threshold', (
     { name: 'a stale miko.md', status: 'CONTINUE', mtime: now - FRESH_MS - 1000 },
   ])('at the context warn with $name refuses as before and writes nothing', ({ status, mtime }) => {
     expect(exitDecision([zsh, claude], mtime, now, status, AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining('does not run under the pnpm miko loop') })
+  })
+})
+
+describe('under the pnpm miko loop miko:exit asks the loop to end the session and never calls ps or kill', () => {
+  const REQUEST = '/h/miko-exit.request'
+  const never = (): never => {
+    throw new Error('ps or kill was called')
+  }
+
+  function underTheLoop(overrides: Partial<MikoExitDeps>): Outcome & { requests: string[] } {
+    const requests: string[] = []
+    const outcome = exit({ table: never, kill: never, loopRequest: REQUEST, requestEnd: request => requests.push(request), ...overrides })
+    return { ...outcome, requests }
+  }
+
+  it('writes the request at a stop reason with a fresh handoff, records the exit, and kills nothing', () => {
+    const outcome = underTheLoop({ readings: () => AT_CONTEXT })
+    expect(outcome).toMatchObject({ code: 0, requests: [REQUEST], recorded: [expect.objectContaining({ reason: 'context' })] })
+    expect(outcome.lines.join('\n')).toContain('the pnpm miko loop starts the next session')
+  })
+
+  it('writes the request with STATUS DONE and ends the window by miko:exit', () => {
+    expect(underTheLoop({ status: () => 'DONE' })).toMatchObject({ code: 0, requests: [REQUEST], ends: ['miko:exit'] })
+  })
+
+  it('keeps every refusal: no stop condition, no handoff, a stale handoff', () => {
+    expect(underTheLoop({})).toMatchObject({ code: 1, requests: [], recorded: [] })
+    expect(underTheLoop({ readings: () => AT_CONTEXT, handoffMtime: () => undefined })).toMatchObject({ code: 1, requests: [] })
+    expect(underTheLoop({ readings: () => AT_CONTEXT, now: () => FRESH_MS + 1000 })).toMatchObject({ code: 1, requests: [] })
+  })
+})
+
+describe('outside the loop an EPERM from ps or kill is one refusing line, not a stack', () => {
+  const eperm = (): never => {
+    throw Object.assign(new Error('spawnSync ps EPERM'), { code: 'EPERM' })
+  }
+
+  it('refuses when ps fails with EPERM', () => {
+    const outcome = exit({ table: eperm, readings: () => AT_CONTEXT })
+    expect(outcome).toMatchObject({ code: 1, kills: [], recorded: [] })
+    expect(outcome.lines).toEqual([`[miko] ${SANDBOX_REFUSAL}`])
+  })
+
+  it('refuses when kill fails with EPERM', () => {
+    const outcome = exit({ kill: eperm, readings: () => AT_CONTEXT })
+    expect(outcome.code).toBe(1)
+    expect(outcome.lines.at(-1)).toBe(`[miko] ${SANDBOX_REFUSAL}`)
+  })
+
+  it('lets any other error through', () => {
+    expect(() => exit({ table: () => {
+      throw new Error('boom')
+    } })).toThrow('boom')
   })
 })

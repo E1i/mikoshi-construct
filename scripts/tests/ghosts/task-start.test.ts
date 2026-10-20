@@ -710,3 +710,21 @@ describe('task:start checks the card file against the body its card.admitted car
     expect(runTaskStart(['feat/b3', '--card', card(93)], parkedWithAdmission(world, 93, null, 'any body')).exitCode).toBe(0)
   })
 })
+
+describe('task:start surfaces what git said when the tree cannot be cut', () => {
+  it('a worktree add that fails for another reason than an unwritable file reports git stderr and writes nothing', () => {
+    const world = newWorld()
+    const deps = {
+      ...depsOf(world),
+      git: (cwd: string, args: string[]) => {
+        if (args[0] === 'worktree')
+          throw new Error('Preparing worktree (new branch)\nfatal: invalid reference: origin/main')
+        return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' })
+      },
+    }
+    const result = runTaskStart(['feat/c1', '--card', card(41)], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain('fatal: invalid reference: origin/main')
+    expect(starts(world)).toEqual([])
+  })
+})

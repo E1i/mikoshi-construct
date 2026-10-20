@@ -3,17 +3,32 @@ import { existsSync } from 'node:fs'
 import { withReadOnlyBus } from '../cost/bus.js'
 
 export const WINDOW_SUBAGENT_EVENT = 'window.subagent'
+export const SESSION_HEARTBEAT_EVENT = 'session.heartbeat'
+export const CARD_VERIFIED_EVENT = 'card.verified'
+const CARD_STOPPED_EVENT = 'card.stopped'
+export const SESSION_DEATH_KEY = `${CARD_STOPPED_EVENT}:session-end:`
 const CARD_FELL_EVENT = 'card.fell'
 export const CHECKS_MATRIX_EVENT = 'checks.matrix'
 export const SHORT_SHA = 7
 export const SUBAGENT_SHOWN_HOURS = 12
+export const SESSION_SHOWN_MINUTES = 20
+export const FLOW_STATES = [['queued'], ['running', 'changes'], ['in_review'], ['ready']]
+export const LIVE_STATES = FLOW_STATES.flat()
+export const BUS_PULSE_EVENT = 'netwatch.tick'
+const RELEASE_MENTION = /\brelease (\d+)\.(\d+)\b/gi
+const GOAL_DONE_STATES = ['merged', 'closed']
+const GOAL_LEFT_OUT_STATES = ['dropped']
 const HOUR_MS = 3_600_000
+const MINUTE_MS = 60_000
 
 export interface BusCard {
   id: number
   state: string | null
   lane: string | null
   line: string | null
+  since: string | null
+  body: boolean
+  closed: boolean
 }
 
 export interface BusService {
@@ -32,7 +47,22 @@ export interface BusMatrix {
   notRun: number
 }
 
+export interface BusGoal {
+  release: string
+  done: number
+  total: number
+}
+
+export interface BusSlot {
+  queue: string
+  used: number
+}
+
 export interface BusFacts {
+  at: string
+  goal: BusGoal | null
+  pulse: string | null
+  slots: BusSlot[]
   cards: BusCard[]
   services: BusService[]
   matrices: BusMatrix[]
@@ -55,8 +85,30 @@ interface TaskRow {
 }
 
 interface EventRow {
+  id: number
   ts: string | null
+  type: string
+  card_id: number | null
+  pr: number | null
+  dedupe_key: string | null
+  legacy: number
   payload: string
+}
+
+interface CardRow {
+  id: number
+  state: string | null
+  pr: number | null
+  lane: string | null
+  line: string | null
+  since: string | null
+  body: number
+}
+
+interface RoleRow {
+  role: string
+  status: string
+  state: string
 }
 
 function payloadOf(text: string): Record<string, unknown> {
@@ -71,6 +123,10 @@ function payloadOf(text: string): Record<string, unknown> {
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null
+}
+
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
 }
 
 function stepOf(row: TaskRow): string {
@@ -94,10 +150,25 @@ function isSilent(row: EventRow, now: Date): boolean {
   return Number.isNaN(at) || now.getTime() - at > SUBAGENT_SHOWN_HOURS * HOUR_MS
 }
 
-function windowServices(db: BusDb, now: Date): BusService[] {
-  const rows = db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(WINDOW_SUBAGENT_EVENT) as unknown as EventRow[]
+function windowRoles(db: BusDb): BusService[] {
+  const rows = db.prepare('SELECT role, status, state FROM roles ORDER BY role').all() as unknown as RoleRow[]
+  return rows.map(row => ({ role: 'window', task: row.role, tree: null, step: `${row.state} · ${row.status}` }))
+}
+
+const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT_EVENT, CARD_FELL_EVENT, CARD_STOPPED_EVENT, CARD_VERIFIED_EVENT]
+
+interface BoardEvents {
+  of: (type: string) => EventRow[]
+}
+
+function boardEvents(db: BusDb): BoardEvents {
+  const rows = db.prepare(`SELECT id, ts, type, card_id, pr, dedupe_key, legacy, payload FROM events WHERE type IN (${BOARD_EVENT_TYPES.map(() => '?').join(', ')}) ORDER BY id`).all(...BOARD_EVENT_TYPES) as unknown as EventRow[]
+  return { of: type => rows.filter(row => row.type === type) }
+}
+
+function windowServices(events: BoardEvents, now: Date): BusService[] {
   const running = new Map<string, BusService>()
-  for (const row of rows) {
+  for (const row of events.of(WINDOW_SUBAGENT_EVENT)) {
     const payload = payloadOf(row.payload)
     const role = text(payload.role) ?? 'agent'
     const task = text(payload.task) ?? '—'
@@ -116,10 +187,6 @@ interface MatrixRow {
   payload: string
 }
 
-function count(value: unknown): number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
-}
-
 function checkMatrices(db: BusDb): BusMatrix[] {
   const rows = db.prepare('SELECT pr, head, payload FROM events WHERE type = ? AND pr IS NOT NULL ORDER BY id').all(CHECKS_MATRIX_EVENT) as unknown as MatrixRow[]
   const latest = new Map<number, BusMatrix>()
@@ -130,15 +197,88 @@ function checkMatrices(db: BusDb): BusMatrix[] {
   return [...latest.values()].sort((a, b) => a.pr - b.pr)
 }
 
-function lastFailure(db: BusDb): string | null {
-  const row = db.prepare('SELECT card_id, ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(CARD_FELL_EVENT) as { card_id: number | null, ts: string | null } | undefined
-  return row === undefined ? null : `card #${row.card_id ?? '?'} fell${row.ts === null ? '' : ` at ${row.ts}`}`
+function minutesAgo(ts: string, now: Date): number {
+  return Math.max(0, Math.round((now.getTime() - Date.parse(ts)) / MINUTE_MS))
+}
+
+function sessionServices(events: BoardEvents, now: Date): BusService[] {
+  const latest = new Map<string, BusService>()
+  for (const row of events.of(SESSION_HEARTBEAT_EVENT)) {
+    if (row.ts === null || now.getTime() - Date.parse(row.ts) > SESSION_SHOWN_MINUTES * MINUTE_MS)
+      continue
+    const payload = payloadOf(row.payload)
+    const task = `#${row.card_id ?? '?'}`
+    const step = text(payload.step) ?? 'session'
+    latest.set(text(payload.session) ?? task, { role: step.split(' ')[0]!, task, tree: null, step: `${step} · pulse ${minutesAgo(row.ts, now)} min ago` })
+  }
+  return [...latest.values()]
+}
+
+function isFailure(row: EventRow): boolean {
+  return row.type === CARD_FELL_EVENT || (row.dedupe_key ?? '').startsWith(SESSION_DEATH_KEY)
+}
+
+function lastFailure(events: BoardEvents): string | null {
+  const row = [...events.of(CARD_FELL_EVENT), ...events.of(CARD_STOPPED_EVENT)].filter(isFailure).sort((a, b) => b.id - a.id)[0]
+  if (row === undefined)
+    return null
+  const what = row.type === CARD_FELL_EVENT ? 'fell' : 'lost its session'
+  return `card #${row.card_id ?? '?'} ${what}${row.ts === null ? '' : ` at ${row.ts}`}`
+}
+
+function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
+  const rows = db.prepare(`
+    SELECT c.card_id AS id, c.state, c.pr, b.lane, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body
+    FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id LEFT JOIN events e ON e.id = c.event_id
+    ORDER BY c.card_id
+  `).all() as unknown as CardRow[]
+  const closed = new Set(events.of(CARD_VERIFIED_EVENT).filter(row => row.legacy === 0).map(row => row.card_id))
+  return rows.map(row => ({ id: row.id, state: row.state, lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id) }))
+}
+
+function releasesIn(body: string): string[] {
+  return [...new Set([...body.matchAll(RELEASE_MENTION)].map(match => `${match[1]}.${match[2]}`))]
+}
+
+function compareReleases(a: string, b: string): number {
+  const [aMajor = 0, aMinor = 0] = a.split('.').map(Number)
+  const [bMajor = 0, bMinor = 0] = b.split('.').map(Number)
+  return aMajor - bMajor || aMinor - bMinor
+}
+
+function goalOf(db: BusDb): BusGoal | null {
+  const rows = db.prepare(`SELECT c.state, b.text FROM cards c JOIN card_bodies b ON b.card_id = c.card_id WHERE b.text LIKE '%elease %'`).all() as unknown as { state: string | null, text: string }[]
+  const named = rows.map(row => ({ state: row.state ?? '', releases: releasesIn(row.text) })).filter(row => !GOAL_LEFT_OUT_STATES.includes(row.state))
+  const release = named.filter(row => LIVE_STATES.includes(row.state)).flatMap(row => row.releases).sort(compareReleases).at(-1)
+  if (release === undefined)
+    return null
+  const members = named.filter(row => row.releases.includes(release))
+  return { release, done: members.filter(row => GOAL_DONE_STATES.includes(row.state)).length, total: members.length }
+}
+
+function lastPulse(db: BusDb): string | null {
+  const row = db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(BUS_PULSE_EVENT) as { ts: string | null } | undefined
+  return row?.ts ?? null
+}
+
+function slotsInUse(db: BusDb): BusSlot[] {
+  return db.prepare(`SELECT queue, count(*) AS used FROM tasks WHERE state = 'leased' GROUP BY queue ORDER BY queue`).all() as unknown as BusSlot[]
 }
 
 function factsOf(db: BusDb, now: Date): BusFacts {
-  const cards = db.prepare('SELECT c.card_id AS id, c.state, b.lane, b.card_line AS line FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id ORDER BY c.card_id').all() as unknown as BusCard[]
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
-  return { cards, services: [...taskServices(db), ...windowServices(db, now)], matrices: checkMatrices(db), failure: lastFailure(db), reviewQueue: Number(queue.n) }
+  const events = boardEvents(db)
+  return {
+    at: now.toISOString(),
+    goal: goalOf(db),
+    pulse: lastPulse(db),
+    slots: slotsInUse(db),
+    cards: cardsOf(db, events),
+    services: [...windowRoles(db), ...taskServices(db), ...windowServices(events, now), ...sessionServices(events, now)],
+    matrices: checkMatrices(db),
+    failure: lastFailure(events),
+    reviewQueue: Number(queue.n),
+  }
 }
 
 export function busReaderAt(file: string, clock: () => Date = () => new Date()): BusReader {

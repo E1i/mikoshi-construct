@@ -11,7 +11,7 @@ import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { failRaise, leaseRole, observeRoleStop, ROLE_RETURNED, roleToOwner } from '../../bus/role.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
-import { claudeCommand, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
+import { claudeCommand, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, EXIT_REQUEST_NAME, exitRequestFile, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, takeExitRequest } from '../../miko/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -529,4 +529,49 @@ describe('the end of the window the loop runs returns the role', () => {
     expect(code).toBe(0)
     expect(returnedEnds(bus)).toEqual({ ended: 'close', state: 'stopped' })
   }, 20_000)
+})
+
+describe('the loop owns the end of a session: a request file asks it to end the claude it started', () => {
+  const POLL_MS = 20
+
+  function request(): string {
+    const dir = mkdtempSync(path.join(tmpdir(), 'miko-request-'))
+    roots.push(dir)
+    return path.join(dir, EXIT_REQUEST_NAME)
+  }
+
+  it('names the request next to miko.md', () => {
+    expect(exitRequestFile('/h')).toBe(path.join(path.dirname(mikoHandoff('/h')), EXIT_REQUEST_NAME))
+  })
+
+  it('takes a request once and removes it', () => {
+    const file = request()
+    expect(takeExitRequest(file)).toBe(false)
+    writeFileSync(file, '1\n')
+    expect(takeExitRequest(file)).toBe(true)
+    expect(existsSync(file)).toBe(false)
+    expect(takeExitRequest(file)).toBe(false)
+  })
+
+  it('ends the session with SIGTERM when a request appears, and removes the request', async () => {
+    const file = request()
+    const ending = runSession('sleep 30', undefined, file, POLL_MS)
+    setTimeout(writeFileSync, 100, file, '1\n')
+    expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
+    expect(existsSync(file)).toBe(false)
+  }, 10_000)
+
+  it('does not obey a request left from before the session started', async () => {
+    const file = request()
+    writeFileSync(file, 'stale\n')
+    expect(await runSession('sleep 0.3', undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
+    expect(existsSync(file)).toBe(false)
+  }, 10_000)
+
+  it('names the loop and the request to the session through its environment', async () => {
+    const file = request()
+    const seen = `${file}.seen`
+    expect(await runSession(`sh -c 'echo "$MIKO_LOOP_PID $MIKO_EXIT_REQUEST" > ${seen}'`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
+    expect(readFileSync(seen, 'utf8').trim()).toBe(`${process.pid} ${file}`)
+  }, 10_000)
 })

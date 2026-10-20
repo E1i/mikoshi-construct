@@ -1,10 +1,12 @@
 import type { BusFacts, BusReading } from '../../src/commands/board/bus.js'
-import type { BusSeed } from './bus-fixture.js'
+import type { BusSeed, SeedCard } from './bus-fixture.js'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { busReaderAt, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
+import { flowLines } from '../../src/commands/board/screens.js'
+import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { checkMatrix, subagent, writeBus } from './bus-fixture.js'
 
 const NOW = new Date('2026-10-02T12:00:00.000Z')
@@ -32,9 +34,22 @@ function facts(seed: BusSeed): BusFacts {
 describe('the board bus reader', () => {
   it('reads every card with its state, lane and card line, in card order', () => {
     expect(facts({ cards: [{ id: 2, state: 'changes', lane: null, line: null }, { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha' }] }).cards).toEqual([
-      { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha' },
-      { id: 2, state: 'changes', lane: null, line: null },
+      { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false },
+      { id: 2, state: 'changes', lane: null, line: null, since: null, body: true, closed: false },
     ])
+  })
+
+  it('a card with no card body, or closed through task:close, is not in Flow, and a session death is the last failure', () => {
+    const read = facts({
+      cards: [{ id: 170, state: 'queued', lane: null, line: null, body: false }, { id: 1068, state: 'running', lane: null, line: null }, { id: 1071, state: 'running', lane: null, line: null }],
+      events: [
+        { ts: ago(2 * HOUR), type: 'card.verified', card: 1068, payload: JSON.stringify({ sharedBy: 'D-189' }) },
+        { ts: ago(3 * HOUR), type: 'card.fell', card: 7, payload: '{}' },
+        { ts: ago(HOUR), type: 'card.stopped', card: 1071, dedupe: 'card.stopped:session-end:launch:1071', payload: '{}' },
+      ],
+    })
+    expect(flowLines(read.cards, PLAIN_LORE).slice(0, 2)).toEqual(['planned (0): —', 'in work (1): #1071'])
+    expect(read.failure).toBe(`card #1071 lost its session at ${ago(HOUR)}`)
   })
 
   it('names the step of each leased task: a review by its verdict, any other queue by its short head', () => {
@@ -122,6 +137,39 @@ describe('the board bus reader', () => {
       { pr: 922, head, full: null, killed: 3, survived: 1, notRun: 2 },
       { pr: 930, head: null, full: null, killed: 0, survived: 0, notRun: 0 },
     ])
+  })
+
+  it('the board shows the pulse and the free slots the bus records', () => {
+    expect(facts({})).toMatchObject({ pulse: null, slots: [] })
+    const seen = facts({
+      tasks: [
+        { queue: 'review', card: 1, pr: null, head: null, state: 'leased' },
+        { queue: 'review', card: 2, pr: null, head: null, state: 'leased' },
+        { queue: 'merge', card: 3, pr: null, head: null, state: 'leased' },
+        { queue: 'review', card: 4, pr: null, head: null, state: 'queued' },
+      ],
+      events: [
+        { ts: ago(5 * 60_000), type: 'netwatch.tick', card: null, payload: '{}' },
+        { ts: ago(2 * 60_000), type: 'netwatch.tick', card: null, payload: '{}' },
+      ],
+    })
+    expect(seen.pulse).toBe(ago(2 * 60_000))
+    expect(seen.slots).toEqual([{ queue: 'merge', used: 1 }, { queue: 'review', used: 2 }])
+  })
+
+  it('the goal is the newest release a live card names, with the cards that name it done of total', () => {
+    expect(facts({}).goal).toBeNull()
+    const named = (id: number, state: string, text: string): SeedCard[] => [{ id, state, lane: null, line: null, text }]
+    const cards = [
+      ...named(1, 'merged', 'Release 0.44 list'),
+      ...named(2, 'closed', 'for release 0.44'),
+      ...named(3, 'queued', 'Release 0.44 and Release 0.45'),
+      ...named(4, 'dropped', 'Release 0.44'),
+      ...named(5, 'merged', 'Release 0.43'),
+    ]
+    expect(facts({ cards }).goal).toEqual({ release: '0.45', done: 0, total: 1 })
+    expect(facts({ cards: cards.slice(0, 2).concat(cards.slice(3)) }).goal).toBeNull()
+    expect(facts({ cards: [...cards.slice(0, 2), ...named(6, 'running', 'Release 0.44')] }).goal).toEqual({ release: '0.44', done: 2, total: 3 })
   })
 
   it('reports a missing file as absent and a file it cannot query as unreadable, with the reason', () => {
