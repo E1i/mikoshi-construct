@@ -1,9 +1,9 @@
-import type { TreePrCliPorts } from '../../shift/tree-pr-cli.js'
+import type { PrOpenedBus, TreePrCliPorts } from '../../shift/tree-pr-cli.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openBus } from '../../bus/db.js'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { busCardStopped, busPrOpened, PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
 
 const roots: string[] = []
@@ -135,6 +135,23 @@ function parkCard(root: string, contour: ShiftedDiff['contour'], body = 'Do x.')
   return { cardFile, cardLine }
 }
 
+const START_KEY = 'card.started:launch:951:1'
+
+function launchedBus(root: string, cardId: number): PrOpenedBus {
+  const busPath = path.join(root, 'bus.db')
+  const db = openBus(busPath)
+  appendEvent(db, { ts: '2026-10-20T04:00:00.000Z', type: 'card.started', actor: 'worker:launch:1', cardId, pr: null, head: null, dedupeKey: START_KEY.replace('951', String(cardId)), payload: {}, legacy: false })
+  db.close()
+  return { busPath, pid: 4242, now: () => new Date('2026-10-20T05:00:00.000Z'), err: untouchable }
+}
+
+function stopsOn(busPath: string): Record<string, unknown>[] {
+  const db = openBus(busPath)
+  const stops = db.prepare(`SELECT type, actor, card_id, pr, dedupe_key, payload FROM events WHERE type = 'card.stopped'`).all()
+  db.close()
+  return stops
+}
+
 describe('tree-pr for a finished card session', () => {
   it('a card file that moved while the session ran is a problem line, not a stack trace', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
@@ -178,16 +195,48 @@ describe('tree-pr for a finished card session', () => {
     roots.push(root)
     const { diff, gaps } = FORMAT_GAPS['tests shrunk on a cheap card with an assertion removed']!
     const { cardFile } = parkCard(root, diff.contour)
-    const busPath = path.join(root, 'bus.db')
-    const bus = { busPath, pid: 4242, now: () => new Date('2026-10-20T05:00:00.000Z'), err: untouchable }
+    const bus = launchedBus(root, 951)
 
-    const code = runTreePr([cardFile, root], { ...shiftedPorts(diff, []), opened: untouchable, stopped: busCardStopped(bus) }, () => {})
+    const codes = [1, 2].map(() => runTreePr([cardFile, root], { ...shiftedPorts(diff, []), opened: untouchable, stopped: busCardStopped(bus) }, () => {}))
 
-    const db = openBus(busPath)
-    const events = db.prepare(`SELECT type, actor, card_id, pr, dedupe_key, payload FROM events WHERE type = 'card.stopped'`).all()
-    db.close()
     const detail = `tree-pr: card #951: the shift opened no pull request for feat/x: it lacks ${gaps.join('; ')}`
-    expect({ code, events }).toEqual({ code: 1, events: [{ type: 'card.stopped', actor: 'worker:shift:4242', card_id: 951, pr: null, dedupe_key: 'card.stopped:tree-pr:951:2026-10-20T05:00:00.000Z', payload: JSON.stringify({ reason: 'fault', detail }) }] })
+    expect({ codes, events: stopsOn(bus.busPath) }).toEqual({ codes: [1, 1], events: [{ type: 'card.stopped', actor: 'worker:shift:4242', card_id: 951, pr: null, dedupe_key: `card.stopped:tree-pr:${START_KEY}`, payload: JSON.stringify({ reason: 'fault', detail }) }] })
+  })
+
+  it('a card file the grammar refuses after a launched session writes card.stopped to the bus', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+    roots.push(root)
+    const cardFile = path.join(root, 'lane-q', '951.md')
+    mkdirSync(path.dirname(cardFile), { recursive: true })
+    writeFileSync(cardFile, 'not a card\n')
+    const bus = launchedBus(root, 951)
+
+    const code = runTreePr([cardFile, root], { git: untouchable, gh: untouchable, opened: untouchable, stopped: busCardStopped(bus) }, () => {})
+
+    expect({ code, stops: stopsOn(bus.busPath).map(stop => stop.dedupe_key) }).toEqual({ code: 1, stops: [`card.stopped:tree-pr:${START_KEY}`] })
+  })
+
+  it('a refusal for a card file whose name is no card number writes nothing to the bus', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+    roots.push(root)
+    const bus = launchedBus(root, 951)
+    const lines: string[] = []
+
+    const code = runTreePr([path.join(root, 'lane-q', 'notes.md'), root], { git: untouchable, gh: untouchable, opened: untouchable, stopped: busCardStopped(bus) }, line => lines.push(line))
+
+    expect({ code, lines: lines.length, stops: stopsOn(bus.busPath) }).toEqual({ code: 1, lines: 1, stops: [] })
+  })
+
+  it('a refusal on a card the bus never started is a line, not a card.stopped', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+    roots.push(root)
+    const cardFile = path.join(root, 'lane-q', '951.md')
+    const errs: string[] = []
+    const bus = { ...launchedBus(root, 952), err: (line: string) => errs.push(line) }
+
+    const code = runTreePr([cardFile, root], { git: untouchable, gh: untouchable, opened: untouchable, stopped: busCardStopped(bus) }, () => {})
+
+    expect({ code, stops: stopsOn(bus.busPath), errs }).toEqual({ code: 1, stops: [], errs: [`${PREFIX}card.stopped of card #951 not written to ${bus.busPath}: card #951 has no card.started to stop`] })
   })
 
   it('a pull request opened or a clean tree writes no card.stopped', () => {

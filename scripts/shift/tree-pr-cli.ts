@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { TreePr, TreePrPorts } from './tree-pr.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -7,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { PR_OPENED } from '../bus/card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
-import { CARD_STOPPED } from '../bus/inbox.js'
+import { CARD_STARTED, CARD_STOPPED } from '../bus/inbox.js'
 import { execGh } from '../core/gh.js'
 import { shiftTreeCard, treePr } from './tree-pr.js'
 
@@ -33,12 +34,14 @@ interface ShiftEvent {
   payload: Record<string, unknown>
 }
 
-function appendShiftEvent(bus: PrOpenedBus, what: string, event: (ts: string) => ShiftEvent): void {
+const LATEST_START = `SELECT dedupe_key FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
+
+function appendShiftEvent(bus: PrOpenedBus, what: string, event: (db: DatabaseSync) => ShiftEvent): void {
   try {
     const db = openBus(bus.busPath)
     try {
       const ts = bus.now().toISOString()
-      appendEvent(db, { ts, actor: `worker:shift:${bus.pid}`, head: null, legacy: false, ...event(ts) })
+      appendEvent(db, { ts, actor: `worker:shift:${bus.pid}`, head: null, legacy: false, ...event(db) })
     }
     finally {
       db.close()
@@ -54,7 +57,12 @@ export function busPrOpened(bus: PrOpenedBus): TreePrCliPorts['opened'] {
 }
 
 export function busCardStopped(bus: PrOpenedBus): TreePrCliPorts['stopped'] {
-  return (cardId, why) => appendShiftEvent(bus, `${CARD_STOPPED} of card #${cardId}`, ts => ({ type: CARD_STOPPED, cardId, pr: null, dedupeKey: `${CARD_STOPPED}:tree-pr:${cardId}:${ts}`, payload: { reason: 'fault', detail: `tree-pr: card #${cardId}: ${why}` } }))
+  return (cardId, why) => appendShiftEvent(bus, `${CARD_STOPPED} of card #${cardId}`, (db) => {
+    const start = db.prepare(LATEST_START).get(cardId) as { dedupe_key: string } | undefined
+    if (start === undefined)
+      throw new Error(`card #${cardId} has no ${CARD_STARTED} to stop`)
+    return { type: CARD_STOPPED, cardId, pr: null, dedupeKey: `${CARD_STOPPED}:tree-pr:${start.dedupe_key}`, payload: { reason: 'fault', detail: `tree-pr: card #${cardId}: ${why}` } }
+  })
 }
 
 const REAL_BUS: PrOpenedBus = { busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => process.stderr.write(`${line}\n`) }
