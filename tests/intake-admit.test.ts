@@ -6,7 +6,8 @@ import path from 'node:path'
 import { runCommand } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BUS_DB_VARIABLE, openBus } from '../scripts/bus/db.js'
-import { busCardEvents } from '../scripts/bus/intake.js'
+import { busCardAdmissions, busCardEvents } from '../scripts/bus/intake.js'
+import { reduce } from '../scripts/bus/reducer.js'
 import { readJournalFile, runTaskStart } from '../scripts/ghosts/task-start.js'
 import { printAdmit, runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
@@ -149,6 +150,30 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(readFileSync(file, 'utf8')).toBe(before)
     expect(journalLines(w)).toEqual([{ event: 'intake', task: '80', card: CLEAN, confirmation: 'none', corrections: [], bodySha: bodySha(before), source: 'admit', ts: NOW.toISOString() }])
     expect(taskStart(w, CLEAN)).toBe(0)
+  })
+
+  it('a card with no file in the parking is admitted from its bus body', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    const text = readFileSync(file, 'utf8')
+    const afterTheCutoff = new Date('2026-10-13T09:00:00.000Z')
+    const viaBus = (): AdmitResult => {
+      const db = openBus(busOf(w))
+      try {
+        const result = runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db) }, () => afterTheCutoff)
+        reduce(db)
+        return result
+      }
+      finally {
+        db.close()
+      }
+    }
+    expect(viaBus().status).toBe('admitted')
+    rmSync(file)
+
+    expect(viaBus()).toMatchObject({ status: 'alreadyAdmitted', card: { line: CLEAN, text } })
+    expect(existsSync(file)).toBe(false)
+    expect(admittedPayloads(w).map(payload => payload.text)).toEqual([text])
   })
 
   it('an admission that only drops merged depends is held behind a token', () => {

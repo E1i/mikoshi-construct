@@ -10,10 +10,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
+import { textSha } from '../../../src/card/text-sha.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
+import { cardBodyText } from '../../bus/card-bodies.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
@@ -25,7 +27,7 @@ import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
-import { LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
+import { cardTextReader, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { busLaunches } from '../../bus/workers.js'
 import { sessionEnv } from '../../ghosts/session.js'
@@ -354,6 +356,26 @@ describe('the launch queue', () => {
     expect(taskState(bench.db, launch(920))).toMatchObject({ state: 'completed' })
     bench.tick()
     expect(bench.leaseLaunch()).toBeNull()
+    bench.close()
+  })
+
+  it('a card with no file in the parking is launched from its bus body', () => {
+    const root = tempRoot()
+    let piped: string | undefined
+    let bodyOf: (cardId: number) => string | null = () => null
+    const starter = realStarter(root, undefined, 930, { read: cardTextReader(cardId => bodyOf(cardId)), spawnDetached: (run) => {
+      piped = run.input
+      return 4242
+    }, pgidOf: () => 4242 })
+    rmSync(path.join(root, 'parking', 'lane-x', '930.md'))
+    const bench = launchBench(starter)
+    bodyOf = cardId => cardBodyText(bench.db, cardId)
+    const text = parkingFileText({ card: '#930 bus-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', branch: 'feat/bus-card', touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card from the bus.' })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 930, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:930`, payload: { lane: 'lane-x', decision: 'auto', contour: 'cheap', depends: [], admission: admission(930), text, textSha: textSha(text) }, legacy: false })
+    bench.tick()
+
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', card: { branch: 'feat/bus-card' } })
+    expect(piped).toContain('#930 bus-card')
     bench.close()
   })
 

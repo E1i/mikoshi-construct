@@ -87,7 +87,7 @@ export type CardEventPort = (event: CardEvent) => void
 
 export type CardStatesPort = () => BusCardStates
 
-export interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown }
+export interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown, text?: string }
 
 export type CardAdmissionsPort = (cardId: number) => RecordedIntake | null
 

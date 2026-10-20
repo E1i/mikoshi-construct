@@ -283,13 +283,20 @@ function admitConfirmation(card: SlicedCard, autoConfirm: boolean): Confirmation
   return confirmationOf(card, autoConfirm)
 }
 
+function busBodyOf(options: AdmitOptions): string | null {
+  if (existsSync(options.file))
+    return null
+  return options.admissions?.(Number(path.basename(options.file, '.md')))?.text ?? null
+}
+
 export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult {
   let text: string
   let journal: string | null
   let ownerMerges: string | null
   let published: string[] | undefined
+  const busBody = busBodyOf(options)
   try {
-    text = readFileSync(options.file, 'utf8')
+    text = busBody ?? readFileSync(options.file, 'utf8')
     journal = existsSync(options.journal) ? readFileSync(options.journal, 'utf8') : null
     const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
     ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
@@ -356,7 +363,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const token = confirmationToken([admitted])
   if (!options.autoConfirm && admitCorrectionsNeedPerson(admitted) && options.confirm !== token)
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
-  if (admitted.text !== text)
+  if (busBody === null && admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   recordIntake(options.journal, [admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
   return { ...base, status: 'admitted' }
