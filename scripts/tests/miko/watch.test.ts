@@ -68,6 +68,7 @@ function fileDeps(file: string, alive: (pid: number) => boolean = () => true, ev
     stuck: () => [],
     emit: async () => {},
     beforeCommit: async () => {},
+    beat: () => {},
     lastBusId: () => 0,
     busEventsAfter: id => events.filter(event => event.id > id),
     size: () => statSync(file).size,

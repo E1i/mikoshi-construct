@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
+import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -13,11 +14,14 @@ import { CARD_ADMITTED } from './launch-candidates.js'
 import { LEASE_FOLDS } from './lease.js'
 import { TASK_FOLDS } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
-import { ROLE_FOLDS } from './role.js'
+import { ROLE_FOLDS, ROLES_PROJECTION } from './role.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
+import { markReduced } from './watermark.js'
 
 export const PREFIX = '[bus:reduce] '
 export const REDUCED = 'reducer.reduced'
+export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id' }
+export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION]
 
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
 const CI = new Set(['pending', 'green', 'red'])
@@ -183,7 +187,7 @@ export function reducedThrough(db: DatabaseSync): number {
 
 export function reduce(db: DatabaseSync): ReduceCount {
   return inTransaction(db, () => {
-    db.exec(`DELETE FROM cards; DELETE FROM prs; DELETE FROM tasks; DELETE FROM mains; DELETE FROM chains; DELETE FROM roles; DELETE FROM decisions; DELETE FROM ${CARD_BODIES}; DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
+    db.exec(`${Object.keys(PROJECTION_KEYS).map(table => `DELETE FROM ${table};`).join(' ')} DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
     const through = Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
     db.exec(`PRAGMA user_version = ${through}`)
     const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE legacy = 0 ORDER BY id`).all() as unknown as StoredEvent[]
@@ -197,21 +201,14 @@ export function reduce(db: DatabaseSync): ReduceCount {
       else
         count.rejected += 1
     }
+    for (const projection of INCREMENTAL_PROJECTIONS)
+      markReduced(db, projection.table, through)
     return count
   })
 }
 
 export function projectionDump(db: DatabaseSync): string {
-  return JSON.stringify({
-    prs: db.prepare('SELECT * FROM prs ORDER BY pr').all(),
-    cards: db.prepare('SELECT * FROM cards ORDER BY card_id').all(),
-    tasks: db.prepare('SELECT * FROM tasks ORDER BY task_key').all(),
-    mains: db.prepare('SELECT * FROM mains ORDER BY sha').all(),
-    chains: db.prepare('SELECT * FROM chains ORDER BY dir').all(),
-    roles: db.prepare('SELECT * FROM roles ORDER BY role').all(),
-    decisions: db.prepare('SELECT * FROM decisions ORDER BY decision_id').all(),
-    card_bodies: db.prepare(`SELECT * FROM ${CARD_BODIES} ORDER BY card_id`).all(),
-  })
+  return JSON.stringify(Object.fromEntries(Object.entries(PROJECTION_KEYS).map(([table, key]) => [table, db.prepare(`SELECT * FROM ${table} ORDER BY ${key}`).all()])))
 }
 
 function main(): number {

@@ -17,6 +17,7 @@ import { PR_CLOSED } from '../bus/observations.js'
 import { PR_OBSERVED } from '../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../bus/review-executor.js'
 import { WORKER_DOWN } from '../bus/supervisor.js'
+import { windowBeat, windowSessionOf } from '../bus/window-heartbeat.js'
 import { windowOpenPrs } from '../bus/window-prs.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { GHOST_JOURNAL } from '../shift/places.js'
@@ -101,6 +102,7 @@ export interface WatchDeps {
   alive: (pid: number) => boolean
   emit: (line: string) => Promise<void>
   beforeCommit: () => Promise<void>
+  beat: () => void
 }
 
 export interface Delivery {
@@ -430,6 +432,7 @@ type WatchKnown = Pick<WatchState, 'stalls' | 'stuck'>
 export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: number[], card?: number, now: () => number = Date.now): Promise<void> {
   const known: WatchKnown = { stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
   for (;;) {
+    deps.beat()
     const cursor = store.cursor()
     const selected = selectOnce(cursor, deps, pids, card)
     if (selected?.line === null) {
@@ -629,6 +632,7 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     alive,
     emit: emitLine,
     beforeCommit: async () => {},
+    beat: windowBeat(bus, windowSessionOf(process.env), Date.now),
   }
 }
 
@@ -651,6 +655,7 @@ async function watchForever(deps: WatchDeps, pids: number[]): Promise<void> {
   const state = watchState(deps, pids)
   console.error(WATCHING)
   for (;;) {
+    deps.beat()
     for (const line of tick(state, deps))
       process.stdout.write(`${line}\n`)
     await new Promise(resolve => setTimeout(resolve, POLL_MS))

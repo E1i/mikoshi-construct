@@ -112,6 +112,10 @@ CREATE TABLE IF NOT EXISTS card_bodies (
   decision TEXT,
   depends TEXT
 );
+CREATE TABLE IF NOT EXISTS projection_watermarks (
+  projection TEXT PRIMARY KEY,
+  through_event_id INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS node_cursors (
   kind TEXT PRIMARY KEY,
   event_id INTEGER NOT NULL
