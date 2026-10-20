@@ -1,6 +1,10 @@
 import type { Expect } from './expect.js'
 import type { LadderOutcome } from './ledger.js'
-import { appendFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
+import process from 'node:process'
+import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
+import { cardIdOf } from '../bus/identifiers.js'
 
 export type RangeDiffOutcome = 'identical' | 'equal' | 'regenerated'
 
@@ -30,25 +34,54 @@ export interface JournalEntry {
   actual: LadderOutcome['actual']
 }
 
-let queue: Promise<void> = Promise.resolve()
+export type GhostLine = Record<string, unknown>
 
-function withJournalLock<T>(task: () => Promise<T>): Promise<T> {
-  const result = queue.then(task)
-  queue = result.then(() => undefined, () => undefined)
-  return result
+export const GHOST_LINE = 'ghost.line'
+
+const GHOST_LINES = `SELECT payload FROM events WHERE type = '${GHOST_LINE}' AND legacy = 0 ORDER BY id`
+
+export function recordGhostLine(writer: string, line: GhostLine, busPath: string = defaultBusPath()): void {
+  const db = openBus(busPath)
+  try {
+    appendEvent(db, {
+      ts: typeof line.ts === 'string' ? line.ts : new Date().toISOString(),
+      type: GHOST_LINE,
+      actor: `worker:${writer}:${process.pid}`,
+      cardId: cardIdOf(line.card),
+      pr: null,
+      head: null,
+      dedupeKey: `${GHOST_LINE}:${randomUUID()}`,
+      payload: line,
+      legacy: false,
+    })
+  }
+  finally {
+    db.close()
+  }
 }
 
-export async function appendJournalEvent(journalPath: string, event: object): Promise<void> {
-  await withJournalLock(async () => {
-    await appendFile(journalPath, `${JSON.stringify(event)}\n`)
-  })
+export function ghostLines(busPath: string = defaultBusPath()): GhostLine[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openBus(busPath)
+  try {
+    return (db.prepare(GHOST_LINES).all() as { payload: string }[]).map(row => JSON.parse(row.payload) as GhostLine)
+  }
+  finally {
+    db.close()
+  }
 }
 
-export async function appendJournalLine(journalPath: string, entry: JournalEntry): Promise<void> {
-  await appendJournalEvent(journalPath, {
-    event: 'task',
-    ts: new Date().toISOString(),
-    ...entry,
-    review: null,
-  })
+export function ghostLinesText(busPath: string = defaultBusPath()): string {
+  return ghostLines(busPath).map(line => `${JSON.stringify(line)}\n`).join('')
+}
+
+export function journalText(journalPath: string, busPath: string = defaultBusPath()): string {
+  const file = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : ''
+  const separator = file === '' || file.endsWith('\n') ? '' : '\n'
+  return `${file}${separator}${ghostLinesText(busPath)}`
+}
+
+export function taskLine(entry: JournalEntry, ts: string = new Date().toISOString()): GhostLine {
+  return { event: 'task', ts, ...entry, review: null }
 }
