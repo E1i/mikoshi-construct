@@ -10,7 +10,7 @@ import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
 import { changesRoundsOf, closedByRounds, REVIEW_ROUNDS } from '../../bus/queue.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../bus/review-worker.js'
-import { roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
+import { dryRunHoldsAt, roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { cleanUpdatesOf } from '../../bus/update-done.js'
 import { manualUpdateDone } from '../../bus/update-executor.js'
 import { cardBody, sha } from './github-fake.js'
@@ -227,6 +227,18 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(roundLimitDecisionOf(decisions, PR, sha('c'), [{ from: sha('b'), to: sha('c') }])).toBeNull()
     expect(roundLimitDecisionOf(decisions, PR + 1, sha('b'), chain)).toBeNull()
     expect(roundLimitDecisionOf(decisions, PR, sha('e'), chain)).toBeNull()
+  })
+
+  it('allow-merge takes the dry-run of the previous head plus one push', () => {
+    const observed = [sha('1'), HEAD, sha('b'), sha('c')]
+
+    expect(dryRunHoldsAt(HEAD, HEAD, observed, [])).toBe(true)
+    expect(dryRunHoldsAt(HEAD, sha('b'), observed, [])).toBe(true)
+    expect(dryRunHoldsAt(HEAD, sha('d'), observed, [{ from: sha('b'), to: sha('d') }])).toBe(true)
+    expect(dryRunHoldsAt(HEAD, sha('c'), observed, [])).toBe(false)
+    expect(dryRunHoldsAt(HEAD, sha('1'), observed, [])).toBe(false)
+    expect(dryRunHoldsAt(HEAD, sha('e'), observed, [])).toBe(false)
+    expect(dryRunHoldsAt('abc', sha('b'), observed, [])).toBe(false)
   })
 
   it('a manual update-branch of PR #919 from 4a4dcb5a to b808b64a queues the merge with no new decisions:add', () => {

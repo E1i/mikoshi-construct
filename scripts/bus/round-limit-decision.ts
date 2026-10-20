@@ -20,6 +20,17 @@ function headsWithTheSameDiff(head: string, cleanUpdates: readonly CleanUpdate[]
   }
 }
 
+function headObservedBefore(head: string, observedHeads: readonly string[]): string | undefined {
+  const at = observedHeads.indexOf(head)
+  return at > 0 ? observedHeads[at - 1] : undefined
+}
+
+export function dryRunHoldsAt(dryRunHead: string, head: string, observedHeads: readonly string[], cleanUpdates: readonly CleanUpdate[]): boolean {
+  if (!isFullSha(dryRunHead) || !isFullSha(head))
+    return false
+  return headsWithTheSameDiff(head, cleanUpdates).some(same => same === dryRunHead || headObservedBefore(same, observedHeads) === dryRunHead)
+}
+
 export function roundLimitDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
   if (!isFullSha(head))
     return null

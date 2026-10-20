@@ -12,7 +12,7 @@ import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { NoLiveVerdict } from '../../bus/merge-worker.js'
 import { updateCandidates } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../bus/update-executor.js'
+import { cleanUpdate, HEAD_READS, manualUpdateDone, UpdateExecutor } from '../../bus/update-executor.js'
 import { runUpdateWorker, UpdateNode } from '../../bus/update-worker.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, taskState } from './merge-bench.js'
@@ -50,6 +50,25 @@ function admittedWithPriority(bench: ReturnType<typeof liveBench>, cardId: numbe
 }
 
 describe('the update queue', () => {
+  it('an update that moved the head supersedes the merge task of the old head before the poller reads the new one', () => {
+    const bench = updateBench()
+    bench.gitHub.open({ number: 986, review: 'success', mergeable_state: 'clean' })
+    bench.tick()
+    const merge = taskKey({ queue: 'merge', cardId: 1086, pr: 986, head: sha('a') })
+    expect(taskState(bench.db, merge).state).toBe('queued')
+
+    appendEvent(bench.db, manualUpdateDone({ ts: bench.clock.now().toISOString(), session: 'window-s1', cardId: 1086, pr: 986, from: sha('a'), to: NEW_HEAD }))
+    bench.tick()
+
+    expect(bench.db.prepare('SELECT head FROM prs WHERE pr = 986').get()).toEqual({ head: sha('a') })
+    expect(taskState(bench.db, merge).state).toBe('superseded')
+    expect(bench.lease()).toBeNull()
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
   it('a behind PR with a pass on its head enters update', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })

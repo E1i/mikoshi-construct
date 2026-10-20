@@ -319,6 +319,35 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  it('an amend on the same head queues a new answer task', async () => {
+    const bench = answerBench()
+    bench.tools.heads = [sha('a'), sha('a')]
+    const admit = (bodySha: string): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 1146, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1146:${bodySha}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-1146-${bodySha}`, bodySha }, legacy: false })
+    }
+    const answerTasks = (state: string): string[] => (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND state = ? ORDER BY task_key`).all(state) as { task_key: string }[]).map(row => row.task_key)
+    bench.started(1146)
+    admit('aaaa1111')
+    bench.gitHub.open({ number: 1046, review: 'failure' })
+    bench.tick()
+    const asking = bench.leaseAnswer()!
+    expect(asking.taskKey).toBe(`${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`)
+    completeTask(bench.db, bench.clock.now().toISOString(), asking, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: asking.actor, cardId: 1146, pr: 1046, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${asking.taskKey}:${asking.leaseGen}`, payload: { reason: 'question.agent', detail: 'widen touches to the worker test' }, legacy: false }])
+    bench.tick()
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'fault' })
+    bench.tick()
+    expect(answerTasks('queued')).toEqual([])
+
+    admit('bbbb2222')
+    bench.tick()
+
+    expect(answerTasks('queued')).toEqual([`${answer(1146, 1046, sha('a'))}:card-body-bbbb2222`])
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
   it('a card with changes on its head and a question.agent stop gets one answer task, not two', () => {
     const bench = answerBench()
     bench.gitHub.open({ number: 990, review: 'failure' })
