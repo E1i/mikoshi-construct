@@ -18,7 +18,7 @@ import { roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { payloadOf, reject, storedByKey } from './stored.js'
-import { cleanUpdatesOf, UPDATE_DONE } from './update-done.js'
+import { cleanUpdatesOf } from './update-done.js'
 
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
@@ -269,17 +269,9 @@ function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
   ]
 }
 
-const AN_UPDATE_MOVED_THE_HEAD = `EXISTS (
-  SELECT 1 FROM events AS moved WHERE moved.type = '${UPDATE_DONE}' AND moved.legacy = 0 AND moved.pr = tasks.pr AND moved.head = tasks.head
-    AND json_extract(moved.payload, '$.to') IS NOT tasks.head
-)`
-
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.state IN ('${QUEUED}', '${LEASED}') AND tasks.head IS NOT NULL AND tasks.head != prs.head
-  UNION
-  SELECT task_key, queue, card_id, pr, head FROM tasks
-  WHERE state IN ('${QUEUED}', '${LEASED}') AND pr IS NOT NULL AND head IS NOT NULL AND ${AN_UPDATE_MOVED_THE_HEAD}
   UNION
   SELECT task_key, queue, card_id, pr, head FROM tasks
   WHERE queue = 'restart' AND state IN ('${QUEUED}', '${LEASED}')
