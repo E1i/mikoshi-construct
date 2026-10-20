@@ -1,5 +1,3 @@
-import { MILESTONES } from './milestones.js'
-
 export const KINDS = ['implement', 'probe'] as const
 export const SIZES = ['XS', 'S', 'M', 'L'] as const
 export const CONTOURS = ['cheap', 'ladder'] as const
@@ -17,7 +15,7 @@ const LEADING_IDS = /^#\d+(?:,? #\d+)*/
 const BODY_CARD_PREFIX = 'card: '
 
 export type Kind = typeof KINDS[number]
-export type Milestone = typeof MILESTONES[number]
+export type Milestone = string
 export type Size = typeof SIZES[number]
 export type Contour = typeof CONTOURS[number]
 export type Decision = typeof DECISIONS[number]
@@ -84,7 +82,13 @@ export function cardTerms(card: Card): string {
   return `${card.kind} · ${card.contour} · ${card.decision}`
 }
 
-export function parseCard(text: string): ParsedCard {
+function milestoneRefusal(milestone: string, milestones: readonly string[] | undefined): string | null {
+  if (milestones !== undefined)
+    return milestones.includes(milestone) ? null : `milestone '${milestone}' is not one of ${milestones.join(', ')}`
+  return milestone === NONE || NAME.test(milestone) ? null : `milestone '${milestone}' must be a slug of a-z, 0-9 and '-', or '${NONE}'`
+}
+
+export function parseCard(text: string, milestones?: readonly string[]): ParsedCard {
   const line = text.trim()
   const head = HEAD.exec(line)
   if (head === null)
@@ -100,8 +104,9 @@ export function parseCard(text: string): ParsedCard {
   const [kind, milestone, size, contour, decision] = fields as [string, string, string, string, string]
   if (!oneOf(KINDS, kind))
     return refused(`kind '${kind}' is not one of ${KINDS.join(', ')}`)
-  if (!oneOf(MILESTONES, milestone))
-    return refused(`milestone '${milestone}' is not one of ${MILESTONES.join(', ')}`)
+  const milestoneRefused = milestoneRefusal(milestone, milestones)
+  if (milestoneRefused !== null)
+    return refused(milestoneRefused)
   if (!oneOf(SIZES, size))
     return refused(`size '${size}' is not one of ${SIZES.join(', ')}`)
   if (!oneOf(CONTOURS, contour))

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runDoctor } from '../src/commands/doctor/index.js'
-import { buildManifest, DISCOVERY_MARKERS, MANIFEST_VERSION, readManifest, recordedShas, recordSync, upgradeManifest, writeManifest } from '../src/manifest.js'
+import { buildManifest, DISCOVERY_MARKERS, MANIFEST_VERSION, readManifest, readMilestones, recordedShas, recordSync, upgradeManifest, writeManifest } from '../src/manifest.js'
 import { manifestResult } from './doctor-manifest-result.js'
 
 const LEGACY_FIXTURE = path.join(import.meta.dirname, 'fixtures/manifest/legacy-0.1.x')
@@ -94,6 +94,18 @@ describe('a manifest written by 0.1.x still reads', () => {
     writeManifest(root, manifest)
     expect(readManifest(root)).toEqual(manifest)
     expect(upgradeManifest(manifest)).toEqual(manifest)
+  })
+})
+
+describe('the milestone list is the project\'s', () => {
+  it('reads the milestones construct.json lists, keeps them through a write, and reads none where there is no list or no construct.json', () => {
+    const root = scratch()
+    expect(readMilestones(root)).toBeUndefined()
+    writeManifest(root, currentManifest())
+    expect(readMilestones(root)).toBeUndefined()
+    writeManifest(root, { ...currentManifest(), milestones: ['checkout', 'billing'] })
+    writeManifest(root, readManifest(root)!)
+    expect(readMilestones(root)).toEqual(['checkout', 'billing'])
   })
 })
 
