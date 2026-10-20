@@ -15,7 +15,7 @@ import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { decisionsIntake } from './decisions-import.js'
 import { ghApi } from './github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from './netwatch.js'
-import { ghApiPost, setStepStatuses, STATUS_CONTEXT, statusLine } from './pr-status.js'
+import { ghApiPost, setStepStatuses, STATUS_CONTEXT, statusFailureLine, statusLine } from './pr-status.js'
 import { deriveQueues } from './queue.js'
 import { reduce, REDUCED } from './reducer.js'
 import { stampLogOutput } from './stamp.js'
@@ -83,7 +83,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
         console.log(statusLine(status))
     }
     catch (error) {
-      console.log(error instanceof Error ? error.message : String(error))
+      console.log(statusFailureLine(error))
     }
   }
   return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, defaultDecisions(home), clock), board.project, answer, statuses), boardFile: board.file }

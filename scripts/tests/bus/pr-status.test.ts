@@ -6,7 +6,7 @@ import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { TICK_MS } from '../../bus/netwatch.js'
-import { PR_STATUS_REFUSED, PR_STATUS_SET, setStepStatuses, STATUS_CONTEXT } from '../../bus/pr-status.js'
+import { PR_STATUS_REFUSED, PR_STATUS_SET, PREFIX, setStepStatuses, STATUS_CONTEXT } from '../../bus/pr-status.js'
 import { composeBusTick } from '../../bus/run.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { Clock, FakeGitHub } from './github-fake.js'
@@ -93,6 +93,28 @@ describe('the PR status check the bus sets', () => {
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(calls).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, `repos/{owner}/{repo}/statuses/${HEAD}`])
     expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(1)
+    db.close()
+    vi.unstubAllEnvs()
+  })
+
+  it('a bus tick whose status post breaks on something other than a GitHub answer logs it under the pr-status prefix and still ticks', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-status-'))
+    vi.stubEnv(HANDOFF_DIR_VARIABLE, root)
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    const clock = new Clock()
+    const lines: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      lines.push(String(line))
+    })
+    const broken: GitHubPost = () => {
+      throw new Error('spawnSync gh ENOENT')
+    }
+    const { busTick } = composeBusTick(db, busPath, new FakeGitHub().client, broken, clock.now, root)
+    step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    log.mockRestore()
+    expect(lines).toContain(`${PREFIX}the status step broke and recorded nothing, the bus tick goes on: spawnSync gh ENOENT`)
     db.close()
     vi.unstubAllEnvs()
   })
