@@ -1,4 +1,4 @@
-import type { RoleStop } from '../../bus/role.js'
+import type { RoleStop, WindowEnd } from '../../bus/role.js'
 import type { ExitLine, ExitReadings } from '../../miko/eddies-measure.js'
 import type { MikoExitDeps } from '../../miko/exit.js'
 import { spawn } from 'node:child_process'
@@ -106,12 +106,13 @@ interface Outcome {
   code: number
   kills: number[]
   stops: RoleStop[]
+  ends: WindowEnd[]
   lines: string[]
   recorded: ExitLine[]
 }
 
 function exit(overrides: Partial<MikoExitDeps>): Outcome {
-  const outcome: Outcome = { code: 0, kills: [], stops: [], lines: [], recorded: [] }
+  const outcome: Outcome = { code: 0, kills: [], stops: [], ends: [], lines: [], recorded: [] }
   outcome.code = runMikoExit({
     pid: 14,
     table: () => underLoop,
@@ -124,6 +125,7 @@ function exit(overrides: Partial<MikoExitDeps>): Outcome {
     handoff: '/h/miko.md',
     status: () => 'CONTINUE',
     observeStop: stop => outcome.stops.push(stop),
+    endWindow: end => outcome.ends.push(end),
     ...overrides,
   })
   return outcome
@@ -293,6 +295,15 @@ describe('runMikoExit walks the process table from its own pid', () => {
     const outcome = exit({ handoffMtime: () => mtime, readings: () => AT_CONTEXT })
     expect(outcome).toMatchObject({ code, kills: killed })
     expect(outcome.lines).toHaveLength(1)
+  })
+})
+
+describe('pnpm miko:exit reports the end of the window', () => {
+  it('a DONE exit ends the window by miko:exit, a threshold stop outside the loop by eddies, and a threshold stop under the loop, which starts the next session, ends nothing', () => {
+    expect(exit({ table: () => outsideLoop, readings: () => UNREAD, status: () => 'DONE' }).ends).toEqual(['miko:exit'])
+    expect(exit({ table: () => outsideLoop, readings: () => AT_CONTEXT, raised: false }).ends).toEqual(['eddies'])
+    expect(exit({ readings: () => AT_CONTEXT }).ends).toEqual([])
+    expect(exit({ readings: () => BELOW }).ends).toEqual([])
   })
 })
 

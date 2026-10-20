@@ -11,7 +11,7 @@ const SESSION_ID = /^[^:\s]+$/
 
 export function windowSessionOf(env: NodeJS.ProcessEnv): string | null {
   const session = env[SESSION_VARIABLE]?.trim()
-  return env[CARD_VARIABLE] === undefined && session !== undefined && SESSION_ID.test(session) ? session : null
+  return !env[CARD_VARIABLE] && session !== undefined && SESSION_ID.test(session) ? session : null
 }
 
 export function recordWindowHeartbeat(db: DatabaseSync, ts: string, session: string): boolean {

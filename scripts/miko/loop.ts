@@ -6,7 +6,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { defaultBusPath } from '../bus/db.js'
 import { statusOf } from '../shift/relaunch.js'
+import { windowEndObserver } from './role-end.js'
 
 export const PREFIX = '[miko] '
 export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
@@ -32,6 +34,7 @@ export interface MikoLoopDeps {
   pause: (ms: number) => Promise<PauseEnd>
   doubleCtrlC: () => boolean
   err: (line: string) => void
+  ended: () => void
 }
 
 export function mikoHandoff(home: string): string {
@@ -83,6 +86,12 @@ function didNotStart(end: SessionEnd): boolean {
 }
 
 export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
+  const code = await sessionsUntilTheWindowEnds(deps)
+  deps.ended()
+  return code
+}
+
+async function sessionsUntilTheWindowEnds(deps: MikoLoopDeps): Promise<number> {
   let prompt = deps.status() === undefined ? undefined : CONTINUE_PROMPT
   for (;;) {
     const before = deps.handoffMtime()
@@ -166,5 +175,6 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     ...sessionAndPauseSharingCtrlCs(ctrlC, prompt => runSession(command, prompt)),
     doubleCtrlC: ctrlC.seen,
     err: line => console.error(line),
+    ended: () => windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) })('close'),
   })
 }

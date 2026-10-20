@@ -327,10 +327,11 @@ interface Script {
   doubleCtrlCs?: boolean[]
 }
 
-async function drive({ statuses, pauseEnds = [], doubleCtrlCs = [] }: Script): Promise<{ code: number, prompts: (string | undefined)[], pauses: number[], lines: string[] }> {
+async function drive({ statuses, pauseEnds = [], doubleCtrlCs = [] }: Script): Promise<{ code: number, prompts: (string | undefined)[], pauses: number[], lines: string[], ends: number }> {
   const prompts: (string | undefined)[] = []
   const pauses: number[] = []
   const lines: string[] = []
+  let ends = 0
   const code = await runMikoLoop({
     status: () => statuses.shift(),
     handoffMtime: () => prompts.length,
@@ -344,8 +345,11 @@ async function drive({ statuses, pauseEnds = [], doubleCtrlCs = [] }: Script): P
     },
     doubleCtrlC: () => doubleCtrlCs.shift() ?? false,
     err: line => lines.push(line),
+    ended: () => {
+      ends += 1
+    },
   })
-  return { code, prompts, pauses, lines }
+  return { code, prompts, pauses, lines, ends }
 }
 
 describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause', () => {
@@ -363,6 +367,12 @@ describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause',
     expect(CONTINUE_PROMPT).toContain(`прочитай ~/.construct/handoff/${MIKO_HANDOFF_NAME}`)
     expect(CONTINUE_PROMPT).toContain('последняя строка STATUS: в нём — CONTINUE')
     expect(CONTINUE_PROMPT).toContain('не спрашивая владельца')
+  })
+
+  it('reports the end of the window once, after its last session and never between sessions', async () => {
+    const continued = await drive({ statuses: [undefined, 'CONTINUE', 'CONTINUE', 'DONE'] })
+    expect({ prompts: continued.prompts.length, ends: continued.ends }).toEqual({ prompts: 3, ends: 1 })
+    expect((await drive({ statuses: [undefined, 'CONTINUE', 'CONTINUE'], pauseEnds: ['ctrl-c'] })).ends).toBe(1)
   })
 
   it('stops when miko.md carries no STATUS line', async () => {
@@ -397,6 +407,7 @@ describe('runMikoLoop decides from STATUS in miko.md and a Ctrl+C in the pause',
       pause: async () => 'elapsed',
       doubleCtrlC: () => false,
       err: () => {},
+      ended: () => {},
     })
     expect(code).toBe(1)
   })

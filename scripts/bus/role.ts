@@ -8,6 +8,7 @@ import { LEASE_MS, StaleLease } from './lease.js'
 import { FAILURES_TO_STOP } from './queue.js'
 import { payloadOf, reject } from './stored.js'
 import { reduceProjection } from './watermark.js'
+import { WINDOW_HEARTBEAT } from './window-heartbeat.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
 export const ROLE_STOPPED = 'role.stopped'
@@ -21,8 +22,10 @@ export const THRESHOLDS = ['context', 'spend'] as const
 export const RAISED_STATUS = 'CONTINUE'
 export const RAISED_VARIABLE = 'CONSTRUCT_BUS_RAISED'
 export const RAISES_PER_HANDOFF = 3
+export const WINDOW_ENDS = ['eddies', 'miko:exit', 'close'] as const
 
 export type Role = typeof ROLES[number]
+export type WindowEnd = typeof WINDOW_ENDS[number]
 
 export interface RoleStop {
   role: Role
@@ -86,7 +89,7 @@ const PAST_THE_CEILING = `
 
 const SILENT_OWNER_SESSION = `
   SELECT roles.role, roles.handoff, roles.event_id, max(signs.ts) AS last_sign FROM roles
-  JOIN events AS signs ON signs.id > roles.event_id AND signs.actor LIKE '${WINDOW_ACTOR}%'
+  JOIN events AS signs ON signs.id > roles.event_id AND (signs.type = '${WINDOW_HEARTBEAT}' OR signs.actor LIKE '${WINDOW_ACTOR}%')
   WHERE roles.state = '${OWNER}'
   GROUP BY roles.role HAVING max(signs.ts) < ?
   ORDER BY roles.role LIMIT 1
@@ -251,6 +254,16 @@ export function returnSilentRole(db: DatabaseSync, ts: string, actor: string): R
       return null
     reduced(db, { ts, type: ROLE_RETURNED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RETURNED}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, last_sign: row.last_sign }, legacy: false })
     return { role: row.role, handoff: row.handoff, lastSign: row.last_sign }
+  })
+}
+
+export function returnEndedRole(db: DatabaseSync, ts: string, actor: string, role: Role, end: WindowEnd): RoleReturned | null {
+  return inTransaction(db, () => {
+    const row = rowOf(db, role)
+    if (row?.state !== OWNER)
+      return null
+    reduced(db, { ts, type: ROLE_RETURNED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RETURNED}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, last_sign: ts, ended: end }, legacy: false })
+    return { role: row.role, handoff: row.handoff, lastSign: ts }
   })
 }
 
