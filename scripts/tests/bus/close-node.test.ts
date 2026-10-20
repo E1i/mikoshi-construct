@@ -8,6 +8,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
+import { CARD_MOVED } from '../../../src/commands/intake/index.js'
+import { DROPPED_LANE } from '../../bus/card-automaton.js'
 import { ARTIFACT_REMOVED, CloseExecutor } from '../../bus/close-executor.js'
 import { CloseNode } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
@@ -135,6 +138,15 @@ function enqueuedOf(made: CloseBench, key: string): number {
 
 function cursorOf(made: CloseBench): number {
   return Number((made.db.prepare(`SELECT event_id FROM ${NODE_CURSORS} WHERE kind = 'close'`).get() as { event_id: number }).event_id)
+}
+
+function admittedBody(made: CloseBench, cardId: number): void {
+  const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nClose it.\n`
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: `#${cardId}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+}
+
+function cardStateOf(made: CloseBench, cardId: number): string | null {
+  return (made.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state ?? null
 }
 
 function taskStatesOf(made: CloseBench, queue: string, pr: number): { head: string, state: string }[] {
@@ -299,6 +311,32 @@ describe('the close node', () => {
     expect(taskStatesOf(made, 'answer', 980)).toEqual([{ head: sha('a'), state: 'withdrawn' }])
     expect(taskStatesOf(made, 'merge', 980)).toEqual([{ head: sha('a'), state: 'withdrawn' }])
     expect(() => completeTask(made.db, made.clock.now().toISOString(), held, [])).toThrow(StaleLease)
+  })
+
+  it('close needs no read of the card: a merge moves the card to merged from every state but closed, which close refuses as card_closed', async () => {
+    const before: Record<string, (made: CloseBench, cardId: number) => void> = {
+      'no admitted body': () => {},
+      'an admitted body': admittedBody,
+      'dropped before a merge by hand': (made, cardId) => {
+        admittedBody(made, cardId)
+        appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_MOVED}:${cardId}`, payload: { lane: DROPPED_LANE }, legacy: false })
+      },
+    }
+    for (const [setting, setUp] of Object.entries(before)) {
+      const made = bench()
+      setUp(made, 1090)
+      opened(made, 990)
+      verified(made, 990)
+      merged(made, 990)
+
+      expect(cardStateOf(made, 1090), setting).toBe('merged')
+      const node = nodeOf(made, { mode: 'live' })
+      await once(node)
+      made.tick()
+      await once(node)
+      expect(eventsOf(made.db, CARD_CLOSED), setting).toEqual([{ verification: 'run' }])
+      expect(cardStateOf(made, 1090), setting).toBe('closed')
+    }
   })
 
   it('a queued review task of an old head is superseded by deriveQueues beside the close node as before', async () => {
