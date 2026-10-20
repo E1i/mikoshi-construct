@@ -16,6 +16,7 @@ import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
+import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
@@ -451,7 +452,10 @@ describe('the launch queue', () => {
       bench.tick()
       const processes: ProcessTable = { commandLine: () => typeof commandLine === 'function' ? commandLine(starter) : commandLine, signalGroup: () => {} }
       const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode, env: {}, processes, isolation: sandboxed })
-      const advanceToLimitPlus = (offsetMs: number): void => bench.clock.advance(startedAt + LIMIT_MS + offsetMs - bench.clock.now().getTime())
+      const advanceToLimitPlus = (offsetMs: number): void => {
+        bench.clock.advance(startedAt + LIMIT_MS + offsetMs - bench.clock.now().getTime())
+        recordHeartbeat(bench.db, bench.clock.now().toISOString(), { card: 947, pr: null, head: null, step: 'PostToolUse', session: 's-947', lease: null })
+      }
       return { bench, starter, node, advanceToLimitPlus }
     }
 

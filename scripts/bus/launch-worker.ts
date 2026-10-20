@@ -109,7 +109,7 @@ const SESSION_DEATHS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_ST
 
 const PR_SINCE = `SELECT 1 FROM events WHERE card_id = ? AND id > ? AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') LIMIT 1`
 
-const GHOST_ROW_SINCE =`SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
+const GHOST_ROW_SINCE = `SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
 
 export const SESSIONLESS_LADDER_STEP = 'launch'
 

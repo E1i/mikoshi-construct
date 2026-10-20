@@ -476,6 +476,7 @@ describe('the launch node', () => {
     const made = bench()
     const { node, starter } = silentSession(made, 983)
     await once(node)
+    made.tick()
 
     made.clock.advance((HEARTBEAT_SILENCE_MINUTES - 1) * 60_000)
     beat(made, 983)
@@ -493,6 +494,7 @@ describe('the launch node', () => {
     const made = bench()
     const { node, starter } = silentSession(made, 984)
     await once(node)
+    made.tick()
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 984, pr: 9840, head: null, dedupeKey: `${PR_OPENED}:984:9840`, payload: { pr: 9840 }, legacy: false })
 
     made.clock.advance((HEARTBEAT_SILENCE_MINUTES + 1) * 60_000)
