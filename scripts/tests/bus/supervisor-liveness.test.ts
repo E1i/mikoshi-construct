@@ -8,11 +8,14 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { CARD_PROCESS, lastProcessBeats, recordHeartbeat, recordProcessHeartbeat, WINDOW_PROCESS } from '../../bus/heartbeat.js'
 import { RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
 import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
+import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../bus/liveness-sites.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
+import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
@@ -931,6 +934,45 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(runningInstance(outsideGroup([...own, other], 500), SUPERVISOR_LAUNCH.markers)).toBeUndefined()
     expect(outsideGroup([...own, other], 500)).toEqual([{ pid: 700, args: other.args }])
     expect(runningInstance(outsideGroup(own, 700), SUPERVISOR_LAUNCH.markers)?.pid).toBe(500)
+  })
+})
+
+describe('the supervisor judges liveness from heartbeats alone', () => {
+  const BEAT_AT = Date.parse('2026-10-21T00:00:00.000Z')
+  const at = (ms: number): string => new Date(BEAT_AT + ms).toISOString()
+
+  function judgedRows(db: ReturnType<typeof openBus>): { actor: string, payload: Record<string, unknown> }[] {
+    return db.prepare('SELECT actor, payload FROM events WHERE type = ? ORDER BY id').all(PROCESS_JUDGED).map(row => ({ actor: String(row.actor), payload: JSON.parse(String(row.payload)) as Record<string, unknown> }))
+  }
+
+  it('a process without a heartbeat past SILENT_MS is judged silent by the supervisor alone', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const clock = { now: BEAT_AT + SILENT_MS }
+    recordProcessHeartbeat(db, at(0), 'bus:merge')
+    recordProcessHeartbeat(db, at(SILENT_MS), 'netwatch')
+    recordHeartbeat(db, at(0), { card: 1160, pr: null, head: null, step: 'launch', session: 's-1160', lease: null })
+    recordWindowHeartbeat(db, at(SILENT_MS), 'w-1')
+    expect(lastProcessBeats(db).map(beat => beat.process)).toEqual(['bus:merge', `${CARD_PROCESS}1160`, 'netwatch', `${WINDOW_PROCESS}w-1`])
+    const judge = new LivenessJudge(db, () => clock.now)
+
+    expect(judge.step()).toEqual([])
+    expect(judgedRows(db)).toEqual([])
+
+    clock.now += 1
+    expect(judge.step().join('\n')).toContain(`bus:merge has not beaten for ${SILENT_MS / 60_000} min`)
+    expect(judgedRows(db)).toEqual([
+      { actor: JUDGE_ACTOR, payload: { process: 'bus:merge', verdict: 'silent', last_beat: at(0), silent_ms: SILENT_MS + 1, limit_ms: SILENT_MS } },
+      { actor: JUDGE_ACTOR, payload: { process: `${CARD_PROCESS}1160`, verdict: 'silent', last_beat: at(0), silent_ms: SILENT_MS + 1, limit_ms: SILENT_MS } },
+    ])
+    expect(judge.step()).toEqual([])
+    expect(judgedRows(db)).toHaveLength(2)
+    expect(lastProcessBeats(db).find(beat => beat.process === SUPERVISOR_PROCESS)?.ts).toBe(at(SILENT_MS))
+
+    const writers = [...livenessSources(path.resolve(import.meta.dirname, '..', '..', '..'))].filter(([, text]) => text.includes('PROCESS_JUDGED') || text.includes('recordJudged')).map(([file]) => file)
+    expect(writers).toEqual([LIVENESS_JUDGE])
+    db.close()
   })
 })
 

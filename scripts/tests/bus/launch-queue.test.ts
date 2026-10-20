@@ -23,12 +23,13 @@ import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { busCardEvents } from '../../bus/intake.js'
-import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
+import { CARD_ADMITTED, launchCandidates } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
 import { busCardBodies, busStarterPorts, cardTextReader, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
+import { SILENT_MS } from '../../bus/liveness-sites.js'
 import { reduce } from '../../bus/reducer.js'
 import { busLaunches } from '../../bus/workers.js'
 import { sessionEnv } from '../../ghosts/session.js'
@@ -335,15 +336,20 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  function stoppedInTree(bench: ReturnType<typeof launchBench>, cardId: number, tree: string): void {
+    const ts = bench.clock.now().toISOString()
+    bench.admit(cardId, 'lane-a')
+    appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: 'earlier', worktree: tree }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: 'fault', detail: 'session-end' }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:again`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `again-${cardId}` }, legacy: false })
+  }
+
   it('a card with a live tree mc-N does not join the launch queue', () => {
     const bench = launchBench()
     const tree = path.join(tempRoot(), 'mc-1096')
     mkdirSync(tree)
-    const ts = bench.clock.now().toISOString()
-    bench.admit(1096, 'lane-a')
-    appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-1096`, payload: { session: 'earlier', worktree: tree }, legacy: false })
-    appendEvent(bench.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:earlier', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:1096`, payload: { reason: 'fault', detail: 'session-end' }, legacy: false })
-    appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1096:again`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'again-1096' }, legacy: false })
+    stoppedInTree(bench, 1096, tree)
+    recordHeartbeat(bench.db, new Date().toISOString(), { card: 1096, pr: null, head: null, step: 'launch', session: 'earlier', lease: null })
     bench.tick()
 
     expect(taskState(bench.db, launch(1096, 'again-1096'))).toBeUndefined()
@@ -351,6 +357,22 @@ describe('the launch queue', () => {
     rmSync(tree, { recursive: true })
     bench.tick()
     expect(taskState(bench.db, launch(1096, 'again-1096'))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a stopped cheap card with a tree and no live heartbeat is continued by launch in the same tree', () => {
+    const bench = launchBench()
+    const tree = path.join(tempRoot(), 'mc-1160')
+    mkdirSync(tree)
+    stoppedInTree(bench, 1160, tree)
+    const beatAt = Date.parse('2026-10-01T00:00:00.000Z')
+    recordHeartbeat(bench.db, new Date(beatAt).toISOString(), { card: 1160, pr: null, head: null, step: 'launch', session: 'earlier', lease: null })
+
+    expect(launchCandidates(bench.db, existsSync, () => beatAt + SILENT_MS)).toEqual([])
+    expect(launchCandidates(bench.db, existsSync, () => beatAt + SILENT_MS + 1)).toEqual([{ cardId: 1160, generation: 'again-1160', continueIn: tree }])
+
+    bench.tick()
+    expect(taskState(bench.db, launch(1160, 'again-1160'))).toMatchObject({ state: 'queued' })
     bench.close()
   })
 
