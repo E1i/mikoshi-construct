@@ -105,7 +105,7 @@ function facts(overrides: Partial<CheckFacts> = {}): CheckFacts {
 }
 
 function repositoryFacts(overrides: Partial<RepositoryFacts> = {}): RepositoryFacts {
-  return { exists: () => true, pathsNamed: () => [], commandResolves: () => true, ...overrides }
+  return { exists: () => true, pathsNamed: () => [], commandResolves: () => true, testsCovering: () => [], ...overrides }
 }
 
 function sha256(file: string): string {

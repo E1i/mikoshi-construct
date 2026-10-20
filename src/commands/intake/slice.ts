@@ -108,7 +108,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       depends: sorted(depends[index]!),
       blocks: sorted([...blocks[index]!, ...blockedHere]),
     })
-    const split = splitSignal({ touches: card.touches, unclear: unclear.length })
+    const split = splitSignal({ touches: card.touches, unclear: unclear.length, covering: card.covering })
     const reading = riskReading(card.touches, split.slices.length > 0)
     const proposed = [...split.slices, ...reading.slices].map(slice => slice.touches)
     const order = sliceDepends(proposed, sources)

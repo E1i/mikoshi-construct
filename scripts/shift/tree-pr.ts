@@ -3,6 +3,9 @@ import type { ShiftTask } from '../../src/card/task-file.js'
 import type { CompanionRow } from '../../src/commands/intake/check.js'
 import type { GhRunner } from '../core/gh.js'
 import type { ChangedFile, Prediction } from '../morse/rules.js'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { TestCoverage, withinTouches } from '../../src/card/covering-tests.js'
 import { COMPANION_TABLE, PACKAGE_MANIFEST, publishedRootsOf } from '../../src/commands/intake/check.js'
 import { changedFilesFrom } from '../morse/diff.js'
 import { classify, MorseRefusal } from '../morse/rules.js'
@@ -27,6 +30,7 @@ export interface TreeCard {
   commitMessage: string
   cardLine: string
   contour: Contour
+  touches: string[]
   namedPathReason: string | null
 }
 
@@ -39,6 +43,7 @@ export function shiftTreeCard(task: ShiftTask): TreeCard {
     commitMessage: `${task.card.name} (#${task.id})\n\nCommitted by the shift from the card's worktree after its session ended.`,
     cardLine: task.card.line,
     contour: task.card.contour,
+    touches: task.touches,
     namedPathReason: CARD_PATH_REASON.exec(task.body)?.[1]?.trim() ?? null,
   }
 }
@@ -109,7 +114,25 @@ function publishedRootsAt(git: TreePrPorts['git'], worktree: string): string[] {
   return publishedRootsOf(manifest) ?? []
 }
 
-function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[]): string[] {
+function readOrNull(file: string): string | null {
+  try {
+    return readFileSync(file, 'utf8')
+  }
+  catch {
+    return null
+  }
+}
+
+function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, paths: readonly string[], touches: readonly string[]): string[] {
+  const outside = paths.filter(file => !withinTouches(file, touches))
+  if (outside.length === 0)
+    return []
+  const coverage = new TestCoverage(() => git(worktree, ['ls-files']).split('\n').filter(file => file !== ''), file => readOrNull(path.join(worktree, file)))
+  const covering = new Set(coverage.of(touches))
+  return outside.filter(file => !covering.has(file))
+}
+
+function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[], outsideTouches: readonly string[]): string[] {
   const paths = shifted.files.map(file => file.path)
   const unmatrixed = pathWithoutMatrix(body, paths)
   const published = paths.find(file => PUBLISHED_CODE.touched(file, publishedRoots))
@@ -118,6 +141,7 @@ function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly
     ...(unmatrixed === undefined ? [] : [`the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (architecture/code-matrix.md)`]),
     ...(shifted.cheapAgainstLadderUnreasoned ? ['the D-76 reason the card holds the cheap path where MORSE predicts the ladder'] : []),
     ...(published === undefined || changeset ? [] : [`the changeset its change to the published ${published} requires`]),
+    ...(outsideTouches.length === 0 ? [] : [`the card's touches for ${outsideTouches.join(', ')}, which it changes outside them (only a test that covers a touched file may change outside the touches)`]),
   ]
 }
 
@@ -157,7 +181,8 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
       return { kind: 'pr', number: open }
     const shifted = shiftedPath(ports.git, worktree, card)
     const body = prBodyOf(card, shifted.line, matrixCountLineOf(report))
-    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree))
+    const outside = changedOutsideTouches(ports.git, worktree, shifted.files.map(file => file.path), card.touches)
+    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), outside)
     if (gaps.length > 0)
       return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.join('; ')}` }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])

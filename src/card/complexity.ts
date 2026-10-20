@@ -47,6 +47,7 @@ export interface SplitVerdict {
 export interface ComplexityInput {
   touches: readonly string[]
   unclear: number
+  covering?: readonly string[]
 }
 
 function scopeOf(entry: string): { path: string, prefix: boolean } {
@@ -124,7 +125,7 @@ export function splitSignal(input: ComplexityInput): SplitVerdict {
   const present = new Set(input.touches.map(areaOf))
   const areas = AREAS.filter(area => present.has(area))
   const signals = [
-    ...touchesSignal(input.touches, areas),
+    ...touchesSignal(input.touches.filter(entry => !(input.covering ?? []).includes(entry)), areas),
     ...selfSignal(input.touches),
     ...generatedSignal(input.touches),
     ...unclearSignal(input.unclear),

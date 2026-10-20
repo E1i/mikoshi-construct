@@ -2,7 +2,7 @@ import type { Correction } from './check.js'
 import type { SlicedCard } from './slice.js'
 import { createHash } from 'node:crypto'
 import { SEAM_PREFIX } from '../../card/risk.js'
-import { COMPANION_REASON, correctionText } from './check.js'
+import { COMPANION_REASON, correctionText, COVERING_REASON } from './check.js'
 
 export type Confirmation = 'auto' | 'person' | 'none'
 
@@ -45,7 +45,7 @@ function dropsMergedDepends(correction: Correction): boolean {
 }
 
 function addsCompanion(correction: Correction): boolean {
-  return correction.field === 'touches' && correction.reason === COMPANION_REASON
+  return correction.field === 'touches' && (correction.reason === COMPANION_REASON || correction.reason === COVERING_REASON)
 }
 
 export function correctionsNeedPerson(card: Pick<SlicedCard, 'corrections'>): boolean {

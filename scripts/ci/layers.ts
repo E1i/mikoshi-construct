@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS } from '../../src/card/covering-tests.js'
 
 export const BUS_CORE = /^scripts\/bus\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
 export const BUS_SERVICE = /^scripts\/bus\/([a-z]+)-(?:worker|executor|starter)\.ts$/
@@ -21,9 +22,6 @@ export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
   'scripts/ghosts/': ['scripts/tests/shredder/owner-merges.test.ts'],
   'scripts/shift/': ['tests/decisions-read-through-reader.test.ts'],
 }
-
-export const PACKAGE_MANIFEST = 'package.json'
-export const PACKAGE_SCRIPT_READERS = ['tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts']
 
 export function isTest(file: string): boolean {
   return TEST_FILE.test(file) && TEST_ROOTS.some(root => file.startsWith(root))

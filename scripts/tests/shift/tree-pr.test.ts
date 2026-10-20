@@ -19,6 +19,7 @@ const CARD: TreeCard = {
   commitMessage: 'x (#1)',
   cardLine: '#1 x [implement/infra/S/cheap/auto] · depends — · blocks —',
   contour: 'cheap',
+  touches: ['scripts/x.ts'],
   namedPathReason: null,
 }
 
