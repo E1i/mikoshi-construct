@@ -1,4 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ShiftTask } from '../../src/card/task-file.js'
+import { existsSync } from 'node:fs'
+import { parseParkingFile } from '../../src/card/parking.js'
+import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { prOf } from './identifiers.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
@@ -39,6 +43,17 @@ const LIVE_DECISIONS = `SELECT text, event_id FROM decisions`
 
 const OPEN_LAUNCHES = `SELECT card_id FROM tasks WHERE queue = 'launch' AND state IN ('queued', 'leased')`
 
+const OPEN_PR_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'open' AND card_id IS NOT NULL`
+
+const ENDED_CARDS = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged', 'stopped')`
+
+const STARTED_TREES = `
+  SELECT DISTINCT card_id, json_extract(payload, '$.worktree') AS worktree FROM events
+  WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, '$.worktree') = 'text'
+`
+
+export type TreeReader = (worktree: string) => boolean
+
 interface LifeRow {
   id: number
   type: string
@@ -62,6 +77,7 @@ interface CardLife {
   generation: string
   admittedAt: number
   lane: string | null
+  task: ShiftTask | null
   depends: number[]
   contour: Contour
   started: boolean
@@ -83,6 +99,17 @@ function payloadOf(row: LifeRow): Record<string, unknown> {
 function laneOf(payload: Record<string, unknown>): string | null {
   const lane = payload.lane ?? payload.axis
   return typeof lane === 'string' && lane !== '' ? lane : null
+}
+
+function taskOf(row: LifeRow, payload: Record<string, unknown>): ShiftTask | null {
+  if (typeof payload.text !== 'string')
+    return null
+  const parsed = parseParkingFile(`${row.card_id}.md`, payload.text)
+  return parsed.kind === 'parked' ? parsed.parked.task : null
+}
+
+function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[]): boolean {
+  return task !== null && taken.some(other => taskConflicts([other, task]).length > 0)
 }
 
 function generationOf(row: LifeRow, payload: Record<string, unknown>): string {
@@ -121,7 +148,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       const running = life !== undefined && life.started && !life.closed
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: taskOf(row, payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive })
       continue
     }
     if (life !== undefined && row.type === CARD_STARTED) {
@@ -175,17 +202,31 @@ export function launchableCard(db: DatabaseSync, cardId: number): LaunchableCard
   return isQueued(life, settled) || reviewDue(life, settled) ? { lane: life.lane, contour: life.contour } : null
 }
 
-export function launchCandidates(db: DatabaseSync): LaunchCandidate[] {
+function cardsWithLiveTree(db: DatabaseSync, treeLive: TreeReader): Set<number> {
+  return new Set((db.prepare(STARTED_TREES).all() as { card_id: number, worktree: string }[]).filter(row => treeLive(row.worktree)).map(row => row.card_id))
+}
+
+function heldOutside(life: CardLife, openPrs: Set<number>, liveTrees: Set<number>): boolean {
+  return openPrs.has(life.cardId) || (life.contour === 'cheap' && liveTrees.has(life.cardId))
+}
+
+export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync): LaunchCandidate[] {
   const lives = cardLives(db)
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
   const launching = cardSet(db, OPEN_LAUNCHES)
+  const openPrs = cardSet(db, OPEN_PR_CARDS)
+  const liveTrees = cardsWithLiveTree(db, treeLive)
+  const ended = cardSet(db, ENDED_CARDS)
   const falls = fallCounts(db)
   const busy = new Set<string>()
+  const taken: ShiftTask[] = []
   for (const life of lives.values()) {
-    const running = life.started && !life.closed && !merged.has(life.cardId)
+    const running = life.started && !life.closed && !merged.has(life.cardId) && !ended.has(life.cardId)
     if (life.lane !== null && (running || launching.has(life.cardId)))
       busy.add(life.lane)
+    if ((running || launching.has(life.cardId)) && life.task !== null)
+      taken.push(life.task)
   }
   const chosen: LaunchCandidate[] = []
   for (const life of [...lives.values()].sort((a, b) => a.cardId - b.cardId)) {
@@ -196,9 +237,11 @@ export function launchCandidates(db: DatabaseSync): LaunchCandidate[] {
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, liveTrees))
       continue
     busy.add(life.lane)
+    if (life.task !== null)
+      taken.push(life.task)
     chosen.push({ cardId: life.cardId, generation: life.generation })
   }
   return chosen

@@ -8,20 +8,25 @@ import type { QueuedTask } from '../../bus/queue.js'
 import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { CARD_FELL, GHOST_ROW, STOPPED_CARD } from '../../bus/card-automaton.js'
+import { CARD_FELL, GHOST_ROW, PR_OPENED, STOPPED_CARD } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
+import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { handoffLadderSteps, hasCommitsAhead, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { LaunchExecutor } from '../../bus/launch-executor.js'
+import { CARD_PULSE, handoffLadderSteps, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
-import { keyOf, launchTasks, TASK_ENQUEUED } from '../../bus/queue.js'
+import { keyOf, launchTasks, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ghosts/worktree-home.js'
@@ -278,6 +283,52 @@ describe('the launch node', () => {
     expect(starter.starts.map(card => card.cardId)).toEqual([970, 971])
   })
 
+  it('the session input is rebuilt from card.started alone with no handoff directory', () => {
+    const made = bench()
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-input-'))
+    roots.push(root)
+    const prompt = 'Shift task 970\n\nthe card body'
+    const starter: CardStarter = {
+      start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242, input: { prompt } } }),
+      stop: () => {},
+    }
+    admit(made, 970, 'lane-a')
+    made.tick()
+    const ts = made.clock.now().toISOString()
+    queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
+    const executor = new LaunchExecutor({ db: made.db, starter, clock: made.clock.now, isolation: sandboxed, prompts: path.join(root, 'prompts') })
+
+    expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
+    const [started] = eventsOf(made.db, CARD_STARTED) as { prompt_sha: string, prompt_path: string, input?: unknown }[]
+    expect(existsSync(path.join(root, 'handoff'))).toBe(false)
+    expect(started!.input).toBeUndefined()
+    const rebuilt = readFileSync(started!.prompt_path, 'utf8')
+    expect(rebuilt).toBe(prompt)
+    expect(createHash('sha256').update(rebuilt).digest('hex')).toBe(started!.prompt_sha)
+  })
+
+  it('card.started is recorded with the prompt sha and the reason when the prompt cannot be stored', () => {
+    const made = bench()
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-input-'))
+    roots.push(root)
+    const blocker = path.join(root, 'a-file')
+    writeFileSync(blocker, '')
+    const starter: CardStarter = {
+      start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242, input: { prompt: 'the launch prompt' } } }),
+      stop: () => {},
+    }
+    admit(made, 970, 'lane-a')
+    made.tick()
+    const ts = made.clock.now().toISOString()
+    queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
+    const executor = new LaunchExecutor({ db: made.db, starter, clock: made.clock.now, isolation: sandboxed, prompts: path.join(blocker, 'prompts') })
+
+    expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
+    const [started] = eventsOf(made.db, CARD_STARTED)
+    expect(started).toMatchObject({ prompt_sha: createHash('sha256').update('the launch prompt').digest('hex'), prompt_unstored: expect.any(String) as unknown })
+    expect(started).not.toHaveProperty('prompt_path')
+  })
+
   it('in shadow the launch node writes node.detected and starts no session', async () => {
     const made = bench()
     const starter = new FakeStarter()
@@ -387,21 +438,169 @@ describe('the launch node', () => {
     expect(signalled).toEqual([])
   })
 
-  it('a launched session that left a shift report or a Ghost row is not stopped', async () => {
-    for (const left of ['report', 'ghost-row'] as const) {
+  it('a launched session that left a Ghost row, or a result and a pull request, is not stopped', async () => {
+    for (const left of ['pull-request', 'ghost-row'] as const) {
       const made = bench()
       admit(made, 981, 'lane-a')
       made.tick()
       const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-      const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: (_card, start) => left === 'report' && start.cardId === 981, isolation: sandboxed })
+      const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: (_card, start) => left === 'pull-request' && start.cardId === 981, isolation: sandboxed })
       await once(node)
       made.tick()
       if (left === 'ghost-row')
         appendEvent(made.db, { ts: made.clock.now().toISOString(), type: GHOST_ROW, actor: 'policy', cardId: 981, pr: null, head: null, dedupeKey: `${GHOST_ROW}:981`, payload: { state: 'running' }, legacy: false })
+      if (left === 'pull-request')
+        appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 981, pr: 881, head: null, dedupeKey: `${PR_OPENED}:981:881`, payload: { pr: 881 }, legacy: false })
 
       expect(node.stopOverdue()).toEqual([])
       expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
     }
+  })
+
+  it('a launched session that ends with a pushed commit and no pull request gives card.stopped with its reason the #1077 case, session-end 17:46Z', async () => {
+    const made = bench()
+    admit(made, 1077, 'lane-a')
+    made.tick()
+    const result = 'result: stopped at the gate — witnesses green; quality red outside the touches'
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, endedWith: start => start.cardId === 1077 ? result : null, isolation: sandboxed })
+    await once(node)
+    made.tick()
+
+    expect(node.stopOverdue()).toEqual([1077])
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: noPullRequestDetail(1077, 's-1077', result) }])
+    made.tick()
+    expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 1077`).get()).toEqual({ state: STOPPED_CARD })
+    expect(launchRows(made, 1077)).toBe(1)
+  })
+
+  it('a card.started from launch with a dead pid and no pull request gives card.stopped on the next tick and a card with overlapping touches becomes a launch candidate', async () => {
+    const made = bench()
+    const admitTouching = (cardId: number, lane: string, touches: string[]): void => {
+      const text = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches, continue: 'stop', who: 'shift', body: 'Do the card.' })
+      appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}`, text }, legacy: false })
+    }
+    admitTouching(1102, 'lane-a', ['tests/**', 'src/atlas/**', 'src/ui/lore.ts', 'CONTRIBUTING.md', '.changeset/**'])
+    made.tick()
+    let alive = true
+    const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-1102' : null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, isolation: sandboxed })
+    await once(node)
+    admitTouching(1103, 'lane-b', ['src/ui/lore.ts', 'tests/lore.test.ts'])
+    made.tick()
+    expect(node.stopOverdue()).toEqual([])
+    expect(node.found()).toEqual([])
+    expect(launchRows(made, 1103)).toBe(0)
+
+    alive = false
+    expect(node.found()).toEqual([])
+    expect(node.stopOverdue()).toEqual([1102])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: noPullRequestDetail(1102, 's-1102', null) }])
+    expect(node.found()).toEqual([launchKey(1103)])
+    made.tick()
+    expect(taskState(made.db, launchKey(1103))).toMatchObject({ state: 'queued' })
+  })
+
+  it('a live launched session writes a pulse to the bus every N minutes', async () => {
+    const made = bench()
+    admit(made, 982, 'lane-a')
+    made.tick()
+    let alive = true
+    const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-982' : null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+    await once(node)
+    made.tick()
+    const pulses = (): number => eventsOf(made.db, CARD_PULSE).length
+
+    node.stopOverdue()
+    expect(pulses()).toBe(0)
+    made.clock.advance(PULSE_MINUTES * 60_000)
+    node.stopOverdue()
+    node.stopOverdue()
+    expect(pulses()).toBe(1)
+    made.clock.advance(PULSE_MINUTES * 60_000 - 1)
+    node.stopOverdue()
+    expect(pulses()).toBe(1)
+    made.clock.advance(1)
+    node.stopOverdue()
+    expect(eventsOf(made.db, CARD_PULSE)).toEqual([
+      { session: 's-982', pgid: 4242, since: expect.any(String) as unknown },
+      { session: 's-982', pgid: 4242, since: expect.any(String) as unknown },
+    ])
+    made.clock.advance(PULSE_MINUTES * 60_000 - 1)
+    node.stopOverdue()
+    expect(pulses()).toBe(2)
+    made.clock.advance(1)
+    node.stopOverdue()
+    expect(pulses()).toBe(3)
+
+    alive = false
+    made.clock.advance(PULSE_MINUTES * 60_000)
+    node.stopOverdue()
+    expect(pulses()).toBe(3)
+  })
+
+  it('a pid reused by a process that does not name the session writes no pulse', async () => {
+    const made = bench()
+    admit(made, 985, 'lane-a')
+    made.tick()
+    const processes: ProcessTable = { commandLine: () => 'sh -c claude -p --session-id someone-else', signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+    await once(node)
+    made.tick()
+
+    made.clock.advance(PULSE_MINUTES * 60_000)
+    node.stopOverdue()
+    expect(eventsOf(made.db, CARD_PULSE)).toEqual([])
+  })
+
+  function silentSession(made: MergeBench, cardId: number): { node: ProbedLaunchNode, starter: FakeStarter } {
+    admit(made, cardId, 'lane-a')
+    made.tick()
+    let alive = true
+    const starter = new FakeStarter()
+    const stopping: CardStarter = { start: card => starter.start(card), stop: (card) => {
+      starter.stop(card)
+      alive = false
+    } }
+    const processes: ProcessTable = { commandLine: () => alive ? `sh -c claude -p --session-id s-${cardId}` : null, signalGroup: () => {} }
+    return { node: new ProbedLaunchNode({ db: made.db, starter: stopping, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed }), starter }
+  }
+
+  function beat(made: MergeBench, cardId: number): void {
+    recordHeartbeat(made.db, made.clock.now().toISOString(), { card: cardId, pr: null, head: null, step: 'PostToolUse', session: `s-${cardId}`, lease: null })
+  }
+
+  it('a card.started with no pull request and no heartbeat for 20 minutes gives card.stopped', async () => {
+    const made = bench()
+    const { node, starter } = silentSession(made, 983)
+    await once(node)
+    made.tick()
+
+    made.clock.advance((HEARTBEAT_SILENCE_MINUTES - 1) * 60_000)
+    beat(made, 983)
+    made.clock.advance((HEARTBEAT_SILENCE_MINUTES - 1) * 60_000)
+    expect(node.stopOverdue()).toEqual([])
+
+    made.clock.advance(2 * 60_000)
+    expect(node.stopOverdue()).toEqual([983])
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.stops).toHaveLength(1)
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: expect.stringMatching(/^no-heartbeat: card #983 session s-983 has no pull request and no heartbeat for 20 minutes since /) as unknown }])
+  })
+
+  it('a silent session whose card has a pull request is not stopped by the heartbeat watchdog', async () => {
+    const made = bench()
+    const { node, starter } = silentSession(made, 984)
+    await once(node)
+    made.tick()
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 984, pr: 9840, head: null, dedupeKey: `${PR_OPENED}:984:9840`, payload: { pr: 9840 }, legacy: false })
+
+    made.clock.advance((HEARTBEAT_SILENCE_MINUTES + 1) * 60_000)
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.stops).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
   })
 
   it('a task of an old head is superseded by deriveQueues beside the launch node as before', async () => {
@@ -525,6 +724,21 @@ describe('the launch node in ladder mode', () => {
     }
   })
 
+  it('a ladder session that ends with a result and no pull request is not stopped: its brief step opens none', async () => {
+    const made = bench()
+    const world = ladderWorld(null)
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    made.tick()
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, isolation: sandboxed })
+    await once(node)
+    expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step: 'brief', contour: 'ladder' }])
+    made.tick()
+
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+  })
+
   it('a launch with no runtime isolation is refused and writes no session', async () => {
     const unconfined: IsolationReader = () => ({ level: 'none', why: 'sandbox.enabled is not true' })
     for (const contour of ['cheap', 'ladder'] as const) {
@@ -631,6 +845,27 @@ describe('the launch isolation command', () => {
   })
 })
 
+describe('where a launched session works', () => {
+  it('a launched tree fetches and pushes over https, not ssh', () => {
+    const tree = mkdtempSync(path.join(tmpdir(), 'launch-origin-'))
+    roots.push(tree)
+    execFileSync('git', ['-C', tree, 'init', '-q'])
+    execFileSync('git', ['-C', tree, 'remote', 'add', 'origin', 'git@github.com:o/r.git'])
+    execFileSync('git', ['-C', tree, 'remote', 'add', 'upstream', 'ssh://git@github.com/o/u.git'])
+    const env = { ...process.env, ...realStarterPorts(tree, {}, '', () => 'u').envOf(1114) }
+    const url = (remote: string, ...args: string[]): string => execFileSync('git', ['-C', tree, 'remote', 'get-url', ...args, remote], { encoding: 'utf8', env }).trim()
+
+    expect({ fetch: url('origin'), push: url('origin', '--push') }).toEqual({ fetch: 'https://github.com/o/r.git', push: 'https://github.com/o/r.git' })
+    expect({ fetch: url('upstream'), push: url('upstream', '--push') }).toEqual({ fetch: 'https://github.com/o/u.git', push: 'https://github.com/o/u.git' })
+  })
+
+  it('the launch session report is written under an allowed path', () => {
+    const { launchDir } = launchPlaces('/home/x', '/repo')
+    expect(path.relative('/home/x/.construct/shift', launchDir)).toBe('launch')
+    expect(launchDir.startsWith(path.join('/home/x', '.construct', 'bus'))).toBe(false)
+  })
+})
+
 describe('what a launched session left behind', () => {
   function scratch(): string {
     const root = mkdtempSync(path.join(tmpdir(), 'launch-result-'))
@@ -666,5 +901,19 @@ describe('what a launched session left behind', () => {
       expect(reportWrittenSince(launchDir, start)).toBe(true)
       rmSync(report)
     }
+  })
+
+  it('the reason a session ended with is the result line of its shift report written since the start', () => {
+    const launchDir = scratch()
+    const start = { cardId: 983, ts: '2026-10-19T12:00:00.000Z' }
+    const endedWith = reportResultLine(launchDir)
+    expect(endedWith(start)).toBeNull()
+
+    const report = path.join(launchDir, 'report-983.md')
+    writeFileSync(report, '#983 a-card\ncontract: c\nresult: stopped before PR — quality red\nno PR\n')
+    utimesSync(report, new Date('2026-10-19T11:00:00.000Z'), new Date('2026-10-19T11:00:00.000Z'))
+    expect(endedWith(start)).toBeNull()
+    utimesSync(report, new Date('2026-10-19T12:00:01.000Z'), new Date('2026-10-19T12:00:01.000Z'))
+    expect(endedWith(start)).toBe('result: stopped before PR — quality red')
   })
 })

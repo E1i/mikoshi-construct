@@ -87,6 +87,7 @@ describe('the ladder starter chains', () => {
     const script = run.args[1]!
     expect(script).toBe(`env claude --permission-mode dontAsk "$@" && pnpm --dir '/repo' --silent exec tsx 'scripts/shift/brief-finish-cli.ts' '${parking}/lane-x/${CARD}.md' '/trees/cut' '/handoff/brief.md' && pnpm --dir '/repo' --silent 'ghosts:hash' '/handoff/brief.md' '--by' 'morse' '--card' '${CARD}' '--parking' '${parking}' && printf 'yes\\n' | pnpm --dir '/repo' --silent 'ghosts:launch' '--tasks' '/handoff/tasks.json'`)
     expect(run.input).toContain('body of the brief step')
+    expect(start).toMatchObject({ card: { input: { prompt: run.input } } })
   })
 
   it('the launch chain only launches the Ghost in the known tree and never cuts', () => {
@@ -97,6 +98,7 @@ describe('the ladder starter chains', () => {
     expect(cut).toEqual([])
     expect(spawned[0]!.args[1]).toBe(`printf 'yes\\n' | pnpm --dir '/repo' --silent 'ghosts:launch' '--tasks' '/handoff/tasks.json'`)
     expect(spawned[0]!.input).toBe('')
+    expect(start).not.toHaveProperty('card.input')
     expect(spawned[0]!.args.slice(2)).toEqual(['shift', '-p', '--session-id', 'sess-1'])
   })
 

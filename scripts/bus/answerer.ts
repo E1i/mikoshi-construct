@@ -1,5 +1,6 @@
 import type { AnswerSource, CardSession } from './answer-source.js'
 import type { Lease } from './lease.js'
+import type { AnswerInput } from './prompt-store.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs'
@@ -30,6 +31,7 @@ export interface Answered {
   after: string | null
   owner: string | null
   tokens?: number | null
+  input?: AnswerInput
 }
 
 const USAGE_TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']
@@ -192,7 +194,8 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const resumed = tools.available(card)
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
-    const prompt = answerPrompt(request, ownerQuestion, tools.cardText(request.lease.cardId))
+    const cardBody = tools.cardText(request.lease.cardId)
+    const prompt = answerPrompt(request, ownerQuestion, cardBody)
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
@@ -211,6 +214,6 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       tools.publish(card, answerCommitMessage(request.lease))
     const result = readResultFields(stdoutPath)
     const measured = result.resultLine === 'present' ? { tokens: tokensOf(result.usage) } : {}
-    return { session, resumed, before, after: tools.remoteHead(card), owner, ...measured }
+    return { session, resumed, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody } }
   }
 }

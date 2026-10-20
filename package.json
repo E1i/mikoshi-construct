@@ -52,6 +52,7 @@
     "bus:node-equivalence": "tsx scripts/bus/node-equivalence.ts",
     "bus:reduce": "tsx scripts/bus/reducer.ts",
     "bus:report": "tsx scripts/bus/report.ts",
+    "bus:request": "tsx scripts/bus/window-requests.ts",
     "bus:restart": "tsx scripts/bus/restart-worker.ts",
     "bus:review": "tsx scripts/bus/review-worker.ts",
     "bus:review:bg": "tsx scripts/bus/review-bg.ts",

@@ -6,8 +6,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { laneName, laneNumber } from '../../src/commands/intake/admit.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
-import { isLane, LANE_NAME, laneName, laneNumber, UNKNOWN, writeLaneJson } from './lane-json.js'
+import { isLane, LANE_NAME, UNKNOWN, writeLaneJson } from './lane-json.js'
 
 export const LEGACY_LANES = [/^lane-/, /^night-/, /^\d{4}-\d{2}-\d{2}-/]
 export const OPEN = 'open'

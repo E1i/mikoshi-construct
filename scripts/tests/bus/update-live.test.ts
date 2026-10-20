@@ -7,7 +7,6 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
-import { POLICY_DENIED } from '../../bus/inbox.js'
 import { NetWatch } from '../../bus/netwatch.js'
 import { detectionMode, NODE_DETECTED } from '../../bus/node.js'
 import { keyOf, TASK_ENQUEUED } from '../../bus/queue.js'
@@ -65,10 +64,6 @@ async function once(node: UpdateNode): Promise<void> {
 function observedWithoutDeriveQueues(made: MergeBench): void {
   new NetWatch(made.db, made.gitHub.client, made.clock.now).poll()
   reduce(made.db)
-}
-
-function deniedByAuthority(made: MergeBench, pr: number): void {
-  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: POLICY_DENIED, actor: 'policy', cardId: pr + 100, pr, head: sha('a'), dedupeKey: `${POLICY_DENIED}:owner-${pr}`, payload: { command: 'merge', kind: 'authority', rule: 'owner_by_risk', detail: 'stays the owner\'s' }, legacy: false })
 }
 
 function updateKey(pr: number): string {
@@ -148,12 +143,13 @@ describe('update live', () => {
   it('a live update node restarted mid-batch writes no second task and no second node.detected', async () => {
     const made = bench()
     for (const pr of [981, 982])
-      made.gitHub.open({ number: pr, mergeable_state: 'behind' })
+      made.gitHub.open({ number: pr, review: 'success' })
     made.tick()
     const node = nodeOf(made)
     await once(node)
     for (const pr of [981, 982])
-      deniedByAuthority(made, pr)
+      made.gitHub.pulls.get(pr)!.mergeable_state = 'behind'
+    made.tick()
     node.failOnNextCall(2)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
     for (const pr of [981, 982]) {

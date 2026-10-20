@@ -4,7 +4,7 @@ import type { ProcessTable } from './chain-process.js'
 import type { LadderSteps } from './ladder-starter.js'
 import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
-import type { StarterPorts } from './launch-starter.js'
+import type { StarterPlaces, StarterPorts } from './launch-starter.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode } from './node.js'
 import type { QueuedTask } from './queue.js'
@@ -26,28 +26,45 @@ import { GHOST_JOURNAL } from '../shift/places.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
+import { cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
-import { appendEvent, defaultBusPath, openBus } from './db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
+import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { LadderCardStarter } from './ladder-starter.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
-import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
+import { cardCommand, HTTPS_ORIGIN_ENV, killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
 import { TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { PR_CLOSED } from './observations.js'
 import { PR_OBSERVED } from './operator-work.js'
+import { promptsDirOf } from './prompt-store.js'
 import { launchTasks, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
+import { openDatabase } from './sqlite.js'
 
 export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
 
+export function launchPlaces(home: string, repo: string): StarterPlaces {
+  return {
+    parking: defaultParking(home),
+    launchDir: path.join(home, '.construct', 'shift', LAUNCH_DIR),
+    claude: 'claude',
+    treePr: treePrCommand(repo),
+  }
+}
+
 export const LAUNCH_LIMIT_MINUTES = 600
 
 const LAUNCH_LIMIT_MS = LAUNCH_LIMIT_MINUTES * 60_000
+
+export const HEARTBEAT_SILENCE_MINUTES = 20
+
+const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
 
 const LEGACY_MERGE = 'merge'
 const LEGACY_PATH = 'path'
@@ -66,7 +83,9 @@ export interface LaunchNodeParts {
   env: NodeJS.ProcessEnv
   processes?: ProcessTable
   resulted?: (card: StartedCard, start: SessionStart) => boolean
+  endedWith?: (start: SessionStart) => string | null
   isolation: IsolationReader
+  prompts?: string
 }
 
 export interface SessionStart {
@@ -96,9 +115,23 @@ export const SESSION_DEATH_CAP = 3
 
 const SESSION_DEATHS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND dedupe_key LIKE '${CARD_STOPPED}:session-end:%'`
 
+const PR_SINCE = `SELECT 1 FROM events WHERE card_id = ? AND id > ? AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') LIMIT 1`
+
 const GHOST_ROW_SINCE = `SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
 
+export const CARD_PULSE = 'card.pulse'
+
+export const PULSE_MINUTES = 5
+
+const PULSE_MS = PULSE_MINUTES * 60_000
+
+const LAST_PULSE = `SELECT ts FROM events WHERE type = '${CARD_PULSE}' AND legacy = 0 AND card_id = ? AND id > ? ORDER BY id DESC LIMIT 1`
+
 export const SESSIONLESS_LADDER_STEP = 'launch'
+
+export function noPullRequestDetail(cardId: number, session: string, result: string | null): string {
+  return `session-end: card #${cardId} session ${session} ended with no pull request; ${result ?? 'its shift report names no result'}`
+}
 
 const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
 
@@ -138,35 +171,72 @@ export class LaunchNode extends Node<LaunchStep> {
       const card = startedCardOf(start.payload)
       if (card === null)
         continue
-      if (this.endedWithoutResult(start, card)) {
+      if (this.endedWithoutPullRequest(start, card)) {
         if (this.db.prepare(STOPPED_SINCE).get(start.card_id, start.id) === undefined && this.stopEnded(start, card))
           stopped.push(start.card_id)
         continue
       }
-      if (this.parts.clock().getTime() - Date.parse(start.ts) < LAUNCH_LIMIT_MS)
-        continue
       if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'live')
         continue
-      this.starters[card.contour]?.stop(card)
-      if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
+      this.pulse(start, card)
+      const now = this.parts.clock().getTime()
+      if (now - Date.parse(start.ts) >= LAUNCH_LIMIT_MS) {
+        if (this.stopLive(start, card, 'time-limit', `card #${start.card_id} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}`))
+          stopped.push(start.card_id)
         continue
-      const detail = `time-limit: card #${start.card_id} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}`
-      const recorded = appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:time-limit:${start.dedupe_key}`, payload: { reason: 'fault', detail }, legacy: false })
-      if (recorded)
-        stopped.push(start.card_id)
+      }
+      const sign = this.lastSignOf(start)
+      if (card.step !== SESSIONLESS_LADDER_STEP && now - Date.parse(sign) >= HEARTBEAT_SILENCE_MS && this.db.prepare(PR_SINCE).get(start.card_id, start.id) === undefined) {
+        if (this.stopLive(start, card, 'no-heartbeat', `card #${start.card_id} session ${card.session} has no pull request and no heartbeat for ${HEARTBEAT_SILENCE_MINUTES} minutes since ${sign}`))
+          stopped.push(start.card_id)
+      }
     }
     return stopped
   }
 
-  private endedWithoutResult(start: RunningStart, card: StartedCard): boolean {
+  private pulse(start: RunningStart, card: StartedCard): void {
+    const last = this.db.prepare(LAST_PULSE).get(start.card_id, start.id) as { ts: string } | undefined
+    const now = this.parts.clock().getTime()
+    if (now - Date.parse(last?.ts ?? start.ts) < PULSE_MS)
+      return
+    const ts = this.ts()
+    appendEvent(this.db, { ts, type: CARD_PULSE, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_PULSE}:${start.dedupe_key}:${ts}`, payload: { session: card.session, pgid: card.pgid, since: start.ts }, legacy: false })
+  }
+
+  private lastSignOf(start: RunningStart): string {
+    const beat = lastHeartbeat(this.db, start.card_id)
+    return beat !== null && Date.parse(beat.ts) > Date.parse(start.ts) ? beat.ts : start.ts
+  }
+
+  private stopLive(start: RunningStart, card: StartedCard, cause: string, why: string): boolean {
+    if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'live')
+      return false
+    this.starters[card.contour]?.stop(card)
+    if (launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
+      return false
+    return appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, payload: { reason: 'fault', detail: `${cause}: ${why}` }, legacy: false })
+  }
+
+  private endedWithoutPullRequest(start: RunningStart, card: StartedCard): boolean {
     if (card.step === SESSIONLESS_LADDER_STEP || launchProcess({ pgid: card.pgid, session: card.session }, this.processes) !== 'gone')
       return false
-    if (this.db.prepare(GHOST_ROW_SINCE).get(start.card_id, start.id) !== undefined)
-      return false
-    return !(this.launchParts.resulted?.(card, { cardId: start.card_id, ts: start.ts }) ?? false)
+    return this.db.prepare(GHOST_ROW_SINCE).get(start.card_id, start.id) === undefined
+      && this.db.prepare(PR_SINCE).get(start.card_id, start.id) === undefined
   }
 
   private stopEnded(start: RunningStart, card: StartedCard): boolean {
+    const session: SessionStart = { cardId: start.card_id, ts: start.ts }
+    if (!(this.launchParts.resulted?.(card, session) ?? false))
+      return this.stopDeadSession(start, card)
+    return card.contour === 'cheap' && this.stopWithoutPullRequest(start, card, session)
+  }
+
+  private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
+    const detail = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
+    return appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, payload: { reason: 'fault', detail }, legacy: false })
+  }
+
+  private stopDeadSession(start: RunningStart, card: StartedCard): boolean {
     const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
     const deaths = Number((this.db.prepare(SESSION_DEATHS).get(start.card_id) as { n: number }).n) + 1
     const final = deaths >= SESSION_DEATH_CAP
@@ -252,12 +322,21 @@ export function sessionLeftAResult(launchDir: string): (card: StartedCard, start
   return (card, start) => reportWrittenSince(launchDir, start) || hasCommitsAhead(card)
 }
 
+export function reportResultLine(launchDir: string): (start: SessionStart) => string | null {
+  return (start) => {
+    const report = path.join(launchDir, `report-${start.cardId}.md`)
+    if (!reportWrittenSince(launchDir, start) || !existsSync(report))
+      return null
+    return readFileSync(report, 'utf8').split('\n').find(line => line.startsWith('result: ')) ?? null
+  }
+}
+
 export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<number> {
   if (argv.includes(WITHDRAW_LEGACY_FLAG))
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -267,9 +346,29 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
   return runNode(argv, 'launch', run.busPath, build, { pause })
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
+export type CardBodyReader = (cardId: number) => string | null
+
+export function busCardBodies(busPath: string): CardBodyReader {
+  return (cardId) => {
+    if (!existsSync(busPath))
+      return null
+    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    try {
+      return cardBodyText(db, cardId)
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
+export function cardTextReader(bodyOf: CardBodyReader): (file: string) => string | null {
+  return file => bodyOf(Number(path.basename(file, '.md'))) ?? (existsSync(file) ? readFileSync(file, 'utf8') : null)
+}
+
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null): StarterPorts {
   return {
-    read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    read: cardTextReader(bodyOf),
     cut: (task, laneDir) => {
       execFileSync('pnpm', ['--silent', 'task:start', task.branch, '--card', task.card.line, '--parking', laneDir], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
       return taskWorktree(worktreeHome(env), String(task.card.id))
@@ -279,9 +378,13 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     pgidOf: psPgid,
     kill: killQuietly,
     uuid,
-    envOf: cardId => sessionEnv(env, cardId),
+    envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
     prompt: (task, places) => renderPrompt(header, task, places),
   }
+}
+
+export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath))
 }
 
 export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv = process.env): LadderSteps {
@@ -319,14 +422,9 @@ export function launchIsolationCommand(claude: string): string[] {
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const env = process.env
-  const places = {
-    parking: defaultParking(os.homedir()),
-    launchDir: path.join(os.homedir(), '.construct', 'bus', LAUNCH_DIR),
-    claude: 'claude',
-    treePr: treePrCommand(process.cwd()),
-  }
+  const places = launchPlaces(os.homedir(), process.cwd())
   const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
-  const ports = realStarterPorts(process.cwd(), env, header, randomUUID)
+  const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env))
   return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, launchDir: places.launchDir, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })

@@ -38,6 +38,14 @@ export interface StarterPlaces {
 
 export const CARD_PERMISSION_MODE = 'dontAsk'
 
+export const HTTPS_ORIGIN_ENV: Record<string, string> = {
+  GIT_CONFIG_COUNT: '2',
+  GIT_CONFIG_KEY_0: 'url.https://github.com/.insteadOf',
+  GIT_CONFIG_VALUE_0: 'git@github.com:',
+  GIT_CONFIG_KEY_1: 'url.https://github.com/.insteadOf',
+  GIT_CONFIG_VALUE_1: 'ssh://git@github.com/',
+}
+
 export function cardCommand(claude: string): string {
   return `${claude} --permission-mode ${CARD_PERMISSION_MODE}`
 }
@@ -72,15 +80,16 @@ export class ShiftCardStarter implements CardStarter {
       const base = this.ports.base(worktree)
       const session = this.ports.uuid()
       const report = path.join(this.places.launchDir, `report-${card.cardId}.md`)
+      const prompt = this.ports.prompt(task, { worktree, report })
       const pid = this.ports.spawnDetached({
         command: 'sh',
         args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardFile: path.join(laneDir, file), worktree, report, id: session }),
         cwd: worktree,
         env: this.ports.envOf(card.cardId),
-        input: this.ports.prompt(task, { worktree, report }),
+        input: prompt,
         log: path.join(this.places.launchDir, `log-${card.cardId}.txt`),
       })
-      return { kind: 'started', card: { session, worktree, branch: task.branch, base, pid, pgid: this.groupOrKill(pid) } }
+      return { kind: 'started', card: { session, worktree, branch: task.branch, base, pid, pgid: this.groupOrKill(pid), input: { prompt } } }
     }
     catch (error) {
       return { kind: 'refused', denial: technical('start_failed', messageOf(error)) }

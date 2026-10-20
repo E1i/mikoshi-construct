@@ -9,23 +9,30 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { parkingFileText } from '../../../src/card/parking.js'
+import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
+import { textSha } from '../../../src/card/text-sha.js'
+import { CARD_MOVED, runIntake } from '../../../src/commands/intake/index.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
+import { cardBodyText } from '../../bus/card-bodies.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
+import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
+import { busCardEvents } from '../../bus/intake.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
-import { LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
+import { busCardBodies, busStarterPorts, cardTextReader, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
+import { reduce } from '../../bus/reducer.js'
 import { busLaunches } from '../../bus/workers.js'
 import { sessionEnv } from '../../ghosts/session.js'
+import { taskConflicts } from '../../shift/overlap.js'
 import { renderPrompt } from '../../shift/prompt.js'
 import { OPERATOR_CLAUDE } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
@@ -74,6 +81,10 @@ function launchBench(starter: CardStarter = new FakeStarter(), intake?: Paramete
     ...bench,
     admit: (cardId: number, lane: string, depends: number[] = [], contour = 'cheap'): void => {
       appendEvent(bench.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour, depends, admission: admission(cardId) }, legacy: false })
+    },
+    admitTouching: (cardId: number, lane: string, touches: string[]): void => {
+      const text = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches, continue: 'stop', who: 'shift', body: 'Do the card.' })
+      appendEvent(bench.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour: 'cheap', depends: [], admission: admission(cardId), text }, legacy: false })
     },
     ghostRow: (cardId: number, id: string, state: string): void => {
       appendEvent(bench.db, { ts: ts(), type: GHOST_ROW, actor: 'worker:ladder:session-1', cardId, pr: null, head: null, dedupeKey: `${GHOST_ROW}:${id}:${state}`, payload: { id, state, row: `| ${id} | ${state} |` }, legacy: false })
@@ -154,6 +165,19 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
 }
 
 describe('the launch queue', () => {
+  it('the shift starter returns as its input the prompt it pipes to the card session', () => {
+    let piped: string | undefined
+    const starter = realStarter(tempRoot(), undefined, 905, { spawnDetached: (run) => {
+      piped = run.input
+      return 4242
+    }, pgidOf: () => 4242 })
+
+    const start = starter.start({ cardId: 905, lane: 'lane-x' })
+    expect(start.kind).toBe('started')
+    expect(piped).toContain('card #905')
+    expect((start as Extract<CardStart, { kind: 'started' }>).card.input).toEqual({ prompt: piped })
+  })
+
   it('a queued card whose depends are merged and whose lane is free enters launch', () => {
     const bench = launchBench()
     bench.mergedPr(800)
@@ -190,6 +214,76 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  it('the launch node does not take two cards of different lanes with overlapping touches', () => {
+    const bench = launchBench()
+    bench.admitTouching(920, 'lane-a', ['scripts/bus/queue.ts', '.changeset/**'])
+    bench.admitTouching(921, 'lane-b', ['scripts/bus/**', '.changeset/**'])
+    bench.admitTouching(922, 'lane-c', ['scripts/bus/lease.ts', '.changeset/**'])
+    bench.admitTouching(923, 'lane-d', ['scripts/miko/**'])
+    bench.started(923)
+    bench.admitTouching(924, 'lane-e', ['scripts/miko/watch.ts'])
+    bench.admitTouching(925, 'lane-f', ['scripts/ci/update-branch.ts', '.changeset/**'])
+    bench.tick()
+
+    expect(taskState(bench.db, launch(920))).toMatchObject({ state: 'queued' })
+    expect(taskState(bench.db, launch(921))).toBeUndefined()
+    expect(taskState(bench.db, launch(922))).toMatchObject({ state: 'queued' })
+    expect(taskState(bench.db, launch(924))).toBeUndefined()
+    expect(taskState(bench.db, launch(925))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a dropped card that had started holds neither its lane nor its touches', () => {
+    const bench = launchBench()
+    bench.admitTouching(889, 'lane-a', ['scripts/bus/queue.ts', 'scripts/bus/answer-worker.ts'])
+    bench.started(889)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_MOVED, actor: 'policy', cardId: 889, pr: null, head: null, dedupeKey: `${CARD_MOVED}:889:dropped`, payload: { lane: 'dropped' }, legacy: false })
+    bench.admitTouching(1112, 'lane-b', ['scripts/bus/answer-worker.ts', '.changeset/**'])
+    bench.admitTouching(1113, 'lane-a', ['scripts/miko/watch.ts'])
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1112))).toMatchObject({ state: 'queued' })
+    expect(taskState(bench.db, launch(1113))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('the cards intake made from card A of probe 1075 lay out over lanes and launch takes no two with overlapping touches', () => {
+    const bench = launchBench()
+    const root = tempRoot()
+    const parking = path.join(root, 'parking')
+    const slice = (name: string, touches: string[]): Record<string, unknown> => ({ name, kind: 'implement', milestone: 'operator', size: 'M', contour: 'cheap', decision: 'auto', who: 'shift', touches, task: `The ${name} part of card A.`, witnesses: ['`pnpm run quality` is green'] })
+    const draft = path.join(root, 'draft.json')
+    writeFileSync(draft, JSON.stringify({ cards: [
+      slice('owner-loop-r1', ['scripts/ghosts/hash.ts', 'scripts/ghosts/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/bus/queue.ts', 'scripts/tests/bus/merge-queue.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ghosts/launch.ts', '.changeset/**']),
+      slice('owner-loop-r3', ['scripts/bus/inbox.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts', 'scripts/bus/merge-executor.ts', 'scripts/bus/answerer.ts', 'scripts/bus/lease.ts', 'scripts/miko/watch.ts', 'scripts/bus/launch-worker.ts', '.changeset/**']),
+      slice('owner-loop-item-3', ['scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts', '.changeset/**']),
+    ] }))
+    const result = runIntake({ draft, taken: '-', readStdin: () => '1075', parking, parkingRoot: parking, dir: process.cwd(), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, events: busCardEvents(bench.db) })
+    expect(result.status).toBe('written')
+    const cards = result.status === 'written' ? result.cards : []
+    const tasks = cards.map((card) => {
+      const parsed = parseParkingFile(path.basename(card.file), readFileSync(path.join(parking, card.file), 'utf8'))
+      return parsed.kind === 'parked' ? parsed.parked.task : null
+    })
+    const lanes = cards.map(card => path.dirname(card.file))
+    expect(lanes.every(lane => /^lane-\d{2}$/.test(lane))).toBe(true)
+    expect(new Set(lanes).size).toBeGreaterThan(1)
+    expect(tasks.every(task => task !== null)).toBe(true)
+    bench.tick()
+
+    const queued = new Set((bench.db.prepare(`SELECT card_id FROM tasks WHERE queue = 'launch'`).all() as { card_id: number }[]).map(row => row.card_id))
+    const launched = tasks.flatMap(task => task !== null && queued.has(task.card.id) ? [task] : [])
+    expect(launched.length).toBeGreaterThan(1)
+    expect(taskConflicts(launched)).toEqual([])
+    const held = tasks.flatMap((task, index) => task !== null && !queued.has(task.card.id) ? [{ task, lane: lanes[index] }] : [])
+    expect(held.length).toBeGreaterThan(0)
+    for (const { task, lane } of held) {
+      const reason = launched.some(other => taskConflicts([other, task]).length > 0) || launched.some(other => lanes[tasks.indexOf(other)] === lane) || task.card.depends.length > 0
+      expect(reason).toBe(true)
+    }
+    bench.close()
+  })
+
   it('a card whose pull request is merged or that a legacy shift started is not offered for launch', () => {
     const bench = launchBench()
     bench.mergedPr(815)
@@ -207,6 +301,54 @@ describe('the launch queue', () => {
     expect(taskState(bench.db, launch(916))).toBeUndefined()
     expect(taskState(bench.db, launch(917))).toBeUndefined()
     expect(taskState(bench.db, launch(918))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a card with an open pull request does not join the launch queue the #1094 case, PR #935', () => {
+    const bench = launchBench()
+    bench.gitHub.open({ number: 935, body: '#1094 ladder-risks-named [implement/netwatch/S/cheap/auto] · depends — · blocks —' })
+    bench.tick()
+    bench.admit(1094, 'lane-a')
+    bench.admit(1095, 'lane-b')
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1094))).toBeUndefined()
+    expect(taskState(bench.db, launch(1095))).toMatchObject({ state: 'queued' })
+
+    bench.gitHub.close(935, false)
+    bench.tick()
+    expect(taskState(bench.db, launch(1094))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a card with a live tree mc-N does not join the launch queue', () => {
+    const bench = launchBench()
+    const tree = path.join(tempRoot(), 'mc-1096')
+    mkdirSync(tree)
+    const ts = bench.clock.now().toISOString()
+    bench.admit(1096, 'lane-a')
+    appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-1096`, payload: { session: 'earlier', worktree: tree }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:earlier', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:1096`, payload: { reason: 'fault', detail: 'session-end' }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1096:again`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'again-1096' }, legacy: false })
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1096, 'again-1096'))).toBeUndefined()
+
+    rmSync(tree, { recursive: true })
+    bench.tick()
+    expect(taskState(bench.db, launch(1096, 'again-1096'))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a legacy card.started naming a live tree mc-N does not hold a card out of the launch queue', () => {
+    const bench = launchBench()
+    const tree = path.join(tempRoot(), 'mc-1097')
+    mkdirSync(tree)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:legacy', cardId: 1097, pr: null, head: null, dedupeKey: `${CARD_STARTED}:legacy-1097`, payload: { session: 'legacy', worktree: tree }, legacy: true })
+    bench.admit(1097, 'lane-a')
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1097))).toMatchObject({ state: 'queued' })
     bench.close()
   })
 
@@ -230,6 +372,75 @@ describe('the launch queue', () => {
     bench.tick()
     expect(bench.leaseLaunch()).toBeNull()
     bench.close()
+  })
+
+  it('a card with no file in the parking is launched from its bus body', () => {
+    const root = tempRoot()
+    let piped: string | undefined
+    let bodyOf: (cardId: number) => string | null = () => null
+    const starter = realStarter(root, undefined, 930, { read: cardTextReader(cardId => bodyOf(cardId)), spawnDetached: (run) => {
+      piped = run.input
+      return 4242
+    }, pgidOf: () => 4242 })
+    rmSync(path.join(root, 'parking', 'lane-x', '930.md'))
+    const bench = launchBench(starter)
+    bodyOf = cardId => cardBodyText(bench.db, cardId)
+    const text = parkingFileText({ card: '#930 bus-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', branch: 'feat/bus-card', touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card from the bus.' })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 930, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:930`, payload: { lane: 'lane-x', decision: 'auto', contour: 'cheap', depends: [], admission: admission(930), text, textSha: textSha(text) }, legacy: false })
+    bench.tick()
+
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', card: { branch: 'feat/bus-card' } })
+    expect(piped).toContain('#930 bus-card')
+    bench.close()
+  })
+
+  describe('the card text launch reads', () => {
+    const BUS_TEXT = parkingFileText({ card: '#931 bus-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', branch: 'feat/bus-card', touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'From the bus.' })
+    const FILE_TEXT = BUS_TEXT.replace('From the bus.', 'From the parking file.')
+
+    function busWithBody(root: string): string {
+      const busPath = path.join(root, 'bus.db')
+      const db = openBus(busPath)
+      try {
+        appendEvent(db, { ts: '2026-10-20T00:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: 931, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:931`, payload: { lane: 'lane-x', decision: 'auto', contour: 'cheap', depends: [], admission: admission(931), text: BUS_TEXT, textSha: textSha(BUS_TEXT) }, legacy: false })
+        reduce(db)
+      }
+      finally {
+        db.close()
+      }
+      return busPath
+    }
+
+    function parked(root: string, name: string): string {
+      const file = path.join(root, 'parking', 'lane-x', name)
+      mkdirSync(path.dirname(file), { recursive: true })
+      writeFileSync(file, FILE_TEXT)
+      return file
+    }
+
+    it('busCardBodies reads the body from a real bus file and returns null without one', () => {
+      const root = tempRoot()
+      const busPath = busWithBody(root)
+      expect(busCardBodies(busPath)(931)).toBe(BUS_TEXT)
+      expect(busCardBodies(busPath)(932)).toBeNull()
+      expect(busCardBodies(path.join(root, 'no-bus.db'))(931)).toBeNull()
+      expect(existsSync(path.join(root, 'no-bus.db'))).toBe(false)
+    })
+
+    it('the ports the launch worker builds from its bus path read the bus body over a differing parking file', () => {
+      const root = tempRoot()
+      const busPath = busWithBody(root)
+      expect(busStarterPorts(busPath, root, {}, '', () => 'u').read(parked(root, '931.md'))).toBe(BUS_TEXT)
+    })
+
+    it('the bus body comes first, the parking file is the fallback, and a name that is not a card number reads the file', () => {
+      const root = tempRoot()
+      const read = cardTextReader(cardId => cardId === 931 ? BUS_TEXT : null)
+      expect(read(parked(root, '931.md'))).toBe(BUS_TEXT)
+      expect(read(parked(root, '933.md'))).toBe(FILE_TEXT)
+      expect(read(parked(root, 'notes.md'))).toBe(FILE_TEXT)
+      expect(read(path.join(root, 'parking', 'lane-x', '934.md'))).toBeNull()
+    })
   })
 
   it('a process that is not its own group leader is denied and records no card.started', () => {
@@ -375,7 +586,10 @@ describe('the launch queue', () => {
       bench.tick()
       const processes: ProcessTable = { commandLine: () => typeof commandLine === 'function' ? commandLine(starter) : commandLine, signalGroup: () => {} }
       const node = new LaunchNode({ db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode, env: {}, processes, isolation: sandboxed })
-      const advanceToLimitPlus = (offsetMs: number): void => bench.clock.advance(startedAt + LIMIT_MS + offsetMs - bench.clock.now().getTime())
+      const advanceToLimitPlus = (offsetMs: number): void => {
+        bench.clock.advance(startedAt + LIMIT_MS + offsetMs - bench.clock.now().getTime())
+        recordHeartbeat(bench.db, bench.clock.now().toISOString(), { card: 947, pr: null, head: null, step: 'PostToolUse', session: 's-947', lease: null })
+      }
       return { bench, starter, node, advanceToLimitPlus }
     }
 

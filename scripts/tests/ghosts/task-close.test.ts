@@ -676,6 +676,73 @@ describe('task:close reads the start of a task from card.started in the bus', ()
     }
   })
 
+  it('task:close with --report closes a card started by the launch node', () => {
+    const bus = busWithCardStarted([{ cardId: 1102, ts: '2026-10-19T18:21:34.972Z', payload: { session: '4fc53af7', worktree: '/mc-1102', branch: 'feat/1102', base: 'b'.repeat(40), pid: 35772, pgid: 35772, contour: 'cheap' } }])
+    const db = openBus(bus.file)
+    try {
+      appendEvent(db, { ts: '2026-10-19T18:21:29.660Z', type: 'card.admitted', actor: 'worker:intake:t', cardId: 1102, pr: null, head: null, dedupeKey: 'card.admitted:1102', payload: { card: '#1102 a-probe [probe/netwatch/S/cheap/none] · depends — · blocks —', lane: 'lane-a', contour: 'cheap' }, legacy: false })
+    }
+    finally {
+      db.close()
+    }
+    try {
+      const { deps, written } = world([])
+      const result = runTaskClose(['1102', '--report', 'probe-1102.md', '--verification', 'run'], { ...deps, cwd: REPORTS, busPath: bus.file })
+      expect(result.stderr).toEqual([])
+      expect(result.exitCode).toBe(0)
+      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '1102', path: 'cheap', report: `${REPORTS}/probe-1102.md`, verification: 'run', sessions: [{ id: '4fc53af7' }] })
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('task:close takes the card of the last admission that carries one, past a session-end re-admission and a backfill row', () => {
+    const bus = busWithCardStarted([{ cardId: 1102, ts: '2026-10-19T18:21:34.972Z', payload: { session: '4fc53af7', worktree: '/mc-1102', branch: 'feat/1102', base: 'b'.repeat(40), pid: 35772, pgid: 35772, contour: 'cheap' } }])
+    const db = openBus(bus.file)
+    const admitted = (key: string, payload: Record<string, unknown>): void => {
+      appendEvent(db, { ts: '2026-10-19T18:21:29.660Z', type: 'card.admitted', actor: 'worker:intake:t', cardId: 1102, pr: null, head: null, dedupeKey: `card.admitted:${key}`, payload, legacy: false })
+    }
+    try {
+      admitted('1102', { card: '#1102 a-probe [probe/netwatch/S/cheap/none] · depends — · blocks —', lane: 'lane-a', contour: 'cheap' })
+      admitted('1102:session-end', { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'session-end:card.started:launch:1102' })
+      admitted('1102:backfill', { source: 'backfill', card: '#1102 an-implement [implement/netwatch/S/ladder/auto] · depends — · blocks —', lane: 'lane-a', contour: 'ladder' })
+    }
+    finally {
+      db.close()
+    }
+    try {
+      const { deps, written } = world([])
+      const result = runTaskClose(['1102', '--report', 'probe-1102.md', '--verification', 'run'], { ...deps, cwd: REPORTS, busPath: bus.file })
+      expect(result.stderr).toEqual([])
+      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '1102', path: 'cheap', report: `${REPORTS}/probe-1102.md`, sessions: [{ id: '4fc53af7' }] })
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
+  it('task:close does not take a card-less card.started without a pid as the launch node start', () => {
+    const bus = busWithCardStarted([{ cardId: 1102, ts: '2026-10-19T18:21:34.972Z', payload: { session: '4fc53af7', worktree: '/mc-1102', branch: 'feat/1102', base: 'b'.repeat(40), contour: 'cheap' } }])
+    const db = openBus(bus.file)
+    try {
+      appendEvent(db, { ts: '2026-10-19T18:21:29.660Z', type: 'card.admitted', actor: 'worker:intake:t', cardId: 1102, pr: null, head: null, dedupeKey: 'card.admitted:1102', payload: { card: '#1102 a-probe [probe/netwatch/S/cheap/none] · depends — · blocks —', lane: 'lane-a', contour: 'cheap' }, legacy: false })
+    }
+    finally {
+      db.close()
+    }
+    try {
+      const { deps, written } = world([])
+      const result = runTaskClose(['1102', '--report', 'probe-1102.md', '--verification', 'run'], { ...deps, cwd: REPORTS, busPath: bus.file })
+      expect(result.exitCode).not.toBe(0)
+      expect(result.stderr[0]).toContain(`and the bus ${bus.file} has no card.started with one`)
+      expect(written).toEqual([])
+    }
+    finally {
+      bus.remove()
+    }
+  })
+
   it('names the bus it read when neither the journal nor the bus holds a start', () => {
     const bus = busWithCardStarted([])
     try {

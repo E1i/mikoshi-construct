@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
@@ -24,7 +25,6 @@ import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js
 import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewIsolationCommand, reviewMode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
-import { openDatabase } from '../../bus/sqlite.js'
 import { HEADLESS_FLAGS, REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
 import { classify } from '../../morse/rules.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
@@ -281,7 +281,7 @@ describe('review worker', () => {
     db.close()
   })
 
-  it('a heartbeat renews the lease while the review runs', async () => {
+  it('no timer renews the lease while the review runs; the session heartbeat does', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const { db, gitHub, clock, tick, worker } = setUp()
     gitHub.open({ number: 946 })
@@ -299,7 +299,10 @@ describe('review worker', () => {
       clock.advance(RENEW_MS)
       await vi.advanceTimersByTimeAsync(RENEW_MS)
     }
-    expect(events(db, 'task.renewed')).toHaveLength(2)
+    expect(events(db, 'task.renewed')).toEqual([])
+    expect(vi.getTimerCount()).toBe(0)
+    const { card_id: card, task_key: taskKey, lease_gen: leaseGen } = db.prepare('SELECT card_id, task_key, lease_gen FROM tasks').get() as { card_id: number, task_key: string, lease_gen: number }
+    recordHeartbeat(db, clock.now().toISOString(), { card, pr: 946, head: sha('a'), step: 'review', session: 'reviewer-1', lease: { taskKey, leaseGen } })
     expect((db.prepare('SELECT lease_until FROM tasks').get() as { lease_until: string }).lease_until).toBe(new Date(clock.ms + LEASE_MS).toISOString())
     finish()
     expect(await step).toMatchObject({ kind: 'recorded' })
@@ -424,10 +427,8 @@ describe('review worker', () => {
     db.close()
   })
 
-  it('the heartbeat survives a busy database and stops on a stale lease', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
-    const printed = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { db, busPath, gitHub, clock, tick, worker } = setUp()
+  it('a review whose session makes no turn for a lease term is fenced once its lease expires', async () => {
+    const { db, gitHub, clock, tick, worker } = setUp()
     gitHub.open({ number: 950 })
     tick()
     let finish: () => void = () => {}
@@ -437,31 +438,10 @@ describe('review worker', () => {
       })
       return { verdict: 'pass', findings: [], session: 'reviewer-1' }
     }
-    const beat = async (): Promise<void> => {
-      clock.advance(RENEW_MS)
-      await vi.advanceTimersByTimeAsync(RENEW_MS)
-    }
 
     const step = worker(slow).step()
-    db.exec('PRAGMA busy_timeout = 0')
-    const other = openDatabase(busPath)
-    other.exec('BEGIN IMMEDIATE')
-    await beat()
-    other.exec('ROLLBACK')
-    other.close()
-    expect(events(db, 'task.renewed')).toEqual([])
-    expect(printed.mock.calls.map(call => String(call[0]))).toEqual([expect.stringContaining(`${review(950)}: the lease was not renewed this beat`)])
-    expect(String(printed.mock.calls[0]![0])).toContain('database is locked')
-
-    await beat()
-    expect(events(db, 'task.renewed')).toHaveLength(1)
-    expect(vi.getTimerCount()).toBe(1)
-
     clock.advance(LEASE_MS + 1)
     expect(expireLeases(db, clock.now().toISOString())).toEqual([review(950)])
-    await beat()
-    expect(vi.getTimerCount()).toBe(0)
-    expect(printed).toHaveBeenCalledTimes(1)
     finish()
     expect(await step).toEqual({ kind: 'fenced', taskKey: review(950) })
     db.close()

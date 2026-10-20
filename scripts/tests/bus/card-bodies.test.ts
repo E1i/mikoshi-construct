@@ -6,8 +6,9 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { CARD_ADMITTED } from '../../../src/commands/intake/index.js'
+import { cardBodyText } from '../../bus/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
-import { busIntakePorts } from '../../bus/intake.js'
+import { busCardAdmissions, busIntakePorts, intakeAdmissions } from '../../bus/intake.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { replayDifferences } from '../../bus/report.js'
 
@@ -133,6 +134,40 @@ describe('the reducer folds every admitted text into card_bodies', () => {
       appendAdmission(db, 'without-text', { card: CARD, lane: 'lane-9' })
       reduce(db)
       expect(bodyRow(db)).toMatchObject({ admission_event_id: admissionIds(db)[0], lane: 'lane-7' })
+    })
+  })
+})
+
+describe('the admitted body intake and launch read back from card_bodies', () => {
+  it('cardBodyText returns the folded text of a card and null for a card with no body', () => {
+    const w = world()
+    admit(w)
+    withBus(w, (db) => {
+      reduce(db)
+      expect(cardBodyText(db, 90)).toBe(readFileSync(w.file, 'utf8'))
+      expect(cardBodyText(db, 91)).toBeNull()
+    })
+  })
+
+  it('an intake admission with no card_bodies row is returned as it was recorded, with no text', () => {
+    const w = world()
+    admit(w)
+    withBus(w, (db) => {
+      const admission = busCardAdmissions(db)(90)
+      expect(admission).toEqual(intakeAdmissions(db).at(-1))
+      expect(admission).not.toHaveProperty('text')
+    })
+  })
+
+  it('the text an intake admission carries is the card_bodies text, not the payload of that admission', () => {
+    const w = world()
+    admit(w)
+    const later = readFileSync(w.file, 'utf8').replace('Do the thing.', 'Do the later thing.')
+    withBus(w, (db) => {
+      appendEvent(db, { ts: '2026-10-13T10:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: 90, pr: null, head: null, dedupeKey: 'policy-later', payload: { card: CARD, lane: 'lane-7', text: later, textSha: sha256(later) }, legacy: false })
+      reduce(db)
+      expect(busCardAdmissions(db)(90)).toMatchObject({ card: CARD, text: later })
+      expect(busCardAdmissions(db)(91)).toBeNull()
     })
   })
 })

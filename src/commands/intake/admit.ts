@@ -7,12 +7,13 @@ import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import type { SlicedCard } from './slice.js'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
+import { PREFIX_SUFFIX } from '../../card/task-file.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, INTAKE_EVENT, TOUCHES_HEADER } from './confirm.js'
 import { DirectoryFacts } from './facts.js'
@@ -35,6 +36,88 @@ export function isLaneName(name: string): boolean {
 export function laneOf(root: string, dir: string): string | null {
   const name = path.basename(dir)
   return path.dirname(path.resolve(dir)) === path.resolve(root) && isLaneName(name) ? name : null
+}
+
+export const LANE_FILE = 'lane.json'
+export const LANE_CREATED_BY = 'intake'
+const NUMBERED_LANE = /^lane-(\d{2,})$/
+const OPEN_LANE = 'open'
+const ADDITIVE_ROOTS = ['tests', 'scripts/tests', '.changeset']
+const PARKED_CARD = /^\d+\.md$/
+
+export function laneName(number: number): string {
+  return `lane-${String(number).padStart(2, '0')}`
+}
+
+export function laneNumber(name: string): number | null {
+  const number = NUMBERED_LANE.exec(name)?.[1]
+  return number === undefined ? null : Number(number)
+}
+
+function scopeOf(touch: string): { path: string, mask: boolean } {
+  return touch.endsWith(PREFIX_SUFFIX) ? { path: touch.slice(0, -PREFIX_SUFFIX.length), mask: true } : { path: touch, mask: false }
+}
+
+function within(root: string, target: string): boolean {
+  return target === root || target.startsWith(`${root}/`)
+}
+
+function touchConflict(a: string, b: string): boolean {
+  const left = scopeOf(a)
+  const right = scopeOf(b)
+  const additive = ADDITIVE_ROOTS.some(root => within(root, left.path)) && ADDITIVE_ROOTS.some(root => within(root, right.path))
+  if (additive && (left.mask || right.mask))
+    return false
+  return a === b || (left.mask && within(left.path, right.path)) || (right.mask && within(right.path, left.path))
+}
+
+function touchesOverlap(a: readonly string[], b: readonly string[]): boolean {
+  return a.some(left => b.some(right => touchConflict(left, right)))
+}
+
+function declaredTouches(lane: string): string[] {
+  const file = path.join(lane, LANE_FILE)
+  if (!existsSync(file))
+    return []
+  try {
+    const touches = (JSON.parse(readFileSync(file, 'utf8')) as { touches?: unknown } | null)?.touches
+    return Array.isArray(touches) ? touches.filter(touch => typeof touch === 'string') : []
+  }
+  catch {
+    return []
+  }
+}
+
+function parkedTasks(lane: string): ParkedTask[] {
+  return readdirSync(lane).filter(name => PARKED_CARD.test(name)).flatMap((name) => {
+    const parsed = parseParkingFile(name, readFileSync(path.join(lane, name), 'utf8'))
+    return parsed.kind === 'parked' ? [parsed.parked] : []
+  })
+}
+
+export function laneTouches(lane: string): string[] {
+  return [...new Set([...declaredTouches(lane), ...parkedTasks(lane).flatMap(parked => parked.task.touches)])].sort()
+}
+
+function lanesUnder(root: string): string[] {
+  if (!existsSync(root))
+    return []
+  return readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory() && isLaneName(entry.name)).map(entry => entry.name).sort()
+}
+
+function openLane(root: string, card: ParkedTask, at: Date): string {
+  const lane = laneName(Math.max(0, ...lanesUnder(root).map(name => laneNumber(name) ?? 0)) + 1)
+  const dir = path.join(root, lane)
+  mkdirSync(dir, { recursive: true })
+  const record = { purpose: card.task.card.line, touches: card.task.touches, createdBy: LANE_CREATED_BY, createdAt: at.toISOString(), status: OPEN_LANE }
+  writeFileSync(path.join(dir, LANE_FILE), `${JSON.stringify(record, null, 2)}\n`)
+  return lane
+}
+
+export function layLane(root: string, card: ParkedTask, at: Date): string {
+  const lanes = lanesUnder(root)
+  const dependedOn = lanes.find(lane => card.task.card.depends.some(id => existsSync(path.join(root, lane, `${id}.md`))))
+  return dependedOn ?? lanes.find(lane => touchesOverlap(laneTouches(path.join(root, lane)), card.task.touches)) ?? openLane(root, card, at)
 }
 export const AMEND_SOURCE = 'amend'
 
@@ -200,13 +283,20 @@ function admitConfirmation(card: SlicedCard, autoConfirm: boolean): Confirmation
   return confirmationOf(card, autoConfirm)
 }
 
+function busBodyOf(options: AdmitOptions): string | null {
+  if (existsSync(options.file))
+    return null
+  return options.admissions?.(Number(path.basename(options.file, '.md')))?.text ?? null
+}
+
 export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult {
   let text: string
   let journal: string | null
   let ownerMerges: string | null
   let published: string[] | undefined
+  const busBody = busBodyOf(options)
   try {
-    text = readFileSync(options.file, 'utf8')
+    text = busBody ?? readFileSync(options.file, 'utf8')
     journal = existsSync(options.journal) ? readFileSync(options.journal, 'utf8') : null
     const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
     ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
@@ -273,7 +363,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const token = confirmationToken([admitted])
   if (!options.autoConfirm && admitCorrectionsNeedPerson(admitted) && options.confirm !== token)
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
-  if (admitted.text !== text)
+  if (busBody === null && admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   recordIntake(options.journal, [admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
   return { ...base, status: 'admitted' }
