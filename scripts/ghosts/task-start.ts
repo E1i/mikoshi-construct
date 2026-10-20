@@ -16,6 +16,7 @@ import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
 import { bodySha, bodyShaWithoutTouches } from '../../src/commands/intake/confirm.js'
+import { readMilestones } from '../../src/manifest.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { NOT_A_BACKFILL } from '../bus/backfill-source.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
@@ -397,7 +398,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   if (args === null)
     return refuse(argv.includes(ADOPT_FLAG) ? ADOPT_USAGE : USAGE)
   const { branch } = args
-  const parsed = parseCard(args.card)
+  const parsed = parseCard(args.card, readMilestones(deps.cwd))
   if (parsed.kind === 'refused')
     return refuse(`card refused: ${parsed.reason}; nothing written`)
   const { card } = parsed

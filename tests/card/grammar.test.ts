@@ -1,8 +1,9 @@
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import construct from '../../construct.json' with { type: 'json' }
 import { cardHead, cardLine, decisionsOf, parseCard, readBodyCard } from '../../src/card/grammar.js'
+import { readMilestones } from '../../src/manifest.js'
 
-const MILESTONES = construct.milestones
+const MILESTONES = readMilestones(path.join(import.meta.dirname, '..', '..'))!
 
 const VALID = '#123 task-card [implement/ghosts/M/cheap/owner] · depends #86, #90 · blocks #124 the board card'
 

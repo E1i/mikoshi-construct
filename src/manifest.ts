@@ -71,6 +71,7 @@ export interface Manifest {
   discovery: DiscoveryRecord
   sync: SyncRecord | null
   policy: PolicyRecord | null
+  milestones?: string[]
 }
 
 export function sha256(content: string): string {
@@ -261,4 +262,8 @@ export function readManifest(root: string): Manifest | null {
   if (!existsSync(file))
     return null
   return upgradeManifest(JSON.parse(readFileSync(file, 'utf8')))
+}
+
+export function readMilestones(root: string): string[] | undefined {
+  return readManifest(root)?.milestones
 }

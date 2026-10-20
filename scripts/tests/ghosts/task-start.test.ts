@@ -481,6 +481,15 @@ describe('w2: task:start refuses a card of the wrong form, and the old call', ()
     expect(starts(world)).toEqual([])
   })
 
+  it('w2: refuses a milestone the repository\'s construct.json does not list, naming the list', () => {
+    const world = newWorld()
+    writeFileSync(path.join(world.repo, 'construct.json'), JSON.stringify({ manifestVersion: 6, milestones: ['ghosts', 'ice'] }))
+    const result = runTaskStart(['feat/bad', '--card', card(15, 'implement/moon/S/cheap/auto')], depsOf(world))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr[0]).toContain(`[task:start] card refused: milestone 'moon' is not one of ghosts, ice`)
+    expect(starts(world)).toEqual([])
+  })
+
   it('w2: refuses the old task:start <id> <branch> and names the new form', () => {
     const world = newWorld()
     const result = runTaskStart(['t1', 'feat/t1'], depsOf(world))
