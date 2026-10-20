@@ -1,6 +1,6 @@
 import type { BusCard, BusFacts } from '../../src/commands/board/bus.js'
 import { describe, expect, it } from 'vitest'
-import { backlogCards, backlogLines, flowLines, matrixLines, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
+import { backlogCards, backlogLines, boardScreens, flowLines, matrixLines, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
 function card(id: number, state: string | null, lane: string | null = null, line: string | null = null): BusCard {
@@ -65,6 +65,14 @@ describe('the board screens', () => {
     ])
     expect(screenLines(facts, PLAIN_LORE).slice(-3, -1)).toEqual(matrixLines(facts, PLAIN_LORE))
     expect(matrixLines(noFacts(), PLAIN_LORE)).toEqual([])
+  })
+
+  it('the board is three screens, Flow, Backlog and Services, and a footer, and its lines are those screens in order', () => {
+    const facts = noFacts({ cards: [card(1, 'queued', 'a')], pulse: '2026-10-02T11:58:00.000Z' })
+    const { screens, footer } = boardScreens(facts, PLAIN_LORE)
+    expect(screens.map(screen => screen.title)).toEqual(['Flow', 'Backlog', 'Services'])
+    expect(screens[2]!.lines).toEqual([...servicesLines(facts, PLAIN_LORE), ...pulseLines(facts, PLAIN_LORE)])
+    expect(screenLines(facts, PLAIN_LORE)).toEqual([...screens.flatMap(screen => [screen.title, ...screen.lines]), footer])
   })
 
   it('the screen opens with Flow and shows the pulse and the slots in use', () => {
