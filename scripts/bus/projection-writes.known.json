@@ -1,0 +1,11 @@
+[
+  { "file": "scripts/bus/chain.ts", "unit": "observeChain", "table": "chains", "operation": "insert" },
+  { "file": "scripts/bus/heartbeat.ts", "unit": "recordHeartbeat", "table": "tasks", "operation": "update" },
+  { "file": "scripts/bus/launch-withdraw.ts", "unit": "folded", "table": "tasks", "operation": "insert" },
+  { "file": "scripts/bus/launch-withdraw.ts", "unit": "folded", "table": "tasks", "operation": "update" },
+  { "file": "scripts/bus/lease.ts", "unit": "appendedOnCard", "table": "cards", "operation": "insert" },
+  { "file": "scripts/bus/lease.ts", "unit": "folded", "table": "tasks", "operation": "update" },
+  { "file": "scripts/bus/queue.ts", "unit": "appended", "table": "tasks", "operation": "insert" },
+  { "file": "scripts/bus/queue.ts", "unit": "appended", "table": "tasks", "operation": "update" },
+  { "file": "scripts/bus/window-requests.ts", "unit": "WindowRequests.appendRequeue", "table": "tasks", "operation": "update" }
+]
