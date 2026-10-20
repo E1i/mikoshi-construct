@@ -1637,8 +1637,7 @@ Shows where each task stands in this repository, from what the repository holds:
 writes no file, `--every` included; you fetch the list and hand it over. When the bus database
 (`~/.construct/bus.db`) is there, the board reads it read-only and shows one screen with no scroll, under a
 header with the construct version and the mode (`HIJACK` when `CONSTRUCT_MODE=hijack`, nothing
-otherwise): the goal (the newest release a live card names, with the cards that name it done of total),
-Flow (planned, in work, in review, ready to merge; a card with no body in the bus or closed through a
+otherwise): Flow (planned, in work, in review, ready to merge; a card with no body in the bus or closed through a
 shared pull request is not shown), Backlog (live cards only, grouped by lane; dropped, merged and closed
 cards older than 12 hours only under `--all`) and Services (the window and its subagents, each running
 session and node with the step its task is at, the check matrix of each pull request, and the bus pulse

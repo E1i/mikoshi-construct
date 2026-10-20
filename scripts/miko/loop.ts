@@ -19,7 +19,7 @@ export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_WINDOW_MS = 1500
 export const LOOP_PID_VARIABLE = 'MIKO_LOOP_PID'
 export const EXIT_REQUEST_VARIABLE = 'MIKO_EXIT_REQUEST'
-export const EXIT_REQUEST_NAME = 'miko-exit.request'
+export const EXIT_REQUEST_PREFIX = 'miko-exit'
 export const EXIT_POLL_MS = 200
 
 const SHELL_COULD_NOT_RUN_THE_COMMAND = new Set([126, 127])
@@ -45,8 +45,8 @@ export function mikoHandoff(home: string): string {
   return path.join(home, '.construct', 'handoff', MIKO_HANDOFF_NAME)
 }
 
-export function exitRequestFile(home: string): string {
-  return path.join(home, '.construct', 'handoff', EXIT_REQUEST_NAME)
+export function exitRequestFile(home: string, loopPid: number): string {
+  return path.join(home, '.construct', 'handoff', `${EXIT_REQUEST_PREFIX}.${loopPid}.request`)
 }
 
 export function takeExitRequest(request: string): boolean {
@@ -56,8 +56,14 @@ export function takeExitRequest(request: string): boolean {
   return true
 }
 
+const SHELL_SYNTAX = /[;&|()<>`\n]/
+
+export function sessionScript(command: string): string {
+  return SHELL_SYNTAX.test(command) ? `${command} "$@"` : `exec env ${command} "$@"`
+}
+
 export function claudeArgv(command: string, prompt: string | undefined): string[] {
-  return ['-c', `exec ${command} "$@"`, 'miko', ...(prompt === undefined ? [] : [prompt])]
+  return ['-c', sessionScript(command), 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
 
 export function doubleCtrlCWatcher(now: () => number = Date.now): { press: () => void, seen: () => boolean, presses: () => number } {
@@ -216,7 +222,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   process.on('SIGINT', ctrlC.press)
   const handoff = mikoHandoff(os.homedir())
   const command = claudeCommand(process.env)
-  const request = exitRequestFile(os.homedir())
+  const request = exitRequestFile(os.homedir(), process.pid)
   const ended = once(() => windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) })('close'))
   endOnHangup(ended, code => process.exit(code))
   process.exitCode = await runMikoLoop({

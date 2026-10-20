@@ -54,4 +54,20 @@ describe('the PR status check the bus sets', () => {
     expect(setStepStatuses(db, stopped.post, () => NOW)).toEqual([{ pr: 950, head: NEXT, step: 'stopped', state: 'failure' }])
     expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(6)
   })
+
+  it('a status GitHub refuses is not recorded, so the cursor stays and the next run posts it again', () => {
+    const db = bus()
+    step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
+    step(db, 'merge.done', HEAD, { commit: 'd'.repeat(40), rule: 'auto' }, 'worker:merge:s3')
+    let calls = 0
+    const refusing: GitHubPost = () => {
+      calls += 1
+      return { status: calls === 2 ? 422 : 201, headers: {}, body: null }
+    }
+    expect(() => setStepStatuses(db, refusing, () => NOW)).toThrow(/422/)
+    expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(1)
+    const { post, calls: retried } = recorder()
+    expect(setStepStatuses(db, post, () => NOW).map(status => status.step)).toEqual(['merged'])
+    expect(retried).toHaveLength(1)
+  })
 })

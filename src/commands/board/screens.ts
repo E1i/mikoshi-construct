@@ -4,7 +4,6 @@ import { FLOW_STATES, LIVE_STATES, SHORT_SHA } from './bus.js'
 
 const CARD_PREFIX = /^card:\s*/
 const MATRIX_ROLE = 'matrix'
-const GOAL_ROLE = 'goal'
 const BUS_ROLE = 'bus'
 const MINUTE_MS = 60_000
 export const ENDED_SHOWN_HOURS = 12
@@ -65,12 +64,6 @@ export function matrixLines(facts: BusFacts, lore: Lore): string[] {
   return facts.matrices.map(matrix => lore.boardServiceLine(MATRIX_ROLE, `PR #${matrix.pr}`, undefined, matrixStep(matrix)))
 }
 
-function goalLines(facts: BusFacts, lore: Lore): string[] {
-  if (facts.goal === null)
-    return []
-  return [lore.boardServiceLine(GOAL_ROLE, `release ${facts.goal.release}`, undefined, `${facts.goal.done} of ${facts.goal.total} done`)]
-}
-
 function minutesSince(ts: string, at: string): number {
   return Math.max(0, Math.round((Date.parse(at) - Date.parse(ts)) / MINUTE_MS))
 }
@@ -83,7 +76,6 @@ export function pulseLines(facts: BusFacts, lore: Lore): string[] {
 
 export function screenLines(facts: BusFacts, lore: Lore, all = false): string[] {
   return [
-    ...goalLines(facts, lore),
     lore.boardTabFlow,
     ...flowLines(facts.cards, lore),
     lore.boardTabBacklog,

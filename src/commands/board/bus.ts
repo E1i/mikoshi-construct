@@ -15,9 +15,6 @@ export const SESSION_SHOWN_MINUTES = 20
 export const FLOW_STATES = [['queued'], ['running', 'changes'], ['in_review'], ['ready']]
 export const LIVE_STATES = FLOW_STATES.flat()
 export const BUS_PULSE_EVENT = 'netwatch.tick'
-const RELEASE_MENTION = /\brelease (\d+)\.(\d+)\b/gi
-const GOAL_DONE_STATES = ['merged', 'closed']
-const GOAL_LEFT_OUT_STATES = ['dropped']
 const HOUR_MS = 3_600_000
 const MINUTE_MS = 60_000
 
@@ -47,12 +44,6 @@ export interface BusMatrix {
   notRun: number
 }
 
-export interface BusGoal {
-  release: string
-  done: number
-  total: number
-}
-
 export interface BusSlot {
   queue: string
   used: number
@@ -60,7 +51,6 @@ export interface BusSlot {
 
 export interface BusFacts {
   at: string
-  goal: BusGoal | null
   pulse: string | null
   slots: BusSlot[]
   cards: BusCard[]
@@ -236,26 +226,6 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   return rows.map(row => ({ id: row.id, state: row.state, lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id) }))
 }
 
-function releasesIn(body: string): string[] {
-  return [...new Set([...body.matchAll(RELEASE_MENTION)].map(match => `${match[1]}.${match[2]}`))]
-}
-
-function compareReleases(a: string, b: string): number {
-  const [aMajor = 0, aMinor = 0] = a.split('.').map(Number)
-  const [bMajor = 0, bMinor = 0] = b.split('.').map(Number)
-  return aMajor - bMajor || aMinor - bMinor
-}
-
-function goalOf(db: BusDb): BusGoal | null {
-  const rows = db.prepare(`SELECT c.state, b.text FROM cards c JOIN card_bodies b ON b.card_id = c.card_id WHERE b.text LIKE '%elease %'`).all() as unknown as { state: string | null, text: string }[]
-  const named = rows.map(row => ({ state: row.state ?? '', releases: releasesIn(row.text) })).filter(row => !GOAL_LEFT_OUT_STATES.includes(row.state))
-  const release = named.filter(row => LIVE_STATES.includes(row.state)).flatMap(row => row.releases).sort(compareReleases).at(-1)
-  if (release === undefined)
-    return null
-  const members = named.filter(row => row.releases.includes(release))
-  return { release, done: members.filter(row => GOAL_DONE_STATES.includes(row.state)).length, total: members.length }
-}
-
 function lastPulse(db: BusDb): string | null {
   const row = db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(BUS_PULSE_EVENT) as { ts: string | null } | undefined
   return row?.ts ?? null
@@ -270,7 +240,6 @@ function factsOf(db: BusDb, now: Date): BusFacts {
   const events = boardEvents(db)
   return {
     at: now.toISOString(),
-    goal: goalOf(db),
     pulse: lastPulse(db),
     slots: slotsInUse(db),
     cards: cardsOf(db, events),

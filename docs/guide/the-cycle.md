@@ -80,7 +80,7 @@ abstraction and no dependency, never weaken a test, ship the test with the logic
 
 See [the reasoning budget](/guide/reasoning-budget) for what each class means and what it costs.
 
-`construct board` shows where each task stands while it runs, on one screen: the goal with its progress, Flow, the live Backlog, and Services with the window and its subagents, all read from the bus; without a bus it reads the ladder runs in `.construct/runs.jsonl` and the open pull requests, see [the reference](/cli#construct-board).
+`construct board` shows where each task stands while it runs, on one screen: Flow, the live Backlog, and Services with the window and its subagents, all read from the bus; without a bus it reads the ladder runs in `.construct/runs.jsonl` and the open pull requests, see [the reference](/cli#construct-board).
 
 ## 5. Verify — the step that is allowed to say "done"
 

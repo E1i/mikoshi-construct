@@ -66,6 +66,10 @@ function headOf(event: StepEvent): string | null {
   return typeof head === 'string' && head !== '' ? head : null
 }
 
+function isSuccess(status: number): boolean {
+  return status >= 200 && status < 300
+}
+
 export function stepStatusOf(event: StepEvent): StepStatus | null {
   const step = stepAndState(event)
   const head = headOf(event)
@@ -95,6 +99,8 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
     if (status === null)
       continue
     const response = post(`repos/{owner}/{repo}/statuses/${status.head}`, statusFields(status))
+    if (!isSuccess(response.status))
+      throw new Error(`${PREFIX}PR #${status.pr} ${status.head}: GitHub answered ${response.status} to the status ${STATUS_CONTEXT}: ${status.step}; nothing recorded, the step is posted again on the next run`)
     appendEvent(db, {
       ts: now().toISOString(),
       type: PR_STATUS_SET,

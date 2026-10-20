@@ -8,7 +8,7 @@ function card(id: number, state: string | null, lane: string | null = null, line
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
-  return { at: '2026-10-02T12:00:00.000Z', goal: null, pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
+  return { at: '2026-10-02T12:00:00.000Z', pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
 }
 
 describe('the board screens', () => {
@@ -58,9 +58,9 @@ describe('the board screens', () => {
     expect(matrixLines(noFacts(), PLAIN_LORE)).toEqual([])
   })
 
-  it('the screen opens with the goal and shows the pulse and the slots in use', () => {
-    const facts = noFacts({ goal: { release: '0.44', done: 3, total: 12 }, pulse: '2026-10-02T11:58:00.000Z', slots: [{ queue: 'review', used: 2 }] })
-    expect(screenLines(facts, PLAIN_LORE)[0]).toBe('goal · release 0.44 · — · 3 of 12 done')
+  it('the screen opens with Flow and shows the pulse and the slots in use', () => {
+    const facts = noFacts({ pulse: '2026-10-02T11:58:00.000Z', slots: [{ queue: 'review', used: 2 }] })
+    expect(screenLines(facts, PLAIN_LORE)[0]).toBe('Flow')
     expect(pulseLines(facts, PLAIN_LORE)).toEqual(['bus · pulse · — · pulse 2 min ago · slots in use: review 2 (the bus records no capacity)'])
     expect(pulseLines(noFacts(), PLAIN_LORE)).toEqual(['bus · pulse · — · no pulse recorded · slots in use: none in use (the bus records no capacity)'])
     expect(screenLines(noFacts(), PLAIN_LORE)[0]).toBe('Flow')

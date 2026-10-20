@@ -1,5 +1,5 @@
 import type { BusFacts, BusReading } from '../../src/commands/board/bus.js'
-import type { BusSeed, SeedCard } from './bus-fixture.js'
+import type { BusSeed } from './bus-fixture.js'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -155,21 +155,6 @@ describe('the board bus reader', () => {
     })
     expect(seen.pulse).toBe(ago(2 * 60_000))
     expect(seen.slots).toEqual([{ queue: 'merge', used: 1 }, { queue: 'review', used: 2 }])
-  })
-
-  it('the goal is the newest release a live card names, with the cards that name it done of total', () => {
-    expect(facts({}).goal).toBeNull()
-    const named = (id: number, state: string, text: string): SeedCard[] => [{ id, state, lane: null, line: null, text }]
-    const cards = [
-      ...named(1, 'merged', 'Release 0.44 list'),
-      ...named(2, 'closed', 'for release 0.44'),
-      ...named(3, 'queued', 'Release 0.44 and Release 0.45'),
-      ...named(4, 'dropped', 'Release 0.44'),
-      ...named(5, 'merged', 'Release 0.43'),
-    ]
-    expect(facts({ cards }).goal).toEqual({ release: '0.45', done: 0, total: 1 })
-    expect(facts({ cards: cards.slice(0, 2).concat(cards.slice(3)) }).goal).toBeNull()
-    expect(facts({ cards: [...cards.slice(0, 2), ...named(6, 'running', 'Release 0.44')] }).goal).toEqual({ release: '0.44', done: 2, total: 3 })
   })
 
   it('reports a missing file as absent and a file it cannot query as unreadable, with the reason', () => {
