@@ -132,6 +132,10 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
   return set
 }
 
+export function statusLine(status: StepStatus): string {
+  return `${PREFIX}PR #${status.pr} ${status.head.slice(0, 7)}: ${STATUS_CONTEXT}: ${status.step} (${status.refused === undefined ? status.state : `refused ${status.refused}, recorded and passed`})`
+}
+
 export function ghApiPost(cwd: string, command = 'gh'): GitHubPost {
   return (endpoint, fields) => {
     const args = ['api', '--include', '--method', 'POST', endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])]
@@ -148,7 +152,7 @@ function main(): number {
   const db = openBus(defaultBusPath())
   try {
     for (const status of setStepStatuses(db, ghApiPost(process.cwd())))
-      console.log(`${PREFIX}PR #${status.pr} ${status.head.slice(0, 7)}: ${STATUS_CONTEXT}: ${status.step} (${status.refused === undefined ? status.state : `refused ${status.refused}, recorded and passed`})`)
+      console.log(statusLine(status))
     return 0
   }
   finally {
