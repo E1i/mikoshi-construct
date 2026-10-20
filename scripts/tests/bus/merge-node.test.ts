@@ -12,7 +12,7 @@ import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { keyOf, MERGE_CANDIDATES, mergeCandidates, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
+import { CARD_CLOSED, keyOf, MERGE_CANDIDATES, mergeCandidates, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -69,14 +69,20 @@ function mergeDone(made: MergeBench, cardId: number, pr: number): number {
   return Number((made.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
 }
 
-function admitted(made: MergeBench, cardId: number): void {
-  const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nMerge it.\n`
+function admitted(made: MergeBench, cardId: number, text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nMerge it.\n`): void {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: `#${cardId}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
 }
 
 function dropped(made: MergeBench, cardId: number): void {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_MOVED}:${cardId}`, payload: { lane: DROPPED_LANE }, legacy: false })
 }
+
+function closedAfterAnEarlierMerge(made: MergeBench, cardId: number): void {
+  mergeDone(made, cardId, 971)
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:worker-0', cardId, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${cardId}`, payload: { verification: 'run' }, legacy: false })
+}
+
+const NOT_MINE: Record<string, (made: MergeBench, cardId: number) => void> = { dropped, closed: closedAfterAnEarlierMerge }
 
 function mergeTasks(made: MergeBench, pr: number): number {
   return Number((made.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'merge' AND pr = ?`).get(pr) as { n: number }).n)
@@ -202,22 +208,43 @@ describe('the merge node', () => {
   })
 
   it('merge skips a candidate cardContract reads as not mine', async () => {
-    const made = bench()
-    admitted(made, 1070)
-    made.gitHub.open({ number: 970, review: 'success' })
-    made.tick()
-    dropped(made, 1070)
-    made.tick()
-    const node = nodeOf(made, 'live')
-    const asked = made.gitHub.calls.length
-    await once(node)
-    await once(node)
+    for (const [state, endedInTheBus] of Object.entries(NOT_MINE)) {
+      const made = bench()
+      admitted(made, 1070)
+      made.gitHub.open({ number: 970, review: 'success' })
+      made.tick()
+      endedInTheBus(made, 1070)
+      made.tick()
+      const node = nodeOf(made, 'live')
+      const asked = made.gitHub.calls.length
+      await once(node)
+      await once(node)
 
-    expect(made.gitHub.calls.slice(asked)).toEqual([])
-    expect(made.gitHub.puts).toEqual([])
-    expect(eventsOf(made.db, MERGE_DONE).filter(each => each.commit !== sha('f'))).toEqual([])
-    expect(eventsOf(made.db, POLICY_DENIED)).toEqual([expect.objectContaining({ command: 'merge', kind: 'technical', reason: 'not_mine' })])
-    expect(taskState(made.db, mergeKey(970)).state).toBe('withdrawn')
+      expect(made.gitHub.calls.slice(asked), state).toEqual([])
+      expect(made.gitHub.puts, state).toEqual([])
+      expect(eventsOf(made.db, MERGE_DONE).filter(each => each.commit !== sha('f')), state).toEqual([])
+      expect(eventsOf(made.db, POLICY_DENIED), state).toEqual([expect.objectContaining({ command: 'merge', kind: 'technical', reason: 'not_mine', detail: expect.stringContaining(`is ${state} in the bus`) })])
+      expect(taskState(made.db, mergeKey(970)).state, state).toBe('withdrawn')
+    }
+  })
+
+  it('merge takes a candidate whose card has no admitted body, or a body the parser refuses, as it did before the card was read', async () => {
+    const bodies: Record<string, (made: MergeBench) => void> = {
+      'no body': () => {},
+      'a refused body': made => admitted(made, 1070, 'not a card\n'),
+    }
+    for (const [body, admit] of Object.entries(bodies)) {
+      const made = bench()
+      admit(made)
+      made.gitHub.open({ number: 970, review: 'success' })
+      made.tick()
+      const node = nodeOf(made, 'live')
+      await once(node)
+      await once(node)
+
+      expect(eventsOf(made.db, POLICY_DENIED), body).toEqual([])
+      expect(eventsOf(made.db, MERGE_DONE), body).toEqual([expect.objectContaining({ rule: 'auto' })])
+    }
   })
 
   it('merge takes a candidate cardContract reads as its own', async () => {

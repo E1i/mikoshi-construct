@@ -13,9 +13,9 @@ import { CloseNode } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_STARTED, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { leaseNext } from '../../bus/lease.js'
+import { completeTask, failTask, leaseNext, StaleLease } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { BOARD_ALARM, CARD_CLOSED, closeCandidates, keyOf, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
+import { BOARD_ALARM, CARD_CLOSED, closeCandidates, FAILURES_TO_STOP, keyOf, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
 import { TREE_LEFT } from '../../bus/review-worker.js'
 import { CARD_VERIFIED } from '../../ghosts/task-close.js'
 import { sha } from './github-fake.js'
@@ -282,14 +282,23 @@ describe('the close node', () => {
     const made = bench()
     opened(made, 980)
     detectReview(made)
-    queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: 1080, pr: 980, head: sha('a') })
+    const ts = made.clock.now().toISOString()
+    queueTask(made.db, ts, { queue: 'answer', cardId: 1080, pr: 980, head: sha('a') })
+    const held = leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
+    queueTask(made.db, ts, { queue: 'merge', cardId: 1080, pr: 980, head: sha('a') })
+    for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+      failTask(made.db, ts, leaseNext(made.db, ts, 'merge', 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false })
     expect(taskStatesOf(made, 'review', 980)).toEqual([{ head: sha('a'), state: 'queued' }])
+    expect(taskStatesOf(made, 'answer', 980)).toEqual([{ head: sha('a'), state: 'leased' }])
+    expect(taskStatesOf(made, 'merge', 980)).toEqual([{ head: sha('a'), state: 'stopped' }])
     made.gitHub.close(980, false)
     made.tick()
     await once(nodeOf(made))
 
     expect(taskStatesOf(made, 'review', 980)).toEqual([{ head: sha('a'), state: 'withdrawn' }])
     expect(taskStatesOf(made, 'answer', 980)).toEqual([{ head: sha('a'), state: 'withdrawn' }])
+    expect(taskStatesOf(made, 'merge', 980)).toEqual([{ head: sha('a'), state: 'withdrawn' }])
+    expect(() => completeTask(made.db, made.clock.now().toISOString(), held, [])).toThrow(StaleLease)
   })
 
   it('a queued review task of an old head is superseded by deriveQueues beside the close node as before', async () => {
