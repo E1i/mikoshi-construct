@@ -1,5 +1,6 @@
 import type { Status } from '../shift/relaunch.js'
-import { spawn } from 'node:child_process'
+import type { ProcessRow } from './exit.js'
+import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,6 +9,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../bus/db.js'
 import { statusOf } from '../shift/relaunch.js'
+import { ancestors, parsePs } from './exit.js'
 import { windowEndObserver } from './role-end.js'
 
 export const PREFIX = '[miko] '
@@ -54,6 +56,31 @@ export function takeExitRequest(request: string): boolean {
     return false
   rmSync(request, { force: true })
   return true
+}
+
+export function requesterOf(request: string): number | undefined {
+  try {
+    const pid = Number(readFileSync(request, 'utf8').trim())
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+export function requestEndsSession(table: ProcessRow[] | null, requester: number | undefined, sessionPid: number | undefined): boolean {
+  if (table === null || requester === undefined || sessionPid === undefined)
+    return true
+  return requester === sessionPid || ancestors(table, requester).some(row => row.pid === sessionPid)
+}
+
+function readTable(): ProcessRow[] | null {
+  try {
+    return parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' }))
+  }
+  catch {
+    return null
+  }
 }
 
 const SHELL_SYNTAX = /[;&|()<>`\n]/
@@ -182,8 +209,13 @@ export function runSession(command: string, prompt: string | undefined, request:
     rmSync(request, { force: true })
     const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit', env: { ...process.env, [LOOP_PID_VARIABLE]: String(process.pid), [EXIT_REQUEST_VARIABLE]: request } })
     const watcher = setInterval(() => {
-      if (takeExitRequest(request))
+      const requester = requesterOf(request)
+      if (!takeExitRequest(request))
+        return
+      if (requestEndsSession(readTable(), requester, child.pid))
         child.kill('SIGTERM')
+      else
+        console.error(`${PREFIX}an exit request from pid ${requester} does not come from the session this loop started: ignored`)
     }, pollMs)
     child.on('error', () => {
       clearInterval(watcher)

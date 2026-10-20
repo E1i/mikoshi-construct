@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, isNestedClaude, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, stopReasonOf } from '../../miko/exit.js'
+import { ancestors, exitDecision, FRESH_MS, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf } from '../../miko/exit.js'
 import { mikoHandoff } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -376,28 +376,30 @@ describe('under the pnpm miko loop miko:exit asks the loop to end the session an
   })
 })
 
-describe('a nested claude session does not take the loop exit path', () => {
+describe('under the loop variables there is one path whatever the process table shows', () => {
   const env = { MIKO_LOOP_PID: '10', MIKO_EXIT_REQUEST: '/h/miko-exit.request' }
-  const shell = { pid: 11, ppid: 10, args: 'sh -c claude "$@" miko' }
-  const outer = { pid: 12, ppid: 11, args: 'claude --permission-mode auto' }
-  const zsh = { pid: 13, ppid: 12, args: '/bin/zsh -c -l eval claude' }
-  const nested = { pid: 14, ppid: 13, args: 'claude --permission-mode auto' }
-  const exitCall = { pid: 15, ppid: 14, args: '/bin/zsh -c -l eval pnpm miko:exit' }
+  const claudeAbove = parsePs(' 10 1 node tsx scripts/miko/loop.ts\n 12 10 claude\n 13 12 zsh\n 14 13 claude\n 15 14 node exit.ts\n')
 
-  it('the loop session itself keeps the request file', () => {
-    expect(loopRequestOf(env, () => [{ ...exitCall, ppid: 12 }, outer, shell])).toBe(env.MIKO_EXIT_REQUEST)
+  it('the request file is the loop variable whenever the loop pid is set, and absent otherwise', () => {
+    expect(loopRequestOf(env)).toBe(env.MIKO_EXIT_REQUEST)
+    expect(loopRequestOf({})).toBeUndefined()
+    expect(loopRequestOf({ MIKO_EXIT_REQUEST: env.MIKO_EXIT_REQUEST })).toBeUndefined()
   })
 
-  it('a claude under another claude gets no request file, so it falls to the non-loop path', () => {
-    expect(isNestedClaude([exitCall, nested, zsh, outer, shell])).toBe(true)
-    expect(loopRequestOf(env, () => [exitCall, nested, zsh, outer, shell])).toBeUndefined()
-  })
-
-  it('without the loop variables there is no request file, and an EPERM from ps keeps the loop path', () => {
-    expect(loopRequestOf({}, () => [])).toBeUndefined()
-    expect(loopRequestOf(env, () => {
+  it('the request names the nearest claude above the caller, which outlives the caller, and nothing when ps fails or no claude is found', () => {
+    expect(sessionClaudeOf(() => claudeAbove, 15)).toBe(14)
+    expect(sessionClaudeOf(() => parsePs(' 10 1 node tsx scripts/miko/loop.ts\n 15 10 node exit.ts\n'), 15)).toBeUndefined()
+    expect(sessionClaudeOf(() => {
       throw Object.assign(new Error('spawnSync ps EPERM'), { code: 'EPERM' })
-    })).toBe(env.MIKO_EXIT_REQUEST)
+    }, 15)).toBeUndefined()
+  })
+
+  it('a claude above the caller does not change the request path', () => {
+    const requests: string[] = []
+    const outcome = exit({ pid: 15, table: () => claudeAbove, loopRequest: loopRequestOf(env), requestEnd: request => requests.push(request), readings: () => AT_CONTEXT })
+    expect(outcome).toMatchObject({ code: 0, kills: [], recorded: [expect.objectContaining({ reason: 'context' })] })
+    expect(requests).toEqual([env.MIKO_EXIT_REQUEST])
+    expect(outcome.lines.join('\n')).toContain('the loop ends the session at the context limit')
   })
 })
 
