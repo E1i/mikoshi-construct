@@ -225,12 +225,17 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   const request = exitRequestFile(os.homedir(), process.pid)
   const ended = once(() => windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) })('close'))
   endOnHangup(ended, code => process.exit(code))
-  process.exitCode = await runMikoLoop({
-    status: () => statusOfFile(handoff),
-    handoffMtime: () => mtimeOf(handoff),
-    ...sessionAndPauseSharingCtrlCs(ctrlC, prompt => runSession(command, prompt, request)),
-    doubleCtrlC: ctrlC.seen,
-    err: line => console.error(line),
-    ended,
-  })
+  try {
+    process.exitCode = await runMikoLoop({
+      status: () => statusOfFile(handoff),
+      handoffMtime: () => mtimeOf(handoff),
+      ...sessionAndPauseSharingCtrlCs(ctrlC, prompt => runSession(command, prompt, request)),
+      doubleCtrlC: ctrlC.seen,
+      err: line => console.error(line),
+      ended,
+    })
+  }
+  finally {
+    rmSync(request, { force: true })
+  }
 }

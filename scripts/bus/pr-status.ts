@@ -6,12 +6,13 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
-import { parseIncluded } from './github.js'
+import { parseIncluded, RATE_LIMIT_STATUSES } from './github.js'
 import { CARD_STOPPED } from './inbox.js'
 import { TASK_LEASED } from './lease.js'
 
 export const PREFIX = '[bus:pr-status] '
 export const PR_STATUS_SET = 'pr.status.set'
+export const PR_STATUS_REFUSED = 'pr.status.refused'
 export const STATUS_CONTEXT = 'mikoshi'
 export const STATUS_ACTOR = 'worker:status:bus'
 export const STEP_EVENTS = [PR_OPENED, TASK_LEASED, REVIEW_RECORDED, 'card.answered', 'update.done', MERGE_DONE, CARD_STOPPED] as const
@@ -25,6 +26,7 @@ export interface StepStatus {
   head: string
   step: string
   state: StatusState
+  refused?: number
 }
 
 export interface StepEvent {
@@ -70,6 +72,10 @@ function isSuccess(status: number): boolean {
   return status >= 200 && status < 300
 }
 
+function isPermanentRefusal(status: number): boolean {
+  return status >= 400 && status < 500 && !RATE_LIMIT_STATUSES.has(status)
+}
+
 export function stepStatusOf(event: StepEvent): StepStatus | null {
   const step = stepAndState(event)
   const head = headOf(event)
@@ -82,7 +88,7 @@ export function statusFields(status: StepStatus): Record<string, string> {
   return { state: status.state, context: STATUS_CONTEXT, description: `${STATUS_CONTEXT}: ${status.step}` }
 }
 
-const LAST_SET = `SELECT payload FROM events WHERE type = '${PR_STATUS_SET}' ORDER BY id DESC LIMIT 1`
+const LAST_SET = `SELECT payload FROM events WHERE type IN ('${PR_STATUS_SET}', '${PR_STATUS_REFUSED}') ORDER BY id DESC LIMIT 1`
 const STEPS_AFTER = `SELECT id, type, pr, head, payload FROM events WHERE legacy = 0 AND id > ? AND type IN (${STEP_EVENTS.map(() => '?').join(', ')}) ORDER BY id`
 
 function cursorOf(db: DatabaseSync): number {
@@ -99,20 +105,21 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
     if (status === null)
       continue
     const response = post(`repos/{owner}/{repo}/statuses/${status.head}`, statusFields(status))
-    if (!isSuccess(response.status))
+    const refused = !isSuccess(response.status)
+    if (refused && !isPermanentRefusal(response.status))
       throw new Error(`${PREFIX}PR #${status.pr} ${status.head}: GitHub answered ${response.status} to the status ${STATUS_CONTEXT}: ${status.step}; nothing recorded, the step is posted again on the next run`)
     appendEvent(db, {
       ts: now().toISOString(),
-      type: PR_STATUS_SET,
+      type: refused ? PR_STATUS_REFUSED : PR_STATUS_SET,
       actor: STATUS_ACTOR,
       cardId: null,
       pr: status.pr,
       head: status.head,
-      dedupeKey: `${PR_STATUS_SET}:${event.id}`,
+      dedupeKey: `${refused ? PR_STATUS_REFUSED : PR_STATUS_SET}:${event.id}`,
       payload: { event_id: event.id, step: status.step, state: status.state, status: response.status },
       legacy: false,
     })
-    set.push(status)
+    set.push(refused ? { ...status, refused: response.status } : status)
   }
   return set
 }
@@ -133,7 +140,7 @@ function main(): number {
   const db = openBus(defaultBusPath())
   try {
     for (const status of setStepStatuses(db, ghApiPost(process.cwd())))
-      console.log(`${PREFIX}PR #${status.pr} ${status.head.slice(0, 7)}: ${STATUS_CONTEXT}: ${status.step} (${status.state})`)
+      console.log(`${PREFIX}PR #${status.pr} ${status.head.slice(0, 7)}: ${STATUS_CONTEXT}: ${status.step} (${status.refused === undefined ? status.state : `refused ${status.refused}, recorded and passed`})`)
     return 0
   }
   finally {

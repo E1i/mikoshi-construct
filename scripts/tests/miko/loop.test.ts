@@ -606,7 +606,7 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     expect(readFileSync(seen, 'utf8').trim()).toBe(`yes ${process.pid}`)
   }, 10_000)
 
-  it('a compound command runs through the shell as it is written', async () => {
+  it('a command with shell syntax runs through the shell as it is written: it is not exec\'d, so an exit request ends only that shell, not the session', async () => {
     const file = request()
     const seen = `${file}.compound`
     expect(sessionScript(`true; echo ran > ${seen}`)).toBe(`true; echo ran > ${seen} "$@"`)

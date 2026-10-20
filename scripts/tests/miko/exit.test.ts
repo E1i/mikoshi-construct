@@ -2,7 +2,7 @@ import type { RoleStop, WindowEnd } from '../../bus/role.js'
 import type { ExitLine, ExitReadings } from '../../miko/eddies-measure.js'
 import type { MikoExitDeps } from '../../miko/exit.js'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -132,7 +132,7 @@ function exit(overrides: Partial<MikoExitDeps>): Outcome {
 }
 
 describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
-  it('ends a stub session at the context warn under the loop, the loop starts the next one, which ends the loop on its own, and the exit is journalled', async () => {
+  it('ends a stub session at the context warn under the loop, the loop starts the next one, which ends the loop on its own, the exit is journalled and no exit request is left', async () => {
     const dir = home(['write exit', 'end-loop'])
     const { code, stderr } = await run(dir, TSX, [LOOP])
     expect(code).toBe(0)
@@ -141,6 +141,7 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
     expect(read(dir, 'survived')).toBe('')
     expect(stderr).toContain('STATUS: CONTINUE: next session')
     expect(journal(dir)).toEqual([expect.objectContaining({ event: 'session-exit', session_id: SESSION, reason: 'context', start: { input: CONTEXT_WARN, cache_write: 0, cache_read: 0 } })])
+    expect(readdirSync(path.dirname(mikoHandoff(dir))).filter(name => name.startsWith('miko-exit.'))).toEqual([])
   }, 20_000)
 
   it('refuses when miko.md is older than two minutes', async () => {
