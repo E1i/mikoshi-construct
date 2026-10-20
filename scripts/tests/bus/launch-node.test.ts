@@ -528,11 +528,17 @@ describe('the launch node', () => {
       { session: 's-982', pgid: 4242, since: expect.any(String) as unknown },
       { session: 's-982', pgid: 4242, since: expect.any(String) as unknown },
     ])
+    made.clock.advance(PULSE_MINUTES * 60_000 - 1)
+    node.stopOverdue()
+    expect(pulses()).toBe(2)
+    made.clock.advance(1)
+    node.stopOverdue()
+    expect(pulses()).toBe(3)
 
     alive = false
     made.clock.advance(PULSE_MINUTES * 60_000)
     node.stopOverdue()
-    expect(pulses()).toBe(2)
+    expect(pulses()).toBe(3)
   })
 
   it('a pid reused by a process that does not name the session writes no pulse', async () => {
