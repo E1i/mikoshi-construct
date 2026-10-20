@@ -12,7 +12,7 @@ import { RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
 import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, recordStarted, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
 import { switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
@@ -305,6 +305,73 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     shadow = [NOT_CLEAN]
     reduceRepairs = false
     expect(s.keeper.step().at(-1)).toContain('failed to start 1 time(s) in a row')
+  })
+
+  it('a worker down past its backoff is retried and writes an event', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-down-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const review = workerLaunches(() => []).review
+    const starts: number[] = []
+    const lines: string[] = []
+    const clock = { now: Date.parse('2026-10-20T19:40:00.000Z') }
+    const keeper = new WorkerKeeper({
+      wanted: () => [review],
+      start: () => {
+        starts.push(clock.now)
+        return { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 }
+      },
+      processes: () => [],
+      reduce: () => [],
+      journal: () => {},
+      down: down => recordWorkerDown(db, new Date(clock.now).toISOString(), down),
+      now: () => clock.now,
+    })
+    const downRows = (): Record<string, unknown>[] => db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(WORKER_DOWN).map(row => JSON.parse(String(row.payload)) as Record<string, unknown>)
+    const attempts = FAILURES_REPORTED + 3
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const before = starts.length
+      lines.push(...keeper.step())
+      expect(starts).toHaveLength(before + 1)
+      expect(lines.filter(line => line.includes(`${launchName(review)} is switched on and not running; starting it`))).toHaveLength(attempt)
+      clock.now += backoffMs(attempt) - 1
+      expect(keeper.step()).toEqual([])
+      expect(starts).toHaveLength(before + 1)
+      clock.now += 1
+    }
+
+    const rows = downRows()
+    expect(rows.map(row => row.failures)).toEqual(Array.from({ length: attempts - 1 }, (_, index) => index + 2))
+    expect(rows.at(-1)).toEqual({ worker: launchName(review), failures: attempts, cause: `${PREFIX}spawn failed`, next_attempt_at: new Date(starts.at(-1)! + backoffMs(attempts)).toISOString() })
+    db.close()
+  })
+
+  it('a worker.down that cannot be written leaves a line and does not stop the retries', () => {
+    const merge = workerLaunches(() => []).merge
+    const clock = { now: 0 }
+    let starts = 0
+    const keeper = new WorkerKeeper({
+      wanted: () => [merge],
+      start: () => {
+        starts++
+        return { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 }
+      },
+      processes: () => [],
+      reduce: () => [],
+      journal: () => {},
+      down: () => {
+        throw new Error('database is locked')
+      },
+      now: () => clock.now,
+    })
+
+    expect(keeper.step().join('\n')).not.toContain(WORKER_DOWN)
+    clock.now += backoffMs(1)
+    expect(keeper.step().at(-1)).toContain(`recording ${WORKER_DOWN} for ${launchName(merge)} failed: database is locked`)
+    clock.now += backoffMs(2)
+    keeper.step()
+    expect(starts).toBe(3)
   })
 
   it('the backoff stops growing at its ceiling', () => {
