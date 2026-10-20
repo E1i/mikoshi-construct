@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { RunningProcess } from '../../bus/bg.js'
 import type { BoardFiles } from '../../bus/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -81,5 +82,21 @@ describe('printBoard', () => {
     expect(html).toContain('<tr><td>update</td><td data-tone="red">down</td>')
     expect(html).toContain(`no node event since 3 min ago`)
     expect(html).toContain(`${NODE_EQUIVALENCE} 1 min ago`)
+  })
+
+  it('a running restart worker, which emits no node events, is not shown down for want of one', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-restart-'))
+    roots.push(root)
+    const busPath = path.join(root, 'bus.db')
+    openBus(busPath).close()
+    writeFileSync(path.join(root, WORKERS_FILE), `${JSON.stringify({ on: ['restart'] })}\n`)
+    const ps = (): RunningProcess[] => [{ pid: 4242, args: 'node scripts/bus/restart-worker.ts --on' }]
+    let html = ''
+    expect(printBoard(busPath, NOW, (text) => {
+      html += text
+    }, ps)).toBe(0)
+    expect(html).not.toContain('<tr><td>restart</td><td data-tone="red">down</td>')
+    expect(html).not.toContain('no node event on the bus')
+    expect(html).toContain('<td>pid 4242, no fresh event and no live lease</td>')
   })
 })

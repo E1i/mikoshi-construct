@@ -165,6 +165,7 @@ export function writeBoardPage(file: string, html: string, files: BoardFiles = D
 export const ALIVE_MS = 2 * 60_000
 export const LIVENESS_EVENTS = [NODE_EQUIVALENCE, 'netwatch.tick'] as const
 export const SEEN_ON_THE_BUS = 0
+export const WORKERS_WITHOUT_NODE_EVENTS: readonly string[] = ['restart']
 
 const LAST_LIVENESS = `SELECT type, ts FROM events WHERE type IN (${LIVENESS_EVENTS.map(() => '?').join(', ')}) AND substr(actor, 1, ?) = ? ORDER BY id DESC LIMIT 1`
 
@@ -184,7 +185,7 @@ export function processesOrNone(list: ProcessList): RunningProcess[] {
 }
 
 export function workerLiveness(db: DatabaseSync, now: Date): Liveness[] {
-  return WORKERS.map((worker) => {
+  return WORKERS.filter(worker => !WORKERS_WITHOUT_NODE_EVENTS.includes(worker)).map((worker) => {
     const prefix = `worker:${worker}:`
     const last = (db.prepare(LAST_LIVENESS).get(...LIVENESS_EVENTS, prefix.length, prefix) as { type: string, ts: string } | undefined) ?? null
     return { worker, alive: last !== null && now.getTime() - Date.parse(last.ts) < ALIVE_MS, last }
@@ -196,10 +197,11 @@ export function watchedNow(busDir: string, processes: RunningProcess[], liveness
   const launches = workerLaunches(() => [])
   const pidOf = (markers: readonly string[]): number | null => runningInstance(processes, markers)?.pid ?? null
   const aliveOnBus = (worker: string): boolean => liveness.some(entry => entry.worker === worker && entry.alive)
+  const pidOfWorker = (worker: string, markers: readonly string[]): number | null => WORKERS_WITHOUT_NODE_EVENTS.includes(worker) ? pidOf(markers) : aliveOnBus(worker) ? pidOf(markers) ?? SEEN_ON_THE_BUS : null
   return [
     { name: RUN_SCRIPT, actor: 'reducer', queue: null, pid: process.pid, wanted: true },
     { name: 'supervisor', actor: null, queue: null, pid: pidOf(SUPERVISOR_LAUNCH.markers), wanted: true },
-    ...WORKERS.map(worker => ({ name: worker, actor: `worker:${worker}:`, queue: worker, pid: aliveOnBus(worker) ? pidOf(launches[worker].markers) ?? SEEN_ON_THE_BUS : null, wanted: on.includes(worker) })),
+    ...WORKERS.map(worker => ({ name: worker, actor: `worker:${worker}:`, queue: worker, pid: pidOfWorker(worker, launches[worker].markers), wanted: on.includes(worker) })),
   ]
 }
 

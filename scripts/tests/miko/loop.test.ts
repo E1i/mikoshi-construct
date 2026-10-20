@@ -11,7 +11,7 @@ import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { failRaise, leaseRole, observeRoleStop, ROLE_RETURNED, roleToOwner } from '../../bus/role.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
-import { claudeCommand, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
+import { CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -613,6 +613,12 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     expect(await runSession(`true && echo ran > ${seen}`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
     expect(readFileSync(seen, 'utf8').trim()).toBe('ran')
   }, 10_000)
+
+  it('refuses a command with shell syntax, since an exit request would end only its shell and leave claude running', () => {
+    expect(compoundCommandRefusal('true && sleep 30')).toBe(`${PREFIX}${CLAUDE_VARIABLE} contains shell syntax (true && sleep 30): an exit request could not end the claude it starts; name one command`)
+    expect(compoundCommandRefusal(DEFAULT_CLAUDE)).toBeNull()
+    expect(compoundCommandRefusal('MIKO_SEEN=yes /opt/claude')).toBeNull()
+  })
 
   it('names the loop and the request to the session through its environment', async () => {
     const file = request()

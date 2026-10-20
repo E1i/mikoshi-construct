@@ -62,6 +62,10 @@ export function sessionScript(command: string): string {
   return SHELL_SYNTAX.test(command) ? `${command} "$@"` : `exec env ${command} "$@"`
 }
 
+export function compoundCommandRefusal(command: string): string | null {
+  return SHELL_SYNTAX.test(command) ? `${PREFIX}${CLAUDE_VARIABLE} contains shell syntax (${command}): an exit request could not end the claude it starts; name one command` : null
+}
+
 export function claudeArgv(command: string, prompt: string | undefined): string[] {
   return ['-c', sessionScript(command), 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
@@ -218,10 +222,15 @@ export function claudeCommand(env: NodeJS.ProcessEnv): string {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const command = claudeCommand(process.env)
+  const refusal = compoundCommandRefusal(command)
+  if (refusal !== null) {
+    console.error(refusal)
+    process.exit(1)
+  }
   const ctrlC = doubleCtrlCWatcher()
   process.on('SIGINT', ctrlC.press)
   const handoff = mikoHandoff(os.homedir())
-  const command = claudeCommand(process.env)
   const request = exitRequestFile(os.homedir(), process.pid)
   const ended = once(() => windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) })('close'))
   endOnHangup(ended, code => process.exit(code))
