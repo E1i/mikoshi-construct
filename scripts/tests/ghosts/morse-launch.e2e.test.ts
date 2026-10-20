@@ -174,7 +174,7 @@ describe('the launcher and a revocation', () => {
     const before = readFileSync(journalPath(w), 'utf8')
     const { status, output } = launch(w, 'yes', ['--revoke', sha256, '--card', `#${CARD}`])
     expect(status).toBe(0)
-    expect(output).toContain(`card #${CARD}: approval ${sha256.slice(0, 7)} revoked in ${journalPath(w)}`)
+    expect(output).toContain(`card #${CARD}: approval ${sha256.slice(0, 7)} revoked on the bus`)
     expect(output).not.toContain('DECISION:')
     expect(readFileSync(journalPath(w), 'utf8')).toBe(before)
     const added = ghostLines(busPathOf(w))

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
+import { ghostLines } from '../../ghosts/journal.js'
 import { runClaude } from '../../shift/claude.js'
 import { runShift } from '../../shift/shift.js'
 import { admitCards } from './fixtures/admitted.js'
@@ -87,7 +88,8 @@ function depsOf(world: World, gh: (args: string[]) => string, out: string[], err
 }
 
 function mergeLines(world: World): Record<string, unknown>[] {
-  return readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event === 'merge')
+  const file = readFileSync(world.journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
+  return [...file, ...ghostLines(busOf(world))].filter(line => line.event === 'merge')
 }
 
 const DONE_1 = { event: 'path', task: '1', path: 'cheap', pr: 600, verification: 'run' }

@@ -43,6 +43,7 @@ import { VERIFICATION_WORDS } from '../core/verification.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
+import { recordGhostLine, withGhostLines } from '../ghosts/journal.js'
 import { tailLines } from '../ghosts/preflight-trees.js'
 import { PREFIX as CLOSE_PREFIX, closingHistoryLines, prBodyOf, realpathOrSelf, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
@@ -1049,28 +1050,40 @@ async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: C
   return advance(deps, dir, parking, chain, pipeline.reviews, taken, pipeline.shard, ending)
 }
 
-function withClosingHistory(deps: ShiftDeps): ShiftDeps {
+const SHIFT_WRITER = 'shift'
+
+function busJournalLines(text: string): Record<string, unknown>[] {
+  return text.split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as Record<string, unknown>)
+}
+
+function withBusJournal(deps: ShiftDeps): ShiftDeps {
   const bus = deps.bus
   if (bus === undefined)
     return deps
   const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
   const history = (file: string | null): string | null => {
     const closings = closingHistoryLines(bus).map(line => `${JSON.stringify(line)}\n`).join('')
-    if (closings === '')
-      return file
-    const text = file ?? ''
-    return `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${closings}`
+    const text = `${withGhostLines(file, bus)}${closings}`
+    return file === null && text === '' ? null : text
   }
   return {
     ...deps,
     exists: target => target === journal ? history(deps.exists(journal) ? deps.read(journal) : null) !== null : deps.exists(target),
     read: file => file === journal ? history(deps.exists(journal) ? deps.read(journal) : null) ?? '' : deps.read(file),
     readJournal: file => file === journal ? history(deps.readJournal(file)) : deps.readJournal(file),
+    append: (file, text) => {
+      if (file !== journal) {
+        deps.append(file, text)
+        return
+      }
+      for (const line of busJournalLines(text))
+        recordGhostLine(SHIFT_WRITER, line, bus)
+    },
   }
 }
 
 export async function runShift(argv: string[], given: ShiftDeps): Promise<number> {
-  const deps = withClosingHistory(given)
+  const deps = withBusJournal(given)
   if (argv.includes('--help')) {
     deps.out(USAGE)
     return 0

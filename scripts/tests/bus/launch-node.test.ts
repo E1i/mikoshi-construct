@@ -948,6 +948,20 @@ describe('the launch node in ladder mode', () => {
     expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step: 'launch', contour: 'ladder' }])
   })
 
+  it('an approval only in the legacy ghosts.jsonl does not start the launch step: the ladder step reads the bus alone', async () => {
+    const made = bench()
+    const world = ladderWorld(made, null)
+    mkdirSync(world.tree, { recursive: true })
+    writeFileSync(world.briefFile, APPROVED_BRIEF)
+    const sha256 = approvalSha256(canonicalImplementText(APPROVED_BRIEF)!)
+    writeFileSync(path.join(world.handoff, 'ghosts.jsonl'), `${JSON.stringify({ event: 'approval', by: 'morse', card: LADDER_CARD, sha256 })}\n`)
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    made.tick()
+    await once(ladderNode(made, world))
+
+    expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step: 'brief', contour: 'ladder' }])
+  })
+
   it('a ladder card with two card.fell in the bus gets no launch task and spawns nothing', async () => {
     const made = bench()
     const world = ladderWorld(made, null)

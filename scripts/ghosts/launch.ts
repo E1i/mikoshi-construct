@@ -351,13 +351,13 @@ async function main(): Promise<void> {
 
   if (fall !== null) {
     recordGhostLine('launch', fallEvent(fall.card, fall.kind))
-    console.log(`card #${fall.card}: fall ${fall.kind} recorded, ${fallsOf(journalEvents(journalPathOf(out)), fall.card).length} in ${journalPathOf(out)}`)
+    console.log(`card #${fall.card}: fall ${fall.kind} recorded on the bus, ${fallsOf(journalEvents(journalPathOf(out)), fall.card).length} in all`)
     return
   }
 
   if (revoke !== null) {
     recordGhostLine('launch', revokeEvent(revoke.sha256, revoke.card, new Date().toISOString()))
-    console.log(`card #${revoke.card}: approval ${revoke.sha256.slice(0, 7)} revoked in ${journalPathOf(out)}`)
+    console.log(`card #${revoke.card}: approval ${revoke.sha256.slice(0, 7)} revoked on the bus`)
     return
   }
 

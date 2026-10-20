@@ -314,7 +314,7 @@ describe('an approved brief is launched by the next step', () => {
     approve(world, 1)
     const emptyBus = { ...world, bus: path.join(world.root, 'empty-bus', 'bus.db') }
     await shiftOver(emptyBus, { launch: 'running' }, path.join(world.root, 'shift-2'))
-    expect(eventsOf(world, 'stop').at(-1)).toMatchObject({ at: 'fault', why: `card #1 has no ${CARD_STARTED} in the bus ${emptyBus.bus} and no task:start line of a legacy start in ${path.join(world.handoff, 'ghosts.jsonl')}, so the launch step has no tree` })
+    expect(eventsOf(emptyBus, 'stop').at(-1)).toMatchObject({ at: 'fault', why: `card #1 has no ${CARD_STARTED} in the bus ${emptyBus.bus} and no task:start line of a legacy start in ${path.join(world.handoff, 'ghosts.jsonl')}, so the launch step has no tree` })
   })
 
   it('an approved brief is launched by the next step: a tree that is gone stops at fault and a dirty tree too', async () => {

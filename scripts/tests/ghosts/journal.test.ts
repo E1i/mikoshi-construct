@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { approvalOf, journalEvents, revocationOf, revokeEvent } from '../../ghosts/approval.js'
 import { ghostLines, ghostLinesText, journalText, recordGhostLine, taskLine } from '../../ghosts/journal.js'
 import { ownBusPerTest } from './own-bus.js'
 
@@ -90,5 +91,20 @@ describe('journalText', () => {
     recordGhostLine('test', taskLine(BASE_ENTRY), busOf())
 
     expect(journalText(journal, busOf()).split('\n').filter(line => line !== '')).toHaveLength(2)
+  })
+})
+
+describe('journalEvents over both sources', () => {
+  it('a revoke on the bus revokes an approval that only the legacy file holds, for the same card', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-journal-'))
+    const journal = path.join(dir, 'ghosts.jsonl')
+    const sha256 = 'c'.repeat(64)
+    writeFileSync(journal, `${JSON.stringify({ event: 'approval', by: 'owner', card: 77, sha256, ts: '2026-10-01T00:00:00.000Z' })}\n`)
+    recordGhostLine('test', revokeEvent(sha256, 77, '2026-10-21T00:00:00.000Z'), busOf())
+
+    const events = journalEvents(journal)
+    expect(events.map(event => event.event)).toEqual(['approval', 'revoke'])
+    expect(approvalOf(events, sha256, 77)).toBeDefined()
+    expect(revocationOf(events, sha256, 77)).toBeDefined()
   })
 })

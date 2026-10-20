@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readBudgetLines } from '../../core/eddies.js'
+import { ghostLines } from '../../ghosts/journal.js'
 import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runClaude } from '../../shift/claude.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
@@ -156,8 +157,12 @@ function jsonl(file: string): Record<string, unknown>[] {
   return !existsSync(file) ? [] : readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
 }
 
+function ghostJournalOf(world: World): Record<string, unknown>[] {
+  return [...jsonl(path.join(world.handoff, 'ghosts.jsonl')), ...ghostLines(busOf(world))]
+}
+
 function stopsOf(world: World): Record<string, unknown>[] {
-  return jsonl(path.join(world.handoff, 'ghosts.jsonl')).filter(line => line.event === 'stop')
+  return ghostJournalOf(world).filter(line => line.event === 'stop')
 }
 
 function stubRuns(world: World, id: string): number {
@@ -576,6 +581,7 @@ describe('w8: shift:report shows whether each task was closed with task:close', 
     taskFile(world, '03.md', '3', 'scripts/c/**', 'do c')
     expect(await runShift([world.shift], shiftDeps(world, captured()))).toBe(0)
     const journal = path.join(world.handoff, 'ghosts.jsonl')
+    mkdirSync(world.handoff, { recursive: true })
     appendFileSync(journal, `${JSON.stringify({ event: 'path', task: '1', path: 'cheap', pr: 501, verification: 'run', ts: 'x' })}\n`)
     appendFileSync(journal, `${JSON.stringify({ event: 'path', task: '3', path: 'cheap', pr: 503, ts: 'x' })}\n`)
     const report = captured()
@@ -711,7 +717,7 @@ describe('w12: continue: auto restarts a session that stopped at a boundary its 
     await runShift([world.shift], shiftDeps(world, captured()))
     expect(stubRuns(world, '1')).toBe(1)
     expect(jsonl(path.join(world.shift, 'shift.jsonl')).find(entry => entry.event === 'task')).toMatchObject({ continuations: [], lastExit: 'boundary' })
-    expect(readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8')).toContain('the handoff lacks current card, queue')
+    expect(JSON.stringify(stopsOf(world))).toContain('the handoff lacks current card, queue')
   })
 
   it('w12: an eddies warn that left no shift report is not continued, and the stop says the report is missing', async () => {
@@ -719,7 +725,7 @@ describe('w12: continue: auto restarts a session that stopped at a boundary its 
     continuingTask(world, '01.md', '1', 'STUB-WARN STUB-NOREPORT here')
     await runShift([world.shift], shiftDeps(world, captured()))
     expect(stubRuns(world, '1')).toBe(1)
-    expect(readFileSync(path.join(world.handoff, 'ghosts.jsonl'), 'utf8')).toContain('the session wrote no shift report at')
+    expect(JSON.stringify(stopsOf(world))).toContain('the session wrote no shift report at')
   })
 
   it('w12: no restart after a boundary under continue: stop', async () => {
