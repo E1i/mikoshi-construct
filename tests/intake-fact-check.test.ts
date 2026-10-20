@@ -295,7 +295,7 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
   })
 
   const companionCases: Record<string, { repository: string[], touches: string[], added: string[] }> = {
-    'the scripts manifest': { repository: ['package.json', 'CONTRIBUTING.md', 'tests/harness-membership.test.ts'], touches: ['package.json'], added: ['CONTRIBUTING.md', 'tests/harness-membership.test.ts'] },
+    'the scripts manifest': { repository: ['package.json', 'CONTRIBUTING.md', 'tests/harness-membership.test.ts'], touches: ['package.json', 'tests/harness-membership.test.ts'], added: ['CONTRIBUTING.md'] },
     'the command definitions': { repository: ['src/program.ts', 'README.md', 'docs/cli.md', 'docs/guide/getting-started.md', 'tests/readme-commands.test.ts'], touches: ['src/program.ts', 'tests/**'], added: ['README.md', 'docs/cli.md', 'docs/guide/**'] },
     'published code': { repository: ['templates/base/a.md', '.changeset/config.json'], touches: ['templates/base/**'], added: ['.changeset/**'] },
     'source code': { repository: ['src/model/**', 'src/model/write.ts', 'tests/a.test.ts'], touches: ['src/model/**'], added: ['tests/**'] },

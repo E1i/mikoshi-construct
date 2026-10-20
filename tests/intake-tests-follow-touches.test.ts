@@ -98,6 +98,15 @@ describe('intake puts the tests that cover the touched files into touches', () =
     expect(readFileSync(path.join(w.parking, '13.md'), 'utf8')).not.toContain('seam: ')
   })
 
+  it('covering tests do not raise a risk seam on a card whose own touches stand at one level', () => {
+    const w = world({ 'src/materialize/plan.ts': 'export function plan() {}\n', 'scripts/tests/init-world.test.ts': 'import { plan } from \'../../src/materialize/plan.js\'\n' }, ['src/materialize/plan.ts'])
+    expect(intake(w).status).toBe('written')
+    expect(parkedTouches(w)).toEqual(['src/materialize/plan.ts', 'scripts/tests/init-world.test.ts'])
+    const text = readFileSync(path.join(w.parking, '13.md'), 'utf8')
+    expect(text).not.toContain('seam: risk')
+    expect(text).not.toContain('slice: ')
+  })
+
   it('a directory holding more than six covering tests is carried as one mask', () => {
     const tests = Object.fromEntries(Array.from({ length: 7 }, (_, at) => [`scripts/tests/bus/covering-${at}.test.ts`, 'import { runReviewWorker } from \'../../bus/review-worker.js\'\n']))
     const w = world({ 'scripts/bus/review-worker.ts': 'export function runReviewWorker() {}\n', 'scripts/tests/ci/one.test.ts': 'import \'../../bus/review-worker.js\'\n', ...tests }, ['scripts/bus/review-worker.ts'])
