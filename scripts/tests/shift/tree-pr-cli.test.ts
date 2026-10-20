@@ -149,6 +149,30 @@ describe('tree-pr for a finished card session', () => {
     expect({ code, lines, stops }).toEqual({ code: 1, lines: [`${PREFIX}951.md: ${why}`], stops: [[951, why]] })
   })
 
+  it('a card file the grammar refuses gives card.stopped with the grammar\'s reason', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+    roots.push(root)
+    const cardFile = path.join(root, 'lane-q', '951.md')
+    mkdirSync(path.dirname(cardFile), { recursive: true })
+    writeFileSync(cardFile, 'not a card\n')
+    const lines: string[] = []
+    const stops: [number, string][] = []
+
+    const code = runTreePr([cardFile, root], { git: untouchable, gh: untouchable, opened: untouchable, stopped: (cardId, why) => stops.push([cardId, why]) }, line => lines.push(line))
+
+    expect({ code, stops: stops.map(([cardId]) => cardId), line: lines[0] === `${PREFIX}951.md: ${stops[0]?.[1]}` }).toEqual({ code: 1, stops: [951], line: true })
+  })
+
+  it('a refusal for a card file whose name is no card number exits 1 and stops no card', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
+    roots.push(root)
+    const lines: string[] = []
+
+    const code = runTreePr([path.join(root, 'lane-q', 'notes.md'), root], { git: untouchable, gh: untouchable, opened: untouchable, stopped: untouchable }, line => lines.push(line))
+
+    expect({ code, lines: lines.length }).toEqual({ code: 1, lines: 1 })
+  })
+
   it('a tree-pr refusal after a launched session gives card.stopped with its reason', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
     roots.push(root)

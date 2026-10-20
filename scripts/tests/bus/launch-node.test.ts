@@ -22,7 +22,7 @@ import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
-import { handoffLadderSteps, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchDirOf, launchIsolationCommand, LaunchNode, realStarterPorts, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { handoffLadderSteps, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, realStarterPorts, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
@@ -736,14 +736,18 @@ describe('where a launched session works', () => {
     roots.push(tree)
     execFileSync('git', ['-C', tree, 'init', '-q'])
     execFileSync('git', ['-C', tree, 'remote', 'add', 'origin', 'git@github.com:o/r.git'])
+    execFileSync('git', ['-C', tree, 'remote', 'add', 'upstream', 'ssh://git@github.com/o/u.git'])
     const env = { ...process.env, ...realStarterPorts(tree, {}, '', () => 'u').envOf(1114) }
-    const url = (...args: string[]): string => execFileSync('git', ['-C', tree, 'remote', 'get-url', ...args, 'origin'], { encoding: 'utf8', env }).trim()
+    const url = (remote: string, ...args: string[]): string => execFileSync('git', ['-C', tree, 'remote', 'get-url', ...args, remote], { encoding: 'utf8', env }).trim()
 
-    expect({ fetch: url(), push: url('--push') }).toEqual({ fetch: 'https://github.com/o/r.git', push: 'https://github.com/o/r.git' })
+    expect({ fetch: url('origin'), push: url('origin', '--push') }).toEqual({ fetch: 'https://github.com/o/r.git', push: 'https://github.com/o/r.git' })
+    expect({ fetch: url('upstream'), push: url('upstream', '--push') }).toEqual({ fetch: 'https://github.com/o/u.git', push: 'https://github.com/o/u.git' })
   })
 
   it('the launch session report is written under an allowed path', () => {
-    expect(path.relative('/home/x', launchDirOf('/home/x'))).toBe(path.join('.construct', 'shift', 'launch'))
+    const { launchDir } = launchPlaces('/home/x', '/repo')
+    expect(path.relative('/home/x/.construct/shift', launchDir)).toBe('launch')
+    expect(launchDir.startsWith(path.join('/home/x', '.construct', 'bus'))).toBe(false)
   })
 })
 

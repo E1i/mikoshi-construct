@@ -4,7 +4,7 @@ import type { ProcessTable } from './chain-process.js'
 import type { LadderSteps } from './ladder-starter.js'
 import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
-import type { StarterPorts } from './launch-starter.js'
+import type { StarterPlaces, StarterPorts } from './launch-starter.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode } from './node.js'
 import type { QueuedTask } from './queue.js'
@@ -47,8 +47,13 @@ import { REDUCED } from './reducer.js'
 export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
 
-export function launchDirOf(home: string): string {
-  return path.join(home, '.construct', 'shift', LAUNCH_DIR)
+export function launchPlaces(home: string, repo: string): StarterPlaces {
+  return {
+    parking: defaultParking(home),
+    launchDir: path.join(home, '.construct', 'shift', LAUNCH_DIR),
+    claude: 'claude',
+    treePr: treePrCommand(repo),
+  }
 }
 
 export const LAUNCH_LIMIT_MINUTES = 600
@@ -346,12 +351,7 @@ export function launchIsolationCommand(claude: string): string[] {
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const env = process.env
-  const places = {
-    parking: defaultParking(os.homedir()),
-    launchDir: launchDirOf(os.homedir()),
-    claude: 'claude',
-    treePr: treePrCommand(process.cwd()),
-  }
+  const places = launchPlaces(os.homedir(), process.cwd())
   const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
   const ports = realStarterPorts(process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
