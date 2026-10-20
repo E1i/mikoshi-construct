@@ -1,6 +1,106 @@
-import { execFileSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 
 export type GhRunner = (args: string[]) => string
+
+export type GhFailureCause = 'timeout' | 'transient' | 'failed' | 'budget'
+
+export type GhCall = { kind: 'ran', stdout: string, attempts: number }
+  | { kind: 'failed', cause: GhFailureCause, reason: string, stdout: string, stderr: string, attempts: number }
+
+export interface GhSpawned {
+  status: number | null
+  stdout: string
+  stderr: string
+  error?: NodeJS.ErrnoException
+}
+
+export interface GhSpawnOptions {
+  cwd?: string
+  input?: string
+  timeoutMs: number
+}
+
+export type GhSpawn = (command: string, args: string[], options: GhSpawnOptions) => GhSpawned
+
+export interface GhBudget {
+  calls: number
+  windowMs: number
+}
+
+export interface GhPortOptions {
+  command: string
+  timeoutSeconds: number
+  attempts: number
+  pauseMs: number
+  budget: GhBudget
+  spawn: GhSpawn
+  pause: (ms: number) => void
+  now: () => number
+}
+
+export interface GhCallOptions {
+  cwd?: string
+  input?: string
+}
+
+const TRANSIENT_STDERR = /HTTP 5\d\d|HTTP 403|\bTLS\b|tls:|ETIMEDOUT|i\/o timeout|connection reset/i
+
+export const GH_TIMEOUT_SECONDS = 20
+export const GH_ATTEMPTS = 3
+export const GH_PAUSE_MS = 2000
+export const GH_HOURLY_BUDGET: GhBudget = { calls: 2000, windowMs: 3_600_000 }
+
+function spawnGh(command: string, args: string[], options: GhSpawnOptions): GhSpawned {
+  const run = spawnSync(command, args, { cwd: options.cwd, input: options.input, encoding: 'utf8', stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], timeout: options.timeoutMs, killSignal: 'SIGKILL' })
+  return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '', error: run.error }
+}
+
+function blockFor(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function callOutcome(run: GhSpawned, args: string[], timeoutSeconds: number, attempts: number): GhCall {
+  const failed = (cause: GhFailureCause, reason: string): GhCall => ({ kind: 'failed', cause, reason, stdout: run.stdout, stderr: run.stderr, attempts })
+  if (run.error?.code === 'ETIMEDOUT')
+    return failed('timeout', `gh timed out after ${timeoutSeconds} s`)
+  if (run.error !== undefined)
+    return failed(TRANSIENT_STDERR.test(run.error.message) ? 'transient' : 'failed', `gh ${args.join(' ')}: ${run.error.message}`)
+  if (run.status === 0)
+    return { kind: 'ran', stdout: run.stdout, attempts }
+  const detail = run.stderr.trim() === '' ? `exit ${run.status ?? 'signal'}` : run.stderr.trim()
+  return failed(TRANSIENT_STDERR.test(run.stderr) ? 'transient' : 'failed', `gh ${args.join(' ')}: ${detail}`)
+}
+
+export class GhPort {
+  private readonly spent: number[] = []
+
+  constructor(private readonly options: GhPortOptions) {}
+
+  call(args: string[], call: GhCallOptions = {}): GhCall {
+    for (let attempt = 1; ; attempt += 1) {
+      if (!this.spend())
+        return { kind: 'failed', cause: 'budget', reason: `the gh budget of ${this.options.budget.calls} calls per ${this.options.budget.windowMs / 1000} s is spent`, stdout: '', stderr: '', attempts: attempt - 1 }
+      const outcome = callOutcome(this.options.spawn(this.options.command, args, { ...call, timeoutMs: this.options.timeoutSeconds * 1000 }), args, this.options.timeoutSeconds, attempt)
+      if (outcome.kind === 'ran' || outcome.cause === 'failed' || attempt >= this.options.attempts)
+        return outcome
+      this.options.pause(this.options.pauseMs * attempt)
+    }
+  }
+
+  private spend(): boolean {
+    const now = this.options.now()
+    while (this.spent.length > 0 && this.spent[0]! <= now - this.options.budget.windowMs)
+      this.spent.shift()
+    if (this.spent.length >= this.options.budget.calls)
+      return false
+    this.spent.push(now)
+    return true
+  }
+}
+
+export function ghPort(overrides: Partial<GhPortOptions> = {}): GhPort {
+  return new GhPort({ command: 'gh', timeoutSeconds: GH_TIMEOUT_SECONDS, attempts: GH_ATTEMPTS, pauseMs: GH_PAUSE_MS, budget: GH_HOURLY_BUDGET, spawn: spawnGh, pause: blockFor, now: Date.now, ...overrides })
+}
 
 export interface PullRequest {
   number: number
@@ -28,8 +128,6 @@ export const PR_LIST_LIMIT = 1000
 
 const PASSING = ['SUCCESS', 'SKIPPED', 'NEUTRAL']
 
-export const GH_TIMEOUT_SECONDS = 20
-
 const GH_QUERY_FAILED = 'the gh query failed'
 
 export class GhTimedOut extends Error {
@@ -38,23 +136,26 @@ export class GhTimedOut extends Error {
   }
 }
 
-function timedOut(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
+export class GhFailed extends Error {
+  readonly stderr: string
+
+  constructor(failure: Extract<GhCall, { kind: 'failed' }>) {
+    super(failure.reason)
+    this.stderr = failure.stderr
+  }
 }
 
-export function ghRunner(timeoutSeconds: number, command = 'gh'): GhRunner {
+export function ghRunner(timeoutSeconds: number, command = 'gh', port: GhPort = ghPort({ command, timeoutSeconds })): GhRunner {
   let expired: GhTimedOut | undefined
   return (args) => {
     if (expired !== undefined)
       throw expired
-    try {
-      return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutSeconds * 1000, killSignal: 'SIGKILL' })
-    }
-    catch (error) {
-      if (timedOut(error))
-        throw (expired = new GhTimedOut(timeoutSeconds))
-      throw error
-    }
+    const result = port.call(args)
+    if (result.kind === 'ran')
+      return result.stdout
+    if (result.cause === 'timeout')
+      throw (expired = new GhTimedOut(timeoutSeconds))
+    throw new GhFailed(result)
   }
 }
 

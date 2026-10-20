@@ -1,0 +1,10 @@
+[
+  "scripts/bus/card-tree.ts",
+  "scripts/bus/pr-status.ts",
+  "scripts/bus/review-worker.ts",
+  "scripts/factory/doctor.ts",
+  "scripts/ghosts/cleanup.ts",
+  "scripts/ghosts/verdict.ts",
+  "scripts/release/security-diff.ts",
+  "scripts/shift/relaunch.ts"
+]
