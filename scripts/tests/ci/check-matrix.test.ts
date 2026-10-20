@@ -1,4 +1,4 @@
-import type { MatrixMutation, RunTest } from '../../bus/check-matrix.js'
+import type { Matrix, MatrixMutation, MatrixResult, RunTest } from '../../bus/check-matrix.js'
 import type { Graph } from '../../ci/layers.js'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
@@ -8,8 +8,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { busReaderAt, CHECKS_MATRIX_EVENT } from '../../../src/commands/board/bus.js'
 import { buildCatalog, writeCatalog } from '../../bus/check-catalog.js'
-import { buildMatrix, matrixSummary, runMatrix, runMutation } from '../../bus/check-matrix.js'
+import { appendMatrix, buildMatrix, matrixArguments, matrixSummary, runMatrix, runMutation } from '../../bus/check-matrix.js'
+import { openBus } from '../../bus/db.js'
 import { openDatabase } from '../../bus/sqlite.js'
 
 const MATRIX_MODULE = path.resolve(import.meta.dirname, '../../bus/check-matrix.ts')
@@ -208,5 +210,58 @@ describe('the check matrix built from the catalog rows', () => {
     const matrix = buildMatrix([MERGE_FILE], GRAPH, () => '', db)
     expect(matrix.skipped.map(entry => entry.why)).toEqual(['the catalog predates its find and replace columns; refill it'])
     expect(matrix.layers.flatMap(layer => layer.mutations)).toEqual([])
+  })
+})
+
+const BUS_HEAD = 'a'.repeat(40)
+const BUS_TS = '2026-10-20T10:00:00.000Z'
+
+function busFile(): string {
+  return path.join(mkdtempSync(path.join(os.tmpdir(), 'check-matrix-bus-')), 'bus.db')
+}
+
+interface MatrixEventRow { type: string, actor: string, card_id: number | null, pr: number, head: string | null, payload: string }
+
+function matrixEvents(db: ReturnType<typeof openBus>): MatrixEventRow[] {
+  return db.prepare('SELECT type, actor, card_id, pr, head, payload FROM events ORDER BY id').all() as unknown as MatrixEventRow[]
+}
+
+describe('checks:matrix and the bus', () => {
+  it('checks:matrix appends its matrix for a PR to the bus', () => {
+    const [m1, m2, m3] = [mutation({ id: 'm1' }), mutation({ id: 'm2' }), mutation({ id: 'm3' })]
+    const matrix: Matrix = { full: null, layers: [{ layer: 'bus:merge', tests: [MERGE_TEST], mutations: [m1, m2, m3] }], skipped: [{ mutation: mutation({ id: 'm4' }), why: 'no test predicted to kill it' }] }
+    const results: MatrixResult[] = [
+      { mutation: m1, outcome: 'killed', why: null },
+      { mutation: m2, outcome: 'survived', why: null },
+      { mutation: m3, outcome: 'not-run', why: 'its test did not run' },
+    ]
+    const file = busFile()
+    const db = openBus(file)
+    expect(appendMatrix(db, { pr: 922, head: BUS_HEAD }, matrix, results, BUS_TS, 'test')).toBe(true)
+    const [row] = matrixEvents(db)
+    db.close()
+    expect(row).toMatchObject({ type: CHECKS_MATRIX_EVENT, actor: 'worker:checks-matrix:test', card_id: null, pr: 922, head: BUS_HEAD })
+    expect(JSON.parse(row!.payload)).toEqual({ full: null, killed: 1, survived: 1, notRun: 1, skipped: 1, summary: matrixSummary(matrix, results) })
+    const reading = busReaderAt(file)()
+    expect(reading.status === 'read' && reading.facts.matrices).toEqual([{ pr: 922, head: BUS_HEAD, full: null, killed: 1, survived: 1, notRun: 1 }])
+  })
+
+  it('a second matrix for the same PR head is not appended twice, and one for a full run carries its reason', () => {
+    const full: Matrix = { full: 'the change touches the harness', layers: [], skipped: [] }
+    const db = openBus(busFile())
+    expect(appendMatrix(db, { pr: 9, head: BUS_HEAD }, full, [], BUS_TS, 'test')).toBe(true)
+    expect(appendMatrix(db, { pr: 9, head: BUS_HEAD }, full, [], '2026-10-20T11:00:00.000Z', 'test')).toBe(false)
+    expect(appendMatrix(db, { pr: 9, head: null }, full, [], BUS_TS, 'test')).toBe(true)
+    expect(matrixEvents(db).map(row => JSON.parse(row.payload).full)).toEqual(['the change touches the harness', 'the change touches the harness'])
+    db.close()
+  })
+
+  it('reads the PR and head from its flags and the changed files from the rest, and refuses a malformed flag', () => {
+    expect(matrixArguments(['a.ts', 'b.ts'])).toEqual({ changed: ['a.ts', 'b.ts'], target: null })
+    expect(matrixArguments(['--pr', '922', '--head', BUS_HEAD, 'a.ts'])).toEqual({ changed: ['a.ts'], target: { pr: 922, head: BUS_HEAD } })
+    expect(matrixArguments(['--pr', '922', 'a.ts'])).toEqual({ changed: ['a.ts'], target: { pr: 922, head: null } })
+    expect(() => matrixArguments(['--pr', 'x'])).toThrow('--pr is not a positive integer: x')
+    expect(() => matrixArguments(['--pr', '1', '--head', 'abc'])).toThrow('--head is not a full sha: abc')
+    expect(() => matrixArguments(['--head', BUS_HEAD])).toThrow('--head needs --pr')
   })
 })

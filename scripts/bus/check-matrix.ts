@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
+import { CHECKS_MATRIX_EVENT } from '../../src/commands/board/bus.js'
 import { selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { missingMutationColumns } from './check-catalog.js'
@@ -15,7 +16,6 @@ import { openDatabase } from './sqlite.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const HELD_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
-export const CHECKS_MATRIX_EVENT = 'checks.matrix'
 export const CHECKS_MATRIX_ACTOR_PREFIX = 'worker:checks-matrix:'
 
 export interface MatrixMutation { card: number, id: string, file: string, layer: string, operator: string, find: string | null, replacement: string | null, killedBy: string | null }
