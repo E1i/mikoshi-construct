@@ -13,6 +13,7 @@ import { CARD_ADMITTED, CARD_MOVED } from '../../src/commands/intake/index.js'
 import { createMain } from '../../src/program.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
+import { cardBodyText } from './card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from './db.js'
 import { openDatabase } from './sqlite.js'
 
@@ -67,7 +68,13 @@ export function busIntakeAdmissions(busPath: string): IntakeAdmission[] {
 }
 
 export function busCardAdmissions(db: DatabaseSync): CardAdmissionsPort {
-  return cardId => intakeAdmissions(db).filter(admission => admission.task === String(cardId)).at(-1) ?? null
+  return (cardId) => {
+    const admission = intakeAdmissions(db).filter(entry => entry.task === String(cardId)).at(-1)
+    if (admission === undefined)
+      return null
+    const text = cardBodyText(db, cardId)
+    return text === null ? admission : { ...admission, text }
+  }
 }
 
 function recordedTextSha(payload: string): string | null {

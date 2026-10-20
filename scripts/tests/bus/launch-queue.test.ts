@@ -10,10 +10,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
+import { textSha } from '../../../src/card/text-sha.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
+import { cardBodyText } from '../../bus/card-bodies.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
@@ -25,8 +27,9 @@ import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
-import { LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
+import { busCardBodies, busStarterPorts, cardTextReader, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
+import { reduce } from '../../bus/reducer.js'
 import { busLaunches } from '../../bus/workers.js'
 import { sessionEnv } from '../../ghosts/session.js'
 import { taskConflicts } from '../../shift/overlap.js'
@@ -355,6 +358,75 @@ describe('the launch queue', () => {
     bench.tick()
     expect(bench.leaseLaunch()).toBeNull()
     bench.close()
+  })
+
+  it('a card with no file in the parking is launched from its bus body', () => {
+    const root = tempRoot()
+    let piped: string | undefined
+    let bodyOf: (cardId: number) => string | null = () => null
+    const starter = realStarter(root, undefined, 930, { read: cardTextReader(cardId => bodyOf(cardId)), spawnDetached: (run) => {
+      piped = run.input
+      return 4242
+    }, pgidOf: () => 4242 })
+    rmSync(path.join(root, 'parking', 'lane-x', '930.md'))
+    const bench = launchBench(starter)
+    bodyOf = cardId => cardBodyText(bench.db, cardId)
+    const text = parkingFileText({ card: '#930 bus-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', branch: 'feat/bus-card', touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card from the bus.' })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 930, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:930`, payload: { lane: 'lane-x', decision: 'auto', contour: 'cheap', depends: [], admission: admission(930), text, textSha: textSha(text) }, legacy: false })
+    bench.tick()
+
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', card: { branch: 'feat/bus-card' } })
+    expect(piped).toContain('#930 bus-card')
+    bench.close()
+  })
+
+  describe('the card text launch reads', () => {
+    const BUS_TEXT = parkingFileText({ card: '#931 bus-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', branch: 'feat/bus-card', touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'From the bus.' })
+    const FILE_TEXT = BUS_TEXT.replace('From the bus.', 'From the parking file.')
+
+    function busWithBody(root: string): string {
+      const busPath = path.join(root, 'bus.db')
+      const db = openBus(busPath)
+      try {
+        appendEvent(db, { ts: '2026-10-20T00:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: 931, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:931`, payload: { lane: 'lane-x', decision: 'auto', contour: 'cheap', depends: [], admission: admission(931), text: BUS_TEXT, textSha: textSha(BUS_TEXT) }, legacy: false })
+        reduce(db)
+      }
+      finally {
+        db.close()
+      }
+      return busPath
+    }
+
+    function parked(root: string, name: string): string {
+      const file = path.join(root, 'parking', 'lane-x', name)
+      mkdirSync(path.dirname(file), { recursive: true })
+      writeFileSync(file, FILE_TEXT)
+      return file
+    }
+
+    it('busCardBodies reads the body from a real bus file and returns null without one', () => {
+      const root = tempRoot()
+      const busPath = busWithBody(root)
+      expect(busCardBodies(busPath)(931)).toBe(BUS_TEXT)
+      expect(busCardBodies(busPath)(932)).toBeNull()
+      expect(busCardBodies(path.join(root, 'no-bus.db'))(931)).toBeNull()
+      expect(existsSync(path.join(root, 'no-bus.db'))).toBe(false)
+    })
+
+    it('the ports the launch worker builds from its bus path read the bus body over a differing parking file', () => {
+      const root = tempRoot()
+      const busPath = busWithBody(root)
+      expect(busStarterPorts(busPath, root, {}, '', () => 'u').read(parked(root, '931.md'))).toBe(BUS_TEXT)
+    })
+
+    it('the bus body comes first, the parking file is the fallback, and a name that is not a card number reads the file', () => {
+      const root = tempRoot()
+      const read = cardTextReader(cardId => cardId === 931 ? BUS_TEXT : null)
+      expect(read(parked(root, '931.md'))).toBe(BUS_TEXT)
+      expect(read(parked(root, '933.md'))).toBe(FILE_TEXT)
+      expect(read(parked(root, 'notes.md'))).toBe(FILE_TEXT)
+      expect(read(path.join(root, 'parking', 'lane-x', '934.md'))).toBeNull()
+    })
   })
 
   it('a process that is not its own group leader is denied and records no card.started', () => {

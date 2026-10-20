@@ -45,6 +45,10 @@ function payloadOrNull(event: StoredEvent): Record<string, unknown> | null {
   }
 }
 
+export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
+  return (db.prepare(`SELECT text FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { text: string } | undefined)?.text ?? null
+}
+
 export function foldCardBody(db: DatabaseSync, event: StoredEvent): void {
   const payload = payloadOrNull(event)
   const text = payload?.text

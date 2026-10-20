@@ -26,8 +26,9 @@ import { GHOST_JOURNAL } from '../shift/places.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
+import { cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
-import { appendEvent, defaultBusPath, openBus } from './db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
@@ -43,6 +44,7 @@ import { PR_OBSERVED } from './operator-work.js'
 import { promptsDirOf } from './prompt-store.js'
 import { launchTasks, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
+import { openDatabase } from './sqlite.js'
 
 export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
@@ -344,9 +346,29 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
   return runNode(argv, 'launch', run.busPath, build, { pause })
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
+export type CardBodyReader = (cardId: number) => string | null
+
+export function busCardBodies(busPath: string): CardBodyReader {
+  return (cardId) => {
+    if (!existsSync(busPath))
+      return null
+    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    try {
+      return cardBodyText(db, cardId)
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
+export function cardTextReader(bodyOf: CardBodyReader): (file: string) => string | null {
+  return file => bodyOf(Number(path.basename(file, '.md'))) ?? (existsSync(file) ? readFileSync(file, 'utf8') : null)
+}
+
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null): StarterPorts {
   return {
-    read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    read: cardTextReader(bodyOf),
     cut: (task, laneDir) => {
       execFileSync('pnpm', ['--silent', 'task:start', task.branch, '--card', task.card.line, '--parking', laneDir], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
       return taskWorktree(worktreeHome(env), String(task.card.id))
@@ -359,6 +381,10 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
     prompt: (task, places) => renderPrompt(header, task, places),
   }
+}
+
+export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath))
 }
 
 export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv = process.env): LadderSteps {
@@ -398,7 +424,7 @@ async function main(): Promise<number> {
   const env = process.env
   const places = launchPlaces(os.homedir(), process.cwd())
   const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
-  const ports = realStarterPorts(process.cwd(), env, header, randomUUID)
+  const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env))
   return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, session: randomUUID(), pause: sleep, launchDir: places.launchDir, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
