@@ -165,6 +165,12 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}` } : { kind: 'pr', number }
   }
   catch (error) {
-    return { kind: 'problem', why: `the shift could not commit, push or open the pull request of ${card.branch}: ${firstLine(error instanceof Error ? error.message : String(error))}` }
+    return { kind: 'problem', why: `the shift could not commit, push or open the pull request of ${card.branch}: ${failureOf(error)}` }
   }
+}
+
+function failureOf(error: unknown): string {
+  const command = firstLine(error instanceof Error ? error.message : String(error))
+  const stderr = error instanceof Error && 'stderr' in error ? String(error.stderr).trim().split('\n').map(line => line.trim()).filter(line => line !== '').join(' · ') : ''
+  return stderr === '' ? command : `${command}: ${stderr}`
 }
