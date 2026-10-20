@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -6,8 +6,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 export const STAMP_SCRIPT = fileURLToPath(import.meta.url)
 const TSX_LOADER = path.resolve(import.meta.dirname, '..', '..', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs')
 
-export function stampArgv(): string[] {
-  return ['--import', pathToFileURL(TSX_LOADER).href, STAMP_SCRIPT]
+export interface Stamper {
+  command: string
+  args: string[]
+  ready: () => boolean
+}
+
+export const TSX_STAMPER: Stamper = {
+  command: process.execPath,
+  args: ['--import', pathToFileURL(TSX_LOADER).href, STAMP_SCRIPT],
+  ready: () => existsSync(TSX_LOADER) && existsSync(STAMP_SCRIPT),
 }
 
 export function stampEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -38,6 +46,9 @@ export class LineStamper {
 
 function stampStdin(): void {
   const stamper = new LineStamper()
+  for (const signal of ['SIGHUP', 'SIGINT'] as const)
+    process.on(signal, () => {})
+  process.stdout.on('error', () => {})
   process.stdin.setEncoding('utf8')
   process.stdin.on('data', (chunk: string) => process.stdout.write(stamper.push(chunk)))
   process.stdin.on('end', () => process.stdout.write(stamper.end()))
