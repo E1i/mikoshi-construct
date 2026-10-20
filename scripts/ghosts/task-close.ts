@@ -4,7 +4,7 @@ import type { SignalStyle } from '../../src/ui/signal.js'
 import type { BusEvent } from '../bus/db.js'
 import type { GhRunner } from '../core/gh.js'
 import type { Decision } from '../decisions/decisions.js'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -28,6 +28,7 @@ import { archiveOf, defaultDecisions } from '../decisions/read.js'
 import { REPO } from '../shift/places.js'
 import { CLOUD_START_EVENT } from './cloud-start.js'
 import { ENTRY_EVENT, entryOf, startedEntryOf } from './entry.js'
+import { withGhostLines } from './journal.js'
 import { cardStartedLines, prCardOf } from './tasks.js'
 
 export const PREFIX = '[task:close] '
@@ -39,7 +40,7 @@ const DECISION_REFERENCE = /^D-[1-9]\d*$/
 const CARD_MENTION = /(?<!PR )#([1-9]\d*)/g
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const CLOSER_SESSION_BY_HAND = 'by-hand'
-const CARD_VERIFIED_ROWS = `SELECT id, card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
+const CARD_VERIFIED_ROWS = `SELECT id, ts, card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
 const REPORT_ROOTS = ['reports', 'probes'] as const
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const SURVIVED = 'nothing-red'
@@ -74,7 +75,6 @@ export interface TaskSession {
 export interface TaskCloseDeps {
   cwd: string
   read: (file: string) => string | null
-  append: (file: string, text: string) => void
   now: () => Date
   handoffDir: string
   constructDir: string
@@ -169,6 +169,21 @@ export function cardVerifiedClosings(busPath: string): VerifiedClosing[] {
       const payload = journalLines(row.payload)[0]
       return payload === undefined ? [] : [{ task: String(row.card_id), pr: row.pr, verification: payload.verification, actual: payload.actual, event: row.id }]
     })
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function closingHistoryLines(busPath: string): Record<string, unknown>[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const rows = db.prepare(CARD_VERIFIED_ROWS).all() as unknown as { ts: string, card_id: number, payload: string }[]
+    return rows
+      .flatMap(row => journalLines(row.payload).map(payload => ({ event: 'path', task: String(row.card_id), ...payload, ts: row.ts })))
+      .filter(line => writtenBeforeHistoryEnds(line))
   }
   finally {
     db.close()
@@ -420,7 +435,7 @@ function ownershipOf(deps: TaskCloseDeps, id: string, pr: number, reference: str
 function cardLineNote(id: string, pr: number, ownership: Ownership): string[] {
   if (ownership.cardLine !== null)
     return []
-  return [`${PREFIX}warning: the body of PR #${pr} does not open with the card line, so task:merged would skip it for #${id}; fix the body, then pnpm task:merged --recheck ${pr}`]
+  return [`${PREFIX}warning: the body of PR #${pr} does not open with the card line, so its merge is recorded for no card and #${id} stays unmerged for its depends; fix the body before the merge`]
 }
 
 function namesCard(issue: OpenIssue, card: Card): boolean {
@@ -476,7 +491,8 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   if (!(VERIFICATION_WORDS as readonly string[]).includes(verification))
     return refuse(`verification '${verification}' is not one of ${VERIFICATION_WORDS.join(', ')}; nothing written`)
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const journalText = deps.read(journal) ?? ''
+  const file = deps.read(journal)
+  const journalText = deps.busPath === undefined ? file ?? '' : withGhostLines(file, deps.busPath)
   const lines = [...journalLines(journalText), ...(deps.busPath === undefined ? [] : [...legacyLines(deps.busPath), ...cardStartedLines(deps.busPath)])]
   const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? cloudStartOf(lines, id) ?? launchNodeStartOf(lines, deps.busPath, id)
   if (start === undefined)
@@ -511,7 +527,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const sessions = taskSessions(deps, start)
   const actual = actualOf(deps, lines, start, sessions, at)
   const record = { path: start.path, ...closing, ...shared, verification, ...(override === undefined ? {} : { override }), ended: at, sessions, actual }
-  const written = writeClosing(deps, journal, id, record, at)
+  const written = writeClosing(deps, id, record, at)
   if (written.kind === 'refused')
     return refuse(written.reason)
   const entry = startedEntryOf(lines, id) ?? entryOf(journalText, id)
@@ -539,16 +555,7 @@ function recordVerified(busPath: string, event: BusEvent): void {
   }
 }
 
-function writeClosing(deps: TaskCloseDeps, journal: string, id: string, record: Record<string, unknown> & { pr?: number }, at: string): ClosingWrite {
-  if (writtenBeforeHistoryEnds({ ts: at })) {
-    try {
-      deps.append(journal, `${JSON.stringify({ event: 'path', task: id, ...record, ts: at })}\n`)
-      return { kind: 'written', where: `line written to ${journal}` }
-    }
-    catch (error) {
-      return { kind: 'refused', reason: `the closing line could not be written to ${journal}: ${firstLine(error)}` }
-    }
-  }
+function writeClosing(deps: TaskCloseDeps, id: string, record: Record<string, unknown> & { pr?: number }, at: string): ClosingWrite {
   if (deps.busPath === undefined)
     return { kind: 'refused', reason: `from ${JOURNAL_HISTORY_ENDS} the closing record goes to the bus as ${CARD_VERIFIED}, and no bus is wired; nothing written` }
   const event: BusEvent = { ts: at, type: CARD_VERIFIED, actor: `worker:task-close:${deps.session ?? CLOSER_SESSION_BY_HAND}`, cardId: Number(id), pr: record.pr ?? null, head: null, dedupeKey: `${CARD_VERIFIED}:${id}:${at}`, payload: record, legacy: false }
@@ -575,10 +582,6 @@ function realDeps(): TaskCloseDeps {
   return {
     cwd: process.cwd(),
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
-    append: (file, text) => {
-      mkdirSync(path.dirname(file), { recursive: true })
-      appendFileSync(file, text)
-    },
     now: () => new Date(),
     handoffDir,
     constructDir: path.join(os.homedir(), '.construct'),

@@ -1,7 +1,7 @@
 import type { Preflight } from '../../ghosts/preflight.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { approvalSha256, approvedHashPath, checkApproval } from '../../ghosts/approval.js'
 import { approvalLine, checkAcceptanceBuild, hashBrief, NO_WITNESS_FILES, PREFLIGHT_EVENT, rememberedPreflight, resolveApprover, witnessFilesDigest } from '../../ghosts/hash.js'
+import { ghostLines, recordGhostLine } from '../../ghosts/journal.js'
+import { ownBusPerTest } from './own-bus.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const HASH = path.join(REPO_ROOT, 'scripts/ghosts/hash.ts')
@@ -96,7 +98,9 @@ describe('rememberedPreflight', () => {
   const BASE_A = 'a'.repeat(40)
   const BASE_B = 'b'.repeat(40)
 
-  function remembering(journalPath: string, base: () => string): { preflight: Preflight, journaled: () => Promise<void>, runs: (string | undefined)[], logged: string[] } {
+  const busOf = ownBusPerTest()
+
+  function remembering(journalPath: string, base: () => string): { preflight: Preflight, runs: (string | undefined)[], logged: string[] } {
     const runs: (string | undefined)[] = []
     const logged: string[] = []
     const counted: Preflight = (input) => {
@@ -117,49 +121,45 @@ describe('rememberedPreflight', () => {
     return dir
   }
 
-  it('a repeat on the same text and base does not run the preflight', async () => {
+  it('a repeat on the same text and base does not run the preflight', () => {
     const journalPath = path.join(worldDir(), 'handoff', 'ghosts.jsonl')
     const brief = briefWith(SOUND_TEXT)
-    const { preflight, journaled, runs, logged } = remembering(journalPath, () => BASE_A)
+    const { preflight, runs, logged } = remembering(journalPath, () => BASE_A)
 
     const first = approvalLine(brief, NOW, APPROVER, checkAcceptanceBuild, preflight)
-    await journaled()
     expect(approvalLine(brief, NOW, APPROVER, checkAcceptanceBuild, preflight)).toBe(first)
     expect(runs).toEqual([BASE_A])
-    expect(logged).toEqual([`preflight: base ${BASE_A.slice(0, 7)}; green on this text, base and witness files in ${journalPath}, not run again`])
-    expect(readFileSync(journalPath, 'utf8').trim().split('\n').map(line => JSON.parse(line) as unknown)).toEqual([
+    expect(logged).toEqual([`preflight: base ${BASE_A.slice(0, 7)}; green on this text, base and witness files on the bus, not run again`])
+    expect(ghostLines(busOf())).toEqual([
       { event: PREFLIGHT_EVENT, sha256: hashBrief(brief), base: BASE_A, witnesses: NO_WITNESS_FILES, ok: true, ts: NOW.toISOString() },
     ])
+    expect(existsSync(journalPath)).toBe(false)
   })
 
-  it('a new text or a new base runs the preflight', async () => {
+  it('a new text or a new base runs the preflight', () => {
     const journalPath = path.join(worldDir(), 'ghosts.jsonl')
     let base = BASE_A
-    const { preflight, journaled, runs } = remembering(journalPath, () => base)
+    const { preflight, runs } = remembering(journalPath, () => base)
     const brief = briefWith(SOUND_TEXT)
     const changed = briefWith(SOUND_TEXT.replace('Print the name.', 'Print the whole name.'))
 
     preflight(inputOf(brief))
-    await journaled()
     preflight(inputOf(changed))
-    await journaled()
     base = BASE_B
     preflight(inputOf(brief))
     expect(runs).toEqual([BASE_A, BASE_A, BASE_B])
   })
 
-  it('a changed witness file beside the brief runs the preflight again on the same text and base', async () => {
+  it('a changed witness file beside the brief runs the preflight again on the same text and base', () => {
     const journalPath = path.join(worldDir(), 'ghosts.jsonl')
-    const { preflight, journaled, runs } = remembering(journalPath, () => BASE_A)
+    const { preflight, runs } = remembering(journalPath, () => BASE_A)
     const brief = briefWith(SOUND_TEXT)
     const dir = witnessFile(brief, 'export const ready = 1\n')
     const ready = witnessFilesDigest(dir)
 
     preflight(inputOf(brief))
-    await journaled()
     witnessFile(brief, 'export const ready = 1;;\n')
     preflight(inputOf(brief))
-    await journaled()
     expect(runs).toEqual([BASE_A, BASE_A])
     expect(witnessFilesDigest(dir)).not.toBe(ready)
     expect(ready).not.toBe(NO_WITNESS_FILES)
@@ -170,13 +170,13 @@ describe('rememberedPreflight', () => {
     const brief = briefWith(SOUND_TEXT)
     const input = inputOf(brief)
     const { preflight, runs } = remembering(journalPath, () => BASE_A)
-    appendFileSync(journalPath, `${JSON.stringify({ event: PREFLIGHT_EVENT, sha256: approvalSha256(input.text), base: BASE_A, witnesses: NO_WITNESS_FILES, ok: false, ts: NOW.toISOString() })}\n`)
+    recordGhostLine('test', { event: PREFLIGHT_EVENT, sha256: approvalSha256(input.text), base: BASE_A, witnesses: NO_WITNESS_FILES, ok: false, ts: NOW.toISOString() }, busOf())
 
     preflight(input)
     expect(runs).toEqual([BASE_A])
   })
 
-  it('remembers no preflight that refused, so the next run tries again', async () => {
+  it('remembers no preflight that refused, so the next run tries again', () => {
     const journalPath = path.join(worldDir(), 'ghosts.jsonl')
     let refusals = 0
     const refusing = rememberedPreflight(() => {
@@ -186,9 +186,9 @@ describe('rememberedPreflight', () => {
     const input = inputOf(briefWith(SOUND_TEXT))
 
     expect(() => refusing.preflight(input)).toThrow('preflight P7: refused')
-    await refusing.journaled()
     expect(() => refusing.preflight(input)).toThrow('preflight P7: refused')
     expect(refusals).toBe(2)
+    expect(ghostLines(busOf())).toEqual([])
     expect(existsSync(journalPath)).toBe(false)
   })
 })
@@ -223,6 +223,8 @@ describe('hashBrief', () => {
 })
 
 describe('ghosts:hash from the command line', () => {
+  const busOf = ownBusPerTest()
+
   it('prints nothing on stdout and exits 1 for a brief the build refuses', () => {
     const result = runHash([HASH, briefWith(BACKTICK_TEXT), '--by', APPROVER])
 
@@ -300,7 +302,8 @@ describe('ghosts:hash from the command line', () => {
     expect(approved.status).toBe(0)
     expect(approved.stdout.trim()).toMatch(new RegExp(`^approved /implement text sha256: ${hashBrief(brief)} sketch: none \\(\\d{4}-\\d{2}-\\d{2}, morse\\)$`))
     expect(readFileSync(approvedHashPath(brief), 'utf8')).toBe(approved.stdout)
-    expect(readFileSync(path.join(handoff, 'ghosts.jsonl'), 'utf8')).toContain(`"by":"morse","card":${card}`)
+    expect(ghostLines(busOf())).toContainEqual(expect.objectContaining({ event: 'approval', by: 'morse', card }))
+    expect(existsSync(path.join(handoff, 'ghosts.jsonl'))).toBe(false)
 
     const ownerLine = `approved /implement text sha256: ${hashBrief(brief)} sketch: none (2026-10-09, ${APPROVER})\n`
     writeFileSync(approvedHashPath(brief), ownerLine)

@@ -927,17 +927,18 @@ const crypto = require('node:crypto')
 const [W, sha, kind, sketchTip, argsPath, ...pairs] = process.argv.slice(2)
 const tasks = pairs.map(pair => pair.split('='))
 const failWith = (message) => { fs.writeFileSync(`${W}/.world/journal-failure`, message); process.exit(1) }
-const journal = `${W}/handoff/ghosts.jsonl`
+const journal = `${W}/bus.db`
 if (!fs.existsSync(journal)) failWith(`no ${journal}`)
 for (const inRepo of [`${W}/main/.construct/ghosts.jsonl`, `${W}/wt-g1/.construct/ghosts.jsonl`, `${W}/wt-g2/.construct/ghosts.jsonl`])
   if (fs.existsSync(inRepo)) failWith(`the journal is written inside a repository: ${inRepo}`)
 const seedFile = `${W}/.world/ghosts.jsonl`
 const seed = fs.existsSync(seedFile) ? fs.readFileSync(seedFile, 'utf8') : ''
-const text = fs.readFileSync(journal, 'utf8')
-if (!text.startsWith(seed)) failWith(`${journal} does not start with the lines it held before the launch, byte for byte`)
-const seedLines = seed.split('\n').filter(line => line !== '').length
-const lines = text.split('\n').filter(line => line !== '').slice(seedLines)
-const parsed = lines.map((line, index) => { try { return JSON.parse(line) } catch { failWith(`line ${index + 1} of ${journal} is not JSON`) } })
+const fileJournal = `${W}/handoff/ghosts.jsonl`
+const fileText = fs.existsSync(fileJournal) ? fs.readFileSync(fileJournal, 'utf8') : ''
+if (fileText !== seed) failWith(`${fileJournal} is not what it held before the launch, byte for byte`)
+const db = new (require('node:sqlite').DatabaseSync)(journal, { readOnly: true })
+const parsed = db.prepare("SELECT payload FROM events WHERE type = 'ghost.line' ORDER BY id").all().map(event => JSON.parse(event.payload))
+db.close()
 const entries = parsed.filter(row => row.event === 'entry')
 const carries = parsed.filter(row => row.event === 'approval-carry')
 const rows = parsed.filter(row => row.event !== 'entry' && row.event !== 'approval-carry')

@@ -7,7 +7,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readContourSchema, violations } from '../../contract/contours.js'
+import { ghostLines, recordGhostLine } from '../../ghosts/journal.js'
 import { checkDisposition, checkVerdict, fetchVerdictFromRef, recordDisposition, recordVerdict, reviewStatus } from '../../ghosts/verdict.js'
+import { ownBusPerTest } from './own-bus.js'
+
+const busOf = ownBusPerTest()
 
 const IMPLEMENT = '/implement the contour contracts (t)'
 const REPORT = '[review:t]\nThe witnesses ran.\n'
@@ -47,8 +51,9 @@ function write(file: string, value: unknown): void {
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`)
 }
 
-function journalLines(journal: string): string[] {
-  return existsSync(journal) ? readFileSync(journal, 'utf8').split('\n').filter(line => line !== '') : []
+function writtenLines(journal: string): Record<string, unknown>[] {
+  expect(existsSync(journal)).toBe(false)
+  return ghostLines(busOf())
 }
 
 function reasonsOf(result: { ok: true } | { ok: false, reasons: string[] }): string[] {
@@ -142,7 +147,7 @@ describe('recordVerdict', () => {
     const edited = sha256(`${REPORT}An edit after the verdict.\n`)
     const result = await recordVerdict(verdict, dir, TARGET)
     expect(reasonsOf(result)).toEqual([`report.sha256 ${sha256(REPORT)} is not the sha256 of review-t.md (${edited})`])
-    expect(journalLines(journal)).toEqual([])
+    expect(writtenLines(journal)).toEqual([])
   })
 
   it('refuses a verdict whose task is not the one the report names in its [review:<task>] line, and writes nothing', async () => {
@@ -150,7 +155,7 @@ describe('recordVerdict', () => {
     write(verdict, { ...good, task: 'u' })
     const result = await recordVerdict(verdict, dir, TARGET)
     expect(reasonsOf(result)).toEqual(['task u: review-t.md starts with "[review:t]", not [review:u]'])
-    expect(journalLines(journal)).toEqual([])
+    expect(writtenLines(journal)).toEqual([])
   })
 
   it('refuses a report whose marker names a card number and points to the task id from the tasks file, and writes nothing', async () => {
@@ -160,30 +165,30 @@ describe('recordVerdict', () => {
     write(verdict, { ...good, report: { path: 'review-t.md', sha256: sha256(cardReport) } })
     const result = await recordVerdict(verdict, dir, TARGET)
     expect(reasonsOf(result)).toEqual(['task t: review-t.md starts with "[review:129]", not [review:t]; the marker names a card number; the review marker takes the task id t from the tasks file'])
-    expect(journalLines(journal)).toEqual([])
+    expect(writtenLines(journal)).toEqual([])
   })
 
-  it('appends exactly one line to ghosts.jsonl in the handoff directory, and that line holds the journal schema', async () => {
+  it('appends exactly one ghost.line to the bus and no ghosts.jsonl, and that line holds the journal schema', async () => {
     const { dir, verdict, journal, good } = handoff()
     write(verdict, good)
     const result = await recordVerdict(verdict, dir, TARGET)
     expect(result.ok).toBe(true)
-    const lines = journalLines(journal)
+    const lines = writtenLines(journal)
     expect(lines).toHaveLength(1)
     const root = readContourSchema('review-verdict')
-    expect(violations(JSON.parse(lines[0]), { $ref: '#/$defs/journalLine' }, '', root)).toEqual([])
-    expect(Object.keys(JSON.parse(lines[0])).sort()).toEqual(['brief', 'commit', 'event', 'file', 'head', 'report', 'task', 'tree', 'ts', 'verdict'])
+    expect(violations(lines[0], { $ref: '#/$defs/journalLine' }, '', root)).toEqual([])
+    expect(Object.keys(lines[0]!).sort()).toEqual(['brief', 'commit', 'event', 'file', 'head', 'report', 'task', 'tree', 'ts', 'verdict'])
   })
 
-  it('writes nothing for any refusal, and appends to a journal that already holds lines', async () => {
+  it('writes nothing for any refusal, and appends after the lines the bus already holds', async () => {
     const { dir, verdict, journal, good } = handoff()
-    writeFileSync(journal, '{"event":"task"}\n')
+    recordGhostLine('test', { event: 'task' }, busOf())
     write(verdict, { ...good, verdict: 'merge' })
     expect((await recordVerdict(verdict, dir, TARGET)).ok).toBe(false)
-    expect(journalLines(journal)).toEqual(['{"event":"task"}'])
+    expect(writtenLines(journal)).toEqual([{ event: 'task' }])
     write(verdict, good)
     expect((await recordVerdict(verdict, dir, TARGET)).ok).toBe(true)
-    expect(journalLines(journal)).toHaveLength(2)
+    expect(writtenLines(journal)).toHaveLength(2)
   })
 })
 
@@ -215,7 +220,7 @@ describe('the review commit status', () => {
       throw new Error('gh: HTTP 403\nmore')
     })
     expect(reasonsOf(result)).toEqual([`the journal line is written, but the review status on ${PR.commit} was not posted: gh: HTTP 403`])
-    expect(journalLines(journal)).toHaveLength(1)
+    expect(writtenLines(journal)).toHaveLength(1)
   })
 
   it('puts a carried verdict on the commit it was carried to, naming the commit it was carried from', () => {
@@ -226,15 +231,15 @@ describe('the review commit status', () => {
 describe('recordDisposition', () => {
   const INPUT = { task: 't', pr: '520', followUp: '519', by: 'window' }
 
-  it('appends one disposition line to ghosts.jsonl and reads it back as written', async () => {
+  it('appends one disposition line to the bus and reads it back as written', async () => {
     const { dir, journal } = handoff()
-    writeFileSync(journal, '{"event":"review","task":"t","verdict":"changes"}\n')
+    recordGhostLine('test', { event: 'review', task: 't', verdict: 'changes' }, busOf())
     const result = await recordDisposition(INPUT, dir, NOW)
     const line = { event: 'disposition', ts: NOW.toISOString(), task: 't', decision: 'merge-follow-up', pr: 520, followUp: 519, by: 'window' }
     expect(result).toEqual({ ok: true, line })
-    const lines = journalLines(journal)
+    const lines = writtenLines(journal)
     expect(lines).toHaveLength(2)
-    expect(JSON.parse(lines[1])).toEqual(line)
+    expect(lines[1]).toEqual(line)
   })
 
   it('takes the owner as the one who decided', () => {
@@ -251,7 +256,7 @@ describe('recordDisposition', () => {
     const { dir, journal } = handoff()
     const result = await recordDisposition({ ...INPUT, ...change }, dir, NOW)
     expect(reasonsOf(result)).toEqual([text])
-    expect(journalLines(journal)).toEqual([])
+    expect(writtenLines(journal)).toEqual([])
   })
 })
 
@@ -274,8 +279,7 @@ describe('verdict from a cloud branch', () => {
     expect(fetched).toEqual({ ok: true, verdictPath: path.join(cloud.dir, 'review.verdict.json') })
     await recordVerdict(path.join(cloud.dir, 'review.verdict.json'), cloud.dir, TARGET)
 
-    const [localLine] = journalLines(local.journal).map(line => JSON.parse(line) as Record<string, unknown>)
-    const [cloudLine] = journalLines(cloud.journal).map(line => JSON.parse(line) as Record<string, unknown>)
+    const [localLine, cloudLine] = writtenLines(local.journal)
     const { ts: _localTs, ...localRest } = localLine!
     const { ts: _cloudTs, ...cloudRest } = cloudLine!
     expect(cloudRest).toEqual(localRest)

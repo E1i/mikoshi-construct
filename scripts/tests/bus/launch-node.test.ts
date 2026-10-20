@@ -33,6 +33,7 @@ import { keyOf, launchTasks, queueTask, TASK_ENQUEUED } from '../../bus/queue.js
 import { reduce } from '../../bus/reducer.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
+import { recordGhostLine } from '../../ghosts/journal.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ghosts/worktree-home.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../shift/continuation.js'
 import { sha } from './github-fake.js'
@@ -778,7 +779,7 @@ interface LadderWorld {
   briefFile: string
 }
 
-function ladderWorld(handoffState: { brief: string, approved: string } | null): LadderWorld {
+function ladderWorld(made: MergeBench, handoffState: { brief: string, approved: string } | null): LadderWorld {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-ladder-node-'))
   roots.push(root)
   const parking = path.join(root, 'parking')
@@ -792,7 +793,7 @@ function ladderWorld(handoffState: { brief: string, approved: string } | null): 
     mkdirSync(tree, { recursive: true })
     writeFileSync(briefFile, handoffState.brief)
     const sha256 = approvalSha256(canonicalImplementText(handoffState.approved)!)
-    writeFileSync(path.join(handoff, 'ghosts.jsonl'), `${JSON.stringify({ event: 'approval', by: 'morse', card: LADDER_CARD, sha256 })}\n`)
+    recordGhostLine('test', { event: 'approval', by: 'morse', card: LADDER_CARD, sha256 }, made.busPath)
   }
   const spawned: DetachedSpawn[] = []
   const ports: StarterPorts = {
@@ -812,7 +813,7 @@ function ladderWorld(handoffState: { brief: string, approved: string } | null): 
     envOf: () => ({}),
     prompt: task => task.body,
   }
-  const steps = handoffLadderSteps(handoff, path.join(root, 'repo'), { [WORKTREE_HOME_VARIABLE]: path.join(root, 'worktrees') })
+  const steps = handoffLadderSteps(handoff, path.join(root, 'repo'), { [WORKTREE_HOME_VARIABLE]: path.join(root, 'worktrees') }, made.busPath)
   const starter = new LadderCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: path.join(root, 'repo') }, ports, steps)
   return { starter, spawned, handoff, tree, briefFile }
 }
@@ -829,14 +830,14 @@ function commandWordsOf(script: string): string[] {
   return script.split(/[|;&]+/).map(segment => segment.trim().split(/\s+/)[0]!)
 }
 
-function approvedWorld(): LadderWorld {
-  return ladderWorld({ brief: APPROVED_BRIEF, approved: APPROVED_BRIEF })
+function approvedWorld(made: MergeBench): LadderWorld {
+  return ladderWorld(made, { brief: APPROVED_BRIEF, approved: APPROVED_BRIEF })
 }
 
 describe('the launch node in ladder mode', () => {
   it('the ladder mode launches a Ghost on an approved brief', async () => {
     const made = bench()
-    const world = approvedWorld()
+    const world = approvedWorld(made)
     admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
     made.tick()
     await once(ladderNode(made, world))
@@ -852,8 +853,9 @@ describe('the launch node in ladder mode', () => {
 
   it('a ladder session that ends with no result gives card.stopped and the card is queued again; the sessionless launch step does not', async () => {
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    for (const [world, step, stops] of [[ladderWorld(null), 'brief', 1], [approvedWorld(), 'launch', 0]] as const) {
+    for (const [approved, step, stops] of [[false, 'brief', 1], [true, 'launch', 0]] as const) {
       const made = bench()
+      const world = approved ? approvedWorld(made) : ladderWorld(made, null)
       admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
       made.tick()
       const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => false, isolation: sandboxed })
@@ -870,7 +872,7 @@ describe('the launch node in ladder mode', () => {
 
   it('a ladder session that ends with a result and no pull request is not stopped: its brief step opens none', async () => {
     const made = bench()
-    const world = ladderWorld(null)
+    const world = ladderWorld(made, null)
     admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
     made.tick()
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
@@ -885,7 +887,7 @@ describe('the launch node in ladder mode', () => {
 
   it('a ladder session gone with a brief and no ghost row writes card.waiting', async () => {
     const made = bench()
-    const world = ladderWorld(null)
+    const world = ladderWorld(made, null)
     admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
     made.tick()
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
@@ -903,7 +905,7 @@ describe('the launch node in ladder mode', () => {
     const unconfined: IsolationReader = () => ({ level: 'none', why: 'sandbox.enabled is not true' })
     for (const contour of ['cheap', 'ladder'] as const) {
       const made = bench()
-      const world = approvedWorld()
+      const world = approvedWorld(made)
       const cheap = new FakeStarter()
       const ladder = new FakeStarter()
       const card = contour === 'cheap' ? 970 : LADDER_CARD
@@ -938,7 +940,7 @@ describe('the launch node in ladder mode', () => {
 
   it('with no ghosts.jsonl and no status.md in the handoff, an admitted ladder card starts its brief step', async () => {
     const made = bench()
-    const world = ladderWorld(null)
+    const world = ladderWorld(made, null)
     admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
     made.tick()
     await once(ladderNode(made, world))
@@ -953,9 +955,35 @@ describe('the launch node in ladder mode', () => {
     expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step: 'brief', contour: 'ladder', worktree: world.tree }])
   })
 
+  it('with no journal a card whose bus history shows the brief done starts its launch step', async () => {
+    const made = bench()
+    const world = approvedWorld(made)
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    made.tick()
+    await once(ladderNode(made, world))
+
+    expect(existsSync(path.join(world.handoff, 'ghosts.jsonl'))).toBe(false)
+    expect(world.spawned).toHaveLength(1)
+    expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step: 'launch', contour: 'ladder' }])
+  })
+
+  it('an approval only in the legacy ghosts.jsonl does not start the launch step: the ladder step reads the bus alone', async () => {
+    const made = bench()
+    const world = ladderWorld(made, null)
+    mkdirSync(world.tree, { recursive: true })
+    writeFileSync(world.briefFile, APPROVED_BRIEF)
+    const sha256 = approvalSha256(canonicalImplementText(APPROVED_BRIEF)!)
+    writeFileSync(path.join(world.handoff, 'ghosts.jsonl'), `${JSON.stringify({ event: 'approval', by: 'morse', card: LADDER_CARD, sha256 })}\n`)
+    admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
+    made.tick()
+    await once(ladderNode(made, world))
+
+    expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step: 'brief', contour: 'ladder' }])
+  })
+
   it('a ladder card with two card.fell in the bus gets no launch task and spawns nothing', async () => {
     const made = bench()
-    const world = ladderWorld(null)
+    const world = ladderWorld(made, null)
     admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
     for (const fall of [1, 2])
       appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_FELL, actor: 'policy', cardId: LADDER_CARD, pr: null, head: null, dedupeKey: `${CARD_FELL}:${LADDER_CARD}:${fall}`, payload: { kind: 'fault' }, legacy: false })
@@ -969,7 +997,7 @@ describe('the launch node in ladder mode', () => {
 
   it('a brief edited after its approval is not launched on it', async () => {
     const made = bench()
-    const world = ladderWorld({ brief: EDITED_BRIEF, approved: APPROVED_BRIEF })
+    const world = ladderWorld(made, { brief: EDITED_BRIEF, approved: APPROVED_BRIEF })
     admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
     made.tick()
     await once(ladderNode(made, world))
@@ -984,7 +1012,7 @@ describe('the launch node in ladder mode', () => {
 
   it('an admitted ladder card is started once, by the ladder starter, never by the cheap one', async () => {
     const made = bench()
-    const world = approvedWorld()
+    const world = approvedWorld(made)
     const cheap = new FakeStarter()
     admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
     made.tick()
