@@ -45,6 +45,7 @@ import { planned, recordLeftovers, ReviewExecutor } from './review-executor.js'
 import { claudeReviewer, PREFIX, ReviewFailed, ReviewTrees } from './reviewer.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
 import { openDatabase } from './sqlite.js'
+import { stampLogOutput } from './stamp.js'
 
 export { SWITCH_FLAG }
 export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_LIMIT_REACHED, roundLimitLine, SPAWNS_NO_SESSION, TREE_LEFT } from './review-executor.js'
@@ -398,5 +399,7 @@ async function main(): Promise<number> {
   })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}
