@@ -10,7 +10,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
-import { readBodyCard } from '../../src/card/grammar.js'
+import { parseCard, readBodyCard } from '../../src/card/grammar.js'
 import { cheapClass, cheapForecastOf, defaultShiftRoot, sessionTokens } from '../../src/commands/cost/cheap.js'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
 import { formatTokens } from '../../src/commands/cost/expect.js'
@@ -217,6 +217,29 @@ function launchStartOf(lines: Record<string, unknown>[], id: string): StartLine 
 function cloudStartOf(lines: Record<string, unknown>[], id: string): StartLine | undefined {
   const start = lines.filter(line => line.event === CLOUD_START_EVENT && line.task === id).filter(hasCard).at(-1)
   return start === undefined ? undefined : { event: 'path', task: id, path: start.card.contour, session: start.run, card: start.card }
+}
+
+const LATEST_ADMITTED = `SELECT payload FROM events WHERE type = 'card.admitted' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
+
+function admittedCardOf(busPath: string, id: string): Card | undefined {
+  if (!existsSync(busPath) || !PR_NUMBER.test(id))
+    return undefined
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const row = db.prepare(LATEST_ADMITTED).get(Number(id)) as { payload: string } | undefined
+    const line = row === undefined ? undefined : journalLines(row.payload)[0]?.card
+    const parsed = typeof line === 'string' ? parseCard(line) : undefined
+    return parsed?.kind === 'card' ? parsed.card : undefined
+  }
+  finally {
+    db.close()
+  }
+}
+
+function launchNodeStartOf(lines: Record<string, unknown>[], busPath: string | undefined, id: string): StartLine | undefined {
+  const start = lines.filter(line => line.event === 'path' && line.task === id && !hasCard(line) && typeof line.session === 'string' && typeof line.worktree === 'string' && typeof line.pid === 'number').at(-1)
+  const card = start === undefined || busPath === undefined ? undefined : admittedCardOf(busPath, id)
+  return start === undefined || card === undefined ? undefined : { ...start, event: 'path', task: id, path: card.contour, started: start.ts, card }
 }
 
 const RERUN_SUFFIX = /(?<=\d)[a-z]+$/
@@ -450,7 +473,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
   const journalText = deps.read(journal) ?? ''
   const lines = [...journalLines(journalText), ...(deps.busPath === undefined ? [] : [...legacyLines(deps.busPath), ...cardStartedLines(deps.busPath)])]
-  const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? cloudStartOf(lines, id)
+  const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? cloudStartOf(lines, id) ?? launchNodeStartOf(lines, deps.busPath, id)
   if (start === undefined)
     return refuse(`${journal} has no task:start line with a card for #${id}, no ghosts:launch entry line with one and no cloud-start line with one${deps.busPath === undefined ? '' : `, and the bus ${deps.busPath} has no card.started with one`}; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)
   const unproven = verification === 'mutation' ? mutationRefusal(lines, id, journal) : null

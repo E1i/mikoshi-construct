@@ -473,6 +473,33 @@ describe('the launch node', () => {
     expect(launchRows(made, 1077)).toBe(1)
   })
 
+  it('a card.started from launch with a dead pid and no pull request gives card.stopped on the next tick and a card with overlapping touches becomes a launch candidate', async () => {
+    const made = bench()
+    const admitTouching = (cardId: number, lane: string, touches: string[]): void => {
+      const text = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches, continue: 'stop', who: 'shift', body: 'Do the card.' })
+      appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}`, text }, legacy: false })
+    }
+    admitTouching(1102, 'lane-a', ['tests/**', 'src/atlas/**', 'src/ui/lore.ts', 'CONTRIBUTING.md', '.changeset/**'])
+    made.tick()
+    let alive = true
+    const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-1102' : null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, isolation: sandboxed })
+    await once(node)
+    admitTouching(1103, 'lane-b', ['src/ui/lore.ts', 'tests/lore.test.ts'])
+    made.tick()
+    expect(node.stopOverdue()).toEqual([])
+    expect(node.found()).toEqual([])
+    expect(launchRows(made, 1103)).toBe(0)
+
+    alive = false
+    expect(node.found()).toEqual([])
+    expect(node.stopOverdue()).toEqual([1102])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: noPullRequestDetail(1102, 's-1102', null) }])
+    expect(node.found()).toEqual([launchKey(1103)])
+    made.tick()
+    expect(taskState(made.db, launchKey(1103))).toMatchObject({ state: 'queued' })
+  })
+
   it('a live launched session writes a pulse to the bus every N minutes', async () => {
     const made = bench()
     admit(made, 982, 'lane-a')
