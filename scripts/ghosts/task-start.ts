@@ -375,12 +375,23 @@ function cutTree(deps: TaskStartDeps, id: string, branch: string): ReadyTree | T
     return refuse(`${worktree} already exists; nothing written`)
   if (branchExists(deps, repo, branch))
     return refuse(`branch ${branch} already exists; nothing written`)
+  let absent: string[] = []
   try {
     deps.git(repo, FETCH_MAIN_OVER_HTTPS)
-    deps.git(repo, ['worktree', 'add', '-b', branch, worktree, 'origin/main'])
   }
   catch (error) {
     return refuse(`could not cut ${worktree}: ${firstLine(error)}; nothing written`)
+  }
+  try {
+    deps.git(repo, ['worktree', 'add', '-b', branch, worktree, 'origin/main'])
+  }
+  catch (error) {
+    const recovered = recoverCheckout(deps, worktree, error)
+    if (recovered === null)
+      return refuse(`could not cut ${worktree}: ${gitMessage(error)}; nothing written`)
+    if (!Array.isArray(recovered))
+      return refuse(`could not cut ${worktree}: ${recovered.failed}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
+    absent = recovered
   }
   try {
     deps.install(worktree, INSTALL_ARGS)
@@ -388,7 +399,42 @@ function cutTree(deps: TaskStartDeps, id: string, branch: string): ReadyTree | T
   catch (error) {
     return refuse(`pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
   }
-  return { worktree, how: `cut ${worktree} from origin/main`, failedAppend: `${worktree} was cut on ${branch}` }
+  const left = absent.length === 0 ? '' : `; absent from the tree, kept out of git status with skip-worktree because the sandbox refused the write: ${absent.join(', ')}`
+  return { worktree, how: `cut ${worktree} from origin/main${left}`, failedAppend: `${worktree} was cut on ${branch}${left}` }
+}
+
+const UNABLE_TO_CREATE = /unable to create file (.+?): /g
+
+function gitMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).trim().split('\n').map(line => line.trim()).filter(line => line !== '').join(' / ')
+}
+
+export function unwritablePaths(message: string): string[] {
+  return [...new Set([...message.matchAll(UNABLE_TO_CREATE)].map(match => match[1]!))]
+}
+
+function recoverCheckout(deps: TaskStartDeps, worktree: string, error: unknown): string[] | { failed: string } | null {
+  const refused = unwritablePaths(error instanceof Error ? error.message : String(error))
+  if (refused.length === 0 || !deps.exists(worktree))
+    return null
+  try {
+    deps.git(worktree, ['read-tree', 'HEAD'])
+    deps.git(worktree, ['checkout-index', '-a', '-f', '-u'])
+  }
+  catch (retry) {
+    const stillRefused = unwritablePaths(retry instanceof Error ? retry.message : String(retry))
+    if (stillRefused.length === 0)
+      return { failed: gitMessage(retry) }
+    refused.push(...stillRefused)
+  }
+  const absent = [...new Set(refused)]
+  try {
+    deps.git(worktree, ['update-index', '--skip-worktree', '--', ...absent])
+  }
+  catch (skip) {
+    return { failed: gitMessage(skip) }
+  }
+  return absent
 }
 
 export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {
@@ -457,10 +503,20 @@ export function pnpmInstall(cwd: string, args: string[]): void {
   execFileSync('pnpm', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
+export function gitIn(cwd: string, args: string[]): string {
+  try {
+    return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  }
+  catch (error) {
+    const stderr = String((error as { stderr?: unknown }).stderr ?? '').trim()
+    throw stderr === '' ? error : new Error(stderr)
+  }
+}
+
 function realDeps(): TaskStartDeps {
   return {
     cwd: process.cwd(),
-    git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+    git: gitIn,
     install: pnpmInstall,
     exists: existsSync,
     bus: defaultBusPath(),

@@ -1,14 +1,14 @@
 import type { BusCard, BusFacts } from '../../src/commands/board/bus.js'
 import { describe, expect, it } from 'vitest'
-import { backlogLines, flowLines, matrixLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
+import { backlogCards, backlogLines, flowLines, matrixLines, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
 function card(id: number, state: string | null, lane: string | null = null, line: string | null = null): BusCard {
-  return { id, state, lane, line }
+  return { id, state, lane, line, since: null, body: true, closed: false, closedAt: null }
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
-  return { cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
+  return { at: '2026-10-02T12:00:00.000Z', pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
 }
 
 describe('the board screens', () => {
@@ -37,6 +37,15 @@ describe('the board screens', () => {
     expect(backlogLines([card(1, 'queued', 'a', 'card: #1 alpha')], PLAIN_LORE)).toEqual(['a (1)', '  #1 alpha · queued'])
   })
 
+  it('backlog keeps a card closed less than 12 hours ago even when its cards row still reads a live state, and hides one closed earlier', () => {
+    const closedAt = (hoursAgo: number): string => new Date(Date.parse('2026-10-02T12:00:00.000Z') - hoursAgo * 3_600_000).toISOString()
+    const cards = [
+      { ...card(1, 'running', null, '#1 fresh'), closed: true, closedAt: closedAt(1), since: closedAt(30) },
+      { ...card(2, 'in_review', null, '#2 old'), closed: true, closedAt: closedAt(13), since: closedAt(30) },
+    ]
+    expect(backlogCards(cards, '2026-10-02T12:00:00.000Z', false).map(c => c.id)).toEqual([1])
+  })
+
   it('services names each running session and says so when none runs', () => {
     expect(servicesLines(noFacts(), PLAIN_LORE)).toEqual(['no session is running'])
     expect(servicesLines(noFacts({ services: [{ role: 'answer', task: '#5', tree: null, step: 'answer abcdef1' }, { role: 'implementer', task: '#6', tree: '/t', step: 'started' }] }), PLAIN_LORE)).toEqual([
@@ -56,6 +65,14 @@ describe('the board screens', () => {
     ])
     expect(screenLines(facts, PLAIN_LORE).slice(-3, -1)).toEqual(matrixLines(facts, PLAIN_LORE))
     expect(matrixLines(noFacts(), PLAIN_LORE)).toEqual([])
+  })
+
+  it('the screen opens with Flow and shows the pulse and the slots in use', () => {
+    const facts = noFacts({ pulse: '2026-10-02T11:58:00.000Z', slots: [{ queue: 'review', used: 2 }] })
+    expect(screenLines(facts, PLAIN_LORE)[0]).toBe('Flow')
+    expect(pulseLines(facts, PLAIN_LORE)).toEqual(['bus · pulse · — · pulse 2 min ago · slots in use: review 2 (the bus records no capacity)'])
+    expect(pulseLines(noFacts(), PLAIN_LORE)).toEqual(['bus · pulse · — · no pulse recorded · slots in use: none in use (the bus records no capacity)'])
+    expect(screenLines(noFacts(), PLAIN_LORE)[0]).toBe('Flow')
   })
 
   it('the footer names the agents at work, the last failure and the review queue', () => {

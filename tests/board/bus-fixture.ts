@@ -1,18 +1,25 @@
 import { DatabaseSync } from 'node:sqlite'
 
 const BUS_SCHEMA = `
-CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, pr INTEGER, head TEXT, payload TEXT NOT NULL);
-CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER);
-CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT);
+CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, pr INTEGER, head TEXT, dedupe_key TEXT, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
+CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER, event_id INTEGER);
+CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT, text TEXT NOT NULL DEFAULT '');
 CREATE TABLE prs (pr INTEGER PRIMARY KEY, verdict_on_head TEXT);
 CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL);
+CREATE TABLE roles (role TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL);
 `
+
+const CARD_STATE_EVENT = 'card.state'
 
 export interface SeedCard {
   id: number
   state: string | null
   lane: string | null
   line: string | null
+  text?: string
+  body?: boolean
+  since?: string | null
+  pr?: number | null
 }
 
 export interface SeedTask {
@@ -30,6 +37,14 @@ export interface SeedEvent {
   payload: string
   pr?: number | null
   head?: string | null
+  dedupe?: string | null
+  legacy?: boolean
+}
+
+export interface SeedRole {
+  role: string
+  status: string
+  state: string
 }
 
 export interface BusSeed {
@@ -37,6 +52,12 @@ export interface BusSeed {
   verdicts?: [number, string | null][]
   tasks?: SeedTask[]
   events?: SeedEvent[]
+  roles?: SeedRole[]
+}
+
+function insertEvent(db: DatabaseSync, event: SeedEvent): number {
+  const result = db.prepare('INSERT INTO events (ts, type, card_id, pr, head, dedupe_key, legacy, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(event.ts, event.type, event.card, event.pr ?? null, event.head ?? null, event.dedupe ?? null, event.legacy === true ? 1 : 0, event.payload)
+  return Number(result.lastInsertRowid)
 }
 
 export function writeBus(file: string, seed: BusSeed): string {
@@ -44,15 +65,19 @@ export function writeBus(file: string, seed: BusSeed): string {
   try {
     db.exec(BUS_SCHEMA)
     for (const card of seed.cards ?? []) {
-      db.prepare('INSERT INTO cards (card_id, state, pr) VALUES (?, ?, NULL)').run(card.id, card.state)
-      db.prepare('INSERT INTO card_bodies (card_id, lane, card_line) VALUES (?, ?, ?)').run(card.id, card.lane, card.line)
+      const eventId = card.since === undefined ? null : insertEvent(db, { ts: card.since, type: CARD_STATE_EVENT, card: card.id, payload: '{}' })
+      db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, ?, ?)').run(card.id, card.state, card.pr ?? null, eventId)
+      if (card.body ?? true)
+        db.prepare('INSERT INTO card_bodies (card_id, lane, card_line, text) VALUES (?, ?, ?, ?)').run(card.id, card.lane, card.line, card.text ?? '')
     }
     for (const [pr, verdict] of seed.verdicts ?? [])
       db.prepare('INSERT INTO prs (pr, verdict_on_head) VALUES (?, ?)').run(pr, verdict)
     for (const task of seed.tasks ?? [])
       db.prepare('INSERT INTO tasks (queue, card_id, pr, head, state) VALUES (?, ?, ?, ?, ?)').run(task.queue, task.card, task.pr, task.head, task.state)
     for (const event of seed.events ?? [])
-      db.prepare('INSERT INTO events (ts, type, card_id, pr, head, payload) VALUES (?, ?, ?, ?, ?, ?)').run(event.ts, event.type, event.card, event.pr ?? null, event.head ?? null, event.payload)
+      insertEvent(db, event)
+    for (const role of seed.roles ?? [])
+      db.prepare('INSERT INTO roles (role, status, state) VALUES (?, ?, ?)').run(role.role, role.status, role.state)
   }
   finally {
     db.close()

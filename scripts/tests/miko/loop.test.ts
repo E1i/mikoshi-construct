@@ -11,7 +11,7 @@ import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { failRaise, leaseRole, observeRoleStop, ROLE_RETURNED, roleToOwner } from '../../bus/role.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
-import { claudeCommand, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, runMikoLoop, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight } from '../../miko/loop.js'
+import { CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -529,4 +529,101 @@ describe('the end of the window the loop runs returns the role', () => {
     expect(code).toBe(0)
     expect(returnedEnds(bus)).toEqual({ ended: 'close', state: 'stopped' })
   }, 20_000)
+})
+
+describe('the loop owns the end of a session: a request file asks it to end the claude it started', () => {
+  const POLL_MS = 20
+
+  function request(): string {
+    const dir = mkdtempSync(path.join(tmpdir(), 'miko-request-'))
+    roots.push(dir)
+    const file = exitRequestFile(dir, process.pid)
+    mkdirSync(path.dirname(file), { recursive: true })
+    return file
+  }
+
+  it('names the request next to miko.md, one file per loop', () => {
+    expect(path.dirname(exitRequestFile('/h', 41))).toBe(path.dirname(mikoHandoff('/h')))
+    expect(exitRequestFile('/h', 41)).not.toBe(exitRequestFile('/h', 42))
+  })
+
+  it('a request for one loop does not end the session of another', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'miko-request-'))
+    roots.push(dir)
+    const mine = exitRequestFile(dir, 41)
+    const other = exitRequestFile(dir, 42)
+    mkdirSync(path.dirname(mine), { recursive: true })
+    const ending = runSession('sleep 30', undefined, mine, POLL_MS)
+    const staying = runSession('sleep 1', undefined, other, POLL_MS)
+    setTimeout(writeFileSync, 100, mine, '1\n')
+    expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
+    expect(await staying).toEqual({ code: 0, signal: null })
+  }, 10_000)
+
+  it('takes a request once and removes it', () => {
+    const file = request()
+    expect(takeExitRequest(file)).toBe(false)
+    writeFileSync(file, '1\n')
+    expect(takeExitRequest(file)).toBe(true)
+    expect(existsSync(file)).toBe(false)
+    expect(takeExitRequest(file)).toBe(false)
+  })
+
+  it('ends the session with SIGTERM when a request appears, and removes the request', async () => {
+    const file = request()
+    const ending = runSession('sleep 30', undefined, file, POLL_MS)
+    setTimeout(writeFileSync, 100, file, '1\n')
+    expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
+    expect(existsSync(file)).toBe(false)
+  }, 10_000)
+
+  it('does not obey a request left from before the session started', async () => {
+    const file = request()
+    writeFileSync(file, 'stale\n')
+    expect(await runSession('sleep 0.3', undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
+    expect(existsSync(file)).toBe(false)
+  }, 10_000)
+
+  it('runs the session as the loop\'s own child, so the SIGTERM of a request reaches the session and not only its shell', async () => {
+    const file = request()
+    const seen = `${file}.parent`
+    const session = `${file}.session.sh`
+    writeFileSync(session, `#!/bin/sh\necho "$PPID" > '${seen}'\nexec sleep 30\n`, { mode: 0o755 })
+    const ending = runSession(session, undefined, file, POLL_MS)
+    await waitFor(() => existsSync(seen) && readFileSync(seen, 'utf8').trim() !== '', () => 'the session to name its parent', 5_000)
+    writeFileSync(file, '1\n')
+    expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
+    expect(readFileSync(seen, 'utf8').trim()).toBe(String(process.pid))
+  }, 10_000)
+
+  it('a command with leading assignments is still exec\'d, with the assignments in its environment', async () => {
+    const file = request()
+    const seen = `${file}.assigned`
+    const session = `${file}.assigned.sh`
+    writeFileSync(session, `#!/bin/sh\necho "$MIKO_SEEN $PPID" > '${seen}'\n`, { mode: 0o755 })
+    expect(sessionScript(`MIKO_SEEN=yes ${session}`)).toBe(`exec env MIKO_SEEN=yes ${session} "$@"`)
+    expect(await runSession(`MIKO_SEEN=yes ${session}`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
+    expect(readFileSync(seen, 'utf8').trim()).toBe(`yes ${process.pid}`)
+  }, 10_000)
+
+  it('a command with shell syntax runs through the shell as it is written: it is not exec\'d, so an exit request ends only that shell, not the session', async () => {
+    const file = request()
+    const seen = `${file}.compound`
+    expect(sessionScript(`true; echo ran > ${seen}`)).toBe(`true; echo ran > ${seen} "$@"`)
+    expect(await runSession(`true && echo ran > ${seen}`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
+    expect(readFileSync(seen, 'utf8').trim()).toBe('ran')
+  }, 10_000)
+
+  it('refuses a command with shell syntax, since an exit request would end only its shell and leave claude running', () => {
+    expect(compoundCommandRefusal('true && sleep 30')).toBe(`${PREFIX}${CLAUDE_VARIABLE} contains shell syntax (true && sleep 30): an exit request could not end the claude it starts; name one command`)
+    expect(compoundCommandRefusal(DEFAULT_CLAUDE)).toBeNull()
+    expect(compoundCommandRefusal('MIKO_SEEN=yes /opt/claude')).toBeNull()
+  })
+
+  it('names the loop and the request to the session through its environment', async () => {
+    const file = request()
+    const seen = `${file}.seen`
+    expect(await runSession(`sh -c 'echo "$MIKO_LOOP_PID $MIKO_EXIT_REQUEST" > ${seen}'`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
+    expect(readFileSync(seen, 'utf8').trim()).toBe(`${process.pid} ${file}`)
+  }, 10_000)
 })

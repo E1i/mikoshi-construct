@@ -1,0 +1,52 @@
+{
+  "at": "2026-10-19T18:46:51.004Z",
+  "cards": [
+    { "id": 19, "state": "dropped", "lane": null, "line": null, "since": "2026-10-19T18:46:26.785Z", "body": false },
+    { "id": 65, "state": "dropped", "lane": null, "line": null, "since": "2026-10-19T18:46:27.132Z", "body": false },
+    { "id": 170, "state": "queued", "lane": null, "line": null, "since": "2026-10-05T09:47:37.753Z", "body": false },
+    { "id": 547, "state": "stopped", "lane": "2026-10-10-b", "line": "#547 intake-skill-fact-keys [implement/shredder/S/ladder/owner] · depends — · blocks —", "since": "2026-10-19T09:28:37.225Z", "body": true },
+    { "id": 608, "state": "dropped", "lane": null, "line": null, "since": "2026-10-19T18:46:27.840Z", "body": false },
+    { "id": 660, "state": "stopped", "lane": "2026-10-10-a", "line": "#660 failure-detail-in-context [probe/eddies/S/cheap/none] · depends — · blocks —", "since": "2026-10-19T09:32:47.881Z", "body": true },
+    { "id": 726, "state": "dropped", "lane": null, "line": null, "since": "2026-10-19T18:46:28.177Z", "body": false },
+    { "id": 745, "state": "dropped", "lane": null, "line": null, "since": "2026-10-19T18:46:31.315Z", "body": false },
+    { "id": 764, "state": "dropped", "lane": null, "line": null, "since": "2026-10-19T18:46:31.652Z", "body": false },
+    { "id": 856, "state": "dropped", "lane": null, "line": "#856 amend-releases-stop [implement/netwatch/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T18:46:31.998Z", "body": true },
+    { "id": 858, "state": "queued", "lane": null, "line": "#858 tmp-run-root [implement/infra/M/ladder/auto] · depends — · blocks #859, #861", "since": "2026-10-11T17:17:52.391Z", "body": true },
+    { "id": 872, "state": "stopped", "lane": "2026-10-12-hold", "line": "#872 factory-restarts-on-new-main [implement/netwatch/M/ladder/auto] · depends — · blocks —", "since": "2026-10-19T09:36:13.735Z", "body": true },
+    { "id": 873, "state": "stopped", "lane": "2026-10-11-r", "line": "#873 contour-reason-in-pr-body [implement/morse/S/ladder/auto] · depends — · blocks —", "since": "2026-10-19T09:39:14.490Z", "body": true },
+    { "id": 951, "state": "in_review", "lane": null, "line": null, "since": "2026-10-12T06:54:48.496Z", "body": false },
+    { "id": 1037, "state": "merged", "lane": null, "line": "#1037 launch-only-in-runtime-isolation [implement/black-ice/L/ladder/owner] · depends — · blocks —", "since": "2026-10-19T08:20:30.840Z", "body": true },
+    { "id": 1050, "state": "merged", "lane": null, "line": "#1050 shard-decides-under-isolation [implement/netwatch/M/cheap/auto] · depends — · blocks —", "since": "2026-10-19T10:00:33.477Z", "body": true },
+    { "id": 1055, "state": "merged", "lane": null, "line": "#1055 check-catalog-and-layered-ci [implement/infra/L/cheap/owner] · depends — · blocks —", "since": "2026-10-19T07:05:08.766Z", "body": true },
+    { "id": 1063, "state": "merged", "lane": null, "line": "#1063 agent-command-form [implement/infra/S/cheap/owner] · depends — · blocks —", "since": "2026-10-19T06:51:24.734Z", "body": true },
+    { "id": 1064, "state": "merged", "lane": null, "line": "#1064 catalog-matrix-and-layer-report [implement/infra/M/cheap/owner] · depends — · blocks —", "since": "2026-10-19T12:39:06.079Z", "body": true },
+    { "id": 1066, "state": "closed", "lane": null, "line": "#1066 carry-after-round-limit-0-44 [implement/infra/S/cheap/owner] · depends — · blocks —", "since": "2026-10-19T07:17:12.779Z", "body": true },
+    { "id": 1067, "state": "merged", "lane": null, "line": "#1067 launch-withdraw-legacy [implement/netwatch/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T09:22:49.646Z", "body": true },
+    { "id": 1068, "state": "running", "lane": null, "line": "#1068 answer-worker-reads-isolation [implement/netwatch/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T10:06:33.144Z", "body": true },
+    { "id": 1069, "state": "merged", "lane": null, "line": "#1069 small-fixes [implement/netwatch/XS/cheap/auto] · depends — · blocks —", "since": "2026-10-19T09:36:43.221Z", "body": true },
+    { "id": 1070, "state": "merged", "lane": null, "line": "#1070 reports-forecast-actual [implement/netwatch/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T11:31:33.665Z", "body": true },
+    { "id": 1071, "state": "merged", "lane": "2026-10-19-a", "line": "#1071 board-v4 [implement/netwatch/M/cheap/auto] · depends — · blocks —", "since": "2026-10-19T12:22:35.311Z", "body": true },
+    { "id": 1072, "state": "merged", "lane": null, "line": "#1072 atlas-readability [implement/netwatch/M/cheap/auto] · depends — · blocks —", "since": "2026-10-19T09:53:35.223Z", "body": true },
+    { "id": 1074, "state": "merged", "lane": null, "line": "#1074 launch-live-ready [implement/netwatch/M/cheap/auto] · depends — · blocks —", "since": "2026-10-19T17:07:46.616Z", "body": true },
+    { "id": 1075, "state": "closed", "lane": null, "line": "#1075 d146-slice-lane-probe [probe/netwatch/S/cheap/none] · depends — · blocks —", "since": "2026-10-19T11:58:52.744Z", "body": true },
+    { "id": 1076, "state": "merged", "lane": null, "line": "#1076 slice-to-card [implement/shredder/M/cheap/auto] · depends — · blocks #1077", "since": "2026-10-19T16:08:57.332Z", "body": true },
+    { "id": 1079, "state": "merged", "lane": null, "line": "#1079 window-gate-by-layers [implement/infra/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T16:45:32.688Z", "body": true },
+    { "id": 1080, "state": "merged", "lane": null, "line": "#1080 amend-keeps-round [implement/netwatch/S/cheap/owner] · depends — · blocks —", "since": "2026-10-19T14:47:45.599Z", "body": true },
+    { "id": 1081, "state": "merged", "lane": null, "line": "#1081 watch-wakes-on-stall [implement/netwatch/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T14:01:18.380Z", "body": true },
+    { "id": 1085, "state": "closed", "lane": null, "line": "#1085 probe-d157-d154 [probe/netwatch/S/cheap/none] · depends — · blocks —", "since": "2026-10-19T15:26:01.391Z", "body": true },
+    { "id": 1086, "state": "closed", "lane": null, "line": "#1086 node-loop-fills-free-slots [implement/netwatch/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T14:37:07.059Z", "body": true },
+    { "id": 1088, "state": "merged", "lane": null, "line": "#1088 update-branch-keeps-decision [implement/netwatch/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T15:01:41.944Z", "body": true },
+    { "id": 1089, "state": "merged", "lane": null, "line": "#1089 sandbox-git-https [implement/infra/M/cheap/auto] · depends — · blocks #1090", "since": "2026-10-19T16:50:08.234Z", "body": true },
+    { "id": 1095, "state": "merged", "lane": null, "line": "#1095 launch-node-tmpdir-claude [implement/netwatch/XS/cheap/auto] · depends — · blocks —", "since": "2026-10-19T16:36:02.271Z", "body": true },
+    { "id": 1096, "state": "merged", "lane": null, "line": "#1096 supervisor-drains-before-restart [implement/netwatch/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T17:26:49.834Z", "body": true },
+    { "id": 1097, "state": "merged", "lane": null, "line": "#1097 node-survives-database-locked [implement/netwatch/S/cheap/auto] · depends — · blocks —", "since": "2026-10-19T18:37:55.703Z", "body": true },
+    { "id": 1099, "state": "dropped", "lane": null, "line": "#1099 sandbox-writes-git-and-construct [implement/netwatch/S/cheap/owner] · depends — · blocks —", "since": "2026-10-19T17:43:19.817Z", "body": true },
+    { "id": 1104, "state": "dropped", "lane": "2026-10-20-b", "line": "#1104 no-decorators-no-di-slice-2 [implement/netwatch/S/cheap/owner] · depends — · blocks —", "since": "2026-10-19T18:21:43.004Z", "body": true }
+  ],
+  "events": [
+    { "ts": "2026-10-19T11:46:24.452Z", "type": "card.verified", "card": 1068, "payload": "{\"path\":\"cheap\",\"pr\":917,\"sharedBy\":\"D-189\"}" }
+  ],
+  "roles": [
+    { "role": "miko", "status": "CONTINUE", "state": "owner" }
+  ]
+}
