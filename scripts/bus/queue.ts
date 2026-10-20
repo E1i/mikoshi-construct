@@ -148,12 +148,15 @@ const RESTART_TARGETS = `
 
 const RESTART_CANDIDATES = `SELECT NULL AS pr, card_id, head FROM (${RESTART_TARGETS}) ORDER BY dir`
 
+const VERIFIED_ON_ITS_OWN_OR_A_SHARED_PR = `verified.type = '${CARD_VERIFIED}' AND verified.legacy = 0 AND verified.pr = prs.pr AND verified.card_id IS NOT NULL
+  AND (verified.card_id = prs.card_id OR json_type(verified.payload, '$.sharedBy') = 'text')`
+
 const CLOSE_CANDIDATES = `
-  SELECT pr, card_id, head FROM prs
-  WHERE state = 'merged' AND card_id IS NOT NULL AND head IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM events WHERE events.type = '${CARD_CLOSED}' AND events.card_id = prs.card_id)
-    AND EXISTS (SELECT 1 FROM events WHERE events.type = '${CARD_VERIFIED}' AND events.legacy = 0 AND events.card_id = prs.card_id AND events.pr = prs.pr)
-  ORDER BY pr
+  SELECT DISTINCT prs.pr, verified.card_id, prs.head FROM prs
+  JOIN events AS verified ON ${VERIFIED_ON_ITS_OWN_OR_A_SHARED_PR}
+  WHERE prs.state = 'merged' AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM events WHERE events.type = '${CARD_CLOSED}' AND events.card_id = verified.card_id)
+  ORDER BY prs.pr, verified.card_id
 `
 
 export const QUESTION_AGENT = 'question.agent'
