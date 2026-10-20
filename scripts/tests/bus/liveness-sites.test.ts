@@ -46,6 +46,8 @@ describe('only the supervisor judges liveness, and every other ps, pid file and 
       const file = `scripts/bus/sneak-${index}.ts`
       expect(livenessSites(new Map([[file, spelling]])).map(site => site.file), spelling).toEqual([file])
     }
+    for (const unrelated of [`this.ports.kill(pid)`, `const steps = ['pss', 'x']`, `ui.say('maps -> ok')`, `skill(1)`])
+      expect(livenessSites(new Map([['scripts/bus/sneak.ts', unrelated]])), unrelated).toEqual([])
   })
 
   it('a recorded site that is gone fails, so the list only shrinks', () => {

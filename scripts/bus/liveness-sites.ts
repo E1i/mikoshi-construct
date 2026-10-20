@@ -23,9 +23,9 @@ export interface LivenessSite {
 }
 
 const PATTERNS: Record<LivenessKind, RegExp> = {
-  'ps': /['"`]ps['"`\s]|\bps\s+-\w|\bpgrep\b/,
+  'ps': /['"`]ps['"`]|['"`]ps\s+-\w|\bpgrep\b/,
   'pid-file': /\.pid['"`]|\bpid[-_]?file\b/i,
-  'kill': /\bkill\(|['"`]p?kill['"`\s]|\bkillall\b/,
+  'kill': /(?<![\w.])kill\(|\bprocess\.kill\(|\bchild\w*\.kill\(|['"`]p?kill['"`\s]|\bkillall\b/,
 }
 
 function siteKey(site: LivenessSite): string {

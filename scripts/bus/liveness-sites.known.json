@@ -4,7 +4,6 @@
   { "file": "scripts/bus/bg.ts", "kind": "ps" },
   { "file": "scripts/bus/chain-process.ts", "kind": "kill" },
   { "file": "scripts/bus/chain-process.ts", "kind": "ps" },
-  { "file": "scripts/bus/ladder-starter.ts", "kind": "kill" },
   { "file": "scripts/bus/launch-starter.ts", "kind": "kill" },
   { "file": "scripts/bus/launch-starter.ts", "kind": "ps" },
   { "file": "scripts/bus/review-bg.ts", "kind": "pid-file" },

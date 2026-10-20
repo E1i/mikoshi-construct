@@ -517,15 +517,18 @@ export function expectedRunning(db: DatabaseSync, wanted: readonly DetachedLaunc
 }
 
 export function judgeSilent(beats: readonly ProcessBeat[], nowMs: number, expected: ExpectedRunning): Judgement[] {
-  return beats.filter(beat => !beat.final && expected(beat.process) && !beatsLive(beat.ts, nowMs) && nowMs - Date.parse(beat.ts) <= JUDGED_HORIZON_MS).map(beat => ({ process: beat.process, lastBeat: beat.ts, silentMs: nowMs - Date.parse(beat.ts) }))
+  return beats.filter(beat => expected(beat.process) && !beatsLive(beat.ts, nowMs) && nowMs - Date.parse(beat.ts) <= JUDGED_HORIZON_MS).map(beat => ({ process: beat.process, lastBeat: beat.ts, silentMs: nowMs - Date.parse(beat.ts) }))
 }
 
 export function recordJudged(db: DatabaseSync, ts: string, judgement: Judgement): boolean {
   return appendEvent(db, { ts, type: PROCESS_JUDGED, actor: JUDGE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_JUDGED}:${judgement.process}:${judgement.lastBeat}`, payload: { process: judgement.process, verdict: 'silent', last_beat: judgement.lastBeat, silent_ms: judgement.silentMs, limit_ms: SILENT_MS }, legacy: false })
 }
 
+export const RESTART_RETRY_MS = SUPERVISOR_BEAT_MS
+
 export class LivenessJudge {
   private lastBeat = Number.NEGATIVE_INFINITY
+  private readonly restartedAt = new Map<string, number>()
 
   constructor(private readonly db: DatabaseSync, private readonly now: () => number, private readonly expected: () => ExpectedRunning, private readonly restart: (process: string) => Promise<string[]> = async () => []) {}
 
@@ -538,12 +541,33 @@ export class LivenessJudge {
         this.lastBeat = nowMs
       }
       const lines: string[] = []
-      for (const judgement of judgeSilent(lastProcessBeats(this.db), nowMs, this.expected()).filter(each => recordJudged(this.db, ts, each)))
-        lines.push(`${PREFIX}${judgement.process} has not beaten for ${Math.round(judgement.silentMs / 60_000)} min (limit ${SILENT_MS / 60_000} min); judged silent as ${PROCESS_JUDGED}`, ...await this.restart(judgement.process))
+      const silent = judgeSilent(lastProcessBeats(this.db), nowMs, this.expected())
+      for (const name of this.restartedAt.keys()) {
+        if (!silent.some(judgement => judgement.process === name))
+          this.restartedAt.delete(name)
+      }
+      for (const judgement of silent) {
+        if (recordJudged(this.db, ts, judgement))
+          lines.push(`${PREFIX}${judgement.process} has not beaten for ${Math.round(judgement.silentMs / 60_000)} min (limit ${SILENT_MS / 60_000} min); judged silent as ${PROCESS_JUDGED}`)
+        lines.push(...await this.restartDue(judgement.process, nowMs))
+      }
       return lines
     }
     catch (error) {
       return [`${PREFIX}judging the heartbeats failed: ${error instanceof Error ? error.message : String(error)}; retried on the next tick`]
+    }
+  }
+
+  private async restartDue(name: string, nowMs: number): Promise<string[]> {
+    const last = this.restartedAt.get(name)
+    if (last !== undefined && nowMs - last < RESTART_RETRY_MS)
+      return []
+    this.restartedAt.set(name, nowMs)
+    try {
+      return await this.restart(name)
+    }
+    catch (error) {
+      return [`${PREFIX}restarting ${name} failed: ${error instanceof Error ? error.message : String(error)}; retried in ${RESTART_RETRY_MS / 60_000} min while it stays silent`]
     }
   }
 }

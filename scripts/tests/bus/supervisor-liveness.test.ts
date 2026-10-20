@@ -14,7 +14,7 @@ import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLea
 import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../bus/liveness-sites.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, restartSilent, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
 
@@ -982,18 +982,44 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     db.close()
   })
 
-  it('a process that finished cleanly is not judged: a final beat, a card no longer running, a window', async () => {
+  it('a process that finished cleanly is not judged: a card no longer running, a worker switched off, a window', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-clean-'))
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
-    recordProcessHeartbeat(db, at(0), 'bus:review')
-    recordProcessHeartbeat(db, at(1), 'bus:review', true)
+    recordProcessHeartbeat(db, at(0), 'bus:merge')
     recordHeartbeat(db, at(0), { card: 1170, pr: null, head: null, step: 'launch', session: 's-1170', lease: null })
     recordWindowHeartbeat(db, at(0), 'w-2')
     const judge = new LivenessJudge(db, () => BEAT_AT + 2 * SILENT_MS, () => expectedRunning(db, [workerLaunches(() => []).review]))
 
     expect(await judge.step()).toEqual([])
     expect(judgedRows(db)).toEqual([])
+    db.close()
+  })
+
+  it('a restart that fails is retried while the same beat stays silent, and stops once the worker beats again', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-retry-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const clock = { now: BEAT_AT + SILENT_MS + 1 }
+    recordProcessHeartbeat(db, at(0), 'bus:merge')
+    const attempts: number[] = []
+    const judge = new LivenessJudge(db, () => clock.now, expecting('bus:merge', SUPERVISOR_PROCESS), async () => {
+      attempts.push(clock.now)
+      throw new Error('spawn failed')
+    })
+
+    expect((await judge.step()).join('\n')).toContain('restarting bus:merge failed: spawn failed')
+    clock.now += RESTART_RETRY_MS - 1
+    expect(await judge.step()).toEqual([])
+    clock.now += 1
+    await judge.step()
+    expect(attempts).toHaveLength(2)
+    expect(judgedRows(db)).toHaveLength(1)
+
+    recordProcessHeartbeat(db, new Date(clock.now).toISOString(), 'bus:merge')
+    clock.now += RESTART_RETRY_MS
+    expect(await judge.step()).toEqual([])
+    expect(attempts).toHaveLength(2)
     db.close()
   })
 
