@@ -34,8 +34,8 @@ function facts(seed: BusSeed): BusFacts {
 describe('the board bus reader', () => {
   it('reads every card with its state, lane and card line, in card order', () => {
     expect(facts({ cards: [{ id: 2, state: 'changes', lane: null, line: null }, { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha' }] }).cards).toEqual([
-      { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false },
-      { id: 2, state: 'changes', lane: null, line: null, since: null, body: true, closed: false },
+      { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },
+      { id: 2, state: 'changes', lane: null, line: null, since: null, body: true, closed: false, closedAt: null },
     ])
   })
 

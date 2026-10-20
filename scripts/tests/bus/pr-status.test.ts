@@ -31,6 +31,7 @@ describe('the PR status check the bus sets', () => {
   it('the bus sets the status check mikoshi: <step> on the PR head at each step', () => {
     const db = bus()
     step(db, 'pr.opened', null, { pr: 950 }, 'netwatch')
+    db.prepare('INSERT INTO prs (pr, card_id, head, state, event_id) VALUES (?, ?, ?, ?, (SELECT max(id) FROM events))').run(950, 1091, HEAD, 'open')
     step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
     step(db, 'review.recorded', HEAD, { head: HEAD, verdict: 'changes' })
     step(db, 'card.answered', NEXT, { from: HEAD, to: NEXT }, 'worker:answer:s2')
@@ -38,8 +39,9 @@ describe('the PR status check the bus sets', () => {
     step(db, 'merge.done', NEXT, { commit: 'd'.repeat(40), rule: 'auto' }, 'worker:merge:s3')
     step(db, 'node.equivalence', null, { same: [] })
     const { post, calls } = recorder()
-    expect(setStepStatuses(db, post, () => NOW).map(status => status.step)).toEqual(['review', 'review changes', 'answered', 'review pass', 'merged'])
+    expect(setStepStatuses(db, post, () => NOW).map(status => status.step)).toEqual(['opened', 'review', 'review changes', 'answered', 'review pass', 'merged'])
     expect(calls).toEqual([
+      [`repos/{owner}/{repo}/statuses/${HEAD}`, { state: 'pending', context: STATUS_CONTEXT, description: 'mikoshi: opened' }],
       [`repos/{owner}/{repo}/statuses/${HEAD}`, { state: 'pending', context: STATUS_CONTEXT, description: 'mikoshi: review' }],
       [`repos/{owner}/{repo}/statuses/${HEAD}`, { state: 'pending', context: STATUS_CONTEXT, description: 'mikoshi: review changes' }],
       [`repos/{owner}/{repo}/statuses/${NEXT}`, { state: 'pending', context: STATUS_CONTEXT, description: 'mikoshi: answered' }],
@@ -52,7 +54,18 @@ describe('the PR status check the bus sets', () => {
     step(db, 'card.stopped', NEXT, { reason: 'fault' }, 'worker:launch:s4')
     const stopped = recorder()
     expect(setStepStatuses(db, stopped.post, () => NOW)).toEqual([{ pr: 950, head: NEXT, step: 'stopped', state: 'failure' }])
-    expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(6)
+    expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(7)
+  })
+
+  it('a 401, an expired or revoked token, records nothing and the step is posted on the next run', () => {
+    const db = bus()
+    step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
+    const unauthorized: GitHubPost = () => ({ status: 401, headers: {}, body: null })
+    expect(() => setStepStatuses(db, unauthorized, () => NOW)).toThrow(/401/)
+    expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type IN (?, ?)').get(PR_STATUS_SET, PR_STATUS_REFUSED) as { n: number }).n)).toBe(0)
+    const { post, calls } = recorder()
+    expect(setStepStatuses(db, post, () => NOW).map(status => status.step)).toEqual(['review'])
+    expect(calls).toHaveLength(1)
   })
 
   it('a status GitHub refuses for good, a 422 on a head that is gone, is recorded as refused and the later steps are still posted', () => {

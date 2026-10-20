@@ -1,10 +1,10 @@
 import type { BusCard, BusFacts } from '../../src/commands/board/bus.js'
 import { describe, expect, it } from 'vitest'
-import { backlogLines, flowLines, matrixLines, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
+import { backlogCards, backlogLines, flowLines, matrixLines, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
 function card(id: number, state: string | null, lane: string | null = null, line: string | null = null): BusCard {
-  return { id, state, lane, line, since: null, body: true, closed: false }
+  return { id, state, lane, line, since: null, body: true, closed: false, closedAt: null }
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
@@ -35,6 +35,15 @@ describe('the board screens', () => {
       '  #2 · —',
     ])
     expect(backlogLines([card(1, 'queued', 'a', 'card: #1 alpha')], PLAIN_LORE)).toEqual(['a (1)', '  #1 alpha · queued'])
+  })
+
+  it('backlog keeps a card closed less than 12 hours ago even when its cards row still reads a live state, and hides one closed earlier', () => {
+    const closedAt = (hoursAgo: number): string => new Date(Date.parse('2026-10-02T12:00:00.000Z') - hoursAgo * 3_600_000).toISOString()
+    const cards = [
+      { ...card(1, 'running', null, '#1 fresh'), closed: true, closedAt: closedAt(1), since: closedAt(30) },
+      { ...card(2, 'in_review', null, '#2 old'), closed: true, closedAt: closedAt(13), since: closedAt(30) },
+    ]
+    expect(backlogCards(cards, '2026-10-02T12:00:00.000Z', false).map(c => c.id)).toEqual([1])
   })
 
   it('services names each running session and says so when none runs', () => {

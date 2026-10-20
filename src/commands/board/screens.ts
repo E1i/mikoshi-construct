@@ -22,9 +22,10 @@ export function isLive(card: BusCard): boolean {
 }
 
 function endedRecently(card: BusCard, at: string): boolean {
-  if (card.since === null || LIVE_STATES.includes(card.state ?? ''))
+  const endedAt = card.closed ? card.closedAt : LIVE_STATES.includes(card.state ?? '') ? null : card.since
+  if (endedAt === null)
     return false
-  const age = Date.parse(at) - Date.parse(card.since)
+  const age = Date.parse(at) - Date.parse(endedAt)
   return !Number.isNaN(age) && age <= ENDED_SHOWN_HOURS * HOUR_MS
 }
 

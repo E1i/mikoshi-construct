@@ -26,6 +26,7 @@ export interface BusCard {
   since: string | null
   body: boolean
   closed: boolean
+  closedAt: string | null
 }
 
 export interface BusService {
@@ -222,8 +223,8 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
     FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id LEFT JOIN events e ON e.id = c.event_id
     ORDER BY c.card_id
   `).all() as unknown as CardRow[]
-  const closed = new Set(events.of(CARD_VERIFIED_EVENT).filter(row => row.legacy === 0).map(row => row.card_id))
-  return rows.map(row => ({ id: row.id, state: row.state, lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id) }))
+  const closed = new Map(events.of(CARD_VERIFIED_EVENT).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
+  return rows.map(row => ({ id: row.id, state: row.state, lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
 }
 
 function lastPulse(db: BusDb): string | null {

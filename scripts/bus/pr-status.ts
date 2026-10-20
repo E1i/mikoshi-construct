@@ -6,7 +6,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
-import { parseIncluded, RATE_LIMIT_STATUSES } from './github.js'
+import { parseIncluded } from './github.js'
 import { CARD_STOPPED } from './inbox.js'
 import { TASK_LEASED } from './lease.js'
 
@@ -18,6 +18,7 @@ export const STATUS_ACTOR = 'worker:status:bus'
 export const STEP_EVENTS = [PR_OPENED, TASK_LEASED, REVIEW_RECORDED, 'card.answered', 'update.done', MERGE_DONE, CARD_STOPPED] as const
 
 const GH_TIMEOUT_MS = 20_000
+const HEAD_IS_GONE = 422
 
 export type StatusState = 'pending' | 'success' | 'failure'
 
@@ -73,7 +74,14 @@ function isSuccess(status: number): boolean {
 }
 
 function isPermanentRefusal(status: number): boolean {
-  return status >= 400 && status < 500 && !RATE_LIMIT_STATUSES.has(status)
+  return status === HEAD_IS_GONE
+}
+
+function withPrHead(db: DatabaseSync, event: StepEvent): StepEvent {
+  if (event.type !== PR_OPENED || event.pr === null || headOf(event) !== null)
+    return event
+  const row = db.prepare('SELECT head FROM prs WHERE pr = ?').get(event.pr) as { head: string | null } | undefined
+  return row?.head ? { ...event, head: row.head } : event
 }
 
 export function stepStatusOf(event: StepEvent): StepStatus | null {
@@ -101,7 +109,7 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
   const events = db.prepare(STEPS_AFTER).all(cursorOf(db), ...STEP_EVENTS) as unknown as StepEvent[]
   const set: StepStatus[] = []
   for (const event of events) {
-    const status = stepStatusOf(event)
+    const status = stepStatusOf(withPrHead(db, event))
     if (status === null)
       continue
     const response = post(`repos/{owner}/{repo}/statuses/${status.head}`, statusFields(status))

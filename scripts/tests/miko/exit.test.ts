@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, stopReasonOf } from '../../miko/exit.js'
+import { ancestors, exitDecision, FRESH_MS, isNestedClaude, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, stopReasonOf } from '../../miko/exit.js'
 import { mikoHandoff } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -373,6 +373,31 @@ describe('under the pnpm miko loop miko:exit asks the loop to end the session an
     expect(underTheLoop({})).toMatchObject({ code: 1, requests: [], recorded: [] })
     expect(underTheLoop({ readings: () => AT_CONTEXT, handoffMtime: () => undefined })).toMatchObject({ code: 1, requests: [] })
     expect(underTheLoop({ readings: () => AT_CONTEXT, now: () => FRESH_MS + 1000 })).toMatchObject({ code: 1, requests: [] })
+  })
+})
+
+describe('a nested claude session does not take the loop exit path', () => {
+  const env = { MIKO_LOOP_PID: '10', MIKO_EXIT_REQUEST: '/h/miko-exit.request' }
+  const shell = { pid: 11, ppid: 10, args: 'sh -c claude "$@" miko' }
+  const outer = { pid: 12, ppid: 11, args: 'claude --permission-mode auto' }
+  const zsh = { pid: 13, ppid: 12, args: '/bin/zsh -c -l eval claude' }
+  const nested = { pid: 14, ppid: 13, args: 'claude --permission-mode auto' }
+  const exitCall = { pid: 15, ppid: 14, args: '/bin/zsh -c -l eval pnpm miko:exit' }
+
+  it('the loop session itself keeps the request file', () => {
+    expect(loopRequestOf(env, () => [{ ...exitCall, ppid: 12 }, outer, shell])).toBe(env.MIKO_EXIT_REQUEST)
+  })
+
+  it('a claude under another claude gets no request file, so it falls to the non-loop path', () => {
+    expect(isNestedClaude([exitCall, nested, zsh, outer, shell])).toBe(true)
+    expect(loopRequestOf(env, () => [exitCall, nested, zsh, outer, shell])).toBeUndefined()
+  })
+
+  it('without the loop variables there is no request file, and an EPERM from ps keeps the loop path', () => {
+    expect(loopRequestOf({}, () => [])).toBeUndefined()
+    expect(loopRequestOf(env, () => {
+      throw Object.assign(new Error('spawnSync ps EPERM'), { code: 'EPERM' })
+    })).toBe(env.MIKO_EXIT_REQUEST)
   })
 })
 
