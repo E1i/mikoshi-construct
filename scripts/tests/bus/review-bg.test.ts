@@ -7,10 +7,12 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { psList, runningBus, runningInstance, startDetached } from '../../bus/bg.js'
 import { openBus } from '../../bus/db.js'
+import { NetWatch } from '../../bus/netwatch.js'
 import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../bus/review-bg.js'
+import { BusTick } from '../../bus/run.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
-import { FakeGitHub } from './github-fake.js'
+import { Clock, FakeGitHub, sha } from './github-fake.js'
 
 const ARRIVAL_GUARD_MS = 25_000
 
@@ -243,6 +245,24 @@ describe('pnpm bus:review:bg', () => {
     expect(failing.stderr[0]!.startsWith(PREFIX)).toBe(true)
     expect(failing.stderr.join('\n')).toContain('gh api: connection refused')
     expect(existsSync(path.join(w.busDir, REVIEW_INSTANCE_FILE))).toBe(false)
+  })
+
+  it('a prs head behind GitHub starts review and leaves the wait to the node', async () => {
+    const w = world()
+    const gitHub = new FakeGitHub()
+    const clock = new Clock()
+    const busPath = path.join(w.busDir, 'bus.db')
+    const db = openBus(busPath)
+    gitHub.open({ number: 966 })
+    new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now).run()
+    db.close()
+    gitHub.open({ number: 966, head: sha('c') })
+
+    expect(busShadowProblems(busPath, gitHub.client)).toEqual([])
+    const result = startDetached(reviewLaunch(() => busShadowProblems(busPath, gitHub.client)), w.busDir, w.env, w.processes)
+    expect(result.exitCode).toBe(0)
+    started.push(Number(result.stdout[0]))
+    expect(result.stdout[0]).toBe(await stubPid(w, result.stdout[0]))
   })
 
   it('the review worker and bus:run are told apart by their markers', () => {

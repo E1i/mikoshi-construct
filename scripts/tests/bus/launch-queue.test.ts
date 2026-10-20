@@ -247,6 +247,20 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  it('a dropped card whose dependency just merged is no launch candidate', () => {
+    const bench = launchBench()
+    bench.gitHub.open({ number: 1026 })
+    bench.admit(1132, 'lane-a', [1126])
+    bench.tick()
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_MOVED, actor: 'policy', cardId: 1132, pr: null, head: null, dedupeKey: `${CARD_MOVED}:1132:dropped`, payload: { lane: 'dropped' }, legacy: false })
+    bench.tick()
+
+    bench.gitHub.close(1026, true)
+    bench.tick()
+    expect(taskState(bench.db, launch(1132))).toBeUndefined()
+    bench.close()
+  })
+
   it('the cards intake made from card A of probe 1075 lay out over lanes and launch takes no two with overlapping touches', () => {
     const bench = launchBench()
     const root = tempRoot()

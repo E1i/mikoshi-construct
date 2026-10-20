@@ -47,6 +47,8 @@ const OPEN_PR_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'open' AND
 
 const ENDED_CARDS = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged', 'stopped')`
 
+const NO_LONGER_CANDIDATES = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged')`
+
 const STARTED_TREES = `
   SELECT DISTINCT card_id, json_extract(payload, '$.worktree') AS worktree FROM events
   WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, '$.worktree') = 'text'
@@ -218,6 +220,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const openPrs = cardSet(db, OPEN_PR_CARDS)
   const liveTrees = cardsWithLiveTree(db, treeLive)
   const ended = cardSet(db, ENDED_CARDS)
+  const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
   const busy = new Set<string>()
   const taken: ShiftTask[] = []
@@ -237,7 +240,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, liveTrees))
+    if (!isQueued(life, settled) || noLongerCandidates.has(life.cardId) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, liveTrees))
       continue
     busy.add(life.lane)
     if (life.task !== null)
