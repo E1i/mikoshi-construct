@@ -1,14 +1,15 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import { describe, expect, it } from 'vitest'
+import { COVERING_REASON, runsLine } from '../../../src/card/covering-tests.js'
 import { parseCard } from '../../../src/card/grammar.js'
 import { openPrWarnings, relation, taskConflicts } from '../../shift/overlap.js'
 
 const CARD = parseCard('#1 overlap [implement/ghosts/S/cheap/auto] · depends — · blocks —')
 
-function task(file: string, id: string, touches: string[], branch = `feat/${id}`): ShiftTask {
+function task(file: string, id: string, touches: string[], branch = `feat/${id}`, body = 'x'): ShiftTask {
   if (CARD.kind === 'refused')
     throw new Error(CARD.reason)
-  return { file, number: file.slice(0, 2), id, card: CARD.card, branch, touches, body: 'x', continue: 'stop' }
+  return { file, number: file.slice(0, 2), id, card: CARD.card, branch, touches, body, continue: 'stop' }
 }
 
 describe('relation', () => {
@@ -27,6 +28,21 @@ describe('relation', () => {
 })
 
 describe('taskConflicts', () => {
+  it('two cards sharing only runs do not conflict, in the shift and parking paths as in the launch path', () => {
+    const shared = 'scripts/tests/bus/shared.test.ts'
+    expect(taskConflicts([
+      task('01.md', 'a', ['scripts/bus/a.ts', shared], 'feat/a', `x\n\ncorrected: touches — (absent) → ${shared} — ${COVERING_REASON}`),
+      task('02.md', 'b', ['scripts/bus/b.ts', shared], 'feat/b', `x\n\n${runsLine([shared])}`),
+    ])).toEqual([])
+  })
+
+  it('code a Runs: line names still counts as a touch', () => {
+    expect(taskConflicts([
+      task('01.md', 'a', ['src/foo.ts'], 'feat/a', `x\n\n${runsLine(['src/foo.ts', 'src/**'])}`),
+      task('02.md', 'b', ['src/foo.ts'], 'feat/b', `x\n\ncorrected: touches — (absent) → src/foo.ts — ${COVERING_REASON}`),
+    ])).toEqual(['01.md × 02.md: src/foo.ts = src/foo.ts'])
+  })
+
   it('lists every overlapping pair, a repeated task id and a repeated branch', () => {
     expect(taskConflicts([
       task('01.md', 'a', ['scripts/a/**']),

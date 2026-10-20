@@ -15,9 +15,47 @@ const TEST_FILE = /\.test\.ts$/
 const MODULE_FILE = /\.[cm]?[jt]s$/
 const RELATIVE_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\b(?:import|require|vi\.(?:mock|doMock|importActual|importMock))\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
 const COMPILED_TO_SOURCE: readonly (readonly [RegExp, string])[] = [[/\.js$/, '.ts'], [/\.mjs$/, '.mts'], [/\.cjs$/, '.cts']]
+export const COVERING_REASON = 'a test that imports a touched file, directly or through other modules, follows the touches: the rule in src/card/covering-tests.ts'
+export const RUNS_PREFIX = 'Runs: '
+const RUNS_SEPARATOR = ', '
+const COVERING_TOUCH_CORRECTION_PREFIX = 'corrected: touches — (absent) → '
+const COVERING_TOUCH_CORRECTION_SUFFIX = ` — ${COVERING_REASON}`
 
 export function isTest(file: string): boolean {
   return TEST_FILE.test(file) && TEST_ROOTS.some(root => file.startsWith(`${root}/`))
+}
+
+function isTestScope(entry: string): boolean {
+  return isTest(entry) || (entry.endsWith(PREFIX_SUFFIX) && TEST_ROOTS.some(root => `${entry.slice(0, -PREFIX_SUFFIX.length)}/`.startsWith(`${root}/`)))
+}
+
+export function runsLine(runs: readonly string[]): string {
+  return `${RUNS_PREFIX}${runs.join(RUNS_SEPARATOR)}`
+}
+
+function coveringTouchOf(line: string): string[] {
+  if (!line.startsWith(COVERING_TOUCH_CORRECTION_PREFIX) || !line.endsWith(COVERING_TOUCH_CORRECTION_SUFFIX))
+    return []
+  return [line.slice(COVERING_TOUCH_CORRECTION_PREFIX.length, -COVERING_TOUCH_CORRECTION_SUFFIX.length)]
+}
+
+function runsOfLine(line: string): string[] {
+  if (!line.startsWith(RUNS_PREFIX))
+    return coveringTouchOf(line)
+  return line.slice(RUNS_PREFIX.length).split(',').map(entry => entry.trim()).filter(entry => entry !== '')
+}
+
+export function runsOf(body: string): string[] {
+  return [...new Set(body.split('\n').flatMap(line => runsOfLine(line.trim())))].filter(isTestScope)
+}
+
+export function runsCover(file: string, runs: readonly string[]): boolean {
+  return isTest(file) && withinTouches(file, runs)
+}
+
+export function touchesWithoutRuns(touches: readonly string[], body: string): string[] {
+  const runs = new Set(runsOf(body))
+  return touches.filter(entry => !runs.has(entry))
 }
 
 export function withinTouches(file: string, touches: readonly string[]): boolean {
