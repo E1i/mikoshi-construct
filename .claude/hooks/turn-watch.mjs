@@ -8,6 +8,11 @@ import { fileURLToPath } from 'node:url'
 const SESSION_ID = /^[\w-]{1,128}$/
 const REFUSED = 1
 const TURN_WATCH_TIMEOUT_MS = 10_000
+const TURN_WATCH_LINE = 'turn-watch:'
+
+export function windowMarked(env) {
+  return env.MIKO_WINDOW === '1' && !env.CONSTRUCT_CARD
+}
 
 export function stopInputOf(text) {
   try {
@@ -27,8 +32,8 @@ export function turnWatchArgv(root) {
 export function stopDecision(status, stderr) {
   if (status !== REFUSED)
     return null
-  const reason = stderr.split('\n').map(line => line.trim()).filter(line => line.includes('turn-watch:')).at(-1)
-  return { decision: 'block', reason: reason ?? 'turn-watch: this window session has no live pnpm miko:watch' }
+  const reason = stderr.split('\n').map(line => line.trim()).filter(line => line.includes(TURN_WATCH_LINE)).at(-1)
+  return reason === undefined ? null : { decision: 'block', reason }
 }
 
 async function readStdin() {
@@ -49,7 +54,7 @@ async function main() {
     return
   }
   const { session, again } = stopInputOf(text)
-  if (root === undefined || session === null || again)
+  if (root === undefined || session === null || again || !windowMarked(process.env))
     return
   const run = spawnSync(process.execPath, turnWatchArgv(root), { cwd: root, encoding: 'utf8', timeout: TURN_WATCH_TIMEOUT_MS, env: { ...process.env, CLAUDE_CODE_SESSION_ID: session } })
   if (run.error !== undefined) {
@@ -59,6 +64,8 @@ async function main() {
   const decision = stopDecision(run.status, run.stderr ?? '')
   if (decision !== null)
     process.stdout.write(`${JSON.stringify(decision)}\n`)
+  else if (run.status !== 0)
+    process.stderr.write(`turn-watch hook: turn-watch exited ${run.status ?? run.signal} without a turn-watch line; the turn ends\n`)
 }
 
 function isMain() {

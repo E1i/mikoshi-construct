@@ -3,9 +3,10 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
-import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
+import { recordWindowHeartbeat, windowSessionOf } from '../../bus/window-heartbeat.js'
 import { LIVE_WATCH, NO_LIVE_WATCH } from '../../miko/turn-watch.js'
 import { WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
 
@@ -36,14 +37,25 @@ function beat(bus: string, session: string, at: number): void {
   }
 }
 
-function stop(bus: string, input: object, env: NodeJS.ProcessEnv = {}): { status: number | null, stdout: string } {
+function emptyRoot(): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'stop-hook-root-'))
+  roots.push(root)
+  return root
+}
+
+function stopRun(bus: string, input: object, env: NodeJS.ProcessEnv = {}): { status: number | null, stdout: string, stderr: string } {
   const run = spawnSync(process.execPath, [HOOK], {
     cwd: REPO_ROOT,
     input: JSON.stringify({ hook_event_name: 'Stop', ...input }),
     env: { ...process.env, CLAUDE_PROJECT_DIR: REPO_ROOT, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', ...env },
     encoding: 'utf8',
   })
-  return { status: run.status, stdout: run.stdout }
+  return { status: run.status, stdout: run.stdout, stderr: run.stderr }
+}
+
+function stop(bus: string, input: object, env: NodeJS.ProcessEnv = {}): { status: number | null, stdout: string } {
+  const { status, stdout } = stopRun(bus, input, env)
+  return { status, stdout }
 }
 
 describe('the Stop hook asks turn-watch whether a window turn may end', () => {
@@ -82,6 +94,24 @@ describe('the Stop hook asks turn-watch whether a window turn may end', () => {
   it('the Stop hook lets a turn end whose input names no session', () => {
     expect(stop(busFile(), {}, WINDOW_ENV)).toEqual({ status: 0, stdout: '' })
   }, 20_000)
+
+  it('the Stop hook lets a window turn end when the turn-watch child crashes, and says so on stderr', () => {
+    const run = stopRun(busFile(), { session_id: SESSION, stop_hook_active: false }, { ...WINDOW_ENV, CLAUDE_PROJECT_DIR: emptyRoot() })
+    expect({ status: run.status, stdout: run.stdout }).toEqual({ status: 0, stdout: '' })
+    expect(run.stderr).toContain('without a turn-watch line; the turn ends')
+  }, 20_000)
+
+  it('the Stop hook starts no turn-watch child for a session that is not a window', () => {
+    for (const env of [{}, { ...WINDOW_ENV, CONSTRUCT_CARD: '1183' }])
+      expect(stopRun(busFile(), { session_id: SESSION, stop_hook_active: false }, { ...env, CLAUDE_PROJECT_DIR: emptyRoot() })).toEqual({ status: 0, stdout: '', stderr: '' })
+  }, 20_000)
+
+  it('the hook marks a window exactly when windowSessionOf names one', async () => {
+    const { windowMarked } = await import(pathToFileURL(HOOK).href) as { windowMarked: (env: NodeJS.ProcessEnv) => boolean }
+    const envs: NodeJS.ProcessEnv[] = [{}, WINDOW_ENV, { [WINDOW_VARIABLE]: '0' }, { ...WINDOW_ENV, CONSTRUCT_CARD: '' }, { ...WINDOW_ENV, CONSTRUCT_CARD: '1183' }, { CONSTRUCT_CARD: '1183' }]
+    for (const env of envs)
+      expect(windowMarked(env)).toBe(windowSessionOf({ ...env, CLAUDE_CODE_SESSION_ID: SESSION }) !== null)
+  })
 
   it('the repository settings run the hook on Stop', () => {
     const settings = JSON.parse(readFileSync(path.join(REPO_ROOT, '.claude', 'settings.json'), 'utf8')) as { hooks: Record<string, { hooks: { command: string }[] }[]> }
