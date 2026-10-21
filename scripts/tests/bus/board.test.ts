@@ -526,6 +526,6 @@ describe('the factory board', () => {
     decisionRow(bench, GOAL_DECISION, '[owner] 0.44 scope is the list')
     const written: string[] = []
     expect(printBoard(bench.db.location()!, bench.clock.now(), text => written.push(text))).toBe(0)
-    expect(written.join('')).toContain('<h2 id="h-flow">Flow</h2></div>\n<div class="flow">\n<p class="goal">goal · release 0.44 · — · 1 of 2 merged</p>\n<div class="stage"><span class="n">1</span><span class="name">planned</span>')
+    expect(written.join('')).toContain('<h2 id="h-flow">Flow</h2></div>\n<div class="flow">\n<p class="goal">goal · release 0.44 · — · merged 1/2 · planned 1 · in work 0 · review 0 · answer 0 · ready 0 · stopped 0</p>\n<div class="stage"><span class="n">1</span><span class="name">planned</span>')
   })
 })

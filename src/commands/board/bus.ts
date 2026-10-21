@@ -8,7 +8,7 @@ import { goalOf } from './goal.js'
 export const SESSION_DEATH_KEY = `${CARD_STOPPED}:session-end:`
 export const SHORT_SHA = 7
 export const SUBAGENT_SHOWN_HOURS = 12
-export const SESSION_SHOWN_MINUTES = 20
+export const SESSION_SHOWN_MINUTES = 10
 export const FLOW_STATES = [['queued'], ['running', 'changes'], ['in_review'], ['ready']]
 export const LIVE_STATES = FLOW_STATES.flat()
 export const CARD_STAGES = ['planned', 'in work', 'review', 'answer/changes', 'ready', 'merged', 'stopped', 'dropped'] as const
@@ -29,6 +29,7 @@ const STAGE_OF_STATE: Readonly<Record<string, CardStage>> = {
   closed: 'dropped',
 }
 const STAGE_OF_QUEUE: Readonly<Record<string, CardStage>> = { review: 'review', answer: 'answer/changes', merge: 'ready' }
+const STAGE_OF_STEP: Readonly<Record<string, CardStage>> = { ...STAGE_OF_QUEUE, launch: 'in work' }
 const SETTLED_STATES = new Set(['merged', 'stopped', 'dropped', 'closed'])
 const OPEN_TASK_STATES = ['queued', 'leased']
 const OPEN_PR = 'open'
@@ -231,18 +232,33 @@ function isFinished(card: BusCard): boolean {
   return card.closed || card.state === 'merged' || card.state === 'closed'
 }
 
+interface SessionBeat {
+  row: EventRow
+  step: string
+}
+
+function isFresh(ts: string | null, now: Date): ts is string {
+  return ts !== null && now.getTime() - Date.parse(ts) <= SESSION_SHOWN_MINUTES * MINUTE_MS
+}
+
+function stepMatchesStage(step: string, card: BusCard | undefined): boolean {
+  const named = STAGE_OF_STEP[step.split(' ')[0]!]
+  return named === undefined || card === undefined || named === card.stage
+}
+
 function sessionServices(events: BoardEvents, cards: BusCard[], now: Date): BusService[] {
-  const finished = new Set(cards.filter(isFinished).map(card => card.id))
-  const latest = new Map<string, BusService>()
+  const byId = new Map(cards.map(card => [card.id, card] as const))
+  const latest = new Map<string, SessionBeat>()
   for (const row of events.of(SESSION_HEARTBEAT)) {
-    if (row.ts === null || now.getTime() - Date.parse(row.ts) > SESSION_SHOWN_MINUTES * MINUTE_MS || (row.card_id !== null && finished.has(row.card_id)))
-      continue
     const payload = payloadOf(row.payload)
-    const task = `#${row.card_id ?? '?'}`
-    const step = text(payload.step) ?? 'session'
-    latest.set(text(payload.session) ?? task, { role: step.split(' ')[0]!, task, tree: null, step: `${step} · pulse ${minutesAgo(row.ts, now)} min ago` })
+    latest.set(text(payload.session) ?? `#${row.card_id ?? '?'}`, { row, step: text(payload.step) ?? 'session' })
   }
-  return [...latest.values()]
+  return [...latest.values()].flatMap(({ row, step }) => {
+    const card = row.card_id === null ? undefined : byId.get(row.card_id)
+    if (!isFresh(row.ts, now) || (card !== undefined && isFinished(card)) || !stepMatchesStage(step, card))
+      return []
+    return [{ role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · pulse ${minutesAgo(row.ts, now)} min ago` }]
+  })
 }
 
 const FAULT_REASON = 'fault'

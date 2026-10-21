@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { busReaderAt, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
+import { busReaderAt, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
 import { GOAL_DECISION } from '../../src/commands/board/goal.js'
 import { flowLines } from '../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
@@ -141,6 +141,17 @@ describe('the board bus reader', () => {
       events: [beat(1), beat(2), beat(3), beat(4), { ts: ago(HOUR), type: 'card.verified', card: 4, payload: '{}' }],
     }).services
     expect(services.map(service => service.task)).toEqual(['#1'])
+  })
+
+  it('a card that moved from launch to review has no launch tile', () => {
+    const beat = (card: number, step: string, minutes: number): SeedEvent => ({ ts: ago(minutes * 60_000), type: 'session.heartbeat', card, payload: JSON.stringify({ session: `s${card}`, step }) })
+    const card = (id: number, state: string): SeedCard => ({ id, state, lane: null, line: null })
+    const services = facts({
+      cards: [card(1196, 'in_review'), card(1194, 'queued'), card(1, 'running'), card(2, 'in_review'), card(3, 'running'), card(4, 'running')],
+      tasks: [{ queue: 'review', card: 2, pr: null, head: null, state: 'queued' }],
+      events: [beat(1196, 'launch', 4), beat(1194, 'launch', 1), beat(1, 'launch', 1), beat(2, 'review', 1), beat(3, 'session', 1), beat(4, 'launch', SESSION_SHOWN_MINUTES + 1)],
+    }).services
+    expect(services.map(service => service.task)).toEqual(['#1', '#2', '#3'])
   })
 
   it('a card with no card body, or closed through task:close, is not in Flow, and a session death is the last failure', () => {

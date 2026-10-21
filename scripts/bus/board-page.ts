@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } fro
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { busFacts, FLOW_STATES } from '../../src/commands/board/bus.js'
+import { busFacts, CARD_STAGES, FLOW_STATES } from '../../src/commands/board/bus.js'
 import { backlogCards, goalLines, isLive, matrixLines, pulseLines } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
@@ -64,7 +64,6 @@ const FIELD_COUNT = 5
 const NONE = '—'
 const ALL_FILTER = 'all'
 const LIVE_FILTER = 'live'
-const STATE_ORDER = [...FLOW_STATES.flat(), 'stopped', 'merged', 'closed', 'dropped']
 const THOUSAND = 1_000
 const MILLION = 1_000_000
 const MINUTE_MS = 60_000
@@ -116,9 +115,10 @@ function eddiesBar(name: string, value: number | null, limit: number | null, war
   if (value === null)
     return ''
   const reading = limit === null ? compact(value) : `${compact(value)}/${compact(limit)}`
-  const hot = limit !== null && warnRatio !== null && value >= limit * warnRatio
+  const over = limit !== null && value > limit
+  const hot = !over && limit !== null && warnRatio !== null && value >= limit * warnRatio
   const bar = limit === null ? '<span></span>' : `<span class="edd-bar" style="--_fill: ${percent(value / limit)}${warnRatio === null ? '' : `; --_warn: ${percent(warnRatio)}`}"></span>`
-  return `<div class="edd"${hot ? ' data-hot' : ''}><span class="edd-k">${name}</span>${bar}<span class="edd-v">${reading}</span></div>`
+  return `<div class="edd"${over ? ' data-over' : hot ? ' data-hot' : ''}><span class="edd-k">${name}</span>${bar}<span class="edd-v">${reading}</span></div>`
 }
 
 function gaugesOf(service: BusService, page: BoardPage): Gauges | null | undefined {
@@ -219,14 +219,10 @@ function cardFields(card: BusCard): string[] {
   return [words.find(word => word !== tagWord) ?? NONE, ...fields, relation(parts, 'depends'), relation(parts, 'blocks')]
 }
 
-function stateOf(card: BusCard): string {
-  return card.state ?? NONE
-}
-
 function cardRow(card: BusCard): string {
   const cells = cardFields(card).map((field, at) => `<td${at === 0 ? ' class="slug"' : ''}>${escaped(field)}</td>`).join('')
-  const state = escaped(stateOf(card))
-  return `<tr data-card="${card.id}" data-state="${state}"${isLive(card) ? ' data-live' : ''}><td class="id">#${card.id}</td>${cells}<td><span class="st" data-state="${state}">${state}</span></td></tr>`
+  const stage = escaped(card.stage)
+  return `<tr data-card="${card.id}" data-stage="${stage}"${isLive(card) ? ' data-live' : ''}><td class="id">#${card.id}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span></td></tr>`
 }
 
 function lanesOf(cards: BusCard[]): (string | null)[] {
@@ -239,10 +235,9 @@ function laneBody(lane: string | null, cards: BusCard[]): string {
   return `<tbody><tr class="lane"><th colspan="11" scope="rowgroup">${escaped(PLAIN_LORE.boardLaneLine(lane ?? undefined, inLane.length))}</th></tr>${inLane.map(cardRow).join('')}</tbody>`
 }
 
-function statesOf(cards: BusCard[]): string[] {
-  const present = [...new Set(cards.map(stateOf))]
-  const rank = (state: string): number => STATE_ORDER.includes(state) ? STATE_ORDER.indexOf(state) : STATE_ORDER.length
-  return present.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+function stagesOf(cards: BusCard[]): string[] {
+  const present = new Set(cards.map(card => card.stage))
+  return CARD_STAGES.filter(stage => present.has(stage))
 }
 
 function filterId(filter: string): string {
@@ -251,7 +246,7 @@ function filterId(filter: string): string {
 
 export function filterRule(filter: string): string {
   const id = filterId(filter)
-  const shown = filter === LIVE_FILTER ? '[data-live]' : `[data-state="${filter.replace(/["\\<>]/g, '')}"]`
+  const shown = filter === LIVE_FILTER ? '[data-live]' : `[data-stage="${filter.replace(/["\\<>]/g, '')}"]`
   return `.backlog:has(#${id}:target) { & tr[data-card]:not(${shown}), & tbody:not(:has(tr${shown})) { display: none; } & .chip[href="#${id}"] { --_bg: var(--wire); --_fg: var(--void); --_bd: var(--wire); } }`
 }
 
@@ -259,14 +254,14 @@ const COLUMNS = ['card', 'slug', 'kind', 'contour', 'size', 'path', 'gate', 'dep
 
 function backlogPanel(facts: BusFacts): string {
   const cards = backlogCards(facts.cards, facts.at, true)
-  const filters = [LIVE_FILTER, ...statesOf(cards)]
+  const filters = [LIVE_FILTER, ...stagesOf(cards)]
   const chip = (filter: string): string => `<a class="chip" href="#${filterId(filter)}">${escaped(filter)}</a>`
   return [
     '<section class="panel backlog" aria-labelledby="h-backlog">',
     ...[ALL_FILTER, ...filters].map(filter => `<span class="filter-target" id="${filterId(filter)}"></span>`),
     `<style>${filters.map(filterRule).join('\n')}</style>`,
     `<div class="panel-head"><h2 id="h-backlog">${PLAIN_LORE.boardTabBacklog}</h2><span class="meta">${cards.length} cards · grouped by lane</span></div>`,
-    `<nav class="filters" aria-label="Filter by state">${chip(ALL_FILTER)}${filters.map(chip).join('')}</nav>`,
+    `<nav class="filters" aria-label="Filter by stage">${chip(ALL_FILTER)}${filters.map(chip).join('')}</nav>`,
     '<div class="scroll"><table>',
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
     ...lanesOf(cards).map(lane => laneBody(lane, cards)),
@@ -427,6 +422,7 @@ header.panel {
   &[data-role="window"] { --_accent: var(--signal); }
   &[data-role="bus"] { --_accent: var(--ok); }
   &:has([data-hot]) { --_accent: var(--amber); }
+  &:has([data-over]) { --_accent: var(--signal); }
 }
 .svc-top { display: flex; gap: var(--space-s); align-items: baseline; }
 .svc-kind { font: 700 0.8125rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
@@ -443,6 +439,7 @@ header.panel {
   color: var(--dim);
   font-size: 0.65rem;
   &[data-hot] { --_bar: var(--amber); --_value: var(--amber); }
+  &[data-over] { --_bar: var(--signal); --_value: var(--signal); }
 }
 .edd-k { text-transform: uppercase; letter-spacing: 0.08em; }
 .edd-v { text-align: end; color: var(--_value); }
@@ -525,8 +522,8 @@ tr.lane th {
 tr[data-card] {
   & td { padding: 0.3rem 0.625rem; border-block-end: 1px solid var(--panel-raised); white-space: nowrap; color: var(--dim); }
   &:hover td { background: var(--wire-soft); }
-  &[data-state="dropped"] td, &[data-state="closed"] td { opacity: 0.55; }
-  &[data-state="running"] td:first-child { box-shadow: inset 3px 0 var(--amber); }
+  &[data-stage="dropped"] td { opacity: 0.55; }
+  &[data-stage="in work"] td:first-child { box-shadow: inset 3px 0 var(--amber); }
 }
 td.id { color: var(--wire); font-weight: 600; }
 td.slug { color: var(--text); white-space: normal; min-inline-size: 16rem; }
@@ -543,11 +540,11 @@ td.slug { color: var(--text); white-space: normal; min-inline-size: 16rem; }
   letter-spacing: 0.1em;
   text-align: center;
   text-transform: uppercase;
-  &[data-state="merged"] { --_fg: var(--ok); }
-  &[data-state="queued"], &[data-state="in_review"], &[data-state="ready"] { --_fg: var(--wire); }
-  &[data-state="running"], &[data-state="changes"] { --_fg: var(--amber); }
-  &[data-state="stopped"] { --_fg: var(--signal); }
-  &[data-state="dropped"], &[data-state="closed"] { --_fg: var(--off); }
+  &[data-stage="merged"] { --_fg: var(--ok); }
+  &[data-stage="planned"], &[data-stage="review"], &[data-stage="ready"] { --_fg: var(--wire); }
+  &[data-stage="in work"], &[data-stage="answer/changes"] { --_fg: var(--amber); }
+  &[data-stage="stopped"] { --_fg: var(--signal); }
+  &[data-stage="dropped"] { --_fg: var(--off); }
 }
 .statusline {
   display: flex;

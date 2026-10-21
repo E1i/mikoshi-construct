@@ -1,11 +1,14 @@
 import type { Lore } from '../../ui/lore.js'
-import type { BusCard, BusFacts, BusMatrix } from './bus.js'
+import type { BusCard, BusFacts, BusMatrix, CardStage, OwnerWait, PlanStage } from './bus.js'
 import { FLOW_STATES, LIVE_STATES, SHORT_SHA } from './bus.js'
 
 const CARD_PREFIX = /^card:\s*/
 const MATRIX_ROLE = 'matrix'
 const BUS_ROLE = 'bus'
 const GOAL_ROLE = 'goal'
+const WAITS_ROLE = 'waits for you'
+const GOAL_LINE_STAGES: readonly CardStage[] = ['planned', 'in work', 'review', 'answer/changes', 'ready', 'stopped']
+const STAGE_WORD: Partial<Record<CardStage, string>> = { 'answer/changes': 'answer' }
 const MINUTE_MS = 60_000
 export const ENDED_SHOWN_HOURS = 12
 const HOUR_MS = 3_600_000
@@ -47,7 +50,7 @@ export function backlogCards(cards: BusCard[], at: string, all: boolean): BusCar
 export function backlogLines(cards: BusCard[], lore: Lore): string[] {
   return lanesOf(cards).flatMap((lane) => {
     const inLane = cards.filter(card => card.lane === lane)
-    return [lore.boardLaneLine(lane ?? undefined, inLane.length), ...inLane.map(card => lore.boardBacklogRow(cardName(card), card.state ?? '—'))]
+    return [lore.boardLaneLine(lane ?? undefined, inLane.length), ...inLane.map(card => lore.boardBacklogRow(cardName(card), card.stage))]
   })
 }
 
@@ -76,9 +79,22 @@ export function pulseLines(facts: BusFacts, lore: Lore): string[] {
   return [lore.boardServiceLine(BUS_ROLE, 'pulse', undefined, `${pulse} \u00B7 slots in use: ${used} (the bus records no capacity)`)]
 }
 
+function stageCounts(plan: PlanStage[] | null): string[] {
+  return (plan ?? []).filter(stage => GOAL_LINE_STAGES.includes(stage.stage)).map(stage => `${STAGE_WORD[stage.stage] ?? stage.stage} ${stage.cards.length}`)
+}
+
 export function goalLines(facts: BusFacts, lore: Lore): string[] {
   const { goal } = facts
-  return goal === null ? [] : [lore.boardServiceLine(GOAL_ROLE, `release ${goal.release}`, undefined, `${goal.done} of ${goal.total} merged`)]
+  return goal === null ? [] : [lore.boardServiceLine(GOAL_ROLE, `release ${goal.release}`, undefined, [`merged ${goal.done}/${goal.total}`, ...stageCounts(facts.plan)].join(' \u00B7 '))]
+}
+
+function waitName(wait: OwnerWait): string {
+  const target = wait.pr === null ? `#${wait.card ?? '?'}` : `PR #${wait.pr}`
+  return wait.detail === null ? `${wait.kind} ${target}` : `${wait.kind} ${target} (${wait.detail})`
+}
+
+export function waitsLines(facts: BusFacts, lore: Lore): string[] {
+  return facts.waits.length === 0 ? [] : [lore.boardServiceLine(WAITS_ROLE, `${facts.waits.length}`, undefined, facts.waits.map(waitName).join(' \u00B7 '))]
 }
 
 export interface Screen {
@@ -94,7 +110,7 @@ export interface Screens {
 export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
   return {
     screens: [
-      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...flowLines(facts.cards, lore)] },
+      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...flowLines(facts.cards, lore)] },
       { title: lore.boardTabBacklog, lines: backlogLines(backlogCards(facts.cards, facts.at, all), lore) },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore)] },
     ],

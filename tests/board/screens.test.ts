@@ -1,10 +1,10 @@
-import type { BusCard, BusFacts } from '../../src/commands/board/bus.js'
+import type { BusCard, BusFacts, CardStage, PlanStage } from '../../src/commands/board/bus.js'
 import { describe, expect, it } from 'vitest'
 import { backlogCards, backlogLines, boardScreens, flowLines, goalLines, matrixLines, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
-function card(id: number, state: string | null, lane: string | null = null, line: string | null = null): BusCard {
-  return { id, state, stage: 'planned', lane, line, since: null, body: true, closed: false, closedAt: null }
+function card(id: number, state: string | null, lane: string | null = null, line: string | null = null, stage: CardStage = 'planned'): BusCard {
+  return { id, state, stage, lane, line, since: null, body: true, closed: false, closedAt: null }
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
@@ -14,9 +14,24 @@ function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
 describe('the board screens', () => {
   it('the board opens with the goal line, release and merged of total, and has none when the bus holds no goal', () => {
     const goal = { release: '0.44', done: 2, total: 3 }
-    expect(goalLines(noFacts({ goal }), PLAIN_LORE)).toEqual(['goal · release 0.44 · — · 2 of 3 merged'])
-    expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', 'goal · release 0.44 · — · 2 of 3 merged', 'planned (0): —'])
+    expect(goalLines(noFacts({ goal }), PLAIN_LORE)).toEqual(['goal · release 0.44 · — · merged 2/3'])
+    expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', 'goal · release 0.44 · — · merged 2/3', 'planned (0): —'])
     expect(screenLines(noFacts(), PLAIN_LORE).slice(0, 2)).toEqual(['Flow', 'planned (0): —'])
+  })
+
+  it('the text board prints the goal line, the stages and waits for you only when not empty', () => {
+    const goal = { release: '0.44', done: 2, total: 7 }
+    const stages: [CardStage, number[]][] = [['planned', [5]], ['in work', [6, 7]], ['review', [8]], ['answer/changes', [9]], ['ready', []], ['merged', [1, 2]], ['stopped', [10]], ['dropped', [11]]]
+    const plan: PlanStage[] = stages.map(([stage, cards]) => ({ stage, cards }))
+    const waits = [
+      { kind: 'question' as const, card: 10, pr: null, detail: 'which path?', since: null },
+      { kind: 'version' as const, card: null, pr: 669, detail: null, since: null },
+    ]
+    const goalLine = 'goal · release 0.44 · — · merged 2/7 · planned 1 · in work 2 · review 1 · answer 1 · ready 0 · stopped 1'
+    expect(screenLines(noFacts({ goal, plan, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 2 · — · question #10 (which path?) · version PR #669'])
+    expect(screenLines(noFacts({ goal, plan }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'planned (0): —'])
+    const backlog = [card(8, 'in_review', null, '#8 eight', 'review'), card(9, 'in_review', null, '#9 nine', 'answer/changes'), card(4, 'running', null, '#4 four', 'ready')]
+    expect(backlogLines(backlog, PLAIN_LORE)).toEqual(['no lane (3)', '  #8 eight · review', '  #9 nine · answer/changes', '  #4 four · ready'])
   })
 
   it('flow puts queued in planned, running and changes in work, in_review in review, ready in ready to merge, and leaves every other state out', () => {
@@ -31,17 +46,17 @@ describe('the board screens', () => {
   })
 
   it('backlog groups every card by lane, named lanes sorted and the cards with no lane last', () => {
-    const cards = [card(1, 'queued', 'b', 'card: #1 alpha'), card(2, null, null, null), card(3, 'merged', 'a', '#3 gamma'), card(4, 'fell', 'b', 'card:#4 delta')]
+    const cards = [card(1, 'queued', 'b', 'card: #1 alpha'), card(2, null, null, null), card(3, 'merged', 'a', '#3 gamma', 'merged'), card(4, 'stopped', 'b', 'card:#4 delta', 'stopped')]
     expect(backlogLines(cards, PLAIN_LORE)).toEqual([
       'a (1)',
       '  #3 gamma · merged',
       'b (2)',
-      '  #1 alpha · queued',
-      '  #4 delta · fell',
+      '  #1 alpha · planned',
+      '  #4 delta · stopped',
       'no lane (1)',
-      '  #2 · —',
+      '  #2 · planned',
     ])
-    expect(backlogLines([card(1, 'queued', 'a', 'card: #1 alpha')], PLAIN_LORE)).toEqual(['a (1)', '  #1 alpha · queued'])
+    expect(backlogLines([card(1, 'queued', 'a', 'card: #1 alpha')], PLAIN_LORE)).toEqual(['a (1)', '  #1 alpha · planned'])
   })
 
   it('backlog keeps a card closed less than 12 hours ago even when its cards row still reads a live state, and hides one closed earlier', () => {
