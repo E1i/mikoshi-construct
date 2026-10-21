@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ShiftTask } from '../../src/card/task-file.js'
 import type { IsolationReader } from '../ghosts/isolation.js'
 import type { ProcessTable } from './chain-process.js'
 import type { LadderSteps } from './ladder-starter.js'
@@ -16,18 +17,19 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { parseParkingFile } from '../../src/card/parking.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { commandWords, realIsolationReader } from '../ghosts/isolation.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { sessionEnv } from '../ghosts/session.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
-import { continuationRefusal, MAX_RESTARTS } from '../shift/continuation.js'
+import { continuationRefusal, CONTINUE_PROMPT, MAX_RESTARTS } from '../shift/continuation.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../shift/ladder.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { DROPPED_CARD, GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
-import { cardBodyText } from './card-bodies.js'
+import { CARD_BODIES, cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
@@ -159,6 +161,24 @@ export function noPullRequestDetail(cardId: number, session: string, result: str
 
 const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
 
+export const AMENDED_AFTER_START = 'amended-after-start'
+
+const BODY_AMENDED_SINCE = `
+  SELECT b.text_sha AS amended, (SELECT json_extract(e.payload, '$.textSha') FROM events AS e
+    WHERE e.type = '${CARD_ADMITTED}' AND e.legacy = 0 AND e.card_id = b.card_id AND e.id < ? AND json_valid(e.payload) AND json_type(e.payload, '$.textSha') = 'text'
+    ORDER BY e.id DESC LIMIT 1) AS started
+  FROM ${CARD_BODIES} AS b WHERE b.card_id = ? AND b.admission_event_id > ?
+`
+
+interface BodyAmend {
+  started: string
+  amended: string
+}
+
+function shortSha(sha: string): string {
+  return sha.slice(0, 12)
+}
+
 function startedCardOf(payload: string): StartedCard | null {
   try {
     const parsed = JSON.parse(payload) as Record<string, unknown>
@@ -202,6 +222,7 @@ export class LaunchNode extends Node<LaunchStep> {
       }
       if (this.sessionProcess(card) !== 'live')
         continue
+      this.waitOnAmend(start, card)
       this.pulse(start, card)
       const now = this.parts.clock().getTime()
       if (now - Date.parse(start.ts) >= LAUNCH_LIMIT_MS) {
@@ -270,8 +291,12 @@ export class LaunchNode extends Node<LaunchStep> {
 
   private stopEnded(start: RunningStart, card: StartedCard): boolean {
     const session: SessionStart = { cardId: start.card_id, ts: start.ts }
-    if (card.contour === 'cheap' && this.launchParts.continuer !== undefined && (this.launchParts.handedOff?.(session) ?? false))
-      return this.continueFromHandoff(start, card, this.launchParts.continuer)
+    const amend = this.amendSince(start)
+    const handedOff = this.launchParts.handedOff?.(session) ?? false
+    if (card.contour === 'cheap' && this.launchParts.continuer !== undefined && amend !== null && (handedOff || (this.launchParts.resulted?.(card, session) ?? false)))
+      return this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} ended on body ${shortSha(amend.started)}, amended since to ${shortSha(amend.amended)}`)
+    if (card.contour === 'cheap' && this.launchParts.continuer !== undefined && handedOff)
+      return this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} exited at a boundary with its handoff written`)
     if (!(this.launchParts.resulted?.(card, session) ?? false))
       return this.stopDeadSession(start, card)
     if (card.contour === 'ladder')
@@ -285,9 +310,24 @@ export class LaunchNode extends Node<LaunchStep> {
     return false
   }
 
-  private continueFromHandoff(start: RunningStart, card: StartedCard, continuer: SessionContinuer): boolean {
+  private amendSince(start: RunningStart): BodyAmend | null {
+    const row = this.db.prepare(BODY_AMENDED_SINCE).get(start.id, start.card_id, start.id) as { started: unknown, amended: string } | undefined
+    if (row === undefined || typeof row.started !== 'string' || row.started === row.amended)
+      return null
+    return { started: row.started, amended: row.amended }
+  }
+
+  private waitOnAmend(start: RunningStart, card: StartedCard): void {
+    const amend = this.amendSince(start)
+    if (amend === null)
+      return
+    const restart = card.contour === 'cheap' && this.launchParts.continuer !== undefined ? 'then it is restarted on the amended text' : 'and the amended text reaches the next session the card starts'
+    const detail = `card #${start.card_id} was amended from body ${shortSha(amend.started)} to ${shortSha(amend.amended)} after session ${card.session} started on the first; the session runs to its end, ${restart}`
+    appendEvent(this.db, { ts: this.ts(), type: CARD_WAITING, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${AMENDED_AFTER_START}:${start.dedupe_key}:${amend.amended}`, payload: { reason: AMENDED_AFTER_START, session: card.session, started: amend.started, amended: amend.amended, detail }, legacy: false })
+  }
+
+  private continueSession(start: RunningStart, card: StartedCard, continuer: SessionContinuer, exited: string): boolean {
     const used = Number((this.db.prepare(CONTINUATIONS).get(start.card_id, start.card_id) as { n: number }).n)
-    const exited = `card #${start.card_id} session ${card.session} exited at a boundary with its handoff written`
     if (used >= MAX_RESTARTS)
       return this.stopContinuation(start, 'continuation-limit', `${exited}; ${used} of ${MAX_RESTARTS} continuations used (D-104), the card is not continued again`)
     const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
@@ -448,6 +488,18 @@ export function busCardBodies(busPath: string): CardBodyReader {
   }
 }
 
+export const CARD_TEXT_HEADING = 'The card text this session runs on:'
+
+export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): ShiftTask {
+  if (!task.body.startsWith(CONTINUE_PROMPT))
+    return task
+  const text = bodyOf(task.card.id)
+  const parsed = text === null ? null : parseParkingFile(`${task.card.id}.md`, text)
+  if (parsed?.kind !== 'parked')
+    return task
+  return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
+}
+
 export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null): StarterPorts {
   return {
     read: bodyOf,
@@ -461,7 +513,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     kill: killQuietly,
     uuid,
     envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
-    prompt: (task, places) => renderPrompt(header, task, places),
+    prompt: (task, places) => renderPrompt(header, continuedOnCardText(task, bodyOf), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
   }
