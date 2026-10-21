@@ -7,7 +7,7 @@ import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
 import type { SessionContinuer, StarterPlaces, StarterPorts } from './launch-starter.js'
 import type { Lease } from './lease.js'
-import type { DetectionMode } from './node.js'
+import type { DetectionMode, WaitStep } from './node.js'
 import type { QueuedTask } from './queue.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -36,9 +36,11 @@ import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
+import { bodyNotFoldedYet } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
+import { TICK_MS } from './netwatch.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { promptsDirOf, storedInput } from './prompt-store.js'
 import { launchTasks } from './queue.js'
@@ -70,7 +72,9 @@ const LEGACY_PATH = 'path'
 
 export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
 
-export type LaunchStep = LaunchOutcome
+export type LaunchStep = LaunchOutcome | WaitStep
+
+export const BODY_NOT_FOLDED = 'body_not_folded'
 
 export interface LaunchNodeParts {
   db: DatabaseSync
@@ -368,6 +372,8 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   protected handle(lease: Lease): LaunchStep {
+    if (bodyNotFoldedYet(this.db, lease.cardId))
+      return this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.parts.clock().getTime() + TICK_MS).toISOString())
     return this.executor.launch(lease)
   }
 

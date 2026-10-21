@@ -122,11 +122,12 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     db.close()
   })
 
-  it('a heartbeat of a session holds no lease of a queue the timer renews', () => {
+  it('a heartbeat naming its lease holds the lease of every queue, a queue the timer renews included', () => {
     const { db } = bus()
     const merge = leaseWhileFree(db, at(0), { queue: 'merge', cardId: 1110, pr: 940, head: HEAD }, 'worker:merge:node-1', 1)!
     beat(db, RENEW_MS, merge)
-    expect(expireLeases(db, at(LEASE_MS + 1))).toEqual([merge.taskKey])
+    expect(expireLeases(db, at(LEASE_MS + 1))).toEqual([])
+    expect(expireLeases(db, at(RENEW_MS + LEASE_MS + 1))).toEqual([merge.taskKey])
     db.close()
   })
 

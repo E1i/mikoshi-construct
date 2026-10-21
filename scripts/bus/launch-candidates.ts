@@ -2,9 +2,11 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { textSha } from '../../src/card/text-sha.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, SESSION_HEARTBEAT } from '../core/events.js'
 import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
+import { CARD_BODIES } from './card-bodies.js'
 import { prOf } from './identifiers.js'
 import { namesQueueLive } from './live-decision.js'
 import { beatsLive } from './liveness-sites.js'
@@ -52,6 +54,14 @@ const STARTED_TREES = `
   ORDER BY id
 `
 
+const LATEST_ADMISSION = `
+  SELECT id, payload FROM events
+  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND ${NOT_A_BACKFILL}
+  ORDER BY id DESC LIMIT 1
+`
+
+const FOLDED_BODY = `SELECT admission_event_id FROM ${CARD_BODIES} WHERE card_id = ?`
+
 const LAST_SESSION_BEATS = `
   SELECT card_id, max(ts) AS ts FROM events
   WHERE legacy = 0 AND type = '${SESSION_HEARTBEAT}' AND card_id IS NOT NULL
@@ -93,7 +103,7 @@ interface CardLife {
   closed: boolean
 }
 
-function payloadOf(row: LifeRow): Record<string, unknown> {
+function payloadOf(row: Pick<LifeRow, 'payload'>): Record<string, unknown> {
   try {
     const payload = JSON.parse(row.payload) as unknown
     return payload !== null && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {}
@@ -113,6 +123,18 @@ function taskOf(row: LifeRow, payload: Record<string, unknown>): ShiftTask | nul
     return null
   const parsed = parseParkingFile(`${row.card_id}.md`, payload.text)
   return parsed.kind === 'parked' ? parsed.parked.task : null
+}
+
+function carriesABody(payload: Record<string, unknown>): boolean {
+  return typeof payload.text === 'string' && payload.textSha === textSha(payload.text)
+}
+
+export function bodyNotFoldedYet(db: DatabaseSync, cardId: number): boolean {
+  const admission = db.prepare(LATEST_ADMISSION).get(cardId) as { id: number, payload: string } | undefined
+  if (admission === undefined || !carriesABody(payloadOf({ payload: admission.payload })))
+    return false
+  const folded = db.prepare(FOLDED_BODY).get(cardId) as { admission_event_id: number } | undefined
+  return folded === undefined || Number(folded.admission_event_id) < Number(admission.id)
 }
 
 function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[]): boolean {
@@ -256,6 +278,8 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
       continue
     }
     if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, trees, beating))
+      continue
+    if (bodyNotFoldedYet(db, life.cardId))
       continue
     busy.add(life.lane)
     if (life.task !== null)
