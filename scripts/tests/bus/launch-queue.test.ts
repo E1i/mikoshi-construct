@@ -11,7 +11,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { CARD_MOVED, runIntake } from '../../../src/commands/intake/index.js'
+import { CARD_DROPPED, CARD_MOVED, runIntake } from '../../../src/commands/intake/index.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
@@ -31,6 +31,7 @@ import { busCardBodies, busStarterPorts, cardTextReader, LAUNCH_LIMIT_MINUTES, L
 import { leaseNext } from '../../bus/lease.js'
 import { SILENT_MS } from '../../bus/liveness-sites.js'
 import { reduce } from '../../bus/reducer.js'
+import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
 import { busLaunches } from '../../bus/workers.js'
 import { sessionEnv } from '../../ghosts/session.js'
 import { taskConflicts } from '../../shift/overlap.js'
@@ -248,6 +249,25 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  it('a dropped card is no candidate and holds no touches', () => {
+    const bench = launchBench()
+    const drop = (cardId: number): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_DROPPED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${cardId}`, payload: { lane: 'dropped' }, legacy: false })
+    }
+    bench.admitTouching(1170, 'lane-a', ['scripts/bus/queue.ts'])
+    bench.started(1170)
+    drop(1170)
+    bench.admitTouching(1171, 'lane-c', ['scripts/bus/lease.ts'])
+    drop(1171)
+    bench.admitTouching(1172, 'lane-a', ['scripts/bus/queue.ts', '.changeset/**'])
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1170))).toBeUndefined()
+    expect(taskState(bench.db, launch(1171))).toBeUndefined()
+    expect(taskState(bench.db, launch(1172))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
   it('a dropped card whose dependency just merged is no launch candidate', () => {
     const bench = launchBench()
     bench.gitHub.open({ number: 1026 })
@@ -262,7 +282,7 @@ describe('the launch queue', () => {
     bench.close()
   })
 
-  it('the cards intake made from card A of probe 1075 lay out over lanes and launch takes no two with overlapping touches', () => {
+  it('in parallel the cards intake made from card A of probe 1075 lay out over lanes and launch takes no two with overlapping touches', () => {
     const bench = launchBench()
     const root = tempRoot()
     const parking = path.join(root, 'parking')
@@ -273,6 +293,11 @@ describe('the launch queue', () => {
       slice('owner-loop-r3', ['scripts/bus/inbox.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts', 'scripts/bus/merge-executor.ts', 'scripts/bus/answerer.ts', 'scripts/bus/lease.ts', 'scripts/miko/watch.ts', 'scripts/bus/launch-worker.ts', '.changeset/**']),
       slice('owner-loop-item-3', ['scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts', '.changeset/**']),
     ] }))
+    const refuse = (): never => {
+      throw new Error('a mode request uses no tool')
+    }
+    requestFromWindow(bench.db, new Date().toISOString(), 'test', { kind: 'mode', mode: 'parallel' })
+    new WindowRequests(bench.db, () => new Date(), { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse }).run()
     const result = runIntake({ draft, taken: '-', readStdin: () => '1075', parking, parkingRoot: parking, dir: process.cwd(), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, events: busCardEvents(bench.db) })
     expect(result.status).toBe('written')
     const cards = result.status === 'written' ? result.cards : []

@@ -11,7 +11,7 @@ import { riskReading } from '../../src/card/risk.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { approvedHashPath, canonicalImplementText, cardNumberOf, checkApproval, extractApprovedHash, extractApprovedSketch, journalEvents, MORSE, revocationOf, revokeEvent } from './approval.js'
 import { approvalLine, checkAcceptanceBuild, hashBrief, resolveApprover } from './hash.js'
-import { appendJournalEvent } from './journal.js'
+import { recordGhostLine } from './journal.js'
 import { runPreflight } from './preflight.js'
 import { readTasksFile } from './tasks.js'
 
@@ -137,7 +137,7 @@ export async function approveCard(card: number, options: ApproveOptions): Promis
     throw new Error(`${approvedPath} already holds this hash; it is left as it is`)
 
   const line = approvalLine(queued.brief, now, approver, runBuild, preflight)
-  await appendJournalEvent(queued.journalPath, {
+  recordGhostLine('approve', {
     event: 'approval',
     by: approver,
     card,
@@ -158,8 +158,8 @@ export async function revokeCard(card: number, handoffDir: string, now: Date): P
     throw new Error(`card #${card}: no approval hash in ${approvedPath}, so nothing is revoked`)
   if (revocationOf(journalEvents(queued.journalPath), sha256, card) !== undefined)
     throw new Error(`card #${card}: the approval ${sha256} is already revoked`)
-  await appendJournalEvent(queued.journalPath, revokeEvent(sha256, card, now.toISOString()))
-  return `card #${card}: approval ${sha256.slice(0, 7)} revoked in ${queued.journalPath}`
+  recordGhostLine('approve', revokeEvent(sha256, card, now.toISOString()))
+  return `card #${card}: approval ${sha256.slice(0, 7)} revoked on the bus`
 }
 
 type ApproveArgs

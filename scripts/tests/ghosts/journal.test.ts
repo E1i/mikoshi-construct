@@ -1,8 +1,10 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { appendJournalLine } from '../../ghosts/journal.js'
+import { approvalOf, journalEvents, revocationOf, revokeEvent } from '../../ghosts/approval.js'
+import { ghostLines, ghostLinesText, journalText, recordGhostLine, taskLine } from '../../ghosts/journal.js'
+import { ownBusPerTest } from './own-bus.js'
 
 const BASE_ENTRY = {
   task: 'g1',
@@ -30,61 +32,79 @@ const BASE_ENTRY = {
   actual: { tokens: 100, minutes: 10 / 60 },
 }
 
-describe('appendJournalLine', () => {
-  it('creates the journal when absent, with the documented keys', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-journal-'))
-    const journal = path.join(dir, 'ghosts.jsonl')
+const busOf = ownBusPerTest()
 
-    await appendJournalLine(journal, BASE_ENTRY)
-
-    const lines = readFileSync(journal, 'utf8').split('\n').filter(line => line !== '')
-    expect(lines).toHaveLength(1)
-    const row = JSON.parse(lines[0])
+describe('taskLine', () => {
+  it('builds the task line with the documented keys', () => {
+    const row = taskLine(BASE_ENTRY)
     expect(Object.keys(row).sort()).toEqual(['baseSha', 'class', 'contour', 'duration_ms', 'event', 'exit', 'install', 'iterations', 'ladder', 'num_turns', 'resultLine', 'review', 'run', 'session', 'sketch', 'task', 'total_cost_usd', 'ts', 'usage', 'agreedSha256', 'approvedSha256', 'approvedSketch', 'rangeDiff', 'argsSha256', 'expected', 'actual'].sort())
     expect(row.event).toBe('task')
     expect(row.review).toBeNull()
     expect(row.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/)
   })
+})
 
-  it('carries the sketch sha beside baseSha when the task started from a sketch', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-journal-'))
-    const journal = path.join(dir, 'ghosts.jsonl')
-    const sketch = '0123456789abcdef0123456789abcdef01234567'
+describe('recordGhostLine', () => {
+  it('writes the line to the bus as a ghost.line event and reads it back', () => {
+    recordGhostLine('test', taskLine({ ...BASE_ENTRY, sketch: '0123456789abcdef0123456789abcdef01234567' }), busOf())
+    recordGhostLine('test', taskLine(BASE_ENTRY), busOf())
 
-    await appendJournalLine(journal, { ...BASE_ENTRY, sketch })
-    await appendJournalLine(journal, BASE_ENTRY)
-
-    const rows = readFileSync(journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line))
-    expect(rows[0].sketch).toBe(sketch)
-    expect(rows[0].baseSha).toBe('abc123')
-    expect(rows[1].sketch).toBeNull()
+    const rows = ghostLines(busOf())
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.sketch).toBe('0123456789abcdef0123456789abcdef01234567')
+    expect(rows[0]!.baseSha).toBe('abc123')
+    expect(rows[1]!.sketch).toBeNull()
   })
 
-  it('appends after the lines the journal already held, byte for byte', async () => {
+  it('keeps the lines in the order they were written', () => {
+    recordGhostLine('test', taskLine({ ...BASE_ENTRY, task: 'g1' }), busOf())
+    recordGhostLine('test', taskLine({ ...BASE_ENTRY, task: 'g2' }), busOf())
+
+    expect(ghostLines(busOf()).map(line => line.task)).toEqual(['g1', 'g2'])
+  })
+
+  it('gives the same text as journalText when there is no legacy file', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-journal-'))
+    recordGhostLine('test', taskLine(BASE_ENTRY), busOf())
+
+    expect(journalText(path.join(dir, 'ghosts.jsonl'), busOf())).toBe(ghostLinesText(busOf()))
+  })
+})
+
+describe('journalText', () => {
+  it('holds the legacy file byte for byte before the lines of the bus', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-journal-'))
     const journal = path.join(dir, 'ghosts.jsonl')
     const existing = '{"event":"review","task":"g0","verdict":"changes","ts":"2026-09-27T20:00:00.000Z"}\n'
     writeFileSync(journal, existing)
+    recordGhostLine('test', taskLine(BASE_ENTRY), busOf())
 
-    await appendJournalLine(journal, BASE_ENTRY)
-
-    const content = readFileSync(journal, 'utf8')
-    expect(content.startsWith(existing)).toBe(true)
-    expect(content.split('\n').filter(line => line !== '')).toHaveLength(2)
+    const text = journalText(journal, busOf())
+    expect(text.startsWith(existing)).toBe(true)
+    expect(text.split('\n').filter(line => line !== '')).toHaveLength(2)
   })
 
-  it('serialises concurrent appends without losing either line', async () => {
+  it('separates a legacy file with no final newline from the lines of the bus', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-journal-'))
     const journal = path.join(dir, 'ghosts.jsonl')
+    writeFileSync(journal, '{"event":"note","task":"g0"}')
+    recordGhostLine('test', taskLine(BASE_ENTRY), busOf())
 
-    await Promise.all([
-      appendJournalLine(journal, { ...BASE_ENTRY, task: 'g1' }),
-      appendJournalLine(journal, { ...BASE_ENTRY, task: 'g2' }),
-    ])
+    expect(journalText(journal, busOf()).split('\n').filter(line => line !== '')).toHaveLength(2)
+  })
+})
 
-    const lines = readFileSync(journal, 'utf8').split('\n').filter(line => line !== '')
-    expect(lines).toHaveLength(2)
-    const tasks = lines.map(line => JSON.parse(line).task).sort()
-    expect(tasks).toEqual(['g1', 'g2'])
+describe('journalEvents over both sources', () => {
+  it('a revoke on the bus revokes an approval that only the legacy file holds, for the same card', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-journal-'))
+    const journal = path.join(dir, 'ghosts.jsonl')
+    const sha256 = 'c'.repeat(64)
+    writeFileSync(journal, `${JSON.stringify({ event: 'approval', by: 'owner', card: 77, sha256, ts: '2026-10-01T00:00:00.000Z' })}\n`)
+    recordGhostLine('test', revokeEvent(sha256, 77, '2026-10-21T00:00:00.000Z'), busOf())
+
+    const events = journalEvents(journal)
+    expect(events.map(event => event.event)).toEqual(['approval', 'revoke'])
+    expect(approvalOf(events, sha256, 77)).toBeDefined()
+    expect(revocationOf(events, sha256, 77)).toBeDefined()
   })
 })

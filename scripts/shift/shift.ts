@@ -43,8 +43,9 @@ import { VERIFICATION_WORDS } from '../core/verification.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
+import { recordGhostLine, withGhostLines } from '../ghosts/journal.js'
 import { tailLines } from '../ghosts/preflight-trees.js'
-import { PREFIX as CLOSE_PREFIX, prBodyOf, realpathOrSelf, runTaskClose } from '../ghosts/task-close.js'
+import { PREFIX as CLOSE_PREFIX, closingHistoryLines, prBodyOf, realpathOrSelf, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { pnpmInstall, readJournalFile, runTaskStart } from '../ghosts/task-start.js'
 import { busCardStates, startedTree } from '../ghosts/tasks.js'
@@ -113,7 +114,7 @@ export const USAGE = [
   'whose session no guard refused and did not stop on its Eddies budget, and whose required checks are not red or unknown goes to the bus at its reviewed head, where owner_under_shard allows it, and ghosts.jsonl gets owner decision delegated, shard <id>.',
   'A version pull request (changeset-release/*) stays the owner\'s; --slot refuses a run that is not INIT (construct.json without .construct/attach.json) and a shard used once.',
   '--chain (with --parking) makes the run a chain of one card in work at a time: once a card closes with a pull request, that pull request is in review, and the chain takes the next card whose depends are merged only after it merges,',
-  'cut by task:start from a fresh origin/main. Merges are recorded as pnpm task:merged does, holding through a closed terminal (SIGHUP).',
+  'cut by task:start from a fresh origin/main. Merges are recorded from the closing records, holding through a closed terminal (SIGHUP).',
   'A card left on depends that are not merged gets one event:chain line (step blocked, reason waiting on #N) whenever what it waits on changes; while nothing of the chain is in review and a card it depends on is in work (a task:start line and no merge),',
   `the chain keeps waiting instead of ending, and the bus gets a chain.observed with state ${WAITING} naming the card and waitingOn.`,
   `The chain hands a pull request to the bus only after its review verdict: pnpm shift:merge <N> ${VERDICT_FLAG} pass writes an event:pr-review line at the head of the pull request, and the merge rules then apply; a ladder card's review is its review step. The chain calls no gh pr merge and arms no auto-merge: the bus is the one merger, and the chain waits for its ${MERGE_DONE} at the head it handed over, or stops on its ${POLICY_DENIED} with the denial's rule. The review depth follows the card's risk (reviewDepth in scripts/ghosts/verdict.ts): R4 none, so the chain hands over after CI with no verdict when the pull request's changed files read R4 too (otherwise the deeper depth, and an empty or unread set is full); R3 a diff review; R1 and R2 the full review.`,
@@ -186,7 +187,7 @@ function readTasks(deps: ShiftDeps, dir: string): { tasks: ShiftTask[], errors: 
   }
 }
 
-const MERGE_HINT = `${PREFIX}hint: depends are met by merge lines; run pnpm task:merged to record merged pull requests`
+const MERGE_HINT = `${PREFIX}hint: depends are met by merge lines; a run without --check records merged pull requests`
 
 function keepCurrent(deps: ShiftDeps, journal: string): void {
   if (deps.current === undefined)
@@ -348,7 +349,6 @@ function closeFromReport(deps: ShiftDeps, task: ShiftTask, session: { worktree: 
   const closed = runTaskClose([task.id, ...outcome, '--verification', word], {
     cwd: session.worktree,
     read: file => deps.exists(file) ? deps.read(file) : null,
-    append: deps.append,
     now: deps.now,
     handoffDir: deps.handoffDir,
     constructDir: path.dirname(deps.handoffDir),
@@ -1050,7 +1050,40 @@ async function chainStep(deps: ShiftDeps, dir: string, parking: string, chain: C
   return advance(deps, dir, parking, chain, pipeline.reviews, taken, pipeline.shard, ending)
 }
 
-export async function runShift(argv: string[], deps: ShiftDeps): Promise<number> {
+const SHIFT_WRITER = 'shift'
+
+function busJournalLines(text: string): Record<string, unknown>[] {
+  return text.split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as Record<string, unknown>)
+}
+
+function withBusJournal(deps: ShiftDeps): ShiftDeps {
+  const bus = deps.bus
+  if (bus === undefined)
+    return deps
+  const journal = path.join(deps.handoffDir, GHOST_JOURNAL)
+  const history = (file: string | null): string | null => {
+    const closings = closingHistoryLines(bus).map(line => `${JSON.stringify(line)}\n`).join('')
+    const text = `${withGhostLines(file, bus)}${closings}`
+    return file === null && text === '' ? null : text
+  }
+  return {
+    ...deps,
+    exists: target => target === journal ? history(deps.exists(journal) ? deps.read(journal) : null) !== null : deps.exists(target),
+    read: file => file === journal ? history(deps.exists(journal) ? deps.read(journal) : null) ?? '' : deps.read(file),
+    readJournal: file => file === journal ? history(deps.readJournal(file)) : deps.readJournal(file),
+    append: (file, text) => {
+      if (file !== journal) {
+        deps.append(file, text)
+        return
+      }
+      for (const line of busJournalLines(text))
+        recordGhostLine(SHIFT_WRITER, line, bus)
+    },
+  }
+}
+
+export async function runShift(argv: string[], given: ShiftDeps): Promise<number> {
+  const deps = withBusJournal(given)
   if (argv.includes('--help')) {
     deps.out(USAGE)
     return 0

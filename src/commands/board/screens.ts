@@ -75,16 +75,28 @@ export function pulseLines(facts: BusFacts, lore: Lore): string[] {
   return [lore.boardServiceLine(BUS_ROLE, 'pulse', undefined, `${pulse} \u00B7 slots in use: ${used} (the bus records no capacity)`)]
 }
 
+export interface Screen {
+  title: string
+  lines: string[]
+}
+
+export interface Screens {
+  screens: Screen[]
+  footer: string
+}
+
+export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
+  return {
+    screens: [
+      { title: lore.boardTabFlow, lines: flowLines(facts.cards, lore) },
+      { title: lore.boardTabBacklog, lines: backlogLines(backlogCards(facts.cards, facts.at, all), lore) },
+      { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore)] },
+    ],
+    footer: lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),
+  }
+}
+
 export function screenLines(facts: BusFacts, lore: Lore, all = false): string[] {
-  return [
-    lore.boardTabFlow,
-    ...flowLines(facts.cards, lore),
-    lore.boardTabBacklog,
-    ...backlogLines(backlogCards(facts.cards, facts.at, all), lore),
-    lore.boardTabServices,
-    ...servicesLines(facts, lore),
-    ...pulseLines(facts, lore),
-    ...matrixLines(facts, lore),
-    lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),
-  ]
+  const { screens, footer } = boardScreens(facts, lore, all)
+  return [...screens.flatMap(screen => [screen.title, ...screen.lines]), footer]
 }

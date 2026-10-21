@@ -3,7 +3,7 @@ import type { CloseNodeParts } from '../../bus/close-worker.js'
 import type { Lease } from '../../bus/lease.js'
 import type { NodeStep } from '../../bus/node.js'
 import type { TaskCloseDeps } from '../../ghosts/task-close.js'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -89,7 +89,6 @@ function taskCloseDeps(handoffDir: string, now = new Date('2026-10-11T18:00:00.0
   return {
     cwd: handoffDir,
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
-    append: (file, text) => appendFileSync(file, text),
     now: () => now,
     handoffDir,
     constructDir: handoffDir,

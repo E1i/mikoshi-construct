@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { parseEverySeconds, sleep } from './every.js'
+import { journalText } from './journal.js'
 import { ghostRowSessionId } from './status.js'
 import { readTasksFile, startedTree } from './tasks.js'
 import { readLedgerStage } from './watch-ledger.js'
@@ -77,9 +78,9 @@ function drawFrame(tasksData: TasksFile): void {
   const at = new Date().toISOString()
   const statusText = existsSync(tasksData.status) ? readFileSync(tasksData.status, 'utf8') : undefined
   const journalPath = path.join(tasksData.out, 'ghosts.jsonl')
-  const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : ''
+  const journal = journalText(journalPath)
   const processes = listProcesses()
-  const lines = tasksData.tasks.map(task => taskLine(task, tasksData.out, journalText, statusText, processes))
+  const lines = tasksData.tasks.map(task => taskLine(task, tasksData.out, journal, statusText, processes))
   print(`frame ${at}`)
   for (const line of lines)
     print(line)

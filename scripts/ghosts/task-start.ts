@@ -27,6 +27,7 @@ import { slotsOf, slotsVariable } from '../bus/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../bus/window-prs.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from './entry.js'
+import { withGhostLines } from './journal.js'
 import { busCardStates } from './tasks.js'
 import { taskWorktree, worktreeHome } from './worktree-home.js'
 
@@ -452,11 +453,11 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   if (!SAFE_BRANCH.test(branch))
     return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
   const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const journalText = deps.readJournal(journal)
+  const journalText = withGhostLines(deps.readJournal(journal), deps.bus)
   const merged = mergedTasks(journalText, busCardStates(deps.bus))
   const unmerged = card.depends.filter(dependency => !merged.has(String(dependency)))
   if (unmerged.length > 0)
-    return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; run pnpm task:merged once their pull requests are merged; nothing written`)
+    return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; nothing written`)
   let admitted: Admission
   try {
     admitted = admission(deps.bus, card, args.waiver)

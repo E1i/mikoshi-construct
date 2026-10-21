@@ -1,22 +1,17 @@
 import type { GhRunner } from '../core/gh.js'
 import type { MergeEvent } from '../core/merge-event.js'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { readBodyCard } from '../../src/card/grammar.js'
-import { BUSY_TIMEOUT_MS, defaultBusPath } from '../bus/db.js'
+import { BUSY_TIMEOUT_MS } from '../bus/db.js'
 import { openDatabase } from '../bus/sqlite.js'
-import { execGh } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { GHOST_JOURNAL, REPO } from '../shift/places.js'
 
-export const PREFIX = '[task:merged] '
 export const MERGED_FILE = 'merged.txt'
-export const DETAILS_FLAG = '--details'
-export const RECHECK_FLAG = '--recheck'
 
 export interface MergedDeps {
   gh: GhRunner
@@ -161,55 +156,6 @@ export function recordMerges(deps: MergedDeps): MergedResult {
   return result
 }
 
-export function recheckMerge(deps: MergedDeps, pr: number): MergedResult {
-  const result = emptyResult()
-  if ((deps.mergedInBus ?? NONE_IN_BUS).has(pr)) {
-    result.notes.push(`PR #${pr} has its merge in the bus as pr.closed; nothing written`)
-    return result
-  }
-  const text = deps.readJournal(deps.journal)
-  if (hasMergeLine(text, pr)) {
-    result.notes.push(`PR #${pr} already has a merge line; nothing written`)
-    return result
-  }
-  if (!journalEntries(text).some(entry => entry.pr === pr && entry.event === 'merge-skip' && entry.skip === 'no-card')) {
-    result.notes.push(`PR #${pr} has no merge-skip line with skip no-card in ${deps.journal}; nothing written`)
-    return result
-  }
-  try {
-    const outcome = lookUp(deps, pr)
-    if (outcome.kind === 'merge' && !writtenBeforeHistoryEnds(outcome.line)) {
-      result.notes.push(`PR #${pr} merged; no merged pr.closed in the bus yet, and from ${JOURNAL_HISTORY_ENDS} no merge line is written; nothing written`)
-    }
-    else if (outcome.kind === 'merge') {
-      deps.append(deps.journal, journalLine(outcome.line))
-      result.written.push(outcome.line)
-    }
-    else if (outcome.kind === 'skip') {
-      result.notes.push(`PR #${pr} still ${outcome.detail}; nothing written`)
-    }
-    else {
-      result.notes.push(`PR #${pr} is open; nothing written`)
-    }
-  }
-  catch (error) {
-    result.notes.push(`PR #${pr} not read: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`)
-  }
-  return result
-}
-
-export function recheckArgument(argv: readonly string[]): number | null | 'invalid' {
-  const at = argv.indexOf(RECHECK_FLAG)
-  if (at === -1)
-    return argv.some(arg => arg.startsWith(`${RECHECK_FLAG}=`)) ? 'invalid' : null
-  const value = argv[at + 1] ?? ''
-  return /^[1-9]\d*$/.test(value) ? Number(value) : 'invalid'
-}
-
-export function recheckSummary(result: MergedResult): string[] {
-  return result.written.length > 0 ? [`merged: ${result.written.length} new`] : result.notes
-}
-
 function lookedUp(result: MergedResult): number {
   return result.written.length + result.skipped.length + result.open.length + result.notInBus.length + result.notes.length
 }
@@ -241,37 +187,4 @@ export function mergedDetails(result: MergedResult): string[] {
 
 export function defaultGhostJournal(): string {
   return path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
-}
-
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const journal = defaultGhostJournal()
-  if (!existsSync(journal)) {
-    console.error(`${PREFIX}${journal} cannot be read`)
-    process.exitCode = 1
-  }
-  else {
-    const deps: MergedDeps = {
-      gh: execGh,
-      journal,
-      readJournal: file => readFileSync(file, 'utf8'),
-      append: appendToJournal,
-      now: () => new Date(),
-      mergedInBus: new Set(busMerges(defaultBusPath()).map(merge => merge.pr)),
-    }
-    const recheck = recheckArgument(process.argv)
-    if (recheck === 'invalid') {
-      console.error(`${PREFIX}${RECHECK_FLAG} needs a pull request number; nothing written`)
-      process.exit(1)
-    }
-    const result = recheck === null ? recordMerges(deps) : recheckMerge(deps, recheck)
-    if (recheck !== null && result.written.length === 0)
-      process.exitCode = 1
-    const summary = recheck === null ? [mergedSummary(result) ?? 'merged: nothing to look up'] : recheckSummary(result)
-    for (const line of summary)
-      console.log(`${PREFIX}${line}`)
-    if (process.argv.includes(DETAILS_FLAG)) {
-      for (const line of mergedDetails(result))
-        console.log(`${PREFIX}${line}`)
-    }
-  }
 }

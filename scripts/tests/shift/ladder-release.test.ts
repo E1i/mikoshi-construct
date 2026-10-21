@@ -1,7 +1,7 @@
 import type { World } from './fixtures/autopilot-world.js'
-import { appendFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { recordGhostLine } from '../../ghosts/journal.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, eventsOf, fakeGh, newWorld, stubRuns } from './fixtures/autopilot-world.js'
 import { approve, LADDER, ladderDeps, ladderPnpm } from './fixtures/ladder-world.js'
@@ -16,7 +16,7 @@ async function shiftOver(world: World, dir: string): Promise<{ out: string[], st
 
 function standingMergeStop(world: World): void {
   const question = eventsOf(world, 'stop').at(-1)!
-  appendFileSync(world.journal, `${JSON.stringify({ ...question, at: 'merge', pr: 101, why: 'the owner merges PR #101' })}\n`)
+  recordGhostLine('shift', { ...question, at: 'merge', pr: 101, why: 'the owner merges PR #101' }, world.bus)
 }
 
 describe('an approved brief releases only a hash stop', () => {
