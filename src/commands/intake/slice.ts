@@ -2,7 +2,7 @@ import type { Contour, Decision, Kind, Milestone, Size } from '../../card/gramma
 import type { SliceSources } from '../../card/slice-depends.js'
 import type { CheckedCard, Correction } from './check.js'
 import type { DraftCard, UnclearField } from './draft.js'
-import { seamLines, splitSignal } from '../../card/complexity.js'
+import { seamLines, splitSignal, volumeLines, volumeSignal } from '../../card/complexity.js'
 import { cardLine } from '../../card/grammar.js'
 import { createdPaths, parkingFileText, parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
 import { riskLines, riskReading, SLICE_PREFIX, TEST_SUFFIX } from '../../card/risk.js'
@@ -109,10 +109,12 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       blocks: sorted([...blocks[index]!, ...blockedHere]),
     })
     const split = splitSignal({ touches: card.touches, unclear: unclear.length })
-    const reading = riskReading(card.touches, split.slices.length > 0)
-    const proposed = [...split.slices, ...reading.slices].map(slice => slice.touches)
+    const volume = volumeSignal(card.touches, sources)
+    const volumeSlices = split.slices.length > 0 ? [] : volume.slices
+    const reading = riskReading(card.touches, split.slices.length > 0 || volumeSlices.length > 0)
+    const proposed = [...split.slices.map(slice => slice.touches), ...volumeSlices, ...reading.slices.map(slice => slice.touches)]
     const order = sliceDepends(proposed, sources)
-    const seam = seamLines(split, order)
+    const seam = [...seamLines(split, order), ...volumeLines({ ...volume, slices: volumeSlices }, order)]
     const risk = riskLines(reading, order)
     const heldForSlicing = card.whole === undefined && proposed.length > 0
     if (heldForSlicing && slicedByItsText(card))
