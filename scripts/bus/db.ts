@@ -153,8 +153,8 @@ function blocksOfCardLine(line: unknown): string | null {
 
 export function openBus(file: string): DatabaseSync {
   mkdirSync(path.dirname(file), { recursive: true })
-  const db = openDatabase(file)
-  db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;`)
+  const db = openDatabase(file, { timeout: BUSY_TIMEOUT_MS })
+  db.exec(`PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;`)
   db.exec(SCHEMA)
   addMissingColumns(db)
   db.function(CARD_BLOCKS, { deterministic: true }, blocksOfCardLine)

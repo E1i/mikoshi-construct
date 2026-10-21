@@ -124,6 +124,7 @@ const HELD_BY_KIND = `
 const LAST_DRAIN_SINCE_RESTART = `
   SELECT payload FROM events WHERE type = '${LEASES_DRAINING}'
     AND id > (SELECT coalesce(max(id), 0) FROM events WHERE type = '${RESTARTED}')
+    AND coalesce(json_extract(payload, '$.node'), ?) = ?
   ORDER BY id DESC LIMIT 1
 `
 
@@ -338,12 +339,16 @@ export function expireLeasesHeldBy(db: DatabaseSync, ts: string, workerKinds: re
   return inTransaction(db, () => expired(db, ts, heldBy(db, workerKinds), 'holder_stopped'))
 }
 
-export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string): void {
-  appendEvent(db, { ts, type: LEASES_DRAINING, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${LEASES_DRAINING}:${sha}:${until}`, payload: { sha, until }, legacy: false })
+export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string, node: string): void {
+  appendEvent(db, { ts, type: LEASES_DRAINING, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${LEASES_DRAINING}:${node}:${sha}:${until}`, payload: { sha, until, node }, legacy: false })
 }
 
-export function drainOpen(db: DatabaseSync, ts: string): boolean {
-  const row = db.prepare(LAST_DRAIN_SINCE_RESTART).get() as { payload: string } | undefined
+export function closeDrain(db: DatabaseSync, ts: string, sha: string, node: string): void {
+  openDrain(db, ts, sha, ts, node)
+}
+
+export function drainOpen(db: DatabaseSync, ts: string, node: string): boolean {
+  const row = db.prepare(LAST_DRAIN_SINCE_RESTART).get(node, node) as { payload: string } | undefined
   if (row === undefined)
     return false
   const until = (JSON.parse(row.payload) as { until?: unknown }).until

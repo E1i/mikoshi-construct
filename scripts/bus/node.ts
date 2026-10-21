@@ -334,7 +334,7 @@ export abstract class Node<S extends NodeStep> {
       return null
     const ts = this.ts()
     expireLeases(this.db, ts)
-    if (drainOpen(this.db, ts))
+    if (drainOpen(this.db, ts, this.kind))
       return null
     return leaseNext(this.db, ts, this.kind, this.actor, this.leaseOrder())
   }

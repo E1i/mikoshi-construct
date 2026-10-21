@@ -25,7 +25,7 @@ import { defaultParking } from '../ghosts/handoff-check.js'
 import { realIsolationReader } from '../ghosts/isolation.js'
 import { HEADLESS_FLAGS, spawnSession } from '../ghosts/session.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
-import { defaultBusPath, openBus } from './db.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
 import { keepDryRun } from './dry-run-record.js'
@@ -213,7 +213,7 @@ export function busCardBody(busPath: string): CardBodyOf {
   return (cardId) => {
     if (!existsSync(busPath))
       return null
-    const db = openDatabase(busPath, { readOnly: true })
+    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     try {
       return cardBodyShaOfCard(db, cardId)
     }
@@ -244,7 +244,7 @@ export function sessionsUnderLiveLeases(db: DatabaseSync): Set<string> {
 function busSessionsUnderLiveLeases(busPath: string): Set<string> {
   if (!existsSync(busPath))
     return new Set()
-  const db = openDatabase(busPath, { readOnly: true })
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
     return sessionsUnderLiveLeases(db)
   }

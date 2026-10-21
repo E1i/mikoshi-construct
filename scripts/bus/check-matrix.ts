@@ -10,7 +10,7 @@ import { selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { CHECKS_MATRIX_EVENT } from '../core/events.js'
 import { missingMutationColumns } from './check-catalog.js'
-import { appendEvent, defaultBusPath, openBus } from './db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { isFullSha, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
@@ -240,7 +240,7 @@ export function appendMatrix(db: DatabaseSync, target: MatrixTarget, matrix: Mat
 
 async function main(): Promise<void> {
   const { changed, target } = matrixArguments(process.argv.slice(2))
-  const db = openDatabase(defaultBusPath(), { readOnly: true })
+  const db = openDatabase(defaultBusPath(), { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   const matrix = buildMatrix(changed, cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8'), db)
   db.close()
   const guard = new MutationGuard()

@@ -8,7 +8,7 @@ import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
-import { defaultBusPath } from './db.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { openDatabase } from './sqlite.js'
 
@@ -390,7 +390,7 @@ function main(): void {
     briefs: readBriefs(handoff),
     journal: existsSync(journalFile) ? readFileSync(journalFile, 'utf8') : '',
   })
-  const db = openDatabase(defaultBusPath())
+  const db = openDatabase(defaultBusPath(), { timeout: BUSY_TIMEOUT_MS })
   writeCatalog(db, catalog)
   db.close()
   console.log(`[checks:catalog] ${catalog.tests.length} tests, ${catalog.mutations.length} mutations`)

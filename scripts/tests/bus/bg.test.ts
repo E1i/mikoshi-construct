@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { alive, BUS_RUN_LAUNCH, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { startReviewWorker } from '../../bus/review-bg.js'
-import { bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
+import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
@@ -362,19 +362,28 @@ interface Repo {
   commit: (file: string) => string
 }
 
+const ENTRIES = ['scripts/bus/supervisor.ts', ...busLaunches(() => []).map(launch => entryOf(launch)!)]
+const SHARED_IMPORTS = `import './db.js'\nimport { LEASE_MS } from './lease.js'\nexport * from './queue.js'\n`
+const SHARED_FILE = 'scripts/bus/db.ts'
+
 function repo(): Repo {
   const dir = tempRoot('bus-bg-code-')
   const git = (...args: string[]): string => execFileSync('git', ['-c', 'user.name=bus', '-c', 'user.email=bus@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8' }).trim()
   git('init', '--quiet')
   let n = 0
-  const commit = (file: string): string => {
+  const write = (file: string): void => {
     mkdirSync(path.dirname(path.join(dir, file)), { recursive: true })
-    writeFileSync(path.join(dir, file), `${n++}\n`)
+    writeFileSync(path.join(dir, file), `${ENTRIES.includes(file) ? SHARED_IMPORTS : ''}export const version = ${n++}\n`)
+  }
+  const commit = (file: string): string => {
+    write(file)
     git('add', '.')
     git('commit', '--quiet', '-m', file)
     return git('rev-parse', 'HEAD')
   }
-  commit('scripts/bus/run.ts')
+  for (const file of [...ENTRIES, 'scripts/bus/db.ts', 'scripts/bus/lease.ts'])
+    write(file)
+  commit('scripts/bus/queue.ts')
   return { dir, commit }
 }
 
@@ -475,7 +484,7 @@ describe('bus:bg --supervise', () => {
     expect(s.stopped).toEqual([103, 101, 102])
     expect(s.starts.map(start => start.name).sort()).toEqual(['bus:merge --on', 'bus:review --on', 'bus:run'])
     expect(s.starts.every(start => start.head === next)).toBe(true)
-    expect(lines[0]).toContain(`main advanced to ${next} with a change under scripts/bus`)
+    expect(lines[0]).toContain(`main advanced to ${next} with a change to the code every bus process runs`)
     expect(await s.supervisor.step()).toEqual([])
     expect(s.starts).toHaveLength(3)
   })
@@ -506,7 +515,8 @@ describe('bus:bg --supervise', () => {
     const code: BusCode = {
       head: () => head,
       holds: sha => sha === head,
-      busChangedSince: () => true,
+      changedSince: () => [SHARED_FILE],
+      runs: () => new Set([SHARED_FILE]),
       pull: () => {
         pulls += 1
         head = remote
@@ -520,7 +530,7 @@ describe('bus:bg --supervise', () => {
     expect(pulls).toBe(1)
     expect(s.stopped).toEqual([101, 102])
     expect(s.starts).toEqual([{ name: 'bus:run', head: remote }, { name: 'bus:review --on', head: remote }])
-    expect(lines[0]).toContain(`main advanced to ${remote} with a change under scripts/bus`)
+    expect(lines[0]).toContain(`main advanced to ${remote} with a change to the code every bus process runs`)
     expect(await s.supervisor.step()).toEqual([])
     expect(pulls).toBe(1)
   })
@@ -534,7 +544,8 @@ describe('bus:bg --supervise', () => {
     const code: BusCode = {
       head: () => head,
       holds: sha => sha === head,
-      busChangedSince: () => true,
+      changedSince: () => [SHARED_FILE],
+      runs: () => new Set([SHARED_FILE]),
       pull: () => {
         pulls += 1
         throw new Error('git pull --ff-only exited 128')
@@ -550,7 +561,7 @@ describe('bus:bg --supervise', () => {
     expect(pulls).toBe(2)
   })
 
-  it('a merge that changes answer-worker.ts restarts answer on the new sha', async () => {
+  it('a merge that changes answer-worker.ts restarts only answer on the new sha', async () => {
     const r = repo()
     const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
     switchWorker(busDir, 'answer', true)
@@ -559,15 +570,16 @@ describe('bus:bg --supervise', () => {
     const s = supervised(r, busDir, running)
     const next = r.commit('scripts/bus/answer-worker.ts')
     s.advance(next)
-    await s.supervisor.step()
-    expect(s.stopped).toEqual([101, 104, 105])
-    expect(s.starts.map(start => start.name).sort()).toEqual(['bus:answer --on', 'bus:close --on', 'bus:run'])
-    expect(s.starts.every(start => start.head === next)).toBe(true)
+    const lines = await s.supervisor.step()
+    expect(s.stopped).toEqual([104])
+    expect(s.starts).toEqual([{ name: 'bus:answer --on', head: next }])
+    expect(lines[0]).toBe(`${PREFIX}main advanced to ${next} with a change to the code of bus:answer; restarting only those on ${next}, and every other bus process runs on`)
+    expect(s.supervisor.ownCodeBehind).toBeNull()
     expect(switchCommand(busDir, 'answer', true).exitCode).toBe(0)
     expect(switchCommand(busDir, 'close', false).exitCode).toBe(0)
   })
 
-  it('main advancing with no change under scripts/bus restarts nothing', async () => {
+  it('main advancing with no change to the code a bus process runs restarts nothing', async () => {
     const r = repo()
     const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
     for (const worker of ['merge', 'review', 'update'] as const)
@@ -575,10 +587,13 @@ describe('bus:bg --supervise', () => {
     const s = supervised(r, busDir, RUNNING)
     const next = r.commit('scripts/board/gh.ts')
     s.advance(next)
-    expect(await s.supervisor.step()).toEqual([`${PREFIX}main advanced to ${next} with no change under scripts/bus; nothing restarted`])
+    expect(await s.supervisor.step()).toEqual([`${PREFIX}main advanced to ${next} with no change to the code a bus process runs; nothing restarted`])
     expect(s.stopped).toEqual([])
     expect(s.starts).toEqual([])
-    const later = r.commit('scripts/bus/run.ts')
+    const unreached = r.commit('scripts/bus/board.ts')
+    s.advance(unreached)
+    expect(await s.supervisor.step()).toEqual([`${PREFIX}main advanced to ${unreached} with no change to the code a bus process runs; nothing restarted`])
+    const later = r.commit('scripts/bus/db.ts')
     s.advance(later)
     await s.supervisor.step()
     expect(s.stopped).toEqual([101, 102, 103])
@@ -614,7 +629,7 @@ describe('bus:bg --supervise', () => {
     const lines = await s.supervisor.step()
     expect(s.stopped).toEqual([101, 102])
     expect(s.starts.map(start => start.name)).toEqual(['bus:run'])
-    expect(lines[0]).toBe(`${PREFIX}main advanced to ${next} with a change under scripts/bus; restarting every running bus process on ${next}; not brought back: bus:review --on`)
+    expect(lines[0]).toBe(`${PREFIX}main advanced to ${next} with a change to the code every bus process runs; restarting every running bus process on ${next}; not brought back: bus:review --on`)
     expect(s.journal).toEqual([{ ts: '2026-10-12T10:22:10.000Z', event: 'worker.down', worker: 'bus:review --on', failures: [expect.stringContaining(GITHUB_MISMATCH)], restart: next }])
     expect(String((s.journal[0]!.failures as string[])[0])).toContain(OLD_REDUCER_DIFF)
   })
@@ -628,7 +643,7 @@ describe('bus:bg --supervise', () => {
     const next = r.commit('scripts/bus/queue.ts')
     s.advance(next)
     const lines = await s.supervisor.step()
-    expect(lines[0]).toBe(`${PREFIX}main advanced to ${next} with a change under scripts/bus; restarting every running bus process on ${next}`)
+    expect(lines[0]).toBe(`${PREFIX}main advanced to ${next} with a change to the code every bus process runs; restarting every running bus process on ${next}`)
     expect(s.journal).toEqual([])
   })
 
@@ -639,10 +654,10 @@ describe('bus:bg --supervise', () => {
     let failures = 1
     const flaky: BusCode = {
       ...git,
-      busChangedSince: (sha) => {
+      changedSince: (sha) => {
         if (failures-- > 0)
           throw new Error('git diff exited 128')
-        return git.busChangedSince(sha)
+        return git.changedSince(sha)
       },
     }
     const s = supervised(r, busDir, RUNNING.slice(0, 1), flaky)
