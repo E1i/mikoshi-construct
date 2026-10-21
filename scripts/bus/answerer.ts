@@ -7,29 +7,34 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../miko/eddies-measure.js'
 import { readResultFields } from '../ports/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ports/session.js'
 import { commitAndPush } from '../shift/tree-pr.js'
 import { parkedCardFile } from './card-archive.js'
 import { defaultBusPath } from './db.js'
 import { busSessionPulse } from './heartbeat.js'
+import { MAIN_BRANCH } from './snapshot.js'
 
 export const PREFIX = '[bus:answer] '
 const SESSION_ID_FLAG = '--session-id'
 const RESUME_FLAG = '--resume'
 const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects')
 export const ANSWER_BEAT_MS = 60_000
+export const DIFF_PROMPT_LIMIT = 100_000
 
 export interface AnswerRequest {
   lease: Lease
   source: AnswerSource
   widened: string | null
   card: CardSession
+  fresh?: boolean
 }
 
 export interface Answered {
   session: string
   resumed: boolean
+  atContextWarn?: boolean
   before: string | null
   after: string | null
   owner: string | null
@@ -73,6 +78,9 @@ export interface AnswererTools {
   newSession: () => string
   publish: (card: CardSession, commitMessage: string) => void
   pulse?: AnswerPulse
+  context?: (session: string) => number | null
+  contextWarn?: () => number | null
+  diff?: (card: CardSession) => string | null
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -175,13 +183,24 @@ function cardLines(cardId: number, cardText: string | null): string[] {
   return [`The card as it stands in parking now, witnesses admitted after the verdict included:`, cardText.trim()]
 }
 
-export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null): string {
+function diffLines(card: CardSession, diff: string | null | undefined): string[] {
+  if (diff === undefined)
+    return []
+  if (diff === null)
+    return [`The diff of the tree against ${MAIN_BRANCH} could not be read; read it with git diff in ${card.worktree}.`]
+  if (diff.length > DIFF_PROMPT_LIMIT)
+    return [`The diff of the tree against ${MAIN_BRANCH}, cut at ${DIFF_PROMPT_LIMIT} characters; read the rest with git diff in ${card.worktree}:`, diff.slice(0, DIFF_PROMPT_LIMIT)]
+  return [`The diff of the tree against ${MAIN_BRANCH}:`, diff]
+}
+
+export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, diff?: string | null): string {
   const { lease, source, widened, card } = request
   return [
     `[answer:${lease.taskKey}]`,
     `Card #${lease.cardId}${lease.pr === null ? '' : `, pull request #${lease.pr} at ${lease.head}`}, in its tree ${card.worktree} on ${card.branch}.`,
     ...cardLines(lease.cardId, cardText),
     ...sourceLines(source),
+    ...diffLines(card, diff),
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
     `The card's latest events, oldest first:`,
     ...source.events.map(event => JSON.stringify(event)),
@@ -197,6 +216,25 @@ function remoteHead(card: CardSession): string | null {
   catch {
     return null
   }
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+}
+
+function diffAgainstBase(card: CardSession): string | null {
+  try {
+    const base = git(card.worktree, ['merge-base', `origin/${MAIN_BRANCH}`, 'HEAD']).trim()
+    return git(card.worktree, ['diff', base])
+  }
+  catch {
+    return null
+  }
+}
+
+function contextWarnOfEddies(): number | null {
+  const warn = realExitReadings({}, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
+  return warn === UNKNOWN ? null : warn
 }
 
 function spawnClaude(run: AnswerRun): Promise<number> {
@@ -238,7 +276,16 @@ export function realAnswererTools(parking: string, busPath: string = defaultBusP
     spawn: spawnClaude,
     newSession: randomUUID,
     publish: publishTree,
+    context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
+    contextWarn: contextWarnOfEddies,
+    diff: diffAgainstBase,
   }
+}
+
+function atContextWarn(tools: AnswererTools, session: string): boolean {
+  const warn = tools.contextWarn?.() ?? null
+  const context = warn === null ? null : tools.context?.(session) ?? null
+  return warn !== null && context !== null && context >= warn
 }
 
 export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
@@ -246,11 +293,11 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const { card } = request
     if (!existsSync(card.worktree))
       throw new CardTreeGone(card)
-    const resumed = tools.available(card)
+    const resumed = request.fresh !== true && tools.available(card) && !atContextWarn(tools, card.session)
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const cardBody = tools.cardText(request.lease.cardId)
-    const prompt = answerPrompt(request, ownerQuestion, cardBody)
+    const prompt = answerPrompt(request, ownerQuestion, cardBody, resumed ? undefined : tools.diff?.(card))
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
@@ -277,6 +324,6 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       tools.publish(card, answerCommitMessage(request.lease))
     const result = readResultFields(stdoutPath)
     const measured = result.resultLine === 'present' ? { tokens: tokensOf(result.usage) } : {}
-    return { session, resumed, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody } }
+    return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody } }
   }
 }
