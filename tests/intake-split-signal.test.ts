@@ -7,7 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { relation } from '../scripts/shift/overlap.js'
 import { runShift } from '../scripts/shift/shift.js'
-import { splitSignal } from '../src/card/complexity.js'
+import { CHARACTERS_PER_TOKEN, SESSION_READING_TOKENS, splitSignal } from '../src/card/complexity.js'
 import { WINDOW_WHO } from '../src/card/parking.js'
 import { SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
@@ -112,10 +112,13 @@ function repositoryOf(root: string, cards: unknown): string {
   return repo
 }
 
-function intake(root: string, cards: unknown[], options: Partial<IntakeOptions> = {}): IntakeResult {
+function intake(root: string, cards: unknown[], options: Partial<IntakeOptions> = {}, sizes: Record<string, number> = {}): IntakeResult {
   const draft = path.join(root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards }))
-  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), dir: repositoryOf(root, cards), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => '600', ...options })
+  const dir = repositoryOf(root, cards)
+  for (const [file, characters] of Object.entries(sizes))
+    writeFileSync(path.join(dir, file), 'x'.repeat(characters))
+  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => '600', ...options, dir })
 }
 
 function sliced(result: IntakeResult) {
@@ -250,5 +253,41 @@ describe('intake writes the slicing principle into a card the signal splits', ()
     const seams = card!.text.split('\n').filter(line => line.startsWith(SEAM_PREFIX))
     expect(seams.map(line => line.split(' — ')[0])).toEqual(['seam: complexity', 'seam: risk'])
     expect(seams[0]).toContain('would still hold R1 together with R3–R4 work')
+  })
+})
+
+describe('intake slices a card whose reading outweighs one session context by the volume seam', () => {
+  const sessionCharacters = SESSION_READING_TOKENS * CHARACTERS_PER_TOKEN
+  const touches = ['src/model/write.ts', 'src/model/birth.ts', 'src/model/state.ts', 'tests/model-write.test.ts']
+
+  it('a card whose touches outweigh one session context is sliced by the volume seam', () => {
+    const sizes = Object.fromEntries(touches.map(touch => [touch, Math.ceil(sessionCharacters * 0.4)]))
+    const [card] = sliced(intake(scratch(), [draftCard('model-volume', touches)], {}, sizes))
+    const seams = card!.text.split('\n').filter(line => line.startsWith(SEAM_PREFIX))
+    expect(seams.map(line => line.split(' — ')[0])).toEqual(['seam: volume'])
+    expect(seams[0]).toContain(`more than ${SESSION_READING_TOKENS}`)
+    expect(card!.text.split('\n').filter(line => line.startsWith(SLICE_PREFIX))).toEqual([
+      'slice: 1 volume — src/model/write.ts, src/model/birth.ts',
+      'slice: 2 volume — src/model/state.ts, tests/model-write.test.ts',
+    ])
+    expect(card!.slices.map(slice => slice.touches)).toEqual([['src/model/write.ts', 'src/model/birth.ts'], ['src/model/state.ts', 'tests/model-write.test.ts']])
+    expect(card!.who).toBe(WINDOW_WHO)
+  })
+
+  it('a card whose touches fit one session context takes no volume seam', () => {
+    const sizes = Object.fromEntries(touches.map(touch => [touch, Math.floor(sessionCharacters / touches.length)]))
+    const [card] = sliced(intake(scratch(), [draftCard('model-volume', touches)], {}, sizes))
+    expect(card!.seam).toEqual([])
+    expect(card!.slices).toEqual([])
+    expect(card!.who).toBe('shift')
+  })
+
+  it('proposes no volume slices when one touch alone outweighs the session, and names it', () => {
+    const sizes = { 'src/model/write.ts': sessionCharacters + 1, 'src/model/birth.ts': 1 }
+    const [card] = sliced(intake(scratch(), [draftCard('model-volume', touches)], {}, sizes))
+    expect(card!.seam).toHaveLength(1)
+    expect(card!.seam[0]).toContain('src/model/write.ts alone hold more reading than one session')
+    expect(card!.slices).toEqual([])
+    expect(card!.who).toBe('shift')
   })
 })

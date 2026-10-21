@@ -6,6 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
+import { textSha } from '../../../src/card/text-sha.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { boardProjection, printBoard, runBoardCli } from '../../bus/board-page.js'
@@ -13,6 +14,7 @@ import { MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
 import { DROPPED_LANE, MERGE_DONE } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { importJournal } from '../../bus/import.js'
 import { CARD_STARTED, CARD_STOPPED, RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
@@ -309,6 +311,20 @@ describe('the factory board', () => {
     expect(working.tick().progress).toMatchObject({ stalled: true, cause: 'cause unknown' })
     working.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '850', reason: 'waits question' }, { id: '851', reason: 'waits question' }, { id: '852', reason: 'depends #850 not merged' }] } }]
     expect(working.tick().progress.cause).toBe('queue blocked: #850 waits question')
+  })
+
+  it('the board shows no progress for N minutes at step X from the last heartbeat', () => {
+    const working = boardBench()
+    const text = 'card: #850 task-850 [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/850\ntouches: scripts/850/**\nwho: shift\n\ndo 850\n'
+    appendEvent(working.db, { ts: working.ts(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 850, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:850`, payload: { card: '#850', lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+    appendEvent(working.db, { ts: working.ts(), type: CARD_STARTED, actor: 'policy', cardId: 850, pr: null, head: null, dedupeKey: `${CARD_STARTED}:850`, payload: {}, legacy: false })
+    for (let minute = 0; minute < 30; minute++) {
+      if (minute === 20)
+        recordHeartbeat(working.db, working.ts(), { card: 850, pr: null, head: null, step: 'implement', session: 's-850', lease: null })
+      expect(working.tick().progress.stalled).toBe(false)
+    }
+    const stalled = working.tick()
+    expect(stalled.progress).toMatchObject({ stalled: true, cause: '#850 no progress 30 min, step implement' })
   })
 
   it('with no card in work a blocked queue and a down component still raise their cause', () => {
