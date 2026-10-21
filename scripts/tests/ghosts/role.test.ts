@@ -112,14 +112,19 @@ describe('the window role with the owner', () => {
     expect(returnSilentRole(bus.db, at(1001 + LEASE_MS), 'worker:restart:w')).toMatchObject({ role: 'miko' })
     for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
       failRaise(bus.db, at(1001 + LEASE_MS + failure), leaseRole(bus.db, at(1001 + LEASE_MS + failure), 'worker:restart:w')!, 'relaunch did not start')
-    expect(roleToOwner(bus.db, at(1010 + LEASE_MS), 'worker:restart:w')).toMatchObject({ role: 'miko' })
-    expect(bus.db.prepare('SELECT state, lease_gen FROM roles WHERE role = ?').get('miko')).toEqual({ state: 'owner', lease_gen: 2 * FAILURES_TO_STOP })
+    const lastRaiseFailed = Number((bus.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+    const liveRow = { state: 'stopped', lease_gen: 2 * FAILURES_TO_STOP, event_id: lastRaiseFailed }
+    const rolesRow = (): unknown => bus.db.prepare('SELECT state, lease_gen, event_id FROM roles WHERE role = ?').get('miko')
+    expect(rolesRow()).toEqual(liveRow)
 
     expect(replayDifferences(bus.db).differences).toEqual([])
     const live = projectionDump(bus.db)
     reduce(bus.db)
     expect(bus.db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${REJECTED}' AND json_extract(payload, '$.type') LIKE 'role.%'`).get()).toEqual({ n: 0 })
+    expect(rolesRow()).toEqual(liveRow)
     expect(projectionDump(bus.db)).toBe(live)
+    expect(roleToOwner(bus.db, at(1010 + LEASE_MS), 'worker:restart:w')).toMatchObject({ role: 'miko' })
+    expect(replayDifferences(bus.db).differences).toEqual([])
     bus.close()
   })
 
