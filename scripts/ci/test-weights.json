@@ -1,6 +1,5 @@
 {
   "scripts/tests/attach/earlier-carriers.test.ts": 0,
-  "scripts/tests/ci/branch-update.test.ts": 0.2,
   "scripts/tests/ci/fast-path.test.ts": 0,
   "scripts/tests/ci/quality-steps.test.ts": 0,
   "scripts/tests/ci/release-age.test.ts": 0,

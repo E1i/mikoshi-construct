@@ -1,11 +1,12 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { GH_PORT, ghCallers, knownCallers, repositoryScripts, spawnsGh, staleCallers, unrecordedCallers } from '../../core/gh-callers.js'
+import YAML from 'yaml'
+import { callsGitHub, GH_PORT, ghCallers, knownCallers, repositorySources, staleCallers, unrecordedCallers } from '../../core/gh-callers.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
-describe('gh is spawned through one port, and every other spawn is recorded', () => {
-  const sources = repositoryScripts(REPO_ROOT)
+describe('the GitHub API is called through one port, and every other caller is recorded', () => {
+  const sources = repositorySources(REPO_ROOT)
   const found = ghCallers(sources)
   const known = knownCallers(REPO_ROOT)
 
@@ -18,6 +19,32 @@ describe('gh is spawned through one port, and every other spawn is recorded', ()
     expect(found).not.toContain('scripts/bus/github.ts')
   })
 
+  it('no GitHub caller outside the port and the registry is empty', () => {
+    expect(found).toEqual([])
+    expect(known).toEqual([])
+    expect(sources.has('src/cli.ts')).toBe(true)
+    expect(sources.has('.github/workflows/ci.yml')).toBe(true)
+  })
+
+  it('a fetch of api.github.com outside the port is a caller', () => {
+    expect(callsGitHub('scripts/ci/x.ts', `export const cancel = (run: string) => fetch(\`https://api.github.com/repos/o/r/actions/runs/\${run}/cancel\`, { method: 'POST' })\n`)).toBe(true)
+    expect(callsGitHub('scripts/ci/y.ts', `const API = 'https://api.github.com'\nexport const read = (path: string) => fetch(\`\${API}\${path}\`)\n`)).toBe(true)
+    expect(callsGitHub('scripts/ci/z.ts', `export const read = () => fetch('https://registry.npmjs.org/mikoshi-construct')\n`)).toBe(false)
+  })
+
+  it('a gh call in a workflow step is a caller', () => {
+    const workflow = (run: string): string => YAML.stringify({ name: 'w', on: { push: null }, jobs: { j: { 'runs-on': 'ubuntu-24.04', 'steps': [{ uses: 'actions/checkout@v7' }, { run }] } } })
+    expect(ghCallers(new Map([['.github/workflows/x.yml', workflow('count=$(gh api "repos/$REPOSITORY/actions/runs/1/artifacts" --jq .total_count)\n')]]))).toEqual(['.github/workflows/x.yml'])
+    expect(ghCallers(new Map([['.github/workflows/x.yml', workflow('node -e "fetch(\'https://api.github.com/repos/o/r\')"')]]))).toEqual(['.github/workflows/x.yml'])
+    expect(ghCallers(new Map([['.github/workflows/x.yml', workflow('pnpm run release:verify\ngit push origin gh-pages\n')]]))).toEqual([])
+  })
+
+  it('a planted gh call under src is a caller', () => {
+    const planted = new Map(sources)
+    planted.set('src/commands/sneak.ts', `import { execFileSync } from 'node:child_process'\nexport const sneak = () => execFileSync('gh', ['pr', 'list'])\n`)
+    expect(unrecordedCallers(ghCallers(planted), known)).toEqual(['src/commands/sneak.ts'])
+  })
+
   it('a new spawn of gh outside the port fails', () => {
     const sneaking = new Map(sources)
     sneaking.set('scripts/bus/sneak.ts', `import { execFileSync } from 'node:child_process'\nexport const sneak = () => execFileSync('gh', ['pr', 'list'])\n`)
@@ -25,9 +52,9 @@ describe('gh is spawned through one port, and every other spawn is recorded', ()
   })
 
   it('a file that names gh without spawning anything, or spawns something else, is no caller', () => {
-    expect(spawnsGh('a.ts', `export const tokens = ['gh', 'pr']\n`)).toBe(false)
-    expect(spawnsGh('b.ts', `import { execFileSync } from 'node:child_process'\nexecFileSync('git', ['status'])\nthrow new Error('gh unavailable')\n`)).toBe(false)
-    expect(spawnsGh('c.ts', `import { execFileSync } from 'node:child_process'\nexport const line = \`gh pr merge 1\`\nexecFileSync('git', ['log'])\n`)).toBe(false)
+    expect(callsGitHub('a.ts', `export const tokens = ['gh', 'pr']\n`)).toBe(false)
+    expect(callsGitHub('b.ts', `import { execFileSync } from 'node:child_process'\nexecFileSync('git', ['status'])\nthrow new Error('gh unavailable')\n`)).toBe(false)
+    expect(callsGitHub('c.ts', `import { execFileSync } from 'node:child_process'\nexport const line = \`gh pr merge 1\`\nexecFileSync('git', ['log'])\n`)).toBe(false)
   })
 
   const ESCAPES: Record<string, Map<string, string>> = {
@@ -49,15 +76,17 @@ describe('gh is spawned through one port, and every other spawn is recorded', ()
   }
 
   it('a command read at run time, or a module name built at run time, is beyond the scan and left to review', () => {
-    expect(spawnsGh('scripts/x.ts', `import { execFileSync } from 'node:child_process'\nexecFileSync(process.env.GH_BIN!, ['pr', 'list'])\n`)).toBe(false)
-    expect(spawnsGh('scripts/x.ts', `const name = ['child', 'process'].join('_')\nconst { execFileSync } = require(name)\nexecFileSync(['g', 'h'].join(''), [])\n`)).toBe(false)
+    expect(callsGitHub('scripts/x.ts', `import { execFileSync } from 'node:child_process'\nexecFileSync(process.env.GH_BIN!, ['pr', 'list'])\n`)).toBe(false)
+    expect(callsGitHub('scripts/x.ts', `const name = ['child', 'process'].join('_')\nconst { execFileSync } = require(name)\nexecFileSync(['g', 'h'].join(''), [])\n`)).toBe(false)
   })
 
-  it('a recorded caller that no longer spawns gh fails, so the list only shrinks', () => {
+  it('a recorded caller that no longer calls GitHub fails, so the list only shrinks', () => {
     const gone = 'scripts/bus/retired.ts'
     expect(staleCallers(found, [...known, gone])).toEqual([gone])
-    const migrated = new Map(sources)
-    migrated.set(known[0]!, `export const migrated = true\n`)
-    expect(staleCallers(ghCallers(migrated), known)).toEqual([known[0]])
+    const caller = `import { execFileSync } from 'node:child_process'\nexport const run = () => execFileSync('gh', ['pr', 'list'])\n`
+    const migrated = new Map([[gone, caller]])
+    expect(staleCallers(ghCallers(migrated), [gone])).toEqual([])
+    migrated.set(gone, `export const migrated = true\n`)
+    expect(staleCallers(ghCallers(migrated), [gone])).toEqual([gone])
   })
 })

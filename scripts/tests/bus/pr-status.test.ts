@@ -194,7 +194,7 @@ describe('the PR status check the bus sets', () => {
     clock.advance(TICK_MS)
     expect(busTick.run()?.poll.kind).toBe('ticked')
     log.mockRestore()
-    expect(lines).toContain(`${PREFIX}PR #950 ${HEAD}: GitHub answered 502 to the status ${STATUS_CONTEXT}: review; nothing recorded, the step is posted again on the next run`)
+    expect(lines).toContain(`${PREFIX}PR #950 ${HEAD}: GitHub answered 502 to the status ${STATUS_CONTEXT}: review; the step is not recorded and is posted again on the next run`)
     expect(count(db, PR_STATUS_SET)).toBe(0)
     status = 201
     clock.advance(TICK_MS)

@@ -6,9 +6,10 @@
 # not finished serving.
 #
 # The trigger is the publish, not a clock: Release verification chains off Release and passes only
-# once the version in package.json is installable, so this chains off that. There is no checkout and
-# no local build; the only thing read from the repository is the version number, so that the run
-# smokes the version this release published rather than whatever latest happens to point at.
+# once the version in package.json is installable, so this chains off that. The checkout holds
+# package.json alone and nothing is built; the only thing read from the repository is the version
+# number, so that the run smokes the version this release published rather than whatever latest
+# happens to point at.
 
 name: Published smoke
 
@@ -33,30 +34,24 @@ jobs:
     runs-on: ubuntu-24.04
     container: node:24-bookworm-slim
     steps:
+      - name: Check out package.json at the ref this release published
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref_name }}
+          sparse-checkout: package.json
+          sparse-checkout-cone-mode: false
+
       - name: Resolve the version this release published
         id: resolve
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          REF: ${{ github.event.workflow_run.head_sha || github.ref_name }}
           GIVEN: ${{ inputs.version }}
         run: |
           cat > /tmp/resolve.mjs <<'SCRIPT'
-          import { appendFileSync } from 'node:fs'
+          import { appendFileSync, readFileSync } from 'node:fs'
           import process from 'node:process'
 
           const given = (process.env.GIVEN ?? '').trim()
-          const resolved = given === '' ? await fromRepository() : given
-
-          async function fromRepository() {
-            const url = `https://api.github.com/repos/${process.env.REPOSITORY}/contents/package.json?ref=${process.env.REF}`
-            const answer = await fetch(url, {
-              headers: { authorization: `Bearer ${process.env.GH_TOKEN}`, accept: 'application/vnd.github.raw' },
-            })
-            if (!answer.ok)
-              throw new Error(`package.json at ${process.env.REF} could not be read: ${answer.status}`)
-            return (JSON.parse(await answer.text())).version
-          }
+          const resolved = given === '' ? JSON.parse(readFileSync('package.json', 'utf8')).version : given
 
           console.log(`smoking mikoshi-construct@${resolved}`)
           appendFileSync(process.env.GITHUB_OUTPUT, `version=${resolved}\n`)

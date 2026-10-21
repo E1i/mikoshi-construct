@@ -9,7 +9,7 @@ import { appendEvent } from '../../bus/db.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { keyOf, updateCandidates } from '../../bus/queue.js'
 import { UpdateNode } from '../../bus/update-worker.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
 import { MAIN_2, sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -280,6 +280,26 @@ describe('the update node', () => {
     expect(taskState(made.db, updateKey(980)).state).toBe('superseded')
     expect(detectedKeysBy(made, node)).not.toContain(updateKey(980))
     expect(made.gitHub.puts.map(put => put.fields.expected_head_sha)).toEqual([sha('b')])
+  })
+
+  it('every write to GitHub is followed by command.executed with its result', async () => {
+    const made = bench()
+    made.gitHub.open({ number: 970, review: 'success', mergeable_state: 'behind' })
+    made.tick()
+    const node = nodeOf(made, 'live')
+    await once(node)
+    await once(node)
+
+    const law = made.db.prepare(`SELECT type, payload FROM events WHERE type IN (?, ?, ?) ORDER BY id`).all(POLICY_ALLOWED, COMMAND_EXECUTED, UPDATE_DONE).map(row => ({ type: row.type, ...(JSON.parse(String(row.payload)) as Record<string, unknown>) }))
+    const lease = { task_key: updateKey(970), lease_gen: 1 }
+    expect(made.gitHub.puts.map(each => each.endpoint)).toEqual(['repos/{owner}/{repo}/pulls/970/update-branch'])
+    expect(made.gitHub.published).toHaveLength(1)
+    expect(law).toEqual([
+      { type: POLICY_ALLOWED, command: 'update_branch', ...lease },
+      { type: COMMAND_EXECUTED, command: 'update_branch', ok: true, status: 202, ...lease },
+      { type: COMMAND_EXECUTED, command: 'publish', ok: true, ...lease },
+      expect.objectContaining({ type: UPDATE_DONE, carried: 'pass', clean: true, ...lease }),
+    ])
   })
 
   it('update skips a candidate cardContract reads as not mine', async () => {

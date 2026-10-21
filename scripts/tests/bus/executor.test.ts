@@ -28,7 +28,7 @@ describe('the merge executor', () => {
 
     expect(bench.merge(bench.lease()!)).toEqual({ kind: 'merged', taskKey: merge(960), commit: MAIN_2, rule: 'auto' })
     expect(bench.gitHub.puts).toEqual([{ endpoint: 'repos/{owner}/{repo}/pulls/960/merge', fields: { sha: sha('a'), merge_method: 'squash' } }])
-    expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'auto' }])
+    expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'auto', task_key: merge(960), lease_gen: 1 }])
     expect(taskState(bench.db, merge(960))).toEqual({ state: 'completed', lease_gen: 1, failures: 0 })
     const live = projectionDump(bench.db)
     reduce(bench.db)
@@ -371,7 +371,7 @@ describe('the merge executor', () => {
 
     expect(bench.merge(lease)).toEqual({ kind: 'merged', taskKey: merge(972), commit: MAIN_2, rule: 'auto' })
     expect(bench.gitHub.puts).toEqual([])
-    expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'auto' }])
+    expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'auto', task_key: merge(972), lease_gen: 1 }])
     expect(eventsOf(bench.db, 'policy.denied')).toEqual([])
     bench.close()
   })
@@ -384,7 +384,7 @@ describe('the merge executor', () => {
     bench.tick()
 
     expect(bench.merge(bench.lease()!)).toEqual({ kind: 'merged', taskKey: merge(990), commit: MAIN_2, rule: 'owner_after_round_limit' })
-    expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'owner_after_round_limit' }])
+    expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'owner_after_round_limit', task_key: merge(990), lease_gen: 1 }])
     bench.close()
   })
 

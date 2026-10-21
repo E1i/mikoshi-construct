@@ -13,7 +13,7 @@ import { MergeNode } from '../../bus/merge-worker.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../bus/queue.js'
 import { UpdateNode } from '../../bus/update-worker.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
 import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -313,6 +313,24 @@ describe('the merge node', () => {
     expect(eventsOf(made.db, POLICY_DENIED)).toEqual([])
     expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto' })])
     expect(made.gitHub.puts.map(each => each.endpoint)).toEqual(['repos/{owner}/{repo}/pulls/970/merge'])
+  })
+
+  it('merge.done follows a policy.allowed with the same task_key and lease_gen', async () => {
+    const made = bench()
+    made.gitHub.open({ number: 970, review: 'success' })
+    made.tick()
+    const node = nodeOf(made, 'live')
+    await once(node)
+    await once(node)
+
+    const law = made.db.prepare(`SELECT type, payload FROM events WHERE type IN (?, ?, ?) ORDER BY id`).all(POLICY_ALLOWED, COMMAND_EXECUTED, MERGE_DONE).map(row => ({ type: row.type, ...(JSON.parse(String(row.payload)) as Record<string, unknown>) }))
+    const lease = { task_key: mergeKey(970), lease_gen: 1 }
+    expect(law).toEqual([
+      { type: POLICY_ALLOWED, command: 'merge', rule: 'auto', ...lease },
+      { type: COMMAND_EXECUTED, command: 'merge', ok: true, status: 200, ...lease },
+      { type: MERGE_DONE, commit: expect.any(String) as unknown, rule: 'auto', ...lease },
+    ])
+    expect(made.gitHub.puts.map(each => each.endpoint)).toEqual([MERGE_PUT])
   })
 
   it('i3: a cursor reset to 0 after the merge gives no second detection, no second task and no second merge.done', async () => {
