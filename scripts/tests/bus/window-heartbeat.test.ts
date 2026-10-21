@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
-import { recordWindowHeartbeat, WINDOW_BEAT_MS, WINDOW_HEARTBEAT, windowBeat, windowSessionOf } from '../../bus/window-heartbeat.js'
+import { recordWindowHeartbeat, WINDOW_BEAT_MS, windowBeat, windowSessionOf } from '../../bus/window-heartbeat.js'
 import { WINDOW_ACTOR } from '../../bus/window-requests.js'
+import { WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const START = Date.parse('2026-10-20T10:00:00.000Z')
 const roots: string[] = []

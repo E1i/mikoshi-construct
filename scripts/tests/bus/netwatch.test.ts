@@ -5,11 +5,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { RUN_SCRIPT } from '../../bus/bg.js'
 import { openBus } from '../../bus/db.js'
 import { parseIncluded } from '../../bus/github.js'
-import { lastProcessBeats, PROCESS_HEARTBEAT } from '../../bus/heartbeat.js'
+import { lastProcessBeats } from '../../bus/heartbeat.js'
 import { prBodySha } from '../../bus/identifiers.js'
 import { NetWatch, NETWATCH_SCRIPT, TICK_MS, WAKE_GAP_MS } from '../../bus/netwatch.js'
 import { reduce } from '../../bus/reducer.js'
 import { touchesMechanics } from '../../bus/snapshot.js'
+import { PROCESS_HEARTBEAT } from '../../core/events.js'
 import { cardBody, Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, MERGER, REPO, sha } from './github-fake.js'
 
 const roots: string[] = []

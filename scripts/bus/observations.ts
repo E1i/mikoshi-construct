@@ -1,9 +1,9 @@
 import type { BusEvent } from './db.js'
 import type { ClosedPr, MainHead, OpenPr, Snapshot } from './snapshot.js'
 import { createHash } from 'node:crypto'
+import { PR_CLOSED } from '../core/events.js'
 
 export const NETWATCH = 'netwatch'
-export const PR_CLOSED = 'pr.closed'
 
 function observation(ts: string, type: string, fields: Pick<BusEvent, 'cardId' | 'pr' | 'head' | 'dedupeKey' | 'payload'>): BusEvent {
   return { ts, type, actor: NETWATCH, legacy: false, ...fields }

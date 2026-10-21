@@ -1,6 +1,9 @@
 const BUS_CORE = '^scripts/bus/(db|reducer|sqlite|stored|identifiers)\\.ts$'
 const BUS_SERVICE = '^scripts/bus/([a-z]+)-(worker|executor|starter)\\.ts$'
 const BUS_SERVICE_OF_SAME_NAME = '^scripts/bus/$1-(worker|executor|starter)\\.ts$'
+const CORE = '^scripts/core/'
+const FACTORY = '^(scripts/(bus|ghosts|shift|miko|decisions|lanes)/|src/commands/)'
+const FORMER_EVENT_HOMES = '^src/commands/intake/(index|move)\\.ts$'
 
 export default {
   forbidden: [
@@ -20,7 +23,19 @@ export default {
       name: 'src-imports-no-script',
       severity: 'error',
       from: { path: '^src/' },
-      to: { path: '^scripts/' },
+      to: { path: '^scripts/', pathNot: CORE },
+    },
+    {
+      name: 'core-imports-no-factory',
+      severity: 'error',
+      from: { path: CORE },
+      to: { path: FACTORY },
+    },
+    {
+      name: 'bus-takes-event-names-from-core',
+      severity: 'error',
+      from: { path: '^scripts/bus/' },
+      to: { path: FORMER_EVENT_HOMES, dependencyTypesNot: ['type-only'] },
     },
     {
       name: 'no-circular-bus-core',

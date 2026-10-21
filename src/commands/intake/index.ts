@@ -1,3 +1,4 @@
+import type { CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../../../scripts/core/events.js'
 import type { BusCardStates } from '../../card/closed.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
@@ -8,6 +9,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readS
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { CARD_ADMITTED } from '../../../scripts/core/events.js'
 import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
@@ -70,13 +72,6 @@ export const INTAKE_EXIT = {
   alreadyAdmitted: 0,
   waiting: 3,
 } as const
-
-export const CARD_ADMITTED = 'card.admitted'
-export const CARD_MOVED = 'card.moved'
-export const CARD_DROPPED = 'card.dropped'
-export const DROPPED_LANE = 'dropped'
-export const TERMINAL_LANES: ReadonlySet<string> = new Set(['archive', DROPPED_LANE, 'superseded'])
-export const CARD_WAITING = 'card.waiting'
 
 export interface CardEvent {
   type: typeof CARD_ADMITTED | typeof CARD_MOVED | typeof CARD_DROPPED | typeof CARD_WAITING

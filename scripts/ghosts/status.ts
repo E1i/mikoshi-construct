@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { GHOST_ROW } from '../bus/card-automaton.js'
 import { appendEvent, openBus } from '../bus/db.js'
+import { GHOST_ROW } from '../core/events.js'
 
 export interface WritingRowParams {
   id: string

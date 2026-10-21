@@ -4,9 +4,9 @@ import type { Equivalence } from './node.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { NODE_EQUIVALENCE } from '../core/events.js'
 import { defaultBusPath, openBus } from './db.js'
 import { QUEUES } from './identifiers.js'
-import { NODE_EQUIVALENCE } from './node.js'
 
 export const PREFIX = '[bus:node-equivalence] '
 export const USAGE = `${PREFIX}usage: pnpm bus:node-equivalence <${QUEUES.join('|')}> [--since <ISO time>]`

@@ -1,12 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
+import { CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, QUESTION_OWNER } from '../core/events.js'
 import { cardReleased, STOPPED_CARD } from './card-automaton.js'
 import { appendEvent } from './db.js'
-import { CARD_STOPPED, DECISION_RECORDED, OWNER, QUESTION_OWNER } from './inbox.js'
+import { OWNER } from './inbox.js'
 import { NETWATCH } from './observations.js'
 import { payloadOf, reject } from './stored.js'
 
-export const DECISIONS_IMPORTED = 'decisions.imported'
 export const OWNER_DECISIONS_FILE = 'owner-decisions.md'
 
 export interface InForceDecision {

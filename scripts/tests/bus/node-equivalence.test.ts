@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { runNodeEquivalence, USAGE } from '../../bus/node-equivalence.js'
-import { NODE_EQUIVALENCE } from '../../bus/node.js'
+import { NODE_EQUIVALENCE } from '../../core/events.js'
 
 const roots: string[] = []
 let sequence = 0

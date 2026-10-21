@@ -3,8 +3,8 @@ import type { Card } from '../../src/card/grammar.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { parseCard } from '../../src/card/grammar.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../bus/db.js'
-import { CARD_STARTED } from '../bus/inbox.js'
 import { openDatabase } from '../bus/sqlite.js'
+import { CARD_STARTED } from '../core/events.js'
 
 export interface Task {
   id: string

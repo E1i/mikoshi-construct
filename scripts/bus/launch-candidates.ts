@@ -2,34 +2,29 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, SESSION_HEARTBEAT } from '../core/events.js'
 import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { prOf } from './identifiers.js'
-import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { namesQueueLive } from './live-decision.js'
 import { beatsLive } from './liveness-sites.js'
 
-export const CARD_ADMITTED = 'card.admitted'
-export const CARD_CLOSED = 'card.closed'
 export const FALLS_BEFORE_CUT = 2
 
 export type Contour = 'cheap' | 'ladder'
 
-const CARD_FELL_EVENT = 'card.fell'
-const GHOST_ROW_EVENT = 'ghost.row'
 const FREE_ROW = 'free'
-const SESSION_HEARTBEAT_EVENT = 'session.heartbeat'
 
 const CARD_LIFE = `
   SELECT id, type, card_id, dedupe_key, payload FROM events
-  WHERE legacy = 0 AND card_id IS NOT NULL AND type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${GHOST_ROW_EVENT}')
+  WHERE legacy = 0 AND card_id IS NOT NULL AND type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${GHOST_ROW}')
     AND ${NOT_A_BACKFILL}
   ORDER BY id
 `
 
 const FALLS = `
   SELECT card_id, count(*) AS falls FROM events
-  WHERE card_id IS NOT NULL AND ((legacy = 0 AND type = '${CARD_FELL_EVENT}') OR (legacy = 1 AND type = 'fall'))
+  WHERE card_id IS NOT NULL AND ((legacy = 0 AND type = '${CARD_FELL}') OR (legacy = 1 AND type = 'fall'))
   GROUP BY card_id
 `
 
@@ -59,7 +54,7 @@ const STARTED_TREES = `
 
 const LAST_SESSION_BEATS = `
   SELECT card_id, max(ts) AS ts FROM events
-  WHERE legacy = 0 AND type = '${SESSION_HEARTBEAT_EVENT}' AND card_id IS NOT NULL
+  WHERE legacy = 0 AND type = '${SESSION_HEARTBEAT}' AND card_id IS NOT NULL
   GROUP BY card_id
 `
 
@@ -168,7 +163,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       life.startedAt = row.id
       life.freeRow = null
     }
-    if (life !== undefined && row.type === GHOST_ROW_EVENT && life.startedAt !== null && life.freeRow === null && payloadOf(row).state === FREE_ROW)
+    if (life !== undefined && row.type === GHOST_ROW && life.startedAt !== null && life.freeRow === null && payloadOf(row).state === FREE_ROW)
       life.freeRow = row.id
     if (life !== undefined && (row.type === CARD_CLOSED || row.type === CARD_STOPPED))
       life.closed = true

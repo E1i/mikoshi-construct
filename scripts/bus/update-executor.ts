@@ -6,16 +6,15 @@ import type { GitHub, GitHubPut } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { TechnicalReason } from './record-verdict.js'
 import type { VerdictOnHead } from './snapshot.js'
+import { POLICY_DENIED, UPDATE_DONE } from '../core/events.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { rerunOf, upToDateRequired } from './check-catalog.js'
 import { messageOf } from './errors.js'
 import { pollHead } from './head-poll.js'
-import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
 import { MAIN_BRANCH, MERGEABLE_OF_STATE, verdictOf } from './snapshot.js'
-import { UPDATE_DONE } from './update-done.js'
 
 export const UPDATED_STATUS = 202
 export const STALE_HEAD_ON_UPDATE = 422

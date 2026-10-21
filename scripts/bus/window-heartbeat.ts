@@ -1,9 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { WINDOW_HEARTBEAT } from '../core/events.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
 import { appendEvent, openBus } from './db.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
-export const WINDOW_HEARTBEAT = 'window.heartbeat'
 export const WINDOW_BEAT_MS = 5 * 60_000
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'

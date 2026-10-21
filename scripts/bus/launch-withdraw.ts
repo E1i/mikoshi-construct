@@ -1,10 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
+import { TASK_FAILED, TASK_LEASED, TASK_REQUEUED } from '../core/events.js'
 import { inTransaction } from './db.js'
 import { generationOfKey } from './identifiers.js'
-import { TASK_FAILED, TASK_LEASED } from './lease.js'
-import { appendedAndReduced, generationField, QUEUE_ACTOR, QUEUED, STOPPED, TASK_REQUEUED, WITHDRAWN } from './queue.js'
+import { appendedAndReduced, generationField, QUEUE_ACTOR, QUEUED, STOPPED, WITHDRAWN } from './queue.js'
 
 export const WITHDRAW_LEGACY_FLAG = '--withdraw-legacy'
 export const LEGACY_REASON = 'legacy'
