@@ -9,7 +9,7 @@ import { reviewLaunch } from './review-bg.js'
 import { SWITCH_FLAG } from './review-worker.js'
 
 export const WORKERS_FILE = 'workers.json'
-export const WORKERS = ['review', 'merge', 'update', 'launch', 'restart', 'answer', 'close'] as const
+export const WORKERS = ['review', 'merge', 'update', 'launch', 'restart', 'answer', 'close', 'witness'] as const
 
 export type BusWorker = typeof WORKERS[number]
 
@@ -30,7 +30,7 @@ function queueWorkerLaunch(worker: Exclude<BusWorker, 'review'>): DetachedLaunch
 }
 
 export function workerLaunches(reviewPreflight: () => string[]): Record<BusWorker, DetachedLaunch> {
-  return { review: reviewLaunch(reviewPreflight), merge: queueWorkerLaunch('merge'), update: queueWorkerLaunch('update'), launch: queueWorkerLaunch('launch'), restart: queueWorkerLaunch('restart'), answer: queueWorkerLaunch('answer'), close: queueWorkerLaunch('close') }
+  return { review: reviewLaunch(reviewPreflight), merge: queueWorkerLaunch('merge'), update: queueWorkerLaunch('update'), launch: queueWorkerLaunch('launch'), restart: queueWorkerLaunch('restart'), answer: queueWorkerLaunch('answer'), close: queueWorkerLaunch('close'), witness: queueWorkerLaunch('witness') }
 }
 
 export function switchedOn(busDir: string): BusWorker[] {

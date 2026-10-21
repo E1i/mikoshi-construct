@@ -198,6 +198,15 @@ describe('intake fact check', () => {
     expect(checked!.witnesses).toEqual(['it works', '`nosuchtool --flag` fails', '`pnpm run quality` passes', '`   ` nothing'])
   })
 
+  it('a witness that names origin/main is refused at intake', () => {
+    const repo = repositoryFacts({ commandResolves: word => word === 'test' || word === 'git' })
+    const witnesses = ['`test -f a.txt` exits 0', '`git diff --quiet origin/main` exits 0']
+    const [checked] = checkDraft([draftCard({ witnesses })], [2], facts({ repository: repo }))
+    expect(checked!.unclear.map(entry => entry.reason)).toEqual([
+      'witness "`git diff --quiet origin/main` exits 0" names origin/main, which moves while the run goes; compare with HEAD, which the launcher pins at the base',
+    ])
+  })
+
   it('checks every backticked command of a witness and names the second one when it does not resolve', () => {
     const repo = repositoryFacts({ commandResolves: word => word === 'pnpm' })
     const [checked] = checkDraft([draftCard({ witnesses: ['`pnpm run quality` passes, then `nosuchtool --flag` fails'] })], [2], facts({ repository: repo }))

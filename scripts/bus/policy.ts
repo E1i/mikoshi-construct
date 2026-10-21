@@ -1,9 +1,15 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { InForceDecision } from './decisions.js'
+import type { Witness } from './witnesses.js'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
+import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { ownerPathsOf } from '../../src/commands/intake/check.js'
+import { MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
 import { matchGlob } from '../shredder/glob.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
+import { cardBodyText } from './card-bodies.js'
+import { cardBodyShaOfCard } from './queue.js'
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const VERSION_BRANCH = /^changeset-release\//
@@ -151,4 +157,114 @@ export function underOwnerDecision(verdict: MergeVerdict, decisionId: number, pr
   if (verdict.kind === 'denied' && !YIELDS_TO_THE_OWNER_DECISION.has(verdict.rule))
     return verdict
   return pastRoundLimit(verdict.detail, decisionId, pr, head)
+}
+
+export const WITNESS_REASON = 'witness'
+export const GREEN = 'green'
+export const RED = 'red'
+
+const RED_ON_THE_BASE = /\bred on (?:main|the base)\b/
+const BACKTICKED = /`([^`]+)`/g
+
+export type WitnessVerdict = typeof GREEN | typeof RED
+
+export interface CardWitnesses {
+  acceptance: Witness[]
+  invariants: Witness[]
+}
+
+export interface WitnessSubject extends CardWitnesses {
+  cardId: number
+  cardBody: string
+}
+
+export interface WitnessRecord {
+  verdict: WitnessVerdict
+  base: string
+  detail: string
+}
+
+const LATEST_RECORD = `
+  SELECT payload FROM events
+  WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND card_id = ? AND head = ? AND json_extract(payload, '$.cardBody') = ?
+    AND (? IS NULL OR json_extract(payload, '$.base') = ?)
+  ORDER BY id DESC LIMIT 1
+`
+
+export const MERGE_RECORD = `
+  SELECT payload FROM events
+  WHERE pr = ? AND (type = '${MERGE_DONE}' OR (type = '${PR_CLOSED}' AND json_extract(payload, '$.merged') = 1))
+  ORDER BY CASE type WHEN '${MERGE_DONE}' THEN 0 ELSE 1 END, id LIMIT 1
+`
+
+function commandsOf(item: string): string[] {
+  return [...item.matchAll(BACKTICKED)].map(match => match[1]!.trim()).filter(command => command !== '')
+}
+
+export function cardWitnessesOf(body: string): CardWitnesses {
+  const items = witnessesOf(body).filter(item => commandsOf(item).length > 0)
+  return {
+    acceptance: items.filter(item => RED_ON_THE_BASE.test(item)).map(item => ({ criterion: item, command: commandsOf(item).join(' && ') })),
+    invariants: items.filter(item => !RED_ON_THE_BASE.test(item)).flatMap(item => commandsOf(item).map(command => ({ criterion: item, command }))),
+  }
+}
+
+export function witnessSubjectOf(db: DatabaseSync, cardId: number): WitnessSubject | null {
+  const cardBody = cardBodyShaOfCard(db, cardId)
+  const text = cardBodyText(db, cardId)
+  if (cardBody === null || text === null)
+    return null
+  const witnesses = cardWitnessesOf(text)
+  return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody, ...witnesses }
+}
+
+export interface WitnessDenial {
+  detail: string
+  base: string | null
+}
+
+export function witnessRecordOf(db: DatabaseSync, cardId: number, head: string, base: string | null, cardBody: string): WitnessRecord | null {
+  const row = db.prepare(LATEST_RECORD).get(cardId, head, cardBody, base, base) as { payload: string } | undefined
+  if (row === undefined)
+    return null
+  const payload = JSON.parse(row.payload) as { verdict?: unknown, base?: unknown, detail?: unknown }
+  return { verdict: payload.verdict === GREEN ? GREEN : RED, base: String(payload.base ?? ''), detail: String(payload.detail ?? '') }
+}
+
+function recordDenial(db: DatabaseSync, subject: WitnessSubject, head: string, base: string | null): WitnessDenial | null {
+  const record = witnessRecordOf(db, subject.cardId, head, base, subject.cardBody)
+  const where = base === null ? '' : ` on the base ${base}`
+  if (record === null)
+    return { detail: `no ${WITNESS_RECORDED} for card #${subject.cardId} at head ${head}${where} under card body ${subject.cardBody}: the witness node has not run every card witness red on the base and green on this head`, base }
+  if (record.verdict !== GREEN)
+    return { detail: `the ${WITNESS_RECORDED} for card #${subject.cardId} at head ${head} on the base ${record.base} under card body ${subject.cardBody} is red: ${record.detail}`, base }
+  return null
+}
+
+function noHeld(cardId: number, what: 'head' | 'base'): WitnessDenial {
+  return { detail: `card #${cardId} declares witnesses and the task names no ${what} to hold a witness record for`, base: null }
+}
+
+export function witnessDenial(db: DatabaseSync, cardId: number, head: string | null, base: string | null): WitnessDenial | null {
+  const subject = witnessSubjectOf(db, cardId)
+  if (subject === null)
+    return null
+  if (head === null)
+    return noHeld(cardId, 'head')
+  if (base === null)
+    return noHeld(cardId, 'base')
+  return recordDenial(db, subject, head, base)
+}
+
+export function closeWitnessDenial(db: DatabaseSync, cardId: number, pr: number | null, head: string | null): WitnessDenial | null {
+  const subject = witnessSubjectOf(db, cardId)
+  if (subject === null)
+    return null
+  if (head === null)
+    return noHeld(cardId, 'head')
+  const merge = pr === null ? undefined : db.prepare(MERGE_RECORD).get(pr) as { payload: string } | undefined
+  if (merge === undefined)
+    return recordDenial(db, subject, head, null)
+  const { witnessBase } = JSON.parse(merge.payload) as { witnessBase?: unknown }
+  return typeof witnessBase === 'string' ? recordDenial(db, subject, head, witnessBase) : null
 }

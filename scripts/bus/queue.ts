@@ -5,11 +5,11 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { PRIORITIES } from '../../src/card/parking.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_RECORDED } from '../core/events.js'
 import { BACKFILL_SOURCE } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { appendEvent, inTransaction } from './db.js'
-import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
+import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
 import { launchCandidates } from './launch-candidates.js'
 import { roundLimitDecisionOf } from './round-limit-decision.js'
@@ -185,6 +185,55 @@ const CLOSE_CANDIDATES = `
   ORDER BY prs.pr, verified.card_id
 `
 
+const WITNESS_CANDIDATES_ON_NO_RECORD = `
+  SELECT pr, card_id, head, ${cardBodyShaOf('prs.card_id')} AS card_body, NULL AS witness_base FROM prs
+  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
+    AND ${cardBodyShaOf('prs.card_id')} IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM events AS recorded WHERE recorded.type = '${WITNESS_RECORDED}' AND recorded.legacy = 0
+        AND recorded.card_id = prs.card_id AND recorded.head = prs.head
+        AND json_extract(recorded.payload, '$.cardBody') = ${cardBodyShaOf('prs.card_id')}
+    )
+  ORDER BY pr
+`
+
+const LATEST_WITNESS_DENIAL = `
+  SELECT max(latest.id) FROM events AS latest
+  WHERE latest.type = '${POLICY_DENIED}' AND latest.legacy = 0 AND latest.card_id = denied.card_id AND latest.head = denied.head
+    AND json_extract(latest.payload, '$.reason') = 'witness'
+`
+
+const WITNESS_CANDIDATES_ON_A_DENIED_BASE = `
+  SELECT denied.pr, denied.card_id, denied.head, ${cardBodyShaOf('denied.card_id')} AS card_body, json_extract(denied.payload, '$.base') AS witness_base FROM events AS denied
+  WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.pr IS NOT NULL AND denied.card_id IS NOT NULL AND denied.head IS NOT NULL
+    AND json_extract(denied.payload, '$.reason') = 'witness' AND json_type(denied.payload, '$.base') = 'text'
+    AND denied.id = (${LATEST_WITNESS_DENIAL})
+    AND ${cardBodyShaOf('denied.card_id')} IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM events AS recorded WHERE recorded.type = '${WITNESS_RECORDED}' AND recorded.legacy = 0
+        AND recorded.card_id = denied.card_id AND recorded.head = denied.head
+        AND json_extract(recorded.payload, '$.cardBody') = ${cardBodyShaOf('denied.card_id')}
+        AND json_extract(recorded.payload, '$.base') = json_extract(denied.payload, '$.base')
+    )
+  ORDER BY denied.id
+`
+
+const WITHDRAWN_ON_A_WITNESS_NOW_GREEN = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
+  WHERE tasks.queue IN ('merge', 'close') AND tasks.state = '${WITHDRAWN}' AND tasks.head IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM events AS denied
+      JOIN events AS green ON green.type = '${WITNESS_RECORDED}' AND green.legacy = 0 AND green.card_id = denied.card_id AND green.head = denied.head
+      WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.card_id = tasks.card_id AND denied.head = tasks.head
+        AND json_extract(denied.payload, '$.reason') = 'witness' AND json_extract(denied.payload, '$.command') = tasks.queue
+        AND denied.id = (${LATEST_WITNESS_DENIAL} AND json_extract(latest.payload, '$.command') = tasks.queue)
+        AND green.id > tasks.event_id AND json_extract(green.payload, '$.verdict') = 'green'
+        AND json_extract(green.payload, '$.base') = json_extract(denied.payload, '$.base')
+    )
+    AND (tasks.queue = 'close' OR EXISTS (SELECT 1 FROM prs WHERE prs.pr = tasks.pr AND prs.state = 'open' AND prs.head = tasks.head))
+  ORDER BY tasks.task_key
+`
+
 const CARD_TURNS = `'${CARD_STOPPED}', '${CARD_ANSWERED}', '${CARD_STARTED}'`
 
 export function latestTurnOf(card: string): string {
@@ -233,6 +282,7 @@ interface Candidate {
   stop?: number | null
   body_sha?: string | null
   card_body?: unknown
+  witness_base?: string | null
 }
 
 const HEADS_WITH_CHANGES_OF_A_PR = `
@@ -296,7 +346,7 @@ function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
 
 const UNFINISHED_STATES = [...UNFINISHED].map(state => `'${state}'`).join(', ')
 
-const QUEUES_A_MERGE_FINISHES = `'merge', 'close'`
+const QUEUES_A_MERGE_FINISHES = `'merge', 'close', 'witness'`
 
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
@@ -418,22 +468,37 @@ interface StoppedAnswerRow extends StoppedRow {
 export interface QueuedTask extends TaskIdentity {
   stop?: number
   cardBody?: string
+  base?: string
 }
 
+const CARD_BODY_QUEUES: readonly Queue[] = ['answer', 'witness']
 const STOP_SUFFIX = /:stop-([1-9]\d*)$/
 const BODY_SHA = /^[0-9a-f]{8,64}$/
-const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::stop-[1-9]\d*)?$/
+const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::base-[0-9a-f]{40})?(?::stop-[1-9]\d*)?$/
+const WITNESS_BASE = /:base-([0-9a-f]{40})(?::stop-[1-9]\d*)?$/
 
 function cardBodySegment(task: QueuedTask): string {
   if (task.cardBody === undefined)
     return ''
-  if (task.queue !== 'answer' || !BODY_SHA.test(task.cardBody))
-    throw new Error(`only an answer task carries a card body sha: ${task.queue}, ${task.cardBody}`)
+  if (!CARD_BODY_QUEUES.includes(task.queue) || !BODY_SHA.test(task.cardBody))
+    throw new Error(`only an answer task carries a card body sha, or a witness task: ${task.queue}, ${task.cardBody}`)
   return `:card-body-${task.cardBody}`
 }
 
+function baseSegment(task: QueuedTask): string {
+  if (task.base === undefined)
+    return ''
+  if (task.queue !== 'witness' || task.cardBody === undefined || !isFullSha(task.base))
+    throw new Error(`only a witness task with a card body carries a base sha: ${task.queue}, ${task.base}`)
+  return `:base-${task.base}`
+}
+
+export function baseOfKey(key: string): string | undefined {
+  return WITNESS_BASE.exec(key)?.[1]
+}
+
 export function keyOf(task: QueuedTask): string {
-  const key = `${taskKey(task)}${cardBodySegment(task)}`
+  const key = `${taskKey(task)}${cardBodySegment(task)}${baseSegment(task)}`
   return task.stop === undefined ? key : `${key}:stop-${task.stop}`
 }
 
@@ -454,8 +519,9 @@ function cardBodyIn(key: unknown): string | undefined {
 function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows: Candidate[]): QueuedTask[] {
   return rows.filter(row => !closedByRounds(db, ts, queue, row.pr, row.head)).map((row) => {
     const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
-    const cardBody = queue === 'answer' ? answerCardBodyOf(row) : undefined
-    return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input, cardBody }
+    const cardBody = CARD_BODY_QUEUES.includes(queue) ? answerCardBodyOf(row) : undefined
+    const base = queue === 'witness' && cardBody !== undefined ? row.witness_base ?? undefined : undefined
+    return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input, cardBody, base }
   })
 }
 
@@ -473,6 +539,10 @@ export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
 }
 
 const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDIDATES, DIRTY_CANDIDATES] as const
+
+export function witnessCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
+  return [WITNESS_CANDIDATES_ON_NO_RECORD, WITNESS_CANDIDATES_ON_A_DENIED_BASE].flatMap(query => openCandidates(db, ts, 'witness', candidateRows(db, query, everyRow)))
+}
 
 export function answerCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow)))
@@ -497,11 +567,12 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
   const generation = typeof payload.generation === 'string' ? payload.generation : undefined
   const stop = queue === 'answer' ? stopIn(payload.task_key) : undefined
-  const cardBody = queue === 'answer' ? cardBodyIn(payload.task_key) : undefined
+  const cardBody = CARD_BODY_QUEUES.includes(queue) ? cardBodyIn(payload.task_key) : undefined
   const input = queue === 'review' ? reviewInputOfKey(payload.task_key) : undefined
   if (input !== undefined && (event.pr === null || event.head === null))
     reject(`${event.type} of a review input needs a pr and a head`)
-  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody })
+  const base = queue === 'witness' ? baseOfKey(String(payload.task_key)) : undefined
+  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody, base })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
   return { key, queue }
@@ -706,8 +777,9 @@ function withdrawTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
 function identity(row: TaskRow): QueuedTask {
   const plain = { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }
   const input = row.queue === 'review' ? reviewInputOfKey(row.task_key) : undefined
-  const cardBody = row.queue === 'answer' ? cardBodyIn(row.task_key) : undefined
-  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody }
+  const cardBody = CARD_BODY_QUEUES.includes(row.queue) ? cardBodyIn(row.task_key) : undefined
+  const base = row.queue === 'witness' ? baseOfKey(row.task_key) : undefined
+  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody, base }
 }
 
 export interface BodyAdmission { bodySha: string, event: string }
@@ -794,7 +866,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const [query, ...params] of [[STOPPED_ON_NO_CARD_TREE], [WITHDRAWN_MERGES_A_LATER_SHARD_NAMES], [WITHDRAWN_MERGES_A_LATER_WINDOW_SHARD_COVERS, ts]]) {
+  for (const [query, ...params] of [[STOPPED_ON_NO_CARD_TREE], [WITHDRAWN_ON_A_WITNESS_NOW_GREEN], [WITHDRAWN_MERGES_A_LATER_SHARD_NAMES], [WITHDRAWN_MERGES_A_LATER_WINDOW_SHARD_COVERS, ts]]) {
     for (const row of db.prepare(query!).all(...params) as unknown as StoppedRow[]) {
       if (requeueTask(db, ts, row))
         derived.queued.push(row.task_key)

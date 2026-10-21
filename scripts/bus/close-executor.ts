@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
-import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_CLOSED, CARD_VERIFIED, MERGE_DONE, POLICY_DENIED } from '../core/events.js'
+import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_CLOSED, CARD_VERIFIED, POLICY_DENIED } from '../core/events.js'
 import { VERIFICATION_WORDS } from '../core/verification.js'
 import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
 import { cardSessionOf } from './answer-source.js'
@@ -16,8 +16,9 @@ import { archiveCardFile } from './card-archive.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { appendEvent } from './db.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
+import { closeWitnessDenial, MERGE_RECORD, WITNESS_REASON } from './policy.js'
 
-export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof NOT_MINE
+export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof WITNESS_REASON | typeof NOT_MINE
 
 export type MergeLineStep = 'written' | 'present' | 'no-merger' | 'in-bus'
 
@@ -36,6 +37,7 @@ export interface CloseDenial {
   kind: 'technical'
   reason: CloseTechnicalReason
   detail: string
+  base?: string
 }
 
 export type CloseOutcome
@@ -112,12 +114,6 @@ interface Merger {
   merged: unknown
 }
 
-const MERGE_RECORD = `
-  SELECT payload FROM events
-  WHERE pr = ? AND (type = '${MERGE_DONE}' OR (type = 'pr.closed' AND json_extract(payload, '$.merged') = 1))
-  ORDER BY CASE type WHEN '${MERGE_DONE}' THEN 0 ELSE 1 END, id LIMIT 1
-`
-
 const OBSERVED_MERGER = `
   SELECT json_extract(payload, '$.merged_by') AS by, json_extract(payload, '$.merged_at') AS merged FROM events
   WHERE pr = ? AND type = 'pr.closed' AND json_extract(payload, '$.merged') = 1
@@ -191,6 +187,9 @@ export class CloseExecutor {
       const commit = this.mergeCommit(lease)
       if (commit === null)
         return this.denied(lease, technical('no_merge_commit', `the bus holds no merge commit for PR #${lease.pr}`))
+      const unwitnessed = closeWitnessDenial(this.parts.db, lease.cardId, lease.pr, lease.head)
+      if (unwitnessed !== null)
+        return this.denied(lease, { ...technical(WITNESS_REASON, unwitnessed.detail), ...(unwitnessed.base === null ? {} : { base: unwitnessed.base }) })
       return this.closed(lease, verification, this.mergeLine(lease, commit))
     }
     catch (error) {
@@ -261,7 +260,7 @@ export class CloseExecutor {
   private denied(lease: Lease, denial: CloseDenial): CloseOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'close', ...denial }, legacy: false }
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === 'card_closed' || denial.reason === NOT_MINE }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === 'card_closed' || denial.reason === NOT_MINE || denial.reason === WITNESS_REASON }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

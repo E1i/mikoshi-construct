@@ -12,6 +12,7 @@ import { commandWord } from './command-word.js'
 export const DEFAULT_CONTOUR = 'ladder'
 export const CARD_REFERENCE = /^#(\d+)$/
 const BACKTICKED = /`([^`]+)`/g
+const MOVING_REF = /\borigin\/main\b/
 const TEST_NAME_ARGUMENT = /(?:^|\s)(?:-t|--testNamePattern)(?:=|\s+)(?:'([^']*)'|"((?:[^"\\]|\\.)*)"|(\S+))/g
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
 
@@ -75,6 +76,13 @@ export interface Correction {
 export interface CheckedCard extends DraftCard {
   corrections: Correction[]
   covering: string[]
+}
+
+export interface NamedCommand { criterion: string, command: string }
+
+export function movingRefRefusal(witnesses: readonly NamedCommand[]): string | null {
+  const named = witnesses.find(witness => MOVING_REF.test(witness.command))
+  return named === undefined ? null : `witness "${named.criterion}" names origin/main, which moves while the run goes; compare with HEAD, which the launcher pins at the base`
 }
 
 export interface CheckFacts {
@@ -338,14 +346,24 @@ function referencesChecked(field: 'depends' | 'blocks', references: readonly str
   return linked
 }
 
+function movingRefsUnclear(witness: string): UnclearField[] {
+  return [...witness.matchAll(BACKTICKED)].flatMap(([, command]) => {
+    const moving = movingRefRefusal([{ criterion: witness.trim(), command: command! }])
+    return moving === null ? [] : [{ field: 'witnesses', reason: moving }]
+  })
+}
+
 function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): UnclearField[] {
   return card.witnesses.flatMap((witness) => {
     const words = [...witness.matchAll(BACKTICKED)].flatMap(match => commandWord(match[1]!) || [])
     if (words.length === 0)
       return [{ field: 'witnesses', reason: `'${witness.trim()}' names no command; a witness is run by a command` }]
-    return [...new Set(words)]
-      .filter(word => !repository.commandResolves(word))
-      .map(word => ({ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` }))
+    return [
+      ...[...new Set(words)]
+        .filter(word => !repository.commandResolves(word))
+        .map(word => ({ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` })),
+      ...movingRefsUnclear(witness),
+    ]
   })
 }
 

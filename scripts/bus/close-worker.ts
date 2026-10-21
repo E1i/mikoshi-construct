@@ -12,7 +12,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED } from '../core/events.js'
+import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../core/events.js'
 import { cardVerifiedClosings, closingVerificationOf, legacyLines } from '../ghosts/task-close.js'
 import { defaultGhostJournal } from '../ghosts/task-merged.js'
 import { worktreeHome } from '../ports/worktree-home.js'
@@ -24,7 +24,7 @@ import { closeCandidates } from './queue.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = prefixOf('close')
-export const CLOSE_ON = [REDUCED, PR_CLOSED, PR_OPENED, CARD_VERIFIED] as const
+export const CLOSE_ON = [REDUCED, PR_CLOSED, PR_OPENED, CARD_VERIFIED, WITNESS_RECORDED] as const
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED])
 const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_CLOSED])

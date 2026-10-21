@@ -6,6 +6,7 @@
   { "file": "scripts/bus/launch-starter.ts", "kind": "kill" },
   { "file": "scripts/bus/launch-starter.ts", "kind": "ps" },
   { "file": "scripts/bus/review-bg.ts", "kind": "pid-file" },
+  { "file": "scripts/bus/witness-executor.ts", "kind": "kill" },
   { "file": "scripts/construct/browser-witness.mjs", "kind": "kill" },
   { "file": "scripts/ghosts/cleanup.ts", "kind": "kill" },
   { "file": "scripts/ghosts/watch-process.ts", "kind": "ps" },
