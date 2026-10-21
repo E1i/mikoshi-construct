@@ -14,9 +14,9 @@ const DETACHED_SCRIPTS = [...busLaunches(() => []), SUPERVISOR_LAUNCH].map(launc
 
 function entryOf(script: string): string {
   const command = PACKAGE_SCRIPTS[script] ?? ''
-  const match = /^tsx (\S+)$/.exec(command)
+  const match = /^node --import tsx (\S+)$/.exec(command)
   if (match === null)
-    throw new Error(`package.json script ${script} is "${command}", not "tsx <entry>"`)
+    throw new Error(`package.json script ${script} is "${command}", not "node --import tsx <entry>"`)
   return readFileSync(path.join(REPO_ROOT, match[1]!), 'utf8')
 }
 

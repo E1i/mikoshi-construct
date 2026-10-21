@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { formatTokens } from './expect-sample.js'
+import { journalText } from './journal.js'
 
 export type ApprovalCheck
   = | { ok: true, text: string, sha256: string, approvedSketch: string }
@@ -123,9 +124,7 @@ export function approverOf(content: string): string | undefined {
 }
 
 export function journalEvents(journalPath: string): JournalEvent[] {
-  if (!existsSync(journalPath))
-    return []
-  return readFileSync(journalPath, 'utf8').split('\n').flatMap((text) => {
+  return journalText(journalPath).split('\n').flatMap((text) => {
     try {
       const event = JSON.parse(text) as unknown
       return event !== null && typeof event === 'object' && !Array.isArray(event) ? [event as Record<string, unknown>] : []

@@ -16,7 +16,7 @@ import { execGit } from '../core/git.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { handLadderPolicy, handLadderRows } from '../core/policy.js'
 import { readHandoff } from './handoff.js'
-import { appendJournalEvent } from './journal.js'
+import { journalText, recordGhostLine } from './journal.js'
 import { carryLedgerLines, carryStepCacheLines } from './ledger.js'
 import { freeRow, ghostRowState, ghostRowSupervisor, rowTimestamp, writeGhostRow } from './status.js'
 import { approvedSketchOf, lastRunSketch, patchPath, releaseTree, shortSketch, sketchSuperseded } from './supersede.js'
@@ -84,9 +84,7 @@ function namesTask(task: Target, value: unknown): boolean {
 
 function reviewStanding(journalPath: string, task: Target): ReviewStanding {
   const standing: ReviewStanding = {}
-  if (!existsSync(journalPath))
-    return standing
-  for (const line of readFileSync(journalPath, 'utf8').split('\n')) {
+  for (const line of journalText(journalPath).split('\n')) {
     try {
       const parsed = JSON.parse(line) as { event?: unknown, task?: unknown, verdict?: unknown, decision?: unknown, pr?: unknown, followUp?: unknown }
       if (!namesTask(task, parsed.task))
@@ -197,7 +195,7 @@ function ladderEnded(outcome: string | undefined): boolean {
 
 async function releaseSuperseded(task: Target, ctx: CleanupContext): Promise<string | undefined> {
   const approved = approvedSketchOf(task.brief)
-  const run = approved === undefined || !existsSync(ctx.journalPath) ? undefined : lastRunSketch(readFileSync(ctx.journalPath, 'utf8'), value => namesTask(task, value))
+  const run = approved === undefined ? undefined : lastRunSketch(journalText(ctx.journalPath), value => namesTask(task, value))
   if (approved === undefined || run === undefined || !sketchSuperseded(run.sketch, approved) || !existsSync(task.worktree))
     return undefined
   const patch = patchPath(path.dirname(ctx.journalPath), task.ghost ?? task.id, run.sketch)
@@ -206,7 +204,7 @@ async function releaseSuperseded(task: Target, ctx: CleanupContext): Promise<str
     return undefined
   if ('failure' in result)
     return kept(task, result.failure)
-  await appendJournalEvent(ctx.journalPath, { event: 'superseded', task: run.task, by: approved, ts: new Date().toISOString() })
+  recordGhostLine('cleanup', { event: 'superseded', task: run.task, by: approved, ts: new Date().toISOString() })
   return `${label(task)} released: superseded by sketch ${shortSketch(approved)}; work saved to ${patch}; tree ${task.worktree} clean for the next attempt`
 }
 
@@ -359,11 +357,11 @@ function handoffTargets(handoffDir: string, repoRoot: string): { targets: Target
 
 function tasksTargets(tasksData: TasksFile): { targets: Target[], untracked: string[] } {
   const journalPath = path.join(tasksData.out, 'ghosts.jsonl')
-  const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : ''
+  const journal = journalText(journalPath)
   const targets: Target[] = []
   const untracked: string[] = []
   for (const task of tasksData.tasks) {
-    const tree = startedTree(journalText, task.card)
+    const tree = startedTree(journal, task.card)
     if (tree === undefined)
       untracked.push(`ghost-${task.id} kept: card #${task.card.id} has no task:start line in ${journalPath}`)
     else

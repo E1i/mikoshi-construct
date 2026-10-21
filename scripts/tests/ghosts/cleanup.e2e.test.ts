@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
 import { BUS_DB_VARIABLE } from '../../bus/db.js'
 import { openDatabase } from '../../bus/sqlite.js'
+import { ghostLines } from '../../ghosts/journal.js'
 import { ghostRowState, upsertGhostRow, writingRow } from '../../ghosts/status.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -86,14 +87,18 @@ function startLine(w: World): object {
 function runRaw(w: World, script: string, args: string[]): ReturnType<typeof spawnSync> {
   return spawnSync(process.execPath, [TSX_CLI, script, '--tasks', path.join(w.root, 'tasks.json'), ...args], {
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${path.join(w.root, 'bin')}${path.delimiter}${process.env.PATH}` },
+    env: { ...process.env, PATH: `${path.join(w.root, 'bin')}${path.delimiter}${process.env.PATH}`, [BUS_DB_VARIABLE]: busOf(w) },
   })
+}
+
+function busOf(w: World): string {
+  return path.join(w.root, 'bus.db')
 }
 
 function run(w: World, script: string, args: string[]): string {
   const result = spawnSync(process.execPath, [TSX_CLI, script, '--tasks', path.join(w.root, 'tasks.json'), ...args], {
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${path.join(w.root, 'bin')}${path.delimiter}${process.env.PATH}` },
+    env: { ...process.env, PATH: `${path.join(w.root, 'bin')}${path.delimiter}${process.env.PATH}`, [BUS_DB_VARIABLE]: busOf(w) },
   })
   expect(result.stderr).toBe('')
   expect(result.status).toBe(0)
@@ -112,7 +117,7 @@ function cleanupFromHandoff(w: World): string {
   const result = spawnSync(process.execPath, [TSX_CLI, CLEANUP, '--logs', w.logs], {
     encoding: 'utf8',
     cwd: path.join(w.root, 'repo'),
-    env: { ...process.env, CONSTRUCT_HANDOFF_DIR: w.handoff, PATH: `${path.join(w.root, 'bin')}${path.delimiter}${process.env.PATH}` },
+    env: { ...process.env, CONSTRUCT_HANDOFF_DIR: w.handoff, PATH: `${path.join(w.root, 'bin')}${path.delimiter}${process.env.PATH}`, [BUS_DB_VARIABLE]: busOf(w) },
   })
   expect(result.stderr).toBe('')
   expect(result.status).toBe(0)
@@ -472,8 +477,8 @@ describe.each([
     expect(existsSync(w.worktree)).toBe(true)
     expect(hasBranch(w, BRANCH)).toBe(true)
     expect(existsSync(report)).toBe(true)
-    const superseded = readFileSync(path.join(w.handoff, 'ghosts.jsonl'), 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as { event: string, task?: string, by?: string }).find(line => line.event === 'superseded')
-    expect(superseded).toMatchObject({ event: 'superseded', task: 'g1', by: NEW_SKETCH })
+    expect(ghostLines(busOf(w)).find(line => line.event === 'superseded')).toMatchObject({ event: 'superseded', task: 'g1', by: NEW_SKETCH })
+    expect(readFileSync(path.join(w.handoff, 'ghosts.jsonl'), 'utf8')).not.toContain('superseded')
   })
 
   it(`${kind}-own-sketch: keeps the run with today's line while the approval names the run's own sketch`, () => {

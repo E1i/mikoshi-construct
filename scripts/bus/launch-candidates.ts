@@ -198,7 +198,7 @@ function reviewDue(life: CardLife, settled: Settled): boolean {
 
 export function launchableCard(db: DatabaseSync, cardId: number): LaunchableCard | null {
   const life = cardLives(db).get(cardId)
-  if (life === undefined || life.lane === null || (fallCounts(db).get(cardId) ?? 0) >= FALLS_BEFORE_CUT)
+  if (life === undefined || life.lane === null || (fallCounts(db).get(cardId) ?? 0) >= FALLS_BEFORE_CUT || cardSet(db, NO_LONGER_CANDIDATES).has(cardId))
     return null
   const settled = settledCards(db, cardSet(db, MERGED_CARDS))
   return isQueued(life, settled) || reviewDue(life, settled) ? { lane: life.lane, contour: life.contour } : null
@@ -233,14 +233,14 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   }
   const chosen: LaunchCandidate[] = []
   for (const life of [...lives.values()].sort((a, b) => a.cardId - b.cardId)) {
-    if ((falls.get(life.cardId) ?? 0) >= FALLS_BEFORE_CUT)
+    if ((falls.get(life.cardId) ?? 0) >= FALLS_BEFORE_CUT || noLongerCandidates.has(life.cardId))
       continue
     if (reviewDue(life, settled)) {
       if (!launching.has(life.cardId))
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || noLongerCandidates.has(life.cardId) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, liveTrees))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, liveTrees))
       continue
     busy.add(life.lane)
     if (life.task !== null)

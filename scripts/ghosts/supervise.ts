@@ -17,7 +17,7 @@ import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
 import { writeAgreedText } from './agreed.js'
 import { tiedArgsSha256 } from './args-chain.js'
 import { runInstall } from './install.js'
-import { appendJournalEvent, appendJournalLine } from './journal.js'
+import { recordGhostLine, taskLine } from './journal.js'
 import { carryLedgerLines, countLedgerLines, readLadderOutcome } from './ledger.js'
 import { lookupMatrixRow } from './matrix.js'
 import { approvalCarryEvent, regeneratedCheckFailedOutcome, regeneratedCheckFailures } from './regenerated.js'
@@ -100,9 +100,9 @@ function writeCardFell(event: BusEvent): void {
   }
 }
 
-export async function recordFall(journalPath: string, card: number, kind: FallKind, session: string): Promise<void> {
+export function recordFall(card: number, kind: FallKind, session: string): void {
   const ts = new Date().toISOString()
-  await appendJournalEvent(journalPath, fallEvent(card, kind, ts))
+  recordGhostLine('ladder', fallEvent(card, kind, ts))
   writeCardFell(cardFellEvent(card, kind, ts, session))
 }
 
@@ -161,7 +161,7 @@ function noSessionJournalEntry(task: PreparedTask, baseSha: string, matrixRow: M
 async function closeOut(ctx: TaskContext, task: PreparedTask, start: string, outcome: string, journalEntry: JournalEntry): Promise<void> {
   const headSha = git(task.worktree, ['rev-parse', 'HEAD'])
   const end = rowTimestamp()
-  await appendJournalLine(ctx.journalPath, journalEntry)
+  recordGhostLine('ladder', taskLine(journalEntry))
   writeGhostRow(defaultBusPath(), task.card.id, task.id, freeRow({ id: task.id, worktree: task.worktree, headSha, start, end, outcome }), `${FALL_ACTOR_PREFIX}${task.sessionId}`)
 }
 
@@ -208,7 +208,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
       return { id: task.id, line: 'regenerated check failed', ok: false }
     }
     stageSketch(ctx, task)
-    await appendJournalEvent(ctx.journalPath, approvalCarryEvent(task.id, task.approvedSketch, sketchSha(task), task.regenerated, new Date()))
+    recordGhostLine('ladder', approvalCarryEvent(task.id, task.approvedSketch, sketchSha(task), task.regenerated, new Date()))
   }
 
   let code: number
@@ -249,7 +249,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   })
 
   if (!LADDER_STOPS_THAT_ARE_NOT_FALLS.has(ladder.status))
-    await recordFall(ctx.journalPath, task.card.id, 'ladder-not-done', task.sessionId)
+    recordFall(task.card.id, 'ladder-not-done', task.sessionId)
 
   const line = `${ladder.status === 'no ladder run' ? 'no ladder run' : `ladder ${ladder.status}`}${carryFailure}`
   const ok = code === 0 && ladder.status === 'done'

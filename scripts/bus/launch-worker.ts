@@ -18,12 +18,12 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { commandWords, realIsolationReader } from '../ghosts/isolation.js'
+import { ghostLinesText } from '../ghosts/journal.js'
 import { sessionEnv } from '../ghosts/session.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
 import { continuationRefusal, MAX_RESTARTS } from '../shift/continuation.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../shift/ladder.js'
-import { GHOST_JOURNAL } from '../shift/places.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { DROPPED_CARD, GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
@@ -473,10 +473,10 @@ export function busStarterPorts(busPath: string, repo: string, env: NodeJS.Proce
   return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath))
 }
 
-export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv = process.env): LadderSteps {
+export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv, busPath: string): LadderSteps {
   const readIfThere = (file: string): string | null => existsSync(file) ? readFileSync(file, 'utf8') : null
   return {
-    stepOf: task => ladderStep({ journal: readIfThere(path.join(handoffDir, GHOST_JOURNAL)), brief: readIfThere(briefPathOf(handoffDir, task.card)) }, task.card),
+    stepOf: task => ladderStep({ journal: ghostLinesText(busPath), brief: readIfThere(briefPathOf(handoffDir, task.card)) }, task.card),
     tree: (task) => {
       const tree = taskWorktree(worktreeHome(env), String(task.card.id))
       return existsSync(tree) ? tree : null
@@ -512,7 +512,7 @@ async function main(): Promise<number> {
   const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
-  const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env))
+  const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env, busPath))
   return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 

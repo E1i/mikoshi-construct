@@ -8,6 +8,8 @@ import { parkingFileText } from '../../../src/card/parking.js'
 import { revokeEvent } from '../../ghosts/approval.js'
 import { approveArgs, approveCard, renderWaiting, revokeCard, waitingBriefs } from '../../ghosts/approve.js'
 import { hashBrief } from '../../ghosts/hash.js'
+import { ghostLines, recordGhostLine } from '../../ghosts/journal.js'
+import { ownBusPerTest } from './own-bus.js'
 
 const NOW = new Date(2026, 9, 6, 12)
 const OWNER = 'Owner'
@@ -52,15 +54,13 @@ function world(briefs: Brief[]): { handoff: string, parking: string, journal: st
   return { handoff, parking, journal: path.join(handoff, 'ghosts.jsonl'), briefPath }
 }
 
-function journalLines(journal: string): Record<string, unknown>[] {
-  return existsSync(journal) ? readFileSync(journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
-}
-
 function green(): { runBuild: ReturnType<typeof vi.fn<BuildRunner>>, preflight: ReturnType<typeof vi.fn<Preflight>> } {
   return { runBuild: vi.fn<BuildRunner>(() => ({ status: 0, stderr: '' })), preflight: vi.fn<Preflight>() }
 }
 
 describe('pnpm approve', () => {
+  const busOf = ownBusPerTest()
+
   it('lists briefs waiting for the owner: card, risk and why R1, hash, forecast, brief and red-on-base table', () => {
     const w = world([{ card: 701 }])
     const waiting = waitingBriefs(w.handoff, w.parking)
@@ -81,7 +81,7 @@ describe('pnpm approve', () => {
 
   it('lists briefs waiting for the owner whose card cannot be read or whose approval was revoked', () => {
     const w = world([{ card: 701, approvedBy: OWNER }, { card: 702, touches: R3_TOUCH }])
-    writeFileSync(w.journal, `${JSON.stringify(revokeEvent(hashBrief(w.briefPath(701)), 701, NOW.toISOString()))}\n`)
+    recordGhostLine('test', revokeEvent(hashBrief(w.briefPath(701)), 701, NOW.toISOString()), busOf())
     const unparked = path.join(w.parking, 'none')
     mkdirSync(unparked)
     const waiting = waitingBriefs(w.handoff, unparked)
@@ -107,7 +107,8 @@ describe('pnpm approve', () => {
     const line = await approveCard(701, { handoffDir: w.handoff, now: NOW, approver: OWNER, runBuild, preflight })
     expect(line).toBe(`approved /implement text sha256: ${sha256} sketch: none (2026-10-06, ${OWNER})`)
     expect(readFileSync(w.briefPath(701).replace(/\.md$/, '.approved-sha256'), 'utf8')).toBe(`${line}\n`)
-    expect(journalLines(w.journal)).toEqual([{ event: 'approval', by: OWNER, card: 701, brief: w.briefPath(701), sha256, sketch: 'none', ts: NOW.toISOString() }])
+    expect(existsSync(w.journal)).toBe(false)
+    expect(ghostLines(busOf())).toEqual([{ event: 'approval', by: OWNER, card: 701, brief: w.briefPath(701), sha256, sketch: 'none', ts: NOW.toISOString() }])
     expect(preflight).toHaveBeenCalledOnce()
     expect(waitingBriefs(w.handoff, w.parking)).toEqual([])
   })
@@ -126,25 +127,26 @@ describe('pnpm approve', () => {
     await expect(approveCard(799, { handoffDir: w.handoff, now: NOW, approver: OWNER, runBuild, preflight })).rejects.toThrow(/no tasks file .* names card #799/)
     await expect(approveCard(701, { handoffDir: w.handoff, now: NOW, approver: 'Morse', runBuild, preflight })).rejects.toThrow(/owner's approval/)
     expect(existsSync(w.journal)).toBe(false)
+    expect(ghostLines(busOf())).toEqual([])
   })
 
   it('approves by card number nothing when the build fails, the hash is approved or was revoked', async () => {
     const w = world([{ card: 701 }, { card: 702, approvedBy: OWNER }, { card: 703 }])
-    writeFileSync(w.journal, `${JSON.stringify(revokeEvent(hashBrief(w.briefPath(703)), 703, NOW.toISOString()))}\n`)
+    recordGhostLine('test', revokeEvent(hashBrief(w.briefPath(703)), 703, NOW.toISOString()), busOf())
     const red = vi.fn<BuildRunner>(() => ({ status: 1, stderr: 'no witness\n' }))
     const options = { handoffDir: w.handoff, now: NOW, approver: OWNER, runBuild: red, preflight: vi.fn<Preflight>() }
     await expect(approveCard(701, options)).rejects.toThrow(/check-acceptance build exited 1/)
     await expect(approveCard(702, options)).rejects.toThrow(/already holds this hash/)
     await expect(approveCard(703, options)).rejects.toThrow(/was revoked/)
     expect(existsSync(w.briefPath(701).replace(/\.md$/, '.approved-sha256'))).toBe(false)
-    expect(journalLines(w.journal)).toHaveLength(1)
+    expect(ghostLines(busOf())).toHaveLength(1)
   })
 
-  it('revokes the approved hash of a card in the journal and the brief waits again', async () => {
+  it('revokes the approved hash of a card on the bus and the brief waits again', async () => {
     const w = world([{ card: 701, approvedBy: OWNER }])
     const sha256 = hashBrief(w.briefPath(701))
-    expect(await revokeCard(701, w.handoff, NOW)).toBe(`card #701: approval ${sha256.slice(0, 7)} revoked in ${w.journal}`)
-    expect(journalLines(w.journal)).toEqual([{ event: 'revoke', sha256, card: 701, ts: NOW.toISOString() }])
+    expect(await revokeCard(701, w.handoff, NOW)).toBe(`card #701: approval ${sha256.slice(0, 7)} revoked on the bus`)
+    expect(ghostLines(busOf())).toEqual([{ event: 'revoke', sha256, card: 701, ts: NOW.toISOString() }])
     expect(waitingBriefs(w.handoff, w.parking).map(entry => entry.card.id)).toEqual([701])
     expect(approveArgs(['--revoke', '#701'])).toEqual({ kind: 'revoke', card: 701 })
   })
@@ -154,6 +156,6 @@ describe('pnpm approve', () => {
     await expect(revokeCard(701, w.handoff, NOW)).rejects.toThrow(/nothing is revoked/)
     await revokeCard(702, w.handoff, NOW)
     await expect(revokeCard(702, w.handoff, NOW)).rejects.toThrow(/already revoked/)
-    expect(journalLines(w.journal)).toHaveLength(1)
+    expect(ghostLines(busOf())).toHaveLength(1)
   })
 })

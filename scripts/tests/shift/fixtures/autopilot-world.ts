@@ -5,9 +5,11 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach } from 'vitest'
+import { ghostLines } from '../../../ghosts/journal.js'
 import { runClaude } from '../../../shift/claude.js'
 import { HANDED_TO_THE_BUS } from '../../../shift/merge.js'
 import { admitCards } from './admitted.js'
+import { verifiedClosings } from './verified.js'
 import './stub-handoff.js'
 
 const STUB = path.join(import.meta.dirname, 'claude-stub-pr.sh')
@@ -180,8 +182,13 @@ export function lines(file: string): Record<string, unknown>[] {
   return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>) : []
 }
 
+export function journalOf(world: World): Record<string, unknown>[] {
+  return [...lines(world.journal), ...ghostLines(world.bus)]
+}
+
 export function eventsOf(world: World, event: string): Record<string, unknown>[] {
-  return lines(world.journal).filter(line => line.event === event)
+  const closings = event === 'path' ? verifiedClosings(world.bus).map(closing => ({ event, ...closing })) : []
+  return [...journalOf(world).filter(line => line.event === event), ...closings]
 }
 
 export function stubRuns(world: World, id: number): number {
