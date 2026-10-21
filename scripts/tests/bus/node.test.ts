@@ -8,12 +8,13 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { completeTask } from '../../bus/lease.js'
+import { RateLimited } from '../../bus/meter.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { Node, NODE_CURSORS, nodeProcess, SecondSubscription } from '../../bus/node.js'
 import { keyOf } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { slotsVariable } from '../../bus/scheduler.js'
-import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED } from '../../core/events.js'
+import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED, TASK_RELEASED } from '../../core/events.js'
 import { Clock, sha } from './github-fake.js'
 
 const roots: string[] = []
@@ -373,6 +374,31 @@ describe('a node', () => {
     }
     await expect(once(new Broken(newBus(), new Clock(), 'shadow'))).rejects.toThrow('disk I/O error')
     expect(vi.mocked(console.log).mock.calls.map(call => String(call[0])).filter(line => line.includes('database is locked'))).toEqual([])
+  })
+
+  it('a 403 with retry-after ends the task as wait and writes no task.failed', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: 'pr.observed:970', payload: { pr: 970, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
+    reduce(db)
+    class LimitedNode extends FakeNode {
+      protected override handle(): NodeStep {
+        throw new RateLimited(403, 120)
+      }
+    }
+    const node = new LimitedNode(db, clock, 'live')
+    node.found = [task(970)]
+    await once(node)
+
+    const key = keyOf(task(970))
+    const released = (db.prepare('SELECT ts, payload FROM events WHERE type = ?').all(TASK_RELEASED) as { ts: string, payload: string }[]).map(row => ({ ts: row.ts, ...JSON.parse(row.payload) as Record<string, unknown> }))
+    expect(released).toMatchObject([{ task_key: key, reason: 'GitHub answered 403; retry after 120 s', until: new Date(Date.parse(released[0]!.ts) + 120_000).toISOString() }])
+    expect(count(db, 'SELECT count(*) AS n FROM events WHERE type = ?', TASK_FAILED)).toBe(0)
+    expect(db.prepare('SELECT state, failures FROM tasks WHERE task_key = ?').get(key)).toEqual({ state: 'queued', failures: 0 })
+
+    clock.advance(60_000)
+    await once(node)
+    expect(count(db, 'SELECT count(*) AS n FROM events WHERE type = ?', TASK_LEASED)).toBe(1)
   })
 
   it('emit sets actor and ts only where the event leaves them out, and getState reads the cursor and the leases', async () => {

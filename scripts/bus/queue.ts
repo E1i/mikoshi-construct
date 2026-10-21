@@ -20,7 +20,7 @@ import { cleanUpdatesOf } from './update-done.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const LEASE_MS = 30 * 60_000
-export const HEARTBEAT_QUEUES: readonly Queue[] = ['review']
+export const HEARTBEAT_QUEUES: readonly Queue[] = QUEUES
 export const QUEUE_ACTOR = 'policy'
 export const FAILURES_TO_STOP = 3
 export const REVIEW_ROUNDS = 3

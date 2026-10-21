@@ -9,7 +9,8 @@ import { setImmediate as nextTurn } from 'node:timers/promises'
 import { NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from '../core/events.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
 import { recordProcessHeartbeat } from './heartbeat.js'
-import { drainOpen, expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease } from './lease.js'
+import { drainOpen, expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease, waitTask } from './lease.js'
+import { RateLimited } from './meter.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { lastEventId } from './operator-work.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
@@ -40,6 +41,13 @@ export interface IdleStep {
 export interface NodeStep {
   kind: string
   taskKey?: string
+}
+
+export interface WaitStep {
+  kind: 'waiting'
+  taskKey: string
+  reason: string
+  until: string
 }
 
 interface DeniedStep {
@@ -148,6 +156,14 @@ export function equivalenceOf(node: readonly string[], derived: readonly string[
   }
 }
 
+export function isWait(step: NodeStep): step is WaitStep {
+  return step.kind === 'waiting'
+}
+
+export function waitLine(step: WaitStep): string {
+  return `${step.taskKey}: waits until ${step.until} (${step.reason}); no failure counted`
+}
+
 function isDenied(step: NodeStep): step is DeniedStep {
   return step.kind === 'denied'
 }
@@ -156,7 +172,7 @@ export abstract class Node<S extends NodeStep> {
   readonly actor: string
   readonly slots: number
   private subscription: Subscription | null = null
-  private lastStep: S | IdleStep | null = null
+  private lastStep: S | WaitStep | IdleStep | null = null
   private startedAt: string | null = null
 
   constructor(readonly kind: NodeKind, protected readonly parts: NodeParts) {
@@ -202,7 +218,7 @@ export abstract class Node<S extends NodeStep> {
     this.startedAt = this.ts()
     this.openCursor()
     this.log(`the ${this.kind} node ${this.actor} takes the ${this.kind} queue, detection ${this.parts.mode}, ${this.slots} slot(s)`)
-    const inFlight = new Map<string, Promise<S>>()
+    const inFlight = new Map<string, Promise<S | WaitStep>>()
     let lastTick: number | null = null
     let checkWake: Promise<null> | null = null
     const nextCheckWake = async (): Promise<null> => {
@@ -243,7 +259,7 @@ export abstract class Node<S extends NodeStep> {
     return undefined
   }
 
-  protected pauseAfter(step: S | IdleStep): number {
+  protected pauseAfter(step: S | WaitStep | IdleStep): number {
     return step.kind === 'idle' ? CHECK_MS : TICK_MS
   }
 
@@ -336,7 +352,7 @@ export abstract class Node<S extends NodeStep> {
     }
   }
 
-  private fill(inFlight: Map<string, Promise<S>>): void {
+  private fill(inFlight: Map<string, Promise<S | WaitStep>>): void {
     const taken: Lease[] = []
     this.retryWhenLocked('take', () => {
       while (inFlight.size + taken.length < this.slots) {
@@ -364,11 +380,28 @@ export abstract class Node<S extends NodeStep> {
     return true
   }
 
-  private async settle(lease: Lease): Promise<S> {
+  protected waitOn(lease: Lease, reason: string, until: string): WaitStep {
+    waitTask(this.db, this.ts(), lease, { reason, until })
+    return { kind: 'waiting', taskKey: lease.taskKey, reason, until }
+  }
+
+  private async handleOrWait(lease: Lease): Promise<S | WaitStep> {
+    try {
+      return await this.handle(lease)
+    }
+    catch (error) {
+      if (!(error instanceof RateLimited))
+        throw error
+      const until = new Date(this.parts.clock().getTime() + error.retryAfterSeconds * 1000).toISOString()
+      return this.waitOn(lease, error.message, until)
+    }
+  }
+
+  private async settle(lease: Lease): Promise<S | WaitStep> {
     const heartbeat = this.renewsByTimer() ? setInterval(() => this.renew(lease, heartbeat), RENEW_MS) : undefined
     try {
-      const step = await this.handle(lease)
-      const line = this.stepLine(step)
+      const step = await this.handleOrWait(lease)
+      const line = isWait(step) ? waitLine(step) : this.stepLine(step)
       if (line !== null)
         this.log(line)
       return step
