@@ -3,7 +3,7 @@ import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg
 import type { InForceDecision } from './decisions.js'
 import type { ProcessBeat } from './heartbeat.js'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { appendFileSync, realpathSync } from 'node:fs'
+import { appendFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -34,13 +34,16 @@ export const STOP_WAIT_MS = 10_000
 export const STOP_POLL_MS = 100
 export const RESTART_LIMIT_MS = 5 * 60_000
 export const DRAIN_LIMIT_MS = LEASE_MS
+export const GIT_PULL_TIMEOUT_MS = 60_000
+
+export const SUPERVISOR_INSTANCE_FILE = 'bus-bg.pid'
 
 export const SUPERVISOR_LAUNCH: DetachedLaunch = {
   prefix: PREFIX,
   script: 'bus:bg',
   args: [SUPERVISE_FLAG],
   markers: [`scripts/bus/supervisor.ts ${SUPERVISE_FLAG}`, `--silent bus:bg ${SUPERVISE_FLAG}`],
-  instanceFile: 'bus-bg.pid',
+  instanceFile: SUPERVISOR_INSTANCE_FILE,
   startLock: 'bus-bg-supervise.lock',
   log: 'supervisor.log',
 }
@@ -81,7 +84,7 @@ export function gitCode(cwd: string): BusCode {
     },
     holds: sha => git(['merge-base', '--is-ancestor', sha, 'HEAD']) === 0,
     pull: () => {
-      execFileSync('git', ['pull', '--ff-only', '--quiet'], { cwd, stdio: 'pipe' })
+      execFileSync('git', ['pull', '--ff-only', '--quiet'], { cwd, stdio: 'pipe', timeout: GIT_PULL_TIMEOUT_MS, killSignal: 'SIGKILL' })
     },
     busChangedSince: (sha) => {
       const status = git(['diff', '--quiet', sha, 'HEAD', '--', BUS_CODE_PATH])
@@ -542,7 +545,8 @@ export class WorkerKeeper {
 export const PROCESS_JUDGED = 'process.judged'
 export const SUPERVISOR_PROCESS = 'supervisor'
 export const JUDGE_ACTOR = 'worker:supervisor:judge'
-export const SUPERVISOR_BEAT_MS = 5 * 60_000
+export const SUPERVISOR_BEAT_MS = 30_000
+export const SUPERVISOR_SILENT_MS = 2 * 60_000
 export const JUDGED_HORIZON_MS = 24 * 60 * 60_000
 
 export interface Judgement {
@@ -568,8 +572,8 @@ export function judgeSilent(beats: readonly ProcessBeat[], nowMs: number, expect
   return beats.filter(beat => expected(beat.process) && !beatsLive(beat.ts, nowMs) && nowMs - Date.parse(beat.ts) <= JUDGED_HORIZON_MS).map(beat => ({ process: beat.process, lastBeat: beat.ts, silentMs: nowMs - Date.parse(beat.ts) }))
 }
 
-export function recordJudged(db: DatabaseSync, ts: string, judgement: Judgement): boolean {
-  return appendEvent(db, { ts, type: PROCESS_JUDGED, actor: JUDGE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_JUDGED}:${judgement.process}:${judgement.lastBeat}`, payload: { process: judgement.process, verdict: 'silent', last_beat: judgement.lastBeat, silent_ms: judgement.silentMs, limit_ms: SILENT_MS }, legacy: false })
+export function recordJudged(db: DatabaseSync, ts: string, judgement: Judgement, limitMs = SILENT_MS): boolean {
+  return appendEvent(db, { ts, type: PROCESS_JUDGED, actor: JUDGE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_JUDGED}:${judgement.process}:${judgement.lastBeat}`, payload: { process: judgement.process, verdict: 'silent', last_beat: judgement.lastBeat, silent_ms: judgement.silentMs, limit_ms: limitMs }, legacy: false })
 }
 
 export interface Judged {
@@ -590,7 +594,7 @@ export function stillSilent(db: DatabaseSync): Judged[] {
     .map(row => ({ process: row.name, lastBeat: row.last_beat }))
 }
 
-export const RESTART_RETRY_MS = SUPERVISOR_BEAT_MS
+export const RESTART_RETRY_MS = 5 * 60_000
 
 export class LivenessJudge {
   private lastBeat = Number.NEGATIVE_INFINITY
@@ -647,6 +651,51 @@ export async function restartSilent(name: string, wanted: readonly DetachedLaunc
     await control.stop(running, launch)
   const started = control.start(launch)
   return [`${PREFIX}${name} was judged silent; restarting it`, ...started.stdout, ...started.stderr]
+}
+
+export interface SupervisorWatch {
+  db: DatabaseSync
+  now: () => number
+  startedAt: () => number | null
+  processes: ProcessList
+  stop: (running: RunningProcess) => Promise<void>
+}
+
+export async function restartSilentSupervisor(watch: SupervisorWatch): Promise<string[]> {
+  const running = runningInstance(watch.processes(), SUPERVISOR_LAUNCH.markers)
+  if (running === undefined)
+    return []
+  const beat = lastProcessBeats(watch.db).find(each => each.process === SUPERVISOR_PROCESS)?.ts
+  const since = Math.max(beat === undefined ? Number.NEGATIVE_INFINITY : Date.parse(beat), watch.startedAt() ?? Number.NEGATIVE_INFINITY)
+  const nowMs = watch.now()
+  if (!Number.isFinite(since) || nowMs - since <= SUPERVISOR_SILENT_MS)
+    return []
+  const lastBeat = beat ?? new Date(since).toISOString()
+  recordJudged(watch.db, new Date(nowMs).toISOString(), { process: SUPERVISOR_PROCESS, lastBeat, silentMs: nowMs - since }, SUPERVISOR_SILENT_MS)
+  await watch.stop(running)
+  return [`${PREFIX}the supervisor (pid ${running.pid}) has not beaten for ${Math.round((nowMs - since) / 1000)}s (limit ${SUPERVISOR_SILENT_MS / 1000}s); judged silent as ${PROCESS_JUDGED}, stopped it, and a fresh one starts`]
+}
+
+function startedAtOf(file: string): number | null {
+  try {
+    return statSync(file).mtimeMs
+  }
+  catch {
+    return null
+  }
+}
+
+async function restartSilentSupervisorOnBus(busDir: string, processes: ProcessList): Promise<string[]> {
+  const db = openBus(defaultBusPath())
+  try {
+    return await restartSilentSupervisor({ db, now: () => Date.now(), startedAt: () => startedAtOf(path.join(busDir, SUPERVISOR_INSTANCE_FILE)), processes, stop: running => stopInstance(running, SUPERVISOR_LAUNCH.markers, processes) })
+  }
+  catch (error) {
+    return [`${PREFIX}judging the supervisor heartbeat failed: ${error instanceof Error ? error.message : String(error)}; judged again on the next start`]
+  }
+  finally {
+    db.close()
+  }
 }
 
 export interface SupervisingParts {
@@ -823,7 +872,10 @@ async function main(): Promise<void> {
     printBg(detectionCommand(busDir, command.worker, command.live, command.live ? decisionsInForce() : []))
     return
   }
-  printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], process.env, psList(), startReviewWorker))
+  const processes = psList()
+  for (const line of await restartSilentSupervisorOnBus(busDir, processes))
+    console.log(line)
+  printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], process.env, processes, startReviewWorker))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
