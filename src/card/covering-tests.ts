@@ -5,8 +5,8 @@ export const TEST_ROOTS = ['tests', 'scripts/tests']
 export const PACKAGE_MANIFEST = 'package.json'
 export const PACKAGE_SCRIPT_READERS = ['tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts']
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
-  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts'],
-  'scripts/': ['tests/graph-command.test.ts', 'scripts/tests/bus/sqlite.test.ts'],
+  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', 'scripts/tests/core/events.test.ts'],
+  'scripts/': ['tests/graph-command.test.ts', 'scripts/tests/bus/sqlite.test.ts', 'scripts/tests/core/events.test.ts'],
   'scripts/bus/': ['scripts/tests/ci/layers.test.ts'],
   'scripts/ghosts/': ['scripts/tests/shredder/owner-merges.test.ts'],
   'scripts/shift/': ['tests/decisions-read-through-reader.test.ts'],
