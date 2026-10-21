@@ -13,7 +13,7 @@ import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
 import { DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, writeBoardPage } from '../../bus/board-page.js'
 import { BOARD_FILE } from '../../bus/board.js'
-import { SESSION_HEARTBEAT } from '../../core/events.js'
+import { SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const roots: string[] = []
 
@@ -203,6 +203,21 @@ describe('board.html', () => {
     expect(source).toContain('cardGauges(db)')
     expect(source).not.toContain('SESSION_HEARTBEAT')
     expect(source).not.toMatch(/FROM events/)
+  })
+
+  it('the board shows bars for every live session, the window tile included', () => {
+    const html = pageText(seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'implement', session: 's861', context: 31_000, spent: 52_000 }) },
+      { ts: minutesAgo(2), type: WINDOW_HEARTBEAT, card: null, payload: JSON.stringify({ session: 'w1', context: 64_000, spent: 97_000 }) },
+    ]))
+    const tileOf = (role: string, task: string): string | undefined => html.split('<div class="svc" ').find(tile => tile.startsWith(`data-role="${role}"`) && tile.includes(`<span class="svc-target">${task}</span>`))
+    const card = tileOf('implement', '#861')
+    expect(card).toContain('<span class="edd-v">31k')
+    expect(card).toContain('<span class="edd-v">52k')
+    const window = tileOf('window', 'operator')
+    expect(window).toContain('<span class="edd-k">ctx</span>')
+    expect(window).toContain('<span class="edd-v">64k')
+    expect(window).toContain('<span class="edd-v">97k')
   })
 
   it('the page style declares no custom property it never reads', () => {

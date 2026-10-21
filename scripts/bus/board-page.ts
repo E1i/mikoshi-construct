@@ -8,7 +8,7 @@ import { busFacts, FLOW_STATES } from '../../src/commands/board/bus.js'
 import { backlogCards, goalLines, isLive, matrixLines, pulseLines } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
-import { BOARD_FILE, cardGauges } from './board.js'
+import { BOARD_FILE, cardGauges, windowGauges } from './board.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { openDatabase } from './sqlite.js'
 
@@ -47,12 +47,14 @@ export interface BoardPage {
   version: string
   facts: BusFacts
   gauges: Map<string, Gauges>
+  windowGauges: Gauges | null
   limits: EddiesLimits
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, sessionSpend: null, warnRatio: null }
 const LORE_NAMES: Record<string, string> = { window: 'Мико', review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
 const RUNNER = 'Runner'
+const WINDOW_ROLE = 'window'
 const SESSION_STEP = / · pulse \d+ min ago$/
 const CARD_PREFIX = /^card:\s*/
 const FIELD_COUNT = 5
@@ -81,6 +83,11 @@ function projectedGauges(db: DatabaseSync): Map<string, Gauges> {
   return new Map(cardGauges(db).map(row => [`#${row.card}`, { context: positive(row.context), spent: positive(row.spent) }]))
 }
 
+function projectedWindowGauges(db: DatabaseSync): Gauges | null {
+  const row = windowGauges(db)
+  return row === null ? null : { context: positive(row.context), spent: positive(row.spent) }
+}
+
 function compact(value: number): string {
   if (value >= MILLION)
     return `${Number((value / MILLION).toFixed(1))}M`
@@ -100,9 +107,15 @@ function eddiesBar(name: string, value: number | null, limit: number | null, war
   return `<div class="edd"${hot ? ' data-hot' : ''}><span class="edd-k">${name}</span>${bar}<span class="edd-v">${reading}</span></div>`
 }
 
+function gaugesOf(service: BusService, page: BoardPage): Gauges | null | undefined {
+  if (service.role === WINDOW_ROLE)
+    return page.windowGauges
+  return SESSION_STEP.test(service.step) ? page.gauges.get(service.task) : undefined
+}
+
 function serviceTile(service: BusService, page: BoardPage): string {
-  const gauges = SESSION_STEP.test(service.step) ? page.gauges.get(service.task) : undefined
-  const bars = gauges === undefined
+  const gauges = gaugesOf(service, page)
+  const bars = gauges == null
     ? ''
     : eddiesBar('ctx', gauges.context, page.limits.contextLimit, page.limits.warnRatio) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.warnRatio)
   return [
@@ -492,7 +505,7 @@ export function renderBoard(page: BoardPage): string {
 }
 
 function pageOf(db: DatabaseSync, now: Date): string {
-  return renderBoard({ version: VERSION, facts: busFacts(db, now), gauges: projectedGauges(db), limits: readEddiesLimits() })
+  return renderBoard({ version: VERSION, facts: busFacts(db, now), gauges: projectedGauges(db), windowGauges: projectedWindowGauges(db), limits: readEddiesLimits() })
 }
 
 export function writeBoardPage(file: string, html: string, files: BoardFiles = DISK_FILES): void {

@@ -26,7 +26,8 @@ interface HookMeasure {
   SPEND_BASIS: string
   addTokens: (into: Tokens, tokens: Tokens) => Tokens
   spentOf: (tokens: Tokens) => number
-  readTranscript: (root: string, transcript: string) => { tokens: Tokens }
+  contextOf: (tokens: Tokens) => number
+  readTranscript: (root: string, transcript: string) => { tokens: Tokens, last: Tokens }
   sumTranscripts: (root: string, files: string[]) => Tokens
   agentTranscriptsUnder: (dir: string) => string[]
 }
@@ -40,6 +41,11 @@ export interface Counters {
   input: number
   cache_write: number
   cache_read: number
+}
+
+export interface SessionGauges {
+  context?: number
+  spent?: number
 }
 
 export interface ExitReadings {
@@ -139,10 +145,26 @@ function transcriptOf(home: string, session: string): string | null {
   return readdirSync(projects).map(project => path.join(projects, project, `${session}.jsonl`)).find(existsSync) ?? null
 }
 
-function sessionSpent(root: string, transcript: string): number {
-  const parent = hookMeasure.readTranscript(root, transcript).tokens
+function spentWithAgents(root: string, transcript: string, parent: Tokens): number {
   const agents = hookMeasure.sumTranscripts(root, hookMeasure.agentTranscriptsUnder(path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')))
   return hookMeasure.spentOf(hookMeasure.addTokens({ ...parent }, agents))
+}
+
+function sessionSpent(root: string, transcript: string): number {
+  return spentWithAgents(root, transcript, hookMeasure.readTranscript(root, transcript).tokens)
+}
+
+export function sessionGauges(home: string, root: string, session: string): SessionGauges {
+  try {
+    const transcript = PLAIN_ID.test(session) ? transcriptOf(home, session) : null
+    if (transcript === null)
+      return {}
+    const parent = hookMeasure.readTranscript(root, transcript)
+    return { context: hookMeasure.contextOf(parent.last), spent: spentWithAgents(root, transcript, parent.tokens) }
+  }
+  catch {
+    return {}
+  }
 }
 
 function warnOf(limit: number | null, warnRatio: number | null): Reading<number> {

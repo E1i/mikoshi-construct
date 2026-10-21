@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -6,6 +6,7 @@ import { openBus } from '../../bus/db.js'
 import { recordWindowHeartbeat, WINDOW_BEAT_MS, windowBeat, windowSessionOf } from '../../bus/window-heartbeat.js'
 import { WINDOW_ACTOR } from '../../bus/window-requests.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
+import { sessionGauges } from '../../miko/eddies-measure.js'
 
 const START = Date.parse('2026-10-20T10:00:00.000Z')
 const roots: string[] = []
@@ -51,7 +52,7 @@ describe('the window heartbeat', () => {
   it('beats at most once per beat interval, and not at all without a window session', () => {
     const file = busFile()
     let now = START
-    const beat = windowBeat(file, 'abc-1', () => now)
+    const beat = windowBeat(file, 'abc-1', () => now, () => ({}))
     beat()
     now += WINDOW_BEAT_MS - 1
     beat()
@@ -60,7 +61,28 @@ describe('the window heartbeat', () => {
     expect(beats(file)).toEqual([START, START + WINDOW_BEAT_MS].map(ms => ({ ts: new Date(ms).toISOString(), actor: `${WINDOW_ACTOR}abc-1` })))
 
     const silent = busFile()
-    windowBeat(silent, null, () => START)()
+    windowBeat(silent, null, () => START, () => ({}))()
     expect(beats(silent)).toEqual([])
+  })
+
+  it('the window heartbeat carries the gauges of the window session transcript', () => {
+    const home = mkdtempSync(path.join(tmpdir(), 'window-home-'))
+    const root = mkdtempSync(path.join(tmpdir(), 'window-tree-'))
+    roots.push(home, root)
+    const transcript = path.join(home, '.claude', 'projects', '-repo', 'abc-1.jsonl')
+    mkdirSync(path.dirname(transcript), { recursive: true })
+    writeFileSync(transcript, `${JSON.stringify({ requestId: 'r1', message: { role: 'assistant', usage: { input_tokens: 2_000, cache_creation_input_tokens: 30_000, cache_read_input_tokens: 10_000 } } })}\n`)
+    const file = busFile()
+    windowBeat(file, 'abc-1', () => START, session => sessionGauges(home, root, session))()
+    const db = openBus(file)
+    const row = db.prepare('SELECT payload FROM events WHERE type = ?').get(WINDOW_HEARTBEAT) as { payload: string }
+    db.close()
+    expect(JSON.parse(row.payload)).toEqual({ session: 'abc-1', context: 42_000, spent: 2_000 + 30_000 * 1.25 + 10_000 * 0.1 })
+
+    const unread = busFile()
+    windowBeat(unread, 'abc-2', () => START, session => sessionGauges(home, root, session))()
+    const quiet = openBus(unread)
+    expect(quiet.prepare('SELECT payload FROM events WHERE type = ?').all(WINDOW_HEARTBEAT)).toEqual([{ payload: JSON.stringify({ session: 'abc-2' }) }])
+    quiet.close()
   })
 })

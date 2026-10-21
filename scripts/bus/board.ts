@@ -7,7 +7,7 @@ import type { WindowShard } from './shards.js'
 import path from 'node:path'
 import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_LEASED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_LEASED, WINDOW_HEARTBEAT } from '../core/events.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from './card-automaton.js'
 import { cardContract } from './card-contract.js'
@@ -116,6 +116,13 @@ export interface CardGauges {
   spent: number | null
 }
 
+export interface WindowGauges {
+  session: string | null
+  ts: string
+  context: number | null
+  spent: number | null
+}
+
 export interface ActiveShard extends WindowShard {
   leftMinutes: number
 }
@@ -135,6 +142,7 @@ export interface Board {
   contract: ContractLink[]
   queues: TaskQueue[]
   gauges: CardGauges[]
+  windowGauges: WindowGauges | null
 }
 
 const BLOCKING = ['waits question', 'waits boundary', 'waits fault', DEPENDS_FAILED.trim(), 'classify']
@@ -216,6 +224,12 @@ const LAST_GAUGES = `
   WHERE id IN (SELECT max(id) FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL GROUP BY card_id)
     AND json_valid(payload)
   ORDER BY card_id
+`
+
+const LAST_WINDOW_GAUGES = `
+  SELECT ts, json_extract(payload, '$.session') AS session, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent FROM events
+  WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
+  ORDER BY id DESC LIMIT 1
 `
 
 function count(db: DatabaseSync, sql: string, ...params: (string | number)[]): number {
@@ -454,6 +468,14 @@ export function cardGauges(db: DatabaseSync): CardGauges[] {
     .filter(row => row.context !== null || row.spent !== null)
 }
 
+export function windowGauges(db: DatabaseSync): WindowGauges | null {
+  const row = db.prepare(LAST_WINDOW_GAUGES).get() as { ts: string, session: unknown, context: unknown, spent: unknown } | undefined
+  if (row === undefined)
+    return null
+  const gauges = { session: typeof row.session === 'string' ? row.session : null, ts: row.ts, context: numberOrNull(row.context), spent: numberOrNull(row.spent) }
+  return gauges.context === null && gauges.spent === null ? null : gauges
+}
+
 export function readBoard(sources: BoardSources): Board {
   const { db, now } = sources
   const chains = db.prepare(CHAINS).all() as unknown as ChainLane[]
@@ -480,6 +502,7 @@ export function readBoard(sources: BoardSources): Board {
     contract: contractRow(db),
     queues: taskQueues(db, sources.leaseOrders),
     gauges: cardGauges(db),
+    windowGauges: windowGauges(db),
   }
 }
 
