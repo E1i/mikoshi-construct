@@ -11,6 +11,8 @@ export const RELEASE_KIND = 'release'
 const KINDS_NO_SHARD_MERGES = ['security-invariants']
 export const OWNER_PR_MERGED_BY_THE_BUS = 77
 export const OWNER_EVEN_UNDER_THE_DECISION = 'R1'
+export const MATRIX_COUNT_LINE = /■ \d+ □ \d+ · \d+/
+const MATRIX_REQUIRED_UNDER = ['src/', 'templates/']
 
 export type AuthorityRule
   = | 'version_pr'
@@ -20,6 +22,7 @@ export type AuthorityRule
     | 'decision_unread'
     | 'owner_without_shard'
     | 'r1'
+    | 'no_matrix_count_line'
 
 export type AllowedRule = 'auto' | 'owner_under_shard' | 'owner_by_decision' | 'owner_after_round_limit'
 
@@ -57,6 +60,10 @@ function reachesRisk(file: string, level: string): boolean {
 
 function denied(rule: AuthorityRule, detail: string): MergeVerdict {
   return { kind: 'denied', rule, detail }
+}
+
+export function pathWithoutMatrix(body: string, files: readonly string[]): string | undefined {
+  return MATRIX_COUNT_LINE.test(body) ? undefined : files.find(file => MATRIX_REQUIRED_UNDER.some(root => file.startsWith(root)))
 }
 
 export function reservationOf(cardId: number, description: string): boolean {
@@ -112,6 +119,9 @@ export function mergePolicy(facts: MergeFacts): MergeVerdict {
   const { decision } = card.card
   if (decision === 'none')
     return denied('decision_unread', `card #${facts.cardId} is ${decision}, neither auto nor owner`)
+  const unmatrixed = pathWithoutMatrix(facts.description, facts.files)
+  if (unmatrixed !== undefined)
+    return denied('no_matrix_count_line', `changes ${unmatrixed} and its description has no code matrix count line ■ n □ n · n (architecture/code-matrix.md)`)
   const ownerPath = ownerPathOf(facts)
   if (decision === 'auto' && ownerPath === undefined)
     return { kind: 'allowed', rule: 'auto', detail: `card #${facts.cardId} is auto and no file meets an owner path` }
