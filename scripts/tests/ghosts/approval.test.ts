@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { approvalOf, approvalSha256, approvedHashPath, canonicalImplementText, checkApproval, extractApprovedHash, extractApprovedSketch, extractImplementText, implementLineNumbers, journalEvents, morseApprovalOf, morseCarryOf, sha256Hex, withoutSketchLine } from '../../ghosts/approval.js'
 import { morseApprove } from '../../ghosts/hash.js'
+import { ghostLines } from '../../ghosts/journal.js'
+import { ownBusPerTest } from './own-bus.js'
 
 function worldDir(): string {
   return mkdtempSync(path.join(tmpdir(), 'ghosts-approval-'))
@@ -255,6 +257,8 @@ function approvalsIn(journalPath: string): Record<string, unknown>[] {
 }
 
 describe('a MORSE approval after a rebase of its sketch', () => {
+  const busOf = ownBusPerTest()
+
   it('a MORSE approval carries to a cleanly rebased sketch with the same text and a green preflight', async () => {
     const world = carryWorld()
     await world.approve()
@@ -278,7 +282,7 @@ describe('a MORSE approval after a rebase of its sketch', () => {
     const world = carryWorld()
     await world.approve()
     const approvedBefore = readFileSync(world.approvedPath, 'utf8')
-    const journalBefore = readFileSync(world.journalPath, 'utf8')
+    const journalBefore = ghostLines(busOf())
     writeFileSync(world.brief, `# head\n\n---\n\n${sketchedText(REBASED_SKETCH)}\n`)
 
     await expect(world.approve(() => {
@@ -286,7 +290,7 @@ describe('a MORSE approval after a rebase of its sketch', () => {
     })).rejects.toThrow('preflight P7')
 
     expect(readFileSync(world.approvedPath, 'utf8')).toBe(approvedBefore)
-    expect(readFileSync(world.journalPath, 'utf8')).toBe(journalBefore)
+    expect(ghostLines(busOf())).toEqual(journalBefore)
   })
 
   it('the same sketch has nothing to carry and is left as it is', async () => {

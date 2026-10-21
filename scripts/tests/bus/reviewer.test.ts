@@ -46,7 +46,7 @@ describe('reviewer', () => {
 
   it('the prompt of a first diff review reads only since..head against the card, its witnesses and touches, and makes each touch finding a finding', () => {
     const prompt = reviewPrompt(lease, { depth: 'diff', round: 'first', why: 'by rule docs-only', since: sha('c'), touchFindings: ['architecture/window.md is outside the touches of card #1050 (docs/**)'] }, '/tmp/t', '/tmp/v.json')
-    expect(prompt).toContain(`Read only the diff ${sha('c')}..${sha('a')} against the card, its witnesses and its touches; do not walk the modules it touches.`)
+    expect(prompt).toContain(`Read only the diff ${sha('c')}..${sha('a')} against the card, its witnesses, its touches and its runs (the tests the card's Runs: line names); do not walk the modules it touches.`)
     expect(prompt).toContain('Report as a finding of this review: architecture/window.md is outside the touches of card #1050 (docs/**)')
     expect(prompt).not.toContain('Review the whole pull request')
     expect(prompt).toContain('report every finding of this pass in one verdict, not in portions')

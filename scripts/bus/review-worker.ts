@@ -6,7 +6,7 @@ import type { GitHub } from './github.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode, NodeContext, Scope } from './node.js'
 import type { QueuedTask } from './queue.js'
-import type { ShadowReading } from './report.js'
+import type { ReadSet, ShadowReading } from './report.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { ExecutorParts, Step } from './review-executor.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
@@ -26,6 +26,7 @@ import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
 import { defaultBusPath } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
+import { recordForeignDivergences } from './divergence-alarm.js'
 import { keepDryRun } from './dry-run-record.js'
 import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
@@ -44,6 +45,7 @@ import { planned, recordLeftovers, ReviewExecutor } from './review-executor.js'
 import { claudeReviewer, PREFIX, ReviewFailed, ReviewTrees } from './reviewer.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
 import { openDatabase } from './sqlite.js'
+import { stampLogOutput } from './stamp.js'
 
 export { SWITCH_FLAG }
 export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_LIMIT_REACHED, roundLimitLine, SPAWNS_NO_SESSION, TREE_LEFT } from './review-executor.js'
@@ -58,6 +60,8 @@ export const REVIEW_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_REC
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED])
 const SCOPED_BY_CARD_ON: ReadonlySet<string> = new Set([CARD_ADMITTED])
+
+export const REVIEW_READS: ReadSet = new Set(['prs', 'tasks', 'cards', 'card_bodies', 'mains', 'chains'])
 
 export interface WorkerParts extends ExecutorParts {
   session: string
@@ -77,7 +81,7 @@ class PreflightWaits extends Error {
 
 function shadowReadingOrWait(db: DatabaseSync, gitHub: GitHub, clock: () => Date): ShadowReading {
   try {
-    return shadowReading(db, gitHub, () => clock().getTime())
+    return shadowReading(db, gitHub, () => clock().getTime(), REVIEW_READS)
   }
   catch (error) {
     if (error instanceof RateLimited)
@@ -133,7 +137,8 @@ export class ReviewNode extends Node<Step> {
 
   protected override before(): void {
     const { db, gitHub, clock, clearLeftovers } = this.reviewParts
-    const { headLag, problems } = shadowReadingOrWait(db, gitHub, clock)
+    const { headLag, problems, foreign } = shadowReadingOrWait(db, gitHub, clock)
+    recordForeignDivergences(db, this.actor, this.ts(), foreign)
     if (problems.length > 0)
       throw new ShadowNotClean([...problems, ...headLag])
     if (headLag.length > 0)
@@ -394,5 +399,7 @@ async function main(): Promise<number> {
   })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from './chain-process.js'
 import type { DeadChain, RelaunchOutcome, RestartOutcome, RoleLauncher } from './restart-executor.js'
+import type { RoleReturned } from './role.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -11,18 +12,19 @@ import { fileURLToPath } from 'node:url'
 import { runRelaunchBg } from '../shift/relaunch-bg.js'
 import { REAL_PROCESSES } from './chain-process.js'
 import { defaultBusPath, openBus } from './db.js'
-import { expireLeases, leaseNext } from './lease.js'
+import { expireLeases, LEASE_MS, leaseNext } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { FAILURES_TO_STOP } from './queue.js'
 import { relaunchKey, RestartExecutor } from './restart-executor.js'
 import { SWITCH_FLAG } from './review-worker.js'
-import { leaseRole, RAISED_VARIABLE, roleToOwner } from './role.js'
+import { leaseRole, RAISED_VARIABLE, returnSilentRole, roleToOwner } from './role.js'
+import { stampLogOutput } from './stamp.js'
 import { switchedOn } from './workers.js'
 
 export const PREFIX = '[bus:restart] '
 export const MIKO_LAUNCH_OFF = 'the launch of pnpm miko is switched off: whether nohup pnpm miko can start a claude window without a terminal is not settled; start pnpm miko in a terminal'
 
-export type RestartStep = { kind: 'idle' } | { kind: 'dead_chains', chains: DeadChain[] } | RestartOutcome | RelaunchOutcome
+export type RestartStep = { kind: 'idle' } | { kind: 'dead_chains', chains: DeadChain[] } | ({ kind: 'returned' } & RoleReturned) | RestartOutcome | RelaunchOutcome
 
 export interface RestartWorkerParts {
   db: DatabaseSync
@@ -51,6 +53,9 @@ export class RestartWorker {
     const chains = this.executor.deadChains(this.actor)
     if (chains.length > 0)
       return { kind: 'dead_chains', chains }
+    const returned = returnSilentRole(this.parts.db, ts, this.actor)
+    if (returned !== null)
+      return { kind: 'returned', ...returned }
     const toOwner = roleToOwner(this.parts.db, ts, this.actor)
     if (toOwner !== null)
       return { kind: 'to_owner', ...toOwner }
@@ -68,6 +73,8 @@ export function restartStepLine(step: RestartStep): string | null {
     return `${PREFIX}${relaunchKey(step.role)}: raised on ${step.handoff}, PID ${step.pid}`
   if (step.kind === 'raise_failed')
     return `${PREFIX}${relaunchKey(step.role)}: not raised on ${step.handoff}: ${step.detail}; the role is raised again until ${FAILURES_TO_STOP} raises in a row fail`
+  if (step.kind === 'returned')
+    return `${PREFIX}${relaunchKey(step.role)}: back from the owner on ${step.handoff}: the owner's window went silent after ${step.lastSign}, ${LEASE_MS / 60_000} minutes without a sign, so the role is raisable again`
   if (step.kind === 'to_owner')
     return `${PREFIX}${relaunchKey(step.role)}: to the owner (question.owner): ${step.detail}`
   if (step.kind === 'handed')
@@ -79,11 +86,15 @@ export function restartStepLine(step: RestartStep): string | null {
   return `${PREFIX}${step.taskKey}: denied (${step.reason}): ${step.detail}; the task is ${step.next}`
 }
 
+function linesOf(name: string, lines: string[]): string {
+  return lines.length === 0 ? `no ${name}` : `${name}: ${lines.join('; ')}`
+}
+
 function raiseOperator(handoff: string, env: NodeJS.ProcessEnv): number {
   const started = runRelaunchBg([handoff], { ...env, [RAISED_VARIABLE]: '1' })
   const pid = Number(started.stdout[0])
   if (started.exitCode !== 0 || !Number.isSafeInteger(pid) || pid <= 0)
-    throw new Error(started.stderr.join('; ') || `pnpm relaunch ${handoff} did not start`)
+    throw new Error(`pnpm relaunch ${handoff} exited ${started.exitCode}${started.exitCode === 0 ? ' with no PID on its first line' : ''} (${linesOf('stderr', started.stderr)}, ${linesOf('stdout', started.stdout)})`)
   return pid
 }
 
@@ -137,5 +148,7 @@ async function main(): Promise<number> {
   return runRestartWorker(process.argv.slice(2), { busPath: defaultBusPath(), roles: roleLauncher(), processes: REAL_PROCESSES, launchSwitchedOn: () => launchSwitchedOn(busDir), session: randomUUID(), pause: sleep })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}

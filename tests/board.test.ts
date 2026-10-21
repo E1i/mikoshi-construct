@@ -239,6 +239,7 @@ describe('construct board', () => {
       'Services',
       'review · #3 · — · review approve',
       'implementer · #1071 · /t · started',
+      'bus · pulse · — · no pulse recorded · slots in use: review 1 (the bus records no capacity)',
       'agents at work: 2 · last failure: none · review queue: 1 · geek mode: --geek',
     ])
     const geek = render(dir, { bus: busAt(busFile(repository())), version: '0.44.0', geek: true })
@@ -269,11 +270,11 @@ describe('construct board', () => {
     expect(lines).not.toContain('Flow')
   })
 
-  it('--prs, --all and a --stale other than the default ask for the raw sections, as --geek does', () => {
+  it('--prs and a --stale other than the default ask for the raw sections, as --geek does, and --all keeps the screens', () => {
     const plain = { geek: false, all: false, staleHours: STALE_HOURS, prs: undefined }
     expect(rawSectionsAsked(plain)).toBe(false)
     expect(rawSectionsAsked({ ...plain, geek: true })).toBe(true)
-    expect(rawSectionsAsked({ ...plain, all: true })).toBe(true)
+    expect(rawSectionsAsked({ ...plain, all: true })).toBe(false)
     expect(rawSectionsAsked({ ...plain, staleHours: STALE_HOURS + 1 })).toBe(true)
     expect(rawSectionsAsked({ ...plain, prs: '-' })).toBe(true)
   })

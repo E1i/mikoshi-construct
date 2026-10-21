@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
 import { BUS_DB_VARIABLE } from '../../bus/db.js'
 import { openDatabase } from '../../bus/sqlite.js'
+import { ghostLines } from '../../ghosts/journal.js'
 import { ghostRowState } from '../../ghosts/status.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -128,13 +129,7 @@ function supervisorPidsOf(statusText: string): number[] {
 }
 
 function journalTasks(w: string): string[] {
-  const journal = path.join(w, 'handoff', 'ghosts.jsonl')
-  if (!existsSync(journal))
-    return []
-  return readFileSync(journal, 'utf8').split('\n').filter(line => line !== '').flatMap((line) => {
-    const entry = JSON.parse(line) as { event?: unknown, task?: unknown }
-    return entry.event === 'task' && typeof entry.task === 'string' ? [entry.task] : []
-  })
+  return ghostLines(path.join(w, 'bus.db')).flatMap(line => line.event === 'task' && typeof line.task === 'string' ? [line.task] : [])
 }
 
 function killFailingWith(code: string): typeof process.kill {
@@ -172,7 +167,6 @@ describe('ghosts:launch outlives the window that started it', () => {
     const windowPgid = window.pid!
     windows.push(window)
     const windowExited = once(window, 'exit')
-    const handoff = path.join(w, 'handoff')
 
     expect(await waitFor(() => allInState(w, 'writing'), w, ROW_APPEARS_MS), statusOf(w)).toBe(true)
     const supervisors = [...new Set(supervisorPidsOf(statusOf(w)))]
@@ -184,7 +178,7 @@ describe('ghosts:launch outlives the window that started it', () => {
     await windowExited
 
     expect(await waitFor(() => allInState(w, 'free'), w, FREE_ROW_MS), statusOf(w)).toBe(true)
-    expect(await waitFor(() => journalTasks(w).length === IDS.length, handoff, FREE_ROW_MS)).toBe(true)
+    expect(await waitFor(() => journalTasks(w).length === IDS.length, w, FREE_ROW_MS)).toBe(true)
     expect(journalTasks(w).sort()).toEqual(IDS)
     expect(supervisors).toHaveLength(1)
     expect(supervisors[0]).not.toBe(launcherPid)

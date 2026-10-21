@@ -16,6 +16,7 @@ import { ghApi } from './github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from './netwatch.js'
 import { deriveQueues } from './queue.js'
 import { reduce, REDUCED } from './reducer.js'
+import { stampLogOutput } from './stamp.js'
 import { realRequestTools } from './window-request-tools.js'
 import { WINDOW_REQUEST, WindowRequests } from './window-requests.js'
 
@@ -94,5 +95,7 @@ async function main(): Promise<number> {
   }
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}

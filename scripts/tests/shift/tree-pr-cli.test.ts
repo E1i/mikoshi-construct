@@ -131,7 +131,7 @@ function parkCard(root: string, contour: ShiftedDiff['contour'], body = 'Do x.')
   const cardLine = `#951 x [implement/netwatch/S/${contour}/auto] ${CARD_TAIL}`
   const cardFile = path.join(root, 'lane-q', '951.md')
   mkdirSync(path.dirname(cardFile), { recursive: true })
-  writeFileSync(cardFile, `card: ${cardLine}\nbranch: feat/x\ntouches: scripts/shift/x.ts\ncontinue: stop\nwho: shift\n\n${body}\n`)
+  writeFileSync(cardFile, `card: ${cardLine}\nbranch: feat/x\ntouches: scripts/shift/x.ts, scripts/tests/shift/x.test.ts, scripts/x.sh, src/x.ts, docs/x.md, templates/base/x.eta, .changeset/**\ncontinue: stop\nwho: shift\n\n${body}\n`)
   return { cardFile, cardLine }
 }
 

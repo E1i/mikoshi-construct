@@ -5,8 +5,9 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFile
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS } from '../../bus/bg.js'
+import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { startReviewWorker } from '../../bus/review-bg.js'
 import { applySwitch, bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
@@ -79,6 +80,9 @@ function detachedSleep(): number {
 }
 
 const ARRIVAL_GUARD_MS = 25_000
+const ISO_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z (?=\S)/
+const TSX_LOADER = pathToFileURL(path.resolve(import.meta.dirname, '..', '..', '..', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs')).href
+const STAMPED_ENTRY = path.join(import.meta.dirname, 'stamp-entry.ts')
 
 function readArgv(w: World): string[] {
   const file = path.join(w.out, 'pnpm.argv')
@@ -117,6 +121,24 @@ describe('pnpm bus:bg', () => {
     expect(await argvLines(w, 1)).toEqual(['--silent bus:run'])
     expect(argsOf(Number(result.stdout[0]))).toContain('bus:run')
     await waitFor(() => readFileSync(log, 'utf8').includes('bus:run output'), () => `"bus:run output" in ${log}`, ARRIVAL_GUARD_MS)
+  })
+
+  it('every line a detached bus process appends to its log starts with an ISO timestamp', async () => {
+    const w = world()
+    const bin = path.join(path.dirname(w.out), 'bin')
+    rmSync(path.join(bin, 'pnpm'))
+    stub(bin, 'pnpm', `TSX_DISABLE_CACHE=1 exec "${process.execPath}" --import "${TSX_LOADER}" "${STAMPED_ENTRY}"`)
+    const log = path.join(w.busDir, SHADOW_LOG)
+    mkdirSync(w.busDir, { recursive: true })
+    writeFileSync(log, 'written before\n')
+    const result = startDetached(BUS_RUN_LAUNCH, w.busDir, w.env, () => [])
+    started.push(...pidsOf(result))
+    expect(result.exitCode).toBe(0)
+    await waitFor(() => readFileSync(log, 'utf8').endsWith('no newline'), () => `the last line in ${log} (read: ${JSON.stringify(readFileSync(log, 'utf8'))})`, ARRIVAL_GUARD_MS)
+    const [before, ...appended] = readFileSync(log, 'utf8').split('\n')
+    expect(before).toBe('written before')
+    expect(appended.map(line => line.replace(ISO_STAMP, '')).sort()).toEqual(['env cleared', 'first line', 'no newline', 'to stderr'])
+    expect(appended.every(line => ISO_STAMP.test(line))).toBe(true)
   })
 
   it('a second start while bus:run is alive leaves it alone and names its pid', async () => {

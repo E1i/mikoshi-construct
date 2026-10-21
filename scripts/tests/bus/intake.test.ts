@@ -5,13 +5,15 @@ import path from 'node:path'
 import { runMain } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { CARD_ADMITTED, CARD_MOVED, CARD_WAITING } from '../../../src/commands/intake/index.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../../../src/commands/intake/index.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
 import { parkingLane } from '../../bus/admissions.js'
+import { WINDOW_LANE } from '../../bus/card-bodies.js'
 import { BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { importJournalFile } from '../../bus/import.js'
 import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
+import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
 
 const NOW = new Date('2026-10-12T16:00:00.000Z')
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
@@ -94,12 +96,87 @@ function admitThroughThePorts(w: World, file: string): string {
   }
 }
 
+function setMode(w: World, mode: string): void {
+  const db = openBus(w.bus)
+  const refuse = (): never => {
+    throw new Error('a mode request uses no tool')
+  }
+  try {
+    requestFromWindow(db, NOW.toISOString(), 's1', { kind: 'mode', mode })
+    new WindowRequests(db, () => NOW, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse }).run()
+  }
+  finally {
+    db.close()
+  }
+}
+
+function parkCard(w: World, id: number): string {
+  mkdirSync(w.parking, { recursive: true })
+  const file = path.join(w.parking, `${id}.md`)
+  writeFileSync(file, `card: #${id} card-${id} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${id}\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+  return file
+}
+
+function admittedLanes(w: World): unknown[] {
+  return admissions(w).map(admission => admission.payload.lane)
+}
+
+function admitSlice(w: World, id: number, depends: number[]): void {
+  withPort(w, events => events({ type: CARD_ADMITTED, cardId: id, ts: NOW.toISOString(), dedupeKey: `slice-${id}`, payload: { card: `#${id} slice-${id} [implement/netwatch/S/cheap/auto] · depends ${depends.map(at => `#${at}`).join(', ') || '—'} · blocks —`, lane: null, depends } }))
+}
+
+describe('intake lays the lane of an admitted card by the factory mode', () => {
+  it('in window mode every card gets one lane', () => {
+    const w = world()
+    for (const id of [91, 92, 93])
+      expect(withPort(w, events => runAdmit({ file: parkCard(w, id), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
+    expect(admittedLanes(w)).toEqual([WINDOW_LANE, WINDOW_LANE, WINDOW_LANE])
+  })
+
+  it('in parallel three independent cards get three lanes', () => {
+    const w = world()
+    setMode(w, 'parallel')
+    for (const id of [91, 92, 93])
+      expect(withPort(w, events => runAdmit({ file: parkCard(w, id), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
+    expect(admittedLanes(w)).toEqual(['lane-01', 'lane-02', 'lane-03'])
+  })
+
+  it('in parallel three slices of one card get one lane', () => {
+    const w = world()
+    setMode(w, 'parallel')
+    admitSlice(w, 90, [])
+    admitSlice(w, 91, [90])
+    admitSlice(w, 92, [91])
+    admitSlice(w, 93, [92])
+    admitSlice(w, 94, [])
+    expect(admittedLanes(w)).toEqual(['lane-01', 'lane-01', 'lane-01', 'lane-01', 'lane-02'])
+  })
+
+  it('in parallel an amended card keeps the lane it was laid in', () => {
+    const w = world()
+    setMode(w, 'parallel')
+    admitSlice(w, 90, [])
+    admitSlice(w, 91, [])
+    withPort(w, events => events({ type: CARD_ADMITTED, cardId: 90, ts: NOW.toISOString(), dedupeKey: 'amend-90', payload: { card: '#90 slice-90', lane: null, depends: [] } }))
+    expect(admittedLanes(w)).toEqual(['lane-01', 'lane-02', 'lane-01'])
+  })
+
+  it('a mode request back to window lays the next card in the one lane again', () => {
+    const w = world()
+    setMode(w, 'parallel')
+    admitSlice(w, 90, [])
+    setMode(w, 'window')
+    admitSlice(w, 91, [])
+    expect(admittedLanes(w)).toEqual(['lane-01', WINDOW_LANE])
+  })
+})
+
 describe('pnpm intake writes card events to bus.db', () => {
   it('an --admit through the port writes card.admitted to the bus as the intake worker', () => {
     const w = world()
     const file = park(w, 'lane-7')
     expect(withPort(w, events => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
-    expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: 'lane-7', depends: [], decision: 'auto', contour: 'cheap' } }])
+    expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: WINDOW_LANE, depends: [], decision: 'auto', contour: 'cheap' } }])
   })
 
   it('an --admit with the bus writes text, textSha, prevTextSha and prevAdmissionId', () => {
@@ -186,9 +263,17 @@ describe('pnpm intake writes card events to bus.db', () => {
   it('a move of a card with no card.admitted in the bus is refused, and the file stays where it was', () => {
     const w = world()
     const file = park(w, '')
-    expect(() => withPort(w, events => runMove({ move: '#90', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF))).toThrow('#90 has no card.admitted in the bus')
+    expect(() => withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF))).toThrow('#90 has no card.admitted in the bus')
     expect(existsSync(file)).toBe(true)
     expect(cardEvents(w)).toEqual([])
+  })
+
+  it.each(['dropped', 'archive', 'superseded'])('a parked card the bus never admitted is dropped with card.dropped when it moves into %s', (lane) => {
+    const w = world()
+    park(w, '')
+    expect(withPort(w, events => runMove({ move: '#90', to: lane, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    expect(existsSync(path.join(w.parking, lane, '90.md'))).toBe(true)
+    expect(cardEvents(w)).toMatchObject([{ type: CARD_DROPPED, actor: 'worker:intake:s1', cardId: 90, payload: { lane } }])
   })
 
   it('a backfilled card counts as admitted: its move into dropped is held by the bus', () => {
@@ -202,7 +287,7 @@ describe('pnpm intake writes card events to bus.db', () => {
       db.close()
     }
     expect(withPort(w, events => runMove({ move: '#90', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
-    expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_MOVED])
+    expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_DROPPED])
   })
 
   it('with the bus a second --admit of an unchanged card is alreadyAdmitted, the bus holds one card.admitted and the journal no intake line', () => {
@@ -265,7 +350,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     finally {
       db.close()
     }
-    expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, cardId: 90, payload: { card: CARD, lane: null } }])
+    expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, cardId: 90, payload: { card: CARD, lane: WINDOW_LANE } }])
     expect(existsSync(w.journal)).toBe(false)
   })
 

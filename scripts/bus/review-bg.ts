@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url'
 import { alive, printBg, psList, startDetached } from './bg.js'
 import { defaultBusPath, openBus } from './db.js'
 import { ghApi } from './github.js'
-import { shadowProblems } from './report.js'
-import { SWITCH_FLAG } from './review-worker.js'
+import { shadowReading } from './report.js'
+import { REVIEW_READS, SWITCH_FLAG } from './review-worker.js'
 
 export const PREFIX = '[bus:review:bg] '
 export const REVIEW_SCRIPT = 'bus:review'
@@ -23,7 +23,7 @@ export function busShadowProblems(busPath: string, gitHub: GitHub): string[] {
     return [`there is no bus.db at ${busPath}; the shadow has not run there`]
   const db = openBus(busPath)
   try {
-    return shadowProblems(db, gitHub, () => Date.now())
+    return shadowReading(db, gitHub, () => Date.now(), REVIEW_READS).problems
   }
   catch (error) {
     return [`the shadow report could not be read: ${error instanceof Error ? error.message : String(error)}`]

@@ -7,8 +7,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
+import { BUS_DB_VARIABLE } from '../../bus/db.js'
 import { approverOf, revokeEvent } from '../../ghosts/approval.js'
 import { hashBrief, morseApprove } from '../../ghosts/hash.js'
+import { ghostLines, recordGhostLine } from '../../ghosts/journal.js'
+import { busWithCardStarted } from './card-started-bus.js'
+import { ownBusPerTest } from './own-bus.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const HASH = path.join(REPO_ROOT, 'scripts/ghosts/hash.ts')
@@ -38,7 +42,15 @@ interface Scenario {
   parked?: boolean
 }
 
-function scenario(options: Scenario = {}): { brief: string, parkingDir: string, journalPath: string, runBuild: ReturnType<typeof vi.fn<BuildRunner>>, preflight: ReturnType<typeof vi.fn<Preflight>>, approvedPath: string } {
+interface World { brief: string, parkingDir: string, journalPath: string, busPath: string, runBuild: ReturnType<typeof vi.fn<BuildRunner>>, preflight: ReturnType<typeof vi.fn<Preflight>>, approvedPath: string }
+
+ownBusPerTest()
+
+function scenario(options: Scenario = {}): World {
+  const busPath = busWithCardStarted([]).file
+  process.env[BUS_DB_VARIABLE] = busPath
+  for (const event of options.events ?? [])
+    recordGhostLine('test', event, busPath)
   const root = directory()
   const brief = path.join(root, 'brief-t.md')
   writeFileSync(brief, `# head\n\n---\n\n${briefText(options.expectLine ?? IN_BAND, options.steps ?? 'Print the name.')}\n`)
@@ -47,37 +59,37 @@ function scenario(options: Scenario = {}): { brief: string, parkingDir: string, 
   if (options.parked !== false)
     writeFileSync(path.join(parkingDir, `${CARD}.md`), parkingFileText({ card: options.cardLine ?? CARD_LINE, branch: `feat/${CARD}`, touches: [options.touches ?? 'src/thing/**'], continue: 'stop', who: 'shift', body: options.body ?? 'Do the thing.' }))
   const journalPath = path.join(root, 'ghosts.jsonl')
-  writeFileSync(journalPath, (options.events ?? []).map(event => `${JSON.stringify(event)}\n`).join(''))
-  return { brief, parkingDir, journalPath, runBuild: vi.fn<BuildRunner>(() => ({ status: 0, stderr: '' })), preflight: vi.fn<Preflight>(), approvedPath: `${brief.replace(/\.md$/, '')}.approved-sha256` }
+  return { brief, parkingDir, journalPath, busPath, runBuild: vi.fn<BuildRunner>(() => ({ status: 0, stderr: '' })), preflight: vi.fn<Preflight>(), approvedPath: `${brief.replace(/\.md$/, '')}.approved-sha256` }
 }
 
-function approveWithSuggestion(world: ReturnType<typeof scenario>): Promise<MorseApproval> {
+function approveWithSuggestion(world: World): Promise<MorseApproval> {
   return morseApprove(world.brief, { card: CARD, parkingDir: world.parkingDir, journalPath: world.journalPath, now: NOW, runBuild: world.runBuild, preflight: world.preflight })
 }
 
-async function approve(world: ReturnType<typeof scenario>): Promise<string> {
+async function approve(world: World): Promise<string> {
   return (await approveWithSuggestion(world)).line
 }
 
-async function expectRefusal(world: ReturnType<typeof scenario>, message: RegExp): Promise<void> {
-  const journalBefore = readFileSync(world.journalPath, 'utf8')
+async function expectRefusal(world: World, message: RegExp): Promise<void> {
+  const journalBefore = ghostLines(world.busPath)
   await expect(approve(world)).rejects.toThrow(message)
   expect(existsSync(world.approvedPath)).toBe(false)
-  expect(readFileSync(world.journalPath, 'utf8')).toBe(journalBefore)
+  expect(ghostLines(world.busPath)).toEqual(journalBefore)
   expect(world.runBuild).not.toHaveBeenCalled()
 }
 
-function journalOf(journalPath: string): Record<string, unknown>[] {
-  return readFileSync(journalPath, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
+function journalOf(world: World): Record<string, unknown>[] {
+  return ghostLines(world.busPath)
 }
 
-async function expectApproved(world: ReturnType<typeof scenario>, risk: string): Promise<void> {
-  const before = journalOf(world.journalPath).length
+async function expectApproved(world: World, risk: string): Promise<void> {
+  const before = journalOf(world).length
   const line = await approve(world)
   const sha256 = hashBrief(world.brief)
   expect(line).toBe(`approved /implement text sha256: ${sha256} sketch: none (2026-10-04, morse)`)
   expect(readFileSync(world.approvedPath, 'utf8')).toBe(`${line}\n`)
-  const events = journalOf(world.journalPath)
+  const events = journalOf(world)
+  expect(existsSync(world.journalPath)).toBe(false)
   expect(events).toHaveLength(before + 1)
   expect(events.filter(event => event.event === 'approval')).toHaveLength(1)
   expect(events.at(-1)).toMatchObject({ event: 'approval', by: 'morse', card: CARD, brief: path.resolve(world.brief), sha256, sketch: 'none', risk, ts: NOW.toISOString() })
@@ -119,10 +131,10 @@ describe('the MORSE gate in process', () => {
     world.preflight.mockImplementation(() => {
       throw new Error('preflight: the base is red')
     })
-    const journalBefore = readFileSync(world.journalPath, 'utf8')
+    const journalBefore = ghostLines(world.busPath)
     await expect(approve(world)).rejects.toThrow(/the base is red/)
     expect(existsSync(world.approvedPath)).toBe(false)
-    expect(readFileSync(world.journalPath, 'utf8')).toBe(journalBefore)
+    expect(ghostLines(world.busPath)).toEqual(journalBefore)
     expect(world.runBuild).toHaveBeenCalledTimes(1)
     expect(world.preflight).toHaveBeenCalledTimes(1)
   })
@@ -171,7 +183,7 @@ describe('the MORSE gate in process', () => {
 
   it('morse refuses a brief whose approval was revoked', async () => {
     const world = scenario()
-    writeFileSync(world.journalPath, `${JSON.stringify(revokeEvent(hashBrief(world.brief), CARD, NOW.toISOString()))}\n`)
+    recordGhostLine('test', revokeEvent(hashBrief(world.brief), CARD, NOW.toISOString()), world.busPath)
     await expectRefusal(world, /was revoked/)
   })
 
@@ -193,13 +205,13 @@ describe('the MORSE gate in process', () => {
     await expectApproved(scenario({ body, steps: `#${CARD}: add the print to the run, then witness it.` }), 'R3')
   })
 
-  it('morse leaves no approval file when the journal cannot be written', async () => {
+  it('morse leaves no approval file when the bus cannot be written', async () => {
     const world = scenario()
-    const handoff = path.join(directory(), 'handoff')
-    const journalPath = path.join(handoff, 'ghosts.jsonl')
-    await expect(morseApprove(world.brief, { card: CARD, parkingDir: world.parkingDir, journalPath, now: NOW, runBuild: world.runBuild, preflight: world.preflight })).rejects.toThrow(/journal .*ghosts\.jsonl.* no approval file was written/)
+    const notADirectory = path.join(directory(), 'file')
+    writeFileSync(notADirectory, '')
+    process.env[BUS_DB_VARIABLE] = path.join(notADirectory, 'bus.db')
+    await expect(approve(world)).rejects.toThrow(/the bus cannot be written .* no approval file was written/)
     expect(existsSync(world.approvedPath)).toBe(false)
-    expect(existsSync(handoff)).toBe(false)
   })
 
   it('morse leaves an approval the owner already wrote on the same hash', async () => {
@@ -208,7 +220,7 @@ describe('the MORSE gate in process', () => {
     writeFileSync(world.approvedPath, ownerLine)
     await expect(approve(world)).rejects.toThrow(/approved by Eli/)
     expect(readFileSync(world.approvedPath, 'utf8')).toBe(ownerLine)
-    expect(readFileSync(world.journalPath, 'utf8')).toBe('')
+    expect(ghostLines(world.busPath)).toEqual([])
     expect(world.runBuild).not.toHaveBeenCalled()
   })
 })
@@ -221,8 +233,8 @@ function forecastOf(minutes: number): string {
   return `expect: tokens ≈ 166k, minutes ≈ ${minutes} — effort medium, n=61, median, ${BAND}`
 }
 
-function suggestionsOf(journalPath: string): Record<string, unknown>[] {
-  return journalOf(journalPath).filter(event => event.event === 'suggestion')
+function suggestionsOf(world: World): Record<string, unknown>[] {
+  return journalOf(world).filter(event => event.event === 'suggestion')
 }
 
 describe('mORSE suggests a cheaper contour', () => {
@@ -230,7 +242,7 @@ describe('mORSE suggests a cheaper contour', () => {
     for (const size of ['S', 'M']) {
       const world = scenario({ cardLine: ladderCard(size), expectLine: forecastOf(17) })
       const approval = await approveWithSuggestion(world)
-      const suggestions = suggestionsOf(world.journalPath)
+      const suggestions = suggestionsOf(world)
       expect(suggestions).toHaveLength(1)
       expect(suggestions[0]).toMatchObject({ by: 'morse', card: CARD, contour: 'ladder', suggests: 'cheap', ts: NOW.toISOString() })
       expect(suggestions[0]!.line).toBe(approval.suggestion)
@@ -248,7 +260,7 @@ describe('mORSE suggests a cheaper contour', () => {
     expect(approval.suggestion).toBeDefined()
     expect(readFileSync(parkingFile, 'utf8')).toBe(parkedBefore)
     expect(readFileSync(world.approvedPath, 'utf8')).toBe(`${approval.line}\n`)
-    expect(journalOf(world.journalPath).filter(event => event.event === 'approval')).toHaveLength(1)
+    expect(journalOf(world).filter(event => event.event === 'approval')).toHaveLength(1)
     expect(approval.suggestion).toContain('the contour stays as the card says')
   })
 
@@ -264,7 +276,7 @@ describe('mORSE suggests a cheaper contour', () => {
       const world = scenario(options)
       const approval = await approveWithSuggestion(world)
       expect(approval.suggestion).toBeUndefined()
-      expect(suggestionsOf(world.journalPath)).toHaveLength(0)
+      expect(suggestionsOf(world)).toHaveLength(0)
       expect(existsSync(world.approvedPath)).toBe(true)
     }
   })

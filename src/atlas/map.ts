@@ -1,4 +1,5 @@
 import type { ComponentMap } from './components.js'
+import type { SourceLinks } from './source-link.js'
 import type { AtlasInput } from './view.js'
 import { createHash } from 'node:crypto'
 import { escaped } from '../model/page.js'
@@ -6,6 +7,7 @@ import { channelMap } from './channels.js'
 import { ATLAS_DATA_MARK, ATLAS_SCRIPT } from './client.js'
 import { componentMap, CROSSINGS, isCodeRelation, MAP_STATES } from './components.js'
 import { entryMap } from './entries.js'
+import { RELATIVE_LINKS } from './source-link.js'
 
 const WORDS = {
   label: 'The map of contours, their parts and the arrows between them',
@@ -38,7 +40,7 @@ export function scriptSafeJson(value: unknown): string {
   return JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, character => SCRIPT_SAFE[character])
 }
 
-function pageData(map: ComponentMap, mechanics: NonNullable<AtlasInput['mechanics']>, rootFromPage: string): unknown {
+function pageData(map: ComponentMap, mechanics: NonNullable<AtlasInput['mechanics']>, rootFromPage: string, links: SourceLinks): unknown {
   const paths = new Set(mechanics.components.map(component => component.path))
   for (const contour of map.contours) {
     for (const component of contour.components)
@@ -51,6 +53,7 @@ function pageData(map: ComponentMap, mechanics: NonNullable<AtlasInput['mechanic
   const entries = entryMap(mechanics.relations)
   return {
     root: rootFromPage,
+    source: links,
     files,
     states: files.map(file => stateOf.get(file)?.state ?? 'unknown'),
     reasons: Object.fromEntries(files.flatMap(file => stateOf.get(file)?.reason == null ? [] : [[file, stateOf.get(file)?.reason]])),
@@ -83,7 +86,7 @@ export function atlasScript(input: AtlasInput, rootFromPage: string): string | n
   if (input.mechanics == null)
     return null
   const map = componentMap({ contours: [], ...input.mechanics }, input.model.interpretation?.components ?? [], input.projectName)
-  return ATLAS_SCRIPT.split(ATLAS_DATA_MARK).join(scriptSafeJson(pageData(map, input.mechanics, rootFromPage)))
+  return ATLAS_SCRIPT.split(ATLAS_DATA_MARK).join(scriptSafeJson(pageData(map, input.mechanics, rootFromPage, input.links ?? RELATIVE_LINKS)))
 }
 
 export function sha256Source(source: string): string {

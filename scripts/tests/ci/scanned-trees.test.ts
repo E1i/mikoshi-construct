@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { SCANNED_TREES } from '../../ci/layers.js'
+import { SCANNED_TREES } from '../../../src/card/covering-tests.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const TEST_DIRS = ['tests', path.join('scripts', 'tests')]

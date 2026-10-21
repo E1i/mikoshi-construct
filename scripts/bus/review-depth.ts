@@ -1,5 +1,6 @@
 import type { Prediction, RuleId } from '../morse/rules.js'
 import type { Lease } from './lease.js'
+import { runsCover } from '../../src/card/covering-tests.js'
 import { PREFIX_SUFFIX } from '../../src/card/task-file.js'
 
 export const REVIEW_DEPTHS = ['full', 'diff'] as const
@@ -28,7 +29,12 @@ export interface DepthSources {
   base: (head: string) => string
   changed: (from: string, to: string) => string[]
   predict: (task: string, base: string, head: string) => Predicted
-  touches: (cardId: number) => string[] | null
+  scope: (cardId: number) => CardScope | null
+}
+
+export interface CardScope {
+  touches: string[]
+  runs: string[]
 }
 
 export type ReviewPlanner = (lease: Lease, earlier: EarlierVerdict | null) => ReviewPlan
@@ -57,10 +63,11 @@ function reReview(head: string, earlier: EarlierVerdict, sources: DepthSources):
 }
 
 function touchFindings(cardId: number, files: readonly string[], sources: DepthSources): string[] {
-  const touches = sources.touches(cardId)
-  if (touches === null)
+  const scope = sources.scope(cardId)
+  if (scope === null)
     return [`the touches of card #${cardId} could not be read, so no changed file is shown inside them`]
-  return files.filter(file => !withinTouches(file, touches)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})`)
+  const { touches, runs } = scope
+  return files.filter(file => !withinTouches(file, touches) && !runsCover(file, runs)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})`)
 }
 
 function firstReview(lease: Lease, head: string, sources: DepthSources): ReviewPlan {

@@ -87,9 +87,23 @@ export const ATLAS_SCRIPT = `
     return (bypass ? ['bypass'] : []).concat(unknown ? ['unknown'] : []);
   }
   const counts = (entry) => STATES.map((state, at) => entry.counts[at] + ' ' + state).join(' · ');
-  const href = (path) => {
-    const encoded = path.split('/').filter((segment) => segment !== '').map(encodeURIComponent).join('/');
-    return (DATA.root === '' ? '' : DATA.root.split('/').map(encodeURIComponent).join('/') + '/') + encoded;
+  const encodedPath = (path) => path.split('/').filter((segment) => segment !== '').map(encodeURIComponent).join('/');
+  const pageHref = String(location.href || '');
+  const rootOnDisk = () => {
+    const segments = pageHref.split('#')[0].split('?')[0].replace(/^file:\\/\\/[^/]*/, '').split('/').slice(0, -1).filter((segment) => segment !== '');
+    DATA.root.split('/').forEach((segment) => {
+      if (segment === '..') segments.pop();
+      else if (segment !== '' && segment !== '.') segments.push(encodeURIComponent(segment));
+    });
+    return segments.join('/');
+  };
+  const href = (path, line) => {
+    if (DATA.source.template !== null && pageHref.startsWith('file:')) {
+      const target = [rootOnDisk(), encodedPath(path)].filter((part) => part !== '').join('/');
+      return DATA.source.template.split('{abs}').join(target).split('{line}').join(String(line || 1));
+    }
+    if (DATA.source.remote !== null) return DATA.source.remote + '/' + encodedPath(path) + (line ? '#L' + line : '');
+    return (DATA.root === '' ? '' : DATA.root.split('/').map(encodeURIComponent).join('/') + '/') + encodedPath(path);
   };
 
   function visible() {
@@ -336,7 +350,7 @@ export const ATLAS_SCRIPT = `
 
   function sourceLink(path, line) {
     const at = path + ':' + line;
-    return '<a href="' + esc(href(path)) + '" data-at="' + esc(at) + '">' + esc(at) + '</a>';
+    return '<a href="' + esc(href(path, line)) + '" data-at="' + esc(at) + '">' + esc(at) + '</a>';
   }
 
   function channelItem(channel) {
@@ -349,7 +363,7 @@ export const ATLAS_SCRIPT = `
 
   function relationItem(relation, other) {
     const at = file(relation[0]) + ':' + relation[2];
-    return '<li data-at="' + esc(at) + '" data-crossing="' + CROSSINGS[relation[3]] + '"><a href="' + esc(href(file(relation[0]))) + '">' + esc(at) + '</a> ' + esc(other) + '</li>';
+    return '<li data-at="' + esc(at) + '" data-crossing="' + CROSSINGS[relation[3]] + '"><a href="' + esc(href(file(relation[0]), relation[2])) + '">' + esc(at) + '</a> ' + esc(other) + '</li>';
   }
 
   function show(id) {

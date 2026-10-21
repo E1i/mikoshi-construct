@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
 import { openBus } from '../../bus/db.js'
-import { recordWindowSubagent } from '../../miko/window-subagents.js'
+import { recordWindowSubagent, runWindowSubagent, windowSubagentCall } from '../../miko/window-subagents.js'
 
 const AT = new Date('2026-10-19T10:00:00.000Z')
 const roots: string[] = []
@@ -53,5 +53,25 @@ describe('the window subagent event', () => {
     const ended = busReaderAt(file, () => AT)()
     expect(ended.status === 'read' && ended.facts.services).toEqual([])
     db.close()
+  })
+})
+
+describe('the window subagent command', () => {
+  it('reads a subagent from its flags and refuses a missing flag, an unknown phase and an unknown option', () => {
+    expect(windowSubagentCall(['--session', 's1', '--role', 'implementer', '--task', '#1', '--phase', 'started', '--tree', '/t', '--step', 'a'])).toEqual({
+      kind: 'record',
+      subagent: { session: 's1', role: 'implementer', task: '#1', phase: 'started', tree: '/t', step: 'a' },
+    })
+    expect(windowSubagentCall(['--role', 'implementer', '--task', '#1', '--phase', 'started'])).toMatchObject({ kind: 'refused' })
+    expect(windowSubagentCall(['--session', 's1', '--role', 'r', '--task', '#1', '--phase', 'paused'])).toMatchObject({ kind: 'refused' })
+    expect(windowSubagentCall(['--nope'])).toMatchObject({ kind: 'refused' })
+  })
+
+  it('writes the event the board reads, and exits 1 on a refused call without opening the bus', () => {
+    const file = busFile()
+    expect(runWindowSubagent(['--session', 's1', '--role', 'brief', '--task', '#9', '--phase', 'started'], file, () => AT)).toBe(0)
+    const running = busReaderAt(file, () => AT)()
+    expect(running.status === 'read' && running.facts.services).toEqual([{ role: 'brief', task: '#9', tree: null, step: 'started' }])
+    expect(runWindowSubagent([], path.join(path.dirname(file), 'never.db'), () => AT)).toBe(1)
   })
 })

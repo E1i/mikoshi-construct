@@ -12,13 +12,14 @@ import { riskReading } from '../../src/card/risk.js'
 import { readContourSchema, violations } from '../contract/contours.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { approvedHashPath, extractApprovedHash } from './approval.js'
-import { appendJournalEvent } from './journal.js'
+import { journalText, recordGhostLine } from './journal.js'
 import { reviewCarry } from './review-carry.js'
 
 const JOURNAL_FILE = 'ghosts.jsonl'
 const CLOUD_REPORT_NAME = /^review(?:-[\w.-]+)?\.md$/
 const VERDICT_SCHEMA = 'review-verdict'
 const JOURNAL_LINE = '#/$defs/journalLine'
+const WRITER = 'verdict'
 const CARD_NUMBER_MARKER = /^\[review:\d+\]$/
 const ISSUE_NUMBER = /^[1-9]\d*$/
 export const DISPOSITION_EVENT = 'disposition'
@@ -156,9 +157,7 @@ function treeReasons(tree: string, target: ReviewTarget, resolved: ResolvedCommi
 
 function reviewedCommit(dir: string, task: string, tree: string, file: Digest): string | undefined {
   const journal = path.join(dir, JOURNAL_FILE)
-  if (!existsSync(journal))
-    return undefined
-  const commits = readFileSync(journal, 'utf8').split('\n').flatMap((text) => {
+  const commits = journalText(journal).split('\n').flatMap((text) => {
     try {
       const line = JSON.parse(text) as { event?: unknown, task?: unknown, tree?: unknown, commit?: unknown, file?: { sha256?: unknown } }
       return line.event === 'review' && line.task === task && line.tree === tree && line.file?.sha256 === file.sha256 && typeof line.commit === 'string' ? [line.commit] : []
@@ -310,7 +309,7 @@ export async function recordVerdict(verdictPath: string, dir: string, target: Re
   const checked = checkVerdict(verdictPath, dir, target)
   if (!checked.ok)
     return checked
-  await appendJournalEvent(path.join(dir, JOURNAL_FILE), checked.line)
+  recordGhostLine(WRITER, checked.line)
   const reasons = publish === undefined ? [] : publishReasons(publish, reviewStatus(checked.line))
   return reasons.length > 0 ? { ok: false, reasons } : checked
 }
@@ -345,7 +344,7 @@ export function checkDisposition(input: DispositionInput, now: Date = new Date()
 export async function recordDisposition(input: DispositionInput, dir: string, now: Date = new Date()): Promise<DispositionCheck> {
   const checked = checkDisposition(input, now)
   if (checked.ok)
-    await appendJournalEvent(path.join(dir, JOURNAL_FILE), checked.line)
+    recordGhostLine(WRITER, checked.line)
   return checked
 }
 

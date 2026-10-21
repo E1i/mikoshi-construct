@@ -9,7 +9,7 @@ import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
-import { boardProjection, printBoard, renderBoard, runBoardCli } from '../../bus/board-page.js'
+import { boardProjection, printBoard, runBoardCli } from '../../bus/board-page.js'
 import { MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
 import { DROPPED_LANE, MERGE_DONE } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
@@ -245,7 +245,7 @@ describe('the factory board', () => {
     bench.watched = [reviewWorker(null)]
     const killed = [bench.tick(), bench.tick()]
     expect(killed.some(board => healthOf(board, 'review') === 'down' && board.execution.find(row => row.card === 110)?.markers.includes('review down'))).toBe(true)
-    expect(renderBoard(killed[1]!)).toContain('<td data-tone="red">review down</td>')
+    expect(killed[1]!.execution.find(row => row.card === 110)?.markers).toContain('review down')
   })
 
   it('a card taken into a lane leaves ready and appears in its lane within two ticks', () => {
@@ -285,7 +285,6 @@ describe('the factory board', () => {
       expect(bench.tick().progress.stalled).toBe(false)
     const stalled = bench.tick()
     expect(stalled.progress).toMatchObject({ stalled: true, cause: 'down: review' })
-    expect(renderBoard(stalled)).toContain('<p>cause: down: review</p>')
     bench.watched = [reviewWorker(REVIEW_PID)]
     bench.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '850', reason: 'waits question' }] } }]
     expect(bench.tick().progress.cause).toBe('queue blocked: #850 waits question')
@@ -295,11 +294,9 @@ describe('the factory board', () => {
     const bench = boardBench()
     const read = (at: string): Board => readBoard({ db: bench.db, now: new Date(at), watched: [], leaseOrders: {} })
     expect(read('2026-10-18T09:00:00.000Z').shard).toBeNull()
-    expect(renderBoard(read('2026-10-18T09:00:00.000Z'))).toContain('shard: none')
     appendEvent(bench.db, { ts: '2026-10-18T09:00:00.000Z', type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:w1`, payload: { id: 'w1', by: 'Eli', run: null, window: true, scope: 'merge+decisions', until: '2026-10-18T15:00:00.000Z' }, legacy: false })
     const board = read('2026-10-18T10:30:00.000Z')
     expect(board.shard).toEqual({ id: 'w1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-18T15:00:00.000Z', leftMinutes: 270 })
-    expect(renderBoard(board)).toContain('shard w1 · scope merge+decisions · by Eli · 270 min left, until 2026-10-18T15:00:00.000Z')
     expect(read('2026-10-18T15:00:00.000Z').shard).toBeNull()
     appendEvent(bench.db, windowShardEnded(SHARD_REVOKED, 'owner', 'w1', new Date('2026-10-18T11:00:00.000Z')))
     expect(read('2026-10-18T11:00:00.000Z').shard).toBeNull()

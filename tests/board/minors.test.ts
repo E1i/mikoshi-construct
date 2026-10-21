@@ -64,7 +64,7 @@ describe('board minors of #444', () => {
 
   it('carries no reading or item field that nothing reads', () => {
     const reading = read([pr(1, 'one', 'OPEN', [])])
-    expect(Object.keys(reading).sort()).toEqual(['bus', 'geek', 'header', 'implement', 'ledger', 'ledgerPresent', 'prs', 'view'])
+    expect(Object.keys(reading).sort()).toEqual(['all', 'bus', 'geek', 'header', 'implement', 'ledger', 'ledgerPresent', 'prs', 'view'])
     expect(Object.keys(reading.view.rows[0]!)).not.toContain('number')
   })
 

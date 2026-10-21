@@ -115,6 +115,39 @@ function ownerQuestionIn(file: string): string | null {
   return reason === '' ? null : reason
 }
 
+function resultEntryOf(stdoutPath: string): Record<string, unknown> | null {
+  if (!existsSync(stdoutPath))
+    return null
+  let found: Record<string, unknown> | null = null
+  for (const line of readFileSync(stdoutPath, 'utf8').split('\n')) {
+    try {
+      const parsed: unknown = JSON.parse(line)
+      if (parsed !== null && typeof parsed === 'object' && (parsed as Record<string, unknown>).type === 'result')
+        found = parsed as Record<string, unknown>
+    }
+    catch {}
+  }
+  return found
+}
+
+function inputAimsAt(input: Record<string, unknown>, file: string): boolean {
+  return input.file_path === file || (typeof input.command === 'string' && input.command.includes(file))
+}
+
+function nonEmpty(text: unknown): string | null {
+  return typeof text === 'string' && text.trim() !== '' ? text.trim() : null
+}
+
+export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string | null {
+  const result = resultEntryOf(stdoutPath)
+  const denials = Array.isArray(result?.permission_denials) ? result.permission_denials as unknown[] : []
+  const inputs = denials.map(denial => (denial !== null && typeof denial === 'object' ? (denial as Record<string, unknown>).tool_input : null)).filter((input): input is Record<string, unknown> => input !== null && typeof input === 'object')
+  const refused = inputs.find(input => inputAimsAt(input, file))
+  if (refused === undefined)
+    return null
+  return nonEmpty(refused.content) ?? nonEmpty(result?.result)
+}
+
 function cardLines(cardId: number, cardText: string | null): string[] {
   if (cardText === null)
     return [`Card #${cardId} has no file in parking; read the card from the pull request.`]
@@ -209,7 +242,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     })
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)
-    const owner = ownerQuestionIn(ownerQuestion)
+    const owner = ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutPath, ownerQuestion)
     if (owner === null)
       tools.publish(card, answerCommitMessage(request.lease))
     const result = readResultFields(stdoutPath)

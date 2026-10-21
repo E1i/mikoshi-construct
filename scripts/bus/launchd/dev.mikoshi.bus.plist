@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.mikoshi.bus</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/zsh</string>
+		<string>-c</string>
+		<string>mkdir -p "$HOME/.construct/bus" &amp;&amp; exec &gt;&gt;"$HOME/.construct/bus/launchd.log" 2&gt;&amp;1 &amp;&amp; cd "$HOME/projects/mikoshi-construct" &amp;&amp; export PATH="$HOME/.vite-plus/bin:/opt/homebrew/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin" CONSTRUCT_REVIEW_MODEL=sonnet &amp;&amp; GH_TOKEN=$(gh auth token --user E1i) exec pnpm --silent bus:bg</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>20</integer>
+	<key>AbandonProcessGroup</key>
+	<true/>
+</dict>
+</plist>

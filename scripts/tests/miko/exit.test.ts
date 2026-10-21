@@ -1,14 +1,14 @@
-import type { RoleStop } from '../../bus/role.js'
+import type { RoleStop, WindowEnd } from '../../bus/role.js'
 import type { ExitLine, ExitReadings } from '../../miko/eddies-measure.js'
 import type { MikoExitDeps } from '../../miko/exit.js'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, stopReasonOf } from '../../miko/exit.js'
+import { ancestors, exitDecision, FRESH_MS, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf } from '../../miko/exit.js'
 import { mikoHandoff } from '../../miko/loop.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -106,12 +106,13 @@ interface Outcome {
   code: number
   kills: number[]
   stops: RoleStop[]
+  ends: WindowEnd[]
   lines: string[]
   recorded: ExitLine[]
 }
 
 function exit(overrides: Partial<MikoExitDeps>): Outcome {
-  const outcome: Outcome = { code: 0, kills: [], stops: [], lines: [], recorded: [] }
+  const outcome: Outcome = { code: 0, kills: [], stops: [], ends: [], lines: [], recorded: [] }
   outcome.code = runMikoExit({
     pid: 14,
     table: () => underLoop,
@@ -124,21 +125,23 @@ function exit(overrides: Partial<MikoExitDeps>): Outcome {
     handoff: '/h/miko.md',
     status: () => 'CONTINUE',
     observeStop: stop => outcome.stops.push(stop),
+    endWindow: end => outcome.ends.push(end),
     ...overrides,
   })
   return outcome
 }
 
 describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
-  it('ends a stub session at the context warn under the loop, the loop starts the next one, which ends the loop on its own, and the exit is journalled', async () => {
+  it('ends a stub session at the context warn under the loop, the loop starts the next one, which ends the loop on its own, the exit is journalled and no exit request is left', async () => {
     const dir = home(['write exit', 'end-loop'])
     const { code, stderr } = await run(dir, TSX, [LOOP])
     expect(code).toBe(0)
     expect(read(dir, 'calls').split('\n').filter(Boolean)).toEqual(['1', '2'])
-    expect(read(dir, 'exit.err')).toContain('ending claude')
+    expect(read(dir, 'exit.err')).toContain('the loop ends the session at the context limit')
     expect(read(dir, 'survived')).toBe('')
     expect(stderr).toContain('STATUS: CONTINUE: next session')
     expect(journal(dir)).toEqual([expect.objectContaining({ event: 'session-exit', session_id: SESSION, reason: 'context', start: { input: CONTEXT_WARN, cache_write: 0, cache_read: 0 } })])
+    expect(readdirSync(path.dirname(mikoHandoff(dir))).filter(name => name.startsWith('miko-exit.'))).toEqual([])
   }, 20_000)
 
   it('refuses when miko.md is older than two minutes', async () => {
@@ -296,6 +299,24 @@ describe('runMikoExit walks the process table from its own pid', () => {
   })
 })
 
+describe('pnpm miko:exit reports the end of the window', () => {
+  it('a DONE exit ends the window by miko:exit, a threshold stop outside the loop by eddies, and a threshold stop under the loop, which starts the next session, ends nothing', () => {
+    expect(exit({ table: () => outsideLoop, readings: () => UNREAD, status: () => 'DONE' }).ends).toEqual(['miko:exit'])
+    expect(exit({ table: () => outsideLoop, readings: () => AT_CONTEXT, raised: false }).ends).toEqual(['eddies'])
+    expect(exit({ readings: () => AT_CONTEXT }).ends).toEqual([])
+    expect(exit({ readings: () => BELOW }).ends).toEqual([])
+  })
+
+  it('each exit reports at most one end, whatever the status and the readings', () => {
+    for (const status of ['DONE', 'CONTINUE', 'OWNER']) {
+      for (const readings of [UNREAD, BELOW, AT_CONTEXT, AT_SPEND]) {
+        for (const table of [underLoop, outsideLoop])
+          expect(exit({ table: () => table, status: () => status, readings: () => readings, raised: false }).ends.length).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+})
+
 describe('a Miko window outside the pnpm miko loop that stops at a threshold', () => {
   const now = 1_000_000_000
   const claude = { pid: 12, ppid: 1, args: 'claude --permission-mode auto' }
@@ -323,5 +344,85 @@ describe('a Miko window outside the pnpm miko loop that stops at a threshold', (
     { name: 'a stale miko.md', status: 'CONTINUE', mtime: now - FRESH_MS - 1000 },
   ])('at the context warn with $name refuses as before and writes nothing', ({ status, mtime }) => {
     expect(exitDecision([zsh, claude], mtime, now, status, AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining('does not run under the pnpm miko loop') })
+  })
+})
+
+describe('under the pnpm miko loop miko:exit asks the loop to end the session and never calls ps or kill', () => {
+  const REQUEST = '/h/miko-exit.request'
+  const never = (): never => {
+    throw new Error('ps or kill was called')
+  }
+
+  function underTheLoop(overrides: Partial<MikoExitDeps>): Outcome & { requests: string[] } {
+    const requests: string[] = []
+    const outcome = exit({ table: never, kill: never, loopRequest: REQUEST, requestEnd: request => requests.push(request), ...overrides })
+    return { ...outcome, requests }
+  }
+
+  it('writes the request at a stop reason with a fresh handoff, records the exit, and kills nothing', () => {
+    const outcome = underTheLoop({ readings: () => AT_CONTEXT })
+    expect(outcome).toMatchObject({ code: 0, requests: [REQUEST], recorded: [expect.objectContaining({ reason: 'context' })] })
+    expect(outcome.lines.join('\n')).toContain('the pnpm miko loop starts the next session')
+  })
+
+  it('writes the request with STATUS DONE and ends the window by miko:exit', () => {
+    expect(underTheLoop({ status: () => 'DONE' })).toMatchObject({ code: 0, requests: [REQUEST], ends: ['miko:exit'] })
+  })
+
+  it('keeps every refusal: no stop condition, no handoff, a stale handoff', () => {
+    expect(underTheLoop({})).toMatchObject({ code: 1, requests: [], recorded: [] })
+    expect(underTheLoop({ readings: () => AT_CONTEXT, handoffMtime: () => undefined })).toMatchObject({ code: 1, requests: [] })
+    expect(underTheLoop({ readings: () => AT_CONTEXT, now: () => FRESH_MS + 1000 })).toMatchObject({ code: 1, requests: [] })
+  })
+})
+
+describe('under the loop variables there is one path whatever the process table shows', () => {
+  const env = { MIKO_LOOP_PID: '10', MIKO_EXIT_REQUEST: '/h/miko-exit.request' }
+  const claudeAbove = parsePs(' 10 1 node tsx scripts/miko/loop.ts\n 12 10 claude\n 13 12 zsh\n 14 13 claude\n 15 14 node exit.ts\n')
+
+  it('the request file is the loop variable whenever the loop pid is set, and absent otherwise', () => {
+    expect(loopRequestOf(env)).toBe(env.MIKO_EXIT_REQUEST)
+    expect(loopRequestOf({})).toBeUndefined()
+    expect(loopRequestOf({ MIKO_EXIT_REQUEST: env.MIKO_EXIT_REQUEST })).toBeUndefined()
+  })
+
+  it('the request names the nearest claude above the caller, which outlives the caller, and nothing when ps fails or no claude is found', () => {
+    expect(sessionClaudeOf(() => claudeAbove, 15)).toBe(14)
+    expect(sessionClaudeOf(() => parsePs(' 10 1 node tsx scripts/miko/loop.ts\n 15 10 node exit.ts\n'), 15)).toBeUndefined()
+    expect(sessionClaudeOf(() => {
+      throw Object.assign(new Error('spawnSync ps EPERM'), { code: 'EPERM' })
+    }, 15)).toBeUndefined()
+  })
+
+  it('a claude above the caller does not change the request path', () => {
+    const requests: string[] = []
+    const outcome = exit({ pid: 15, table: () => claudeAbove, loopRequest: loopRequestOf(env), requestEnd: request => requests.push(request), readings: () => AT_CONTEXT })
+    expect(outcome).toMatchObject({ code: 0, kills: [], recorded: [expect.objectContaining({ reason: 'context' })] })
+    expect(requests).toEqual([env.MIKO_EXIT_REQUEST])
+    expect(outcome.lines.join('\n')).toContain('the loop ends the session at the context limit')
+  })
+})
+
+describe('outside the loop an EPERM from ps or kill is one refusing line, not a stack', () => {
+  const eperm = (): never => {
+    throw Object.assign(new Error('spawnSync ps EPERM'), { code: 'EPERM' })
+  }
+
+  it('refuses when ps fails with EPERM', () => {
+    const outcome = exit({ table: eperm, readings: () => AT_CONTEXT })
+    expect(outcome).toMatchObject({ code: 1, kills: [], recorded: [] })
+    expect(outcome.lines).toEqual([`[miko] ${SANDBOX_REFUSAL}`])
+  })
+
+  it('refuses when kill fails with EPERM', () => {
+    const outcome = exit({ kill: eperm, readings: () => AT_CONTEXT })
+    expect(outcome.code).toBe(1)
+    expect(outcome.lines.at(-1)).toBe(`[miko] ${SANDBOX_REFUSAL}`)
+  })
+
+  it('lets any other error through', () => {
+    expect(() => exit({ table: () => {
+      throw new Error('boom')
+    } })).toThrow('boom')
   })
 })

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import type { InForceDecision } from './decisions.js'
+import type { ProcessBeat } from './heartbeat.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { appendFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -9,15 +10,19 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
+import { RUNNING_CARD } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
 import { ghApi } from './github.js'
+import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { RESTART_MISSED, RESTARTED } from './inbox.js'
 import { expireLeasesHeldBy, LEASE_MS, leasesHeldBy, openDrain, TASK_EXPIRED } from './lease.js'
 import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
+import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { CHECK_MS } from './netwatch.js'
 import { LIVE_FLAG } from './node.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
+import { stampLogOutput } from './stamp.js'
 import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
 export const SUPERVISE_FLAG = '--supervise'
@@ -354,6 +359,18 @@ export const KEEP_MAX_MS = 10 * 60_000
 export const FAILURES_REPORTED = 3
 export const SUPERVISOR_JOURNAL = 'supervisor.jsonl'
 export const REDUCE_SCRIPT = 'bus:reduce'
+export const WORKER_DOWN = 'worker.down'
+
+export interface WorkerDown {
+  worker: string
+  failures: number
+  cause: string
+  nextAttemptAt: number
+}
+
+export function recordWorkerDown(db: DatabaseSync, ts: string, down: WorkerDown): void {
+  appendEvent(db, { ts, type: WORKER_DOWN, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${WORKER_DOWN}:${down.worker}:${ts}`, payload: { worker: down.worker, failures: down.failures, cause: down.cause, next_attempt_at: new Date(down.nextAttemptAt).toISOString() }, legacy: false })
+}
 
 export interface KeeperParts {
   wanted: () => DetachedLaunch[]
@@ -361,6 +378,7 @@ export interface KeeperParts {
   processes: ProcessList
   reduce: () => string[]
   journal: (entry: Record<string, unknown>) => void
+  down?: (down: WorkerDown) => void
   now: () => number
 }
 
@@ -449,10 +467,22 @@ export class WorkerKeeper {
   private failed(name: string, streak: Streak | undefined, cause: string, refused: boolean): string[] {
     const causes = [...streak?.causes ?? [], cause]
     const wait = backoffMs(causes.length)
+    const retryAt = this.parts.now() + wait
     return [
       `${PREFIX}${name} failed to start ${causes.length} time(s) in a row; the next attempt in ${Math.round(wait / 1000)}s`,
-      ...this.counted(name, { causes, retryAt: this.parts.now() + wait, awaitingSight: false, refused }),
+      ...this.counted(name, { causes, retryAt, awaitingSight: false, refused }),
+      ...causes.length > 1 ? this.downPastBackoff({ worker: name, failures: causes.length, cause, nextAttemptAt: retryAt }) : [],
     ]
+  }
+
+  private downPastBackoff(down: WorkerDown): string[] {
+    try {
+      this.parts.down?.(down)
+      return []
+    }
+    catch (error) {
+      return [`${PREFIX}recording ${WORKER_DOWN} for ${down.worker} failed: ${error instanceof Error ? error.message : String(error)}; written again on its next failed attempt`]
+    }
   }
 
   private counted(name: string, streak: Streak): string[] {
@@ -465,9 +495,102 @@ export class WorkerKeeper {
   }
 }
 
+export const PROCESS_JUDGED = 'process.judged'
+export const SUPERVISOR_PROCESS = 'supervisor'
+export const JUDGE_ACTOR = 'worker:supervisor:judge'
+export const SUPERVISOR_BEAT_MS = 5 * 60_000
+export const JUDGED_HORIZON_MS = 24 * 60 * 60_000
+
+export interface Judgement {
+  process: string
+  lastBeat: string
+  silentMs: number
+}
+
+export type ExpectedRunning = (name: string) => boolean
+
+const RUNNING_CARDS = `SELECT card_id FROM cards WHERE state = '${RUNNING_CARD}'`
+
+export function processName(launch: DetachedLaunch): string {
+  return launch.script
+}
+
+export function expectedRunning(db: DatabaseSync, wanted: readonly DetachedLaunch[]): ExpectedRunning {
+  const names = new Set([SUPERVISOR_PROCESS, ...wanted.map(processName), ...(db.prepare(RUNNING_CARDS).all() as { card_id: number }[]).map(row => `${CARD_PROCESS}${row.card_id}`)])
+  return name => names.has(name)
+}
+
+export function judgeSilent(beats: readonly ProcessBeat[], nowMs: number, expected: ExpectedRunning): Judgement[] {
+  return beats.filter(beat => expected(beat.process) && !beatsLive(beat.ts, nowMs) && nowMs - Date.parse(beat.ts) <= JUDGED_HORIZON_MS).map(beat => ({ process: beat.process, lastBeat: beat.ts, silentMs: nowMs - Date.parse(beat.ts) }))
+}
+
+export function recordJudged(db: DatabaseSync, ts: string, judgement: Judgement): boolean {
+  return appendEvent(db, { ts, type: PROCESS_JUDGED, actor: JUDGE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_JUDGED}:${judgement.process}:${judgement.lastBeat}`, payload: { process: judgement.process, verdict: 'silent', last_beat: judgement.lastBeat, silent_ms: judgement.silentMs, limit_ms: SILENT_MS }, legacy: false })
+}
+
+export const RESTART_RETRY_MS = SUPERVISOR_BEAT_MS
+
+export class LivenessJudge {
+  private lastBeat = Number.NEGATIVE_INFINITY
+  private readonly restartedAt = new Map<string, number>()
+
+  constructor(private readonly db: DatabaseSync, private readonly now: () => number, private readonly expected: () => ExpectedRunning, private readonly restart: (process: string) => Promise<string[]> = async () => []) {}
+
+  async step(): Promise<string[]> {
+    try {
+      const nowMs = this.now()
+      const ts = new Date(nowMs).toISOString()
+      if (nowMs - this.lastBeat >= SUPERVISOR_BEAT_MS) {
+        recordProcessHeartbeat(this.db, ts, SUPERVISOR_PROCESS)
+        this.lastBeat = nowMs
+      }
+      const lines: string[] = []
+      const silent = judgeSilent(lastProcessBeats(this.db), nowMs, this.expected())
+      for (const name of this.restartedAt.keys()) {
+        if (!silent.some(judgement => judgement.process === name))
+          this.restartedAt.delete(name)
+      }
+      for (const judgement of silent) {
+        if (recordJudged(this.db, ts, judgement))
+          lines.push(`${PREFIX}${judgement.process} has not beaten for ${Math.round(judgement.silentMs / 60_000)} min (limit ${SILENT_MS / 60_000} min); judged silent as ${PROCESS_JUDGED}`)
+        lines.push(...await this.restartDue(judgement.process, nowMs))
+      }
+      return lines
+    }
+    catch (error) {
+      return [`${PREFIX}judging the heartbeats failed: ${error instanceof Error ? error.message : String(error)}; retried on the next tick`]
+    }
+  }
+
+  private async restartDue(name: string, nowMs: number): Promise<string[]> {
+    const last = this.restartedAt.get(name)
+    if (last !== undefined && nowMs - last < RESTART_RETRY_MS)
+      return []
+    this.restartedAt.set(name, nowMs)
+    try {
+      return await this.restart(name)
+    }
+    catch (error) {
+      return [`${PREFIX}restarting ${name} failed: ${error instanceof Error ? error.message : String(error)}; retried in ${RESTART_RETRY_MS / 60_000} min while it stays silent`]
+    }
+  }
+}
+
+export async function restartSilent(name: string, wanted: readonly DetachedLaunch[], control: SwitchControl): Promise<string[]> {
+  const launch = wanted.find(each => processName(each) === name)
+  if (launch === undefined)
+    return []
+  const running = runningInstance(control.processes(), launch.markers)
+  if (running !== undefined)
+    await control.stop(running, launch)
+  const started = control.start(launch)
+  return [`${PREFIX}${name} was judged silent; restarting it`, ...started.stdout, ...started.stderr]
+}
+
 export interface SupervisingParts {
   supervisor: BusSupervisor
   keeper: WorkerKeeper
+  judge?: LivenessJudge
   relaunch: () => BgResult
   print: (line: string) => void
   pause: () => Promise<unknown>
@@ -484,7 +607,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, parts.relaunch())
-    for (const line of [...lines, ...replacement.lines, ...replacement.replaced ? [] : parts.keeper.step()])
+    for (const line of [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? []]])
       parts.print(line)
     if (replacement.replaced)
       return
@@ -606,6 +729,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     processes,
     reduce: () => runReducer(cwd),
     journal,
+    down: down => recordWorkerDown(db, new Date().toISOString(), down),
     now: () => Date.now(),
   })
   console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and a switched-on worker that is not running is started again`)
@@ -613,6 +737,11 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     await superviseUntilReplaced({
       supervisor,
       keeper,
+      judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wantedLaunches(busDir, reviewPreflight, inForceDecisions(db))), name => restartSilent(name, wantedLaunches(busDir, reviewPreflight, inForceDecisions(db)), {
+        processes,
+        start: launch => startReviewWorker(launch, busDir, process.env, processes),
+        stop: (running, launch) => stopInstance(running, launch.markers, processes),
+      })),
       relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, psOutsideOwnGroup()),
       print: line => console.log(line),
       pause: () => sleep(CHECK_MS),
@@ -659,5 +788,7 @@ async function main(): Promise<void> {
   printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], process.env, psList(), startReviewWorker))
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   await main()
+}
