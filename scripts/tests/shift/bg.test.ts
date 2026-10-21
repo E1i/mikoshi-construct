@@ -8,9 +8,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BG_LOG, launchArgv, runBg, shiftIsolationCommand, USAGE } from '../../shift/bg.js'
+import { ran } from '../core/gh-fake.js'
 import { waitFor } from '../wait-for.js'
 import { settled } from './fixtures/settled.js'
-import { ran } from '../core/gh-fake.js'
 
 const ARRIVAL_GUARD_MS = 25_000
 

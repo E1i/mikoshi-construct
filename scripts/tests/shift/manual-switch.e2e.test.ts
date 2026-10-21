@@ -60,8 +60,15 @@ function shiftDeps(world: World, out: string[], confirm: ShiftDeps['confirm'], r
   }
 }
 
+function ghWithNoOpenPullRequest(world: World): string {
+  const bin = path.join(world.root, 'bin')
+  mkdirSync(bin, { recursive: true })
+  writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\necho "[]"\n', { mode: 0o755 })
+  return bin
+}
+
 function realRunner(world: World, command: string, args: string[], answer: string): { stdout: string, stderr: string, status: number | null } {
-  const env = { ...process.env, SHIFT_CLAUDE: 'false', CONSTRUCT_HANDOFF_DIR: path.join(world.root, 'handoff'), NO_COLOR: '1' }
+  const env = { ...process.env, PATH: `${ghWithNoOpenPullRequest(world)}${path.delimiter}${process.env.PATH ?? ''}`, SHIFT_CLAUDE: 'false', CONSTRUCT_HANDOFF_DIR: path.join(world.root, 'handoff'), NO_COLOR: '1' }
   const result = spawnSync(command, [...args, TSX, SHIFT, '--manual', world.shift], { cwd: world.root, env, input: answer, encoding: 'utf8', timeout: 60_000 })
   return { stdout: result.stdout, stderr: result.stderr, status: result.status }
 }

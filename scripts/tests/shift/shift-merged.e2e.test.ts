@@ -8,9 +8,9 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { ghostLines } from '../../ghosts/journal.js'
 import { runClaude } from '../../shift/claude.js'
 import { runShift } from '../../shift/shift.js'
+import { callerOf } from '../core/gh-fake.js'
 import { admitCards } from './fixtures/admitted.js'
 import { verifiedClosings } from './fixtures/verified.js'
-import { callerOf } from '../core/gh-fake.js'
 
 const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub.sh')
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')

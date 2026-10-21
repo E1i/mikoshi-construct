@@ -8,10 +8,10 @@ import { afterEach } from 'vitest'
 import { ghostLines } from '../../../ghosts/journal.js'
 import { runClaude } from '../../../shift/claude.js'
 import { HANDED_TO_THE_BUS } from '../../../shift/merge.js'
+import { callerOf } from '../../core/gh-fake.js'
 import { admitCards } from './admitted.js'
 import { verifiedClosings } from './verified.js'
 import './stub-handoff.js'
-import { callerOf } from '../../core/gh-fake.js'
 
 const STUB = path.join(import.meta.dirname, 'claude-stub-pr.sh')
 export const HEADER = readFileSync(path.join(import.meta.dirname, '../../../shift/header.md'), 'utf8')

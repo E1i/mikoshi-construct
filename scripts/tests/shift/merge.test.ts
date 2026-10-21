@@ -20,9 +20,9 @@ import { busMerge, HANDED_TO_THE_BUS, isListed, runCarry, runMerge, runUpdated, 
 import { runShift } from '../../shift/shift.js'
 import { cardBody as busCardBody, Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { detectReview } from '../bus/review-detection.js'
+import { callerOf, ran } from '../core/gh-fake.js'
 import { captured, depsOf, eventsOf, fakeGh, newWorld, cardLine as parkedCardLine } from './fixtures/autopilot-world.js'
 import { prReviewLine } from './fixtures/pr-review-line.js'
-import { callerOf, ran } from '../core/gh-fake.js'
 
 const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
 const GHOSTS_FILES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/ghosts-files.md'), 'utf8')

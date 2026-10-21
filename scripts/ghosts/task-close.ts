@@ -401,7 +401,7 @@ function sharingRefusal(deps: TaskCloseDeps, reference: string, cards: number[])
 }
 
 function ownershipOf(deps: TaskCloseDeps, id: string, pr: number, reference: string | undefined): Ownership | string {
-  const read = deps.prBody(pr)
+  const read: GhRead<string | null> = typeof deps.prBody === 'function' ? deps.prBody(pr) : { kind: 'failed', reason: 'no reader of the PR body is given', cause: 'failed' }
   if (read.kind === 'failed')
     return `the body of PR #${pr} was not read, so whose result it is was not checked: ${firstLine(read.reason)}; nothing written`
   const body = read.value

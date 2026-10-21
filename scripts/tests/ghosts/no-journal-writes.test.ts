@@ -12,9 +12,9 @@ import { recordFall } from '../../ghosts/supervise.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
 import { recordDisposition } from '../../ghosts/verdict.js'
 import { runShift } from '../../shift/shift.js'
+import { read } from '../core/gh-fake.js'
 import { captured, depsOf, fakeGh, newWorld } from '../shift/fixtures/autopilot-world.js'
 import { ownBusPerTest } from './own-bus.js'
-import { read } from '../core/gh-fake.js'
 
 const NOW = new Date('2026-10-21T09:00:00.000Z')
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')

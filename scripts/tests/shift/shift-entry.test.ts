@@ -6,8 +6,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runShift } from '../../shift/shift.js'
-import { admitCards } from './fixtures/admitted.js'
 import { ran } from '../core/gh-fake.js'
+import { admitCards } from './fixtures/admitted.js'
 
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
 const roots: string[] = []

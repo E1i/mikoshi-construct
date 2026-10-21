@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runShift } from '../scripts/shift/shift.js'
+import { failed } from '../scripts/tests/core/gh-fake.js'
 import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
 import { INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -84,9 +85,7 @@ function shiftDeps(root: string, out: string[], err: string[]): ShiftDeps {
     projectsDir: path.join(root, 'projects'),
     git: unused,
     install: unused,
-    gh: () => {
-      throw new Error('gh is not read in this test')
-    },
+    gh: () => failed('gh is not read in this test'),
     listDir: dir => readdirSync(dir),
     read: file => readFileSync(file, 'utf8'),
     exists: existsSync,
