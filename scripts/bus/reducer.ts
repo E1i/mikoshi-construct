@@ -4,9 +4,9 @@ import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, PR_OPENED } from './card-automaton.js'
+import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, PR_OPENED } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
-import { CHAIN_FOLDS } from './chain.js'
+import { CHAINS_PROJECTION } from './chain.js'
 import { defaultBusPath, inTransaction, openBus } from './db.js'
 import { DECISION_FOLDS } from './decisions.js'
 import { isFullSha, prOf } from './identifiers.js'
@@ -20,7 +20,7 @@ import { markReduced } from './watermark.js'
 export const PREFIX = '[bus:reduce] '
 export const REDUCED = 'reducer.reduced'
 export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id' }
-export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION]
+export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION]
 
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
 const CI = new Set(['pending', 'green', 'red'])
@@ -172,7 +172,7 @@ const REDUCERS: Record<string, Fold> = {
   'main.advanced': mainAdvanced,
   [PR_OPENED]: prOpened,
   ...TASKS_PROJECTION.folds,
-  ...CHAIN_FOLDS,
+  ...CHAINS_PROJECTION.folds,
   ...ROLE_FOLDS,
   ...DECISION_FOLDS,
   ...CARD_FOLDS,

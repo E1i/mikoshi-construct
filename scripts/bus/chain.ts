@@ -1,9 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Fold, StoredEvent } from './stored.js'
+import type { IncrementalProjection } from './watermark.js'
 import { appendEvent, inTransaction } from './db.js'
 import { isFullSha } from './identifiers.js'
-import { payloadOf, reject, storedByKey } from './stored.js'
+import { payloadOf, reject } from './stored.js'
+import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const CHAIN_OBSERVED = 'chain.observed'
 export const CHAIN_RESTARTED = 'chain.restarted'
@@ -90,13 +92,16 @@ function writeChain(db: DatabaseSync, row: ChainRow, eventId: number): void {
   `).run(row.dir, row.card_id, row.parking, row.sha, row.pid, row.leader, row.boundary, row.state, eventId)
 }
 
-function foldObserved(db: DatabaseSync, event: StoredEvent): void {
-  const payload = payloadOf(event)
+function observedRow(payload: Record<string, unknown>, cardId: number | null): ChainRow {
   const boundary = payload.boundary
   if (typeof boundary !== 'boolean')
     reject('boundary is not a boolean')
-  const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
-  writeChain(db, { dir: text(payload, 'dir'), card_id: cardId, parking: text(payload, 'parking'), sha: sha(payload, 'sha'), pid: pid(payload), leader: leader(payload), boundary: boundary ? 1 : 0, state: chainState(payload) }, event.id)
+  const card = cardId ?? reject(`${CHAIN_OBSERVED} needs a card_id`)
+  return { dir: text(payload, 'dir'), card_id: card, parking: text(payload, 'parking'), sha: sha(payload, 'sha'), pid: pid(payload), leader: leader(payload), boundary: boundary ? 1 : 0, state: chainState(payload) }
+}
+
+function foldObserved(db: DatabaseSync, event: StoredEvent): void {
+  writeChain(db, observedRow(payloadOf(event), event.card_id), event.id)
 }
 
 function foldRestarted(db: DatabaseSync, event: StoredEvent): void {
@@ -109,17 +114,27 @@ function foldRestarted(db: DatabaseSync, event: StoredEvent): void {
   writeChain(db, { dir: text(payload, 'dir'), card_id: was.card_id, parking: was.parking, sha: sha(payload, 'to'), pid: pid(payload), leader: pid(payload), boundary: 0, state: 'running' }, event.id)
 }
 
-export const CHAIN_FOLDS: Record<string, Fold> = {
+const CHAIN_FOLDS: Record<string, Fold> = {
   [CHAIN_OBSERVED]: foldObserved,
   [CHAIN_RESTARTED]: foldRestarted,
 }
 
+export const CHAINS_PROJECTION: IncrementalProjection = { table: 'chains', folds: CHAIN_FOLDS }
+
+function lastEventId(db: DatabaseSync): number {
+  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+}
+
 export function observeChain(db: DatabaseSync, ts: string, actor: string, chain: ChainObservation): boolean {
-  const event: BusEvent = { ts, type: CHAIN_OBSERVED, actor, cardId: chain.cardId, pr: null, head: chain.sha, dedupeKey: `${CHAIN_OBSERVED}:${chain.dir}:${ts}:${chain.state}:${chain.boundary}`, payload: { dir: chain.dir, parking: chain.parking, sha: chain.sha, pid: chain.pid, leader: chain.leader, boundary: chain.boundary, state: chain.state, ...(chain.waitingOn === undefined ? {} : { waitingOn: chain.waitingOn }) }, legacy: false }
+  const payload = { dir: chain.dir, parking: chain.parking, sha: chain.sha, pid: chain.pid, leader: chain.leader, boundary: chain.boundary, state: chain.state, ...(chain.waitingOn === undefined ? {} : { waitingOn: chain.waitingOn }) }
+  observedRow(payload, chain.cardId)
+  const event: BusEvent = { ts, type: CHAIN_OBSERVED, actor, cardId: chain.cardId, pr: null, head: chain.sha, dedupeKey: `${CHAIN_OBSERVED}:${chain.dir}:${ts}:${chain.state}:${chain.boundary}`, payload, legacy: false }
   return inTransaction(db, () => {
-    if (!appendEvent(db, event))
-      return false
-    foldObserved(db, storedByKey(db, event.dedupeKey))
-    return true
+    const current = lastEventId(db)
+    const appended = appendEvent(db, event)
+    if (watermarkOf(db, CHAINS_PROJECTION.table) === 0)
+      markReduced(db, CHAINS_PROJECTION.table, current)
+    reduceProjection(db, CHAINS_PROJECTION)
+    return appended
   })
 }

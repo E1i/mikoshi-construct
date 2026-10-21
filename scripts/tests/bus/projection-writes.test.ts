@@ -28,10 +28,21 @@ describe('the projection tables are written by the reducer, and every other writ
     expect(known).toEqual(sortedSites(known))
   })
 
-  it('roles and tasks stand in no write site outside the reducer', () => {
-    expect(found.filter(site => site.table === 'roles' || site.table === 'tasks')).toEqual([])
-    expect(known.filter(site => site.table === 'roles' || site.table === 'tasks')).toEqual([])
-    expect(found.map(site => site.table)).toEqual(expect.arrayContaining(['chains', 'cards']))
+  it('roles, tasks, chains and cards stand in no write site outside the reducer', () => {
+    const reducerOnly = new Set(['roles', 'tasks', 'chains', 'cards'])
+    expect(found.filter(site => reducerOnly.has(site.table))).toEqual([])
+    expect(known.filter(site => reducerOnly.has(site.table))).toEqual([])
+  })
+
+  it('a new chains or cards write outside the reducer fails', () => {
+    const chained = projectionWriteSites(withExtra('scripts/bus/chain.ts', `export function sneakChain(db, event) {\n  CHAIN_FOLDS[event.type](db, event)\n}`))
+    expect(unrecordedSites(chained, known)).toEqual([
+      { file: 'scripts/bus/chain.ts', unit: 'sneakChain', table: 'chains', operation: 'delete' },
+      { file: 'scripts/bus/chain.ts', unit: 'sneakChain', table: 'chains', operation: 'insert' },
+    ])
+
+    const carded = projectionWriteSites(withExtra('scripts/bus/lease.ts', `import { CARD_FOLDS } from './card-automaton.js'\nexport function sneakCard(db, event) {\n  CARD_FOLDS[event.type](db, event)\n}`))
+    expect(unrecordedSites(carded, known)).toEqual([{ file: 'scripts/bus/lease.ts', unit: 'sneakCard', table: 'cards', operation: 'insert' }])
   })
 
   it('a new write into a projection table outside the reducer fails, even in a file that holds folds', () => {

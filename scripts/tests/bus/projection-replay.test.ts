@@ -1,6 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BusEvent } from '../../bus/db.js'
 import { describe, expect, it } from 'vitest'
-import { openBus } from '../../bus/db.js'
+import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from '../../bus/card-automaton.js'
+import { observeChain } from '../../bus/chain.js'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, releaseTask, renewLease } from '../../bus/lease.js'
@@ -58,6 +61,34 @@ function liveTasks(): DatabaseSync {
   return db
 }
 
+const SHA_A = 'a'.repeat(40)
+const SHA_B = 'b'.repeat(40)
+const CHAIN_ACTOR = 'worker:chain:9'
+
+function cardEvent(ms: number, type: string, cardId: number, pr: number, payload: Record<string, unknown> = {}): BusEvent {
+  return { ts: at(ms), type, actor: ACTOR, cardId, pr, head: SHA_A, dedupeKey: `${type}:${cardId}:${pr}:${ms}`, payload, legacy: false }
+}
+
+function liveChainsAndCards(): DatabaseSync {
+  const db = openBus(':memory:')
+  observeChain(db, at(0), CHAIN_ACTOR, { dir: '/chains/a', parking: 'lane-1', cardId: 1, sha: SHA_A, pid: 101, leader: null, boundary: false, state: 'running' })
+  appendEvent(db, cardEvent(1, PR_OPENED, 1, 11))
+  appendEvent(db, cardEvent(2, PR_OPENED, 2, 12))
+  reduce(db)
+  observeChain(db, at(3), CHAIN_ACTOR, { dir: '/chains/a', parking: 'lane-1', cardId: 1, sha: SHA_A, pid: 101, leader: 101, boundary: true, state: 'waiting', waitingOn: [2] })
+  queueTask(db, at(4), { queue: 'launch', cardId: 2, generation: 'admission-2' })
+  for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+    failTask(db, at(10 + failure), leaseNext(db, at(10 + failure), 'launch', ACTOR)!, { reason: 'session_failed', withdraw: false })
+  queueTask(db, at(20), { queue: 'launch', cardId: 1, generation: 'admission-1' })
+  completeTask(db, at(21), leaseNext(db, at(21), 'launch', ACTOR)!, [cardEvent(21, REVIEW_RECORDED, 1, 11, { verdict: 'pass' }), cardEvent(22, MERGE_DONE, 1, 11, { commit: SHA_B, rule: 'auto' })])
+  observeChain(db, at(30), CHAIN_ACTOR, { dir: '/chains/b', parking: 'lane-2', cardId: 2, sha: SHA_B, pid: 202, leader: 202, boundary: false, state: 'stopped' })
+  return db
+}
+
+function chainsAndCardsOf(db: DatabaseSync): unknown {
+  return { chains: db.prepare('SELECT * FROM chains ORDER BY dir').all(), cards: db.prepare('SELECT * FROM cards ORDER BY card_id').all() }
+}
+
 function tasksOf(db: DatabaseSync): unknown[] {
   return db.prepare('SELECT * FROM tasks ORDER BY task_key').all()
 }
@@ -109,6 +140,24 @@ describe('tasks are a projection the reducer alone writes', () => {
     expect(clean.prepare(`SELECT count(*) AS n FROM events WHERE type = 'reducer.rejected' AND (json_extract(payload, '$.type') LIKE 'task.%' OR json_extract(payload, '$.type') = 'session.heartbeat')`).get()).toEqual({ n: 0 })
     expect(tasksOf(clean)).toEqual(tasksOf(live))
     expect(tasksOf(live).map(row => (row as { state: string }).state)).toEqual(['completed', 'withdrawn', 'withdrawn', 'withdrawn'])
+    expect(replayDifferences(live).differences).toEqual([])
+    clean.close()
+    live.close()
+  })
+})
+
+describe('chains and cards are projections the reducer alone writes', () => {
+  it('chains and cards rebuilt by the reducer alone equal the live projection', () => {
+    const live = liveChainsAndCards()
+    const through = reducedThrough(live)
+    expect(watermarkOf(live, 'chains')).toBeGreaterThan(through)
+    expect(watermarkOf(live, 'cards')).toBeGreaterThan(through)
+    const clean = rebuiltThrough(live, Math.max(watermarkOf(live, 'chains'), watermarkOf(live, 'cards')))
+    expect(clean.prepare(`SELECT count(*) AS n FROM events WHERE type = 'reducer.rejected'`).get()).toEqual({ n: 0 })
+    expect(chainsAndCardsOf(clean)).toEqual(chainsAndCardsOf(live))
+    const { chains, cards } = chainsAndCardsOf(live) as { chains: { state: string }[], cards: { state: string }[] }
+    expect(chains.map(row => row.state)).toEqual(['waiting', 'stopped'])
+    expect(cards.map(row => row.state)).toEqual(['merged', 'stopped'])
     expect(replayDifferences(live).differences).toEqual([])
     clean.close()
     live.close()

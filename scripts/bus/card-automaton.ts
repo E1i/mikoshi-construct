@@ -1,11 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BusEvent } from './db.js'
 import type { Fold, StoredEvent } from './stored.js'
+import type { IncrementalProjection } from './watermark.js'
 import { CARD_DROPPED, CARD_MOVED, DROPPED_LANE, TERMINAL_LANES } from '../../src/commands/intake/index.js'
 import { CARD_VERIFIED } from '../ghosts/task-close.js'
 import { isBackfill } from './backfill-source.js'
+import { appendEvent } from './db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, QUESTION_OWNER } from './inbox.js'
 import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
 import { payloadOf, reject } from './stored.js'
+import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const PR_OPENED = 'pr.opened'
 export const REVIEW_RECORDED = 'review.recorded'
@@ -169,17 +173,36 @@ function foldStopped(db: DatabaseSync, event: StoredEvent): void {
   moveCard(db, cardId, STOPPED_CARD, event.id)
 }
 
-export const CARD_FOLDED_ON_APPEND: readonly string[] = [REVIEW_RECORDED, MERGE_DONE, CARD_STOPPED]
-
-export const CARD_FOLDS: Record<string, Fold> = {
-  [CARD_ADMITTED]: foldAdmitted,
-  [CARD_STARTED]: foldStarted,
-  [CARD_STOPPED]: foldStopped,
-  [CARD_ANSWERED]: foldAnswered,
+const CARD_ON_APPEND_FOLDS: Record<string, Fold> = {
   [REVIEW_RECORDED]: foldReviewRecorded,
   [MERGE_DONE]: foldMergeDone,
+  [CARD_STOPPED]: foldStopped,
+}
+
+export const CARD_FOLDED_ON_APPEND: readonly string[] = Object.keys(CARD_ON_APPEND_FOLDS)
+
+export const CARDS_PROJECTION: IncrementalProjection = { table: 'cards', folds: CARD_ON_APPEND_FOLDS }
+
+export const CARD_FOLDS: Record<string, Fold> = {
+  ...CARD_ON_APPEND_FOLDS,
+  [CARD_ADMITTED]: foldAdmitted,
+  [CARD_STARTED]: foldStarted,
+  [CARD_ANSWERED]: foldAnswered,
   [CARD_CLOSED]: foldClosed,
   [CARD_FELL]: foldFell,
   [CARD_MOVED]: foldMoved,
   [CARD_DROPPED]: foldDropped,
+}
+
+function lastEventId(db: DatabaseSync): number {
+  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+}
+
+export function appendedOnCard(db: DatabaseSync, event: BusEvent): boolean {
+  const current = lastEventId(db)
+  const appended = appendEvent(db, event)
+  if (watermarkOf(db, CARDS_PROJECTION.table) === 0)
+    markReduced(db, CARDS_PROJECTION.table, current)
+  reduceProjection(db, CARDS_PROJECTION)
+  return appended
 }

@@ -1,13 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
-import { CARD_FOLDED_ON_APPEND, CARD_FOLDS } from './card-automaton.js'
+import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { CARD_STOPPED, RESTARTED } from './inbox.js'
 import { appendedAndReduced, BOARD_ALARM, FAILURES_TO_STOP, generationField, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WITHDRAWN } from './queue.js'
-import { appliedOrRejected } from './rejection.js'
-import { reject, storedByKey } from './stored.js'
+import { reject } from './stored.js'
 
 export { HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED } from './queue.js'
 
@@ -111,11 +110,6 @@ function leaseOf(row: LeaseRow, actor: string): Lease {
 function taskEvent(ts: string, type: string, actor: string, row: LeaseRow, leaseGen: number, dedupeKey: string, fields: object = {}): BusEvent {
   const generation = generationOfKey(row.task_key, { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined })
   return { ts, type, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey, payload: { task_key: row.task_key, queue: row.queue, ...generationField(generation), lease_gen: leaseGen, ...fields }, legacy: false }
-}
-
-function appendedOnCard(db: DatabaseSync, event: BusEvent): void {
-  if (appendEvent(db, event) && CARD_FOLDED_ON_APPEND.includes(event.type))
-    appliedOrRejected(db, storedByKey(db, event.dedupeKey), CARD_FOLDS[event.type]!)
 }
 
 function held(db: DatabaseSync, lease: Lease): LeaseRow {
