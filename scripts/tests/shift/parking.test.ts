@@ -7,7 +7,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
+import { MERGE_DONE } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { reduce } from '../../bus/reducer.js'
 import { choose, dependencyWaits, leftSummary, nextInPipeline, queueText, readParking, waitingLine } from '../../shift/parking.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, cardLine, depsOf, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
@@ -93,6 +95,17 @@ function mergeOnOrigin(world: World, pr: number): void {
   git(clone, ['push', '-q', 'origin', 'HEAD:main'])
 }
 
+function recordMergeDone(world: World, pr: number, commit: string): void {
+  const db = openBus(world.bus)
+  try {
+    appendEvent(db, { ts: '2026-10-06T02:00:00.000Z', type: MERGE_DONE, actor: 'worker:merge:stub', cardId: pr - 100, pr, head: null, dedupeKey: `${MERGE_DONE}:${pr}`, payload: { commit, rule: 'auto' }, legacy: false })
+    reduce(db)
+  }
+  finally {
+    db.close()
+  }
+}
+
 function pipelineGh(world: World): Pick<ShiftDeps, 'gh' | 'busMerge'> {
   const inner = fakeGh({ 101: cardLine(1), 102: cardLine(2) })
   return {
@@ -106,7 +119,10 @@ function pipelineGh(world: World): Pick<ShiftDeps, 'gh' | 'busMerge'> {
     },
     busMerge: (pr, head) => {
       mergeOnOrigin(world, pr)
-      return inner.bus(pr, head)
+      const merged = inner.bus(pr, head)
+      if (merged.kind === 'merged')
+        recordMergeDone(world, pr, merged.commit)
+      return merged
     },
   }
 }

@@ -1,12 +1,12 @@
 import type { OpenIssue, TaskCloseDeps } from '../../ghosts/task-close.js'
-import { chmodSync, mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { legacyEventOf } from '../../bus/import.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
-import { CARD_VERIFIED, cardVerifiedClosings, runTaskClose } from '../../ghosts/task-close.js'
+import { CARD_VERIFIED, cardVerifiedClosings, closingHistoryLines, runTaskClose } from '../../ghosts/task-close.js'
 import { prCardOf } from '../../ghosts/tasks.js'
 import { busWithCardStarted } from './card-started-bus.js'
 
@@ -25,17 +25,45 @@ function startLine(id: string, kind: 'implement' | 'probe', session?: string): s
   return JSON.stringify({ event: 'path', task: id, path: 'cheap', started: 'x', ...(session === undefined ? {} : { session }), worktree: `/mc-${id}`, branch: `feat/${id}`, card: { id: Number(id), name: 'n', kind, milestone: 'ghosts', size: 'S', contour: 'cheap', decision, depends: [], blocks: [], line: 'l' }, ts: 'x' })
 }
 
+const WORLD_BUSES = mkdtempSync(path.join(tmpdir(), 'task-close-world-'))
+let worldBuses = 0
+
+afterAll(() => {
+  rmSync(WORLD_BUSES, { recursive: true, force: true })
+})
+
+function closingLines(busPath: string): string[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openBus(busPath)
+  try {
+    const rows = db.prepare(`SELECT ts, card_id, payload FROM events WHERE type = '${CARD_VERIFIED}' ORDER BY id`).all() as { ts: string, card_id: number, payload: string }[]
+    return rows.map(row => JSON.stringify({ event: 'path', task: String(row.card_id), ...JSON.parse(row.payload) as object, ts: row.ts }))
+  }
+  finally {
+    db.close()
+  }
+}
+
+function liveClosings(busPath: string): string[] {
+  const shown: string[] = []
+  return new Proxy(shown, {
+    get(target, property, receiver) {
+      target.splice(0, target.length, ...closingLines(busPath))
+      return Reflect.get(target, property, receiver)
+    },
+  })
+}
+
 function world(journal: string[], sessionFiles: string[] = [], files: Record<string, string> = {}): { deps: TaskCloseDeps, written: string[] } {
-  const written: string[] = []
+  worldBuses += 1
+  const busPath = path.join(WORLD_BUSES, `bus-${worldBuses}.db`)
   return {
-    written,
+    written: liveClosings(busPath),
     deps: {
       cwd: '/work',
       read: file => file === JOURNAL ? `${journal.join('\n')}\n` : files[file] ?? null,
-      append: (file, text) => {
-        expect(file).toBe(JOURNAL)
-        written.push(text)
-      },
+      busPath,
       now: () => NOW,
       handoffDir: HANDOFF,
       constructDir: CONSTRUCT,
@@ -74,10 +102,11 @@ describe('task:close keeps a report under the construct directory', () => {
   })
 
   it('accepts a report under ~/.construct/reports and under ~/.construct/probes', () => {
-    const { deps, written } = world([startLine('7', 'probe')])
-    for (const report of [`${REPORTS}/r.md`, `${probes}/name/report.md`])
+    for (const report of [`${REPORTS}/r.md`, `${probes}/name/report.md`]) {
+      const { deps, written } = world([startLine('7', 'probe')])
       expect(runTaskClose(['7', '--report', report, '--verification', 'run'], deps).exitCode).toBe(0)
-    expect(written).toHaveLength(2)
+      expect(written).toHaveLength(1)
+    }
   })
 })
 
@@ -119,7 +148,7 @@ describe('the exit card repeats the entry card', () => {
       `CONTRACT | ${ENTRY_CONTRACT}`,
       `EXPECT   | ${ENTRY_EXPECT}`,
       'ACTION   | task:close #123 --pr 460 --verification run',
-      `RESULT   | closed run · PR #460 · line written to ${JOURNAL} · forecast not recorded on the start line · actual tokens not recorded, minutes not recorded`,
+      `RESULT   | closed run · PR #460 · ${CARD_VERIFIED} written to ${deps.busPath} · forecast not recorded on the start line · actual tokens not recorded, minutes not recorded`,
     ])
   })
 
@@ -127,9 +156,9 @@ describe('the exit card repeats the entry card', () => {
     const started = (forecast?: unknown) => JSON.stringify({ ...JSON.parse(startLine('5', 'implement', WINDOW_SESSION)) as object, started: '2026-10-03T08:47:39.000Z', ...(forecast === undefined ? {} : { forecast }) })
     const resultOf = (line: string, extra: Partial<TaskCloseDeps> = {}) => {
       const { deps } = world([line], [sessionFile('-work', WINDOW_SESSION)])
-      return runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...deps, tokens: () => 71_234, ...extra }).stdout[4]
+      return runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...deps, tokens: () => 71_234, ...extra }).stdout[4]?.replace(deps.busPath!, '<bus>')
     }
-    const where = `line written to ${JOURNAL}`
+    const where = `${CARD_VERIFIED} written to <bus>`
     expect(resultOf(started({ tokens: 68_352, minutes: 4.4105, class: 'implement/S', n: 8 }))).toBe(`RESULT   | closed run · PR #9 · ${where} · forecast tokens ≈ 68k, minutes ≈ 4.4 (class implement/S, n=8, start line) · actual tokens 71k, minutes 12.4`)
     expect(resultOf(started({ kind: 'none', class: 'implement/S', n: 2 }))).toBe(`RESULT   | closed run · PR #9 · ${where} · forecast none: n=2 for implement/S (start line) · actual tokens 71k, minutes 12.4`)
     const weighed: string[] = []
@@ -150,14 +179,14 @@ describe('the exit card repeats the entry card', () => {
     const result = runTaskClose(['5', '--pr', '9', '--verification', 'run'], { ...deps, tokens: () => 71_234, forecast: failing })
     expect(result.exitCode).toBe(0)
     expect(written).toHaveLength(1)
-    expect(result.stdout[4]).toBe(`RESULT   | closed run · PR #9 · line written to ${JOURNAL} · forecast not recorded: the forecast read failed (bus.db is locked) · actual tokens 71k, minutes 12.4`)
+    expect(result.stdout[4]).toBe(`RESULT   | closed run · PR #9 · ${CARD_VERIFIED} written to ${deps.busPath} · forecast not recorded: the forecast read failed (bus.db is locked) · actual tokens 71k, minutes 12.4`)
   })
 
   it('names the contract and the forecast as not recorded when no entry line holds them', () => {
     const { deps } = world([startLine('123', 'implement')])
     const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps)
-    expect(result.stdout[1]).toBe(`CONTRACT | contract not recorded in ${JOURNAL}: no entry line for #123`)
-    expect(result.stdout[2]).toBe(`EXPECT   | expect not recorded in ${JOURNAL}: no entry line for #123`)
+    expect(result.stdout[1]).toBe(`CONTRACT | contract not recorded in the bus ${deps.busPath} or ${JOURNAL}: no entry line for #123`)
+    expect(result.stdout[2]).toBe(`EXPECT   | expect not recorded in the bus ${deps.busPath} or ${JOURNAL}: no entry line for #123`)
   })
 
   it('takes the entry line of its own task and the last of two', () => {
@@ -607,7 +636,7 @@ describe('task:close closes the GitHub issue of its card', () => {
     }, closeIssue: () => {} })
     expect(unread.exitCode).toBe(0)
     expect(unread.stdout.at(-1)).toBe('[task:close] issue #123 not read, left as it is: gh: no network')
-    const unclosed = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, openIssue: () => ({ title: 'n', body: null }), closeIssue: () => {
+    const unclosed = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => new Date(NOW.getTime() + 1000), openIssue: () => ({ title: 'n', body: null }), closeIssue: () => {
       throw new Error('gh: forbidden')
     } })
     expect(unclosed.exitCode).toBe(0)
@@ -623,10 +652,10 @@ describe('task:close reads the start of a task from card.started in the bus', ()
   it('task:close finds the start of a task from card.started in the bus', () => {
     const bus = busWithCardStarted([{ cardId: 891, ts: started.started, payload: started }])
     try {
-      const { deps, written } = world([])
+      const { deps } = world([])
       const result = runTaskClose(['891', '--pr', '790', '--verification', 'run'], { ...deps, busPath: bus.file })
       expect(result.exitCode).toBe(0)
-      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '891', path: 'ladder', pr: 790, sessions: [{ id: 'start-session' }], actual: { minutes: 30 } })
+      expect(JSON.parse(closingLines(bus.file)[0]!)).toMatchObject({ event: 'path', task: '891', path: 'ladder', pr: 790, sessions: [{ id: 'start-session' }], actual: { minutes: 30 } })
     }
     finally {
       bus.remove()
@@ -643,10 +672,10 @@ describe('task:close reads the start of a task from card.started in the bus', ()
       db.close()
     }
     try {
-      const { deps, written } = world([])
+      const { deps } = world([])
       const result = runTaskClose(['892', '--pr', '791', '--verification', 'run'], { ...deps, busPath: bus.file })
       expect(result.exitCode).toBe(0)
-      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '892', path: 'cheap', pr: 791 })
+      expect(JSON.parse(closingLines(bus.file)[0]!)).toMatchObject({ event: 'path', task: '892', path: 'cheap', pr: 791 })
     }
     finally {
       bus.remove()
@@ -656,9 +685,9 @@ describe('task:close reads the start of a task from card.started in the bus', ()
   it('prefers card.started over an earlier path line of the same card', () => {
     const bus = busWithCardStarted([{ cardId: 123, ts: started.started, payload: { ...started, path: 'ladder', card: { ...card, id: 123 } } }])
     try {
-      const { deps, written } = world([startLine('123', 'implement')])
+      const { deps } = world([startLine('123', 'implement')])
       expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, busPath: bus.file }).exitCode).toBe(0)
-      expect(JSON.parse(written[0]!)).toMatchObject({ path: 'ladder' })
+      expect(JSON.parse(closingLines(bus.file)[0]!)).toMatchObject({ path: 'ladder' })
     }
     finally {
       bus.remove()
@@ -686,11 +715,11 @@ describe('task:close reads the start of a task from card.started in the bus', ()
       db.close()
     }
     try {
-      const { deps, written } = world([])
+      const { deps } = world([])
       const result = runTaskClose(['1102', '--report', 'probe-1102.md', '--verification', 'run'], { ...deps, cwd: REPORTS, busPath: bus.file })
       expect(result.stderr).toEqual([])
       expect(result.exitCode).toBe(0)
-      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '1102', path: 'cheap', report: `${REPORTS}/probe-1102.md`, verification: 'run', sessions: [{ id: '4fc53af7' }] })
+      expect(JSON.parse(closingLines(bus.file)[0]!)).toMatchObject({ event: 'path', task: '1102', path: 'cheap', report: `${REPORTS}/probe-1102.md`, verification: 'run', sessions: [{ id: '4fc53af7' }] })
     }
     finally {
       bus.remove()
@@ -712,10 +741,10 @@ describe('task:close reads the start of a task from card.started in the bus', ()
       db.close()
     }
     try {
-      const { deps, written } = world([])
+      const { deps } = world([])
       const result = runTaskClose(['1102', '--report', 'probe-1102.md', '--verification', 'run'], { ...deps, cwd: REPORTS, busPath: bus.file })
       expect(result.stderr).toEqual([])
-      expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '1102', path: 'cheap', report: `${REPORTS}/probe-1102.md`, sessions: [{ id: '4fc53af7' }] })
+      expect(JSON.parse(closingLines(bus.file)[0]!)).toMatchObject({ event: 'path', task: '1102', path: 'cheap', report: `${REPORTS}/probe-1102.md`, sessions: [{ id: '4fc53af7' }] })
     }
     finally {
       bus.remove()
@@ -942,9 +971,30 @@ describe('task:close after the cutoff records the closing in the bus', () => {
 
   it('task:close after the cutoff with no bus wired refuses and writes nothing', () => {
     const { deps, written } = world([startLine('123', 'implement')])
-    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER })
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath: undefined })
     expect(result.exitCode).toBe(1)
     expect(result.stderr.join('\n')).toContain(`the closing record goes to the bus as ${CARD_VERIFIED}, and no bus is wired; nothing written`)
     expect(written).toEqual([])
+  })
+
+  it('the closing history reads as path lines only the card.verified rows written before the cutoff', () => {
+    const bus = busWithCardStarted([])
+    try {
+      const { deps } = world([startLine('123', 'implement')])
+      expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath: bus.file, session: WINDOW_SESSION }).exitCode).toBe(0)
+      const before = '2026-10-11T09:00:00.000Z'
+      const db = openBus(bus.file)
+      try {
+        appendEvent(db, { ts: before, type: CARD_VERIFIED, actor: 'worker:task-close:t', cardId: 124, pr: 461, head: null, dedupeKey: `${CARD_VERIFIED}:124:${before}`, payload: { path: 'cheap', pr: 461, verification: 'review' }, legacy: false })
+      }
+      finally {
+        db.close()
+      }
+      expect(closingHistoryLines(bus.file)).toEqual([{ event: 'path', task: '124', path: 'cheap', pr: 461, verification: 'review', ts: before }])
+      expect(closingHistoryLines(path.join(path.dirname(bus.file), 'absent.db'))).toEqual([])
+    }
+    finally {
+      bus.remove()
+    }
   })
 })

@@ -36,6 +36,7 @@ export interface BoardOptions {
 export interface BoardReading {
   header: { version: string, mode: string | undefined } | undefined
   geek: boolean
+  all: boolean
   bus: BusReading | undefined
   ledgerPresent: boolean
   ledger: LedgerReading
@@ -52,7 +53,7 @@ export interface RawSectionFlags {
 }
 
 export function rawSectionsAsked(flags: RawSectionFlags): boolean {
-  return flags.geek || flags.all || flags.staleHours !== STALE_HOURS || flags.prs !== undefined
+  return flags.geek || flags.staleHours !== STALE_HOURS || flags.prs !== undefined
 }
 
 export function readBoard(dir: string, options: BoardOptions): BoardReading {
@@ -63,6 +64,7 @@ export function readBoard(dir: string, options: BoardOptions): BoardReading {
   return {
     header: options.version === undefined ? undefined : { version: options.version, mode: options.mode },
     geek: options.geek ?? false,
+    all: options.all,
     bus: options.bus?.(),
     ledgerPresent: existsSync(path.join(dir, LEDGER_FILE)),
     ledger,
@@ -114,9 +116,9 @@ function mergedLines(ui: Ui, view: BoardView): string[] {
   return [ui.lore.boardMerged(view.merged.map(row => row.task), view.hidden > 0)]
 }
 
-function busLines(ui: Ui, bus: BusReading): string[] {
+function busLines(ui: Ui, bus: BusReading, all: boolean): string[] {
   switch (bus.status) {
-    case 'read': return screenLines(bus.facts, ui.lore)
+    case 'read': return screenLines(bus.facts, ui.lore, all)
     case 'absent': return [ui.lore.boardBusAbsent(bus.file)]
     case 'unreadable': return [ui.lore.boardBusUnreadable(bus.file, bus.reason)]
   }
@@ -126,7 +128,7 @@ export function printBoard(ui: Ui, reading: BoardReading): number {
   if (reading.header !== undefined)
     ui.line(ui.lore.boardHeader(reading.header.version, reading.header.mode))
   if (reading.bus !== undefined && !(reading.geek && reading.bus.status === 'read')) {
-    for (const line of busLines(ui, reading.bus))
+    for (const line of busLines(ui, reading.bus, reading.all))
       ui.line(line)
     if (reading.bus.status === 'read')
       return BOARD_EXIT.shown

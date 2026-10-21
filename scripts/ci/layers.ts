@@ -1,9 +1,10 @@
 import path from 'node:path'
+import { isTest, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
+
+export { isTest }
 
 export const BUS_CORE = /^scripts\/bus\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
 export const BUS_SERVICE = /^scripts\/bus\/([a-z]+)-(?:worker|executor|starter)\.ts$/
-const TEST_FILE = /\.test\.ts$/
-const TEST_ROOTS = ['tests/', 'scripts/tests/']
 const SCRIPT_DIR = /^scripts\/([^/]+)\//
 const SOURCE_FILE = /\.ts$/
 const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
@@ -14,23 +15,12 @@ export type Run
   = | { kind: 'full', why: string }
     | { kind: 'layers', layers: string[], tests: string[] }
 
-export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
-  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts'],
-  'scripts/': ['tests/graph-command.test.ts', 'scripts/tests/bus/sqlite.test.ts'],
-  'scripts/bus/': ['scripts/tests/ci/layers.test.ts'],
-  'scripts/ghosts/': ['scripts/tests/shredder/owner-merges.test.ts'],
-  'scripts/shift/': ['tests/decisions-read-through-reader.test.ts'],
-}
-
-export const PACKAGE_MANIFEST = 'package.json'
-export const PACKAGE_SCRIPT_READERS = ['tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts']
-
-export function isTest(file: string): boolean {
-  return TEST_FILE.test(file) && TEST_ROOTS.some(root => file.startsWith(root))
+function underTestRoot(file: string): boolean {
+  return TEST_ROOTS.some(root => file.startsWith(`${root}/`))
 }
 
 export function layerOf(file: string): string | null {
-  if (TEST_ROOTS.some(root => file.startsWith(root)) || !SOURCE_FILE.test(file))
+  if (underTestRoot(file) || !SOURCE_FILE.test(file))
     return null
   if (BUS_CORE.test(file))
     return 'bus-core'
@@ -89,7 +79,7 @@ export function selectRun(changed: readonly string[], graph: Graph, testText: (t
   const allTests = [...graph.keys()].filter(isTest)
   const reverse = reverseGraph(graph)
   const reached = dependents(changed, reverse)
-  const readers = [...graph.keys()].filter(file => TEST_ROOTS.some(root => file.startsWith(root)))
+  const readers = [...graph.keys()].filter(underTestRoot)
   const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests))]
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].map(layerOf).filter(layer => layer !== null))].sort()

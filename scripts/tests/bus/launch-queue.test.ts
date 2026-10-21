@@ -11,7 +11,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { CARD_MOVED, runIntake } from '../../../src/commands/intake/index.js'
+import { CARD_DROPPED, CARD_MOVED, runIntake } from '../../../src/commands/intake/index.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
 import { GHOST_ROW } from '../../bus/card-automaton.js'
@@ -23,13 +23,15 @@ import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { busCardEvents } from '../../bus/intake.js'
-import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
+import { CARD_ADMITTED, launchCandidates } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
 import { busCardBodies, busStarterPorts, cardTextReader, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
+import { SILENT_MS } from '../../bus/liveness-sites.js'
 import { reduce } from '../../bus/reducer.js'
+import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
 import { busLaunches } from '../../bus/workers.js'
 import { sessionEnv } from '../../ghosts/session.js'
 import { taskConflicts } from '../../shift/overlap.js'
@@ -247,7 +249,40 @@ describe('the launch queue', () => {
     bench.close()
   })
 
-  it('the cards intake made from card A of probe 1075 lay out over lanes and launch takes no two with overlapping touches', () => {
+  it('a dropped card is no candidate and holds no touches', () => {
+    const bench = launchBench()
+    const drop = (cardId: number): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_DROPPED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${cardId}`, payload: { lane: 'dropped' }, legacy: false })
+    }
+    bench.admitTouching(1170, 'lane-a', ['scripts/bus/queue.ts'])
+    bench.started(1170)
+    drop(1170)
+    bench.admitTouching(1171, 'lane-c', ['scripts/bus/lease.ts'])
+    drop(1171)
+    bench.admitTouching(1172, 'lane-a', ['scripts/bus/queue.ts', '.changeset/**'])
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1170))).toBeUndefined()
+    expect(taskState(bench.db, launch(1171))).toBeUndefined()
+    expect(taskState(bench.db, launch(1172))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a dropped card whose dependency just merged is no launch candidate', () => {
+    const bench = launchBench()
+    bench.gitHub.open({ number: 1026 })
+    bench.admit(1132, 'lane-a', [1126])
+    bench.tick()
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_MOVED, actor: 'policy', cardId: 1132, pr: null, head: null, dedupeKey: `${CARD_MOVED}:1132:dropped`, payload: { lane: 'dropped' }, legacy: false })
+    bench.tick()
+
+    bench.gitHub.close(1026, true)
+    bench.tick()
+    expect(taskState(bench.db, launch(1132))).toBeUndefined()
+    bench.close()
+  })
+
+  it('in parallel the cards intake made from card A of probe 1075 lay out over lanes and launch takes no two with overlapping touches', () => {
     const bench = launchBench()
     const root = tempRoot()
     const parking = path.join(root, 'parking')
@@ -258,6 +293,11 @@ describe('the launch queue', () => {
       slice('owner-loop-r3', ['scripts/bus/inbox.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts', 'scripts/bus/merge-executor.ts', 'scripts/bus/answerer.ts', 'scripts/bus/lease.ts', 'scripts/miko/watch.ts', 'scripts/bus/launch-worker.ts', '.changeset/**']),
       slice('owner-loop-item-3', ['scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts', '.changeset/**']),
     ] }))
+    const refuse = (): never => {
+      throw new Error('a mode request uses no tool')
+    }
+    requestFromWindow(bench.db, new Date().toISOString(), 'test', { kind: 'mode', mode: 'parallel' })
+    new WindowRequests(bench.db, () => new Date(), { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse }).run()
     const result = runIntake({ draft, taken: '-', readStdin: () => '1075', parking, parkingRoot: parking, dir: process.cwd(), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, events: busCardEvents(bench.db) })
     expect(result.status).toBe('written')
     const cards = result.status === 'written' ? result.cards : []
@@ -321,15 +361,20 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  function stoppedInTree(bench: ReturnType<typeof launchBench>, cardId: number, tree: string, contour = 'cheap'): void {
+    const ts = bench.clock.now().toISOString()
+    bench.admit(cardId, 'lane-a', [], contour)
+    appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: 'earlier', worktree: tree }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: 'fault', detail: 'session-end' }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:again`, payload: { lane: 'lane-a', decision: 'auto', contour, depends: [], admission: `again-${cardId}` }, legacy: false })
+  }
+
   it('a card with a live tree mc-N does not join the launch queue', () => {
     const bench = launchBench()
     const tree = path.join(tempRoot(), 'mc-1096')
     mkdirSync(tree)
-    const ts = bench.clock.now().toISOString()
-    bench.admit(1096, 'lane-a')
-    appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-1096`, payload: { session: 'earlier', worktree: tree }, legacy: false })
-    appendEvent(bench.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:earlier', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:1096`, payload: { reason: 'fault', detail: 'session-end' }, legacy: false })
-    appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1096:again`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'again-1096' }, legacy: false })
+    stoppedInTree(bench, 1096, tree)
+    recordHeartbeat(bench.db, new Date().toISOString(), { card: 1096, pr: null, head: null, step: 'launch', session: 'earlier', lease: null })
     bench.tick()
 
     expect(taskState(bench.db, launch(1096, 'again-1096'))).toBeUndefined()
@@ -337,6 +382,32 @@ describe('the launch queue', () => {
     rmSync(tree, { recursive: true })
     bench.tick()
     expect(taskState(bench.db, launch(1096, 'again-1096'))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a stopped cheap card with a tree and no live heartbeat becomes a launch candidate naming that tree', () => {
+    const bench = launchBench()
+    const tree = path.join(tempRoot(), 'mc-1160')
+    mkdirSync(tree)
+    stoppedInTree(bench, 1160, tree)
+    const beatAt = Date.parse('2026-10-01T00:00:00.000Z')
+    recordHeartbeat(bench.db, new Date(beatAt).toISOString(), { card: 1160, pr: null, head: null, step: 'launch', session: 'earlier', lease: null })
+
+    expect(launchCandidates(bench.db, existsSync, () => beatAt + SILENT_MS)).toEqual([])
+    expect(launchCandidates(bench.db, existsSync, () => beatAt + SILENT_MS + 1)).toEqual([{ cardId: 1160, generation: 'again-1160', continueIn: tree }])
+
+    bench.tick()
+    expect(taskState(bench.db, launch(1160, 'again-1160'))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a stopped ladder card with a standing tree is launched afresh, not continued in that tree', () => {
+    const bench = launchBench()
+    const tree = path.join(tempRoot(), 'mc-1161')
+    mkdirSync(tree)
+    stoppedInTree(bench, 1161, tree, 'ladder')
+
+    expect(launchCandidates(bench.db, existsSync, () => Date.parse('2026-10-01T00:00:00.000Z'))).toEqual([{ cardId: 1161, generation: 'again-1161' }])
     bench.close()
   })
 
@@ -649,11 +720,11 @@ describe('the launch queue', () => {
       bench.close()
     })
 
-    it('does not stop a session whose command line does not name its session id', () => {
+    it('does not signal a session whose command line does not name its session id', () => {
       const { bench, starter, node, advanceToLimitPlus } = runningCard('/usr/bin/vim notes.md')
 
       advanceToLimitPlus(0)
-      expect(node.stopOverdue()).toEqual([])
+      expect(node.stopOverdue()).toEqual([947])
       expect(starter.stops).toEqual([])
       expect(timeLimitStops(bench)).toEqual([])
       bench.close()

@@ -11,9 +11,9 @@ import { ghApi } from './github.js'
 import { LEASE_FOLDS } from './lease.js'
 import { Meter } from './meter.js'
 import { TASK_ENQUEUED, TASK_FOLDS, TASK_SUPERSEDED } from './queue.js'
-import { projectionDump, reduce, REDUCED, reducedThrough } from './reducer.js'
+import { INCREMENTAL_PROJECTIONS, PROJECTION_KEYS, projectionDump, reduce, REDUCED, reducedThrough } from './reducer.js'
 import { REJECTED } from './rejection.js'
-import { ROLE_FOLDS } from './role.js'
+import { watermarkOf } from './watermark.js'
 
 export const PREFIX = '[bus:report] '
 
@@ -178,8 +178,7 @@ function rejectedLine(period: Period): string {
   return `${EXIT_CRITERIA.rejected}: ${rejections.length}${detail === '' ? '' : ` (${detail})`}`
 }
 
-const ROW_KEYS: Record<string, string> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', card_bodies: 'card_id' }
-const FOLDED_ON_APPEND = new Set([...Object.keys(TASK_FOLDS), ...Object.keys(LEASE_FOLDS), ...Object.keys(ROLE_FOLDS), ...CARD_FOLDED_ON_APPEND, CHAIN_OBSERVED])
+export const FOLDED_ON_APPEND: ReadonlySet<string> = new Set([...Object.keys(TASK_FOLDS), ...Object.keys(LEASE_FOLDS), ...CARD_FOLDED_ON_APPEND, CHAIN_OBSERVED])
 
 type ProjectionRow = Record<string, unknown>
 type Projection = Record<string, ProjectionRow[]>
@@ -191,8 +190,15 @@ function replayCutOff(db: DatabaseSync): number {
   return through === NO_REDUCE_MARKER ? Number.POSITIVE_INFINITY : through
 }
 
+function incrementalCutOffs(db: DatabaseSync, through: number): Map<string, number> {
+  return new Map(INCREMENTAL_PROJECTIONS.flatMap((projection) => {
+    const watermark = Math.max(watermarkOf(db, projection.table), through)
+    return Object.keys(projection.folds).map(type => [type, watermark] as const)
+  }))
+}
+
 function rowsByKey(table: string, rows: ProjectionRow[]): Map<string, ProjectionRow> {
-  const key = ROW_KEYS[table]
+  const key = PROJECTION_KEYS[table]
   return new Map(rows.map(row => [key === undefined ? JSON.stringify(row) : String(row[key]), row]))
 }
 
@@ -205,21 +211,26 @@ function fieldDifferences(live: ProjectionRow, replayed: ProjectionRow): string[
   return fields.filter(field => shown(live[field]) !== shown(replayed[field])).map(field => `${field} live ${shown(live[field])}, replay ${shown(replayed[field])}`)
 }
 
-function rowDifferences(live: Projection, replayed: Projection): string[] {
-  const differences: string[] = []
+export interface ReplayDifference {
+  table: string | null
+  line: string
+}
+
+function rowDifferences(live: Projection, replayed: Projection): ReplayDifference[] {
+  const differences: ReplayDifference[] = []
   for (const table of [...new Set([...Object.keys(live), ...Object.keys(replayed)])]) {
     const liveRows = rowsByKey(table, live[table] ?? [])
     const replayRows = rowsByKey(table, replayed[table] ?? [])
     for (const [key, row] of liveRows) {
       const other = replayRows.get(key)
       if (other === undefined)
-        differences.push(`${table} ${key}: live only`)
+        differences.push({ table, line: `${table} ${key}: live only` })
       else if (fieldDifferences(row, other).length > 0)
-        differences.push(`${table} ${key}: ${fieldDifferences(row, other).join('; ')}`)
+        differences.push({ table, line: `${table} ${key}: ${fieldDifferences(row, other).join('; ')}` })
     }
     for (const key of replayRows.keys()) {
       if (!liveRows.has(key))
-        differences.push(`${table} ${key}: replay only`)
+        differences.push({ table, line: `${table} ${key}: replay only` })
     }
   }
   return differences
@@ -228,6 +239,7 @@ function rowDifferences(live: Projection, replayed: Projection): string[] {
 interface Snapshot {
   liveDump: string
   through: number
+  incremental: Map<string, number>
   events: Record<string, SQLOutputValue>[]
 }
 
@@ -236,22 +248,23 @@ function oneSnapshot(db: DatabaseSync): Snapshot {
   try {
     const liveDump = projectionDump(db)
     const through = replayCutOff(db)
+    const incremental = incrementalCutOffs(db, through)
     const events = db.prepare(`SELECT ${ALL_EVENT_COLUMNS} FROM events ORDER BY id`).all()
-    return { liveDump, through, events }
+    return { liveDump, through, incremental, events }
   }
   finally {
     db.exec('COMMIT')
   }
 }
 
-export function replayDifferences(db: DatabaseSync): { live: number, differences: string[] } {
-  const { liveDump, through, events } = oneSnapshot(db)
+export function replayDifferences(db: DatabaseSync): { live: number, differences: ReplayDifference[] } {
+  const { liveDump, through, incremental, events } = oneSnapshot(db)
   const live = Buffer.from(liveDump)
   const replay = openBus(':memory:')
   try {
     const insert = replay.prepare(`INSERT INTO events (${ALL_EVENT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     for (const row of events) {
-      if (Number(row.id) <= through || FOLDED_ON_APPEND.has(String(row.type)))
+      if (Number(row.id) <= (incremental.get(String(row.type)) ?? through) || FOLDED_ON_APPEND.has(String(row.type)))
         insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
     }
     reduce(replay)
@@ -263,7 +276,7 @@ export function replayDifferences(db: DatabaseSync): { live: number, differences
     if (differences.length > 0)
       return { live: live.length, differences }
     const at = [...live].findIndex((byte, index) => byte !== replayed[index])
-    return { live: live.length, differences: [`differs from byte ${at === -1 ? Math.min(live.length, replayed.length) : at} (live ${live.length} bytes, replay ${replayed.length})`] }
+    return { live: live.length, differences: [{ table: null, line: `differs from byte ${at === -1 ? Math.min(live.length, replayed.length) : at} (live ${live.length} bytes, replay ${replayed.length})` }] }
   }
   finally {
     replay.close()
@@ -272,24 +285,33 @@ export function replayDifferences(db: DatabaseSync): { live: number, differences
 
 function replayLine(db: DatabaseSync): string {
   const { live, differences } = replayDifferences(db)
-  return `${EXIT_CRITERIA.replay}: ${differences.length === 0 ? `none, ${live} bytes identical` : differences.join(' | ')}`
+  return `${EXIT_CRITERIA.replay}: ${differences.length === 0 ? `none, ${live} bytes identical` : differences.map(difference => difference.line).join(' | ')}`
 }
 
 export interface ShadowReading {
   headLag: string[]
   problems: string[]
+  foreign: string[]
 }
 
-export function shadowReading(db: DatabaseSync, gitHub: GitHub, nowMs: () => number): ShadowReading {
+export type ReadSet = ReadonlySet<string>
+
+function readBy(readSet: ReadSet | undefined, difference: ReplayDifference): boolean {
+  return readSet === undefined || difference.table === null || readSet.has(difference.table)
+}
+
+export function shadowReading(db: DatabaseSync, gitHub: GitHub, nowMs: () => number, readSet?: ReadSet): ShadowReading {
   const { mismatches, missing, headMismatches } = compared(db, gitHub, nowMs)
   const { differences } = replayDifferences(db)
+  const replayLines = (read: boolean): string[] => differences.filter(difference => readBy(readSet, difference) === read).map(difference => `${EXIT_CRITERIA.replay}: ${difference.line}`)
   return {
     headLag: headMismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
     problems: [
       ...mismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
       ...missing.map(pr => `${EXIT_CRITERIA.prs}: ${pr} open on GitHub, missing here`),
-      ...differences.map(difference => `${EXIT_CRITERIA.replay}: ${difference}`),
+      ...replayLines(true),
     ],
+    foreign: replayLines(false),
   }
 }
 

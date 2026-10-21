@@ -19,6 +19,7 @@ import { projectionDump, reduce } from '../../bus/reducer.js'
 import { RestartExecutor } from '../../bus/restart-executor.js'
 import { launchSwitchedOn, MIKO_LAUNCH_OFF, restartStepLine, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
 import { leaseRole, observeRoleStop, RAISED_VARIABLE, RAISES_PER_HANDOFF } from '../../bus/role.js'
+import { requestFromWindow } from '../../bus/window-requests.js'
 import { switchWorker } from '../../bus/workers.js'
 import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
 import { runBg } from '../../shift/bg.js'
@@ -403,6 +404,45 @@ describe('the ceiling on relaunch(role)', () => {
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('a failed raise names its cause: the exit code and what pnpm relaunch printed go into role.raise_failed', () => {
+    vi.mocked(runRelaunchBg).mockReturnValueOnce({ stdout: [], stderr: ['[relaunch] claude did not start'], exitCode: 1 })
+    vi.mocked(runRelaunchBg).mockReturnValueOnce({ stdout: ['[relaunch] started'], stderr: [], exitCode: 0 })
+    const bench = restartBench()
+    bench.roles.raise = roleLauncher({}).raise
+    const worker = bench.worker()
+    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'context' })
+    bench.tick()
+
+    const exited = `pnpm relaunch ${OPERATOR_HANDOFF} exited 1 (stderr: [relaunch] claude did not start, no stdout)`
+    const noPid = `pnpm relaunch ${OPERATOR_HANDOFF} exited 0 with no PID on its first line (no stderr, stdout: [relaunch] started)`
+    expect(worker.step()).toMatchObject({ kind: 'raise_failed', detail: exited })
+    expect(worker.step()).toMatchObject({ kind: 'raise_failed', detail: noPid })
+    expect(eventsOf(bench.db, 'role.raise_failed').map(payload => payload.detail)).toEqual([exited, noPid])
+    bench.close()
+  })
+
+  it('a role the owner\'s window left silent comes back from the owner and is raised again', () => {
+    const bench = restartBench()
+    bench.roles.raise = () => {
+      throw new Error('relaunch did not start')
+    }
+    const worker = bench.worker()
+    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'context' })
+    bench.tick()
+    for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)
+      worker.step()
+    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator' })
+    requestFromWindow(bench.db, bench.clock.now().toISOString(), 'owner-session', { kind: 'status' })
+    bench.clock.advance(LEASE_MS + 1)
+
+    const returned = worker.step()
+    expect(returned).toMatchObject({ kind: 'returned', role: 'operator', handoff: OPERATOR_HANDOFF })
+    expect(restartStepLine(returned)).toContain('relaunch:operator: back from the owner')
+    bench.roles.raise = () => ROLE_PIDS.operator
+    expect(worker.step()).toMatchObject({ kind: 'raised', role: 'operator', pid: ROLE_PIDS.operator })
     bench.close()
   })
 

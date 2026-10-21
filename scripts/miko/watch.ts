@@ -11,10 +11,13 @@ import { IN_REVIEW_CARD, MERGE_DONE, REVIEW_RECORDED, RUNNING_CARD, STOPPED_CARD
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { CARD_STOPPED, POLICY_DENIED } from '../bus/inbox.js'
 import { CARD_CLOSED } from '../bus/launch-candidates.js'
+import { CARD_WAITING } from '../bus/launch-worker.js'
 import { HEARTBEAT_QUEUES, LEASE_EXPIRED, TASK_EXPIRED } from '../bus/lease.js'
 import { PR_CLOSED } from '../bus/observations.js'
 import { PR_OBSERVED } from '../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../bus/review-executor.js'
+import { WORKER_DOWN } from '../bus/supervisor.js'
+import { windowBeat, windowSessionOf } from '../bus/window-heartbeat.js'
 import { windowOpenPrs } from '../bus/window-prs.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { GHOST_JOURNAL } from '../shift/places.js'
@@ -23,7 +26,8 @@ import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore } from './watch-store.js'
 
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, POLICY_DENIED, TASK_EXPIRED]
+export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN]
+export const HEAD_BOUND_EVENTS = [STOP_EVENT, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, CARD_STOPPED]
 export const FAILED_CI = 'red'
 export const DENIALS_IN_A_ROW = 2
 export const USER_SETTINGS = '~/.claude/settings.json'
@@ -92,11 +96,13 @@ export interface WatchDeps {
   busEventsAfter: (id: number) => BusEvent[]
   observedUpTo: (id: number) => BusEvent[]
   deniedUpTo: (id: number) => BusEvent[]
+  observedHeads: (pr: number) => string[]
   stalls: () => CardActivity[]
   stuck: () => StuckPr[]
   alive: (pid: number) => boolean
   emit: (line: string) => Promise<void>
   beforeCommit: () => Promise<void>
+  beat: () => void
 }
 
 export interface Delivery {
@@ -313,11 +319,19 @@ function sessionLeaseLapsed(payload: Record<string, unknown>): boolean {
   return textOf(payload, 'reason') === LEASE_EXPIRED && queue !== undefined && (HEARTBEAT_QUEUES as readonly string[]).includes(queue)
 }
 
+export function ofSupersededHead(event: BusEvent, deps: Pick<WatchDeps, 'observedHeads'>): boolean {
+  if (!HEAD_BOUND_EVENTS.includes(event.type) || event.pr === null || event.head === null)
+    return false
+  const heads = deps.observedHeads(event.pr)
+  const current = heads.at(-1)
+  return current !== undefined && current !== event.head && heads.includes(event.head)
+}
+
 function busLines(state: WatchState, deps: WatchDeps): string[] {
   const events = deps.busEventsAfter(state.busId)
   for (const event of events)
     state.busId = Math.max(state.busId, event.id)
-  return events.filter(event => wakesTheWindow(state, event)).map(busLine)
+  return events.filter(event => wakesTheWindow(state, event) && !ofSupersededHead(event, deps)).map(busLine)
 }
 
 function exitedPids(state: WatchState, deps: WatchDeps): string[] {
@@ -379,7 +393,7 @@ function busDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefi
       return skipped
     if (!wakesTheWindow(seen, event))
       continue
-    if (card === undefined || event.cardId === card)
+    if (!ofSupersededHead(event, deps) && (card === undefined || event.cardId === card))
       return { line: busLine(event), cursor: { ...cursor, busId: event.id } }
     skipped = { line: null, cursor: { ...cursor, busId: event.id } }
   }
@@ -418,6 +432,7 @@ type WatchKnown = Pick<WatchState, 'stalls' | 'stuck'>
 export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: number[], card?: number, now: () => number = Date.now): Promise<void> {
   const known: WatchKnown = { stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
   for (;;) {
+    deps.beat()
     const cursor = store.cursor()
     const selected = selectOnce(cursor, deps, pids, card)
     if (selected?.line === null) {
@@ -538,6 +553,17 @@ function deniedUpTo(bus: string, id: number): BusEvent[] {
   }
 }
 
+function observedHeads(bus: string, pr: number): string[] {
+  const db = openBus(bus)
+  try {
+    const rows = db.prepare('SELECT head FROM events WHERE type = ? AND pr = ? AND head IS NOT NULL GROUP BY head ORDER BY MAX(id)').all(PR_OBSERVED, pr) as unknown as Array<{ head: string }>
+    return rows.map(row => row.head)
+  }
+  finally {
+    db.close()
+  }
+}
+
 interface ActivityRow {
   card_id: number
   id: number
@@ -600,11 +626,13 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     busEventsAfter: id => busEventsAfter(bus, id),
     observedUpTo: id => observedUpTo(bus, id),
     deniedUpTo: id => deniedUpTo(bus, id),
+    observedHeads: pr => observedHeads(bus, pr),
     stalls: () => stalls(bus, Date.now()),
     stuck: () => stuckPrs(bus),
     alive,
     emit: emitLine,
     beforeCommit: async () => {},
+    beat: windowBeat(bus, windowSessionOf(process.env), Date.now),
   }
 }
 
@@ -627,6 +655,7 @@ async function watchForever(deps: WatchDeps, pids: number[]): Promise<void> {
   const state = watchState(deps, pids)
   console.error(WATCHING)
   for (;;) {
+    deps.beat()
     for (const line of tick(state, deps))
       process.stdout.write(`${line}\n`)
     await new Promise(resolve => setTimeout(resolve, POLL_MS))

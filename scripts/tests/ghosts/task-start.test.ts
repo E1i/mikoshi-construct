@@ -467,7 +467,7 @@ describe('w3: task:start installs the dependencies in the new tree', () => {
 
 describe('w2: task:start refuses a card of the wrong form, and the old call', () => {
   it.each([
-    ['an unknown milestone', card(11, 'implement/moon/S/cheap/auto'), `milestone 'moon' is not one of`],
+    ['a milestone that is not a slug', card(11, 'implement/Moon_1/S/cheap/auto'), `milestone 'Moon_1' must be a slug`],
     ['kind probe with decision owner', card(12, 'probe/ghosts/S/cheap/owner'), 'kind probe takes decision none, not owner'],
     ['a bad size', card(13, 'implement/ghosts/XL/cheap/auto'), `size 'XL' is not one of XS, S, M, L`],
     ['no · depends', '#14 x [implement/ghosts/S/cheap/auto] · blocks —', `'· depends <#id …|—>' must follow`],
@@ -478,6 +478,15 @@ describe('w2: task:start refuses a card of the wrong form, and the old call', ()
     expect(result.stderr[0]).toContain('[task:start] card refused: ')
     expect(result.stderr[0]).toContain(reason)
     expect(readdirSync(world.root).filter(name => name.startsWith('mc-'))).toEqual([])
+    expect(starts(world)).toEqual([])
+  })
+
+  it('w2: refuses a milestone the repository\'s construct.json does not list, naming the list', () => {
+    const world = newWorld()
+    writeFileSync(path.join(world.repo, 'construct.json'), JSON.stringify({ manifestVersion: 6, milestones: ['ghosts', 'ice'] }))
+    const result = runTaskStart(['feat/bad', '--card', card(15, 'implement/moon/S/cheap/auto')], depsOf(world))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr[0]).toContain(`[task:start] card refused: milestone 'moon' is not one of ghosts, ice`)
     expect(starts(world)).toEqual([])
   })
 
@@ -699,5 +708,23 @@ describe('task:start checks the card file against the body its card.admitted car
   it('an admission without a bodySha starts as before', () => {
     const world = newWorld()
     expect(runTaskStart(['feat/b3', '--card', card(93)], parkedWithAdmission(world, 93, null, 'any body')).exitCode).toBe(0)
+  })
+})
+
+describe('task:start surfaces what git said when the tree cannot be cut', () => {
+  it('a worktree add that fails for another reason than an unwritable file reports git stderr and writes nothing', () => {
+    const world = newWorld()
+    const deps = {
+      ...depsOf(world),
+      git: (cwd: string, args: string[]) => {
+        if (args[0] === 'worktree')
+          throw new Error('Preparing worktree (new branch)\nfatal: invalid reference: origin/main')
+        return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' })
+      },
+    }
+    const result = runTaskStart(['feat/c1', '--card', card(41)], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain('fatal: invalid reference: origin/main')
+    expect(starts(world)).toEqual([])
   })
 })

@@ -1,12 +1,16 @@
 import type { Status } from '../shift/relaunch.js'
-import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import type { ProcessRow } from './exit.js'
+import { execFileSync, spawn } from 'node:child_process'
+import { existsSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { defaultBusPath } from '../bus/db.js'
 import { statusOf } from '../shift/relaunch.js'
+import { ancestors, parsePs } from './exit.js'
+import { windowEndObserver } from './role-end.js'
 
 export const PREFIX = '[miko] '
 export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
@@ -15,6 +19,10 @@ export const MIKO_HANDOFF_NAME = 'miko.md'
 export const CONTINUE_PROMPT = `прочитай ~/.construct/handoff/${MIKO_HANDOFF_NAME}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца; если OWNER — задай вопрос владельцу в окне и жди ответа в этой же сессии, после ответа pnpm handoff:write со STATUS: CONTINUE, без pnpm miko:exit; событие жди через pnpm miko:watch --once в этой же сессии, следующую карточку бери в этой же сессии, pnpm handoff:write на каждой границе — страховка, без pnpm miko:exit; pnpm miko:exit — только при контексте или тратах сессии не ниже порога предупреждения Eddies или STATUS: DONE`
 export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_WINDOW_MS = 1500
+export const LOOP_PID_VARIABLE = 'MIKO_LOOP_PID'
+export const EXIT_REQUEST_VARIABLE = 'MIKO_EXIT_REQUEST'
+export const EXIT_REQUEST_PREFIX = 'miko-exit'
+export const EXIT_POLL_MS = 200
 
 const SHELL_COULD_NOT_RUN_THE_COMMAND = new Set([126, 127])
 
@@ -32,14 +40,61 @@ export interface MikoLoopDeps {
   pause: (ms: number) => Promise<PauseEnd>
   doubleCtrlC: () => boolean
   err: (line: string) => void
+  ended: () => void
 }
 
 export function mikoHandoff(home: string): string {
   return path.join(home, '.construct', 'handoff', MIKO_HANDOFF_NAME)
 }
 
+export function exitRequestFile(home: string, loopPid: number): string {
+  return path.join(home, '.construct', 'handoff', `${EXIT_REQUEST_PREFIX}.${loopPid}.request`)
+}
+
+export function takeExitRequest(request: string): boolean {
+  if (!existsSync(request))
+    return false
+  rmSync(request, { force: true })
+  return true
+}
+
+export function requesterOf(request: string): number | undefined {
+  try {
+    const pid = Number(readFileSync(request, 'utf8').trim())
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+export function requestEndsSession(table: ProcessRow[] | null, requester: number | undefined, sessionPid: number | undefined): boolean {
+  if (table === null || requester === undefined || sessionPid === undefined)
+    return true
+  return requester === sessionPid || ancestors(table, requester).some(row => row.pid === sessionPid)
+}
+
+function readTable(): ProcessRow[] | null {
+  try {
+    return parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' }))
+  }
+  catch {
+    return null
+  }
+}
+
+const SHELL_SYNTAX = /[;&|()<>`\n]/
+
+export function sessionScript(command: string): string {
+  return SHELL_SYNTAX.test(command) ? `${command} "$@"` : `exec env ${command} "$@"`
+}
+
+export function compoundCommandRefusal(command: string): string | null {
+  return SHELL_SYNTAX.test(command) ? `${PREFIX}${CLAUDE_VARIABLE} contains shell syntax (${command}): an exit request could not end the claude it starts; name one command` : null
+}
+
 export function claudeArgv(command: string, prompt: string | undefined): string[] {
-  return ['-c', `${command} "$@"`, 'miko', ...(prompt === undefined ? [] : [prompt])]
+  return ['-c', sessionScript(command), 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
 
 export function doubleCtrlCWatcher(now: () => number = Date.now): { press: () => void, seen: () => boolean, presses: () => number } {
@@ -83,6 +138,12 @@ function didNotStart(end: SessionEnd): boolean {
 }
 
 export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
+  const code = await sessionsUntilTheWindowEnds(deps)
+  deps.ended()
+  return code
+}
+
+async function sessionsUntilTheWindowEnds(deps: MikoLoopDeps): Promise<number> {
   let prompt = deps.status() === undefined ? undefined : CONTINUE_PROMPT
   for (;;) {
     const before = deps.handoffMtime()
@@ -143,12 +204,49 @@ export async function pauseUntilCtrlC(ms: number, sessionCtrlCs = 0): Promise<Pa
   }
 }
 
-function runSession(command: string, prompt: string | undefined): Promise<SessionEnd> {
+export function runSession(command: string, prompt: string | undefined, request: string, pollMs: number = EXIT_POLL_MS): Promise<SessionEnd> {
   return new Promise((resolve) => {
-    const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit' })
-    child.on('error', () => resolve({ code: null, signal: null }))
-    child.on('close', (code, signal) => resolve({ code, signal }))
+    rmSync(request, { force: true })
+    const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit', env: { ...process.env, [LOOP_PID_VARIABLE]: String(process.pid), [EXIT_REQUEST_VARIABLE]: request } })
+    const watcher = setInterval(() => {
+      const requester = requesterOf(request)
+      if (!takeExitRequest(request))
+        return
+      if (requestEndsSession(readTable(), requester, child.pid))
+        child.kill('SIGTERM')
+      else
+        console.error(`${PREFIX}an exit request from pid ${requester} does not come from the session this loop started: ignored`)
+    }, pollMs)
+    child.on('error', () => {
+      clearInterval(watcher)
+      resolve({ code: null, signal: null })
+    })
+    child.on('close', (code, signal) => {
+      clearInterval(watcher)
+      resolve({ code, signal })
+    })
   })
+}
+
+export const HANGUPS = ['SIGHUP', 'SIGTERM'] as const
+
+export function once(work: () => void): () => void {
+  let done = false
+  return () => {
+    if (done)
+      return
+    done = true
+    work()
+  }
+}
+
+export function endOnHangup(ended: () => void, exit: (code: number) => void): void {
+  for (const signal of HANGUPS) {
+    process.on(signal, () => {
+      ended()
+      exit(128 + os.constants.signals[signal])
+    })
+  }
 }
 
 export function claudeCommand(env: NodeJS.ProcessEnv): string {
@@ -156,15 +254,29 @@ export function claudeCommand(env: NodeJS.ProcessEnv): string {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const command = claudeCommand(process.env)
+  const refusal = compoundCommandRefusal(command)
+  if (refusal !== null) {
+    console.error(refusal)
+    process.exit(1)
+  }
   const ctrlC = doubleCtrlCWatcher()
   process.on('SIGINT', ctrlC.press)
   const handoff = mikoHandoff(os.homedir())
-  const command = claudeCommand(process.env)
-  process.exitCode = await runMikoLoop({
-    status: () => statusOfFile(handoff),
-    handoffMtime: () => mtimeOf(handoff),
-    ...sessionAndPauseSharingCtrlCs(ctrlC, prompt => runSession(command, prompt)),
-    doubleCtrlC: ctrlC.seen,
-    err: line => console.error(line),
-  })
+  const request = exitRequestFile(os.homedir(), process.pid)
+  const ended = once(() => windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) })('close'))
+  endOnHangup(ended, code => process.exit(code))
+  try {
+    process.exitCode = await runMikoLoop({
+      status: () => statusOfFile(handoff),
+      handoffMtime: () => mtimeOf(handoff),
+      ...sessionAndPauseSharingCtrlCs(ctrlC, prompt => runSession(command, prompt, request)),
+      doubleCtrlC: ctrlC.seen,
+      err: line => console.error(line),
+      ended,
+    })
+  }
+  finally {
+    rmSync(request, { force: true })
+  }
 }

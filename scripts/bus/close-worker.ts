@@ -23,6 +23,7 @@ import { Node, prefixOf, runNode } from './node.js'
 import { PR_CLOSED } from './observations.js'
 import { closeCandidates } from './queue.js'
 import { REDUCED } from './reducer.js'
+import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = prefixOf('close')
 export const CLOSE_ON = [REDUCED, PR_CLOSED, PR_OPENED, CARD_VERIFIED] as const
@@ -138,5 +139,7 @@ async function main(): Promise<number> {
   return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(busPath), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  stampLogOutput()
   process.exitCode = await main()
+}

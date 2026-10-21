@@ -63,7 +63,7 @@ describe('one creates parse for the shift guard and intake', () => {
     const draft = parseDraft(JSON.stringify({ cards: [{ name: 'fresh', kind: 'implement', milestone: 'ghosts', size: 'S', touches: [FRESH], creates: [entry], task: 'Do it.', witnesses: ['`true` passes'] }] }))
     if (draft.kind === 'refused')
       return false
-    const repository = { exists: () => false, pathsNamed: () => [], commandResolves: () => true }
+    const repository = { exists: () => false, pathsNamed: () => [], commandResolves: () => true, testsCovering: () => [] }
     const [checked] = checkDraft(draft.cards, [1], { taken: new Set(), parked: new Set(), done: new Set(), merged: new Set(), repository })
     return checked!.unclear.length === 0
   }

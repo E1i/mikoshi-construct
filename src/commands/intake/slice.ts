@@ -108,10 +108,10 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       depends: sorted(depends[index]!),
       blocks: sorted([...blocks[index]!, ...blockedHere]),
     })
-    const split = splitSignal({ touches: card.touches, unclear: unclear.length })
+    const split = splitSignal({ touches: card.touches, unclear: unclear.length, covering: card.covering })
     const volume = volumeSignal(card.touches, sources)
     const volumeSlices = split.slices.length > 0 ? [] : volume.slices
-    const reading = riskReading(card.touches, split.slices.length > 0 || volumeSlices.length > 0)
+    const reading = riskReading(card.touches.filter(entry => !card.covering.includes(entry)), split.slices.length > 0 || volumeSlices.length > 0)
     const proposed = [...split.slices.map(slice => slice.touches), ...volumeSlices, ...reading.slices.map(slice => slice.touches)]
     const order = sliceDepends(proposed, sources)
     const seam = [...seamLines(split, order), ...volumeLines({ ...volume, slices: volumeSlices }, order)]

@@ -1,13 +1,10 @@
-import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { prClosed } from '../../bus/observations.js'
-import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
-import { busMerges, mergedDetails, mergedSummary, recheckArgument, recheckMerge, recheckSummary, recordMerges } from '../../ghosts/task-merged.js'
+import { busMerges, mergedDetails, mergedSummary, recordMerges } from '../../ghosts/task-merged.js'
 
 const NOW = new Date('2026-10-05T09:00:00.000Z')
 const BODY = (id: number): string => `#${id} some-task [implement/runner/S/cheap/auto] · depends — · blocks —\n\nbody`
@@ -87,7 +84,6 @@ describe('recordMerges', () => {
 
   it('task:merged after the cutoff writes no merge line', () => {
     let journal = CLOSING
-    const skipped = `${JSON.stringify({ event: 'merge-skip', pr: 702, skip: 'no-card', ts: 'x' })}\n`
     const deps = { gh: (args: string[]): string => args[2] === '701' ? JSON.stringify({ state: 'CLOSED', mergedAt: null, mergedBy: null, mergeCommit: null, body: null }) : view('MERGED', 570), journal: '/j', readJournal: () => journal, append: (_file: string, text: string) => {
       journal += text
     }, now: () => new Date('2026-10-13T18:00:00.000Z') }
@@ -97,11 +93,6 @@ describe('recordMerges', () => {
     expect(result.skipped.map(line => [line.pr, line.skip])).toEqual([[701, 'closed']])
     expect(mergedSummary(result)).toBe('merged: 0 new · 1 PR closed without merge skipped · 1 PR merged with no merged pr.closed in the bus yet, nothing written')
     expect(mergedDetails(result)).toEqual(['PR #701 closed without merge', 'PR #700 merged; no merged pr.closed in the bus yet, and from 2026-10-12T17:04:00.000Z no merge line is written'])
-    journal += skipped
-    const rechecked = recheckMerge(deps, 702)
-    expect(rechecked.written).toEqual([])
-    expect(rechecked.notes).toEqual(['PR #702 merged; no merged pr.closed in the bus yet, and from 2026-10-12T17:04:00.000Z no merge line is written; nothing written'])
-    expect(mergeLines(journal)).toEqual([])
   })
 
   it('notes a pull request whose lookup throws, and goes on', () => {
@@ -117,99 +108,6 @@ describe('recordMerges', () => {
     expect(result.notes).toEqual(['PR #700 not read: gh down'])
     expect(mergeLines(journal).map(line => line.pr)).toEqual([701])
     expect(mergedSummary(result)).toBe('merged: 1 new · 1 PR not read')
-  })
-})
-
-describe('recheckMerge', () => {
-  const SKIPPED = `${CLOSING}${JSON.stringify({ event: 'merge-skip', pr: 700, skip: 'no-card', ts: 'x' })}\n`
-  const merged = (body: string): string => JSON.stringify({ state: 'MERGED', mergedAt: '2026-10-05T08:30:00Z', mergedBy: { login: 'E1i' }, mergeCommit: { oid: 'c0ffee' }, body })
-
-  function run(journalText: string, body: string, recheck: boolean): { journal: string, calls: number, notes: string[], written: number } {
-    let journal = journalText
-    let calls = 0
-    const deps = { gh: () => {
-      calls++
-      return merged(body)
-    }, journal: '/j', readJournal: () => journal, append: (_file: string, text: string) => {
-      journal += text
-    }, now: () => NOW }
-    const result = recheck ? recheckMerge(deps, 700) : recordMerges(deps)
-    return { journal, calls, notes: result.notes, written: result.written.length }
-  }
-
-  it('writes the merge line of a skipped no-card pull request whose body now opens with the card line', () => {
-    const otherMerged = `${JSON.stringify({ event: 'merge', task: '574', pr: 701, by: 'E1i', commit: 'beef', merged: 'x', ts: 'x' })}\n`
-    const rechecked = run(`${SKIPPED}${otherMerged}`, BODY(581), true)
-    expect(mergeLines(rechecked.journal).filter(line => line.pr === 700)).toEqual([{ event: 'merge', task: '581', pr: 700, by: 'E1i', commit: 'c0ffee', merged: '2026-10-05T08:30:00Z', ts: NOW.toISOString() }])
-  })
-
-  it('writes no merge line for the skipped pull request without --recheck, and asks gh only about the unrecorded one', () => {
-    const plain = run(SKIPPED, BODY(581), false)
-    expect(plain.calls).toBe(1)
-    expect(mergeLines(plain.journal).filter(line => line.pr === 700)).toEqual([])
-  })
-
-  it('refuses a pull request with no merge-skip no-card line, without asking gh', () => {
-    const result = run(CLOSING, BODY(581), true)
-    expect(result.calls).toBe(0)
-    expect(result.notes).toEqual([expect.stringContaining('has no merge-skip line with skip no-card')])
-    expect(result.journal).toBe(CLOSING)
-  })
-
-  it('refuses a pull request that still has no card line, writing nothing', () => {
-    const result = run(SKIPPED, 'not a card', true)
-    expect(result.notes).toEqual([expect.stringContaining('still without a card')])
-    expect(result.journal).toBe(SKIPPED)
-  })
-
-  it('refuses a second recheck once the merge line is written', () => {
-    const first = run(SKIPPED, BODY(581), true)
-    const second = run(first.journal, BODY(581), true)
-    expect(second.notes).toEqual([expect.stringContaining('already has a merge line')])
-    expect(mergeLines(second.journal)).toHaveLength(1)
-  })
-
-  it('refuses a pull request that is still open, writing nothing', () => {
-    let journal = SKIPPED
-    const result = recheckMerge({ gh: () => JSON.stringify({ state: 'OPEN', mergedAt: null, mergedBy: null, mergeCommit: null, body: BODY(581) }), journal: '/j', readJournal: () => journal, append: (_file, text) => {
-      journal += text
-    }, now: () => NOW }, 700)
-    expect(result.notes).toEqual(['PR #700 is open; nothing written'])
-    expect(journal).toBe(SKIPPED)
-  })
-
-  function rechecked(body: string): ReturnType<typeof recheckMerge> {
-    let journal = SKIPPED
-    return recheckMerge({ gh: () => merged(body), journal: '/j', readJournal: () => journal, append: (_file, text) => {
-      journal += text
-    }, now: () => NOW }, 700)
-  }
-
-  it('prints the reason of a refused recheck, not a count of PRs not read', () => {
-    expect(recheckSummary(rechecked('not a card'))).toEqual([expect.stringContaining('still without a card')])
-  })
-
-  it('prints one new merge for a recheck that wrote its line', () => {
-    expect(recheckSummary(rechecked(BODY(581)))).toEqual(['merged: 1 new'])
-  })
-
-  it.each([
-    [['--recheck', '700'], 700],
-    [[], null],
-    [['--recheck'], 'invalid'],
-    [['--recheck', 'x'], 'invalid'],
-    [['--recheck', '0'], 'invalid'],
-    [['--recheck=700'], 'invalid'],
-  ] as const)('reads the --recheck argument %j as %s', (argv, expected) => {
-    expect(recheckArgument(argv)).toBe(expected)
-  })
-
-  it('refuses a pull request whose only skip line is closed, writing nothing', () => {
-    const closed = `${CLOSING}${JSON.stringify({ event: 'merge-skip', pr: 700, skip: 'closed', ts: 'x' })}\n`
-    const result = run(closed, BODY(581), true)
-    expect(result.calls).toBe(0)
-    expect(result.notes).toEqual([expect.stringContaining('has no merge-skip line with skip no-card')])
-    expect(result.journal).toBe(closed)
   })
 })
 
@@ -233,7 +131,7 @@ describe('the merge fact in the bus', () => {
     return file
   }
 
-  function sweepWithBus(bus: string, journalText: string, recheck?: number): { journal: string, calls: string[], notes: string[] } {
+  function sweepWithBus(bus: string, journalText: string): { journal: string, calls: string[], notes: string[] } {
     let journal = journalText
     const calls: string[] = []
     const deps = { gh: (args: string[]): string => {
@@ -242,7 +140,7 @@ describe('the merge fact in the bus', () => {
     }, journal: '/j', readJournal: () => journal, append: (_file: string, text: string) => {
       journal += text
     }, now: () => NOW, mergedInBus: new Set(busMerges(bus).map(merge => merge.pr)) }
-    const { notes } = recheck === undefined ? recordMerges(deps) : recheckMerge(deps, recheck)
+    const { notes } = recordMerges(deps)
     return { journal, calls, notes }
   }
 
@@ -255,11 +153,6 @@ describe('the merge fact in the bus', () => {
     const swept = sweepWithBus(bus, CLOSING)
     expect(swept.calls).toEqual(['701'])
     expect(mergeLines(swept.journal).map(line => line.pr)).toEqual([701])
-    const skipped = `${CLOSING}${JSON.stringify({ event: 'merge-skip', pr: 700, skip: 'no-card', ts: 'x' })}\n`
-    const rechecked = sweepWithBus(bus, skipped, 700)
-    expect(rechecked.calls).toEqual([])
-    expect(rechecked.notes).toEqual(['PR #700 has its merge in the bus as pr.closed; nothing written'])
-    expect(rechecked.journal).toBe(skipped)
   })
 
   it('a pr.closed written before the cutoff leaves the pull request to the journal', () => {
@@ -285,28 +178,5 @@ describe('the merge fact in the bus', () => {
     expect(busMerges(bus).map(merge => merge.pr)).toEqual([700])
     const swept = sweepWithBus(bus, CLOSING)
     expect(swept.calls).toEqual(['701'])
-  })
-
-  it('the task:merged script reads the bus it is given and asks gh only about the pull request the bus does not hold', () => {
-    const bus = busWith([{ ts: '2026-10-13T08:31:00.000Z', pr: 700, cardId: 570, merged: true }])
-    const root = path.dirname(bus)
-    const handoff = path.join(root, 'handoff')
-    const bin = path.join(root, 'bin')
-    mkdirSync(handoff)
-    mkdirSync(bin)
-    const journal = path.join(handoff, 'ghosts.jsonl')
-    writeFileSync(journal, CLOSING)
-    const ghLog = path.join(root, 'gh.log')
-    const gh = path.join(bin, 'gh')
-    writeFileSync(gh, `#!/bin/sh\necho "$3" >> '${ghLog}'\nprintf '%s' '${view('MERGED', 574)}'\n`)
-    chmodSync(gh, 0o755)
-    const result = spawnSync(process.execPath, [path.resolve(import.meta.dirname, '../../../node_modules/tsx/dist/cli.mjs'), path.resolve(import.meta.dirname, '../../ghosts/task-merged.ts')], {
-      encoding: 'utf8',
-      env: { ...process.env, [BUS_DB_VARIABLE]: bus, [HANDOFF_DIR_VARIABLE]: handoff, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
-    })
-    expect(result.stderr).toBe('')
-    expect(existsSync(ghLog) ? readFileSync(ghLog, 'utf8') : '').toBe('701\n')
-    expect(readFileSync(journal, 'utf8')).toBe(CLOSING)
-    expect(result.stdout).toBe('[task:merged] merged: 0 new · 1 PR merged with no merged pr.closed in the bus yet, nothing written\n')
   })
 })
