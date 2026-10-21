@@ -1,4 +1,4 @@
-import type { GhRunner } from '../core/gh.js'
+import type { GhCaller } from '../core/gh.js'
 import type { IsolationReader } from '../ghosts/isolation.js'
 import { spawn } from 'node:child_process'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync } from 'node:fs'
@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { execGh } from '../core/gh.js'
+import { execGh, readGhJson } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { commandWords, realIsolationReader } from '../ghosts/isolation.js'
 import { ANSWER_FLAG } from './answer.js'
@@ -62,20 +62,17 @@ function ofShift(line: JournalLine, dir: string): boolean {
   return typeof line.shift === 'string' && path.resolve(line.shift) === path.resolve(dir)
 }
 
-function openHead(gh: GhRunner, pr: number): string {
-  let view: { state?: unknown, headRefOid?: unknown } | null
-  try {
-    view = JSON.parse(gh(['pr', 'view', String(pr), '-R', REPO, '--json', 'state,headRefOid'])) as typeof view
-  }
-  catch (error) {
-    return `not read (${(error instanceof Error ? error.message : String(error)).split('\n')[0]!})`
-  }
+function openHead(gh: GhCaller, pr: number): string {
+  const read = readGhJson<{ state?: unknown, headRefOid?: unknown } | null>(gh, ['pr', 'view', String(pr), '-R', REPO, '--json', 'state,headRefOid'])
+  if (read.kind === 'failed')
+    return `not read (${read.reason.split('\n')[0]!})`
+  const view = read.value
   if (view?.state !== 'OPEN' || typeof view.headRefOid !== 'string')
     return `not open (${String(view?.state)})`
   return view.headRefOid
 }
 
-function reviewRefusal(task: string, review: JournalLine, gh: GhRunner): string | null {
+function reviewRefusal(task: string, review: JournalLine, gh: GhCaller): string | null {
   const nothing = `so ${ANSWER_FLAG} has nothing to answer`
   if (review.verdict !== 'changes' || typeof review.pr !== 'number')
     return `the last journal line of #${task} is ${describeLine(review)}, not a changes verdict, ${nothing}`
@@ -85,7 +82,7 @@ function reviewRefusal(task: string, review: JournalLine, gh: GhRunner): string 
   return null
 }
 
-export function answerRefusal(journalFile: string, task: string | undefined, dir: string, gh: GhRunner = execGh): string | null {
+export function answerRefusal(journalFile: string, task: string | undefined, dir: string, gh: GhCaller = execGh): string | null {
   if (task === undefined)
     return `${ANSWER_FLAG} names no card`
   const journal = existsSync(journalFile) ? readFileSync(journalFile, 'utf8') : ''
@@ -110,7 +107,7 @@ export function launchArgv(shiftArgs: string[]): string[] {
   return ['nohup', 'pnpm', 'shift', ...shiftArgs]
 }
 
-export function runBg(argv: string[], env: NodeJS.ProcessEnv, gh: GhRunner, isolation: IsolationReader): BgResult {
+export function runBg(argv: string[], env: NodeJS.ProcessEnv, gh: GhCaller, isolation: IsolationReader): BgResult {
   const dir = argv[0]
   if (dir === undefined || dir.startsWith('-'))
     return { stdout: [], stderr: [USAGE], exitCode: 2 }

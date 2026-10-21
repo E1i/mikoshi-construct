@@ -1,4 +1,4 @@
-import type { GhRunner } from '../core/gh.js'
+import type { GhCaller } from '../core/gh.js'
 import type { OwnerMergeKind } from '../shredder/reader.js'
 import type { CarryDeps, MergeResult } from './merge.js'
 import { execFileSync } from 'node:child_process'
@@ -11,7 +11,7 @@ import { parseCard } from '../../src/card/grammar.js'
 import { pollHead } from '../bus/head-poll.js'
 import { HEAD_READS } from '../bus/update-executor.js'
 import { blockFor, SETTLE_MS } from '../bus/update-worker.js'
-import { execGh } from '../core/gh.js'
+import { execGh, readGhJson } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
@@ -27,7 +27,7 @@ const PR_FIELDS = 'number,createdAt,headRefOid,mergeStateStatus,autoMergeRequest
 const REVIEW_CONTEXT = 'review'
 
 export interface CurrentDeps {
-  gh: GhRunner
+  gh: GhCaller
   carry: CarryDeps
   ownerMergesText: () => string
   journal: () => string | null
@@ -129,15 +129,19 @@ function reviewMissingLine(task: string, pr: OpenPr, now: Date): string {
   return `${JSON.stringify({ event: REVIEW_MISSING_EVENT, task, pr: pr.number, head: pr.headRefOid, greenSince: new Date(greenSince(pr)!).toISOString(), ts: now.toISOString() })}\n`
 }
 
+function headOf(deps: CurrentDeps, number: string): string {
+  const read = readPrView(deps.gh, number)
+  if (read.kind === 'failed')
+    throw new Error(read.reason)
+  return read.value.headRefOid
+}
+
 function update(item: Kept, deps: CurrentDeps): string[] {
   const number = String(item.pr.number)
-  try {
-    deps.gh(['pr', 'update-branch', number, '-R', REPO])
-  }
-  catch (error) {
-    return [`${PREFIX}PR #${number} not updated, left alone: ${firstLine(error)}`]
-  }
-  const poll = pollHead({ from: item.pr.headRefOid, read: () => readPrView(deps.gh, number).headRefOid, settle: deps.settle, reads: HEAD_READS })
+  const updated = deps.gh(['pr', 'update-branch', number, '-R', REPO])
+  if (updated.kind === 'failed')
+    return [`${PREFIX}PR #${number} not updated, left alone: ${firstLine(updated.reason)}`]
+  const poll = pollHead({ from: item.pr.headRefOid, read: () => headOf(deps, number), settle: deps.settle, reads: HEAD_READS })
   if (poll.kind === 'still')
     return [`${PREFIX}PR #${number} updated, its review not carried: its head did not move from ${item.pr.headRefOid} after ${HEAD_READS} reads`]
   if (poll.kind === 'unread')
@@ -151,10 +155,12 @@ function update(item: Kept, deps: CurrentDeps): string[] {
 }
 
 export function runCurrent(deps: CurrentDeps): MergeResult {
-  let open: OpenPr[]
+  const listed = readGhJson<OpenPr[]>(deps.gh, ['pr', 'list', '-R', REPO, '--state', 'open', '--limit', '200', '--json', PR_FIELDS])
+  if (listed.kind === 'failed')
+    return { stdout: [], stderr: [`${PREFIX}open pull requests not read: ${firstLine(listed.reason)}`], exitCode: 1 }
+  const open = listed.value
   let kinds: OwnerMergeKind[]
   try {
-    open = JSON.parse(deps.gh(['pr', 'list', '-R', REPO, '--state', 'open', '--limit', '200', '--json', PR_FIELDS])) as OpenPr[]
     kinds = readOwnerMergeKinds(deps.ownerMergesText())
   }
   catch (error) {

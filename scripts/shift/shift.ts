@@ -4,7 +4,7 @@ import type { CheapForecast, CheapRow } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { ChainState } from '../bus/chain.js'
 import type { BusEvent } from '../bus/db.js'
-import type { GhRunner } from '../core/gh.js'
+import type { GhCaller } from '../core/gh.js'
 import type { HandedContract, TaskStartDeps, TaskStartJournalReader, TaskStartResult } from '../ghosts/task-start.js'
 import type { ChainMoment } from './chain-bus.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
@@ -37,7 +37,7 @@ import { MERGE_DONE } from '../bus/card-automaton.js'
 import { WAITING } from '../bus/chain.js'
 import { defaultBusPath } from '../bus/db.js'
 import { CARD_STARTED, POLICY_DENIED } from '../bus/inbox.js'
-import { execGh, prDetails } from '../core/gh.js'
+import { execGh, prDetails, readGhJson, stdoutOrThrow } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { VERIFICATION_WORDS } from '../core/verification.js'
 import { formatCheapExpect } from '../ghosts/cheap-expect.js'
@@ -145,7 +145,7 @@ export interface ShiftDeps {
   projectsDir: string
   git: TaskStartDeps['git']
   install: TaskStartDeps['install']
-  gh: GhRunner
+  gh: GhCaller
   listDir: (dir: string) => string[]
   read: (file: string) => string
   exists: (target: string) => boolean
@@ -206,7 +206,7 @@ function keepCurrent(deps: ShiftDeps, journal: string): void {
 
 function recordShiftMerges(deps: ShiftDeps, journal: string, dir: string): void {
   try {
-    const result = recordMerges({ gh: deps.gh, journal, readJournal: deps.readJournal, append: deps.append, now: deps.now })
+    const result = recordMerges({ gh: stdoutOrThrow(deps.gh), journal, readJournal: deps.readJournal, append: deps.append, now: deps.now })
     const summary = mergedSummary(result)
     if (summary === null)
       return
@@ -276,14 +276,11 @@ function forecastLines(forecasts: CardForecast[], left: Choice['left']): string[
   return [...table, forecastTotal(forecasts, left)]
 }
 
-function openPrs(gh: GhRunner): OpenPr[] | string {
-  try {
-    const listed = JSON.parse(gh(['pr', 'list', '-R', REPO, '--state', 'open', '--limit', '1000', '--json', 'number,headRefName,files'])) as { number: number, headRefName: string, files: { path: string }[] | null }[]
-    return listed.map(pr => ({ number: pr.number, headRefName: pr.headRefName, files: (pr.files ?? []).map(file => file.path) }))
-  }
-  catch (error) {
-    return (error instanceof Error ? error.message : String(error)).split('\n')[0]!
-  }
+function openPrs(gh: GhCaller): OpenPr[] | string {
+  const listed = readGhJson<{ number: number, headRefName: string, files: { path: string }[] | null }[]>(gh, ['pr', 'list', '-R', REPO, '--state', 'open', '--limit', '1000', '--json', 'number,headRefName,files'])
+  if (listed.kind === 'failed')
+    return listed.reason.split('\n')[0]!
+  return listed.value.map(pr => ({ number: pr.number, headRefName: pr.headRefName, files: (pr.files ?? []).map(file => file.path) }))
 }
 
 function warnOpenPrs(deps: ShiftDeps, tasks: ShiftTask[]): void {
@@ -407,7 +404,7 @@ function mergeLines(deps: ShiftDeps, task: ShiftTask, number: string, text: stri
     return [...lines, `${MERGE_PREFIX}PR #${number} a guard refused in the session; shard ${shard} not applied, merge is Eli's`]
   if (delegation.stopped)
     return [...lines, `${MERGE_PREFIX}PR #${number} the session stopped on its Eddies budget; shard ${shard} not applied, merge is Eli's`]
-  return [...lines, ...delegatedMerge({ gh: deps.gh, journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard, delegation.reviewed)]
+  return [...lines, ...delegatedMerge({ gh: stdoutOrThrow(deps.gh), journal: path.join(deps.handoffDir, GHOST_JOURNAL), append: deps.append, now: deps.now }, task.id, number, shard, delegation.reviewed)]
 }
 
 function prAfterSession(deps: ShiftDeps, task: ShiftTask, session: { worktree: string, id: string }, report: string, delegation: Delegation, endedWhole: boolean): { pr: string, lines: string[] } | { problem: string } | undefined {
@@ -417,7 +414,7 @@ function prAfterSession(deps: ShiftDeps, task: ShiftTask, session: { worktree: s
       closeProbeFromReport(deps, task, session, text)
     return undefined
   }
-  const fromTree: TreePr = endedWhole ? treePr(deps, shiftTreeCard(task), session.worktree, text) : { kind: 'clean' }
+  const fromTree: TreePr = endedWhole ? treePr({ git: deps.git, gh: stdoutOrThrow(deps.gh) }, shiftTreeCard(task), session.worktree, text) : { kind: 'clean' }
   if (fromTree.kind === 'problem')
     return { problem: fromTree.why }
   const pr = fromTree.kind === 'pr' ? fromTree.number : text === null ? undefined : REPORT_PR_LINE.exec(text)?.[1]
@@ -867,18 +864,16 @@ function chainEnd(stop: StopRecord): ChainEnd {
 }
 
 function watchPr(deps: ShiftDeps, number: number): PrWatch {
-  try {
-    const view = JSON.parse(deps.gh(['pr', 'view', String(number), '-R', REPO, '--json', 'headRefName,headRefOid,state'])) as { headRefName: string, headRefOid: string, state?: string }
-    if (view.state === 'CLOSED')
-      return { state: 'closed' }
-    if (view.state === 'MERGED')
-      return { state: 'merged' }
-    const red = prDetails(deps.gh, REPO, { number, headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null }).ci.state === 'red'
-    return red ? { state: 'red' } : { state: 'open', head: view.headRefOid }
-  }
-  catch (error) {
-    return { error: (error instanceof Error ? error.message : String(error)).split('\n')[0]! }
-  }
+  const read = readGhJson<{ headRefName: string, headRefOid: string, state?: string }>(deps.gh, ['pr', 'view', String(number), '-R', REPO, '--json', 'headRefName,headRefOid,state'])
+  if (read.kind === 'failed')
+    return { error: read.reason.split('\n')[0]! }
+  const view = read.value
+  if (view.state === 'CLOSED')
+    return { state: 'closed' }
+  if (view.state === 'MERGED')
+    return { state: 'merged' }
+  const red = prDetails(stdoutOrThrow(deps.gh), REPO, { number, headRefName: view.headRefName, headRefOid: view.headRefOid, state: 'OPEN', mergedAt: null, mergeCommit: null }).ci.state === 'red'
+  return red ? { state: 'red' } : { state: 'open', head: view.headRefOid }
 }
 
 interface Review extends InReview {

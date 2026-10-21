@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Decision } from '../../src/card/grammar.js'
 import type { GitHub } from '../bus/github.js'
 import type { Step } from '../bus/review-worker.js'
-import type { GhRunner } from '../core/gh.js'
+import type { GhCaller, GhRead } from '../core/gh.js'
 import type { GitRunner } from '../ghosts/sketch.js'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { OwnerMergeKind } from '../shredder/reader.js'
@@ -22,7 +22,7 @@ import { fullReview } from '../bus/review-depth.js'
 import { ReviewWorker, SPAWNS_NO_SESSION } from '../bus/review-worker.js'
 import { UPDATE_DONE } from '../bus/update-done.js'
 import { manualUpdateDone } from '../bus/update-executor.js'
-import { execGh } from '../core/gh.js'
+import { execGh, readGhJson } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { reviewCarry } from '../ghosts/review-carry.js'
 import { ghStatusPublisher, REVIEW_CARRY_EVENT, reviewStatus } from '../ghosts/verdict.js'
@@ -43,7 +43,7 @@ export type MergeVerdict
     | { kind: 'owner-paths', paths: string[] }
 
 export interface MergeDeps {
-  gh: GhRunner
+  gh: GhCaller
   ownerMergesText: () => string
 }
 
@@ -86,30 +86,23 @@ function firstLine(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).split('\n')[0]!
 }
 
-export function readPrView(gh: GhRunner, number: string): PrView {
-  return JSON.parse(gh(['pr', 'view', number, '-R', REPO, '--json', 'body,headRefOid,files'])) as PrView
+export function readPrView(gh: GhCaller, number: string): GhRead<PrView> {
+  return readGhJson<PrView>(gh, ['pr', 'view', number, '-R', REPO, '--json', 'body,headRefOid,files'])
 }
 
-export function changedFiles(gh: GhRunner, number: string): string[] {
-  try {
-    return (readPrView(gh, number).files ?? []).map(file => file.path)
-  }
-  catch {
-    return []
-  }
+export function changedFiles(gh: GhCaller, number: string): string[] {
+  const read = readPrView(gh, number)
+  return read.kind === 'read' ? (read.value.files ?? []).map(file => file.path) : []
 }
 
 export function runMerge(argv: string[], deps: MergeDeps, reviewed?: string): MergeResult {
   const number = argv[0]
   if (argv.length !== 1 || number === undefined || !/^\d+$/.test(number))
     return refuse(USAGE)
-  let view: PrView
-  try {
-    view = readPrView(deps.gh, number)
-  }
-  catch (error) {
-    return refuse(`PR #${number} not read: ${firstLine(error)}`)
-  }
+  const read = readPrView(deps.gh, number)
+  if (read.kind === 'failed')
+    return refuse(`PR #${number} not read: ${firstLine(read.reason)}`)
+  const view = read.value
   const card = readBodyCard(view.body)
   if (card.kind === 'refused')
     return refuse(`the first line of PR #${number} is not the task's card (${card.reason})`)
@@ -188,14 +181,11 @@ export function passedAt(review: PrReview | undefined, head: string): boolean {
   return review?.verdict === 'pass' && review.commit === head
 }
 
-export function readPrReview(gh: GhRunner, number: number, verdict: ReviewVerdict, commit: string): PrReview | string {
-  let view: { body?: unknown, headRefOid?: unknown } | null
-  try {
-    view = JSON.parse(gh(['pr', 'view', String(number), '-R', REPO, '--json', 'body,headRefOid,files'])) as typeof view
-  }
-  catch (error) {
-    return `PR #${number} not read: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]!}`
-  }
+export function readPrReview(gh: GhCaller, number: number, verdict: ReviewVerdict, commit: string): PrReview | string {
+  const read = readGhJson<{ body?: unknown, headRefOid?: unknown } | null>(gh, ['pr', 'view', String(number), '-R', REPO, '--json', 'body,headRefOid,files'])
+  if (read.kind === 'failed')
+    return `PR #${number} not read: ${firstLine(read.reason)}`
+  const view = read.value
   if (typeof view?.body !== 'string' || typeof view.headRefOid !== 'string')
     return `PR #${number} not read: gh returned no body and head`
   if (view.headRefOid !== commit)
@@ -213,7 +203,7 @@ const SHA = /^[0-9a-f]{7,40}$/
 const VERDICT_PREFIX = '[shift:verdict] '
 
 export interface VerdictDeps {
-  gh: GhRunner
+  gh: GhCaller
   gitHub: GitHub
   bus: string
   session: string | undefined
@@ -283,7 +273,7 @@ const CARRY_PREFIX = '[shift:carry] '
 const ORIGIN_MAIN = 'origin/main'
 
 export interface CarryDeps {
-  gh: GhRunner
+  gh: GhCaller
   git: GitRunner
   fetch: (number: string) => void
   journal: () => string | null
@@ -299,13 +289,10 @@ export function runCarry(argv: string[], deps: CarryDeps, expected?: string): Me
   const number = argv.find(arg => arg !== CARRY_FLAG)
   if (argv.length !== 2 || !argv.includes(CARRY_FLAG) || number === undefined || !/^\d+$/.test(number))
     return carryRefused(CARRY_USAGE)
-  let view: PrView
-  try {
-    view = readPrView(deps.gh, number)
-  }
-  catch (error) {
-    return carryRefused(`PR #${number} not read: ${firstLine(error)}`)
-  }
+  const read = readPrView(deps.gh, number)
+  if (read.kind === 'failed')
+    return carryRefused(`PR #${number} not read: ${firstLine(read.reason)}`)
+  const view = read.value
   if (expected !== undefined && view.headRefOid !== expected)
     return carryRefused(`PR #${number} head is ${view.headRefOid}, not the updated head ${expected}`)
   const card = readBodyCard(view.body)
@@ -355,13 +342,10 @@ export function runUpdated(argv: string[], deps: UpdatedDeps): MergeResult {
   const [number, flag, from] = argv
   if (argv.length !== 3 || flag !== UPDATED_FLAG || number === undefined || !/^\d+$/.test(number) || from === undefined || !/^[0-9a-f]{40}$/.test(from))
     return updatedRefused(UPDATED_USAGE)
-  let view: PrView
-  try {
-    view = readPrView(deps.gh, number)
-  }
-  catch (error) {
-    return updatedRefused(`PR #${number} not read: ${firstLine(error)}`)
-  }
+  const read = readPrView(deps.gh, number)
+  if (read.kind === 'failed')
+    return updatedRefused(`PR #${number} not read: ${firstLine(read.reason)}`)
+  const view = read.value
   const card = readBodyCard(view.body)
   if (card.kind === 'refused')
     return updatedRefused(`the first line of PR #${number} is not the task's card (${card.reason})`)

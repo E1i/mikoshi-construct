@@ -9,7 +9,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { PR_OPENED } from '../bus/card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../bus/inbox.js'
-import { execGh } from '../core/gh.js'
+import { execGh, stdoutOrThrow } from '../core/gh.js'
 import { shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift:tree-pr] '
@@ -69,7 +69,7 @@ const REAL_BUS: PrOpenedBus = { busPath: defaultBusPath(), pid: process.pid, now
 
 const REAL_PORTS: TreePrCliPorts = {
   git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
-  gh: execGh,
+  gh: stdoutOrThrow(execGh),
   opened: busPrOpened(REAL_BUS),
   stopped: busCardStopped(REAL_BUS),
 }

@@ -17,6 +17,7 @@ export interface GhSpawned {
 export interface GhSpawnOptions {
   cwd?: string
   input?: string
+  env?: NodeJS.ProcessEnv
   timeoutMs: number
 }
 
@@ -40,6 +41,7 @@ export interface GhPortOptions {
 export interface GhCallOptions {
   cwd?: string
   input?: string
+  env?: NodeJS.ProcessEnv
 }
 
 const TRANSIENT_STDERR = /HTTP 5\d\d|HTTP 403|\bTLS\b|tls:|ETIMEDOUT|i\/o timeout|connection reset/i
@@ -50,7 +52,7 @@ export const GH_PAUSE_MS = 2000
 export const GH_HOURLY_BUDGET: GhBudget = { calls: 2000, windowMs: 3_600_000 }
 
 function spawnGh(command: string, args: string[], options: GhSpawnOptions): GhSpawned {
-  const run = spawnSync(command, args, { cwd: options.cwd, input: options.input, encoding: 'utf8', stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], timeout: options.timeoutMs, killSignal: 'SIGKILL' })
+  const run = spawnSync(command, args, { cwd: options.cwd, input: options.input, env: options.env, encoding: 'utf8', stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], timeout: options.timeoutMs, killSignal: 'SIGKILL' })
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '', error: run.error }
 }
 
@@ -142,12 +144,6 @@ const PASSING = ['SUCCESS', 'SKIPPED', 'NEUTRAL']
 
 const GH_QUERY_FAILED = 'the gh query failed'
 
-export class GhTimedOut extends Error {
-  constructor(seconds: number) {
-    super(`gh timed out after ${seconds} s`)
-  }
-}
-
 export class GhFailed extends Error {
   readonly stderr: string
 
@@ -157,34 +153,56 @@ export class GhFailed extends Error {
   }
 }
 
-export function ghRunner(timeoutSeconds: number, command = 'gh', port: GhPort = ghPort({ command, timeoutSeconds })): GhRunner {
-  let expired: GhTimedOut | undefined
+export class GhTimedOut extends GhFailed {}
+
+export type GhCaller = (args: string[]) => GhCall
+
+export function ghRunner(timeoutSeconds: number, command = 'gh', port: GhPort = ghPort({ command, timeoutSeconds })): GhCaller {
+  let expired: GhCall | undefined
   return (args) => {
     if (expired !== undefined)
-      throw expired
+      return expired
     const result = port.call(args)
-    if (result.kind === 'ran')
-      return result.stdout
-    if (result.cause === 'timeout')
-      throw (expired = new GhTimedOut(timeoutSeconds))
-    throw new GhFailed(result)
+    if (result.kind === 'failed' && result.cause === 'timeout')
+      expired = result
+    return result
   }
 }
 
-export const execGh: GhRunner = ghRunner(GH_TIMEOUT_SECONDS)
+export const execGh: GhCaller = ghRunner(GH_TIMEOUT_SECONDS)
+
+export function stdoutOrThrow(gh: GhCaller): GhRunner {
+  return (args) => {
+    const result = gh(args)
+    if (result.kind === 'ran')
+      return result.stdout
+    throw result.cause === 'timeout' ? new GhTimedOut(result) : new GhFailed(result)
+  }
+}
+
+export type GhRead<T> = { kind: 'read', value: T } | { kind: 'failed', reason: string, cause: GhFailureCause | 'unparsed' }
+
+export function readGhJson<T>(gh: GhCaller, args: string[]): GhRead<T> {
+  const result = gh(args)
+  if (result.kind === 'failed')
+    return { kind: 'failed', reason: result.reason, cause: result.cause }
+  try {
+    return { kind: 'read', value: JSON.parse(result.stdout) as T }
+  }
+  catch (error) {
+    return { kind: 'failed', reason: error instanceof Error ? error.message : String(error), cause: 'unparsed' }
+  }
+}
 
 function reasonOf(error: unknown): string {
   return error instanceof GhTimedOut ? error.message : GH_QUERY_FAILED
 }
 
-export function listPrs(gh: GhRunner, repo: string): PrList {
-  try {
-    const prs = JSON.parse(gh(['pr', 'list', '-R', repo, '--state', 'all', '--limit', String(PR_LIST_LIMIT), '--json', 'number,title,headRefName,headRefOid,state,mergedAt,mergeCommit'])) as PullRequest[]
-    return { kind: 'listed', prs, truncated: prs.length >= PR_LIST_LIMIT }
-  }
-  catch (error) {
-    return error instanceof GhTimedOut ? { kind: 'failed', reason: error.message } : { kind: 'failed' }
-  }
+export function listPrs(gh: GhCaller, repo: string): PrList {
+  const read = readGhJson<PullRequest[]>(gh, ['pr', 'list', '-R', repo, '--state', 'all', '--limit', String(PR_LIST_LIMIT), '--json', 'number,title,headRefName,headRefOid,state,mergedAt,mergeCommit'])
+  if (read.kind === 'failed')
+    return read.cause === 'timeout' ? { kind: 'failed', reason: read.reason } : { kind: 'failed' }
+  return { kind: 'listed', prs: read.value, truncated: read.value.length >= PR_LIST_LIMIT }
 }
 
 export function lookupPr(list: PrList, branch: string | undefined): PrLookup {
