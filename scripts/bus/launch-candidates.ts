@@ -7,6 +7,7 @@ import { NOT_A_BACKFILL } from './backfill-source.js'
 import { prOf } from './identifiers.js'
 import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { namesQueueLive } from './live-decision.js'
+import { beatsLive } from './liveness-sites.js'
 
 export const CARD_ADMITTED = 'card.admitted'
 export const CARD_CLOSED = 'card.closed'
@@ -17,6 +18,7 @@ export type Contour = 'cheap' | 'ladder'
 const CARD_FELL_EVENT = 'card.fell'
 const GHOST_ROW_EVENT = 'ghost.row'
 const FREE_ROW = 'free'
+const SESSION_HEARTBEAT_EVENT = 'session.heartbeat'
 
 const CARD_LIFE = `
   SELECT id, type, card_id, dedupe_key, payload FROM events
@@ -50,8 +52,15 @@ const ENDED_CARDS = `SELECT card_id FROM cards WHERE state IN ('dropped', 'close
 const NO_LONGER_CANDIDATES = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged')`
 
 const STARTED_TREES = `
-  SELECT DISTINCT card_id, json_extract(payload, '$.worktree') AS worktree FROM events
+  SELECT card_id, json_extract(payload, '$.worktree') AS worktree FROM events
   WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, '$.worktree') = 'text'
+  ORDER BY id
+`
+
+const LAST_SESSION_BEATS = `
+  SELECT card_id, max(ts) AS ts FROM events
+  WHERE legacy = 0 AND type = '${SESSION_HEARTBEAT_EVENT}' AND card_id IS NOT NULL
+  GROUP BY card_id
 `
 
 export type TreeReader = (worktree: string) => boolean
@@ -72,6 +81,7 @@ export interface LaunchableCard {
 export interface LaunchCandidate {
   cardId: number
   generation: string
+  continueIn?: string
 }
 
 interface CardLife {
@@ -204,21 +214,31 @@ export function launchableCard(db: DatabaseSync, cardId: number): LaunchableCard
   return isQueued(life, settled) || reviewDue(life, settled) ? { lane: life.lane, contour: life.contour } : null
 }
 
-function cardsWithLiveTree(db: DatabaseSync, treeLive: TreeReader): Set<number> {
-  return new Set((db.prepare(STARTED_TREES).all() as { card_id: number, worktree: string }[]).filter(row => treeLive(row.worktree)).map(row => row.card_id))
+function standingTrees(db: DatabaseSync, treeLive: TreeReader): Map<number, string> {
+  return new Map((db.prepare(STARTED_TREES).all() as { card_id: number, worktree: string }[]).filter(row => treeLive(row.worktree)).map(row => [row.card_id, row.worktree]))
 }
 
-function heldOutside(life: CardLife, openPrs: Set<number>, liveTrees: Set<number>): boolean {
-  return openPrs.has(life.cardId) || (life.contour === 'cheap' && liveTrees.has(life.cardId))
+function cardsBeatingLive(db: DatabaseSync, nowMs: number): Set<number> {
+  return new Set((db.prepare(LAST_SESSION_BEATS).all() as { card_id: number, ts: string }[]).filter(row => beatsLive(row.ts, nowMs)).map(row => row.card_id))
 }
 
-export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync): LaunchCandidate[] {
+function heldOutside(life: CardLife, openPrs: Set<number>, trees: Map<number, string>, beating: Set<number>): boolean {
+  return openPrs.has(life.cardId) || (life.contour === 'cheap' && trees.has(life.cardId) && beating.has(life.cardId))
+}
+
+function continuedTree(life: CardLife, trees: Map<number, string>): { continueIn?: string } {
+  const tree = life.contour === 'cheap' ? trees.get(life.cardId) : undefined
+  return tree === undefined ? {} : { continueIn: tree }
+}
+
+export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now): LaunchCandidate[] {
   const lives = cardLives(db)
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
   const launching = cardSet(db, OPEN_LAUNCHES)
   const openPrs = cardSet(db, OPEN_PR_CARDS)
-  const liveTrees = cardsWithLiveTree(db, treeLive)
+  const trees = standingTrees(db, treeLive)
+  const beating = cardsBeatingLive(db, now())
   const ended = cardSet(db, ENDED_CARDS)
   const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
@@ -240,12 +260,12 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, liveTrees))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, trees, beating))
       continue
     busy.add(life.lane)
     if (life.task !== null)
       taken.push(life.task)
-    chosen.push({ cardId: life.cardId, generation: life.generation })
+    chosen.push({ cardId: life.cardId, generation: life.generation, ...continuedTree(life, trees) })
   }
   return chosen
 }

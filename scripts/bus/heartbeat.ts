@@ -8,12 +8,17 @@ import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { isFullSha, prOf } from './identifiers.js'
 import { LEASE_FOLDS, SESSION_HEARTBEAT } from './lease.js'
 import { storedByKey } from './stored.js'
+import { WINDOW_HEARTBEAT } from './window-heartbeat.js'
 
 export const PR_VARIABLE = 'CONSTRUCT_PR'
 export const HEAD_VARIABLE = 'CONSTRUCT_HEAD'
 export const STEP_VARIABLE = 'CONSTRUCT_STEP'
 export const LEASE_VARIABLE = 'CONSTRUCT_LEASE'
 export const LEASE_GEN_VARIABLE = 'CONSTRUCT_LEASE_GEN'
+
+export const PROCESS_HEARTBEAT = 'process.heartbeat'
+export const CARD_PROCESS = 'card:'
+export const WINDOW_PROCESS = 'window:'
 
 const POSITIVE_NUMBER = /^[1-9]\d*$/
 const SESSION_ID = /^[^:\s]+$/
@@ -22,6 +27,32 @@ const LAST_HEARTBEAT = `
   SELECT ts, pr, head, payload FROM events WHERE type = '${SESSION_HEARTBEAT}' AND card_id = ?
   ORDER BY id DESC LIMIT 1
 `
+
+const LAST_PROCESS_BEATS = `
+  SELECT name, max(ts) AS ts FROM (
+    SELECT json_extract(payload, '$.process') AS name, ts FROM events WHERE type = '${PROCESS_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
+    UNION ALL
+    SELECT '${CARD_PROCESS}' || card_id AS name, ts FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL
+    UNION ALL
+    SELECT '${WINDOW_PROCESS}' || json_extract(payload, '$.session') AS name, ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
+  )
+  WHERE name IS NOT NULL
+  GROUP BY name
+  ORDER BY name
+`
+
+export interface ProcessBeat {
+  process: string
+  ts: string
+}
+
+export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string): boolean {
+  return appendEvent(db, { ts, type: PROCESS_HEARTBEAT, actor: `worker:process:${name.replaceAll(':', '-')}`, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_HEARTBEAT}:${name}:${ts}`, payload: { process: name }, legacy: false })
+}
+
+export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {
+  return (db.prepare(LAST_PROCESS_BEATS).all() as { name: string, ts: string }[]).map(row => ({ process: row.name, ts: row.ts }))
+}
 
 export interface HeldLease {
   taskKey: string
