@@ -408,7 +408,7 @@ export function keyOf(task: QueuedTask): string {
   return task.stop === undefined ? key : `${key}:stop-${task.stop}`
 }
 
-function answerCardBodyOf(row: Candidate): string | undefined {
+export function answerCardBodyOf(row: Pick<Candidate, 'card_body'>): string | undefined {
   return typeof row.card_body === 'string' && BODY_SHA.test(row.card_body) ? row.card_body : undefined
 }
 

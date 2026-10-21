@@ -21,7 +21,7 @@ import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { BOARD_ALARM, FAILURES_TO_STOP, identityOf, keyOf, queueTask, TASK_ENQUEUED, TASK_FOLDS, TASK_REQUEUED } from '../../bus/queue.js'
+import { answerCardBodyOf, BOARD_ALARM, FAILURES_TO_STOP, identityOf, keyOf, queueTask, TASK_ENQUEUED, TASK_FOLDS, TASK_REQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REJECTED } from '../../bus/rejection.js'
 import { SHARD_ISSUED } from '../../bus/shards.js'
@@ -1020,5 +1020,11 @@ describe('the key of a task that carries a card body', () => {
   it('keyOf refuses a malformed card body on an answer task', () => {
     for (const cardBody of ['', 'xyz', 'ABCDEF0123456789', '0123abc'])
       expect(() => keyOf({ queue: 'answer', cardId: 1114, pr: 1014, head: sha('a'), cardBody })).toThrow('only an answer task carries a card body sha')
+  })
+
+  it('answerCardBodyOf carries only a well-formed card body sha from a candidate row', () => {
+    expect(answerCardBodyOf({ card_body: BODY })).toBe(BODY)
+    for (const card_body of [undefined, null, 1146, '', 'xyz', 'ABCDEF0123456789', '0123abc', `${BODY}${BODY}${BODY}${BODY}${BODY}`])
+      expect(answerCardBodyOf({ card_body })).toBeUndefined()
   })
 })
