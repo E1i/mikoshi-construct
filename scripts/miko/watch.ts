@@ -1,7 +1,7 @@
 import type { WindowPr } from '../bus/window-prs.js'
 import type { WatchCursor } from './watch-store.js'
 import { Buffer } from 'node:buffer'
-import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, MERGE_DONE, REVIEW_RECORDED, RUNNING_CARD, STOPPED_CARD } from '../bus/card-automaton.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
+import { CARD_PROCESS } from '../bus/heartbeat.js'
 import { CARD_STOPPED, POLICY_DENIED } from '../bus/inbox.js'
 import { CARD_CLOSED } from '../bus/launch-candidates.js'
 import { CARD_WAITING } from '../bus/launch-worker.js'
@@ -16,7 +17,7 @@ import { HEARTBEAT_QUEUES, LEASE_EXPIRED, TASK_EXPIRED } from '../bus/lease.js'
 import { PR_CLOSED } from '../bus/observations.js'
 import { PR_OBSERVED } from '../bus/operator-work.js'
 import { REVIEW_ROUNDS_SPENT } from '../bus/review-executor.js'
-import { WORKER_DOWN } from '../bus/supervisor.js'
+import { PROCESS_JUDGED, WORKER_DOWN } from '../bus/supervisor.js'
 import { windowBeat, windowSessionOf } from '../bus/window-heartbeat.js'
 import { windowOpenPrs } from '../bus/window-prs.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
@@ -26,7 +27,7 @@ import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore } from './watch-store.js'
 
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN]
+export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED]
 export const HEAD_BOUND_EVENTS = [STOP_EVENT, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, CARD_STOPPED]
 export const FAILED_CI = 'red'
 export const DENIALS_IN_A_ROW = 2
@@ -36,12 +37,13 @@ export const BUS_ALIVE_MS = 2 * 60_000
 export const BUS_PULSE = 'netwatch.tick'
 export const IN_FLIGHT_CARDS = [RUNNING_CARD, IN_REVIEW_CARD]
 export const POLL_MS = 500
-export const USAGE = 'usage: pnpm miko:watch [--once [--card <N>]] [--pid <pid>…]'
+export const USAGE = 'usage: pnpm miko:watch [--once [--card <N>]]'
 export const ONCE = '--once'
 export const CARD = '--card'
 export const WATCHING = 'miko:watch: what is already there is read; watching for what comes next'
 export const WATCHING_FROM_CURSOR = 'miko:watch: reading from the --once cursor; watching'
 export const LEGACY_CURSOR = 'miko-watch.json'
+export const WOKEN_STALLS = 'miko-watch-stalls.json'
 
 export function skippedLine(busId: number): string {
   return `skipped through bus id ${busId}`
@@ -60,7 +62,6 @@ export interface WatchState {
   deniedByTask: Map<string, DenialRun>
   stalls: Set<string>
   stuck: Set<string>
-  pids: Set<number>
 }
 
 export interface CardActivity {
@@ -99,7 +100,8 @@ export interface WatchDeps {
   observedHeads: (pr: number) => string[]
   stalls: () => CardActivity[]
   stuck: () => StuckPr[]
-  alive: (pid: number) => boolean
+  wokenStalls: () => ReadonlyMap<number, number>
+  rememberStalls: (woken: readonly CardActivity[]) => void
   emit: (line: string) => Promise<void>
   beforeCommit: () => Promise<void>
   beat: () => void
@@ -111,14 +113,11 @@ export interface Delivery {
 }
 
 export interface WatchArgs {
-  pids: number[]
   once: boolean
   card?: number
 }
 
 export function parseWatchArgs(args: string[]): WatchArgs | undefined {
-  const pids: number[] = []
-  let afterPid = false
   let afterCard = false
   let once = false
   let card: number | undefined
@@ -134,24 +133,13 @@ export function parseWatchArgs(args: string[]): WatchArgs | undefined {
       once = true
       continue
     }
-    if (arg === CARD) {
-      if (afterPid && pids.length === 0)
-        return undefined
-      afterCard = true
-      afterPid = false
-      continue
-    }
-    if (arg === '--pid') {
-      afterPid = true
-      continue
-    }
-    if (!afterPid || !/^[1-9]\d*$/.test(arg))
+    if (arg !== CARD)
       return undefined
-    pids.push(Number(arg))
+    afterCard = true
   }
-  if (afterCard || (afterPid && pids.length === 0) || (card !== undefined && !once))
+  if (afterCard || (card !== undefined && !once))
     return undefined
-  return card === undefined ? { pids, once } : { pids, once, card }
+  return card === undefined ? { once } : { once, card }
 }
 
 function journalCard(line: string): number | undefined {
@@ -248,9 +236,9 @@ export function wakingEvent(line: string): string | undefined {
   }
 }
 
-export function watchState(deps: WatchDeps, pids: number[]): WatchState {
+export function watchState(deps: WatchDeps): WatchState {
   const busId = deps.lastBusId()
-  return { offset: deps.size(), rest: '', busId, ciByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)), pids: new Set(pids) }
+  return { offset: deps.size(), rest: '', busId, ciByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
 }
 
 function journalLines(state: WatchState, deps: WatchDeps): string[] {
@@ -334,13 +322,6 @@ function busLines(state: WatchState, deps: WatchDeps): string[] {
   return events.filter(event => wakesTheWindow(state, event) && !ofSupersededHead(event, deps)).map(busLine)
 }
 
-function exitedPids(state: WatchState, deps: WatchDeps): string[] {
-  const exited = [...state.pids].filter(pid => !deps.alive(pid))
-  for (const pid of exited)
-    state.pids.delete(pid)
-  return exited.map(pid => `pid ${pid} exited`)
-}
-
 function newStalls(known: Set<string>, deps: WatchDeps): CardActivity[] {
   const fresh = deps.stalls().filter(stall => !known.has(stallKey(stall)))
   for (const stall of fresh)
@@ -358,7 +339,7 @@ function newStuck(known: Set<string>, deps: WatchDeps): StuckPr[] {
 export function tick(state: WatchState, deps: WatchDeps, now = Date.now()): string[] {
   const stuck = newStuck(state.stuck, deps).map(stuckLine)
   const stalls = newStalls(state.stalls, deps).map(stall => stallLine(stall, now))
-  return [...journalLines(state, deps), ...busLines(state, deps), ...exitedPids(state, deps), ...stuck, ...stalls]
+  return [...journalLines(state, deps), ...busLines(state, deps), ...stuck, ...stalls]
 }
 
 function journalDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefined): Delivery | undefined {
@@ -380,6 +361,14 @@ function journalDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | un
   return skipped
 }
 
+export function cardOfEvent(event: BusEvent): number | null {
+  if (event.cardId !== null || event.type !== PROCESS_JUDGED)
+    return event.cardId
+  const name = textOf(payloadOf(event.payload), 'process') ?? ''
+  const id = name.startsWith(CARD_PROCESS) ? name.slice(CARD_PROCESS.length) : ''
+  return /^[1-9]\d*$/.test(id) ? Number(id) : null
+}
+
 function busDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefined): Delivery | undefined {
   const end = deps.lastBusId()
   if (end < cursor.busId)
@@ -393,14 +382,14 @@ function busDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefi
       return skipped
     if (!wakesTheWindow(seen, event))
       continue
-    if (!ofSupersededHead(event, deps) && (card === undefined || event.cardId === card))
+    if (!ofSupersededHead(event, deps) && (card === undefined || cardOfEvent(event) === card))
       return { line: busLine(event), cursor: { ...cursor, busId: event.id } }
     skipped = { line: null, cursor: { ...cursor, busId: event.id } }
   }
   return skipped
 }
 
-export function selectOnce(cursor: WatchCursor, deps: WatchDeps, pids: number[], card?: number): Delivery | undefined {
+export function selectOnce(cursor: WatchCursor, deps: WatchDeps, card?: number): Delivery | undefined {
   const journal = journalDelivery(cursor, deps, card)
   if (journal?.line != null)
     return journal
@@ -409,39 +398,42 @@ export function selectOnce(cursor: WatchCursor, deps: WatchDeps, pids: number[],
   if (bus?.line != null)
     return bus
   const afterSkips = bus?.cursor ?? afterJournal
-  const exited = pids.find(pid => !deps.alive(pid))
-  if (exited !== undefined)
-    return { line: `pid ${exited} exited`, cursor: afterSkips }
   return afterSkips === cursor ? undefined : { line: null, cursor: afterSkips }
 }
 
-function stuckLines(known: WatchKnown, deps: WatchDeps, card: number | undefined, now: number): string | undefined {
-  const ofCard = (cardId: number): boolean => card === undefined || cardId === card
-  const stuck = deps.stuck().filter(each => !known.stuck.has(stuckKey(each)) && ofCard(each.cardId))
-  const stalled = deps.stalls().filter(stall => !known.stalls.has(stallKey(stall)) && ofCard(stall.cardId))
-  for (const each of stuck)
-    known.stuck.add(stuckKey(each))
-  for (const stall of stalled)
-    known.stalls.add(stallKey(stall))
-  const lines = [...stuck.map(stuckLine), ...stalled.map(stall => stallLine(stall, now))]
-  return lines.length === 0 ? undefined : lines.join('\n')
+function wokenBefore(woken: ReadonlyMap<number, number>, stall: CardActivity): boolean {
+  return stall.lastEventId <= (woken.get(stall.cardId) ?? 0)
 }
 
-type WatchKnown = Pick<WatchState, 'stalls' | 'stuck'>
+interface StuckLines {
+  text: string
+  stalled: CardActivity[]
+}
 
-export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: number[], card?: number, now: () => number = Date.now): Promise<void> {
-  const known: WatchKnown = { stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
+function stuckLines(known: Set<string>, deps: WatchDeps, card: number | undefined, now: number): StuckLines | undefined {
+  const ofCard = (cardId: number): boolean => card === undefined || cardId === card
+  const stuck = deps.stuck().filter(each => !known.has(stuckKey(each)) && ofCard(each.cardId))
+  const woken = deps.wokenStalls()
+  const stalled = deps.stalls().filter(stall => !wokenBefore(woken, stall) && ofCard(stall.cardId))
+  for (const each of stuck)
+    known.add(stuckKey(each))
+  const lines = [...stuck.map(stuckLine), ...stalled.map(stall => stallLine(stall, now))]
+  return lines.length === 0 ? undefined : { text: lines.join('\n'), stalled }
+}
+
+export async function deliverOnce(store: OnceStore, deps: WatchDeps, card?: number, now: () => number = Date.now): Promise<void> {
+  const knownStuck = new Set(deps.stuck().map(stuckKey))
   for (;;) {
     deps.beat()
     const cursor = store.cursor()
-    const selected = selectOnce(cursor, deps, pids, card)
+    const selected = selectOnce(cursor, deps, card)
     if (selected?.line === null) {
       store.write(selected.cursor)
       store.commit()
       console.error(skippedLine(selected.cursor.busId))
     }
-    const stalled = selected?.line == null ? stuckLines(known, deps, card, now()) : undefined
-    const delivery = stalled === undefined ? selected : { line: stalled, cursor: store.cursor() }
+    const stuck = selected?.line == null ? stuckLines(knownStuck, deps, card, now()) : undefined
+    const delivery = stuck === undefined ? selected : { line: stuck.text, cursor: store.cursor() }
     if (delivery?.line == null) {
       await new Promise(resolve => setTimeout(resolve, POLL_MS))
       continue
@@ -455,6 +447,8 @@ export async function deliverOnce(store: OnceStore, deps: WatchDeps, pids: numbe
     store.write(delivery.cursor)
     await deps.beforeCommit()
     store.commit()
+    if (stuck !== undefined && stuck.stalled.length > 0)
+      deps.rememberStalls(stuck.stalled)
     return
   }
 }
@@ -605,18 +599,48 @@ function legacyCursor(file: string): string | undefined {
   return existsSync(file) ? readFileSync(file, 'utf8') : undefined
 }
 
-function alive(pid: number): boolean {
+export function parseWokenStalls(text: string): Map<number, number> | undefined {
   try {
-    process.kill(pid, 0)
-    return true
+    const parsed: unknown = JSON.parse(text)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+      return undefined
+    const entries = Object.entries(parsed as Record<string, unknown>)
+    if (!entries.every(([card, id]) => /^[1-9]\d*$/.test(card) && Number.isSafeInteger(id) && (id as number) > 0))
+      return undefined
+    return new Map(entries.map(([card, id]) => [Number(card), id as number]))
   }
-  catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  catch {
+    return undefined
   }
+}
+
+function readWokenStalls(file: string): Map<number, number> {
+  if (!existsSync(file))
+    return new Map()
+  const text = readFileSync(file, 'utf8')
+  const woken = parseWokenStalls(text)
+  if (woken === undefined)
+    throw new WatchRefusal(`miko:watch: ${file} is not {"<card>": <last event id it woke on>}: ${JSON.stringify(text.slice(0, 200))}`)
+  return woken
+}
+
+export function withWoken(woken: ReadonlyMap<number, number>, stalls: readonly CardActivity[]): Map<number, number> {
+  const next = new Map(woken)
+  for (const stall of stalls)
+    next.set(stall.cardId, Math.max(next.get(stall.cardId) ?? 0, stall.lastEventId))
+  return next
+}
+
+function rememberStalls(file: string, stalls: readonly CardActivity[]): void {
+  const next = withWoken(readWokenStalls(file), stalls)
+  const draft = `${file}.draft`
+  writeFileSync(draft, `${JSON.stringify(Object.fromEntries([...next].sort((a, b) => a[0] - b[0])))}\n`)
+  renameSync(draft, file)
 }
 
 export function productionDeps(handoff: string, bus: string): WatchDeps {
   const journal = path.join(handoff, GHOST_JOURNAL)
+  const woken = path.join(handoff, WOKEN_STALLS)
   return {
     journal,
     bus,
@@ -629,14 +653,15 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     observedHeads: pr => observedHeads(bus, pr),
     stalls: () => stalls(bus, Date.now()),
     stuck: () => stuckPrs(bus),
-    alive,
+    wokenStalls: () => readWokenStalls(woken),
+    rememberStalls: stalls => rememberStalls(woken, stalls),
     emit: emitLine,
     beforeCommit: async () => {},
     beat: windowBeat(bus, windowSessionOf(process.env), Date.now),
   }
 }
 
-export async function runOnce(handoff: string, deps: WatchDeps, pids: number[], card?: number): Promise<void> {
+export async function runOnce(handoff: string, deps: WatchDeps, card?: number): Promise<void> {
   const legacy = path.join(handoff, LEGACY_CURSOR)
   const store = OnceStore.open(path.join(handoff, ONCE_STORE), { file: legacy, text: legacyCursor(legacy) }, () => ({ offset: deps.size(), busId: deps.lastBusId() }))
   try {
@@ -644,15 +669,15 @@ export async function runOnce(handoff: string, deps: WatchDeps, pids: number[], 
       rmSync(legacy, { force: true })
     console.error(store.openedLine())
     console.error(WATCHING_FROM_CURSOR)
-    await deliverOnce(store, deps, pids, card)
+    await deliverOnce(store, deps, card)
   }
   finally {
     store.close()
   }
 }
 
-async function watchForever(deps: WatchDeps, pids: number[]): Promise<void> {
-  const state = watchState(deps, pids)
+async function watchForever(deps: WatchDeps): Promise<void> {
+  const state = watchState(deps)
   console.error(WATCHING)
   for (;;) {
     deps.beat()
@@ -671,7 +696,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   const handoff = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
   const deps = productionDeps(handoff, defaultBusPath())
   try {
-    await (args.once ? runOnce(handoff, deps, args.pids, args.card) : watchForever(deps, args.pids))
+    await (args.once ? runOnce(handoff, deps, args.card) : watchForever(deps))
   }
   catch (error) {
     if (!(error instanceof WatchRefusal))

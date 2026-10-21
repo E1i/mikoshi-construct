@@ -124,7 +124,7 @@ describe('the window commands under the sandbox law', () => {
     const handoffDir = path.join(dir, 'handoff')
     mkdirSync(handoffDir)
     const deps = productionDeps(handoffDir, busPath)
-    expect(tick(watchState(deps, []), deps)).toEqual([])
+    expect(tick(watchState(deps), deps)).toEqual([])
 
     const out: string[] = []
     const err: string[] = []

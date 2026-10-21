@@ -13,7 +13,6 @@
   { "file": "scripts/miko/exit.ts", "kind": "ps" },
   { "file": "scripts/miko/loop.ts", "kind": "kill" },
   { "file": "scripts/miko/loop.ts", "kind": "ps" },
-  { "file": "scripts/miko/watch.ts", "kind": "kill" },
   { "file": "scripts/quality/lock.ts", "kind": "kill" },
   { "file": "scripts/scratch/run-root.ts", "kind": "kill" },
   { "file": "scripts/scratch/run.ts", "kind": "kill" },
