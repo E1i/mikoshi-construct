@@ -63,14 +63,26 @@ function catalogTest(test: string, layer: string): CheckTest {
 
 const CATALOG = [catalogTest('scripts/tests/bus/merge-node.test.ts', 'bus-core,bus:merge'), catalogTest('tests/cli.test.ts', 'src')]
 
-interface Moved { mainFiles: string[], mergeable?: string, upToDateRequired?: boolean }
+interface Moved {
+  mainFiles: string[]
+  mergeable?: string
+  upToDateRequired?: boolean
+  prFiles?: string[]
+  prRenamedFrom?: Record<string, string>
+  mainRenamedFrom?: Record<string, string>
+  commitsBeyondTheCompare?: number
+}
+
+const PR_FILES = ['scripts/bus/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/merge-rerun.md']
 
 function mainMovedUnder(made: MergeBench, moved: Moved): void {
   writeCatalog(made.db, { tests: CATALOG, mutations: [] })
   made.gitHub.upToDateRequired = moved.upToDateRequired ?? false
   made.gitHub.main = MAIN_2
   made.gitHub.mainFiles = { [MAIN_2]: moved.mainFiles }
-  made.gitHub.open({ number: 970, review: 'success', mergeable_state: moved.mergeable ?? 'behind', files: ['scripts/bus/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/merge-rerun.md'] })
+  made.gitHub.mainRenamedFrom = moved.mainRenamedFrom ?? {}
+  made.gitHub.commitsBeyondTheCompare = moved.commitsBeyondTheCompare ?? 0
+  made.gitHub.open({ number: 970, review: 'success', mergeable_state: moved.mergeable ?? 'behind', files: moved.prFiles ?? PR_FILES, renamedFrom: moved.prRenamedFrom })
   made.tick()
 }
 
@@ -369,5 +381,56 @@ describe('the re-run mode of the merge node', () => {
     mainMovedUnder(made, { mainFiles: ['scripts/bus/db.ts'], mergeable: 'clean', upToDateRequired: true })
 
     expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([MERGED_THE_LEASED_HEAD])
+  })
+})
+
+describe('what by layers reads of main and of the pull request', () => {
+  const UPDATED_THEN_MERGED = [`update ${sha('a')}`, `merge ${sha('d')}`]
+  const SOURCE_ONLY = Array.from({ length: 300 }, (_, index) => `src/file-${index}.ts`)
+
+  it('by layers, a compare that lists the 300 files GitHub caps it at counts as an overlap and updates', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: SOURCE_ONLY })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
+    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('300 files') }))
+  })
+
+  it('by layers, 299 files of main outside the layers of the pull request still merge without a re-run', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: SOURCE_ONLY.slice(1) })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([`merge ${sha('a')}`])
+  })
+
+  it('by layers, a compare that lists fewer commits than total_commits counts as an overlap and updates', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['src/cli.ts'], commitsBeyondTheCompare: 1 })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
+    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('1 of 2 commits') }))
+  })
+
+  it('by layers, a file main renamed out of a layer of the pull request counts that layer', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['src/db.ts'], mainRenamedFrom: { 'src/db.ts': 'scripts/bus/db.ts' } })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
+    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
+  })
+
+  it('by layers, a file the pull request renamed out of a layer main changed counts that layer', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['scripts/bus/reducer.ts'], prFiles: ['src/db.ts'], prRenamedFrom: { 'src/db.ts': 'scripts/bus/db.ts' } })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
+    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
+  })
+
+  it('by layers, the same pull request without the rename merges without a re-run', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['scripts/bus/reducer.ts'], prFiles: ['src/db.ts'] })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([`merge ${sha('a')}`])
   })
 })

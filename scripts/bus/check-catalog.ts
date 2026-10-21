@@ -34,6 +34,9 @@ export type Rerun = { rerun: true, why: string } | { rerun: false, why: string }
 const REPO = 'repos/{owner}/{repo}'
 const MAIN_PROTECTION = `${REPO}/branches/${MAIN_BRANCH}/protection`
 const FILES_PAGE = 100
+const COMPARE_FILES_CAP = 300
+
+interface ListedFile { filename?: string, previous_filename?: string }
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS check_tests (
@@ -300,14 +303,22 @@ export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], ma
   return both === undefined ? null : `${both[0]} runs for a layer of the pull request and a layer main changed`
 }
 
-export function changedFiles(meter: Meter, pr: number): string[] {
-  const files: string[] = []
+function listedFiles(meter: Meter, pr: number): ListedFile[] {
+  const files: ListedFile[] = []
   for (let page = 1; ; page += 1) {
-    const listed = meter.get(`${REPO}/pulls/${pr}/files?per_page=${FILES_PAGE}&page=${page}`) as { filename?: string }[]
-    files.push(...listed.flatMap(file => file.filename === undefined ? [] : [file.filename]))
+    const listed = meter.get(`${REPO}/pulls/${pr}/files?per_page=${FILES_PAGE}&page=${page}`) as ListedFile[]
+    files.push(...listed)
     if (listed.length < FILES_PAGE)
       return files
   }
+}
+
+function pathsOf(files: readonly ListedFile[]): string[] {
+  return files.flatMap(file => [file.filename, file.previous_filename].filter(name => name !== undefined))
+}
+
+export function changedFiles(meter: Meter, pr: number): string[] {
+  return listedFiles(meter, pr).flatMap(file => file.filename === undefined ? [] : [file.filename])
 }
 
 export function upToDateRequired(meter: Meter): boolean {
@@ -320,12 +331,20 @@ export function upToDateRequired(meter: Meter): boolean {
   }
 }
 
-function mainFilesSince(meter: Meter, base: string): string[] {
+type MainSince = { kind: 'files', files: string[] } | { kind: 'truncated', why: string }
+
+function mainFilesSince(meter: Meter, base: string): MainSince {
   const main = (meter.get(`${REPO}/commits/${MAIN_BRANCH}`) as { sha?: string }).sha
   if (main === undefined || main === base)
-    return []
-  const compared = meter.get(`${REPO}/compare/${base}...${main}`) as { files?: { filename?: string }[] }
-  return (compared.files ?? []).flatMap(file => file.filename === undefined ? [] : [file.filename])
+    return { kind: 'files', files: [] }
+  const compared = meter.get(`${REPO}/compare/${base}...${main}`) as { files?: ListedFile[], commits?: unknown[], total_commits?: number }
+  const files = compared.files ?? []
+  const listedCommits = compared.commits?.length ?? 0
+  if (files.length >= COMPARE_FILES_CAP)
+    return { kind: 'truncated', why: `the compare of ${base}...${main} lists ${files.length} files, the most GitHub returns, so more may be missing` }
+  if ((compared.total_commits ?? listedCommits) > listedCommits)
+    return { kind: 'truncated', why: `the compare of ${base}...${main} lists ${listedCommits} of ${compared.total_commits} commits, so its files may be missing some` }
+  return { kind: 'files', files: pathsOf(files) }
 }
 
 export function rerunOf(db: DatabaseSync, meter: Meter, pr: number, base: string | undefined): Rerun {
@@ -333,7 +352,10 @@ export function rerunOf(db: DatabaseSync, meter: Meter, pr: number, base: string
     return { rerun: true, why: `${MAIN_BRANCH} requires an up-to-date branch on this host` }
   if (base === undefined)
     return { rerun: true, why: `#${pr} came back with no base sha` }
-  const overlap = overlapWithMain(db, changedFiles(meter, pr), mainFilesSince(meter, base))
+  const main = mainFilesSince(meter, base)
+  if (main.kind === 'truncated')
+    return { rerun: true, why: main.why }
+  const overlap = overlapWithMain(db, pathsOf(listedFiles(meter, pr)), main.files)
   return overlap === null ? { rerun: false, why: `nothing ${MAIN_BRANCH} changed since ${base} reaches a layer of #${pr}` } : { rerun: true, why: overlap }
 }
 

@@ -39,6 +39,7 @@ export interface FakePull {
   baseSha?: string
   title?: string
   files?: string[]
+  renamedFrom?: Record<string, string>
   patches?: Record<string, string>
   runs?: FakeRun[]
 }
@@ -52,6 +53,8 @@ export class FakeGitHub {
   main = MAIN_1
   mainFiles: Record<string, string[]> = {}
   upToDateRequired = true
+  mainRenamedFrom: Record<string, string> = {}
+  commitsBeyondTheCompare = 0
   limited: GhResponse | null = null
   failing = false
   calls: string[] = []
@@ -138,6 +141,11 @@ export class FakeGitHub {
     return { status: 202, headers: {}, body: { message: 'Updating pull request branch.' } }
   }
 
+  private previous(renamedFrom: Record<string, string> | undefined, filename: string): { previous_filename?: string } {
+    const previous = renamedFrom?.[filename]
+    return previous === undefined ? {} : { previous_filename: previous }
+  }
+
   private answer(endpoint: string): unknown {
     if (endpoint === `${REPO}/pulls?state=open&per_page=100`)
       return [...this.pulls.values()].filter(pull => pull.state === 'open').map(pull => ({ ...this.pullBody(pull), mergeable_state: undefined }))
@@ -147,7 +155,7 @@ export class FakeGitHub {
     const files = /^repos\/\{owner\}\/\{repo\}\/pulls\/(\d+)\/files\?per_page=100&page=(\d+)$/.exec(endpoint)
     if (files !== null) {
       const listed = this.pulls.get(Number(files[1]))!
-      return Number(files[2]) === 1 ? (listed.files ?? []).map(filename => ({ filename, status: 'modified', patch: listed.patches?.[filename] ?? `@@ -1 +1 @@ ${filename}` })) : []
+      return Number(files[2]) === 1 ? (listed.files ?? []).map(filename => ({ filename, status: 'modified', patch: listed.patches?.[filename] ?? `@@ -1 +1 @@ ${filename}`, ...this.previous(listed.renamedFrom, filename) })) : []
     }
     if (endpoint === `${REPO}/branches/main/protection`)
       return { required_status_checks: { strict: this.upToDateRequired } }
@@ -177,8 +185,14 @@ export class FakeGitHub {
     if (endpoint === `${REPO}/commits/main`)
       return { sha: this.main, files: (this.mainFiles[this.main] ?? []).map(filename => ({ filename })) }
     const compare = /\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/.exec(endpoint)
-    if (compare !== null)
-      return { files: Object.entries(this.mainFiles).filter(([commit]) => commit > compare[1] && commit <= compare[2]).flatMap(([, files]) => files.map(filename => ({ filename }))) }
+    if (compare !== null) {
+      const commits = Object.entries(this.mainFiles).filter(([commit]) => commit > compare[1] && commit <= compare[2])
+      return {
+        files: commits.flatMap(([, files]) => files.map(filename => ({ filename, ...this.previous(this.mainRenamedFrom, filename) }))),
+        commits: commits.map(([commit]) => ({ sha: commit })),
+        total_commits: commits.length + this.commitsBeyondTheCompare,
+      }
+    }
     throw new Error(`the fake has no answer for ${endpoint}`)
   }
 }
