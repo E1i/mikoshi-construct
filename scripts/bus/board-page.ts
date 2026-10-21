@@ -8,13 +8,15 @@ import { busFacts, FLOW_STATES } from '../../src/commands/board/bus.js'
 import { backlogCards, goalLines, isLive, matrixLines, pulseLines } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
-import { BOARD_FILE, cardGauges, windowGauges } from './board.js'
+import { BOARD_FILE, cardGauges, FRESH_MS, windowGauges } from './board.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { openDatabase } from './sqlite.js'
 
 export const PREFIX = '[bus:board] '
 export const REFRESH_SECONDS = 30
-export const EDDIES_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.claude/eddies.json')
+const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+export const EDDIES_FILE = path.join(REPOSITORY_ROOT, '.claude/eddies.json')
+export const MODEL_FILE = path.join(REPOSITORY_ROOT, 'construct.model.json')
 
 export interface BoardFiles {
   write: (file: string, text: string) => void
@@ -45,6 +47,7 @@ export interface EddiesLimits {
 
 export interface BoardPage {
   version: string
+  modelVersion: number | null
   facts: BusFacts
   gauges: Map<string, Gauges>
   windowGauges: Gauges | null
@@ -64,6 +67,7 @@ const LIVE_FILTER = 'live'
 const STATE_ORDER = [...FLOW_STATES.flat(), 'stopped', 'merged', 'closed', 'dropped']
 const THOUSAND = 1_000
 const MILLION = 1_000_000
+const MINUTE_MS = 60_000
 
 function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
@@ -76,6 +80,16 @@ export function readEddiesLimits(file: string = EDDIES_FILE): EddiesLimits {
   }
   catch {
     return NO_LIMITS
+  }
+}
+
+export function readModelVersion(file: string = MODEL_FILE): number | null {
+  try {
+    const model = JSON.parse(readFileSync(file, 'utf8')) as { modelVersion?: unknown } | null
+    return Number.isInteger(model?.modelVersion) ? model!.modelVersion as number : null
+  }
+  catch {
+    return null
   }
 }
 
@@ -131,12 +145,38 @@ function lineTile(role: string, line: string): string {
   return `<div class="svc" data-role="${role}"><div class="svc-top"><span class="svc-kind">${role}</span><span class="lore">${LORE_NAMES[role] ?? RUNNER}</span></div><div class="svc-line">${escaped(line)}</div></div>`
 }
 
+function pulseAgeMs(facts: BusFacts): number | null {
+  return facts.pulse === null ? null : Math.max(0, Date.parse(facts.at) - Date.parse(facts.pulse))
+}
+
+function busFresh(facts: BusFacts): boolean {
+  const age = pulseAgeMs(facts)
+  return age !== null && age <= FRESH_MS
+}
+
+function liveAttribute(facts: BusFacts): string {
+  return busFresh(facts) ? '' : ' data-stale'
+}
+
+function slotsReading(facts: BusFacts): string {
+  return facts.slots.length === 0 ? 'none in use' : facts.slots.map(slot => `${slot.queue} ${slot.used}`).join(', ')
+}
+
+function servicesMeta(page: BoardPage): string {
+  const { facts, limits } = page
+  const warn = limits.warnRatio === null ? 'eddies: no warn line' : `eddies: warn line <b>${percent(limits.warnRatio)}</b>`
+  return [
+    `<span class="meta">quickhacks on the subnet · agents at work <b>${facts.services.length}</b> · slots <b>${escaped(slotsReading(facts))}</b> (bus records no capacity)</span>`,
+    `<span class="meta right edd-note">${warn}</span>`,
+  ].join('')
+}
+
 function servicesPanel(page: BoardPage): string {
   const { facts } = page
   const tiles = facts.services.length === 0 ? [lineTile('window', PLAIN_LORE.boardNoServices)] : facts.services.map(service => serviceTile(service, page))
   return [
     '<section class="panel" aria-labelledby="h-services">',
-    `<div class="panel-head"><h2 id="h-services">${PLAIN_LORE.boardTabServices}</h2></div>`,
+    `<div class="panel-head"><h2 id="h-services">${PLAIN_LORE.boardTabServices}</h2>${servicesMeta(page)}</div>`,
     '<div class="svc-grid">',
     ...tiles,
     ...pulseLines(facts, PLAIN_LORE).map(line => lineTile('bus', line)),
@@ -145,20 +185,23 @@ function servicesPanel(page: BoardPage): string {
   ].join('\n')
 }
 
+function failureSpan(facts: BusFacts): string {
+  return `<span class="fail"${facts.failure === null ? ' data-none' : ''}>last failure <b>${escaped(facts.failure ?? 'none')}</b></span>`
+}
+
 function flowPanel(facts: BusFacts): string {
   const live = facts.cards.filter(isLive)
   const stages = PLAIN_LORE.boardFlowColumns.map((title, column) => {
     const ids = live.filter(card => FLOW_STATES[column]!.includes(card.state ?? '')).map(card => `#${card.id}`)
     return `<div class="stage"${ids.length === 0 ? ' data-empty' : ''}><span class="n">${ids.length}</span><span class="name">${escaped(title)}</span><span class="ids">${ids.length === 0 ? NONE : ids.join(' · ')}</span></div>`
   })
-  const notes = [`review queue: ${facts.reviewQueue}`, `last failure: ${facts.failure ?? 'none'}`]
   return [
     '<section class="panel" aria-labelledby="h-flow">',
     `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2></div>`,
     '<div class="flow">',
     ...goalLines(facts, PLAIN_LORE).map(line => `<p class="goal">${escaped(line)}</p>`),
     ...stages,
-    `<div class="flow-note">${notes.map(note => `<span>${escaped(note)}</span>`).join('')}</div>`,
+    `<div class="flow-note"><span>review queue <b>${facts.reviewQueue}</b></span>${failureSpan(facts)}</div>`,
     '</div></section>',
   ].join('\n')
 }
@@ -236,14 +279,38 @@ function headerPanel(page: BoardPage): string {
     '<header class="panel">',
     `<div class="banner-wrap"><pre class="banner" aria-label="MIKOSHI">${escaped(BANNER.replace(/^\n/, ''))}</pre>`,
     `<p class="subtitle">${escaped(LORE.subtitle(page.version))}</p></div>`,
-    `<div class="head-side"><p class="board-title">construct <span>board</span></p><p class="kv">written <b>${escaped(page.facts.at)}</b></p></div>`,
+    `<div class="head-side"><p class="board-title">construct <span>board</span></p>${headerReadings(page)}</div>`,
     '</header>',
   ].join('\n')
 }
 
+function headerReadings(page: BoardPage): string {
+  const { facts } = page
+  const readings = [
+    `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>`,
+    `<span>written <b>${escaped(facts.at)}</b></span>`,
+    `<span>refresh <b>${REFRESH_SECONDS}s</b></span>`,
+    `<span class="live"${liveAttribute(facts)}>${busFresh(facts) ? 'bus live' : 'bus stale'}</span>`,
+  ]
+  return `<p class="kv">${readings.join('')}</p>`
+}
+
+function pulseReading(facts: BusFacts): string {
+  const age = pulseAgeMs(facts)
+  return age === null ? 'no pulse' : `pulse ${Math.round(age / MINUTE_MS)} min`
+}
+
 function statusLine(facts: BusFacts): string {
-  const footer = PLAIN_LORE.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue)
-  return `<footer class="statusline"><span class="mode">BOARD</span>${footer.split(' · ').map(part => `<span>${escaped(part)}</span>`).join('')}</footer>`
+  const parts = [
+    '<span class="mode">BOARD</span>',
+    `<span>subnet <b class="live"${liveAttribute(facts)}>${pulseReading(facts)}</b></span>`,
+    `<span>agents <b>${facts.services.length}</b></span>`,
+    `<span>review queue <b>${facts.reviewQueue}</b></span>`,
+    failureSpan(facts),
+    '<span>geek mode <b>--geek</b></span>',
+    '<span class="cursor">construct board</span>',
+  ]
+  return `<footer class="statusline">${parts.join('')}</footer>`
 }
 
 const STYLE = `
@@ -306,6 +373,7 @@ p { margin: 0; }
   & h2 { margin: 0; font: 700 0.9375rem/1 var(--font-display); letter-spacing: 0.18em; text-transform: uppercase; color: var(--signal); }
   & h2::before { content: "\\258C"; color: var(--wire); margin-inline-end: 0.4em; }
   & .meta { color: var(--dim); font-size: 0.6875rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  & .right { margin-inline-start: auto; }
 }
 header.panel {
   --cut: 1.375rem;
@@ -333,7 +401,21 @@ header.panel {
   text-transform: uppercase;
   & span { color: var(--signal); }
 }
-.kv { color: var(--dim); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em; & b { color: var(--text); font-weight: 600; } }
+.kv { display: flex; flex-wrap: wrap; justify-content: end; gap: 0.375rem var(--space-m); color: var(--dim); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em; }
+:where(.kv, .meta, .flow-note, .statusline) b { color: var(--text); font-weight: 600; }
+.live {
+  --_fg: var(--ok);
+  --_blink: --animation-blink 1.6s steps(1) infinite;
+  color: var(--_fg);
+  &::before { content: "\\25CF"; margin-inline-end: 0.25rem; animation: var(--_blink); }
+  &[data-stale] { --_fg: var(--signal); --_blink: none; }
+}
+.fail {
+  --_fg: var(--signal);
+  color: var(--_fg);
+  & b { color: var(--_fg); }
+  &[data-none] { --_fg: var(--dim); }
+}
 .svc-grid { display: grid; gap: 1px; background: var(--line); grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); }
 .svc {
   --_accent: var(--wire);
@@ -475,12 +557,12 @@ td.slug { color: var(--text); white-space: normal; min-inline-size: 16rem; }
   font-size: 0.72rem;
   & > span { padding: 0.3rem 0.75rem; border-inline-end: 1px solid var(--line); color: var(--dim); }
   & .mode { background: var(--signal); color: var(--void); font-weight: 700; letter-spacing: 0.12em; }
-  & > span:last-child::after { content: "\\2588"; color: var(--wire); margin-inline-start: 0.3em; animation: --animation-board-cursor-blink 1s steps(1) infinite; }
+  & .cursor::after { content: "\\2588"; color: var(--wire); margin-inline-start: 0.3em; animation: --animation-blink 1s steps(1) infinite; }
 }
 @keyframes --animation-board-banner-flicker { 0%, 96%, 100% { transform: none; } 97% { transform: translateX(2px); } 98% { transform: translateX(-1px); } }
-@keyframes --animation-board-cursor-blink { 50% { opacity: 0.2; } }
+@keyframes --animation-blink { 50% { opacity: 0.2; } }
 @media (prefers-reduced-motion: reduce) {
-  .banner, .statusline > span:last-child::after { animation: none; }
+  .banner, .live::before, .statusline .cursor::after { animation: none; }
 }
 `
 
@@ -505,7 +587,7 @@ export function renderBoard(page: BoardPage): string {
 }
 
 function pageOf(db: DatabaseSync, now: Date): string {
-  return renderBoard({ version: VERSION, facts: busFacts(db, now), gauges: projectedGauges(db), windowGauges: projectedWindowGauges(db), limits: readEddiesLimits() })
+  return renderBoard({ version: VERSION, modelVersion: readModelVersion(), facts: busFacts(db, now), gauges: projectedGauges(db), windowGauges: projectedWindowGauges(db), limits: readEddiesLimits() })
 }
 
 export function writeBoardPage(file: string, html: string, files: BoardFiles = DISK_FILES): void {
