@@ -66,12 +66,19 @@ export interface BusCode {
   holds: (sha: string) => boolean
   pull: () => void
   busChangedSince: (sha: string) => boolean
+  localMain?: () => string | null
 }
+
+export const LOCAL_MAIN_REF = 'refs/heads/main'
 
 export function gitCode(cwd: string): BusCode {
   const git = (args: string[]): number => spawnSync('git', args, { cwd, stdio: 'ignore' }).status ?? -1
   return {
     head: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim(),
+    localMain: () => {
+      const read = spawnSync('git', ['rev-parse', '--verify', '--quiet', LOCAL_MAIN_REF], { cwd, encoding: 'utf8' })
+      return read.status === 0 ? read.stdout.trim() : null
+    },
     holds: sha => git(['merge-base', '--is-ancestor', sha, 'HEAD']) === 0,
     pull: () => {
       execFileSync('git', ['pull', '--ff-only', '--quiet'], { cwd, stdio: 'pipe' })
@@ -154,9 +161,11 @@ export class BusSupervisor {
   private outdatedBy: string | null = null
   private waiting: { sha: string, since: number, reported: boolean } | null = null
   private draining: { sha: string, since: number } | null = null
+  private localMain: string | null
 
   constructor(private readonly parts: SupervisorParts, private seen: number) {
     this.codeSha = parts.code.head()
+    this.localMain = parts.code.localMain?.() ?? null
   }
 
   get ownCodeBehind(): string | null {
@@ -233,10 +242,15 @@ export class BusSupervisor {
 
   private async advance(): Promise<string[]> {
     const advanced = this.parts.mainSince(this.seen)
+    const movedTo = this.localMainMove()
     const lines: string[] = []
     if (advanced.length > 0) {
       this.seen = advanced.at(-1)!.id
       this.pending = advanced.at(-1)!.sha
+    }
+    else if (movedTo !== null) {
+      this.pending = movedTo
+      lines.push(`${PREFIX}the local ${LOCAL_MAIN_REF} moved to ${movedTo} with no main.advanced on the bus; the restart follows it`)
     }
     if (this.pending === null)
       return lines
@@ -265,6 +279,14 @@ export class BusSupervisor {
     this.outdatedBy = head
     const notBack = restarted.down.length === 0 ? '' : `; not brought back: ${restarted.down.join(', ')}`
     return [...lines, ...drained.lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}${notBack}`, ...restarted.lines]
+  }
+
+  private localMainMove(): string | null {
+    const now = this.parts.code.localMain?.() ?? null
+    if (now === null || now === this.localMain)
+      return null
+    this.localMain = now
+    return now
   }
 
   private drain(head: string): Drained {
@@ -550,6 +572,24 @@ export function recordJudged(db: DatabaseSync, ts: string, judgement: Judgement)
   return appendEvent(db, { ts, type: PROCESS_JUDGED, actor: JUDGE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_JUDGED}:${judgement.process}:${judgement.lastBeat}`, payload: { process: judgement.process, verdict: 'silent', last_beat: judgement.lastBeat, silent_ms: judgement.silentMs, limit_ms: SILENT_MS }, legacy: false })
 }
 
+export interface Judged {
+  process: string
+  lastBeat: string
+}
+
+const LAST_JUDGED = `
+  SELECT json_extract(payload, '$.process') AS name, max(json_extract(payload, '$.last_beat')) AS last_beat FROM events
+  WHERE type = '${PROCESS_JUDGED}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.process') IS NOT NULL
+  GROUP BY name ORDER BY name
+`
+
+export function stillSilent(db: DatabaseSync): Judged[] {
+  const beats = new Map(lastProcessBeats(db).map(beat => [beat.process, beat.ts]))
+  return (db.prepare(LAST_JUDGED).all() as { name: string, last_beat: string }[])
+    .filter(row => (beats.get(row.name) ?? row.last_beat) <= row.last_beat)
+    .map(row => ({ process: row.name, lastBeat: row.last_beat }))
+}
+
 export const RESTART_RETRY_MS = SUPERVISOR_BEAT_MS
 
 export class LivenessJudge {
@@ -735,7 +775,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     down: down => recordWorkerDown(db, new Date().toISOString(), down),
     now: () => Date.now(),
   })
-  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
+  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced or a move of the local ${LOCAL_MAIN_REF} with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
   try {
     await superviseUntilReplaced({
       supervisor,

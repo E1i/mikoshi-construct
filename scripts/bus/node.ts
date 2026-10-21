@@ -7,6 +7,7 @@ import type { SlotKind } from './scheduler.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { appendEvent, inTransaction, openBus } from './db.js'
+import { recordProcessHeartbeat } from './heartbeat.js'
 import { drainOpen, expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease, TASK_LEASED } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { lastEventId } from './operator-work.js'
@@ -99,6 +100,10 @@ export const DATABASE_LOCKED = 'database is locked'
 
 export function isDatabaseLocked(error: unknown): boolean {
   return error instanceof Error && error.message.includes(DATABASE_LOCKED)
+}
+
+export function nodeProcess(kind: NodeKind): string {
+  return `bus:${kind}`
 }
 
 export function prefixOf(kind: Queue): string {
@@ -295,6 +300,7 @@ export abstract class Node<S extends NodeStep> {
       const found = this.candidates()
       const derived = this.derivedCandidates(this.ts())
       const equivalence = derived === null ? null : equivalenceOf(found.map(keyOf), derived.map(keyOf))
+      recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind))
       for (const task of found)
         this.record(task, 'tick', through)
       if (equivalence !== null) {
