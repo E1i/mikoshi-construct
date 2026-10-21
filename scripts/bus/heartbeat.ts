@@ -1,11 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { SessionGauges } from '../miko/eddies-measure.js'
 import type { Lease } from './lease.js'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import path from 'node:path'
+import { realpathSync } from 'node:fs'
+import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
+import { sessionGauges } from '../miko/eddies-measure.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { isFullSha, prOf } from './identifiers.js'
 import { LEASE_FOLDS } from './lease.js'
@@ -16,10 +18,6 @@ export const HEAD_VARIABLE = 'CONSTRUCT_HEAD'
 export const STEP_VARIABLE = 'CONSTRUCT_STEP'
 export const LEASE_VARIABLE = 'CONSTRUCT_LEASE'
 export const LEASE_GEN_VARIABLE = 'CONSTRUCT_LEASE_GEN'
-
-export const EDDIES_STATE_FILE = '.construct/eddies.jsonl'
-
-const GAUGE_FIELDS: Readonly<Record<string, keyof SessionGauges>> = { 'session-context': 'context', 'session-spend': 'spent' }
 
 export const CARD_PROCESS = 'card:'
 export const WINDOW_PROCESS = 'window:'
@@ -61,11 +59,6 @@ export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {
 export interface HeldLease {
   taskKey: string
   leaseGen: number
-}
-
-export interface SessionGauges {
-  context?: number
-  spent?: number
 }
 
 export interface Heartbeat {
@@ -118,37 +111,6 @@ export function heartbeatOf(env: NodeJS.ProcessEnv, session: string | undefined)
   }
 }
 
-function parsedLine(line: string): Record<string, unknown> | null {
-  try {
-    const value = JSON.parse(line) as unknown
-    return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null
-  }
-  catch {
-    return null
-  }
-}
-
-export function sessionGaugesOf(journal: string, session: string): SessionGauges {
-  const gauges: SessionGauges = {}
-  for (const line of journal.split('\n')) {
-    const entry = parsedLine(line)
-    const field = typeof entry?.level === 'string' ? GAUGE_FIELDS[entry.level] : undefined
-    if (field !== undefined && entry!.session_id === session && typeof entry!.spent === 'number' && Number.isFinite(entry!.spent))
-      gauges[field] = entry!.spent
-  }
-  return gauges
-}
-
-export function eddiesStateOf(root: string, session: string): SessionGauges {
-  const file = path.join(root, EDDIES_STATE_FILE)
-  try {
-    return existsSync(file) ? sessionGaugesOf(readFileSync(file, 'utf8'), session) : {}
-  }
-  catch {
-    return {}
-  }
-}
-
 export function recordHeartbeat(db: DatabaseSync, ts: string, beat: Heartbeat): void {
   const dedupeKey = `${SESSION_HEARTBEAT}:${beat.card}:${beat.session}:${ts}`
   inTransaction(db, () => {
@@ -170,13 +132,13 @@ export function lastHeartbeat(db: DatabaseSync, card: number): LastHeartbeat | n
   return { ts: row.ts, pr: row.pr, head: row.head, step: textField(payload, 'step'), session: textField(payload, 'session') }
 }
 
-export function runHeartbeat(env: NodeJS.ProcessEnv, session: string | undefined, bus: string, now: () => Date, root = process.cwd()): number {
+export function runHeartbeat(env: NodeJS.ProcessEnv, session: string | undefined, bus: string, now: () => Date, home = os.homedir(), root = process.cwd()): number {
   const beat = heartbeatOf(env, session)
   if (beat === null)
     return 0
   const db = openBus(bus)
   try {
-    recordHeartbeat(db, now().toISOString(), { ...beat, gauges: eddiesStateOf(root, beat.session) })
+    recordHeartbeat(db, now().toISOString(), { ...beat, gauges: sessionGauges(home, root, beat.session) })
   }
   finally {
     db.close()

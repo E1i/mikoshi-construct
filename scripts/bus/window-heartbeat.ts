@@ -1,6 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { SessionGauges } from '../miko/eddies-measure.js'
+import os from 'node:os'
+import process from 'node:process'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
+import { projectRoot, sessionGauges } from '../miko/eddies-measure.js'
 import { appendEvent, openBus } from './db.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
@@ -14,11 +18,15 @@ export function windowSessionOf(env: NodeJS.ProcessEnv): string | null {
   return !env[CARD_VARIABLE] && session !== undefined && SESSION_ID.test(session) ? session : null
 }
 
-export function recordWindowHeartbeat(db: DatabaseSync, ts: string, session: string): boolean {
-  return appendEvent(db, { ts, type: WINDOW_HEARTBEAT, actor: `${WINDOW_ACTOR}${session}`, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_HEARTBEAT}:${session}:${ts}`, payload: { session }, legacy: false })
+export function recordWindowHeartbeat(db: DatabaseSync, ts: string, session: string, gauges: SessionGauges = {}): boolean {
+  return appendEvent(db, { ts, type: WINDOW_HEARTBEAT, actor: `${WINDOW_ACTOR}${session}`, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_HEARTBEAT}:${session}:${ts}`, payload: { session, ...gauges }, legacy: false })
 }
 
-export function windowBeat(bus: string, session: string | null, now: () => number): () => void {
+function windowSessionGauges(session: string): SessionGauges {
+  return sessionGauges(os.homedir(), projectRoot(process.env), session)
+}
+
+export function windowBeat(bus: string, session: string | null, now: () => number, measure: (session: string) => SessionGauges = windowSessionGauges): () => void {
   let last = Number.NEGATIVE_INFINITY
   return () => {
     const at = now()
@@ -27,7 +35,7 @@ export function windowBeat(bus: string, session: string | null, now: () => numbe
     last = at
     const db = openBus(bus)
     try {
-      recordWindowHeartbeat(db, new Date(at).toISOString(), session)
+      recordWindowHeartbeat(db, new Date(at).toISOString(), session, measure(session))
     }
     finally {
       db.close()
