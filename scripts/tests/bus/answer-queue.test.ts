@@ -409,6 +409,25 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  it('a question.agent stop on a card with an admitted body keeps one live answer task keyed by its card body', () => {
+    const bench = answerBench()
+    bench.started(1149)
+    admitBody(bench, 1149, 'eeee5555')
+    bench.stopped(1149, { reason: 'question.agent', detail: 'which reader owns the lease?' })
+    bench.tick()
+    const { stop } = bench.db.prepare(`SELECT max(id) AS stop FROM events WHERE type = '${CARD_STOPPED}' AND card_id = 1149`).get() as { stop: number }
+    const key = `${answer(1149)}:card-body-eeee5555:stop-${stop}`
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: key, state: 'queued' }])
+
+    bench.tick()
+
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: key, state: 'queued' }])
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
   it('a card with changes on its head and a question.agent stop gets one answer task, not two', () => {
     const bench = answerBench()
     bench.gitHub.open({ number: 990, review: 'failure' })

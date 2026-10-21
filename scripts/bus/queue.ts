@@ -83,6 +83,14 @@ const SUPERSEDED_REVIEWS_ON_THE_CURRENT_HEAD = `
   ORDER BY tasks.task_key
 `
 
+const SUPERSEDED_MERGES_AND_UPDATES_ON_THE_CURRENT_HEAD = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
+  JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue IN ('merge', 'update') AND tasks.state = '${SUPERSEDED}' AND tasks.head = prs.head AND prs.state = 'open'
+    AND NOT EXISTS (SELECT 1 FROM tasks AS live WHERE live.queue = tasks.queue AND live.pr = tasks.pr AND live.state IN ('${QUEUED}', '${LEASED}'))
+  ORDER BY tasks.task_key
+`
+
 const REVIEWS_OF_AN_OLD_INPUT = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, prs.body_sha, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
   JOIN prs ON prs.pr = tasks.pr
@@ -275,9 +283,13 @@ function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
   ]
 }
 
+const UNFINISHED_STATES = [...UNFINISHED].map(state => `'${state}'`).join(', ')
+
+const QUEUES_A_MERGE_FINISHES = `'merge', 'close'`
+
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.state IN ('${QUEUED}', '${LEASED}') AND tasks.head IS NOT NULL AND tasks.head != prs.head
+  WHERE tasks.state IN (${UNFINISHED_STATES}) AND tasks.head IS NOT NULL AND tasks.head != prs.head
   UNION
   SELECT task_key, queue, card_id, pr, head FROM tasks
   WHERE queue = 'restart' AND state IN ('${QUEUED}', '${LEASED}')
@@ -287,7 +299,7 @@ const TASKS_OF_AN_OLD_HEAD = `
 
 const TASKS_OF_A_CLOSED_PULL_REQUEST = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE prs.state = 'closed' AND tasks.state IN (${[...UNFINISHED].map(state => `'${state}'`).join(', ')})
+  WHERE (prs.state = 'closed' OR (prs.state = 'merged' AND tasks.queue NOT IN (${QUEUES_A_MERGE_FINISHES}))) AND tasks.state IN (${UNFINISHED_STATES})
   ORDER BY tasks.task_key
 `
 
@@ -613,6 +625,11 @@ export function reviewKeysOfTheCurrentInputAgain(db: DatabaseSync): string[] {
   return reviewsOfTheCurrentInputAgain(db).map(row => row.task_key)
 }
 
+function mergesAndUpdatesDueAgain(db: DatabaseSync, ts: string): StoppedRow[] {
+  const due = new Set([...mergeCandidates(db, ts), ...updateCandidates(db, ts)].map(keyOf))
+  return (db.prepare(SUPERSEDED_MERGES_AND_UPDATES_ON_THE_CURRENT_HEAD).all() as unknown as StoppedRow[]).filter(row => due.has(row.task_key))
+}
+
 function underCurrentInput(row: ReviewRow): boolean {
   const current: QueuedTask = { queue: 'review', cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, input: reviewInputOf(row.body_sha, row.card_body) }
   return current.input === undefined || keyOf(current) === row.task_key
@@ -664,7 +681,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
         derived.queued.push(row.task_key)
     }
   }
-  for (const row of reviewsOfTheCurrentInputAgain(db)) {
+  for (const row of [...reviewsOfTheCurrentInputAgain(db), ...mergesAndUpdatesDueAgain(db, ts)]) {
     if (requeueTask(db, ts, row))
       derived.queued.push(row.task_key)
   }
