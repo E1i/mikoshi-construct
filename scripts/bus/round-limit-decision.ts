@@ -16,7 +16,7 @@ const HEADS_OF_A_PR = `SELECT head FROM events WHERE type IN ('${PR_OPENED}', '$
 
 export function observedHeadsOf(db: DatabaseSync, pr: number): string[] {
   const heads = (db.prepare(HEADS_OF_A_PR).all(pr) as { head: string }[]).map(row => row.head)
-  return heads.filter((head, at) => heads.indexOf(head) === at)
+  return heads.filter((head, at) => at === 0 || heads[at - 1] !== head)
 }
 
 function headsWithTheSameDiff(head: string, cleanUpdates: readonly CleanUpdate[]): string[] {
@@ -31,7 +31,7 @@ function headsWithTheSameDiff(head: string, cleanUpdates: readonly CleanUpdate[]
 }
 
 function headObservedBefore(head: string, observedHeads: readonly string[]): string | undefined {
-  const at = observedHeads.indexOf(head)
+  const at = observedHeads.lastIndexOf(head)
   return at > 0 ? observedHeads[at - 1] : undefined
 }
 

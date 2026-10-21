@@ -125,6 +125,20 @@ describe('the merge executor', () => {
     bench.close()
   })
 
+  it('a not_mergeable fault on a pull request that is not behind counts and stops the card even with an update queued for its head', () => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: 987, review: 'success', mergeable_state: 'dirty' })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    queueTask(bench.db, ts, { queue: 'update', cardId: 1087, pr: 987, head: sha('a') })
+    queueTask(bench.db, ts, { queue: 'merge', cardId: 1087, pr: 987, head: sha('a') })
+    for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
+      failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(987), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false })
+    expect(taskState(bench.db, merge(987))).toMatchObject({ state: 'stopped', failures: FAILURES_TO_STOP })
+    expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
+    bench.close()
+  })
+
   it('a fault other than not_mergeable on a behind pull request with its update derived counts and stops the card', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 985, review: 'success', mergeable_state: 'behind' })

@@ -253,6 +253,22 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(dryRunHoldsAt(sha('1'), sha('b'), observed, [])).toBe(true)
   })
 
+  it('a head observed again collapses only into its own neighbour, and the head before a push is the one before its last observation', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 1088, pr: 988, head: sha('a'), dedupeKey: `${PR_OPENED}:1088:988`, payload: { pr: 988 }, legacy: false })
+    for (const head of [sha('a'), sha('b'), sha('a'), sha('c')]) {
+      bench.gitHub.open({ number: 988, review: 'success', head })
+      bench.tick()
+    }
+
+    const observed = observedHeadsOf(bench.db, 988)
+    expect(observed).toEqual([sha('a'), sha('b'), sha('a'), sha('c')])
+    expect(dryRunHoldsAt(sha('a'), sha('c'), observed, [])).toBe(true)
+    expect(dryRunHoldsAt(sha('b'), sha('c'), observed, [])).toBe(false)
+    expect(dryRunHoldsAt(sha('b'), sha('a'), observed, [])).toBe(true)
+  })
+
   it('a manual update-branch of PR #919 from 4a4dcb5a to b808b64a queues the merge with no new decisions:add', () => {
     const [pr, from, to] = [919, '4a4dcb5a'.padEnd(40, '0'), 'b808b64a'.padEnd(40, '0')]
     const bench = liveBench()
