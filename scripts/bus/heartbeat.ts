@@ -6,7 +6,7 @@ import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
-import { sessionGauges } from '../miko/eddies-measure.js'
+import { projectRoot, sessionGauges } from '../miko/eddies-measure.js'
 import { CARD_VARIABLE } from '../ports/session.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { isFullSha, prOf } from './identifiers.js'
@@ -68,7 +68,12 @@ export interface Heartbeat {
   step: string
   session: string
   lease: HeldLease | null
-  gauges?: SessionGauges
+}
+
+export type SessionMeasure = (session: string) => SessionGauges
+
+export function measureSession(session: string): SessionGauges {
+  return sessionGauges(os.homedir(), projectRoot(process.env), session)
 }
 
 export interface LastHeartbeat {
@@ -111,10 +116,15 @@ export function heartbeatOf(env: NodeJS.ProcessEnv, session: string | undefined)
   }
 }
 
-export function recordHeartbeat(db: DatabaseSync, ts: string, beat: Heartbeat): void {
+export function leaseHeartbeat(lease: Lease, session: string): Heartbeat {
+  return { card: lease.cardId, pr: lease.pr, head: lease.head, step: lease.queue, session, lease: lease.leaseGen > 0 ? { taskKey: lease.taskKey, leaseGen: lease.leaseGen } : null }
+}
+
+export function recordHeartbeat(db: DatabaseSync, ts: string, beat: Heartbeat, measure: SessionMeasure = measureSession): void {
+  const gauges = measure(beat.session)
   const dedupeKey = `${SESSION_HEARTBEAT}:${beat.card}:${beat.session}:${ts}`
   inTransaction(db, () => {
-    if (appendEvent(db, { ts, type: SESSION_HEARTBEAT, actor: `worker:session:${beat.session}`, cardId: beat.card, pr: beat.pr, head: beat.head, dedupeKey, payload: { step: beat.step, session: beat.session, ...(beat.lease === null ? {} : { task_key: beat.lease.taskKey, lease_gen: beat.lease.leaseGen }), ...beat.gauges }, legacy: false }))
+    if (appendEvent(db, { ts, type: SESSION_HEARTBEAT, actor: `worker:session:${beat.session}`, cardId: beat.card, pr: beat.pr, head: beat.head, dedupeKey, payload: { step: beat.step, session: beat.session, ...(beat.lease === null ? {} : { task_key: beat.lease.taskKey, lease_gen: beat.lease.leaseGen }), ...gauges }, legacy: false }))
       LEASE_FOLDS[SESSION_HEARTBEAT]!(db, storedByKey(db, dedupeKey))
   })
 }
@@ -132,13 +142,27 @@ export function lastHeartbeat(db: DatabaseSync, card: number): LastHeartbeat | n
   return { ts: row.ts, pr: row.pr, head: row.head, step: textField(payload, 'step'), session: textField(payload, 'session') }
 }
 
+export function busSessionPulse(busPath: string, clock: () => Date, measure: SessionMeasure = measureSession): (lease: Lease, session: string) => string {
+  return (lease, session) => {
+    const ts = clock().toISOString()
+    const db = openBus(busPath)
+    try {
+      recordHeartbeat(db, ts, leaseHeartbeat(lease, session), measure)
+    }
+    finally {
+      db.close()
+    }
+    return ts
+  }
+}
+
 export function runHeartbeat(env: NodeJS.ProcessEnv, session: string | undefined, bus: string, now: () => Date, home = os.homedir(), root = process.cwd()): number {
   const beat = heartbeatOf(env, session)
   if (beat === null)
     return 0
   const db = openBus(bus)
   try {
-    recordHeartbeat(db, now().toISOString(), { ...beat, gauges: sessionGauges(home, root, beat.session) })
+    recordHeartbeat(db, now().toISOString(), beat, session => sessionGauges(home, root, session))
   }
   finally {
     db.close()

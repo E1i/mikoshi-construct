@@ -11,11 +11,14 @@ import { readResultFields } from '../ports/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ports/session.js'
 import { commitAndPush } from '../shift/tree-pr.js'
 import { parkedCardFile } from './card-archive.js'
+import { defaultBusPath } from './db.js'
+import { busSessionPulse } from './heartbeat.js'
 
 export const PREFIX = '[bus:answer] '
 const SESSION_ID_FLAG = '--session-id'
 const RESUME_FLAG = '--resume'
 const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects')
+export const ANSWER_BEAT_MS = 60_000
 
 export interface AnswerRequest {
   lease: Lease
@@ -69,6 +72,24 @@ export interface AnswererTools {
   spawn: (run: AnswerRun) => Promise<number>
   newSession: () => string
   publish: (card: CardSession, commitMessage: string) => void
+  pulse?: AnswerPulse
+}
+
+export type AnswerPulse = (lease: Lease, session: string) => void
+
+export function missedAnswerBeatLine(session: string, error: unknown): string {
+  return `${PREFIX}the heartbeat of answer session ${session} was not recorded, the answer goes on: ${error instanceof Error ? error.message : String(error)}`
+}
+
+async function beatingWhileRunning(run: () => Promise<number>, beat: () => void, beatMs: number): Promise<number> {
+  beat()
+  const ticker = setInterval(beat, beatMs)
+  try {
+    return await run()
+  }
+  finally {
+    clearInterval(ticker)
+  }
 }
 
 export function answerCommitMessage(lease: Lease): string {
@@ -208,8 +229,9 @@ export class CardTreeGone extends Error {
   }
 }
 
-export function realAnswererTools(parking: string): AnswererTools {
+export function realAnswererTools(parking: string, busPath: string = defaultBusPath()): AnswererTools {
   return {
+    pulse: busSessionPulse(busPath, () => new Date()),
     cardText: parkedCardText(parking),
     available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
     remoteHead,
@@ -233,13 +255,21 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
     const stdoutPath = path.join(dir, `${session}.${request.lease.leaseGen}.out.jsonl`)
-    const code = await tools.spawn({
+    const beat = (): void => {
+      try {
+        tools.pulse?.(request.lease, session)
+      }
+      catch (error) {
+        console.error(missedAnswerBeatLine(session, error))
+      }
+    }
+    const code = await beatingWhileRunning(() => tools.spawn({
       cwd: card.worktree,
       argv: resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]),
       stdoutPath,
       stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}.err.log`),
       env: sessionEnv(process.env, request.lease.cardId),
-    })
+    }), beat, ANSWER_BEAT_MS)
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)
     const owner = ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutPath, ownerQuestion)
