@@ -156,6 +156,26 @@ describe('dependency policy in eslint.config.mjs', () => {
       expect(await violations('src/detect/git.ts', form), form).toContain('no-restricted-syntax')
   })
 
+  it('only the bash syntax module of intake imports node:child_process', async () => {
+    const spawn = 'import { spawnSync } from \'node:child_process\'\n\nexport const probe = spawnSync\n'
+    expect(await violations('src/commands/intake/bash-syntax.ts', spawn)).toEqual([])
+    expect(await violations('src/commands/intake/check.ts', spawn)).toEqual(['no-restricted-syntax'])
+    expect(await violations('src/commands/intake/admit.ts', spawn)).toEqual(['no-restricted-syntax'])
+    expect(await violations('src/commands/intake/probe.ts', spawn)).toEqual(['no-restricted-syntax'])
+    expect(await violations('src/commands/intake/bash-syntax.ts', 'import { readManifest } from \'../../manifest.js\'\n\nexport const probe = readManifest\n')).toEqual([])
+    expect(await violations('src/commands/intake/bash-syntax.ts', 'import { main } from \'../../program.js\'\n\nexport const probe = main\n')).toEqual(['no-restricted-imports'])
+    const forms = [
+      'import { createRequire } from \'node:module\'\n\nexport const probe = createRequire\n',
+      'export async function probe(specifier: string) {\n  return await import(specifier)\n}\n',
+      'export function probe(specifier: string) {\n  return require(specifier)\n}\n',
+      'export function probe(specifier: string) {\n  return require.resolve(specifier)\n}\n',
+      'export const enum Probe { A = 1 }\n',
+      'export function probe(manifest: { files: Record<string, string> }): string[] {\n  return Object.keys(manifest.files)\n}\n',
+    ]
+    for (const form of forms)
+      expect(await violations('src/commands/intake/bash-syntax.ts', form), form).toContain('no-restricted-syntax')
+  })
+
   it('reports every form of loading code the CLI did not ship', async () => {
     const forms = [
       'export async function probe() {\n  return await import(\'node:child_process\')\n}\n',

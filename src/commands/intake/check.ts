@@ -7,6 +7,7 @@ import { createdPaths, parseCreatesEntry } from '../../card/parking.js'
 import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { globToRegExp } from '../../model/glob.js'
+import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandWord } from './command-word.js'
 
 export const DEFAULT_CONTOUR = 'ladder'
@@ -353,6 +354,13 @@ function movingRefsUnclear(witness: string): UnclearField[] {
   })
 }
 
+function bashSyntaxUnclear(witness: string): UnclearField[] {
+  return [...witness.matchAll(BACKTICKED)].flatMap(([, command]) => {
+    const problem = bashSyntaxProblem(command!)
+    return problem === null ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" fails bash -n: ${problem}` }]
+  })
+}
+
 function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): UnclearField[] {
   return card.witnesses.flatMap((witness) => {
     const words = [...witness.matchAll(BACKTICKED)].flatMap(match => commandWord(match[1]!) || [])
@@ -363,6 +371,7 @@ function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): Unclear
         .filter(word => !repository.commandResolves(word))
         .map(word => ({ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` })),
       ...movingRefsUnclear(witness),
+      ...bashSyntaxUnclear(witness),
     ]
   })
 }

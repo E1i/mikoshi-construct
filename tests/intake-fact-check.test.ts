@@ -207,6 +207,28 @@ describe('intake fact check', () => {
     ])
   })
 
+  it('the real intake refuses a witness that fails bash -n, with no substituted check', () => {
+    const witness = '`echo \'unterminated` exits 0'
+    const dir = repository(['src/a.ts'])
+    const { result, parking } = intake([card({ witnesses: [witness] })], { dir })
+    const parked = written(result, parking, 2)
+    expect(parked).toMatch(/^unclear: witnesses — witness "`echo 'unterminated` exits 0" fails bash -n: .*unexpected EOF/m)
+    expect(parked).toMatch(/^who: window$/m)
+    const { status, parked: admittedFile } = admitParked(dir, 'src/a.ts', witness)
+    expect(status).toBe('admitted')
+    expect(readFileSync(admittedFile, 'utf8')).toMatch(/^unclear: witnesses — witness "`echo 'unterminated` exits 0" fails bash -n: .*unexpected EOF/m)
+  })
+
+  it('the real intake admits a witness that passes bash -n', () => {
+    const witness = '`echo \'terminated\'` exits 0'
+    const dir = repository(['src/a.ts'])
+    const { result, parking } = intake([card({ witnesses: [witness] })], { dir })
+    expect(written(result, parking, 2)).not.toContain('unclear:')
+    const { status, parked } = admitParked(dir, 'src/a.ts', witness)
+    expect(status).toBe('admitted')
+    expect(readFileSync(parked, 'utf8')).not.toContain('unclear:')
+  })
+
   it('checks every backticked command of a witness and names the second one when it does not resolve', () => {
     const repo = repositoryFacts({ commandResolves: word => word === 'pnpm' })
     const [checked] = checkDraft([draftCard({ witnesses: ['`pnpm run quality` passes, then `nosuchtool --flag` fails'] })], [2], facts({ repository: repo }))
@@ -335,9 +357,10 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
     return dir
   }
 
-  function admitParked(dir: string, touches: string): { status: string, parked: string } {
+  function admitParked(dir: string, touches: string, witness?: string): { status: string, parked: string } {
     const parked = path.join(dir, 'parking', '80.md')
-    put(dir, 'parking/80.md', `card: #80 admit-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-80\ntouches: ${touches}\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    const witnesses = witness === undefined ? '' : `\nWitnesses:\n- ${witness}\n`
+    put(dir, 'parking/80.md', `card: #80 admit-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-80\ntouches: ${touches}\ncontinue: stop\nwho: shift\n\nDo the thing.\n${witnesses}`)
     const { status } = runAdmit({ file: parked, dir, journal: path.join(dir, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, parkingRoot: path.join(dir, 'parking') })
     return { status, parked }
   }
