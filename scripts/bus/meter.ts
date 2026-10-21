@@ -10,9 +10,14 @@ export class RateLimited extends Error {
 }
 
 export class GitHubFailed extends Error {
-  constructor(readonly status: number, endpoint: string) {
-    super(`GitHub answered ${status} to ${endpoint}`)
+  constructor(readonly status: number, endpoint: string, cause?: string) {
+    super(`GitHub answered ${status} to ${endpoint}`, { cause })
   }
+}
+
+function bodyMessage(response: GhResponse): string | undefined {
+  const body = response.body
+  return typeof body === 'object' && body !== null && 'message' in body && typeof body.message === 'string' ? body.message : undefined
 }
 
 function headerNumber(response: GhResponse, name: string): number | null {
@@ -43,7 +48,7 @@ export class Meter {
     if (RATE_LIMIT_STATUSES.has(response.status))
       throw new RateLimited(response.status, retryAfterSeconds(response, this.nowMs()))
     if (response.status >= 400)
-      throw new GitHubFailed(response.status, endpoint)
+      throw new GitHubFailed(response.status, endpoint, bodyMessage(response))
     return response.body
   }
 }
