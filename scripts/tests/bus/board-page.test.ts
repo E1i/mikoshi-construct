@@ -1,15 +1,19 @@
+import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { BoardFiles } from '../../bus/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
 import { createUi } from '../../../src/ui/console.js'
+import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { DISK_FILES, escaped, printBoard, writeBoardPage } from '../../bus/board-page.js'
+import { DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, writeBoardPage } from '../../bus/board-page.js'
 import { BOARD_FILE } from '../../bus/board.js'
+import { SESSION_HEARTBEAT } from '../../core/events.js'
 
 const roots: string[] = []
 
@@ -54,7 +58,7 @@ describe('board.html', () => {
     return new Date(NOW.getTime() - minutes * 60_000).toISOString()
   }
 
-  function seededBus(): string {
+  function seededBus(heartbeats: SeedEvent[] = []): string {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-board-screens-'))
     roots.push(root)
     return writeBus(path.join(root, 'bus.db'), {
@@ -63,6 +67,7 @@ describe('board.html', () => {
         { id: 861, state: 'running', lane: 'lane-1', line: '#861 second', since: minutesAgo(20) },
         { id: 862, state: 'in_review', lane: 'lane-2', line: null, since: minutesAgo(10), pr: 12 },
         { id: 863, state: 'merged', lane: null, line: '#863 done', since: minutesAgo(5) },
+        { id: 864, state: 'merged', lane: 'lane-2', line: '#864 old-lease [implement/netwatch/M/cheap/owner] · depends #860 · blocks —', since: minutesAgo(1_200) },
       ],
       verdicts: [[12, null]],
       tasks: [{ queue: 'review', card: 862, pr: 12, head: 'abcdef1234567', state: 'leased' }],
@@ -71,6 +76,7 @@ describe('board.html', () => {
         { ts: minutesAgo(1), type: 'netwatch.tick', card: null, payload: '{}' },
         subagent(minutesAgo(2), { role: 'implementer', task: '#861', session: 's1', tree: '/trees/mc-861', step: 'writing' }),
         checkMatrix(12, 'abcdef1234567', { killed: 3, survived: 1, notRun: 0 }),
+        ...heartbeats,
       ],
     })
   }
@@ -92,15 +98,109 @@ describe('board.html', () => {
     return html
   }
 
-  it('board.html and construct board rendered from one bus snapshot show the same screens and lines as construct board', () => {
+  function visibleText(html: string): string {
+    return html.replace(/<style>[\s\S]*?<\/style>/g, ' ').replace(/<title>[\s\S]*?<\/title>/g, ' ').replace(/<[^>]*>/g, ' ').replace(/&#39;|&quot;|&lt;|&gt;|&amp;/g, ' ')
+  }
+
+  function busNumbers(busPath: string): Set<number> {
+    const db = new DatabaseSync(busPath, { readOnly: true })
+    try {
+      const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]
+      const dump = JSON.stringify(tables.map(table => db.prepare(`SELECT * FROM ${table.name}`).all()))
+      return new Set([...dump.matchAll(/\d+/g)].map(match => Number(match[0])))
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  function readingOf(token: string): number {
+    const unit = token.endsWith('M') ? 1_000_000 : token.endsWith('k') ? 1_000 : 1
+    return Number.parseFloat(token) * unit
+  }
+
+  function backlogOf(lines: string[]): { card: string, state: string }[] {
+    return lines.slice(lines.indexOf('Backlog') + 1, lines.indexOf('Services')).filter(line => line.startsWith('  ')).map((row) => {
+      const parts = row.trim().split(' · ')
+      return { card: /#(\d+)/.exec(parts[0]!)![1]!, state: parts.at(-1)! }
+    })
+  }
+
+  it('the state filter shows the same cards as construct board --all', () => {
+    const busPath = seededBus()
+    let out = ''
+    const ui = createUi(resolveTheme({ plain: true }), (text) => {
+      out += text
+    })
+    printConstructBoard(ui, readBoard(path.dirname(busPath), { all: true, staleHours: 4, prs: undefined, readStdin: () => '', now: NOW, bus: busReaderAt(busPath, () => NOW) }))
+    const expected = backlogOf(out.trimEnd().split('\n'))
+    const html = pageText(busPath)
+    const rows = [...html.matchAll(/<tr data-card="(\d+)" data-state="([^"]*)"/g)].map(match => ({ card: match[1]!, state: match[2]! }))
+    expect(rows).toEqual(expected)
+    const states = [...new Set(expected.map(row => row.state))]
+    expect(states.length).toBeGreaterThan(1)
+    for (const state of states) {
+      expect(html).toContain(`<a class="chip" href="#show-${state}">${state}</a>`)
+      expect(html).toContain(filterRule(state))
+      expect(filterRule(state)).toContain(`tr[data-card]:not([data-state="${state}"])`)
+    }
+    expect(html).toContain('<a class="chip" href="#show-all">all</a>')
+    expect(html).toContain('<tr data-card="864" data-state="merged"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td>#860</td><td>—</td>')
+  })
+
+  it('every number on the page is in the bus or in eddies.json', () => {
+    const busPath = seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 182_345, spent: 1_412_000 }) },
+    ])
+    const html = pageText(busPath)
+    const limits = readEddiesLimits()
+    const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
+    const allowed = [...busNumbers(busPath), ...Object.values(limits).filter(value => value !== null), ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
+    const counts = Array.from({ length: 6 }, (_, at) => at)
+    const tokens = [...visibleText(html).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
+    expect(tokens).toEqual(expect.arrayContaining(['182k', '250k', '1.4M', '3M']))
+    for (const token of tokens) {
+      const reading = readingOf(token)
+      const tolerance = token.endsWith('M') ? 50_000 : token.endsWith('k') ? 500 : 0
+      expect([...allowed, ...counts].some(value => Math.abs(value - reading) <= tolerance), token).toBe(true)
+    }
+  })
+
+  it('the header carries the version from package.json and the banner from lore', () => {
+    const html = pageText(seededBus())
+    const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
+    expect(html).toContain(`<pre class="banner" aria-label="MIKOSHI">${escaped(BANNER.replace(/^\n/, ''))}</pre>`)
+    expect(html).toContain(`<p class="subtitle">${escaped(LORE.subtitle(version.version))}</p>`)
+    expect(html).toContain(`<meta http-equiv="refresh" content="30">`)
+    expect(html.indexOf('<header')).toBeLessThan(html.indexOf('id="h-services"'))
+    expect(html.indexOf('id="h-services"')).toBeLessThan(html.indexOf('id="h-flow"'))
+    expect(html.indexOf('id="h-flow"')).toBeLessThan(html.indexOf('id="h-backlog"'))
+    expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline">'))
+  })
+
+  it('an eddies tile has no bar while the bus holds no context or spent for it', () => {
+    const silent = pageText(seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861' }) },
+    ]))
+    expect(silent).toContain('launch · #861 · — · launch · pulse 3 min ago')
+    expect(silent).not.toContain('class="edd')
+    const spentOnly = pageText(seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', spent: 2_600_000 }) },
+    ]))
+    expect(spentOnly).not.toContain('<span class="edd-k">ctx</span>')
+    expect(spentOnly).toContain('<div class="edd" data-hot><span class="edd-k">spent</span>')
+  })
+
+  it('the page carries the flow, services and status lines construct board prints', () => {
     const busPath = seededBus()
     const lines = constructBoardLines(busPath)
     const html = pageText(busPath)
     expect(lines).toContain('in work (1): #861')
-    expect([...html.matchAll(/<h2>(.*?)<\/h2>/g)].map(match => match[1])).toEqual(['Flow', 'Backlog', 'Services'])
-    const screens = [...html.matchAll(/<h2>(.*?)<\/h2><pre>([\s\S]*?)<\/pre>/g)].flatMap(match => [match[1]!, ...match[2]!.split('\n')])
-    const footer = /<footer><p>(.*?)<\/p><\/footer>/.exec(html)?.[1]
-    expect([...screens, footer]).toEqual(lines.map(escaped))
+    expect(html).toContain('<span class="n">1</span><span class="name">in work</span><span class="ids">#861</span>')
+    for (const line of lines.slice(lines.indexOf('Services') + 1, -1))
+      expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
+    for (const part of lines.at(-1)!.split(' · '))
+      expect(html).toContain(`<span>${escaped(part)}</span>`)
   })
 
   it('the page reads liveness from the bus pulse and lists no process', () => {
