@@ -10,7 +10,7 @@ import type { QueuedTask } from './queue.js'
 import type { ReadSet } from './report.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { ExecutorParts, Step } from './review-executor.js'
-import type { HeldTree, LeftoverTree, Review, Reviewer, TreeTools } from './reviewer.js'
+import type { HeldTree, LeftoverTree, Review, Reviewer, SessionPulse, TreeTools } from './reviewer.js'
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
@@ -22,14 +22,15 @@ import { fileURLToPath } from 'node:url'
 import { GhFailed, PROCESS_GH_PORT } from '../core/gh.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { realIsolationReader } from '../ghosts/isolation.js'
-import { HEADLESS_FLAGS } from '../ghosts/session.js'
+import { HEADLESS_FLAGS, spawnSession } from '../ghosts/session.js'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
-import { defaultBusPath } from './db.js'
+import { defaultBusPath, openBus } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
 import { keepDryRun } from './dry-run-record.js'
 import { ghApi } from './github.js'
+import { recordHeartbeat } from './heartbeat.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
 import { expireLeases, leaseNext, leaseQueued, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
@@ -389,6 +390,24 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
   }
 }
 
+export function reviewBeatLine(lease: Lease, session: string, ts: string): string {
+  return `${PREFIX}${lease.taskKey}: reviewer session ${session} is working, heartbeat at ${ts}`
+}
+
+export function busReviewPulse(busPath: string, clock: () => Date, say: (line: string) => void = console.log): SessionPulse {
+  return (lease, session) => {
+    const ts = clock().toISOString()
+    const db = openBus(busPath)
+    try {
+      recordHeartbeat(db, ts, { card: lease.cardId, pr: lease.pr, head: lease.head, step: lease.queue, session, lease: lease.leaseGen > 0 ? { taskKey: lease.taskKey, leaseGen: lease.leaseGen } : null })
+    }
+    finally {
+      db.close()
+    }
+    say(reviewBeatLine(lease, session, ts))
+  }
+}
+
 export function reviewIsolationCommand(): string[] {
   return ['claude', ...HEADLESS_FLAGS]
 }
@@ -402,7 +421,7 @@ async function main(): Promise<number> {
     busPath,
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
-    reviewer: claudeReviewer(trees),
+    reviewer: claudeReviewer(trees, spawnSession, busReviewPulse(busPath, () => new Date())),
     plan: gitReviewPlanner(cwd, MORSE_JOURNAL, defaultParking(os.homedir())),
     session: randomUUID(),
     slots: slotsOf('review', process.env),

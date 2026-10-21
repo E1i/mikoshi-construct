@@ -46,6 +46,8 @@ function starterFor(step: LadderStep, options: { tree?: string | null, parked?: 
     uuid: () => 'sess-1',
     envOf: () => ({}),
     prompt: task => task.body,
+    changedPaths: () => [],
+    readReport: () => null,
   }
   const steps: LadderSteps = {
     stepOf: () => step,

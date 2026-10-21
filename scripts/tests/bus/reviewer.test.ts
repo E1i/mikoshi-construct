@@ -8,8 +8,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../bus/review-depth.js'
-import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
-import { sessionArgv } from '../../ghosts/session.js'
+import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
+import { sessionArgv, SessionCeilingReached } from '../../ghosts/session.js'
 import { sha } from './github-fake.js'
 
 const lease = { taskKey: `review:1050:950:${sha('a')}`, queue: 'review' as const, cardId: 1050, pr: 950, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
@@ -72,6 +72,74 @@ describe('reviewer', () => {
   it('the review session passes CONSTRUCT_REVIEW_MODEL as its model, and none without it', () => {
     expect(reviewSession('/repo', '/reviews', 's-1', lease, full, { CONSTRUCT_REVIEW_MODEL: 'claude-sonnet-5-5' }).model).toBe('claude-sonnet-5-5')
     expect(reviewSession('/repo', '/reviews', 's-1', lease, full, {}).model).toBeUndefined()
+  })
+
+  it('a review session past its ceiling ends with a named failure and an env without CONSTRUCT_CARD', async () => {
+    const params = reviewSession('/repo', '/reviews', 's-1', lease, full, { CONSTRUCT_CARD: '1146', PATH: '/bin' })
+    expect(params.env).toEqual({ PATH: '/bin' })
+    expect(params.ceilingMs).toBe(REVIEW_CEILING_MS)
+
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-ceiling-'))
+    try {
+      const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
+      const failed = await claudeReviewer(trees, async (spawned) => {
+        throw new SessionCeilingReached(spawned.sessionId, spawned.ceilingMs!)
+      })(lease, full).catch((error: unknown) => error)
+      expect(failed).toBeInstanceOf(ReviewFailed)
+      expect((failed as Error).message).toMatch(/^the session \S+ ran past its ceiling of 20 minutes and was ended$/)
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a pulse that throws costs one heartbeat and a named line, never the review or the worker', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-beat-fails-'))
+    const said = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const working = async (params: SpawnSessionParams): Promise<number> => {
+        await new Promise(resolve => setTimeout(resolve, 60))
+        writeFileSync(params.stdoutPath, '{"type":"assistant"}\n')
+        await new Promise(resolve => setTimeout(resolve, 150))
+        writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+        return 0
+      }
+      const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
+      const locked = (): void => {
+        throw new Error('database is locked')
+      }
+      const review = await claudeReviewer(trees, working, locked, 50)(lease, full)
+      expect(review.verdict).toBe('pass')
+      expect(said.mock.calls.map(call => call[0])).toEqual([missedBeatLine(review.session, new Error('database is locked'))])
+      expect(missedBeatLine('s-1', new Error('database is locked'))).toBe('[bus:review] the heartbeat of review session s-1 was not recorded, the review goes on: database is locked')
+    }
+    finally {
+      said.mockRestore()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('the worker beats for a review session on each interval its transcript grew, and not on one it stood still', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-beat-'))
+    try {
+      const beats: string[] = []
+      const pause = async (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
+      const working = async (params: SpawnSessionParams): Promise<number> => {
+        await pause(80)
+        writeFileSync(params.stdoutPath, '{"type":"assistant"}\n')
+        await pause(200)
+        writeFileSync(params.stdoutPath, '{"type":"assistant"}\n{"type":"user"}\n')
+        await pause(120)
+        writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+        return 0
+      }
+      const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
+      const review = await claudeReviewer(trees, working, (beaten, session) => beats.push(`${beaten.taskKey} ${session}`), 50)(lease, full)
+      expect(beats).toEqual([`${lease.taskKey} ${review.session}`, `${lease.taskKey} ${review.session}`])
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('the review carries the model the session ran from its stream-json, not the env value', async () => {

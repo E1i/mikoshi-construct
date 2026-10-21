@@ -25,7 +25,7 @@ import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { busCardEvents } from '../../bus/intake.js'
 import { CARD_ADMITTED, launchCandidates } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
-import { cardCommand, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
+import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
 import { busCardBodies, busStarterPorts, cardTextReader, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
@@ -161,6 +161,8 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
     uuid: () => `session-${cardId}`,
     envOf: id => sessionEnv(env, id),
     prompt: (task, at) => renderPrompt('card {{card}} in {{worktree}}, report {{report}}\n\n', task, at),
+    changedPaths: () => [],
+    readReport: () => null,
     ...overrides,
   }
   return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: shiftClaude ?? 'claude', treePr: 'true', ...places }, ports)
@@ -408,6 +410,86 @@ describe('the launch queue', () => {
     stoppedInTree(bench, 1161, tree, 'ladder')
 
     expect(launchCandidates(bench.db, existsSync, () => Date.parse('2026-10-01T00:00:00.000Z'))).toEqual([{ cardId: 1161, generation: 'again-1161' }])
+    bench.close()
+  })
+
+  function heldTreeStarter(cardId: number, changed: string[], report: string | null) {
+    const root = tempRoot()
+    const parking = path.join(root, 'parking')
+    mkdirSync(path.join(parking, 'lane-a'), { recursive: true })
+    writeFileSync(path.join(parking, 'lane-a', `${cardId}.md`), parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: ['scripts/bus/**'], continue: 'auto', who: 'shift', body: 'Do the card.' }))
+    const launchDir = path.join(root, 'launch')
+    const cuts: string[] = []
+    const spawned: string[] = []
+    const ports: StarterPorts = {
+      read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+      cut: (task) => {
+        cuts.push(task.branch)
+        return path.join(root, 'fresh')
+      },
+      base: () => 'n'.repeat(40),
+      spawnDetached: (run) => {
+        spawned.push(run.cwd)
+        return 5151
+      },
+      pgidOf: () => 5151,
+      kill: () => {},
+      uuid: () => `sess-${cardId}`,
+      envOf: () => ({}),
+      prompt: task => task.body,
+      changedPaths: () => changed,
+      readReport: file => file === path.join(launchDir, `report-${cardId}.md`) ? report : null,
+    }
+    return { starter: new ShiftCardStarter({ parking, launchDir, claude: 'claude', treePr: 'true' }, ports), cuts, spawned }
+  }
+
+  it('a continueIn candidate is started in its named tree, never by task:start', () => {
+    const held = heldTreeStarter(1172, ['notes.md'], 'result: stopped at a boundary\nnotes.md holds the half-written plan\n')
+    const bench = launchBench(held.starter)
+    const tree = path.join(tempRoot(), 'mc-1172')
+    mkdirSync(tree)
+    stoppedInTree(bench, 1172, tree)
+    bench.tick()
+
+    const outcome = bench.launch(bench.leaseLaunch()!)
+
+    expect(outcome).toMatchObject({ kind: 'started', card: { worktree: tree, session: 'sess-1172' } })
+    expect(held.cuts).toEqual([])
+    expect(held.spawned).toEqual([tree])
+    expect(eventsOf(bench.db, CARD_STARTED).at(-1)).toMatchObject({ worktree: tree })
+    bench.close()
+  })
+
+  it('a held tree with an unnamed changed path is stopped, not continued', () => {
+    const held = heldTreeStarter(1136, ['notes.md', 'scripts/bus/report.ts'], 'result: stopped at a boundary\nnotes.md holds the half-written plan\n')
+    const bench = launchBench(held.starter)
+    const tree = path.join(tempRoot(), 'mc-1136')
+    mkdirSync(tree)
+    stoppedInTree(bench, 1136, tree)
+    bench.tick()
+
+    const outcome = bench.launch(bench.leaseLaunch()!)
+
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'held_tree_changed', paths: ['scripts/bus/report.ts'] }, next: 'withdrawn' })
+    expect(held.cuts).toEqual([])
+    expect(held.spawned).toEqual([])
+    expect(eventsOf(bench.db, CARD_STOPPED).at(-1)).toMatchObject({ reason: 'fault', paths: ['scripts/bus/report.ts'] })
+    bench.tick()
+    expect(launchCandidates(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('a changed path is named only as a whole path, never inside a longer one', () => {
+    const held = heldTreeStarter(1137, ['report.ts', 'a.ts'], 'result: stopped at a boundary\nleft `scripts/bus/report.ts` and data.ts as they were\n')
+    const bench = launchBench(held.starter)
+    const tree = path.join(tempRoot(), 'mc-1137')
+    mkdirSync(tree)
+    stoppedInTree(bench, 1137, tree)
+    bench.tick()
+
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'denied', denial: { reason: 'held_tree_changed', paths: ['report.ts', 'a.ts'] } })
+    expect(held.spawned).toEqual([])
+    expect([...pathTokens('see `scripts/bus/report.ts`, (notes.md). and "a b.ts":')]).toEqual(['see', 'scripts/bus/report.ts', 'notes.md', 'and', 'a', 'b.ts'])
     bench.close()
   })
 

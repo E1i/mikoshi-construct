@@ -24,7 +24,7 @@ import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
-import { ShiftCardStarter } from '../../bus/launch-starter.js'
+import { gitChangedPaths, ShiftCardStarter } from '../../bus/launch-starter.js'
 import { CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_WAITING, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LADDER_APPROVAL, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
@@ -812,6 +812,8 @@ function ladderWorld(made: MergeBench, handoffState: { brief: string, approved: 
     uuid: () => `sess-${LADDER_CARD}`,
     envOf: () => ({}),
     prompt: task => task.body,
+    changedPaths: () => [],
+    readReport: () => null,
   }
   const steps = handoffLadderSteps(handoff, path.join(root, 'repo'), { [WORKTREE_HOME_VARIABLE]: path.join(root, 'worktrees') }, made.busPath)
   const starter = new LadderCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: path.join(root, 'repo') }, ports, steps)
@@ -1075,6 +1077,23 @@ describe('what a launched session left behind', () => {
     expect(hasCommitsAhead({ ...card, worktree: path.join(tree, 'gone') })).toBe(true)
   })
 
+  it('the changed paths of a tree are its modified, untracked and both sides of a renamed path', () => {
+    const tree = scratch()
+    const git = (...args: string[]): string => execFileSync('git', ['-C', tree, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
+    git('init', '-q')
+    mkdirSync(path.join(tree, 'scripts'))
+    writeFileSync(path.join(tree, 'scripts', 'report.ts'), 'a\n')
+    writeFileSync(path.join(tree, 'old.md'), 'b\n')
+    git('add', '.')
+    git('commit', '-q', '-m', 'base')
+    expect(gitChangedPaths(tree)).toEqual([])
+
+    writeFileSync(path.join(tree, 'scripts', 'report.ts'), 'mutant\n')
+    writeFileSync(path.join(tree, 'notes.md'), 'c\n')
+    git('mv', 'old.md', 'new.md')
+    expect(gitChangedPaths(tree).sort()).toEqual(['new.md', 'notes.md', 'old.md', 'scripts/report.ts'])
+  })
+
   it('a shift report written since the session started is a result, an older one is not', () => {
     const launchDir = scratch()
     const start = { cardId: 982, ts: '2026-10-19T12:00:00.000Z' }
@@ -1131,6 +1150,8 @@ describe('what a launched session left behind', () => {
       uuid: () => 'sess-next',
       envOf: () => ({}),
       prompt: task => task.body,
+      changedPaths: () => [],
+      readReport: () => null,
     }
     const starter = new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
     const from: StartedCard = { session: 'sess-first', worktree: '/trees/mc-1123', branch: 'feat/a-card', base: 'b'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' }
