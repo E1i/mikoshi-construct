@@ -7,10 +7,11 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { GOAL_DECISION } from '../../../src/commands/board/goal.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { boardProjection, printBoard, runBoardCli } from '../../bus/board-page.js'
-import { GOAL_DECISION, MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
+import { MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
 import { DROPPED_LANE, MERGE_DONE, MERGED_CARD } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
@@ -465,6 +466,18 @@ describe('the factory board', () => {
     decisionRow(bench, GOAL_DECISION - 1, '[owner] 0.45 scope is another list')
     expect(read().goal).toBeNull()
     decisionRow(bench, GOAL_DECISION, '[owner] 0.44 scope is the list \'Release 0.44 — full list\', items 1–16.')
-    expect(read().goal).toEqual({ release: '0.44', done: 2, total: 4 })
+    expect(read().goal).toEqual({ release: '0.44', done: 2, total: 3 })
+  })
+
+  it('the board page opens with the goal line, and a dropped card leaves the total because it left the plan', () => {
+    const bench = boardBench()
+    const path = (line: string): string => `do it\n\nPath (D-76): ${line}\n`
+    bodyRow(bench, 930, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.44, slice S') })
+    bodyRow(bench, 931, { lane: 'lane-1', state: 'queued', text: path('cheap — 0.44, slice S') })
+    bodyRow(bench, 932, { lane: 'lane-1', state: 'dropped', text: path('cheap — 0.44, slice S') })
+    decisionRow(bench, GOAL_DECISION, '[owner] 0.44 scope is the list')
+    const written: string[] = []
+    expect(printBoard(bench.db.location()!, bench.clock.now(), text => written.push(text))).toBe(0)
+    expect(written.join('')).toContain('<section><h2>Flow</h2><pre>goal · release 0.44 · — · 1 of 2 merged\nplanned')
   })
 })

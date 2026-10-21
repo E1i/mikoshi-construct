@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { busReaderAt, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
+import { GOAL_DECISION } from '../../src/commands/board/goal.js'
 import { flowLines } from '../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { checkMatrix, subagent, writeBus } from './bus-fixture.js'
@@ -32,6 +33,14 @@ function facts(seed: BusSeed): BusFacts {
 }
 
 describe('the board bus reader', () => {
+  it('the goal is the D-193 release over the cards whose Path line names it, merged of all but the dropped', () => {
+    const path = (state: string, line: string): { state: string, text: string } => ({ state, text: `do it\n\nPath (D-76): ${line}\n` })
+    const cards = [path('merged', 'cheap — 0.44, slice S'), path('queued', 'cheap — 0.44 night order'), path('dropped', 'cheap — 0.44'), path('merged', 'cheap — 0.45')]
+      .map((card, index) => ({ id: 10 + index, lane: null, line: null, ...card }))
+    expect(facts({ cards }).goal).toBeNull()
+    expect(facts({ cards, decisions: [[GOAL_DECISION, '[owner] 0.44 scope is the list']] }).goal).toEqual({ release: '0.44', done: 1, total: 2 })
+  })
+
   it('reads every card with its state, lane and card line, in card order', () => {
     expect(facts({ cards: [{ id: 2, state: 'changes', lane: null, line: null }, { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha' }] }).cards).toEqual([
       { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },

@@ -5,6 +5,7 @@ import { FLOW_STATES, LIVE_STATES, SHORT_SHA } from './bus.js'
 const CARD_PREFIX = /^card:\s*/
 const MATRIX_ROLE = 'matrix'
 const BUS_ROLE = 'bus'
+const GOAL_ROLE = 'goal'
 const MINUTE_MS = 60_000
 export const ENDED_SHOWN_HOURS = 12
 const HOUR_MS = 3_600_000
@@ -75,6 +76,11 @@ export function pulseLines(facts: BusFacts, lore: Lore): string[] {
   return [lore.boardServiceLine(BUS_ROLE, 'pulse', undefined, `${pulse} \u00B7 slots in use: ${used} (the bus records no capacity)`)]
 }
 
+export function goalLines(facts: BusFacts, lore: Lore): string[] {
+  const { goal } = facts
+  return goal === null ? [] : [lore.boardServiceLine(GOAL_ROLE, `release ${goal.release}`, undefined, `${goal.done} of ${goal.total} merged`)]
+}
+
 export interface Screen {
   title: string
   lines: string[]
@@ -88,7 +94,7 @@ export interface Screens {
 export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
   return {
     screens: [
-      { title: lore.boardTabFlow, lines: flowLines(facts.cards, lore) },
+      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...flowLines(facts.cards, lore)] },
       { title: lore.boardTabBacklog, lines: backlogLines(backlogCards(facts.cards, facts.at, all), lore) },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore)] },
     ],

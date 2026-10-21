@@ -7,6 +7,7 @@ CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT
 CREATE TABLE prs (pr INTEGER PRIMARY KEY, verdict_on_head TEXT);
 CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL);
 CREATE TABLE roles (role TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL);
+CREATE TABLE decisions (decision_id INTEGER PRIMARY KEY, text TEXT NOT NULL);
 `
 
 const CARD_STATE_EVENT = 'card.state'
@@ -53,6 +54,7 @@ export interface BusSeed {
   tasks?: SeedTask[]
   events?: SeedEvent[]
   roles?: SeedRole[]
+  decisions?: [number, string][]
 }
 
 function insertEvent(db: DatabaseSync, event: SeedEvent): number {
@@ -78,6 +80,8 @@ export function writeBus(file: string, seed: BusSeed): string {
       insertEvent(db, event)
     for (const role of seed.roles ?? [])
       db.prepare('INSERT INTO roles (role, status, state) VALUES (?, ?, ?)').run(role.role, role.status, role.state)
+    for (const [decisionId, text] of seed.decisions ?? [])
+      db.prepare('INSERT INTO decisions (decision_id, text) VALUES (?, ?)').run(decisionId, text)
   }
   finally {
     db.close()

@@ -1,9 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Goal } from '../../src/commands/board/goal.js'
 import type { Choice, ParkingReads } from '../shift/parking.js'
 import type { Queue } from './identifiers.js'
 import type { LeaseOrder } from './lease.js'
 import type { WindowShard } from './shards.js'
 import path from 'node:path'
+import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGE_DONE, MERGED_CARD, PR_OPENED, QUEUED_CARD, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
@@ -25,7 +27,6 @@ export const NO_PROGRESS_MS = 30 * 60_000
 export const CUTOVER = 'bus.cutover'
 export const PROGRESS_EVENTS = [REVIEW_RECORDED, MERGE_DONE, PR_OPENED, 'pr.closed', CARD_STARTED, CARD_ADMITTED, CARD_CLOSED, TASK_COMPLETED] as const
 export const MERGE_PAST_THE_BUS = 'merge past the bus'
-export const GOAL_DECISION = 193
 
 export type Health = 'alive' | 'down' | 'unknown' | 'off'
 
@@ -110,12 +111,6 @@ export interface Progress {
 
 export interface ActiveShard extends WindowShard {
   leftMinutes: number
-}
-
-export interface Goal {
-  release: string
-  done: number
-  total: number
 }
 
 export interface Board {
@@ -426,24 +421,6 @@ function taskQueues(db: DatabaseSync, orders: LeaseOrders): TaskQueue[] {
       .map(row => ({ taskKey: row.task_key, card: row.card_id, holder: row.actor, leaseGen: row.lease_gen, since: row.ts })),
     waiting: grantOrder(db, queue, orders[queue]).map(task => ({ taskKey: task.taskKey, card: task.cardId })),
   })).filter(queue => queue.leased.length + queue.waiting.length > 0)
-}
-
-const RELEASE = /\d+\.\d+/
-const PATH_LINE = /^Path \(D-76\):.*$/gm
-
-function namesRelease(text: string, release: string): boolean {
-  const named = new RegExp(`(?<![\\d.])${release.replace('.', '\\.')}(?!\\.?\\d)`)
-  return (text.match(PATH_LINE) ?? []).some(line => named.test(line))
-}
-
-function goalOf(db: DatabaseSync): Goal | null {
-  const decision = db.prepare('SELECT text FROM decisions WHERE decision_id = ?').get(GOAL_DECISION) as { text: string } | undefined
-  const release = decision?.text.match(RELEASE)?.[0]
-  if (release === undefined)
-    return null
-  const cards = (db.prepare('SELECT body.text, cards.state FROM card_bodies AS body LEFT JOIN cards ON cards.card_id = body.card_id').all() as { text: string, state: string | null }[])
-    .filter(card => namesRelease(card.text, release))
-  return { release, done: cards.filter(card => card.state === MERGED_CARD).length, total: cards.length }
 }
 
 export function readBoard(sources: BoardSources): Board {

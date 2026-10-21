@@ -1,6 +1,6 @@
 import type { BusCard, BusFacts } from '../../src/commands/board/bus.js'
 import { describe, expect, it } from 'vitest'
-import { backlogCards, backlogLines, boardScreens, flowLines, matrixLines, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
+import { backlogCards, backlogLines, boardScreens, flowLines, goalLines, matrixLines, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
 function card(id: number, state: string | null, lane: string | null = null, line: string | null = null): BusCard {
@@ -8,10 +8,17 @@ function card(id: number, state: string | null, lane: string | null = null, line
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
-  return { at: '2026-10-02T12:00:00.000Z', pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
+  return { at: '2026-10-02T12:00:00.000Z', goal: null, pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
 }
 
 describe('the board screens', () => {
+  it('the board opens with the goal line, release and merged of total, and has none when the bus holds no goal', () => {
+    const goal = { release: '0.44', done: 2, total: 3 }
+    expect(goalLines(noFacts({ goal }), PLAIN_LORE)).toEqual(['goal · release 0.44 · — · 2 of 3 merged'])
+    expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', 'goal · release 0.44 · — · 2 of 3 merged', 'planned (0): —'])
+    expect(screenLines(noFacts(), PLAIN_LORE).slice(0, 2)).toEqual(['Flow', 'planned (0): —'])
+  })
+
   it('flow puts queued in planned, running and changes in work, in_review in review, ready in ready to merge, and leaves every other state out', () => {
     const cards = [card(1, 'queued'), card(2, 'running'), card(3, 'changes'), card(4, 'in_review'), card(5, 'ready'), card(6, 'merged'), card(7, 'fell'), card(8, null)]
     expect(flowLines(cards, PLAIN_LORE)).toEqual([
