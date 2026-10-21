@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GhResponse } from './github.js'
 import { spawnSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
@@ -9,8 +10,13 @@ import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { parseIncluded } from './github.js'
 import { CARD_STOPPED } from './inbox.js'
 import { TASK_LEASED } from './lease.js'
+import { NODE_CURSORS } from './node.js'
+import { lastEventId } from './operator-work.js'
 
 export const PREFIX = '[bus:pr-status] '
+export const STATUS_CURSOR = 'pr-status'
+export const STATUS_BATCH = 20
+export const STATUS_OFF_FILE = 'pr-status.off'
 export const PR_STATUS_SET = 'pr.status.set'
 export const PR_STATUS_REFUSED = 'pr.status.refused'
 export const STATUS_CONTEXT = 'mikoshi'
@@ -96,26 +102,36 @@ export function statusFields(status: StepStatus): Record<string, string> {
   return { state: status.state, context: STATUS_CONTEXT, description: `${STATUS_CONTEXT}: ${status.step}` }
 }
 
-const LAST_SET = `SELECT payload FROM events WHERE type IN ('${PR_STATUS_SET}', '${PR_STATUS_REFUSED}') ORDER BY id DESC LIMIT 1`
 const STEPS_AFTER = `SELECT id, type, pr, head, payload FROM events WHERE legacy = 0 AND id > ? AND type IN (${STEP_EVENTS.map(() => '?').join(', ')}) ORDER BY id`
+const OPEN_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open'`
 
 function cursorOf(db: DatabaseSync): number {
-  const row = db.prepare(LAST_SET).get() as { payload: string } | undefined
-  const through = row === undefined ? 0 : Number(payloadOf(row.payload).event_id)
-  return Number.isInteger(through) ? through : 0
+  db.prepare(`INSERT INTO ${NODE_CURSORS} (kind, event_id) VALUES (?, ?) ON CONFLICT (kind) DO NOTHING`).run(STATUS_CURSOR, lastEventId(db))
+  return Number((db.prepare(`SELECT event_id FROM ${NODE_CURSORS} WHERE kind = ?`).get(STATUS_CURSOR) as { event_id: number }).event_id)
 }
 
-export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date()): StepStatus[] {
-  const events = db.prepare(STEPS_AFTER).all(cursorOf(db), ...STEP_EVENTS) as unknown as StepEvent[]
+function moveCursor(db: DatabaseSync, eventId: number): void {
+  db.prepare(`UPDATE ${NODE_CURSORS} SET event_id = ? WHERE kind = ?`).run(eventId, STATUS_CURSOR)
+}
+
+function isOnOpenHead(db: DatabaseSync, status: StepStatus): boolean {
+  return db.prepare(OPEN_ON_HEAD).get(status.pr, status.head) !== undefined
+}
+
+export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[] {
   const set: StepStatus[] = []
-  for (const event of events) {
+  for (const event of db.prepare(STEPS_AFTER).iterate(cursorOf(db), ...STEP_EVENTS) as Iterable<StepEvent>) {
+    if (set.length >= batch)
+      break
     const status = stepStatusOf(withPrHead(db, event))
-    if (status === null)
+    if (status === null || !isOnOpenHead(db, status)) {
+      moveCursor(db, event.id)
       continue
+    }
     const response = post(`repos/{owner}/{repo}/statuses/${status.head}`, statusFields(status))
     const refused = !isSuccess(response.status)
     if (refused && !isPermanentRefusal(response.status))
-      throw new Error(`${PREFIX}PR #${status.pr} ${status.head}: GitHub answered ${response.status} to the status ${STATUS_CONTEXT}: ${status.step}; nothing recorded, the step is posted again on the next run`)
+      throw new StatusRefusedForNow(`${PREFIX}PR #${status.pr} ${status.head}: GitHub answered ${response.status} to the status ${STATUS_CONTEXT}: ${status.step}; nothing recorded, the step is posted again on the next run`)
     appendEvent(db, {
       ts: now().toISOString(),
       type: refused ? PR_STATUS_REFUSED : PR_STATUS_SET,
@@ -127,9 +143,26 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
       payload: { event_id: event.id, step: status.step, state: status.state, status: response.status },
       legacy: false,
     })
+    moveCursor(db, event.id)
     set.push(refused ? { ...status, refused: response.status } : status)
   }
   return set
+}
+
+export function statusesSwitchedOff(busPath: string): boolean {
+  return existsSync(path.join(path.dirname(busPath), STATUS_OFF_FILE))
+}
+
+export class StatusRefusedForNow extends Error {}
+
+export function statusFailureLine(error: unknown): string {
+  if (error instanceof StatusRefusedForNow)
+    return error.message
+  return `${PREFIX}the status step broke and recorded nothing, the bus tick goes on: ${error instanceof Error ? error.message : String(error)}`
+}
+
+export function statusLine(status: StepStatus): string {
+  return `${PREFIX}PR #${status.pr} ${status.head.slice(0, 7)}: ${STATUS_CONTEXT}: ${status.step} (${status.refused === undefined ? status.state : `refused ${status.refused}, recorded and passed`})`
 }
 
 export function ghApiPost(cwd: string, command = 'gh'): GitHubPost {
@@ -148,7 +181,7 @@ function main(): number {
   const db = openBus(defaultBusPath())
   try {
     for (const status of setStepStatuses(db, ghApiPost(process.cwd())))
-      console.log(`${PREFIX}PR #${status.pr} ${status.head.slice(0, 7)}: ${STATUS_CONTEXT}: ${status.step} (${status.refused === undefined ? status.state : `refused ${status.refused}, recorded and passed`})`)
+      console.log(statusLine(status))
     return 0
   }
   finally {

@@ -1,0 +1,66 @@
+id: bus
+title: bus tick composition
+description: >-
+  `composeBusTick` in `scripts/bus/run.ts` is the composition root of the bus loop `pnpm bus:run` keeps
+  alive. Each tick NetWatch polls GitHub and writes what it observed; a poll that was skipped or refused
+  ends the tick there. A ticked poll runs the rest in sequence on the one `bus.db`: the owner decisions
+  import, the window requests, the reducer and the queues it derives. Then, unless `pr-status.off` sits
+  beside `bus.db`, `setStepStatuses` reads the step events after its cursor in `node_cursors`, which a
+  first run opens at the last event of the journal, and posts the status check `mikoshi: <step>` only
+  where the `prs` projection holds the pull request open on that head, at most `STATUS_BATCH` posts a
+  tick, the rest in later ticks. Each post is recorded as `pr.status.set`, or `pr.status.refused` on a
+  head GitHub refuses for good. A refusal for now records nothing: the root logs it, the tick goes on,
+  and the next tick posts the step again.
+  Last, the board projection is written. The status post is the only write to GitHub the tick makes.
+doc: architecture/composition/bus.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: observe
+    label: Observe · GitHub read
+  - id: fold
+    label: Fold · bus.db
+  - id: report
+    label: Report · GitHub status and the board
+nodes:
+  - id: root
+    label: composeBusTick · the loop pnpm bus:run keeps alive
+    path: scripts/bus/run.ts
+    boundary: entry
+  - id: netwatch
+    label: NetWatch.poll → the observed events · a skipped poll ends the tick
+    path: scripts/bus/netwatch.ts
+    boundary: observe
+  - id: decisions
+    label: decisionsIntake · the owner decisions import
+    path: scripts/bus/decisions-import.ts
+    boundary: fold
+  - id: requests
+    label: WindowRequests.run · the window requests
+    path: scripts/bus/window-requests.ts
+    boundary: fold
+  - id: reduce
+    label: reduce → reducer.reduced
+    path: scripts/bus/reducer.ts
+    boundary: fold
+  - id: queues
+    label: deriveQueues · superseded and queued tasks
+    path: scripts/bus/queue.ts
+    boundary: fold
+  - id: statuses
+    label: 'setStepStatuses → gh api POST statuses/<head> · mikoshi: <step> · open PR, current head, STATUS_BATCH a tick'
+    path: scripts/bus/pr-status.ts
+    boundary: report
+  - id: board
+    label: boardProjection · the board file
+    path: scripts/bus/board-page.ts
+    boundary: report
+edges:
+  - {from: root, to: netwatch, kind: sequence}
+  - {from: netwatch, to: decisions, kind: sequence, label: ticked}
+  - {from: decisions, to: requests, kind: sequence}
+  - {from: requests, to: reduce, kind: sequence}
+  - {from: reduce, to: queues, kind: sequence}
+  - {from: queues, to: statuses, kind: sequence}
+  - {from: statuses, to: board, kind: sequence, label: a refusal for now is logged and passed}
+  - {from: queues, to: board, kind: sequence, label: pr-status.off}
