@@ -69,10 +69,11 @@ export function tickLines(tick: Tick): string[] {
 export interface ComposedTick {
   busTick: BusTick
   boardFile: string
+  boardDataFile: string
 }
 
 export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, post: GitHubPost, clock: () => Date, home: string): ComposedTick {
-  const board = boardProjection(db, busPath)
+  const board = boardProjection(db, busPath, TICK_MS)
   const requests = new WindowRequests(db, clock, realRequestTools(db, process.cwd(), process.env, home))
   const answer = (): void => {
     for (const outcome of requests.run())
@@ -89,14 +90,14 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
       console.log(statusFailureLine(error))
     }
   }
-  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, defaultDecisions(home), clock), board.project, answer, statuses), boardFile: board.file }
+  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, defaultDecisions(home), clock), board.project, answer, statuses), boardFile: board.file, boardDataFile: board.dataFile }
 }
 
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const { busTick, boardFile } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
-  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues, the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it, and ${boardFile} every ${TICK_MS / 1000} s; no workers`)
+  const { busTick, boardFile, boardDataFile } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
+  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues, the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it, and ${boardFile} with ${boardDataFile} every ${TICK_MS / 1000} s; no workers`)
   try {
     for (;;) {
       const tick = busTick.run()

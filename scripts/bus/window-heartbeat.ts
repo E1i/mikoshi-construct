@@ -4,7 +4,7 @@ import os from 'node:os'
 import process from 'node:process'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
 import { projectRoot, sessionGauges } from '../miko/eddies-measure.js'
-import { CARD_VARIABLE } from '../ports/session.js'
+import { CARD_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { appendEvent, openBus } from './db.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
@@ -15,7 +15,8 @@ const SESSION_ID = /^[^:\s]+$/
 
 export function windowSessionOf(env: NodeJS.ProcessEnv): string | null {
   const session = env[SESSION_VARIABLE]?.trim()
-  return !env[CARD_VARIABLE] && session !== undefined && SESSION_ID.test(session) ? session : null
+  const marked = env[WINDOW_VARIABLE] === WINDOW_MARK && !env[CARD_VARIABLE]
+  return marked && session !== undefined && SESSION_ID.test(session) ? session : null
 }
 
 export function recordWindowHeartbeat(db: DatabaseSync, ts: string, session: string, gauges: SessionGauges = {}): boolean {
