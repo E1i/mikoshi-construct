@@ -14,6 +14,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { NO_ANSWER_STATUS } from '../../bus/github.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { prBodySha, taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
@@ -365,6 +366,36 @@ describe('review worker', () => {
 
     expect(callsAtStart).toEqual([0])
     expect(gitHub.calls).toHaveLength(workerCalls)
+    db.close()
+  })
+
+  it.each([
+    ['503', { status: 503, headers: {}, body: { message: 'Service Unavailable' } }],
+    ['gh timeout', { status: NO_ANSWER_STATUS, headers: {}, body: { message: 'gh api repos/{owner}/{repo}/pulls/754: ETIMEDOUT' } }],
+  ])('a 5xx or gh timeout on the preflight waits and retries nothing, because the preflight asks GitHub nothing: %s', async (_name, answer) => {
+    const { db, gitHub, clock, tick } = setUp()
+    gitHub.open({ number: 740 })
+    gitHub.open({ number: 754 })
+    tick()
+    gitHub.close(740, true)
+    gitHub.close(754, true)
+    tick()
+    reduce(db)
+    gitHub.limited = answer
+    const before = gitHub.calls.length
+    const started: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (String(line).includes('the review node worker:review:node-1 takes the review queue'))
+        started.push(String(line))
+    })
+    const parts = { db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', isolation: sandboxed }
+    const controller = new AbortController()
+
+    await new ReviewNode({ ...parts, mode: 'shadow', env: {} }).run({ pause: async () => controller.abort(), signal: controller.signal })
+
+    expect(started).toHaveLength(1)
+    expect(startReviewWorkers(parts, 1)).toHaveLength(1)
+    expect(gitHub.calls.slice(before)).toEqual([])
     db.close()
   })
 

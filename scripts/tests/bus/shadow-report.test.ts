@@ -64,6 +64,28 @@ describe('shadow report', () => {
     db.close()
   })
 
+  it('the shadow report reads only the prs open in the bus, from the bus: no merged or closed row is fetched from GitHub', () => {
+    const { db, gitHub, clock } = reducedBus()
+    const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
+    gitHub.open({ number: 932 })
+    gitHub.close(930, true)
+    gitHub.close(931, false)
+    busTick.run()
+    clock.advance(TICK_MS)
+    reduce(db)
+    expect(db.prepare('SELECT pr, state FROM prs ORDER BY pr').all()).toEqual([{ pr: 930, state: 'merged' }, { pr: 931, state: 'closed' }, { pr: 932, state: 'open' }])
+    gitHub.failing = true
+    const calls = gitHub.calls.length
+
+    const lines = shadowReport(db, '')
+    const reading = shadowReading(db)
+
+    expect(gitHub.calls.slice(calls)).toEqual([])
+    expect(lines.join('\n')).toContain(`${EXIT_CRITERIA.prs}: 3 in the projection (open 1, merged 1, closed 1)`)
+    expect(reading.problems).toEqual([])
+    db.close()
+  })
+
   it('an event appended after the last reduce causes no replay divergence', () => {
     const { db, clock } = reducedBus()
     db.prepare(`INSERT INTO events (ts, type, actor, pr, dedupe_key, payload) VALUES (?, 'pr.closed', 'netwatch', 930, 'pr:930:closed', '{"merged":true}')`).run(clock.now().toISOString())
@@ -125,7 +147,7 @@ describe('shadow report', () => {
   })
 })
 
-function reducedBus(): { db: DatabaseSync, clock: Clock } {
+function reducedBus(): { db: DatabaseSync, gitHub: FakeGitHub, clock: Clock } {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-shadow-replay-'))
   roots.push(root)
   const db = openBus(path.join(root, 'bus.db'))
@@ -135,7 +157,7 @@ function reducedBus(): { db: DatabaseSync, clock: Clock } {
   gitHub.open({ number: 931 })
   new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now).run()
   clock.advance(TICK_MS)
-  return { db, clock }
+  return { db, gitHub, clock }
 }
 
 function replayProblems(db: DatabaseSync): string[] {
