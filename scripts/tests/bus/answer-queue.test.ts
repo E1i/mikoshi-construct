@@ -21,7 +21,7 @@ import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { answerCardBodyOf, BOARD_ALARM, FAILURES_TO_STOP, identityOf, keyOf, queueTask, TASK_ENQUEUED, TASK_FOLDS, TASK_REQUEUED } from '../../bus/queue.js'
+import { answerCardBodyOf, appendedAndReduced, BOARD_ALARM, FAILURES_TO_STOP, identityOf, keyOf, queueTask, TASK_ENQUEUED, TASK_REQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REJECTED } from '../../bus/rejection.js'
 import { SHARD_ISSUED } from '../../bus/shards.js'
@@ -766,13 +766,13 @@ describe('the answer queue', () => {
       return lease
     }
     const requeue = (lease: Lease): void => {
-      const { id } = bench.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }
-      TASK_FOLDS[TASK_REQUEUED]!(bench.db, { id, ts, type: TASK_REQUEUED, card_id: lease.cardId, pr: lease.pr, head: lease.head, dedupe_key: `${TASK_REQUEUED}:${lease.taskKey}`, payload: JSON.stringify({ task_key: lease.taskKey, queue: lease.queue, failure: id }) })
+      appendedAndReduced(bench.db, { ts, type: TASK_REQUEUED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${TASK_REQUEUED}:${lease.taskKey}`, payload: { task_key: lease.taskKey, queue: lease.queue }, legacy: false })
     }
     const review = completed('review')
     const answered = completed('answer')
 
-    expect(() => requeue(review)).toThrow(new Rejection(`task ${review.taskKey} is completed, not stopped or withdrawn or superseded`))
+    requeue(review)
+    expect(eventsOf(bench.db, REJECTED).map(event => event.reason)).toEqual([`task ${review.taskKey} is completed, not stopped or withdrawn or superseded`])
     expect(taskState(bench.db, review.taskKey).state).toBe('completed')
     requeue(answered)
     expect(taskState(bench.db, answered.taskKey)).toMatchObject({ state: 'queued', failures: 0 })

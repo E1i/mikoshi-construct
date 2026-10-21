@@ -28,18 +28,21 @@ describe('the projection tables are written by the reducer, and every other writ
     expect(known).toEqual(sortedSites(known))
   })
 
-  it('roles stand in no write site outside the reducer', () => {
-    expect(found.filter(site => site.table === 'roles')).toEqual([])
-    expect(found.map(site => site.table)).toEqual(expect.arrayContaining(['tasks', 'chains', 'cards']))
+  it('roles and tasks stand in no write site outside the reducer', () => {
+    expect(found.filter(site => site.table === 'roles' || site.table === 'tasks')).toEqual([])
+    expect(known.filter(site => site.table === 'roles' || site.table === 'tasks')).toEqual([])
+    expect(found.map(site => site.table)).toEqual(expect.arrayContaining(['chains', 'cards']))
   })
 
-  it('a new write into a projection table outside the reducer fails, even in an excepted file', () => {
-    expect(known.some(site => site.file === 'scripts/bus/queue.ts' && site.table === 'tasks' && site.operation === 'update')).toBe(true)
+  it('a new write into a projection table outside the reducer fails, even in a file that holds folds', () => {
     const raw = projectionWriteSites(withExtra('scripts/bus/queue.ts', `export function sneak(db) {\n  db.prepare('UPDATE tasks SET state = ? WHERE task_key = ?').run('queued', 'k')\n}`))
     expect(unrecordedSites(raw, known)).toEqual([{ file: 'scripts/bus/queue.ts', unit: 'sneak', table: 'tasks', operation: 'update' }])
 
-    const folded = projectionWriteSites(withExtra('scripts/bus/lease.ts', `export function sneakFold(db, event) {\n  LEASE_FOLDS[event.type](db, event)\n}`))
-    expect(unrecordedSites(folded, known)).toEqual([{ file: 'scripts/bus/lease.ts', unit: 'sneakFold', table: 'tasks', operation: 'update' }])
+    const folded = projectionWriteSites(withExtra('scripts/bus/queue.ts', `export function sneakFold(db, event) {\n  TASKS_FOLDS[event.type](db, event)\n}`))
+    expect(unrecordedSites(folded, known)).toEqual([
+      { file: 'scripts/bus/queue.ts', unit: 'sneakFold', table: 'tasks', operation: 'insert' },
+      { file: 'scripts/bus/queue.ts', unit: 'sneakFold', table: 'tasks', operation: 'update' },
+    ])
   })
 
   it('a write inside a fold, and in what a fold calls, belongs to the reducer and is no site', () => {

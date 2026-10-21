@@ -11,8 +11,7 @@ import { defaultBusPath, inTransaction, openBus } from './db.js'
 import { DECISION_FOLDS } from './decisions.js'
 import { isFullSha, prOf } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
-import { LEASE_FOLDS } from './lease.js'
-import { TASK_FOLDS } from './queue.js'
+import { TASKS_PROJECTION } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { ROLE_FOLDS, ROLES_PROJECTION } from './role.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
@@ -21,7 +20,7 @@ import { markReduced } from './watermark.js'
 export const PREFIX = '[bus:reduce] '
 export const REDUCED = 'reducer.reduced'
 export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id' }
-export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION]
+export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION]
 
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
 const CI = new Set(['pending', 'green', 'red'])
@@ -172,8 +171,7 @@ const REDUCERS: Record<string, Fold> = {
   'pr.closed': prClosed,
   'main.advanced': mainAdvanced,
   [PR_OPENED]: prOpened,
-  ...TASK_FOLDS,
-  ...LEASE_FOLDS,
+  ...TASKS_PROJECTION.folds,
   ...CHAIN_FOLDS,
   ...ROLE_FOLDS,
   ...DECISION_FOLDS,
