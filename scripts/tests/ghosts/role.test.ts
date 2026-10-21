@@ -7,6 +7,8 @@ import { openBus } from '../../bus/db.js'
 import { LEASE_MS } from '../../bus/lease.js'
 import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
+import { REJECTED } from '../../bus/rejection.js'
+import { replayDifferences } from '../../bus/report.js'
 import { failRaise, leaseRole, observeRoleStop, returnEndedRole, returnSilentRole, ROLE_RETURNED, roleToOwner, WINDOW_ENDS } from '../../bus/role.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { requestFromWindow } from '../../bus/window-requests.js'
@@ -100,6 +102,24 @@ describe('the window role with the owner', () => {
     expect(roleRow(bus.db)).toMatchObject({ state: 'owner' })
 
     expect(returnSilentRole(bus.db, at(1001 + 4 * LEASE_MS), 'worker:restart:w')).toEqual({ role: 'miko', handoff: HANDOFF, lastSign: beats.at(-1) })
+    bus.close()
+  })
+
+  it('a replay after role.returned matches the live roles row', () => {
+    const bus = ownerBus()
+    requestFromWindow(bus.db, at(1000), 'owner-session', { kind: 'status' })
+    reduce(bus.db)
+    expect(returnSilentRole(bus.db, at(1001 + LEASE_MS), 'worker:restart:w')).toMatchObject({ role: 'miko' })
+    for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+      failRaise(bus.db, at(1001 + LEASE_MS + failure), leaseRole(bus.db, at(1001 + LEASE_MS + failure), 'worker:restart:w')!, 'relaunch did not start')
+    expect(roleToOwner(bus.db, at(1010 + LEASE_MS), 'worker:restart:w')).toMatchObject({ role: 'miko' })
+    expect(bus.db.prepare('SELECT state, lease_gen FROM roles WHERE role = ?').get('miko')).toEqual({ state: 'owner', lease_gen: 2 * FAILURES_TO_STOP })
+
+    expect(replayDifferences(bus.db).differences).toEqual([])
+    const live = projectionDump(bus.db)
+    reduce(bus.db)
+    expect(bus.db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${REJECTED}' AND json_extract(payload, '$.type') LIKE 'role.%'`).get()).toEqual({ n: 0 })
+    expect(projectionDump(bus.db)).toBe(live)
     bus.close()
   })
 
