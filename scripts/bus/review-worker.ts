@@ -1,17 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { GhCallOptions, GhPort } from '../core/gh.js'
 import type { IsolationReader } from '../ghosts/isolation.js'
 import type { StatusPublisher } from '../ghosts/verdict.js'
 import type { DryRunRecord } from './dry-run-record.js'
 import type { GitHub } from './github.js'
 import type { Lease } from './lease.js'
-import type { DetectionMode, NodeContext, Scope } from './node.js'
+import type { DetectionMode, Scope } from './node.js'
 import type { QueuedTask } from './queue.js'
-import type { ReadSet, ShadowReading } from './report.js'
+import type { ReadSet } from './report.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { ExecutorParts, Step } from './review-executor.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
 import type { StoredEvent } from './stored.js'
-import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -19,6 +19,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { GhFailed, PROCESS_GH_PORT } from '../core/gh.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { realIsolationReader } from '../ghosts/isolation.js'
 import { HEADLESS_FLAGS } from '../ghosts/session.js'
@@ -32,7 +33,6 @@ import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
 import { expireLeases, leaseNext, leaseQueued, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
-import { RateLimited } from './meter.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { Node, runNode, SWITCH_FLAG } from './node.js'
 import { PR_CLOSED } from './observations.js'
@@ -40,7 +40,7 @@ import { PR_OBSERVED } from './operator-work.js'
 import { promptsDirOf } from './prompt-store.js'
 import { cardBodyShaOfCard, reviewCandidates, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
-import { shadowProblems, shadowReading } from './report.js'
+import { shadowReading } from './report.js'
 import { planned, recordLeftovers, ReviewExecutor } from './review-executor.js'
 import { claudeReviewer, PREFIX, ReviewFailed, ReviewTrees } from './reviewer.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
@@ -70,23 +70,6 @@ export interface WorkerParts extends ExecutorParts {
 export class ShadowNotClean extends Error {
   constructor(readonly problems: string[]) {
     super(`the shadow report is not clean: ${problems.join('; ')}`)
-  }
-}
-
-class PreflightWaits extends Error {
-  constructor(readonly ms: number, readonly reason: string) {
-    super(reason)
-  }
-}
-
-function shadowReadingOrWait(db: DatabaseSync, gitHub: GitHub, clock: () => Date): ShadowReading {
-  try {
-    return shadowReading(db, gitHub, () => clock().getTime(), REVIEW_READS)
-  }
-  catch (error) {
-    if (error instanceof RateLimited)
-      throw new PreflightWaits(error.retryAfterSeconds * 1000, error.message)
-    throw error
   }
 }
 
@@ -121,28 +104,12 @@ export class ReviewNode extends Node<Step> {
     return false
   }
 
-  override async run(ctx: NodeContext): Promise<void> {
-    while (ctx.signal?.aborted !== true) {
-      try {
-        return await super.run(ctx)
-      }
-      catch (error) {
-        if (!(error instanceof PreflightWaits))
-          throw error
-        this.log(`waits ${error.ms} ms before it takes the queue: ${error.reason}`)
-        await ctx.pause(error.ms)
-      }
-    }
-  }
-
   protected override before(): void {
-    const { db, gitHub, clock, clearLeftovers } = this.reviewParts
-    const { headLag, problems, foreign } = shadowReadingOrWait(db, gitHub, clock)
+    const { db, clearLeftovers } = this.reviewParts
+    const { problems, foreign } = shadowReading(db, REVIEW_READS)
     recordForeignDivergences(db, this.actor, this.ts(), foreign)
     if (problems.length > 0)
-      throw new ShadowNotClean([...problems, ...headLag])
-    if (headLag.length > 0)
-      throw new PreflightWaits(TICK_MS, `the prs head is behind GitHub until the next netwatch tick: ${headLag.join('; ')}`)
+      throw new ShadowNotClean(problems)
     if (clearLeftovers !== undefined)
       recordLeftovers(db, this.actor, this.ts(), clearLeftovers())
   }
@@ -196,7 +163,7 @@ export class ReviewWorker {
 }
 
 export function startReviewWorkers(parts: WorkerParts, slots: number): ReviewWorker[] {
-  const problems = shadowProblems(parts.db, parts.gitHub, () => parts.clock().getTime())
+  const { problems } = shadowReading(parts.db)
   if (problems.length > 0)
     throw new ShadowNotClean(problems)
   return Array.from({ length: slots }, (_, slot) => new ReviewWorker({ ...parts, session: `${parts.session}-${slot + 1}` }))
@@ -321,10 +288,17 @@ export interface ReviewRun {
   keepDryRun?: KeepDryRun
 }
 
-export function ghNotePr(cwd: string): (pr: number, line: string) => void {
+function ghOutput(port: GhPort, args: string[], call: GhCallOptions): string {
+  const result = port.call(args, call)
+  if (result.kind === 'failed')
+    throw new GhFailed(result)
+  return result.stdout
+}
+
+export function ghNotePr(cwd: string, port: GhPort = PROCESS_GH_PORT): (pr: number, line: string) => void {
   return (pr, line) => {
-    const view = execFileSync('gh', ['pr', 'view', String(pr), '--json', 'body', '-q', '.body'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-    execFileSync('gh', ['pr', 'edit', String(pr), '--body-file', '-'], { cwd, input: `${view.trimEnd()}\n\n${line}\n`, stdio: ['pipe', 'pipe', 'pipe'] })
+    const view = ghOutput(port, ['pr', 'view', String(pr), '--json', 'body', '-q', '.body'], { cwd })
+    ghOutput(port, ['pr', 'edit', String(pr), '--body-file', '-'], { cwd, input: `${view.trimEnd()}\n\n${line}\n` })
   }
 }
 

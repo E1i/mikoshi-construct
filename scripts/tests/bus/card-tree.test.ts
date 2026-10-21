@@ -98,10 +98,9 @@ async function roundInRecreatedTree(treeOf: (root: string) => string, start: (be
     newSession: () => 'new-session-1',
     publish: () => {},
   })
-  const gitTrees = gitCardTrees(repo, path.join(root, 'worktrees'), (cwd: string) => installed.push(cwd))
+  const gitTrees = gitCardTrees(repo, path.join(root, 'worktrees'), (cwd: string) => installed.push(cwd), bench.gitHub.client)
   const trees = {
     ...gitTrees,
-    branchOf: () => BRANCH,
     recreate: (worktree: string, branch: string) => {
       recreated.push(worktree)
       gitTrees.recreate(worktree, branch)
@@ -175,6 +174,18 @@ describe('the card tree', () => {
 
   it('a deleted card tree recorded outside the worktree home is recreated at its recorded path', async () => {
     await roundInRecreatedTree(root => path.join(root, 'projects', 'mc-1199'), deletedAfter(startedByShiftChain), RESUMED)
+  })
+
+  it('the pull request branch comes through the GitHub port, and a pull request it names no branch for is refused', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 1098, ref: BRANCH })
+    const trees = gitCardTrees('/repo', '/worktrees', () => {}, bench.gitHub.client)
+    expect(trees.branchOf(1098)).toBe(BRANCH)
+    expect(bench.gitHub.calls).toContain('repos/{owner}/{repo}/pulls/1098')
+    bench.gitHub.failing = true
+    expect(() => trees.branchOf(1098)).toThrow('gh api: connection refused')
+    expect(() => gitCardTrees('/repo', '/worktrees', () => {}, () => ({ status: 200, headers: {}, body: { head: {} } })).branchOf(1097)).toThrow('GitHub names no head branch for pull request #1097')
+    bench.close()
   })
 
   it('a card with no card.started and an open pull request gets its tree from the pull request branch and the round starts', async () => {

@@ -24,9 +24,10 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
+import { GhBudgetWindow, GhFailed, ghPort } from '../../core/gh.js'
 import { HEADLESS_FLAGS, REVIEW_PERMISSION_MODE, sessionArgv } from '../../ghosts/session.js'
 import { classify } from '../../morse/rules.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
@@ -312,24 +313,10 @@ describe('review worker', () => {
     db.close()
   })
 
-  it('the worker refuses to start while the shadow report is not clean', () => {
+  it('the worker refuses to start while the replay of the projection is not clean', () => {
     const { db, gitHub, clock, tick } = setUp()
     const parts = { db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: sandboxed }
     gitHub.open({ number: 947 })
-    tick()
-    gitHub.open({ number: 947, head: sha('c') })
-
-    expect(() => startReviewWorkers(parts, 1)).toThrow(ShadowNotClean)
-    try {
-      startReviewWorkers(parts, 1)
-    }
-    catch (error) {
-      expect((error as ShadowNotClean).problems).toEqual([`prs vs GitHub: #947 at ${sha('a')} here, ${sha('c')} on GitHub`])
-    }
-
-    gitHub.open({ number: 948 })
-    expect(() => startReviewWorkers(parts, 1)).toThrow(/#948 open on GitHub, missing here/)
-
     tick()
     expect(startReviewWorkers(parts, 3).map(worker => worker.actor)).toEqual(['worker:review:worker-1-1', 'worker:review:worker-1-2', 'worker:review:worker-1-3'])
 
@@ -338,76 +325,46 @@ describe('review worker', () => {
     expect(startReviewWorkers(parts, 1).map(worker => worker.actor)).toEqual(['worker:review:worker-1-1'])
 
     db.prepare(`UPDATE prs SET state = 'closed' WHERE pr = 947`).run()
+    expect(() => startReviewWorkers(parts, 1)).toThrow(ShadowNotClean)
     expect(() => startReviewWorkers(parts, 1)).toThrow(/replay byte-diff: prs 947: state live "closed", replay "open"/)
     db.close()
   })
 
-  it('a prs head one tick behind GitHub waits for the next tick', async () => {
+  it('a note on a pull request goes through the gh port, and a refusal of the port is thrown', () => {
+    const spawned: { args: string[], input?: string }[] = []
+    const port = ghPort({ spawn: (_command, args, options) => {
+      spawned.push({ args, input: options.input })
+      return { status: 0, stdout: 'the body\n', stderr: '' }
+    }, pause: () => {}, budget: new GhBudgetWindow({ calls: 2, windowMs: 1000 }, () => 0) })
+
+    ghNotePr('/repo', port)(970, 'a note')
+
+    expect(spawned).toEqual([{ args: ['pr', 'view', '970', '--json', 'body', '-q', '.body'], input: undefined }, { args: ['pr', 'edit', '970', '--body-file', '-'], input: 'the body\n\na note\n' }])
+    expect(() => ghNotePr('/repo', port)(970, 'a note')).toThrow(GhFailed)
+  })
+
+  it('review starts from the prs projection with no GitHub call', async () => {
     const { db, gitHub, clock, tick } = setUp()
-    const printed = vi.spyOn(console, 'log').mockImplementation(() => {})
     gitHub.open({ number: 961 })
     tick()
     gitHub.open({ number: 961, head: sha('c') })
-    const node = new ReviewNode({ db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
-    const controller = new AbortController()
-    const pauses: number[] = []
-
-    await node.run({
-      pause: async (ms) => {
-        pauses.push(ms)
-        if (pauses.length === 1)
-          tick()
-        else
-          controller.abort()
-      },
-      signal: controller.signal,
-    })
-
-    expect(pauses[0]).toBe(TICK_MS)
-    const lines = printed.mock.calls.map(call => String(call[0]))
-    expect(lines[0]).toContain(`waits ${TICK_MS} ms before it takes the queue: the prs head is behind GitHub until the next netwatch tick: prs vs GitHub: #961 at ${sha('a')} here, ${sha('c')} on GitHub`)
-    expect(lines[1]).toContain('the review node worker:review:node-1 takes the review queue')
-    db.close()
-  })
-
-  it('a RateLimited in the preflight waits retry-after and does not throw', async () => {
-    const { db, gitHub, clock, tick } = setUp()
-    const printed = vi.spyOn(console, 'log').mockImplementation(() => {})
     gitHub.open({ number: 962 })
-    tick()
-    gitHub.limited = { status: 403, headers: { 'retry-after': '42' }, body: { message: 'secondary rate limit' } }
-    const node = new ReviewNode({ db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
-    const controller = new AbortController()
-    const pauses: number[] = []
-
-    await node.run({
-      pause: async (ms) => {
-        pauses.push(ms)
-        if (pauses.length === 1)
-          gitHub.limited = null
-        else
-          controller.abort()
-      },
-      signal: controller.signal,
+    gitHub.failing = true
+    const before = gitHub.calls.length
+    const callsAtStart: number[] = []
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      if (String(line).includes('the review node worker:review:node-1 takes the review queue'))
+        callsAtStart.push(gitHub.calls.length - before)
     })
+    const parts = { db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', isolation: sandboxed }
+    const controller = new AbortController()
 
-    expect(pauses[0]).toBe(42_000)
-    const lines = printed.mock.calls.map(call => String(call[0]))
-    expect(lines[0]).toContain('waits 42000 ms before it takes the queue: GitHub answered 403; retry after 42 s')
-    expect(lines[1]).toContain('takes the review queue')
-    db.close()
-  })
+    await new ReviewNode({ ...parts, mode: 'shadow', env: {} }).run({ pause: async () => controller.abort(), signal: controller.signal })
+    const workerCalls = gitHub.calls.length
+    expect(startReviewWorkers(parts, 1)).toHaveLength(1)
 
-  it('a preflight that finds more than head lag still refuses to start', async () => {
-    const { db, gitHub, clock, tick } = setUp()
-    gitHub.open({ number: 963 })
-    tick()
-    gitHub.open({ number: 964 })
-    const node = new ReviewNode({ db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
-    const pause = vi.fn(async () => {})
-
-    await expect(node.run({ pause })).rejects.toThrow(/#964 open on GitHub, missing here/)
-    expect(pause).not.toHaveBeenCalled()
+    expect(callsAtStart).toEqual([0])
+    expect(gitHub.calls).toHaveLength(workerCalls)
     db.close()
   })
 
