@@ -21,7 +21,7 @@ import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../bus/review-wor
 import { reviewSession } from '../../bus/reviewer.js'
 import { UpdateNode } from '../../bus/update-worker.js'
 import { SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
-import { sessionGauges } from '../../miko/eddies-measure.js'
+import { NO_TRANSCRIPT, sessionGauges } from '../../miko/eddies-measure.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
 import { waitFor } from '../wait-for.js'
 
@@ -264,7 +264,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     expect(measure.contextOf(parent.last)).toBe(44_200)
   })
 
-  it('with no transcript the session heartbeat goes out without the fields and is no refusal or fault', () => {
+  it('with no transcript the session heartbeat goes out with no-transcript in place of the fields and is no refusal or fault', () => {
     const { db, file } = bus()
     db.close()
     const { home, root } = sessionTree('session-2', [usageLine('r1', { input: 5 })])
@@ -276,7 +276,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const rows = reopened.prepare(`SELECT type, payload FROM events ORDER BY id`).all() as { type: string, payload: string }[]
     reopened.close()
     expect(rows.map(row => row.type)).toEqual([SESSION_HEARTBEAT, SESSION_HEARTBEAT])
-    expect(rows.map(row => JSON.parse(row.payload))).toEqual([{ step: 'implement', session: 'session-1' }, { step: 'implement', session: 'session-1' }])
+    expect(rows.map(row => JSON.parse(row.payload))).toEqual([{ step: 'implement', session: 'session-1', reason: NO_TRANSCRIPT }, { step: 'implement', session: 'session-1', reason: NO_TRANSCRIPT }])
   })
 })
 
@@ -356,9 +356,9 @@ describe('the PostToolUse hook starts the heartbeat CLI only in a session of a c
     busReviewPulse(file, () => new Date(at(RENEW_MS)), line => lines.push(line), session => sessionGauges(empty, empty, session))(review, 'reviewer-1')
     busSessionPulse(file, () => new Date(at(RENEW_MS + 1)), session => sessionGauges(empty, empty, session))(review, 'reviewer-1')
     expect(lines).toEqual([reviewBeatLine(review, 'reviewer-1', at(RENEW_MS))])
-    expect(heartbeatPayloads(file).map(({ step, session, context, spent }) => ({ step, session, context, spent }))).toEqual([
-      { step: 'review', session: 'reviewer-1', context: undefined, spent: undefined },
-      { step: 'review', session: 'reviewer-1', context: undefined, spent: undefined },
+    expect(heartbeatPayloads(file).map(({ step, session, context, spent, reason }) => ({ step, session, context, spent, reason }))).toEqual([
+      { step: 'review', session: 'reviewer-1', context: undefined, spent: undefined, reason: NO_TRANSCRIPT },
+      { step: 'review', session: 'reviewer-1', context: undefined, spent: undefined, reason: NO_TRANSCRIPT },
     ])
   })
 })

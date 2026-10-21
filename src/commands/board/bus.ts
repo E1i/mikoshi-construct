@@ -1,28 +1,65 @@
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
-import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, POLICY_DENIED, QUESTION_OWNER, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
 
 export const SESSION_DEATH_KEY = `${CARD_STOPPED}:session-end:`
 export const SHORT_SHA = 7
 export const SUBAGENT_SHOWN_HOURS = 12
-export const SESSION_SHOWN_MINUTES = 20
+export const SESSION_SHOWN_MINUTES = 10
 export const FLOW_STATES = [['queued'], ['running', 'changes'], ['in_review'], ['ready']]
 export const LIVE_STATES = FLOW_STATES.flat()
+export const CARD_STAGES = ['planned', 'in work', 'review', 'answer/changes', 'ready', 'merged', 'stopped', 'dropped'] as const
 const HOUR_MS = 3_600_000
 const MINUTE_MS = 60_000
+
+export type CardStage = typeof CARD_STAGES[number]
+
+const STAGE_OF_STATE: Readonly<Record<string, CardStage>> = {
+  queued: 'planned',
+  running: 'in work',
+  in_review: 'review',
+  changes: 'answer/changes',
+  ready: 'ready',
+  merged: 'merged',
+  stopped: 'stopped',
+  dropped: 'dropped',
+  closed: 'dropped',
+}
+const STAGE_OF_QUEUE: Readonly<Record<string, CardStage>> = { review: 'review', answer: 'answer/changes', merge: 'ready' }
+const STAGE_OF_STEP: Readonly<Record<string, CardStage>> = { ...STAGE_OF_QUEUE, launch: 'in work' }
+const SETTLED_STATES = new Set(['merged', 'stopped', 'dropped', 'closed'])
+const OPEN_TASK_STATES = ['queued', 'leased']
+const OPEN_PR = 'open'
+const PATH_LINE = /^Path \(D-76\):.*$/gm
 
 export interface BusCard {
   id: number
   state: string | null
+  stage: CardStage
   lane: string | null
   line: string | null
   since: string | null
   body: boolean
   closed: boolean
   closedAt: string | null
+}
+
+export interface PlanStage {
+  stage: CardStage
+  cards: number[]
+}
+
+export type OwnerWaitKind = 'question' | 'decision' | 'version'
+
+export interface OwnerWait {
+  kind: OwnerWaitKind
+  card: number | null
+  pr: number | null
+  detail: string | null
+  since: string | null
 }
 
 export interface BusService {
@@ -49,6 +86,8 @@ export interface BusSlot {
 export interface BusFacts {
   at: string
   goal: Goal | null
+  plan: PlanStage[] | null
+  waits: OwnerWait[]
   pulse: string | null
   slots: BusSlot[]
   cards: BusCard[]
@@ -189,17 +228,37 @@ function minutesAgo(ts: string, now: Date): number {
   return Math.max(0, Math.round((now.getTime() - Date.parse(ts)) / MINUTE_MS))
 }
 
-function sessionServices(events: BoardEvents, now: Date): BusService[] {
-  const latest = new Map<string, BusService>()
+function isFinished(card: BusCard): boolean {
+  return card.closed || card.state === 'merged' || card.state === 'closed'
+}
+
+interface SessionBeat {
+  row: EventRow
+  step: string
+}
+
+function isFresh(ts: string | null, now: Date): ts is string {
+  return ts !== null && now.getTime() - Date.parse(ts) <= SESSION_SHOWN_MINUTES * MINUTE_MS
+}
+
+function stepMatchesStage(step: string, card: BusCard | undefined): boolean {
+  const named = STAGE_OF_STEP[step.split(' ')[0]!]
+  return named === undefined || card === undefined || named === card.stage
+}
+
+function sessionServices(events: BoardEvents, cards: BusCard[], now: Date): BusService[] {
+  const byId = new Map(cards.map(card => [card.id, card] as const))
+  const latest = new Map<string, SessionBeat>()
   for (const row of events.of(SESSION_HEARTBEAT)) {
-    if (row.ts === null || now.getTime() - Date.parse(row.ts) > SESSION_SHOWN_MINUTES * MINUTE_MS)
-      continue
     const payload = payloadOf(row.payload)
-    const task = `#${row.card_id ?? '?'}`
-    const step = text(payload.step) ?? 'session'
-    latest.set(text(payload.session) ?? task, { role: step.split(' ')[0]!, task, tree: null, step: `${step} · pulse ${minutesAgo(row.ts, now)} min ago` })
+    latest.set(text(payload.session) ?? `#${row.card_id ?? '?'}`, { row, step: text(payload.step) ?? 'session' })
   }
-  return [...latest.values()]
+  return [...latest.values()].flatMap(({ row, step }) => {
+    const card = row.card_id === null ? undefined : byId.get(row.card_id)
+    if (!isFresh(row.ts, now) || (card !== undefined && isFinished(card)) || !stepMatchesStage(step, card))
+      return []
+    return [{ role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · pulse ${minutesAgo(row.ts, now)} min ago` }]
+  })
 }
 
 const FAULT_REASON = 'fault'
@@ -225,6 +284,19 @@ function lastFailure(events: BoardEvents): string | null {
   return `card #${row.card_id ?? '?'} ${failureOf(row)}${row.ts === null ? '' : ` at ${row.ts}`}`
 }
 
+function openQueues(db: BusDb): Map<number, string> {
+  const rows = db.prepare(`SELECT card_id, queue FROM tasks WHERE state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY id`).all(...OPEN_TASK_STATES) as unknown as { card_id: number, queue: string }[]
+  return new Map(rows.filter(row => STAGE_OF_QUEUE[row.queue] !== undefined).map(row => [row.card_id, row.queue] as const))
+}
+
+function stageOf(state: string | null, closed: boolean, queue: string | undefined): CardStage {
+  if (state !== null && SETTLED_STATES.has(state))
+    return STAGE_OF_STATE[state]!
+  if (closed)
+    return 'merged'
+  return (queue === undefined ? undefined : STAGE_OF_QUEUE[queue]) ?? STAGE_OF_STATE[state ?? ''] ?? 'planned'
+}
+
 function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   const rows = db.prepare(`
     SELECT c.card_id AS id, c.state, c.pr, b.lane, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body
@@ -232,7 +304,59 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
     ORDER BY c.card_id
   `).all() as unknown as CardRow[]
   const closed = new Map(events.of(CARD_VERIFIED).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
-  return rows.map(row => ({ id: row.id, state: row.state, lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
+  const queues = openQueues(db)
+  return rows.map(row => ({ id: row.id, state: row.state, stage: stageOf(row.state, closed.has(row.id), queues.get(row.id)), lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
+}
+
+function namesRelease(text: string, release: string): boolean {
+  const named = new RegExp(`(?<![\\d.])${release.replace('.', '\\.')}(?!\\.?\\d)`)
+  return (text.match(PATH_LINE) ?? []).some(line => named.test(line))
+}
+
+function planOf(db: BusDb, goal: Goal | null, cards: BusCard[]): PlanStage[] | null {
+  if (goal === null)
+    return null
+  const bodies = db.prepare('SELECT card_id AS id, text FROM card_bodies ORDER BY card_id').all() as unknown as { id: number, text: string }[]
+  const stages = new Map(cards.map(card => [card.id, card.stage] as const))
+  const plan = bodies.filter(body => namesRelease(body.text, goal.release)).map(body => ({ id: body.id, stage: stages.get(body.id) ?? 'planned' }))
+  return CARD_STAGES.map(stage => ({ stage, cards: plan.filter(card => card.stage === stage).map(card => card.id) }))
+}
+
+interface WaitRow {
+  card_id: number | null
+  pr: number | null
+  ts: string | null
+  payload: string
+}
+
+const OPEN_OWNER_QUESTIONS = `
+  SELECT stop.card_id, stop.pr, stop.ts, stop.payload FROM events AS stop JOIN cards ON cards.card_id = stop.card_id
+  WHERE stop.type = ? AND stop.legacy = 0 AND cards.state = 'stopped' AND json_extract(stop.payload, '$.reason') = ?
+    AND stop.id = (SELECT max(last.id) FROM events AS last WHERE last.type = stop.type AND last.card_id = stop.card_id)
+    AND NOT EXISTS (SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named WHERE answer.scope IS NOT NULL AND answer.event_id > stop.id AND named.value = stop.card_id)
+  ORDER BY stop.id
+`
+
+const OPEN_AUTHORITY_DENIALS = `
+  SELECT denial.card_id, denial.pr, denial.ts, denial.payload FROM events AS denial JOIN prs ON prs.pr = denial.pr
+  WHERE denial.type = ? AND denial.legacy = 0 AND prs.state = ? AND json_extract(denial.payload, '$.kind') = 'authority'
+    AND denial.id = (SELECT max(last.id) FROM events AS last WHERE last.type = denial.type AND last.legacy = 0 AND last.pr = denial.pr)
+  ORDER BY denial.id
+`
+
+function waitOf(kind: OwnerWaitKind, row: WaitRow): OwnerWait {
+  return { kind, card: row.card_id, pr: row.pr, detail: text(payloadOf(row.payload).detail), since: row.ts }
+}
+
+function ownerWaits(db: BusDb): OwnerWait[] {
+  const questions = db.prepare(OPEN_OWNER_QUESTIONS).all(CARD_STOPPED, QUESTION_OWNER) as unknown as WaitRow[]
+  const decisions = db.prepare(OPEN_AUTHORITY_DENIALS).all(POLICY_DENIED, OPEN_PR) as unknown as WaitRow[]
+  const versions = db.prepare('SELECT pr FROM prs WHERE card_id IS NULL AND state = ? ORDER BY pr').all(OPEN_PR) as unknown as { pr: number }[]
+  return [
+    ...questions.map(row => waitOf('question', row)),
+    ...decisions.map(row => waitOf('decision', row)),
+    ...versions.map(row => ({ kind: 'version' as const, card: null, pr: row.pr, detail: null, since: null })),
+  ]
 }
 
 function lastPulse(db: BusDb): string | null {
@@ -247,13 +371,17 @@ function slotsInUse(db: BusDb): BusSlot[] {
 export function busFacts(db: BusDb, now: Date): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
+  const goal = goalOf(db)
+  const cards = cardsOf(db, events)
   return {
     at: now.toISOString(),
-    goal: goalOf(db),
+    goal,
+    plan: planOf(db, goal, cards),
+    waits: ownerWaits(db),
     pulse: lastPulse(db),
     slots: slotsInUse(db),
-    cards: cardsOf(db, events),
-    services: [...windowRoles(db), ...taskServices(db), ...windowServices(events, now), ...sessionServices(events, now)],
+    cards,
+    services: [...windowRoles(db), ...taskServices(db), ...windowServices(events, now), ...sessionServices(events, cards, now)],
     matrices: checkMatrices(db),
     failure: lastFailure(events),
     reviewQueue: Number(queue.n),
