@@ -229,9 +229,9 @@ describe('the update queue', () => {
     detectUpdate(bench)
     bench.gitHub.updateStatus = 422
 
-    expect(bench.update(bench.leaseUpdate()!)).toMatchObject({ kind: 'denied', taskKey: update(990), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
+    expect(bench.update(bench.leaseUpdate()!)).toMatchObject({ kind: 'denied', taskKey: update(990), denial: { kind: 'technical', reason: 'stale_head' }, next: 'superseded' })
     expect(eventsOf(bench.db, 'policy.denied')).toMatchObject([{ command: 'update_branch', kind: 'technical', reason: 'stale_head' }])
-    expect(taskState(bench.db, update(990))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
+    expect(taskState(bench.db, update(990))).toEqual({ state: 'superseded', lease_gen: 1, failures: 0 })
     expect(ownerInbox(bench.db)).toEqual([])
     expect(bench.gitHub.published).toEqual([])
     bench.close()
@@ -245,7 +245,7 @@ describe('the update queue', () => {
     const lease = bench.leaseUpdate()!
     bench.gitHub.pulls.get(991)!.head = sha('b')
 
-    expect(bench.update(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'stale_head' }, next: 'queued' })
+    expect(bench.update(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'stale_head' }, next: 'superseded' })
     expect(bench.gitHub.puts).toEqual([])
     bench.close()
   })

@@ -12,16 +12,19 @@ import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { decisionsIntake } from '../../bus/decisions-import.js'
 import { recordDecision } from '../../bus/decisions.js'
-import { ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
+import { taskKey } from '../../bus/identifiers.js'
+import { CARD_STOPPED, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
-import { leaseNext } from '../../bus/lease.js'
+import { failTask, leaseNext, leaseQueued } from '../../bus/lease.js'
 import { firstLiveVerdict, MergeNode, NoLiveVerdict, runMergeWorker } from '../../bus/merge-worker.js'
+import { BOARD_ALARM, FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
+import { projectionDump, reduce } from '../../bus/reducer.js'
 import { DRY_RUN_ACTOR } from '../../bus/review-worker.js'
 import { activeWindowShards, decisionsInForceAt, SHARD_EXPIRED, SHARD_ISSUED, SHARD_USED, unspentShard } from '../../bus/shards.js'
 import { UpdateExecutor } from '../../bus/update-executor.js'
 import { runShard } from '../../shift/shard.js'
 import { cardBody, sha } from './github-fake.js'
-import { eventCount, eventsOf, liveBench, spendReviewRounds } from './merge-bench.js'
+import { eventCount, eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 const UNTIL_MS = Date.parse('2026-10-09T13:00:00.000Z')
@@ -402,6 +405,104 @@ describe('the merge worker', () => {
     const bench = liveBench()
     expect(await runMergeWorker([], { busPath: '/nonexistent/bus.db', gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, session: 'worker-1', pause: async () => {} })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
+    bench.close()
+  })
+})
+
+const FOUR_QUEUES = ['review', 'merge', 'update', 'answer'] as const
+
+function tasksOfPr(bench: MergeBench, pr: number, head = sha('a')): Record<string, string> {
+  const rows = bench.db.prepare('SELECT queue, state FROM tasks WHERE pr = ? AND head = ? ORDER BY queue').all(pr, head) as { queue: string, state: string }[]
+  return Object.fromEntries(rows.map(row => [row.queue, row.state]))
+}
+
+function expectNoStop(bench: MergeBench): void {
+  expect(bench.db.prepare(`SELECT type FROM events WHERE type IN (?, ?)`).all(CARD_STOPPED, BOARD_ALARM)).toEqual([])
+  const live = projectionDump(bench.db)
+  reduce(bench.db)
+  expect(projectionDump(bench.db)).toBe(live)
+}
+
+describe('a head that moves under the queues', () => {
+  it('a moved head supersedes the merge lease without a stop', () => {
+    const bench = liveBench()
+    const heads = ['a', 'b', 'c', 'd'].map(letter => sha(letter))
+    const mergeKey = (head: string): string => taskKey({ queue: 'merge', cardId: 1054, pr: 954, head })
+    bench.gitHub.open({ number: 954, head: heads[0], review: 'success' })
+    bench.tick()
+    bench.gitHub.pulls.get(954)!.mergeable_state = 'behind'
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', taskKey: mergeKey(heads[0]!), denial: { reason: 'not_mergeable' }, next: 'queued' })
+
+    for (const [at, head] of heads.slice(0, -1).entries()) {
+      bench.gitHub.open({ number: 954, head: heads[at + 1], review: 'success' })
+      expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', taskKey: mergeKey(head), denial: { reason: 'stale_head' }, next: 'superseded' })
+      bench.tick()
+    }
+
+    const merges = bench.db.prepare(`SELECT task_key, state, failures FROM tasks WHERE queue = 'merge' ORDER BY id`).all() as { task_key: string, state: string, failures: number }[]
+    expect(merges).toEqual([...heads.slice(0, -1).map(head => ({ task_key: mergeKey(head), state: 'superseded', failures: 0 })), { task_key: mergeKey(heads.at(-1)!), state: 'queued', failures: 0 }])
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'merged', taskKey: mergeKey(heads.at(-1)!) })
+    expectNoStop(bench)
+    bench.close()
+  })
+
+  it('a new head supersedes the old head tasks in review, merge, update and answer', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 955, review: 'failure' })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    for (const queue of FOUR_QUEUES)
+      queueTask(bench.db, ts, { queue, cardId: 1055, pr: 955, head: sha('a') })
+    leaseNext(bench.db, ts, 'merge', 'worker:merge:worker-1')
+    const update = taskKey({ queue: 'update', cardId: 1055, pr: 955, head: sha('a') })
+    for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+      failTask(bench.db, ts, leaseQueued(bench.db, ts, update, 'worker:update:worker-1')!, { reason: 'github_error', withdraw: false })
+    expect(tasksOfPr(bench, 955)).toEqual({ answer: 'queued', merge: 'leased', review: 'queued', update: 'stopped' })
+
+    bench.gitHub.open({ number: 955, head: sha('b'), review: 'failure' })
+    bench.tick()
+
+    expect(tasksOfPr(bench, 955)).toEqual(Object.fromEntries(FOUR_QUEUES.map(queue => [queue, 'superseded'])))
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('pr.closed drops every task of its pull request', () => {
+    for (const merged of [false, true]) {
+      const bench = mergeBench()
+      bench.gitHub.open({ number: 956, review: 'failure' })
+      bench.tick()
+      const ts = bench.clock.now().toISOString()
+      for (const queue of ['review', 'update', 'answer'] as const)
+        queueTask(bench.db, ts, { queue, cardId: 1056, pr: 956, head: sha('a') })
+      leaseNext(bench.db, ts, 'answer', 'worker:answer:worker-1')
+
+      bench.gitHub.close(956, merged)
+      bench.tick()
+
+      expect(tasksOfPr(bench, 956), `merged ${String(merged)}`).toEqual({ answer: 'withdrawn', review: 'withdrawn', update: 'withdrawn' })
+      const live = projectionDump(bench.db)
+      reduce(bench.db)
+      expect(projectionDump(bench.db)).toBe(live)
+      bench.close()
+    }
+  })
+
+  it('a merged pull request keeps its merge and close tasks', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 957, review: 'success' })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    queueTask(bench.db, ts, { queue: 'merge', cardId: 1057, pr: 957, head: sha('a') })
+    bench.gitHub.close(957, true)
+    bench.tick()
+    queueTask(bench.db, bench.clock.now().toISOString(), { queue: 'close', cardId: 1057, pr: 957, head: sha('a') })
+    bench.tick()
+
+    expect(tasksOfPr(bench, 957)).toEqual({ close: 'queued', merge: 'queued' })
+    expect(taskState(bench.db, taskKey({ queue: 'merge', cardId: 1057, pr: 957, head: sha('a') })).failures).toBe(0)
     bench.close()
   })
 })

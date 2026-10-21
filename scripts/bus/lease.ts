@@ -45,9 +45,11 @@ export interface Failure {
   withdraw: boolean
 }
 
-export type AfterFailure = typeof QUEUED | typeof WITHDRAWN | typeof STOPPED
-
 export const SUPERSEDED_LEASE = 'superseded'
+
+export type AfterFailure = typeof QUEUED | typeof WITHDRAWN | typeof STOPPED | typeof SUPERSEDED_LEASE
+
+const STALE_HEAD = 'stale_head'
 
 interface LeaseRow {
   id: number
@@ -292,8 +294,6 @@ export function completeTask(db: DatabaseSync, ts: string, lease: Lease, outcome
 }
 
 function waitsForTheHead(db: DatabaseSync, row: LeaseRow, failure: Failure): boolean {
-  if (failure.reason === 'stale_head')
-    return true
   return failure.reason === 'not_mergeable' && row.pr !== null && db.prepare(UPDATE_DERIVED_FOR_BEHIND).get(row.pr, row.head) !== undefined
 }
 
@@ -318,6 +318,8 @@ function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: 
 }
 
 export function failTask(db: DatabaseSync, ts: string, lease: Lease, failure: Failure, context: BusEvent[] = []): AfterFailure {
+  if (failure.reason === STALE_HEAD && !failure.withdraw)
+    return supersedeLease(db, ts, lease, context)
   return inTransaction(db, () => failed(db, ts, TASK_FAILED, lease.actor, held(db, lease), failure, context))
 }
 

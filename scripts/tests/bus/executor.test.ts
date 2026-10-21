@@ -72,18 +72,20 @@ describe('the merge executor', () => {
     bench.close()
   })
 
-  it('a 409 on merge is a technical stale_head denial that requeues and leaves the inbox empty', () => {
+  it('a 409 on merge is a technical stale_head denial that supersedes the lease, requeues it on the unmoved head and leaves the inbox empty', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 966, review: 'success' })
     bench.tick()
     bench.gitHub.mergeStatus = 409
 
     const outcome = bench.merge(bench.lease()!)
-    expect(outcome).toMatchObject({ kind: 'denied', taskKey: merge(966), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
+    expect(outcome).toMatchObject({ kind: 'denied', taskKey: merge(966), denial: { kind: 'technical', reason: 'stale_head' }, next: 'superseded' })
     expect(eventsOf(bench.db, 'policy.denied')).toMatchObject([{ command: 'merge', kind: 'technical', reason: 'stale_head' }])
-    expect(taskState(bench.db, merge(966))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
+    expect(taskState(bench.db, merge(966))).toEqual({ state: 'superseded', lease_gen: 1, failures: 0 })
     expect(ownerInbox(bench.db)).toEqual([])
 
+    bench.tick()
+    expect(taskState(bench.db, merge(966))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
     bench.gitHub.mergeStatus = 200
     expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'merged', taskKey: merge(966) })
     expect(ownerInbox(bench.db)).toEqual([])
@@ -95,8 +97,10 @@ describe('the merge executor', () => {
     bench.gitHub.open({ number: 982, review: 'success' })
     bench.tick()
     bench.gitHub.mergeStatus = 409
-    for (let attempt = 0; attempt <= FAILURES_TO_STOP; attempt += 1)
-      expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'stale_head' }, next: 'queued' })
+    for (let attempt = 0; attempt <= FAILURES_TO_STOP; attempt += 1) {
+      expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'stale_head' }, next: 'superseded' })
+      bench.tick()
+    }
     expect(taskState(bench.db, merge(982))).toMatchObject({ state: 'queued', failures: 0 })
 
     bench.gitHub.open({ number: 983, review: 'success', mergeable_state: 'behind' })
@@ -206,7 +210,7 @@ describe('the merge executor', () => {
     bench.close()
   })
 
-  it('an uncounted stale_head after two counted failures leaves the card queued, not stopped', () => {
+  it('a stale_head after two counted failures supersedes the lease and does not stop the card', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 986, review: 'success' })
     bench.tick()
@@ -215,8 +219,8 @@ describe('the merge executor', () => {
     const failOnce = (reason: string): string => failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(986), 'worker:merge:worker-1')!, { reason, withdraw: false })
     for (let attempt = 1; attempt < FAILURES_TO_STOP; attempt += 1)
       expect(failOnce('merge_failed')).toBe('queued')
-    expect(failOnce('stale_head')).toBe('queued')
-    expect(taskState(bench.db, merge(986))).toMatchObject({ state: 'queued', failures: FAILURES_TO_STOP - 1 })
+    expect(failOnce('stale_head')).toBe('superseded')
+    expect(taskState(bench.db, merge(986))).toMatchObject({ state: 'superseded', failures: FAILURES_TO_STOP - 1 })
     expect(eventsOf(bench.db, 'card.stopped')).toEqual([])
     bench.close()
   })
@@ -228,7 +232,7 @@ describe('the merge executor', () => {
     const lease = bench.lease()!
     bench.gitHub.pulls.get(967)!.head = sha('b')
 
-    expect(bench.merge(lease)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
+    expect(bench.merge(lease)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'stale_head' }, next: 'superseded' })
     expect(bench.gitHub.puts).toEqual([])
     expect(ownerInbox(bench.db)).toEqual([])
     bench.close()
