@@ -177,7 +177,7 @@ describe('runRelaunch', () => {
     })
 
     expect(code).toBe(0)
-    expect(ghAccountToken('someone-else', env).trim()).toBe('token-of-active-account')
+    expect(ghAccountToken('someone-else', env).stdout.trim()).toBe('token-of-active-account')
     expect(process.env.GH_TOKEN).not.toBe('token-of-owner-account')
     expect(readFileSync(spawnedToken, 'utf8')).toBe('token-of-owner-account')
     expect(seen.runs.map(run => run.command)).toEqual([OPERATOR_CLAUDE])

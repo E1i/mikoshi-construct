@@ -25,6 +25,7 @@ import { writeLaneJson } from '../../lanes/lane-json.js'
 import { detectClose } from './close-detection.js'
 import { MAIN_2, MERGER, sha } from './github-fake.js'
 import { cardVerified, eventCount, eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
+import { read } from '../core/gh-fake.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -97,7 +98,7 @@ function taskCloseDeps(handoffDir: string, now = new Date('2026-10-11T18:00:00.0
     session: undefined,
     projectsDir: handoffDir,
     tokens: () => null,
-    prBody: () => null,
+    prBody: () => read(null),
   }
 }
 

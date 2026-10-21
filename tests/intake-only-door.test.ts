@@ -10,6 +10,7 @@ import { runTaskStart } from '../scripts/ghosts/task-start.js'
 import { cardStartedLines } from '../scripts/ghosts/tasks.js'
 import { runShift } from '../scripts/shift/shift.js'
 import { CARD_ADMITTED } from '../src/commands/intake/index.js'
+import { ran } from '../scripts/tests/core/gh-fake.js'
 
 const NOW = new Date('2026-10-05T08:00:00.000Z')
 const CARD = '#61 door-card [implement/ghosts/S/cheap/owner] · depends — · blocks —'
@@ -124,7 +125,7 @@ describe('the shift starts its tasks through the same door', () => {
       claude: 'claude',
       header: '',
       projectsDir: '/projects',
-      gh: () => '[]',
+      gh: () => ran('[]'),
       listDir: dir => Object.keys(files).filter(file => path.dirname(file) === dir).map(file => path.basename(file)),
       read: file => files[file] ?? '',
       exists: file => file in files,

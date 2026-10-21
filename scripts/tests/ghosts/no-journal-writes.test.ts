@@ -14,6 +14,7 @@ import { recordDisposition } from '../../ghosts/verdict.js'
 import { runShift } from '../../shift/shift.js'
 import { captured, depsOf, fakeGh, newWorld } from '../shift/fixtures/autopilot-world.js'
 import { ownBusPerTest } from './own-bus.js'
+import { read } from '../core/gh-fake.js'
 
 const NOW = new Date('2026-10-21T09:00:00.000Z')
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -48,7 +49,7 @@ function closeDeps(handoffDir: string, busPath: string): TaskCloseDeps {
     session: undefined,
     projectsDir: path.join(handoffDir, 'projects'),
     tokens: () => null,
-    prBody: () => null,
+    prBody: () => read(null),
   }
 }
 

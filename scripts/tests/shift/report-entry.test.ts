@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_STARTED } from '../../bus/inbox.js'
 import { runReport } from '../../shift/report.js'
+import { ran } from '../core/gh-fake.js'
 
 const HANDOFF = '/handoff'
 const SHIFT = '/shift'
@@ -55,7 +56,7 @@ function report(ghosts: object[] | null, bus?: string): string[] {
   if (ghosts !== null)
     files.set(JOURNAL, jsonl(ghosts))
   const out: string[] = []
-  const exit = runReport([SHIFT], { cwd: '/', handoffDir: HANDOFF, gh: () => '[]', read: file => files.get(file) ?? null, budget: () => [], ...(bus === undefined ? {} : { bus }), out: line => out.push(line), err: () => {} })
+  const exit = runReport([SHIFT], { cwd: '/', handoffDir: HANDOFF, gh: () => ran('[]'), read: file => files.get(file) ?? null, budget: () => [], ...(bus === undefined ? {} : { bus }), out: line => out.push(line), err: () => {} })
   expect(exit).toBe(0)
   return out
 }

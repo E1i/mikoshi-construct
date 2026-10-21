@@ -2,6 +2,7 @@ import type { BudgetLine } from '../../core/eddies.js'
 import type { entryOf } from '../../ghosts/entry.js'
 import type { ReportDeps } from '../../shift/report.js'
 import type { ShiftDeps } from '../../shift/shift.js'
+import type { GhCaller } from '../../core/gh.js'
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,6 +17,7 @@ import { runReport } from '../../shift/report.js'
 import { holdThroughHangup, runShift } from '../../shift/shift.js'
 import { admitCards } from './fixtures/admitted.js'
 import { captured as capturedIo, depsOf as chainDepsOf, eventsOf, fakeGh, newWorld as newChainWorld, cardLine as parkedCardLine } from './fixtures/autopilot-world.js'
+import { callerOf, ran } from '../core/gh-fake.js'
 import './fixtures/stub-handoff.js'
 
 const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub.sh')
@@ -83,8 +85,8 @@ function continuingTask(world: World, file: string, id: string, body: string, mo
   taskFile(world, file, id, `scripts/${id}/**`, body, 'implement', `continue: ${mode}\n`)
 }
 
-function ghOf(openPrs: OpenPrFixture[], allPrs: unknown[] = []): (args: string[]) => string {
-  return args => JSON.stringify(args.includes('open') ? openPrs : allPrs)
+function ghOf(openPrs: OpenPrFixture[], allPrs: unknown[] = []): GhCaller {
+  return args => ran(JSON.stringify(args.includes('open') ? openPrs : allPrs))
 }
 
 function parkedCardLines(dir: string): string[] {
@@ -800,7 +802,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     decisionTask(world, '01.md', '1', 'auto', 'do a')
     const calls: GhCall[] = []
     const io = captured()
-    expect(await runShift([world.shift], { ...shiftDeps(world, io), gh: recordingGh(world, '1', calls, 'auto') })).toBe(0)
+    expect(await runShift([world.shift], { ...shiftDeps(world, io), gh: callerOf(recordingGh(world, '1', calls, 'auto')) })).toBe(0)
     const view = calls.find(call => call.args[1] === 'view')
     expect(view).toMatchObject({ args: ['pr', 'view', '1', '-R', 'E1i/mikoshi-construct', '--json', 'body,headRefOid,files'], stubRuns: 1, report: true })
     expect(calls.filter(call => call.args[1] === 'merge')).toEqual([])
@@ -838,7 +840,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')
     const calls: string[][] = []
     const claude = sessionThatLeaves(world, `mkdir -p scripts/1 && echo done > scripts/1/x.ts && git add -A && git -c user.name=world -c user.email=world@example.invalid commit -q -m 'session commit'`)
-    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude, git: committingGit, gh: prOpeningGh('1', calls) })).toBe(0)
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude, git: committingGit, gh: callerOf(prOpeningGh('1', calls)) })).toBe(0)
 
     expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).toMatch(/^result: did mc-1\nno PR\n/)
     const create = calls.find(args => args[1] === 'create')!
@@ -856,7 +858,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')
     const calls: string[][] = []
     const claude = sessionThatLeaves(world, 'mkdir -p scripts/1 && echo green > scripts/1/x.ts')
-    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude, git: committingGit, gh: prOpeningGh('1', calls) })).toBe(0)
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude, git: committingGit, gh: callerOf(prOpeningGh('1', calls)) })).toBe(0)
 
     const tree = path.join(world.root, 'mc-1')
     expect(git(tree, ['status', '--porcelain'])).toBe('')
@@ -876,7 +878,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     const wrapper = path.join(world.root, 'session-counts.sh')
     writeFileSync(wrapper, `#!/bin/sh\nmkdir -p scripts/1 && echo green > scripts/1/x.ts\nsh ${STUB} "$@"\nprintf '■ 3 □ 1 · 2\\n' >> ${path.join(world.shift, 'report-01.md')}\n`)
     const claude = `STUB_OUT=${world.stubOut} CONSTRUCT_HANDOFF_DIR=${world.handoff} sh ${wrapper}`
-    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude, git: committingGit, gh: prOpeningGh('1', calls) })).toBe(0)
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude, git: committingGit, gh: callerOf(prOpeningGh('1', calls)) })).toBe(0)
 
     expect(calls.find(args => args[1] === 'create')!.at(-1)!.split('\n')).toContain('■ 3 □ 1 · 2')
   })
@@ -892,7 +894,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     ownerMergesOnMain(world)
     decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')
     const calls: string[][] = []
-    await runShift([world.shift], { ...shiftDeps(world, captured()), claude: sessionDeniedGitWhenAskedToCommit(world), git: committingGit, gh: prOpeningGh('1', calls) })
+    await runShift([world.shift], { ...shiftDeps(world, captured()), claude: sessionDeniedGitWhenAskedToCommit(world), git: committingGit, gh: callerOf(prOpeningGh('1', calls)) })
 
     const prompt = stubSaw(world, '1', 'prompt')
     expect(prompt).not.toContain('commit, push')
@@ -908,7 +910,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     ownerMergesOnMain(world)
     decisionTask(world, '01.md', '1', 'auto', 'do a STUB-NO-PR')
     const calls: string[][] = []
-    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude: sessionDeniedGitWhenAskedToCommit(world), git: committingGit, gh: prOpeningGh('1', calls) })).toBe(0)
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), claude: sessionDeniedGitWhenAskedToCommit(world), git: committingGit, gh: callerOf(prOpeningGh('1', calls)) })).toBe(0)
 
     const tree = path.join(world.root, 'mc-1')
     expect(git(tree, ['status', '--porcelain'])).toBe('')
@@ -924,7 +926,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     taskFile(world, '01.md', '1', 'scripts/a/**', 'probe it', 'probe')
     taskFile(world, '02.md', '2', 'scripts/b/**', 'STUB-NO-PR here')
     const calls: GhCall[] = []
-    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), gh: recordingGh(world, '1', calls, 'auto') })).toBe(0)
+    expect(await runShift([world.shift], { ...shiftDeps(world, captured()), gh: callerOf(recordingGh(world, '1', calls, 'auto')) })).toBe(0)
     expect(calls.filter(call => !call.args.includes('open'))).toEqual([])
     expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).toBe('result: did mc-1\nPR #1\n')
     expect(readFileSync(path.join(world.shift, 'report-02.md'), 'utf8')).toBe('result: did mc-2\nno PR\n')
@@ -937,7 +939,7 @@ describe('w11: the runner runs shift:merge after the session exits, by the PR #N
     decisionTask(world, '01.md', '1', 'owner', 'do a')
     const calls: GhCall[] = []
     const io = captured()
-    expect(await runShift([world.shift], { ...shiftDeps(world, io), gh: recordingGh(world, '1', calls, 'owner') })).toBe(0)
+    expect(await runShift([world.shift], { ...shiftDeps(world, io), gh: callerOf(recordingGh(world, '1', calls, 'owner')) })).toBe(0)
     expect(calls.some(call => call.args[1] === 'merge')).toBe(false)
     const owner = '[shift:merge] decision owner — PR #1 and the report, merge is Eli\'s'
     expect(readFileSync(path.join(world.shift, 'report-01.md'), 'utf8')).toBe(`result: did mc-1\nPR #1\n\n${owner}\n`)

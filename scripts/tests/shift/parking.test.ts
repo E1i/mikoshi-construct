@@ -106,7 +106,7 @@ function recordMergeDone(world: World, pr: number, commit: string): void {
   }
 }
 
-function pipelineGh(world: World): Pick<ShiftDeps, 'gh' | 'busMerge'> {
+function pipelineGh(world: World): { gh: (args: string[]) => string, busMerge: ShiftDeps['busMerge'] } {
   const inner = fakeGh({ 101: cardLine(1), 102: cardLine(2) })
   return {
     gh: (args) => {

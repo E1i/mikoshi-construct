@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runShift } from '../../shift/shift.js'
+import { ran } from '../core/gh-fake.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const TSX = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
@@ -39,7 +40,7 @@ function shiftDeps(world: World, out: string[], confirm: ShiftDeps['confirm'], r
     projectsDir: path.join(world.root, 'projects'),
     git: () => '',
     install: () => {},
-    gh: () => '[]',
+    gh: () => ran('[]'),
     listDir: dir => existsSync(dir) ? readdirSync(dir) : [],
     read: file => readFileSync(file, 'utf8'),
     exists: existsSync,

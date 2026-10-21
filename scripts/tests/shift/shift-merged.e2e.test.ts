@@ -10,6 +10,7 @@ import { runClaude } from '../../shift/claude.js'
 import { runShift } from '../../shift/shift.js'
 import { admitCards } from './fixtures/admitted.js'
 import { verifiedClosings } from './fixtures/verified.js'
+import { callerOf } from '../core/gh-fake.js'
 
 const STUB = path.join(import.meta.dirname, 'fixtures', 'claude-stub.sh')
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
@@ -71,7 +72,7 @@ function depsOf(world: World, gh: (args: string[]) => string, out: string[], err
     projectsDir: path.join(world.root, 'projects'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: () => {},
-    gh,
+    gh: callerOf(gh),
     listDir: dir => readdirSync(dir),
     read: file => readFileSync(file, 'utf8'),
     exists: existsSync,

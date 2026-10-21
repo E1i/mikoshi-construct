@@ -9,6 +9,7 @@ import { runShift } from '../../shift/shift.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
 import { captured, cardLine, depsOf, eventsOf, fakeGh, journalOf, newWorld } from './fixtures/autopilot-world.js'
 import { prReviewLine } from './fixtures/pr-review-line.js'
+import { callerOf } from '../core/gh-fake.js'
 
 const HEAD = 'a1b2c3d'
 const STALE = 'f00dfee'
@@ -54,7 +55,7 @@ function armedAt(chain: FakeGh): string[] {
 
 function refusingDeps(world: World): VerdictDeps {
   const published: unknown[] = []
-  return { gh: chainGh().gh, gitHub: new FakeGitHub().client, bus: world.bus, session: 'reviewer-1', now: new Clock().now, publish: status => published.push(status) }
+  return { gh: callerOf(chainGh().gh), gitHub: new FakeGitHub().client, bus: world.bus, session: 'reviewer-1', now: new Clock().now, publish: status => published.push(status) }
 }
 
 const ONE = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101', touches: 'src/1/**' }]

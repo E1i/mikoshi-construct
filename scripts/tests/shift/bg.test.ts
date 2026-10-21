@@ -1,4 +1,4 @@
-import type { GhRunner } from '../../core/gh.js'
+import type { GhCaller } from '../../core/gh.js'
 import type { IsolationReader } from '../../ghosts/isolation.js'
 import type { BgResult } from '../../shift/bg.js'
 import { execFileSync } from 'node:child_process'
@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { BG_LOG, launchArgv, runBg, shiftIsolationCommand, USAGE } from '../../shift/bg.js'
 import { waitFor } from '../wait-for.js'
 import { settled } from './fixtures/settled.js'
+import { ran } from '../core/gh-fake.js'
 
 const ARRIVAL_GUARD_MS = 25_000
 
@@ -17,7 +18,7 @@ const roots: string[] = []
 
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
-function bg(argv: string[], env: NodeJS.ProcessEnv, gh: GhRunner = ghNotCalled, isolation: IsolationReader = sandboxed): BgResult {
+function bg(argv: string[], env: NodeJS.ProcessEnv, gh: GhCaller = ghNotCalled, isolation: IsolationReader = sandboxed): BgResult {
   return runBg(argv, env, gh, isolation)
 }
 
@@ -203,10 +204,10 @@ describe('pnpm shift:bg', () => {
     const HEAD = 'e16c475f00000000000000000000000000000000'
     const OLDER = 'a0a0a0a000000000000000000000000000000000'
 
-    function openPr(head: string, state = 'OPEN'): (args: string[]) => string {
+    function openPr(head: string, state = 'OPEN'): GhCaller {
       return (args) => {
         expect(args.slice(0, 3)).toEqual(['pr', 'view', '705'])
-        return JSON.stringify({ state, headRefOid: head })
+        return ran(JSON.stringify({ state, headRefOid: head }))
       }
     }
 
