@@ -128,5 +128,8 @@
   },
   "blocks": {},
   "policy": null,
+  "atlas": {
+    "open": "vscode"
+  },
   "milestones": ["fixer", "shredder", "morse", "operator", "ghosts", "ice", "netwatch", "engram", "eddies", "daemons", "black-ice", "kilroy", "airlock", "decks", "runner", "construct", "init", "infra", "mega-filter", "lore", "ghost-protocol", "dogfood", "contract"]
 }
