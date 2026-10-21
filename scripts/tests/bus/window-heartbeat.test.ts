@@ -7,6 +7,7 @@ import { recordWindowHeartbeat, WINDOW_BEAT_MS, windowBeat, windowSessionOf } fr
 import { WINDOW_ACTOR } from '../../bus/window-requests.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
 import { sessionGauges } from '../../miko/eddies-measure.js'
+import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 
 const START = Date.parse('2026-10-20T10:00:00.000Z')
 const roots: string[] = []
@@ -33,12 +34,15 @@ function beats(file: string): { ts: string, actor: string }[] {
 }
 
 describe('the window heartbeat', () => {
-  it('a window is a session with no card: a card session, a missing session and a session id with a colon beat nothing', () => {
-    expect(windowSessionOf({ CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
-    expect(windowSessionOf({ CLAUDE_CODE_SESSION_ID: 'abc-1', CONSTRUCT_CARD: '' })).toBe('abc-1')
-    expect(windowSessionOf({ CLAUDE_CODE_SESSION_ID: 'abc-1', CONSTRUCT_CARD: '1137' })).toBeNull()
-    expect(windowSessionOf({})).toBeNull()
-    expect(windowSessionOf({ CLAUDE_CODE_SESSION_ID: 'a:b' })).toBeNull()
+  it('a window is a session the loop marked and no card: an unmarked session, a card session, a missing session and a session id with a colon beat nothing', () => {
+    const marked = { [WINDOW_VARIABLE]: WINDOW_MARK }
+    expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
+    expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1', CONSTRUCT_CARD: '' })).toBe('abc-1')
+    expect(windowSessionOf({ CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBeNull()
+    expect(windowSessionOf({ [WINDOW_VARIABLE]: '', CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBeNull()
+    expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1', CONSTRUCT_CARD: '1137' })).toBeNull()
+    expect(windowSessionOf(marked)).toBeNull()
+    expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'a:b' })).toBeNull()
   })
 
   it('a beat is a window sign: written once per ts under the window actor of its session', () => {
