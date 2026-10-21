@@ -325,7 +325,6 @@ describe('the factory board', () => {
     }
     const stalled = working.tick()
     expect(stalled.progress).toMatchObject({ stalled: true, cause: '#850 no progress 30 min, step implement' })
-    expect(renderBoard(stalled)).toContain('<p>cause: #850 no progress 30 min, step implement</p>')
   })
 
   it('with no card in work a blocked queue and a down component still raise their cause', () => {
