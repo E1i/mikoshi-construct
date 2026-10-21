@@ -10,7 +10,7 @@ import type { QueuedTask } from './queue.js'
 import type { ReadSet } from './report.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { ExecutorParts, Step } from './review-executor.js'
-import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
+import type { HeldTree, LeftoverTree, Review, Reviewer, TreeTools } from './reviewer.js'
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
@@ -32,17 +32,17 @@ import { keepDryRun } from './dry-run-record.js'
 import { ghApi } from './github.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { CARD_ADMITTED } from './launch-candidates.js'
-import { expireLeases, leaseNext, leaseQueued, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
+import { expireLeases, leaseNext, leaseQueued, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { Node, runNode, SWITCH_FLAG } from './node.js'
 import { PR_CLOSED } from './observations.js'
 import { PR_OBSERVED } from './operator-work.js'
 import { promptsDirOf } from './prompt-store.js'
-import { cardBodyShaOfCard, reviewCandidates, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
+import { cardBodyShaOfCard, LEASED, reviewCandidates, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
 import { REDUCED } from './reducer.js'
 import { shadowReading } from './report.js'
 import { planned, recordLeftovers, ReviewExecutor } from './review-executor.js'
-import { claudeReviewer, PREFIX, ReviewFailed, ReviewTrees } from './reviewer.js'
+import { claudeReviewer, GIT_TREE_TOOLS, PREFIX, ReviewFailed, ReviewTrees } from './reviewer.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
 import { openDatabase } from './sqlite.js'
 import { stampLogOutput } from './stamp.js'
@@ -226,6 +226,46 @@ export function busCardBody(busPath: string): CardBodyOf {
   }
 }
 
+const LIVE_REVIEW_LEASES = `SELECT task_key, card_id, lease_gen FROM tasks WHERE queue = 'review' AND state = '${LEASED}'`
+
+const SESSIONS_UNDER_A_LEASE = `
+  SELECT DISTINCT json_extract(payload, '$.session') AS session FROM events
+  WHERE dedupe_key >= ? AND dedupe_key < ? AND legacy = 0 AND json_valid(payload)
+    AND json_extract(payload, '$.task_key') = ? AND json_extract(payload, '$.lease_gen') = ?
+`
+
+function heartbeatKeysOf(cardId: number): [string, string] {
+  return [`${SESSION_HEARTBEAT}:${cardId}:`, `${SESSION_HEARTBEAT}:${cardId};`]
+}
+
+export function sessionsUnderLiveLeases(db: DatabaseSync): Set<string> {
+  const leases = db.prepare(LIVE_REVIEW_LEASES).all() as { task_key: string, card_id: number, lease_gen: number }[]
+  const sessions = leases.flatMap(lease => db.prepare(SESSIONS_UNDER_A_LEASE).all(...heartbeatKeysOf(lease.card_id), lease.task_key, lease.lease_gen) as { session: unknown }[])
+  return new Set(sessions.flatMap(row => typeof row.session === 'string' ? [row.session] : []))
+}
+
+function busSessionsUnderLiveLeases(busPath: string): Set<string> {
+  if (!existsSync(busPath))
+    return new Set()
+  const db = openDatabase(busPath, { readOnly: true })
+  try {
+    return sessionsUnderLiveLeases(db)
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function sparingLiveLeases(busPath: string, tools: TreeTools = GIT_TREE_TOOLS): TreeTools {
+  return {
+    ...tools,
+    worktrees: (repo) => {
+      const live = busSessionsUnderLiveLeases(busPath)
+      return tools.worktrees(repo).filter(tree => !live.has(path.basename(tree)))
+    },
+  }
+}
+
 export function dryRunLease(gitHub: GitHub, pr: number, cardBodyOf: CardBodyOf = NO_CARD_BODY): Lease {
   const response = gitHub(`repos/{owner}/{repo}/pulls/${pr}`)
   if (response.status !== 200)
@@ -356,9 +396,10 @@ export function reviewIsolationCommand(): string[] {
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const argv = process.argv.slice(2)
-  const trees = new ReviewTrees(cwd, reviewsDir(BUS_DIR, reviewMode(argv)))
+  const busPath = defaultBusPath()
+  const trees = new ReviewTrees(cwd, reviewsDir(BUS_DIR, reviewMode(argv)), sparingLiveLeases(busPath))
   return runReview(argv, {
-    busPath: defaultBusPath(),
+    busPath,
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
     reviewer: claudeReviewer(trees),

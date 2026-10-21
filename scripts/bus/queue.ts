@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
+import type { IncrementalProjection } from './watermark.js'
 import { PRIORITIES } from '../../src/card/parking.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
@@ -17,13 +18,23 @@ import { PR_CLOSED } from './observations.js'
 import { roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
-import { payloadOf, reject, storedByKey } from './stored.js'
+import { payloadOf, reject } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
+import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
 export const TASK_REQUEUED = 'task.requeued'
 export const TASK_WITHDRAWN = 'task.withdrawn'
+export const TASK_LEASED = 'task.leased'
+export const TASK_RENEWED = 'task.renewed'
+export const TASK_COMPLETED = 'task.completed'
+export const TASK_FAILED = 'task.failed'
+export const TASK_EXPIRED = 'task.expired'
+export const TASK_RELEASED = 'task.released'
+export const SESSION_HEARTBEAT = 'session.heartbeat'
+export const LEASE_MS = 30 * 60_000
+export const HEARTBEAT_QUEUES: readonly Queue[] = ['review']
 export const QUEUE_ACTOR = 'policy'
 export const CARD_CLOSED = 'card.closed'
 export const BOARD_ALARM = 'board.alarm'
@@ -40,6 +51,7 @@ const FAULT = 'fault'
 const REQUEUABLE = new Set([STOPPED, WITHDRAWN, SUPERSEDED])
 const REQUEUABLE_ANSWER = new Set([...REQUEUABLE, COMPLETED])
 const UNFINISHED = new Set([QUEUED, LEASED, STOPPED])
+const AFTER_A_LEASE = new Set([QUEUED, WITHDRAWN, STOPPED])
 const NO_CARD_TREE = 'no_card_tree'
 const [TOP_PRIORITY] = PRIORITIES
 
@@ -533,12 +545,126 @@ function foldWithdrawn(db: DatabaseSync, event: StoredEvent): void {
   db.prepare('UPDATE tasks SET state = ?, event_id = ? WHERE task_key = ?').run(WITHDRAWN, event.id, key)
 }
 
-export const TASK_FOLDS: Record<string, Fold> = {
+interface LeasedRow {
+  task_key: string
+  state: string
+  lease_gen: number
+}
+
+function leasedRowOf(db: DatabaseSync, key: string): LeasedRow | undefined {
+  return db.prepare('SELECT task_key, state, lease_gen FROM tasks WHERE task_key = ?').get(key) as LeasedRow | undefined
+}
+
+function leaseUntil(ts: string): string {
+  return new Date(Date.parse(ts) + LEASE_MS).toISOString()
+}
+
+function leaseGenOf(payload: Record<string, unknown>): number {
+  const value = payload.lease_gen
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : reject('lease_gen is not a positive integer')
+}
+
+function heldRow(db: DatabaseSync, event: StoredEvent): { row: LeasedRow, payload: Record<string, unknown> } {
+  const { key } = identityOf(event)
+  const payload = payloadOf(event)
+  const row = leasedRowOf(db, key) ?? reject(`task ${key} was never queued`)
+  if (row.state !== LEASED || row.lease_gen !== leaseGenOf(payload))
+    reject(`task ${key} is not leased under lease_gen ${String(payload.lease_gen)}`)
+  return { row, payload }
+}
+
+function foldLeased(db: DatabaseSync, event: StoredEvent): void {
+  const { key } = identityOf(event)
+  const payload = payloadOf(event)
+  const row = leasedRowOf(db, key) ?? reject(`task ${key} was never queued`)
+  if (row.state !== QUEUED)
+    reject(`task ${key} is ${row.state}, not queued`)
+  if (leaseGenOf(payload) !== row.lease_gen + 1)
+    reject(`lease_gen ${String(payload.lease_gen)} does not follow ${row.lease_gen}`)
+  db.prepare('UPDATE tasks SET state = ?, lease_gen = ?, lease_until = ?, event_id = ? WHERE task_key = ?')
+    .run(LEASED, row.lease_gen + 1, leaseUntil(event.ts), event.id, key)
+}
+
+function foldRenewed(db: DatabaseSync, event: StoredEvent): void {
+  const { row } = heldRow(db, event)
+  db.prepare('UPDATE tasks SET lease_until = ?, event_id = ? WHERE task_key = ?').run(leaseUntil(event.ts), event.id, row.task_key)
+}
+
+function foldCompleted(db: DatabaseSync, event: StoredEvent): void {
+  const { row } = heldRow(db, event)
+  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, event_id = ? WHERE task_key = ?').run(COMPLETED, event.id, row.task_key)
+}
+
+function foldFailed(db: DatabaseSync, event: StoredEvent): void {
+  const { row, payload } = heldRow(db, event)
+  const next = typeof payload.next === 'string' && AFTER_A_LEASE.has(payload.next) ? payload.next : reject(`next is not one of ${[...AFTER_A_LEASE].join(' | ')}`)
+  const counted = payload.uncounted === true ? 0 : 1
+  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, failures = failures + ?, event_id = ? WHERE task_key = ?').run(next, counted, event.id, row.task_key)
+}
+
+function foldReleased(db: DatabaseSync, event: StoredEvent): void {
+  const { row } = heldRow(db, event)
+  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, event_id = ? WHERE task_key = ?').run(QUEUED, event.id, row.task_key)
+}
+
+function foldHeartbeat(db: DatabaseSync, event: StoredEvent): void {
+  if (event.card_id === null)
+    reject('a heartbeat names no card')
+  const payload = payloadOf(event)
+  if (typeof payload.task_key !== 'string')
+    return
+  db.prepare(`UPDATE tasks SET lease_until = ? WHERE state = '${LEASED}' AND task_key = ? AND lease_gen = ? AND card_id = ? AND queue IN (SELECT value FROM json_each(?))`)
+    .run(leaseUntil(event.ts), payload.task_key, leaseGenOf(payload), event.card_id, JSON.stringify(HEARTBEAT_QUEUES))
+}
+
+const QUEUE_FOLDS: Record<string, Fold> = {
   [TASK_ENQUEUED]: foldEnqueued,
   [TASK_SUPERSEDED]: foldSuperseded,
   [TASK_REQUEUED]: foldRequeued,
   [TASK_WITHDRAWN]: foldWithdrawn,
 }
+
+const LEASE_TASK_FOLDS: Record<string, Fold> = {
+  [SESSION_HEARTBEAT]: foldHeartbeat,
+  [TASK_RELEASED]: foldReleased,
+  [TASK_LEASED]: foldLeased,
+  [TASK_RENEWED]: foldRenewed,
+  [TASK_COMPLETED]: foldCompleted,
+  [TASK_FAILED]: foldFailed,
+  [TASK_EXPIRED]: foldFailed,
+}
+
+const TASKS_FOLDS: Record<string, Fold> = { ...QUEUE_FOLDS, ...LEASE_TASK_FOLDS }
+
+export const TASKS_PROJECTION: IncrementalProjection = { table: 'tasks', folds: TASKS_FOLDS }
+
+function lastEventId(db: DatabaseSync): number {
+  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+}
+
+function reduceTasksAfter(db: DatabaseSync, current: number): void {
+  if (watermarkOf(db, TASKS_PROJECTION.table) === 0)
+    markReduced(db, TASKS_PROJECTION.table, current)
+  reduceProjection(db, TASKS_PROJECTION)
+}
+
+export function appendedAndReduced(db: DatabaseSync, event: BusEvent): boolean {
+  const current = lastEventId(db)
+  const appended = appendEvent(db, event)
+  reduceTasksAfter(db, current)
+  return appended
+}
+
+function reducedAfterItsAppend(db: DatabaseSync, event: StoredEvent): void {
+  reduceTasksAfter(db, event.id - 1)
+}
+
+function reducedOnAppend(folds: Record<string, Fold>): Record<string, Fold> {
+  return Object.fromEntries(Object.keys(folds).map(type => [type, reducedAfterItsAppend]))
+}
+
+export const TASK_FOLDS = reducedOnAppend(QUEUE_FOLDS)
+export const LEASE_FOLDS = reducedOnAppend(LEASE_TASK_FOLDS)
 
 export function generationField(generation: string | undefined): { generation?: string } {
   return generation === undefined ? {} : { generation }
@@ -552,19 +678,12 @@ function taskEvent(ts: string, type: string, task: QueuedTask, failure?: number,
   return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey, payload: { task_key: key, queue: task.queue, ...generationField(task.generation), ...after }, legacy: false }
 }
 
-function appended(db: DatabaseSync, event: BusEvent): boolean {
-  if (!appendEvent(db, event))
-    return false
-  TASK_FOLDS[event.type]!(db, storedByKey(db, event.dedupeKey))
-  return true
-}
-
 function written(db: DatabaseSync, event: BusEvent): boolean {
-  return inTransaction(db, () => appended(db, event))
+  return inTransaction(db, () => appendedAndReduced(db, event))
 }
 
 export function queueTaskWithin(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
-  return appended(db, taskEvent(ts, TASK_ENQUEUED, task))
+  return appendedAndReduced(db, taskEvent(ts, TASK_ENQUEUED, task))
 }
 
 export function queueTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {

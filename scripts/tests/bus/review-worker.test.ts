@@ -24,7 +24,7 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, sparingLiveLeases, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { GhBudgetWindow, GhFailed, ghPort } from '../../core/gh.js'
@@ -749,6 +749,38 @@ describe('review worker', () => {
     expect(seen[1]).not.toContain(stuck)
     expect(listed.size).toBe(0)
     expect(events(db, 'artifact.removed')).toEqual([{ path: stuck, by: 'worker:review:worker-1' }])
+    db.close()
+  })
+
+  it('a live lease refuses a tree removal by another node', () => {
+    const { db, busPath, gitHub, clock, tick } = setUp()
+    const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'bus-review-live-lease-')))
+    roots.push(dir)
+    gitHub.open({ number: 941 })
+    tick()
+    const held = leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:holder')!
+    recordHeartbeat(db, clock.now().toISOString(), { card: held.cardId, pr: held.pr, head: held.head, step: 'review', session: 'held-session', lease: { taskKey: held.taskKey, leaseGen: held.leaseGen } })
+    const heldTree = path.join(dir, 'held-session')
+    const leftTree = path.join(dir, 'left-session')
+    const listed = new Set([heldTree, leftTree])
+    const removed: string[] = []
+    const other = new ReviewTrees('/repo', dir, sparingLiveLeases(busPath, {
+      git: (_cwd, args) => {
+        if (args[1] === 'remove') {
+          removed.push(args[3]!)
+          listed.delete(args[3]!)
+        }
+      },
+      worktrees: () => ['/repo', ...listed],
+      ...cleanTree,
+    }))
+
+    expect(other.clearLeftovers()).toEqual([{ path: leftTree, left: null }])
+    expect(removed).toEqual([leftTree])
+
+    completeTask(db, clock.now().toISOString(), held, [])
+    expect(other.clearLeftovers()).toEqual([{ path: heldTree, left: null }])
+    expect(removed).toEqual([leftTree, heldTree])
     db.close()
   })
 

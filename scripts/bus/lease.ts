@@ -1,30 +1,19 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
-import type { Fold, StoredEvent } from './stored.js'
 import { CARD_FOLDED_ON_APPEND, CARD_FOLDS } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { CARD_STOPPED, RESTARTED } from './inbox.js'
-import { BOARD_ALARM, COMPLETED, FAILURES_TO_STOP, generationField, identityOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, TASK_FOLDS, TASK_SUPERSEDED, WITHDRAWN } from './queue.js'
+import { appendedAndReduced, BOARD_ALARM, FAILURES_TO_STOP, generationField, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WITHDRAWN } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
-import { payloadOf, reject, storedByKey } from './stored.js'
+import { reject, storedByKey } from './stored.js'
 
-export const TASK_LEASED = 'task.leased'
-export const TASK_RENEWED = 'task.renewed'
-export const TASK_COMPLETED = 'task.completed'
-export const TASK_FAILED = 'task.failed'
-export const TASK_EXPIRED = 'task.expired'
-export const TASK_RELEASED = 'task.released'
+export { HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED } from './queue.js'
+
 export const LEASES_DRAINING = 'leases.draining'
-export const SESSION_HEARTBEAT = 'session.heartbeat'
-
-export const LEASE_MS = 30 * 60_000
 export const RENEW_MS = 10 * 60_000
 export const LEASE_EXPIRED = 'lease_expired'
-export const HEARTBEAT_QUEUES: readonly Queue[] = ['review']
-
-const NEXT_STATES = new Set([QUEUED, WITHDRAWN, STOPPED])
 
 const REQUEUED_TO_THE_BACK: Queue = 'review'
 
@@ -115,78 +104,6 @@ function rowOf(db: DatabaseSync, key: string): LeaseRow | undefined {
   return db.prepare('SELECT * FROM tasks WHERE task_key = ?').get(key) as LeaseRow | undefined
 }
 
-function leaseUntil(ts: string): string {
-  return new Date(Date.parse(ts) + LEASE_MS).toISOString()
-}
-
-function generationOf(payload: Record<string, unknown>): number {
-  const value = payload.lease_gen
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : reject('lease_gen is not a positive integer')
-}
-
-function heldRow(db: DatabaseSync, event: StoredEvent): { row: LeaseRow, payload: Record<string, unknown> } {
-  const { key } = identityOf(event)
-  const payload = payloadOf(event)
-  const row = rowOf(db, key) ?? reject(`task ${key} was never queued`)
-  if (row.state !== LEASED || row.lease_gen !== generationOf(payload))
-    reject(`task ${key} is not leased under lease_gen ${String(payload.lease_gen)}`)
-  return { row, payload }
-}
-
-function foldLeased(db: DatabaseSync, event: StoredEvent): void {
-  const { key } = identityOf(event)
-  const payload = payloadOf(event)
-  const row = rowOf(db, key) ?? reject(`task ${key} was never queued`)
-  if (row.state !== QUEUED)
-    reject(`task ${key} is ${row.state}, not queued`)
-  if (generationOf(payload) !== row.lease_gen + 1)
-    reject(`lease_gen ${String(payload.lease_gen)} does not follow ${row.lease_gen}`)
-  db.prepare('UPDATE tasks SET state = ?, lease_gen = ?, lease_until = ?, event_id = ? WHERE task_key = ?')
-    .run(LEASED, row.lease_gen + 1, leaseUntil(event.ts), event.id, key)
-}
-
-function foldRenewed(db: DatabaseSync, event: StoredEvent): void {
-  const { row } = heldRow(db, event)
-  db.prepare('UPDATE tasks SET lease_until = ?, event_id = ? WHERE task_key = ?').run(leaseUntil(event.ts), event.id, row.task_key)
-}
-
-function foldCompleted(db: DatabaseSync, event: StoredEvent): void {
-  const { row } = heldRow(db, event)
-  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, event_id = ? WHERE task_key = ?').run(COMPLETED, event.id, row.task_key)
-}
-
-function foldFailed(db: DatabaseSync, event: StoredEvent): void {
-  const { row, payload } = heldRow(db, event)
-  const next = typeof payload.next === 'string' && NEXT_STATES.has(payload.next) ? payload.next : reject(`next is not one of ${[...NEXT_STATES].join(' | ')}`)
-  const counted = payload.uncounted === true ? 0 : 1
-  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, failures = failures + ?, event_id = ? WHERE task_key = ?').run(next, counted, event.id, row.task_key)
-}
-
-function foldReleased(db: DatabaseSync, event: StoredEvent): void {
-  const { row } = heldRow(db, event)
-  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, event_id = ? WHERE task_key = ?').run(QUEUED, event.id, row.task_key)
-}
-
-function foldHeartbeat(db: DatabaseSync, event: StoredEvent): void {
-  if (event.card_id === null)
-    reject('a heartbeat names no card')
-  const payload = payloadOf(event)
-  if (typeof payload.task_key !== 'string')
-    return
-  db.prepare(`UPDATE tasks SET lease_until = ? WHERE state = '${LEASED}' AND task_key = ? AND lease_gen = ? AND card_id = ? AND queue IN (SELECT value FROM json_each(?))`)
-    .run(leaseUntil(event.ts), payload.task_key, generationOf(payload), event.card_id, JSON.stringify(HEARTBEAT_QUEUES))
-}
-
-export const LEASE_FOLDS: Record<string, Fold> = {
-  [SESSION_HEARTBEAT]: foldHeartbeat,
-  [TASK_RELEASED]: foldReleased,
-  [TASK_LEASED]: foldLeased,
-  [TASK_RENEWED]: foldRenewed,
-  [TASK_COMPLETED]: foldCompleted,
-  [TASK_FAILED]: foldFailed,
-  [TASK_EXPIRED]: foldFailed,
-}
-
 function leaseOf(row: LeaseRow, actor: string): Lease {
   return { taskKey: row.task_key, queue: row.queue, cardId: row.card_id, pr: row.pr, head: row.head, leaseGen: row.lease_gen, actor }
 }
@@ -194,11 +111,6 @@ function leaseOf(row: LeaseRow, actor: string): Lease {
 function taskEvent(ts: string, type: string, actor: string, row: LeaseRow, leaseGen: number, dedupeKey: string, fields: object = {}): BusEvent {
   const generation = generationOfKey(row.task_key, { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined })
   return { ts, type, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey, payload: { task_key: row.task_key, queue: row.queue, ...generationField(generation), lease_gen: leaseGen, ...fields }, legacy: false }
-}
-
-function folded(db: DatabaseSync, event: BusEvent): void {
-  if (appendEvent(db, event))
-    LEASE_FOLDS[event.type]!(db, storedByKey(db, event.dedupeKey))
 }
 
 function appendedOnCard(db: DatabaseSync, event: BusEvent): void {
@@ -258,7 +170,7 @@ export function grantOrder(db: DatabaseSync, queue: Queue, order: LeaseOrder = I
 
 function leased(db: DatabaseSync, ts: string, row: LeaseRow, actor: string): Lease {
   const leaseGen = row.lease_gen + 1
-  folded(db, taskEvent(ts, TASK_LEASED, actor, row, leaseGen, `${TASK_LEASED}:${row.task_key}:${leaseGen}`))
+  appendedAndReduced(db, taskEvent(ts, TASK_LEASED, actor, row, leaseGen, `${TASK_LEASED}:${row.task_key}:${leaseGen}`))
   return leaseOf(rowOf(db, row.task_key)!, actor)
 }
 
@@ -279,7 +191,7 @@ export function leaseWhileFree(db: DatabaseSync, ts: string, task: TaskIdentity,
 export function renewLease(db: DatabaseSync, ts: string, lease: Lease): void {
   inTransaction(db, () => {
     const row = held(db, lease)
-    folded(db, taskEvent(ts, TASK_RENEWED, lease.actor, row, lease.leaseGen, `${TASK_RENEWED}:${row.task_key}:${lease.leaseGen}:${ts}`))
+    appendedAndReduced(db, taskEvent(ts, TASK_RENEWED, lease.actor, row, lease.leaseGen, `${TASK_RENEWED}:${row.task_key}:${lease.leaseGen}:${ts}`))
   })
 }
 
@@ -289,7 +201,7 @@ export function completeTask(db: DatabaseSync, ts: string, lease: Lease, outcome
     stillDue(db)
     for (const event of outcome)
       appendedOnCard(db, event)
-    folded(db, taskEvent(ts, TASK_COMPLETED, lease.actor, row, lease.leaseGen, `${TASK_COMPLETED}:${row.task_key}:${lease.leaseGen}`))
+    appendedAndReduced(db, taskEvent(ts, TASK_COMPLETED, lease.actor, row, lease.leaseGen, `${TASK_COMPLETED}:${row.task_key}:${lease.leaseGen}`))
   })
 }
 
@@ -308,7 +220,7 @@ function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: 
   const next = afterFailure(row, failure, uncounted)
   for (const event of context)
     appendedOnCard(db, event)
-  folded(db, taskEvent(ts, type, actor, row, row.lease_gen, `${type}:${row.task_key}:${row.lease_gen}`, { reason: failure.reason, next, ...(uncounted ? { uncounted } : {}) }))
+  appendedAndReduced(db, taskEvent(ts, type, actor, row, row.lease_gen, `${type}:${row.task_key}:${row.lease_gen}`, { reason: failure.reason, next, ...(uncounted ? { uncounted } : {}) }))
   if (next === STOPPED) {
     const detail = `${FAILURES_TO_STOP} failures in a row on ${row.task_key}, the last: ${failure.reason}`
     appendedOnCard(db, { ts, type: CARD_STOPPED, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${CARD_STOPPED}:${row.task_key}`, payload: { reason: 'fault', detail }, legacy: false })
@@ -328,7 +240,7 @@ export function releaseTask(db: DatabaseSync, ts: string, lease: Lease, reason: 
     const row = held(db, lease)
     for (const event of context)
       appendedOnCard(db, event)
-    folded(db, taskEvent(ts, TASK_RELEASED, lease.actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason }))
+    appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, lease.actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason }))
   })
 }
 
@@ -337,9 +249,7 @@ export function supersedeLease(db: DatabaseSync, ts: string, lease: Lease, conte
     const row = held(db, lease)
     for (const event of context)
       appendedOnCard(db, event)
-    const superseded = taskEvent(ts, TASK_SUPERSEDED, lease.actor, row, row.lease_gen, `${TASK_SUPERSEDED}:${row.task_key}:after-${row.event_id}`)
-    if (appendEvent(db, superseded))
-      TASK_FOLDS[TASK_SUPERSEDED]!(db, storedByKey(db, superseded.dedupeKey))
+    appendedAndReduced(db, taskEvent(ts, TASK_SUPERSEDED, lease.actor, row, row.lease_gen, `${TASK_SUPERSEDED}:${row.task_key}:after-${row.event_id}`))
     return SUPERSEDED_LEASE
   })
 }
