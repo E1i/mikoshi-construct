@@ -125,6 +125,35 @@ describe('the merge executor', () => {
     bench.close()
   })
 
+  it('a not_mergeable fault on a behind pull request whose update for the head is leased stays uncounted', () => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: 988, review: 'success', mergeable_state: 'behind' })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    queueTask(bench.db, ts, { queue: 'update', cardId: 1088, pr: 988, head: sha('a') })
+    queueTask(bench.db, ts, { queue: 'merge', cardId: 1088, pr: 988, head: sha('a') })
+    leaseQueued(bench.db, ts, taskKey({ queue: 'update', cardId: 1088, pr: 988, head: sha('a') }), 'worker:update:worker-1')
+    for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
+      failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(988), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false })
+    expect(taskState(bench.db, merge(988))).toMatchObject({ state: 'queued', failures: 0 })
+    expect(eventsOf(bench.db, 'card.stopped')).toEqual([])
+    bench.close()
+  })
+
+  it('a not_mergeable fault on a behind pull request counts and stops the card when the only update is for an older head', () => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: 989, review: 'success', mergeable_state: 'behind' })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    queueTask(bench.db, ts, { queue: 'update', cardId: 1089, pr: 989, head: sha('b') })
+    queueTask(bench.db, ts, { queue: 'merge', cardId: 1089, pr: 989, head: sha('a') })
+    for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
+      failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(989), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false })
+    expect(taskState(bench.db, merge(989))).toMatchObject({ state: 'stopped', failures: FAILURES_TO_STOP })
+    expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
+    bench.close()
+  })
+
   it('a not_mergeable fault on a pull request that is not behind counts and stops the card even with an update queued for its head', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 987, review: 'success', mergeable_state: 'dirty' })

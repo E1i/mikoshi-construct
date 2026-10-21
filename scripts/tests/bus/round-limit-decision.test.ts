@@ -6,6 +6,7 @@ import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { importJournal } from '../../bus/import.js'
 import { TICK_MS } from '../../bus/netwatch.js'
+import { PR_OBSERVED } from '../../bus/operator-work.js'
 import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
 import { changesRoundsOf, closedByRounds, REVIEW_ROUNDS } from '../../bus/queue.js'
 import { fullReview } from '../../bus/review-depth.js'
@@ -249,6 +250,19 @@ describe('a merge past the review round limit by an owner decision', () => {
     bench.tick()
 
     const observed = observedHeadsOf(bench.db, 987)
+    expect(observed).toEqual([sha('1'), sha('b')])
+    expect(dryRunHoldsAt(sha('1'), sha('b'), observed, [])).toBe(true)
+  })
+
+  it('a legacy pr.observed between two heads is not a push, so the dry-run of the head before it still holds', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 1089, pr: 989, head: sha('1'), dedupeKey: `${PR_OPENED}:1089:989`, payload: { pr: 989 }, legacy: false })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: PR_OBSERVED, actor: 'import', cardId: 1089, pr: 989, head: sha('9'), dedupeKey: `${PR_OBSERVED}:legacy:989`, payload: { pr: 989 }, legacy: true })
+    bench.gitHub.open({ number: 989, review: 'success', head: sha('b') })
+    bench.tick()
+
+    const observed = observedHeadsOf(bench.db, 989)
     expect(observed).toEqual([sha('1'), sha('b')])
     expect(dryRunHoldsAt(sha('1'), sha('b'), observed, [])).toBe(true)
   })
