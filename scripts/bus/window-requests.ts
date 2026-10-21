@@ -70,7 +70,7 @@ const PENDING = `
 `
 
 const LATEST_OBSERVATION = `
-  SELECT head, json_extract(payload, '$.state') AS state FROM events
+  SELECT id, head, json_extract(payload, '$.state') AS state FROM events
   WHERE type = '${PR_OBSERVED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL
   ORDER BY id DESC LIMIT 1
 `
@@ -79,6 +79,7 @@ interface PrAsObserved {
   card_id: number | null
   head: string | null
   state: string | null
+  event_id: number
 }
 
 const LAST_ALARM = `SELECT id FROM events WHERE type = '${BOARD_ALARM}' AND json_extract(payload, '$.task_key') = ? ORDER BY id DESC LIMIT 1`
@@ -190,11 +191,11 @@ export class WindowRequests {
   }
 
   private observed(pr: number): PrAsObserved | undefined {
-    const row = this.db.prepare('SELECT card_id, head, state FROM prs WHERE pr = ?').get(pr) as PrAsObserved | undefined
-    const fresh = this.db.prepare(LATEST_OBSERVATION).get(pr) as { head: string, state: unknown } | undefined
-    if (row === undefined || fresh === undefined)
+    const row = this.db.prepare('SELECT card_id, head, state, event_id FROM prs WHERE pr = ?').get(pr) as PrAsObserved | undefined
+    const fresh = this.db.prepare(LATEST_OBSERVATION).get(pr) as { id: number, head: string, state: unknown } | undefined
+    if (row === undefined || fresh === undefined || Number(fresh.id) <= Number(row.event_id))
       return row
-    return { card_id: row.card_id, head: fresh.head, state: typeof fresh.state === 'string' ? fresh.state : row.state }
+    return { ...row, head: fresh.head, state: typeof fresh.state === 'string' ? fresh.state : row.state }
   }
 
   private requeue(request: number, payload: Record<string, unknown>): Executed {

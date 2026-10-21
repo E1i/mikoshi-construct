@@ -5,8 +5,9 @@ import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, leaseQueued, RENEW_MS, StaleLease } from '../../bus/lease.js'
 import { SILENT_MS } from '../../bus/liveness-sites.js'
+import { RateLimited } from '../../bus/meter.js'
 import { FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
-import { BOARD_ALARM, CARD_STOPPED, TASK_COMPLETED, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_STOPPED, POLICY_DENIED, TASK_COMPLETED, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -142,5 +143,37 @@ describe('one lease contract', () => {
     const silent = leaseNext(made.db, now(made), 'answer', 'worker:answer:a')!
     expect(failTask(made.db, now(made), silent, { reason: 'answer_failed', withdraw: false })).toBe('stopped')
     expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
+  })
+
+  it('a card session beat with no task key defers no fault of a task whose queue runs no card session', () => {
+    const made = mergeBench()
+    benches.push(made)
+    made.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
+    made.tick()
+    const task = { queue: 'merge' as const, cardId: CARD, pr: PR, head: HEAD }
+    queueTask(made.db, now(made), task)
+    for (let failure = 1; failure < FAILURES_TO_STOP; failure += 1)
+      failTask(made.db, now(made), leaseNext(made.db, now(made), 'merge', 'worker:merge:a')!, { reason: 'github_error', withdraw: false })
+    const last = leaseNext(made.db, now(made), 'merge', 'worker:merge:a')!
+    cardBeat(made)
+
+    expect(failTask(made.db, now(made), last, { reason: 'github_error', withdraw: false })).toBe('stopped')
+    expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
+  })
+
+  it('a 403 with retry-after that an executor caught ends the task as wait and counts no failure', () => {
+    const made = mergeBench()
+    benches.push(made)
+    const key = queuedAnswer(made)
+    const lease = leaseNext(made.db, now(made), 'answer', 'worker:answer:a')!
+    const limited = new RateLimited(403, 120)
+    const denied = { ts: now(made), type: POLICY_DENIED, actor: 'policy', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${POLICY_DENIED}:${key}:1`, payload: { kind: 'technical', reason: 'github_error', detail: limited.message }, legacy: false }
+
+    expect(failTask(made.db, now(made), lease, { reason: 'github_error', withdraw: false }, [denied])).toBe('queued')
+    expect(ofTask(made, TASK_FAILED, key)).toBe(0)
+    expect(taskState(made.db, key)).toMatchObject({ state: 'queued', failures: 0 })
+    expect(leaseNext(made.db, now(made), 'answer', 'worker:answer:a')).toBeNull()
+    made.clock.advance(120_000)
+    expect(leaseNext(made.db, now(made), 'answer', 'worker:answer:a')).toMatchObject({ taskKey: key })
   })
 })

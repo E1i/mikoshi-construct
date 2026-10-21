@@ -321,6 +321,18 @@ describe('the launch node', () => {
     expect(starter.starts.map(card => card.cardId)).toEqual([975])
   })
 
+  it('a card waiting on its body holds its lane, so a later card of that lane does not overtake it', () => {
+    const made = bench()
+    const text = 'the body of card 978'
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 978, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:978`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-978', text, textSha: textSha(text) }, legacy: false })
+    admit(made, 979, 'lane-a')
+    const node = nodeOf(made)
+    expect(node.found()).toEqual([])
+
+    reduce(made.db)
+    expect(node.found()).toEqual([launchKey(978)])
+  })
+
   it('the session input is rebuilt from card.started alone with no handoff directory', () => {
     const made = bench()
     const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-input-'))

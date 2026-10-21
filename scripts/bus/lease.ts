@@ -80,8 +80,12 @@ const NEXT_LEASABLE = `
 const LAST_BEAT_OF_THE_TASK = `
   SELECT max(ts) AS ts FROM events
   WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id = ?
-    AND (json_type(payload, '$.task_key') IS NULL OR json_extract(payload, '$.task_key') = ?)
+    AND (json_extract(payload, '$.task_key') = ? OR (json_type(payload, '$.task_key') IS NULL AND ?))
 `
+
+const QUEUES_THAT_RUN_A_CARD_SESSION: ReadonlySet<Queue> = new Set(['answer', 'launch'])
+
+const RETRY_AFTER = /GitHub answered \d{3}; retry after (\d+) s/
 
 const LEASABLE_IN_GRANT_ORDER = `SELECT tasks.task_key, tasks.card_id, ${HELD_CARD} AS held ${LEASABLE_FROM} ${GRANT_ORDER}`
 
@@ -229,7 +233,8 @@ function afterFailure(row: LeaseRow, failure: Failure, uncounted: boolean): Afte
 }
 
 function freshBeatUntil(db: DatabaseSync, ts: string, row: LeaseRow): string | null {
-  const beat = (db.prepare(LAST_BEAT_OF_THE_TASK).get(row.card_id, row.task_key) as { ts: string | null }).ts
+  const cardSessionBeats = QUEUES_THAT_RUN_A_CARD_SESSION.has(row.queue) ? 1 : 0
+  const beat = (db.prepare(LAST_BEAT_OF_THE_TASK).get(row.card_id, row.task_key, cardSessionBeats) as { ts: string | null }).ts
   if (beat === null)
     return null
   const until = new Date(Date.parse(beat) + SILENT_MS).toISOString()
@@ -264,9 +269,22 @@ function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: 
   return next
 }
 
+function retryAfterIn(ts: string, context: readonly BusEvent[]): string | null {
+  for (const event of context) {
+    const detail = (event.payload as Record<string, unknown> | null)?.detail
+    const match = typeof detail === 'string' ? RETRY_AFTER.exec(detail) : null
+    if (match !== null)
+      return new Date(Date.parse(ts) + Number(match[1]) * 1000).toISOString()
+  }
+  return null
+}
+
 export function failTask(db: DatabaseSync, ts: string, lease: Lease, failure: Failure, context: BusEvent[] = []): AfterFailure {
   if (failure.reason === STALE_HEAD && !failure.withdraw)
     return supersedeLease(db, ts, lease, context)
+  const rateLimitedUntil = failure.withdraw ? null : retryAfterIn(ts, context)
+  if (rateLimitedUntil !== null)
+    return waitTask(db, ts, lease, { reason: failure.reason, until: rateLimitedUntil }, context)
   return inTransaction(db, () => failed(db, ts, TASK_FAILED, lease.actor, held(db, lease), failure, context))
 }
 
