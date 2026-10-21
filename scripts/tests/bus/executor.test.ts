@@ -154,6 +154,30 @@ describe('the merge executor', () => {
     bench.close()
   })
 
+  it.each([
+    ['withdrawn', 990],
+    ['completed', 991],
+  ] as const)('a not_mergeable fault on a behind pull request counts and stops the card when the update for its head is %s', (ended, pr) => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: pr, review: 'success', mergeable_state: 'behind' })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    const update = { queue: 'update', cardId: pr + 100, pr, head: sha('a') } as const
+    queueTask(bench.db, ts, update)
+    queueTask(bench.db, ts, { queue: 'merge', cardId: pr + 100, pr, head: sha('a') })
+    const updateLease = leaseQueued(bench.db, ts, taskKey(update), 'worker:update:worker-1')!
+    if (ended === 'withdrawn')
+      failTask(bench.db, ts, updateLease, { reason: 'not_mergeable', withdraw: true })
+    else
+      completeTask(bench.db, ts, updateLease, [])
+    expect(taskState(bench.db, taskKey(update))).toMatchObject({ state: ended })
+    for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
+      expect(failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(pr), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false })).toBe(attempt < FAILURES_TO_STOP ? 'queued' : 'stopped')
+    expect(taskState(bench.db, merge(pr))).toMatchObject({ state: 'stopped', failures: FAILURES_TO_STOP })
+    expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
+    bench.close()
+  })
+
   it('a not_mergeable fault on a pull request that is not behind counts and stops the card even with an update queued for its head', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 987, review: 'success', mergeable_state: 'dirty' })
