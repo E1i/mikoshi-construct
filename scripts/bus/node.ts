@@ -315,7 +315,7 @@ export abstract class Node<S extends NodeStep> {
       const found = this.candidates()
       const derived = this.derivedCandidates(this.ts())
       const equivalence = derived === null ? null : equivalenceOf(found.map(keyOf), derived.map(keyOf))
-      recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind))
+      recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind), this.slots)
       for (const task of found)
         this.record(task, 'tick', through)
       if (equivalence !== null) {

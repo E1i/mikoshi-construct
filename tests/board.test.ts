@@ -239,7 +239,7 @@ describe('construct board', () => {
       'Services',
       'review · #3 · — · review approve',
       'implementer · #1071 · /t · started',
-      'bus · pulse · — · no pulse recorded · slots in use: review 1 (the bus records no capacity)',
+      'bus · pulse · — · no pulse recorded · slots in use: review 1',
       'agents at work: 2 · last failure: none · review queue: 1 · geek mode: --geek',
     ])
     const geek = render(dir, { bus: busAt(busFile(repository())), version: '0.44.0', geek: true })

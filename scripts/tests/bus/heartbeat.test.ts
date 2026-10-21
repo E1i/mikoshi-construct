@@ -14,13 +14,13 @@ import { AnswerNode } from '../../bus/answer-worker.js'
 import { cardFields } from '../../bus/card-contract.js'
 import { CloseNode } from '../../bus/close-worker.js'
 import { openBus } from '../../bus/db.js'
-import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
+import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, recordProcessHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
 import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../bus/review-worker.js'
 import { reviewSession } from '../../bus/reviewer.js'
 import { UpdateNode } from '../../bus/update-worker.js'
-import { SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
+import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
 import { NO_TRANSCRIPT, sessionGauges } from '../../miko/eddies-measure.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
 import { waitFor } from '../wait-for.js'
@@ -107,6 +107,19 @@ function heartbeatPayloads(file: string): Record<string, number | string>[] {
 function renewsByTimer(node: { prototype: object }): boolean {
   return (node.prototype as { renewsByTimer: () => boolean }).renewsByTimer()
 }
+
+describe('a process heartbeat', () => {
+  it('carries the slots its writer gives, and only the process name when it gives none', () => {
+    const { db } = bus()
+    expect(recordProcessHeartbeat(db, at(0), 'bus:answer', 5)).toBe(true)
+    expect(recordProcessHeartbeat(db, at(0), 'supervisor')).toBe(true)
+    expect((db.prepare(`SELECT payload FROM events WHERE type = '${PROCESS_HEARTBEAT}' ORDER BY id`).all() as { payload: string }[]).map(row => JSON.parse(row.payload) as unknown)).toEqual([
+      { process: 'bus:answer', slots: 5 },
+      { process: 'supervisor' },
+    ])
+    db.close()
+  })
+})
 
 describe('a session holds its lease by the heartbeat its hook writes on every turn', () => {
   it('a lease whose process lives and whose session makes no turn expires and its task is queued again', () => {

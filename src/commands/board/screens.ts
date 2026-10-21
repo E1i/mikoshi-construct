@@ -1,5 +1,5 @@
 import type { Lore } from '../../ui/lore.js'
-import type { BusCard, BusFacts, BusMatrix, CardStage, OwnerWait, PlanStage } from './bus.js'
+import type { BusCard, BusFacts, BusMatrix, BusSlot, CardStage, OwnerWait, PlanStage } from './bus.js'
 import { FLOW_STATES, LIVE_STATES, SHORT_SHA } from './bus.js'
 
 const CARD_PREFIX = /^card:\s*/
@@ -73,10 +73,17 @@ function minutesSince(ts: string, at: string): number {
   return Math.max(0, Math.round((Date.parse(at) - Date.parse(ts)) / MINUTE_MS))
 }
 
+function slotReading(slot: BusSlot): string {
+  return slot.total === null ? `${slot.queue} ${slot.used}` : `${slot.queue} ${slot.used}/${slot.total}`
+}
+
+export function slotsReading(facts: BusFacts): string {
+  return facts.slots.length === 0 ? 'none in use' : facts.slots.map(slotReading).join(', ')
+}
+
 export function pulseLines(facts: BusFacts, lore: Lore): string[] {
   const pulse = facts.pulse === null ? 'no pulse recorded' : `pulse ${minutesSince(facts.pulse, facts.at)} min ago`
-  const used = facts.slots.length === 0 ? 'none in use' : facts.slots.map(slot => `${slot.queue} ${slot.used}`).join(', ')
-  return [lore.boardServiceLine(BUS_ROLE, 'pulse', undefined, `${pulse} \u00B7 slots in use: ${used} (the bus records no capacity)`)]
+  return [lore.boardServiceLine(BUS_ROLE, 'pulse', undefined, `${pulse} \u00B7 slots in use: ${slotsReading(facts)}`)]
 }
 
 function stageCounts(plan: PlanStage[] | null): string[] {

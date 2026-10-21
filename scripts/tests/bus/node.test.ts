@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../bus/lease.js'
-import type { DetectionMode, NodeStep, Scope } from '../../bus/node.js'
+import type { DetectionMode, NodeKind, NodeStep, Scope } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,7 +13,7 @@ import { TICK_MS } from '../../bus/netwatch.js'
 import { Node, NODE_CURSORS, nodeProcess, SecondSubscription } from '../../bus/node.js'
 import { keyOf } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { slotsVariable } from '../../bus/scheduler.js'
+import { SLOTS, slotsOf, slotsVariable } from '../../bus/scheduler.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED, TASK_RELEASED } from '../../core/events.js'
 import { Clock, sha } from './github-fake.js'
 
@@ -119,6 +119,28 @@ describe('a node', () => {
     const beats = db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(PROCESS_HEARTBEAT) as { ts: string, payload: string }[]
     expect(nodeProcess('merge')).toBe('bus:merge')
     expect(beats.map(beat => ({ ts: beat.ts, process: (JSON.parse(beat.payload) as { process: string }).process }))).toEqual(ticks.map(ts => ({ ts, process: 'bus:merge' })))
+  })
+
+  it('every node process.heartbeat carries slots equal to slotsOf for its kind and env', async () => {
+    class IdleNode extends Node<NodeStep> {
+      protected candidates(): QueuedTask[] {
+        return []
+      }
+
+      protected handle(lease: Lease): NodeStep {
+        return { kind: 'done', taskKey: lease.taskKey }
+      }
+    }
+    const env = { [slotsVariable('answer')]: '5', [slotsVariable('merge')]: '2' }
+    const kinds = Object.keys(SLOTS) as NodeKind[]
+    for (const kind of kinds) {
+      const db = newBus()
+      await once(new IdleNode(kind, { db, clock: new Clock().now, session: 'fake', mode: 'shadow', env }))
+      const beats = (db.prepare('SELECT payload FROM events WHERE type = ?').all(PROCESS_HEARTBEAT) as { payload: string }[]).map(row => JSON.parse(row.payload) as unknown)
+      expect(beats).toEqual([{ process: nodeProcess(kind), slots: slotsOf(kind, env) }])
+    }
+    expect(slotsOf('answer', env)).toBe(5)
+    expect(slotsOf('review', env)).toBe(SLOTS.review)
   })
 
   it('holds one subscription: a second subscribe throws, and a pattern is event types with at most a trailing *', () => {

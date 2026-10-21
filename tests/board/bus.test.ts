@@ -279,7 +279,33 @@ describe('the board bus reader', () => {
       ],
     })
     expect(seen.pulse).toBe(ago(2 * 60_000))
-    expect(seen.slots).toEqual([{ queue: 'merge', used: 1 }, { queue: 'review', used: 2 }])
+    expect(seen.slots).toEqual([{ queue: 'merge', used: 1, total: null }, { queue: 'review', used: 2, total: null }])
+  })
+
+  it('a queue whose node has no heartbeat has no denominator', () => {
+    const beat = (minutes: number, payload: unknown): SeedEvent => ({ ts: ago(minutes * 60_000), type: 'process.heartbeat', card: null, payload: JSON.stringify(payload) })
+    const seen = facts({
+      tasks: [
+        { queue: 'review', card: 1, pr: null, head: null, state: 'leased' },
+        { queue: 'answer', card: 2, pr: null, head: null, state: 'leased' },
+        { queue: 'merge', card: 3, pr: null, head: null, state: 'leased' },
+      ],
+      events: [
+        beat(3, { process: 'bus:answer', slots: 2 }),
+        beat(2, { process: 'bus:answer', slots: 5 }),
+        beat(2, { process: 'bus:merge', slots: 1 }),
+        beat(1, { process: 'bus:merge' }),
+        beat(1, { process: 'bus:quality', slots: 2 }),
+        beat(1, { process: 'supervisor' }),
+        beat(1, { process: 'netwatch', slots: 9 }),
+      ],
+    })
+    expect(seen.slots).toEqual([
+      { queue: 'answer', used: 1, total: 5 },
+      { queue: 'merge', used: 1, total: null },
+      { queue: 'quality', used: 0, total: 2 },
+      { queue: 'review', used: 1, total: null },
+    ])
   })
 
   it('reports a missing file as absent and a file it cannot query as unreadable, with the reason', () => {

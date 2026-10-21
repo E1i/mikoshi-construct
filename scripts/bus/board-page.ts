@@ -10,7 +10,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { busFacts, CARD_STAGES, FLOW_STATES } from '../../src/commands/board/bus.js'
-import { backlogCards, goalLines, isLive, matrixLines, pulseLines } from '../../src/commands/board/screens.js'
+import { backlogCards, goalLines, isLive, matrixLines, pulseLines, slotsReading } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
 import { mikoHandoff } from '../miko/loop.js'
@@ -242,15 +242,11 @@ function liveAttribute(facts: BusFacts): string {
   return busFresh(facts) ? '' : ' data-stale'
 }
 
-function slotsReading(facts: BusFacts): string {
-  return facts.slots.length === 0 ? 'none in use' : facts.slots.map(slot => `${slot.queue} ${slot.used}`).join(', ')
-}
-
 function servicesMeta(page: BoardPage): string {
   const { facts, limits } = page
   const warn = limits.warnRatio === null ? 'eddies: no warn line' : `eddies: warn line <b>${percent(limits.warnRatio)}</b>`
   return [
-    `<span class="meta">quickhacks on the subnet · agents at work <b>${facts.services.length}</b> · slots <b>${escaped(slotsReading(facts))}</b> (bus records no capacity)</span>`,
+    `<span class="meta">quickhacks on the subnet · agents at work <b>${facts.services.length}</b> · slots <b>${escaped(slotsReading(facts))}</b></span>`,
     `<span class="meta right edd-note">${warn}</span>`,
   ].join('')
 }

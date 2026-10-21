@@ -98,10 +98,10 @@ describe('the board screens', () => {
   })
 
   it('the screen opens with Flow and shows the pulse and the slots in use', () => {
-    const facts = noFacts({ pulse: '2026-10-02T11:58:00.000Z', slots: [{ queue: 'review', used: 2 }] })
+    const facts = noFacts({ pulse: '2026-10-02T11:58:00.000Z', slots: [{ queue: 'review', used: 2, total: null }, { queue: 'answer', used: 1, total: 3 }] })
     expect(screenLines(facts, PLAIN_LORE)[0]).toBe('Flow')
-    expect(pulseLines(facts, PLAIN_LORE)).toEqual(['bus · pulse · — · pulse 2 min ago · slots in use: review 2 (the bus records no capacity)'])
-    expect(pulseLines(noFacts(), PLAIN_LORE)).toEqual(['bus · pulse · — · no pulse recorded · slots in use: none in use (the bus records no capacity)'])
+    expect(pulseLines(facts, PLAIN_LORE)).toEqual(['bus · pulse · — · pulse 2 min ago · slots in use: review 2, answer 1/3'])
+    expect(pulseLines(noFacts(), PLAIN_LORE)).toEqual(['bus · pulse · — · no pulse recorded · slots in use: none in use'])
     expect(screenLines(noFacts(), PLAIN_LORE)[0]).toBe('Flow')
   })
 
