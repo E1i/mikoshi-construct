@@ -511,8 +511,12 @@ export type ExpectedRunning = (name: string) => boolean
 
 const RUNNING_CARDS = `SELECT card_id FROM cards WHERE state = '${RUNNING_CARD}'`
 
+export function processName(launch: DetachedLaunch): string {
+  return launch.script
+}
+
 export function expectedRunning(db: DatabaseSync, wanted: readonly DetachedLaunch[]): ExpectedRunning {
-  const names = new Set([SUPERVISOR_PROCESS, ...wanted.map(launchName), ...(db.prepare(RUNNING_CARDS).all() as { card_id: number }[]).map(row => `${CARD_PROCESS}${row.card_id}`)])
+  const names = new Set([SUPERVISOR_PROCESS, ...wanted.map(processName), ...(db.prepare(RUNNING_CARDS).all() as { card_id: number }[]).map(row => `${CARD_PROCESS}${row.card_id}`)])
   return name => names.has(name)
 }
 
@@ -573,7 +577,7 @@ export class LivenessJudge {
 }
 
 export async function restartSilent(name: string, wanted: readonly DetachedLaunch[], control: SwitchControl): Promise<string[]> {
-  const launch = wanted.find(each => launchName(each) === name)
+  const launch = wanted.find(each => processName(each) === name)
   if (launch === undefined)
     return []
   const running = runningInstance(control.processes(), launch.markers)

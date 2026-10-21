@@ -7,14 +7,17 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
+import { RUNNING_CARD } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { CARD_PROCESS, lastProcessBeats, recordHeartbeat, recordProcessHeartbeat, WINDOW_PROCESS } from '../../bus/heartbeat.js'
-import { RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
+import { CARD_STARTED, RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../bus/liveness-sites.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
+import { reduce } from '../../bus/reducer.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
 
@@ -996,6 +999,54 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     db.close()
   })
 
+  it('a wanted worker whose beat is older than SILENT_MS is judged through expectedRunning', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-wanted-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const merge = workerLaunches(() => []).merge
+    recordProcessHeartbeat(db, at(0), processName(merge))
+    const judge = new LivenessJudge(db, () => BEAT_AT + SILENT_MS + 1, () => expectedRunning(db, [merge]))
+
+    await judge.step()
+    expect(judgedRows(db).map(row => row.payload.process)).toEqual([processName(merge)])
+    db.close()
+  })
+
+  it('a running card whose session heartbeat is older than SILENT_MS is judged through expectedRunning', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-card-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const cardId = 1160
+    appendEvent(db, { ts: at(0), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { card: `#${cardId} part [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
+    appendEvent(db, { ts: at(0), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: `s-${cardId}`, worktree: root, branch: `feat/card-${cardId}`, base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
+    reduce(db)
+    expect(db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId)).toEqual({ state: RUNNING_CARD })
+    recordHeartbeat(db, at(0), { card: cardId, pr: null, head: null, step: 'launch', session: `s-${cardId}`, lease: null })
+    const judge = new LivenessJudge(db, () => BEAT_AT + SILENT_MS + 1, () => expectedRunning(db, []))
+
+    await judge.step()
+    expect(judgedRows(db).map(row => row.payload.process)).toEqual([`${CARD_PROCESS}${cardId}`])
+    db.close()
+  })
+
+  it('a process that beats again and falls silent a second time gets a second process.judged row', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-twice-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const clock = { now: BEAT_AT + SILENT_MS + 1 }
+    recordProcessHeartbeat(db, at(0), 'bus:merge')
+    const judge = new LivenessJudge(db, () => clock.now, expecting('bus:merge'))
+
+    await judge.step()
+    const secondBeat = new Date(clock.now).toISOString()
+    recordProcessHeartbeat(db, secondBeat, 'bus:merge')
+    clock.now += SILENT_MS + 1
+    await judge.step()
+
+    expect(judgedRows(db).map(row => row.payload.last_beat)).toEqual([at(0), secondBeat])
+    db.close()
+  })
+
   it('a restart that fails is retried while the same beat stays silent, and stops once the worker beats again', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-retry-'))
     roots.push(root)
@@ -1084,7 +1135,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     const merge = workerLaunches(() => []).merge
     let alive: RunningProcess[] = [{ pid: 7, args: `node pnpm.cjs --silent ${launchName(merge)} --on` }]
     const stopped: number[] = []
-    const lines = await restartSilent(launchName(merge), [merge], {
+    const lines = await restartSilent(processName(merge), [merge], {
       processes: () => alive,
       stop: async (running) => {
         stopped.push(running.pid)
@@ -1093,7 +1144,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
       start: ok,
     })
     expect(stopped).toEqual([7])
-    expect(lines).toEqual([`${PREFIX}${launchName(merge)} was judged silent; restarting it`, `${PREFIX}pnpm ${launchName(merge)}`])
+    expect(lines).toEqual([`${PREFIX}${processName(merge)} was judged silent; restarting it`, `${PREFIX}pnpm ${launchName(merge)}`])
     expect(await restartSilent(`${CARD_PROCESS}1160`, [merge], { processes: () => alive, stop: async () => {}, start: ok })).toEqual([])
   })
 })
