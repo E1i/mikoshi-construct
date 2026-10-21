@@ -3,7 +3,7 @@ import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg
 import type { InForceDecision } from './decisions.js'
 import type { ProcessBeat } from './heartbeat.js'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { appendFileSync, realpathSync, statSync } from 'node:fs'
+import { appendFileSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -15,7 +15,7 @@ import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { RESTART_MISSED, RESTARTED } from './inbox.js'
-import { expireLeasesHeldBy, LEASE_MS, leasesHeldBy, openDrain, TASK_EXPIRED } from './lease.js'
+import { closeDrain, expireLeasesHeldBy, LEASE_MS, leasesHeldBy, openDrain, TASK_EXPIRED } from './lease.js'
 import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { CHECK_MS } from './netwatch.js'
@@ -29,7 +29,6 @@ export const ON_FLAG = '--on'
 export const OFF_FLAG = '--off'
 export const LIVE_ON_FLAG = '--live'
 export const LIVE_OFF_FLAG = '--shadow'
-export const BUS_CODE_PATH = 'scripts/bus'
 export const STOP_WAIT_MS = 10_000
 export const STOP_POLL_MS = 100
 export const RESTART_LIMIT_MS = 5 * 60_000
@@ -68,11 +67,52 @@ export interface BusCode {
   head: () => string
   holds: (sha: string) => boolean
   pull: () => void
-  busChangedSince: (sha: string) => boolean
+  changedSince: (sha: string) => string[]
+  runs: (entry: string) => ReadonlySet<string>
   localMain?: () => string | null
 }
 
 export const LOCAL_MAIN_REF = 'refs/heads/main'
+
+const RELATIVE_IMPORT = /\b(?:import|export)\s[^'"]*?\sfrom\s*'(\.{1,2}\/[^']+)'|\bimport\s*'(\.{1,2}\/[^']+)'/g
+
+export function importClosure(entry: string, readFile: (file: string) => string | null): Set<string> {
+  const texts = new Map<string, string | null>()
+  const read = (file: string): string | null => {
+    if (!texts.has(file))
+      texts.set(file, readFile(file))
+    return texts.get(file) ?? null
+  }
+  const sourceOf = (target: string): string => target.endsWith('.js') && read(`${target.slice(0, -3)}.ts`) !== null ? `${target.slice(0, -3)}.ts` : target
+  const seen = new Set<string>()
+  const next = [entry]
+  for (let file = next.pop(); file !== undefined; file = next.pop()) {
+    if (seen.has(file))
+      continue
+    const text = read(file)
+    if (text === null)
+      continue
+    seen.add(file)
+    for (const match of text.matchAll(RELATIVE_IMPORT))
+      next.push(sourceOf(path.posix.join(path.posix.dirname(file), match[1] ?? match[2]!)))
+  }
+  return seen
+}
+
+export function entryOf(launch: DetachedLaunch): string | null {
+  return launch.markers.find(marker => marker.startsWith('scripts/'))?.split(' ')[0] ?? null
+}
+
+function readable(cwd: string): (file: string) => string | null {
+  return (file) => {
+    try {
+      return readFileSync(path.join(cwd, file), 'utf8')
+    }
+    catch {
+      return null
+    }
+  }
+}
 
 export function gitCode(cwd: string): BusCode {
   const git = (args: string[]): number => spawnSync('git', args, { cwd, stdio: 'ignore' }).status ?? -1
@@ -86,12 +126,8 @@ export function gitCode(cwd: string): BusCode {
     pull: () => {
       execFileSync('git', ['pull', '--ff-only', '--quiet'], { cwd, stdio: 'pipe', timeout: GIT_PULL_TIMEOUT_MS, killSignal: 'SIGKILL' })
     },
-    busChangedSince: (sha) => {
-      const status = git(['diff', '--quiet', sha, 'HEAD', '--', BUS_CODE_PATH])
-      if (status !== 0 && status !== 1)
-        throw new Error(`git diff ${sha} HEAD -- ${BUS_CODE_PATH} exited ${status}`)
-      return status === 1
-    },
+    changedSince: sha => execFileSync('git', ['diff', '--name-only', sha, 'HEAD'], { cwd, encoding: 'utf8' }).split('\n').filter(file => file !== ''),
+    runs: entry => importClosure(entry, readable(cwd)),
   }
 }
 
@@ -136,7 +172,8 @@ export interface SupervisorParts {
 
 export interface Drain {
   held: (running: DetachedLaunch[]) => string[]
-  open: (sha: string, untilMs: number) => void
+  open: (sha: string, untilMs: number, draining: DetachedLaunch[]) => void
+  close: (sha: string, drained: DetachedLaunch[]) => void
 }
 
 interface Restarted {
@@ -144,9 +181,19 @@ interface Restarted {
   down: string[]
 }
 
+interface RestartScope {
+  launches: DetachedLaunch[]
+  self: boolean
+  every: boolean
+}
+
 interface Drained {
   waits: boolean
   lines: string[]
+}
+
+function namesOf(scope: RestartScope): string[] {
+  return [...scope.launches.map(launch => launch.script), ...scope.self ? [SUPERVISOR_LAUNCH.script] : []]
 }
 
 function startedOrTechnical(start: (launch: DetachedLaunch) => BgResult, launch: DetachedLaunch): BgResult {
@@ -164,6 +211,7 @@ export class BusSupervisor {
   private outdatedBy: string | null = null
   private waiting: { sha: string, since: number, reported: boolean } | null = null
   private draining: { sha: string, since: number } | null = null
+  private opened: DetachedLaunch[] = []
   private localMain: string | null
 
   constructor(private readonly parts: SupervisorParts, private seen: number) {
@@ -266,22 +314,38 @@ export class BusSupervisor {
       }
     }
     const sha = this.pending
-    const changed = this.parts.code.busChangedSince(this.codeSha)
+    const scope = this.scopeOf(this.parts.code.changedSince(this.codeSha))
     const head = this.parts.code.head()
-    if (!changed) {
+    if (!scope.self && scope.launches.length === 0) {
       this.settle(head)
-      return [...lines, `${PREFIX}main advanced to ${sha} with no change under ${BUS_CODE_PATH}; nothing restarted`]
+      return [...lines, `${PREFIX}main advanced to ${sha} with no change to the code a bus process runs; nothing restarted`]
     }
-    const drained = this.drain(head)
+    const drained = this.drain(head, scope)
     if (drained.waits)
       return [...lines, ...drained.lines]
-    const wanted = this.parts.wanted()
-    const restarted = await this.restart(wanted, head)
+    const restarted = await this.restart(scope, head)
     this.draining = null
     this.settle(head)
-    this.outdatedBy = head
+    if (scope.self)
+      this.outdatedBy = head
     const notBack = restarted.down.length === 0 ? '' : `; not brought back: ${restarted.down.join(', ')}`
-    return [...lines, ...drained.lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}${notBack}`, ...restarted.lines]
+    const restarting = scope.every
+      ? `a change to the code every bus process runs; restarting every running bus process on ${head}`
+      : `a change to the code of ${namesOf(scope).join(', ')}; restarting only those on ${head}, and every other bus process runs on`
+    return [...lines, ...drained.lines, `${PREFIX}main advanced to ${sha} with ${restarting}${notBack}`, ...restarted.lines]
+  }
+
+  private scopeOf(changed: readonly string[]): RestartScope {
+    const runsChanged = (launch: DetachedLaunch): boolean => {
+      const entry = entryOf(launch)
+      if (entry === null)
+        return changed.length > 0
+      const runs = this.parts.code.runs(entry)
+      return changed.some(file => runs.has(file))
+    }
+    const launches = this.parts.known.filter(runsChanged)
+    const self = runsChanged(SUPERVISOR_LAUNCH)
+    return { launches, self, every: self && launches.length === this.parts.known.length }
   }
 
   private localMainMove(): string | null {
@@ -292,12 +356,12 @@ export class BusSupervisor {
     return now
   }
 
-  private drain(head: string): Drained {
+  private drain(head: string, scope: RestartScope): Drained {
     const drain = this.parts.drain
     if (drain === undefined)
       return { waits: false, lines: [] }
     const processes = this.parts.processes()
-    const held = drain.held(this.parts.known.filter(launch => runningInstance(processes, launch.markers) !== undefined))
+    const held = drain.held(scope.launches.filter(launch => runningInstance(processes, launch.markers) !== undefined))
     const draining = this.draining
     if (held.length === 0) {
       this.draining = null
@@ -306,10 +370,12 @@ export class BusSupervisor {
     const now = this.parts.now()
     if (draining?.sha !== head) {
       const since = draining?.since ?? now
-      drain.open(head, since + DRAIN_LIMIT_MS)
+      drain.open(head, since + DRAIN_LIMIT_MS, scope.launches)
+      this.opened = [...new Set([...this.opened, ...scope.launches])]
       this.draining = { sha: head, since }
+      const takers = scope.every ? 'no worker takes a new one' : `${namesOf(scope).join(', ')} take no new one`
       if (now - since < DRAIN_LIMIT_MS)
-        return { waits: true, lines: [`${PREFIX}the restart onto ${head} waits for the leases in flight to finish, and no worker takes a new one: ${held.join(', ')}`] }
+        return { waits: true, lines: [`${PREFIX}the restart onto ${head} waits for the leases in flight to finish, and ${takers}: ${held.join(', ')}`] }
     }
     else if (now - draining.since < DRAIN_LIMIT_MS) {
       return { waits: true, lines: [] }
@@ -332,9 +398,11 @@ export class BusSupervisor {
     this.codeSha = head
   }
 
-  private async restart(wanted: DetachedLaunch[], head: string): Promise<Restarted> {
+  private async restart(scope: RestartScope, head: string): Promise<Restarted> {
+    const scripts = new Set(scope.launches.map(launch => launch.script))
+    const wanted = this.parts.wanted().filter(launch => scripts.has(launch.script))
     const processes = this.parts.processes()
-    const running = this.parts.known.flatMap((launch) => {
+    const running = scope.launches.flatMap((launch) => {
       const instance = runningInstance(processes, launch.markers)
       return instance === undefined ? [] : [{ launch, instance }]
     })
@@ -342,6 +410,9 @@ export class BusSupervisor {
       await this.parts.stop(instance, launch)
     const stopped = running.map(({ launch }) => launch)
     const freed = this.parts.freeLeases?.(stopped) ?? []
+    if (!scope.self && this.opened.length > 0)
+      this.parts.drain?.close(head, this.opened)
+    this.opened = []
     const down: string[] = []
     const lines = wanted.flatMap((launch) => {
       const name = launchName(launch)
@@ -392,7 +463,16 @@ function workerKindsOf(launches: DetachedLaunch[]): string[] {
 export function busDrain(db: DatabaseSync, ts: () => string): Drain {
   return {
     held: running => leasesHeldBy(db, workerKindsOf(running)),
-    open: (sha, untilMs) => openDrain(db, ts(), sha, new Date(untilMs).toISOString()),
+    open: (sha, untilMs, draining) => {
+      const at = ts()
+      for (const node of workerKindsOf(draining))
+        openDrain(db, at, sha, new Date(untilMs).toISOString(), node)
+    },
+    close: (sha, drained) => {
+      const at = ts()
+      for (const node of workerKindsOf(drained))
+        closeDrain(db, at, sha, node)
+    },
   }
 }
 
@@ -824,7 +904,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     down: down => recordWorkerDown(db, new Date().toISOString(), down),
     now: () => Date.now(),
   })
-  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced or a move of the local ${LOCAL_MAIN_REF} with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
+  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced or a move of the local ${LOCAL_MAIN_REF} restarts, once ${cwd} holds it, each bus process whose code it changed, and this supervisor when its own code changed, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
   try {
     await superviseUntilReplaced({
       supervisor,

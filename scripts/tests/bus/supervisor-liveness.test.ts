@@ -19,12 +19,14 @@ import { Meter } from '../../bus/meter.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reduce } from '../../bus/reducer.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, restartSilentSupervisor, startingBaseline, stillSilent, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, SUPERVISOR_SILENT_MS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, entryOf, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, restartSilentSupervisor, startingBaseline, stillSilent, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, SUPERVISOR_SILENT_MS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { busLaunches, switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
 import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../core/gh.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
+const SHARED_FILE = 'scripts/bus/db.ts'
+const SHARED_CODE: ReadonlySet<string> = new Set([SHARED_FILE])
 
 interface Kept {
   keeper: WorkerKeeper
@@ -461,7 +463,8 @@ function machine(): Machine {
     pull: () => {
       head = NEW_MAIN
     },
-    busChangedSince: sha => sha !== head,
+    changedSince: sha => sha === head ? [] : [SHARED_FILE],
+    runs: () => SHARED_CODE,
   }
   const m: Machine = {
     alive: [{ pid, args: SUPERVISOR_ARGS }, { pid: 600, args: `node pnpm.cjs --silent ${launchName(reviewLaunch(() => []))}` }],
@@ -598,7 +601,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
       },
       processes: () => alive,
       mainSince: () => [{ id: 1, sha: NEW_MAIN }],
-      code: { head: () => NEW_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => true },
+      code: { head: () => NEW_MAIN, holds: () => true, pull: () => {}, changedSince: () => [SHARED_FILE], runs: () => SHARED_CODE },
       journal: () => {},
       now: () => 0,
     }, 0)
@@ -654,7 +657,8 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
         pull: () => {
           head = main.sha
         },
-        busChangedSince: sha => sha !== head,
+        changedSince: sha => sha === head ? [] : [SHARED_FILE],
+        runs: () => SHARED_CODE,
       },
       journal: () => {},
       missed: (sha, waitedMs) => recordRestartMissed(db, ts(), sha, waitedMs),
@@ -672,7 +676,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     const waiting = (await supervisor.step()).join('\n')
     expect(waiting).toContain(`the restart onto ${NEW_MAIN} waits for the leases in flight to finish, and no worker takes a new one: ${lease.taskKey}`)
     expect(alive()).toHaveLength(1)
-    expect(drainOpen(db, ts())).toBe(true)
+    expect(drainOpen(db, ts(), 'answer')).toBe(true)
 
     clock.now = 60_000
     expect((await supervisor.step()).join('\n')).not.toContain('restarting every running bus process')
@@ -680,7 +684,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
 
     completeTask(db, ts(), lease, [])
     clock.now = 120_000
-    expect((await supervisor.step()).join('\n')).toContain(`main advanced to ${NEW_MAIN} with a change under scripts/bus; restarting every running bus process on ${NEW_MAIN}`)
+    expect((await supervisor.step()).join('\n')).toContain(`main advanced to ${NEW_MAIN} with a change to the code every bus process runs; restarting every running bus process on ${NEW_MAIN}`)
     expect(holderStopped(db)).toEqual([])
     db.close()
   })
@@ -710,7 +714,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     await supervisor.step()
     clock.now = DRAIN_LIMIT_MS
     expect((await supervisor.step()).join('\n')).toContain('supervisor step failed: stop failed')
-    expect(drainOpen(db, ts())).toBe(false)
+    expect(drainOpen(db, ts(), 'answer')).toBe(false)
 
     clock.now = DRAIN_LIMIT_MS + 60_000
     const lines = (await supervisor.step()).join('\n')
@@ -745,11 +749,11 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     const db = openBus(path.join(root, 'bus.db'))
     const at = (ms: number): string => new Date(MERGED_AT + ms).toISOString()
 
-    openDrain(db, at(0), NEW_MAIN, at(DRAIN_LIMIT_MS))
-    expect(drainOpen(db, at(DRAIN_LIMIT_MS))).toBe(false)
+    openDrain(db, at(0), NEW_MAIN, at(DRAIN_LIMIT_MS), 'answer')
+    expect(drainOpen(db, at(DRAIN_LIMIT_MS), 'answer')).toBe(false)
 
-    openDrain(db, at(DRAIN_LIMIT_MS + 60_000), NEW_MAIN, at(2 * DRAIN_LIMIT_MS + 60_000))
-    expect(drainOpen(db, at(DRAIN_LIMIT_MS + 120_000))).toBe(true)
+    openDrain(db, at(DRAIN_LIMIT_MS + 60_000), NEW_MAIN, at(2 * DRAIN_LIMIT_MS + 60_000), 'answer')
+    expect(drainOpen(db, at(DRAIN_LIMIT_MS + 120_000), 'answer')).toBe(true)
     expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get('leases.draining')).toEqual({ n: 2 })
     db.close()
   })
@@ -764,13 +768,78 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     main.sha = 'c'.repeat(40)
     main.id = 2
     expect((await supervisor.step()).join('\n')).toContain(`the restart onto ${main.sha} waits for the leases in flight to finish`)
-    expect(drainOpen(db, ts())).toBe(true)
+    expect(drainOpen(db, ts(), 'answer')).toBe(true)
 
     clock.now = DRAIN_LIMIT_MS
-    expect(drainOpen(db, ts())).toBe(false)
+    expect(drainOpen(db, ts(), 'answer')).toBe(false)
     const lines = (await supervisor.step()).join('\n')
     expect(lines).toContain(`restarting on ${main.sha} anyway, and these are freed as ${TASK_EXPIRED}: ${lease.taskKey}`)
     expect(lines).toContain('restarting every running bus process')
+    db.close()
+  })
+
+  it('a change under node A restarts only A and the lease of B runs on', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-scoped-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const clock = { now: 0 }
+    const ts = (): string => new Date(MERGED_AT + clock.now).toISOString()
+    const leaseOfA = leaseWhileFree(db, ts(), { queue: 'answer', cardId: 1181, pr: 1001, head: OLD_MAIN }, 'worker:answer:alive', 1)!
+    const leaseOfB = leaseWhileFree(db, ts(), { queue: 'close', cardId: 1182, pr: 1002, head: OLD_MAIN }, 'worker:close:alive', 1)!
+    const { answer, close } = workerLaunches(() => [])
+    let alive: RunningProcess[] = [{ pid: 604, args: `node pnpm.cjs --silent ${launchName(answer)}` }, { pid: 605, args: `node pnpm.cjs --silent ${launchName(close)}` }]
+    const started: string[] = []
+    let head = OLD_MAIN
+    const runs = new Map([
+      [entryOf(answer)!, new Set([entryOf(answer)!, SHARED_FILE])],
+      [entryOf(close)!, new Set([entryOf(close)!, SHARED_FILE])],
+      [entryOf(SUPERVISOR_LAUNCH)!, new Set([entryOf(SUPERVISOR_LAUNCH)!, SHARED_FILE])],
+    ])
+    const supervisor = new BusSupervisor({
+      known: [answer, close],
+      wanted: () => [answer, close],
+      start: (launch) => {
+        started.push(launchName(launch))
+        alive = [...alive, { pid: 700 + started.length, args: `node pnpm.cjs --silent ${launchName(launch)}` }]
+        return ok(launch)
+      },
+      stop: async (instance) => {
+        alive = alive.filter(candidate => candidate.pid !== instance.pid)
+      },
+      freeLeases: stopped => freeLeasesOf(db, ts(), stopped),
+      drain: busDrain(db, ts),
+      processes: () => alive,
+      mainSince: () => [{ id: 1, sha: NEW_MAIN }],
+      code: {
+        head: () => head,
+        holds: sha => sha === head,
+        pull: () => {
+          head = NEW_MAIN
+        },
+        changedSince: sha => sha === head ? [] : [entryOf(answer)!],
+        runs: entry => runs.get(entry) ?? new Set(),
+      },
+      journal: () => {},
+      now: () => MERGED_AT + clock.now,
+    }, 0)
+
+    const waiting = (await supervisor.step()).join('\n')
+    expect(waiting).toContain(`the restart onto ${NEW_MAIN} waits for the leases in flight to finish, and bus:answer take no new one: ${leaseOfA.taskKey}`)
+    expect(drainOpen(db, ts(), 'answer')).toBe(true)
+    expect(drainOpen(db, ts(), 'close')).toBe(false)
+
+    completeTask(db, ts(), leaseOfA, [])
+    clock.now = 60_000
+    const lines = (await supervisor.step()).join('\n')
+
+    expect(lines).toContain(`main advanced to ${NEW_MAIN} with a change to the code of bus:answer; restarting only those on ${NEW_MAIN}, and every other bus process runs on`)
+    expect(started).toEqual([launchName(answer)])
+    expect(alive.map(each => each.pid)).toEqual([605, 701])
+    expect(supervisor.ownCodeBehind).toBeNull()
+    expect(drainOpen(db, ts(), 'answer')).toBe(false)
+    expect(db.prepare('SELECT state, lease_gen FROM tasks WHERE task_key = ?').get(leaseOfB.taskKey)).toEqual({ state: 'leased', lease_gen: leaseOfB.leaseGen })
+    expect(holderStopped(db)).toEqual([])
+    completeTask(db, ts(), leaseOfB, [])
     db.close()
   })
 
@@ -787,7 +856,8 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
       pull: () => {
         head = NEW_MAIN
       },
-      busChangedSince: sha => sha !== head,
+      changedSince: sha => sha === head ? [] : [SHARED_FILE],
+      runs: () => SHARED_CODE,
     }
     const lines: string[] = []
 
@@ -823,7 +893,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
 
     expect(started).toEqual([launchName(review)])
     expect(relaunched).toEqual([500])
-    expect(lines.join('\n')).toContain(`main advanced to ${NEW_MAIN} with a change under scripts/bus; restarting every running bus process on ${NEW_MAIN}`)
+    expect(lines.join('\n')).toContain(`main advanced to ${NEW_MAIN} with a change to the code every bus process runs; restarting every running bus process on ${NEW_MAIN}`)
   })
 
   it('a restart that does not happen within the limit writes a bus event and a board line', async () => {
@@ -838,7 +908,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
       stop: async () => {},
       processes: () => [],
       mainSince: afterId => afterId < 1 ? [{ id: 1, sha: NEW_MAIN }] : [],
-      code: { head: () => OLD_MAIN, holds: () => false, pull: () => {}, busChangedSince: () => true },
+      code: { head: () => OLD_MAIN, holds: () => false, pull: () => {}, changedSince: () => [SHARED_FILE], runs: () => SHARED_CODE },
       journal: () => {},
       missed: (sha, waitedMs) => recordRestartMissed(db, '2026-10-18T10:00:00.000Z', sha, waitedMs),
       now: () => clock.now,
@@ -874,7 +944,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
       stop: async () => {},
       processes: () => [],
       mainSince: afterId => events.filter(event => event.id > afterId),
-      code: { head: () => OLD_MAIN, holds: () => holds, pull: () => {}, busChangedSince: () => false },
+      code: { head: () => OLD_MAIN, holds: () => holds, pull: () => {}, changedSince: () => [], runs: () => SHARED_CODE },
       journal: () => {},
       missed: sha => missed.push(sha),
       now: () => clock.now,
@@ -903,7 +973,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
     const head = 'c'.repeat(40)
-    const code: BusCode = { head: () => head, holds: () => true, pull: () => {}, busChangedSince: () => false }
+    const code: BusCode = { head: () => head, holds: () => true, pull: () => {}, changedSince: () => [], runs: () => SHARED_CODE }
     const logged: string[] = []
     const rows = (): { dedupe_key: string, payload: string }[] => db.prepare('SELECT dedupe_key, payload FROM events WHERE type = ?').all(RESTARTED) as { dedupe_key: string, payload: string }[]
 
@@ -922,7 +992,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     db.close()
     const logged: string[] = []
 
-    expect(() => recordStarted(db, '2026-10-18T10:00:00.000Z', { head: () => NEW_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => false }, line => logged.push(line))).not.toThrow()
+    expect(() => recordStarted(db, '2026-10-18T10:00:00.000Z', { head: () => NEW_MAIN, holds: () => true, pull: () => {}, changedSince: () => [], runs: () => SHARED_CODE }, line => logged.push(line))).not.toThrow()
 
     expect(logged).toHaveLength(1)
     expect(logged[0]).toContain(`recording ${RESTARTED} failed`)
@@ -939,7 +1009,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
       stop: async () => {},
       processes: () => [],
       mainSince: afterId => afterId < 1 ? [{ id: 1, sha: NEW_MAIN }] : [],
-      code: { head: () => OLD_MAIN, holds: () => false, pull: () => {}, busChangedSince: () => true },
+      code: { head: () => OLD_MAIN, holds: () => false, pull: () => {}, changedSince: () => [SHARED_FILE], runs: () => SHARED_CODE },
       journal: () => {},
       missed: (sha) => {
         if (failing)
@@ -1184,7 +1254,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
       launch.preflight?.()
       return ok(launch)
     }
-    const supervisor = new BusSupervisor({ known: [review], wanted: () => [review], start, stop: async () => {}, processes: () => [], mainSince: () => [], code: { head: () => OLD_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => false }, journal: () => {}, now: () => clock.now }, 0)
+    const supervisor = new BusSupervisor({ known: [review], wanted: () => [review], start, stop: async () => {}, processes: () => [], mainSince: () => [], code: { head: () => OLD_MAIN, holds: () => true, pull: () => {}, changedSince: () => [], runs: () => SHARED_CODE }, journal: () => {}, now: () => clock.now }, 0)
     const keeper = new WorkerKeeper({ wanted: () => [review], start, processes: () => [], reduce: () => [], journal: () => {}, now: () => clock.now })
     const lines: string[] = []
     const enough = new Error('enough ticks')
@@ -1277,7 +1347,7 @@ describe('the switch is a flag, and the supervisor moves each worker to it', () 
     }
     const processes = (): RunningProcess[] => alive
     const wanted = (): DetachedLaunch[] => wantedLaunches(busDir, () => [])
-    const code: BusCode = { head: () => 'a'.repeat(40), holds: () => true, pull: () => {}, busChangedSince: () => false }
+    const code: BusCode = { head: () => 'a'.repeat(40), holds: () => true, pull: () => {}, changedSince: () => [], runs: () => SHARED_CODE }
     const supervisor = new BusSupervisor({
       known: busLaunches(() => []),
       wanted,
@@ -1309,7 +1379,7 @@ describe('the switch is a flag, and the supervisor moves each worker to it', () 
 })
 
 describe('the main.advanced the supervisor starts from', () => {
-  const held: BusCode = { head: () => OLD_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => false }
+  const held: BusCode = { head: () => OLD_MAIN, holds: () => true, pull: () => {}, changedSince: () => [], runs: () => SHARED_CODE }
   const unheld: BusCode = { ...held, holds: () => false }
 
   function advance(db: ReturnType<typeof openBus>, key: string, payload: Record<string, unknown>): void {

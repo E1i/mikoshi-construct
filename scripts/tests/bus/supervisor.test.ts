@@ -1,12 +1,15 @@
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../bus/bg.js'
 import type { BusCode } from '../../bus/supervisor.js'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { launchName } from '../../bus/bg.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { BusSupervisor, LOCAL_MAIN_REF } from '../../bus/supervisor.js'
+import { BusSupervisor, entryOf, gitCode, importClosure, LOCAL_MAIN_REF, SUPERVISOR_LAUNCH } from '../../bus/supervisor.js'
+import { busLaunches, workerLaunches } from '../../bus/workers.js'
 
 const OLD_MAIN = 'a'.repeat(40)
 const NEW_MAIN = 'b'.repeat(40)
+const SHARED_FILE = 'scripts/bus/db.ts'
 
 describe('the supervisor follows the local main ref', () => {
   it('a moved local main ref restarts the bus with no GitHub call', async () => {
@@ -22,7 +25,8 @@ describe('the supervisor follows the local main ref', () => {
       pull: () => {
         throw new Error('the checkout already holds the local main; no pull is needed')
       },
-      busChangedSince: sha => sha !== checkout,
+      changedSince: sha => sha === checkout ? [] : [SHARED_FILE],
+      runs: () => new Set([SHARED_FILE]),
       localMain: () => checkout,
     }
     const supervisor = new BusSupervisor({
@@ -73,12 +77,48 @@ describe('the supervisor follows the local main ref', () => {
       stop: async () => {},
       processes: () => [],
       mainSince: () => [],
-      code: { head: () => OLD_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => true, localMain: () => null },
+      code: { head: () => OLD_MAIN, holds: () => true, pull: () => {}, changedSince: () => [SHARED_FILE], runs: () => new Set([SHARED_FILE]), localMain: () => null },
       journal: () => {},
       now: () => 0,
     }, 0)
 
     expect(await supervisor.step()).toEqual([])
     expect(supervisor.ownCodeBehind).toBeNull()
+  })
+})
+
+describe('the code a bus process runs', () => {
+  const repoRoot = path.join(import.meta.dirname, '..', '..', '..')
+  const code = gitCode(repoRoot)
+  const runsOf = (launch: DetachedLaunch): ReadonlySet<string> => code.runs(entryOf(launch)!)
+
+  it('every launch the supervisor knows, and the supervisor itself, names an entry its checkout holds', () => {
+    for (const launch of [...busLaunches(() => []), SUPERVISOR_LAUNCH])
+      expect(runsOf(launch).has(entryOf(launch)!)).toBe(true)
+  })
+
+  it('the shared bus code is in the code of every node, and one node\'s worker is not in another\'s', () => {
+    const { answer, close } = workerLaunches(() => [])
+    for (const launch of [...busLaunches(() => []), SUPERVISOR_LAUNCH]) {
+      for (const shared of ['scripts/bus/db.ts', 'scripts/bus/queue.ts', 'scripts/bus/reducer.ts'])
+        expect(runsOf(launch)).toContain(shared)
+    }
+    for (const launch of Object.values(workerLaunches(() => [])))
+      expect(runsOf(launch)).toContain('scripts/bus/node.ts')
+    expect(runsOf(close)).not.toContain(entryOf(answer))
+    expect(runsOf(answer)).not.toContain(entryOf(close))
+  })
+
+  it('an import closure follows import, export-from and side-effect imports across lines and directories', () => {
+    const files: Record<string, string> = {
+      'a/entry.ts': `import type { T } from './types.js'\nimport {\n  b,\n} from './b.js'\nexport * from '../c/c.js'\nimport './side.js'\nimport fs from 'node:fs'\n`,
+      'a/types.ts': '',
+      'a/b.ts': `export const b = 'from here'\n`,
+      'c/c.ts': `import data from './data.json'\n`,
+      'c/data.json': '{}',
+      'a/side.ts': '',
+      'a/unreached.ts': '',
+    }
+    expect([...importClosure('a/entry.ts', file => files[file] ?? null)].sort()).toEqual(['a/b.ts', 'a/entry.ts', 'a/side.ts', 'a/types.ts', 'c/c.ts', 'c/data.json'])
   })
 })

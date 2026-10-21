@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../bus/db.js'
-import { openDrain, releaseTask, TASK_LEASED } from '../../bus/lease.js'
+import { closeDrain, drainOpen, openDrain, releaseTask, TASK_LEASED } from '../../bus/lease.js'
 import { CHECK_MS, TICK_MS } from '../../bus/netwatch.js'
 import { Node } from '../../bus/node.js'
 import { keyOf, queueTaskWithin } from '../../bus/queue.js'
@@ -127,12 +127,46 @@ describe('a drain before a restart', () => {
     const ts = clock.now().toISOString()
     queueTaskWithin(db, ts, task(970))
     const key = keyOf(task(970))
-    openDrain(db, ts, 'b'.repeat(40), new Date(clock.now().getTime() + DRAIN_LIMIT_MS).toISOString())
+    openDrain(db, ts, 'b'.repeat(40), new Date(clock.now().getTime() + DRAIN_LIMIT_MS).toISOString(), 'review')
     await onePass(node)
 
     expect(leasedEvents(db, key)).toBe(0)
 
     recordRestarted(db, ts, 'b'.repeat(40))
+    await onePass(node)
+
+    expect(leasedEvents(db, key)).toBe(1)
+  })
+
+  it('a drain opened for node A does not stop node B from taking', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    const node = new ReleasingNode(db, clock, 3)
+    const ts = clock.now().toISOString()
+    queueTaskWithin(db, ts, task(971))
+    const key = keyOf(task(971))
+    const until = new Date(clock.now().getTime() + DRAIN_LIMIT_MS).toISOString()
+    openDrain(db, ts, 'b'.repeat(40), until, 'merge')
+    await onePass(node)
+
+    expect(leasedEvents(db, key)).toBe(1)
+    expect(drainOpen(db, ts, 'merge')).toBe(true)
+    expect(drainOpen(db, ts, 'review')).toBe(false)
+  })
+
+  it('a drain closed for its node after that node restarted lets the fresh node take before the deadline', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    const node = new ReleasingNode(db, clock, 3)
+    const ts = clock.now().toISOString()
+    queueTaskWithin(db, ts, task(972))
+    const key = keyOf(task(972))
+    openDrain(db, ts, 'b'.repeat(40), new Date(clock.now().getTime() + DRAIN_LIMIT_MS).toISOString(), 'review')
+    await onePass(node)
+    expect(leasedEvents(db, key)).toBe(0)
+
+    closeDrain(db, new Date(clock.now().getTime() + 1).toISOString(), 'b'.repeat(40), 'review')
+    clock.advance(1)
     await onePass(node)
 
     expect(leasedEvents(db, key)).toBe(1)
