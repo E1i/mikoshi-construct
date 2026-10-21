@@ -1,9 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Goal } from '../../src/commands/board/goal.js'
 import type { Choice, ParkingReads } from '../shift/parking.js'
 import type { Queue } from './identifiers.js'
 import type { LeaseOrder } from './lease.js'
 import type { WindowShard } from './shards.js'
 import path from 'node:path'
+import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGE_DONE, MERGED_CARD, PR_OPENED, QUEUED_CARD, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
@@ -113,6 +115,7 @@ export interface ActiveShard extends WindowShard {
 
 export interface Board {
   at: string
+  goal: Goal | null
   ready: QueueCard[]
   waiting: QueueCard[]
   blocked: QueueCard[]
@@ -435,6 +438,7 @@ export function readBoard(sources: BoardSources): Board {
   const queue = sources.parking === undefined ? projectedQueue(db) : queueBlock(parking, inLanes)
   return {
     at: now.toISOString(),
+    goal: goalOf(db),
     ...queue,
     lanes: laneBlock(chains, parking),
     window: health.find(component => component.name === 'Operator')!,

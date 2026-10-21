@@ -7,11 +7,12 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { GOAL_DECISION } from '../../../src/commands/board/goal.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { boardProjection, printBoard, runBoardCli } from '../../bus/board-page.js'
 import { MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
-import { DROPPED_LANE, MERGE_DONE } from '../../bus/card-automaton.js'
+import { DROPPED_LANE, MERGE_DONE, MERGED_CARD } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
@@ -99,16 +100,22 @@ interface BodyColumns {
   who?: string
   state?: string | null
   chain?: string
+  text?: string
 }
 
 function bodyRow(bench: BoardBench, cardId: number, columns: BodyColumns): void {
   appendEvent(bench.db, { ts: bench.ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: {}, legacy: false })
   const eventId = (bench.db.prepare('SELECT id FROM events WHERE dedupe_key = ?').get(`${CARD_ADMITTED}:${cardId}`) as { id: number }).id
   bench.db.prepare('INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, lane, who, priority, depends) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(cardId, eventId, `do ${cardId}`, sha('a'), columns.lane, columns.who ?? 'shift', columns.priority ?? null, JSON.stringify(columns.depends ?? []))
+    .run(cardId, eventId, columns.text ?? `do ${cardId}`, sha('a'), columns.lane, columns.who ?? 'shift', columns.priority ?? null, JSON.stringify(columns.depends ?? []))
   bench.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, NULL, ?)').run(cardId, columns.state ?? null, eventId)
   if (columns.chain !== undefined)
     bench.db.prepare('INSERT INTO chains (dir, card_id, parking, sha, pid, leader, boundary, state, event_id) VALUES (?, ?, ?, ?, 1, NULL, 0, ?, ?)').run(`/trees/${cardId}`, cardId, '/parking/lane-1', sha('c'), columns.chain, eventId)
+}
+
+function decisionRow(bench: BoardBench, decisionId: number, text: string): void {
+  const eventId = (bench.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id
+  bench.db.prepare('INSERT INTO decisions (decision_id, text, scope, source, event_id) VALUES (?, ?, \'[]\', \'owner\', ?)').run(decisionId, text, eventId)
 }
 
 function conflictingSources(): void {
@@ -440,5 +447,37 @@ describe('the factory board', () => {
         bench.tick()
       expect(bench.tick().progress).toMatchObject({ stalled: false, cause: null })
     }
+  })
+
+  it('the header goal is the D-193 release with done of total over the cards whose Path line names it', () => {
+    const bench = boardBench()
+    const read = (): Board => readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} })
+    const path = (line: string): string => `do it\n\nPath (D-76): ${line}\n`
+    bodyRow(bench, 920, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.44, slice S, the ladder after the release') })
+    bodyRow(bench, 921, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.44 night order, slice M') })
+    bodyRow(bench, 922, { lane: 'lane-1', state: 'queued', text: path('cheap — 0.44 blocker, slice S') })
+    bodyRow(bench, 923, { lane: 'lane-1', state: 'dropped', text: path('cheap — 0.44, slice S') })
+    bodyRow(bench, 924, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.45, slice S') })
+    bodyRow(bench, 925, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.441, slice S') })
+    bodyRow(bench, 926, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.44.1, slice S') })
+    bodyRow(bench, 927, { lane: 'lane-1', state: MERGED_CARD, text: 'the cards whose «Path (D-76): …» line names 0.44\n\nPath (D-76): cheap, slice S\n' })
+    bodyRow(bench, 928, { lane: 'lane-1', state: MERGED_CARD, text: 'release 0.44 is the goal\n\nPath (D-76): cheap, slice S\n' })
+    expect(read().goal).toBeNull()
+    decisionRow(bench, GOAL_DECISION - 1, '[owner] 0.45 scope is another list')
+    expect(read().goal).toBeNull()
+    decisionRow(bench, GOAL_DECISION, '[owner] 0.44 scope is the list \'Release 0.44 — full list\', items 1–16.')
+    expect(read().goal).toEqual({ release: '0.44', done: 2, total: 3 })
+  })
+
+  it('the board page opens with the goal line, and a dropped card leaves the total because it left the plan', () => {
+    const bench = boardBench()
+    const path = (line: string): string => `do it\n\nPath (D-76): ${line}\n`
+    bodyRow(bench, 930, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.44, slice S') })
+    bodyRow(bench, 931, { lane: 'lane-1', state: 'queued', text: path('cheap — 0.44, slice S') })
+    bodyRow(bench, 932, { lane: 'lane-1', state: 'dropped', text: path('cheap — 0.44, slice S') })
+    decisionRow(bench, GOAL_DECISION, '[owner] 0.44 scope is the list')
+    const written: string[] = []
+    expect(printBoard(bench.db.location()!, bench.clock.now(), text => written.push(text))).toBe(0)
+    expect(written.join('')).toContain('<section><h2>Flow</h2><pre>goal · release 0.44 · — · 1 of 2 merged\nplanned')
   })
 })

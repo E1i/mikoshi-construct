@@ -1,6 +1,8 @@
 import type { BusDb } from '../cost/bus.js'
+import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
 import { withReadOnlyBus } from '../cost/bus.js'
+import { goalOf } from './goal.js'
 
 export const WINDOW_SUBAGENT_EVENT = 'window.subagent'
 export const SESSION_HEARTBEAT_EVENT = 'session.heartbeat'
@@ -52,6 +54,7 @@ export interface BusSlot {
 
 export interface BusFacts {
   at: string
+  goal: Goal | null
   pulse: string | null
   slots: BusSlot[]
   cards: BusCard[]
@@ -241,6 +244,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
   const events = boardEvents(db)
   return {
     at: now.toISOString(),
+    goal: goalOf(db),
     pulse: lastPulse(db),
     slots: slotsInUse(db),
     cards: cardsOf(db, events),
