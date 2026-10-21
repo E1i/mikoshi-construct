@@ -12,7 +12,7 @@ import { appendEvent } from '../../bus/db.js'
 import { importJournal } from '../../bus/import.js'
 import { leaseNext } from '../../bus/lease.js'
 import { CARD_ANSWERED, CARD_STARTED, POLICY_DENIED } from '../../core/events.js'
-import { taskWorktree } from '../../ghosts/worktree-home.js'
+import { taskWorktree } from '../../ports/worktree-home.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 

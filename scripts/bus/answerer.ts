@@ -7,8 +7,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { readResultFields } from '../ghosts/result.js'
-import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ghosts/session.js'
+import { readResultFields } from '../ports/result.js'
+import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ports/session.js'
 import { commitAndPush } from '../shift/tree-pr.js'
 import { parkedCardFile } from './card-archive.js'
 

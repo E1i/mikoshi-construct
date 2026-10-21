@@ -1,4 +1,4 @@
-import type { SpawnSessionParams } from '../ghosts/session.js'
+import type { SpawnSessionParams } from '../ports/session.js'
 import type { Lease } from './lease.js'
 import type { SessionInput } from './prompt-store.js'
 import type { VerdictWord } from './record-verdict.js'
@@ -9,8 +9,8 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { readResultFields } from '../ghosts/result.js'
-import { reviewModelOf, sessionModelOf, spawnSession, withoutCard } from '../ghosts/session.js'
+import { readResultFields } from '../ports/result.js'
+import { reviewModelOf, sessionModelOf, spawnSession, withoutCard } from '../ports/session.js'
 
 export interface TreeState {
   head: string

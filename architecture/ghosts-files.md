@@ -26,22 +26,17 @@ file. This file is not owner-merged: who merges is decided in [owner-merges.md](
 | `scripts/ghosts/handoff.ts` | ghosts |
 | `scripts/ghosts/hash.ts` | ghosts |
 | `scripts/ghosts/install.ts` | ghosts |
-| `scripts/ghosts/isolation.ts` | ghosts |
 | `scripts/ghosts/journal.ts` | ghosts |
 | `scripts/ghosts/launch.ts` | ghosts |
 | `scripts/ghosts/ledger.ts` | plain |
 | `scripts/ghosts/matrix.ts` | plain |
 | `scripts/ghosts/morse-approve.ts` | ghosts |
 | `scripts/ghosts/preflight-static.ts` | ghosts |
-| `scripts/ghosts/preflight-trees.ts` | ghosts |
-| `scripts/ghosts/preflight-witnesses.ts` | ghosts |
 | `scripts/ghosts/preflight.ts` | ghosts |
 | `scripts/ghosts/regenerated.ts` | ghosts |
-| `scripts/ghosts/result.ts` | plain |
 | `scripts/ghosts/review-carry.ts` | ghosts |
 | `scripts/ghosts/role-sample.ts` | plain |
 | `scripts/ghosts/role.ts` | plain |
-| `scripts/ghosts/session.ts` | ghosts |
 | `scripts/ghosts/sketch.ts` | ghosts |
 | `scripts/ghosts/status.ts` | plain |
 | `scripts/ghosts/supersede.ts` | ghosts |
@@ -56,4 +51,3 @@ file. This file is not owner-merged: who merges is decided in [owner-merges.md](
 | `scripts/ghosts/watch-process.ts` | plain |
 | `scripts/ghosts/watch-report.ts` | plain |
 | `scripts/ghosts/watch.ts` | plain |
-| `scripts/ghosts/worktree-home.ts` | ghosts |

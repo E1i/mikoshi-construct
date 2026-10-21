@@ -1,6 +1,6 @@
 import type { Meter } from './meter.js'
 import { REQUIRED_CHECK } from '../core/gh.js'
-import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
+import { REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from './identifiers.js'
 
 export const MAIN_BRANCH = 'main'

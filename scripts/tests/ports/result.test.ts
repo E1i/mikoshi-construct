@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readResultFields } from '../../ghosts/result.js'
+import { readResultFields } from '../../ports/result.js'
 
 function reportFile(lines: string[]): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-result-'))

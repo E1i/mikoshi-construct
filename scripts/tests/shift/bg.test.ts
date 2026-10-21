@@ -1,5 +1,5 @@
 import type { GhCaller } from '../../core/gh.js'
-import type { IsolationReader } from '../../ghosts/isolation.js'
+import type { IsolationReader } from '../../ports/isolation.js'
 import type { BgResult } from '../../shift/bg.js'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'

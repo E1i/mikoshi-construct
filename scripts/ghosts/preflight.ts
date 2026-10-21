@@ -1,12 +1,12 @@
 import type { DiskReader } from '../bus/disk.js'
-import type { Shell } from './preflight-trees.js'
-import type { Timer } from './preflight-witnesses.js'
+import type { Timer } from '../bus/witnesses.js'
+import type { Shell } from '../ports/worktree.js'
 import type { Sketch } from './sketch.js'
 import process from 'node:process'
 import { DISK_LOW, diskLowDetail, statfsReader } from '../bus/disk.js'
+import { runOnTree } from '../bus/witnesses.js'
+import { gitIn, lastLine, realShell, withWorktree } from '../ports/worktree.js'
 import { generatorRefusal, ghostsFilesRefusal, immutableRefusal, invariantWitnesses, movingRefRefusal, unreadInvariantRefusal } from './preflight-static.js'
-import { gitIn, lastLine, realShell, withWorktree } from './preflight-trees.js'
-import { runOnTree } from './preflight-witnesses.js'
 
 export interface PreflightEnv { repo: string, shell: Shell, log: (line: string) => void, clock: () => number, disk?: DiskReader }
 export interface PreflightInput { briefPath: string, text: string, sketch: Sketch, buildStdout: string, base?: string }

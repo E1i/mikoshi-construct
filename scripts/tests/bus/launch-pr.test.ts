@@ -11,7 +11,7 @@ import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from 
 import { busCardBodies } from '../../bus/launch-worker.js'
 import { reduce } from '../../bus/reducer.js'
 import { CARD_ADMITTED } from '../../core/events.js'
-import { sessionEnv } from '../../ghosts/session.js'
+import { sessionEnv } from '../../ports/session.js'
 import { renderPrompt } from '../../shift/prompt.js'
 import { waitFor } from '../wait-for.js'
 

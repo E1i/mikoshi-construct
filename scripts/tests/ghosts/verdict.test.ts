@@ -1,5 +1,5 @@
 import type { Buffer } from 'node:buffer'
-import type { ReviewStatus } from '../../ghosts/verdict.js'
+import type { ReviewStatus } from '../../ports/github-status.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'

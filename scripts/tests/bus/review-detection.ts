@@ -1,6 +1,6 @@
 import type { Scope } from '../../bus/node.js'
 import type { StoredEvent } from '../../bus/stored.js'
-import type { IsolationReader } from '../../ghosts/isolation.js'
+import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { ReviewNode } from '../../bus/review-worker.js'

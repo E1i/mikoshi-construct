@@ -1,5 +1,5 @@
 import type { TreeTools } from '../../bus/reviewer.js'
-import type { SpawnSessionParams } from '../../ghosts/session.js'
+import type { SpawnSessionParams } from '../../ports/session.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -9,7 +9,7 @@ import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../bus/review-depth.js'
 import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
-import { sessionArgv, SessionCeilingReached } from '../../ghosts/session.js'
+import { sessionArgv, SessionCeilingReached } from '../../ports/session.js'
 import { sha } from './github-fake.js'
 
 const lease = { taskKey: `review:1050:950:${sha('a')}`, queue: 'review' as const, cardId: 1050, pr: 950, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }

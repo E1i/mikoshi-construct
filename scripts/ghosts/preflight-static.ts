@@ -1,6 +1,6 @@
+import type { Witness } from '../bus/witnesses.js'
 import { GHOSTS_FILES, readGhostsFiles } from '../shredder/reader.js'
 
-export interface Witness { criterion: string, command: string }
 export type ShowAt = (file: string) => string | null
 
 const MOVING_REF = /\borigin\/main\b/

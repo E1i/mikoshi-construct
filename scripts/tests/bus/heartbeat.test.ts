@@ -20,7 +20,7 @@ import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../bus/review-wor
 import { reviewSession } from '../../bus/reviewer.js'
 import { UpdateNode } from '../../bus/update-worker.js'
 import { SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
-import { CARD_VARIABLE } from '../../ghosts/session.js'
+import { CARD_VARIABLE } from '../../ports/session.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
