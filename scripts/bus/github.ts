@@ -1,4 +1,5 @@
-import { spawnSync } from 'node:child_process'
+import type { GhCall, GhPort } from '../core/gh.js'
+import { PROCESS_GH_PORT } from '../core/gh.js'
 
 export interface GhResponse {
   status: number
@@ -9,9 +10,10 @@ export interface GhResponse {
 export type GitHub = (endpoint: string) => GhResponse
 
 export const RATE_LIMIT_STATUSES = new Set([403, 429])
+export const BUDGET_SPENT_STATUS = 429
+export const NO_ANSWER_STATUS = 599
 
 const STATUS_LINE = /^HTTP\/\S+\s+(\d{3})/
-const GH_TIMEOUT_MS = 20_000
 
 export function parseIncluded(output: string): GhResponse {
   const normalised = output.replace(/\r\n/g, '\n')
@@ -38,19 +40,28 @@ export function parseIncluded(output: string): GhResponse {
 
 export type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse
 
-function included(cwd: string, command: string, args: string[], endpoint: string): GhResponse {
-  const run = spawnSync(command, ['api', '--include', ...args], { cwd, encoding: 'utf8', timeout: GH_TIMEOUT_MS, killSignal: 'SIGKILL' })
-  if (run.error !== undefined)
-    throw run.error
-  if (run.stdout.trim() === '')
-    throw new Error(`gh api ${endpoint} printed nothing: ${run.stderr.trim()}`)
-  return parseIncluded(run.stdout)
+function technical(endpoint: string, result: GhCall): GhResponse {
+  if (result.kind === 'failed' && result.cause === 'budget')
+    return { status: BUDGET_SPENT_STATUS, headers: { 'retry-after': String(result.retryAfterSeconds ?? 0) }, body: { message: `gh api ${endpoint}: ${result.reason}` } }
+  return { status: NO_ANSWER_STATUS, headers: {}, body: { message: result.kind === 'failed' ? `gh api ${endpoint}: ${result.reason}` : `gh api ${endpoint} printed nothing` } }
 }
 
-export function ghApi(cwd: string, command = 'gh'): GitHub {
-  return endpoint => included(cwd, command, ['--method', 'GET', endpoint], endpoint)
+function included(port: GhPort, cwd: string, args: string[], endpoint: string): GhResponse {
+  const result = port.call(['api', '--include', ...args], { cwd })
+  if (result.stdout.trim() === '')
+    return technical(endpoint, result)
+  try {
+    return parseIncluded(result.stdout)
+  }
+  catch (error) {
+    return { status: NO_ANSWER_STATUS, headers: {}, body: { message: `gh api ${endpoint}: ${error instanceof Error ? error.message : String(error)}` } }
+  }
 }
 
-export function ghApiPut(cwd: string, command = 'gh'): GitHubPut {
-  return (endpoint, fields) => included(cwd, command, ['--method', 'PUT', endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])], endpoint)
+export function ghApi(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHub {
+  return endpoint => included(port, cwd, ['--method', 'GET', endpoint], endpoint)
+}
+
+export function ghApiPut(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut {
+  return (endpoint, fields) => included(port, cwd, ['--method', 'PUT', endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])], endpoint)
 }
