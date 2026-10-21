@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { factoryMode } from '../../bus/card-bodies.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { dryRunIn, keepDryRun } from '../../bus/dry-run-record.js'
@@ -215,7 +216,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(runRequest(['merge.now', '--pr', String(PR)], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(0)
     const request = Number(/window\.request (\d+)/.exec(lines[0]!)![1])
 
-    expect(made.requests().run()).toEqual([{ kind: 'owner', request, detail: `the window asked for "merge.now", not one of tree.cut, allow-merge, requeue; refused, the owner decides` }])
+    expect(made.requests().run()).toEqual([{ kind: 'owner', request, detail: `the window asked for "merge.now", not one of tree.cut, allow-merge, requeue, mode; refused, the owner decides` }])
     expect(answerOf(made, request).type).toBe(REQUEST_REFUSED)
     const inbox = ownerInbox(made.bench.db)
     expect(inbox).toHaveLength(1)
@@ -229,6 +230,17 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     const lines: string[] = []
     expect(runRequest(['allow-merge', '--pr', String(PR)], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(2)
     expect(made.requests().run()).toEqual([])
+  })
+
+  it('a mode request switches the factory mode once the bus answers it, and window is the mode before any', () => {
+    const made = room()
+    const lines: string[] = []
+    expect(factoryMode(made.bench.db)).toBe('window')
+    expect(runRequest(['mode', '--set', 'parallel'], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(0)
+    expect(factoryMode(made.bench.db)).toBe('window')
+    expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'the factory mode is parallel' }])
+    expect(factoryMode(made.bench.db)).toBe('parallel')
+    expect(runRequest(['mode', '--set', 'fast'], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(2)
   })
 
   it('the worktrees holding a branch are read from git worktree list --porcelain', () => {

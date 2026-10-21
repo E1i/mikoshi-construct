@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_DB_VARIABLE } from '../../bus/db.js'
 import { approvalEvent, revokeEvent } from '../../ghosts/approval.js'
+import { ghostLines } from '../../ghosts/journal.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
@@ -33,6 +35,10 @@ function approvedPath(w: string): string {
   return path.join(w, 'handoff', 'brief-g2.approved-sha256')
 }
 
+function busPathOf(w: string): string {
+  return path.join(w, 'bus.db')
+}
+
 function journalPath(w: string): string {
   return path.join(w, 'handoff', 'ghosts.jsonl')
 }
@@ -58,7 +64,7 @@ function launch(w: string, answer: string, args: string[] = []): { status: numbe
   const result = spawnSync(process.execPath, [TSX_CLI, LAUNCH, '--tasks', path.join(w, 'tasks.json'), ...args], {
     input: `${answer}\n`,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}`, HOME: mkdtempSync(path.join(tmpdir(), 'ghosts-morse-home-')), CONSTRUCT_HANDOFF_DIR: path.join(w, 'handoff') },
+    env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}`, HOME: mkdtempSync(path.join(tmpdir(), 'ghosts-morse-home-')), CONSTRUCT_HANDOFF_DIR: path.join(w, 'handoff'), [BUS_DB_VARIABLE]: busPathOf(w) },
   })
   return { status: result.status, output: `${result.stdout}${result.stderr}` }
 }
@@ -162,15 +168,16 @@ describe('the launcher and a revocation', () => {
     expectOpened(output, status)
   })
 
-  it('launch --revoke records the revocation in the journal and opens nothing', () => {
+  it('launch --revoke records the revocation on the bus and opens nothing', () => {
     const w = world('new', 'ok')
     const sha256 = sha256Of(w)
     const before = readFileSync(journalPath(w), 'utf8')
     const { status, output } = launch(w, 'yes', ['--revoke', sha256, '--card', `#${CARD}`])
     expect(status).toBe(0)
-    expect(output).toContain(`card #${CARD}: approval ${sha256.slice(0, 7)} revoked in ${journalPath(w)}`)
+    expect(output).toContain(`card #${CARD}: approval ${sha256.slice(0, 7)} revoked on the bus`)
     expect(output).not.toContain('DECISION:')
-    const added = readFileSync(journalPath(w), 'utf8').slice(before.length).split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(readFileSync(journalPath(w), 'utf8')).toBe(before)
+    const added = ghostLines(busPathOf(w))
     expect(added).toHaveLength(1)
     expect(added[0]).toMatchObject({ event: 'revoke', sha256, card: CARD })
     expect(typeof added[0]!.ts).toBe('string')

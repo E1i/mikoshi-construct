@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SIGNAL_FIELDS } from '../../../src/ui/signal.js'
+import { BUS_DB_VARIABLE } from '../../bus/db.js'
+import { ghostLines } from '../../ghosts/journal.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
@@ -32,10 +33,10 @@ function launchOk(): { printed: string[], journal: Record<string, string>[] } {
   const result = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs'), LAUNCH, '--tasks', path.join(w, 'tasks.json')], {
     input: 'yes\n',
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}`, [BUS_DB_VARIABLE]: path.join(w, 'bus.db') },
   })
   expect(result.status).toBe(0)
-  const journal = readFileSync(path.join(w, 'handoff', 'ghosts.jsonl'), 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, string>)
+  const journal = ghostLines(path.join(w, 'bus.db')) as Record<string, string>[]
   return { printed: result.stdout.split('\n'), journal }
 }
 

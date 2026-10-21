@@ -17,7 +17,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { AnswerExecutor } from '../../bus/answer-executor.js'
 import { AnswerNode, answerNodeOf } from '../../bus/answer-worker.js'
-import { answerPrompt, tokensOf } from '../../bus/answerer.js'
+import { answerPrompt, claudeAnswerer, tokensOf } from '../../bus/answerer.js'
 import { DROPPED_LANE, MERGE_DONE } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED } from '../../bus/inbox.js'
@@ -319,6 +319,37 @@ describe('the answer node', () => {
     expect(outcome).toEqual({ kind: 'decided', taskKey: expect.any(String) as unknown, shard: 'ws-1', question: OWNER_QUESTION })
     expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([{ shard: 'ws-1', question: OWNER_QUESTION, ground: expect.stringContaining('partial isolation') as unknown, options: expect.any(Array) as unknown }])
     expect(eventsOf(made.db, CARD_STOPPED).map(each => each.reason)).toEqual(['question.agent'])
+  })
+
+  it('a refused owner question stops the card as a question', async () => {
+    const refusals: Record<string, (owner: string) => object> = {
+      write: owner => ({ result: 'the owner file was refused', permission_denials: [{ tool_name: 'Write', tool_use_id: 't1', tool_input: { file_path: owner, content: `${OWNER_QUESTION}\n` } }] }),
+      bash: owner => ({ result: OWNER_QUESTION, permission_denials: [{ tool_name: 'Bash', tool_use_id: 't1', tool_input: { command: `echo question > ${owner}` } }] }),
+    }
+    for (const [tool, refusal] of Object.entries(refusals)) {
+      const made = bench()
+      const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+      const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+      const published: string[] = []
+      const answers = path.join(trees, 'answers')
+      const answerer = claudeAnswerer(answers, {
+        cardText: () => null,
+        available: () => true,
+        remoteHead: () => sha('a'),
+        spawn: async (run) => {
+          const owner = run.stdoutPath.replace(/\.out\.jsonl$/, '.owner.txt')
+          writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', ...refusal(owner) })}\n`)
+          return 0
+        },
+        newSession: () => 'new-session-1',
+        publish: card => published.push(card.branch),
+      })
+      const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+
+      expect(await executor.answer(lease()), tool).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: OWNER_QUESTION })
+      expect(eventsOf(made.db, CARD_STOPPED).map(each => each.reason), tool).toEqual(['question.agent', 'question.owner'])
+      expect(published, tool).toEqual([])
+    }
   })
 
   it('card.answered carries the minutes and tokens of the answer session', async () => {

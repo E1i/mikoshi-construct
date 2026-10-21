@@ -1,5 +1,5 @@
 import type { BusEvent } from '../../bus/db.js'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -8,6 +8,7 @@ import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { cardIdOfDescription } from '../../bus/identifiers.js'
 import { reduce } from '../../bus/reducer.js'
 import { REJECTED } from '../../bus/rejection.js'
+import { ghostLines } from '../../ghosts/journal.js'
 import { recordFall } from '../../ghosts/supervise.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -313,7 +314,6 @@ describe('the card automaton', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-ladder-fall-'))
     roots.push(root)
     const file = path.join(root, 'bus.db')
-    const journal = path.join(root, 'ghosts.jsonl')
     const before = openBus(file)
     appendEvent(before, admitted(890))
     appendEvent(before, started(890))
@@ -321,7 +321,7 @@ describe('the card automaton', () => {
     const isolated = process.env[BUS_DB_VARIABLE]
     process.env[BUS_DB_VARIABLE] = file
     try {
-      await recordFall(journal, 890, 'ladder-not-done', 's890')
+      recordFall(890, 'ladder-not-done', 's890')
     }
     finally {
       process.env[BUS_DB_VARIABLE] = isolated
@@ -331,7 +331,7 @@ describe('the card automaton', () => {
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[890, 'fallen']])
     expect(db.prepare(`SELECT actor, json_extract(payload, '$.kind') AS kind FROM events WHERE type = 'card.fell'`).all()).toEqual([{ actor: 'worker:ladder:s890', kind: 'ladder-not-done' }])
     expect(rejections(db)).toEqual([])
-    expect(JSON.parse(readFileSync(journal, 'utf8'))).toMatchObject({ event: 'fall', card: 890, kind: 'ladder-not-done' })
+    expect(ghostLines(file)).toMatchObject([{ event: 'fall', card: 890, kind: 'ladder-not-done' }])
     db.close()
   })
 
@@ -339,6 +339,15 @@ describe('the card automaton', () => {
     const db = busWith(admitted(916), started(916), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 916, payload: { lane: 'dropped' } }))
     reduce(db)
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[916, 'dropped']])
+    expect(rejections(db)).toEqual([])
+    db.close()
+  })
+
+  it('card.dropped moves the automaton to dropped from a started card, a queued card and a card the bus never admitted, and leaves a merged card merged', () => {
+    const dropped = (cardId: number): BusEvent => event('card.dropped', { actor: 'worker:intake:by-hand', cardId, payload: { lane: 'dropped' } })
+    const db = busWith(admitted(930), started(930), dropped(930), admitted(931), dropped(931), dropped(932), admitted(933), event('merge.done', { actor: 'worker:merge:s1', cardId: 933, pr: 933, payload: {} }), dropped(933))
+    reduce(db)
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[930, 'dropped'], [931, 'dropped'], [932, 'dropped'], [933, 'merged']])
     expect(rejections(db)).toEqual([])
     db.close()
   })

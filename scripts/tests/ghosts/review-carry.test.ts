@@ -5,8 +5,10 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { ghostLines } from '../../ghosts/journal.js'
 import { reviewCarry } from '../../ghosts/review-carry.js'
 import { checkVerdict, recordVerdict, REVIEW_CARRY_EVENT } from '../../ghosts/verdict.js'
+import { ownBusPerTest } from './own-bus.js'
 
 const IMPLEMENT = '/implement the contour contracts (t)'
 const REPORT = '[review:t]\nThe witnesses ran.\n'
@@ -121,7 +123,7 @@ function sha256(text: string | Buffer): string {
   return createHash('sha256').update(text).digest('hex')
 }
 
-function handoff(world: PullRequest): { dir: string, verdict: string, journal: string } {
+function handoff(world: PullRequest): { dir: string, verdict: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-review-carry-handoff-'))
   writeFileSync(path.join(dir, 'brief-t.md'), `# Brief\n\n${IMPLEMENT}\n`)
   writeFileSync(path.join(dir, 'brief-t.approved-sha256'), `sha256: ${sha256(IMPLEMENT)}\n`)
@@ -129,30 +131,28 @@ function handoff(world: PullRequest): { dir: string, verdict: string, journal: s
   const verdict = path.join(dir, 'review-t.verdict.json')
   const tree = git(world.repo, 'rev-parse', `${world.reviewed}^{tree}`)
   writeFileSync(verdict, `${JSON.stringify({ task: 't', verdict: 'pass', head: world.reviewed, tree, brief: { path: 'brief-t.md', sha256: sha256(IMPLEMENT) }, report: { path: 'review-t.md', sha256: sha256(REPORT) } }, null, 2)}\n`)
-  return { dir, verdict, journal: path.join(dir, 'ghosts.jsonl') }
-}
-
-function journalLines(journal: string): Record<string, unknown>[] {
-  return readFileSync(journal, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>)
+  return { dir, verdict }
 }
 
 describe('ghosts:verdict on the head an update-branch left', () => {
+  const busOf = ownBusPerTest()
+
   it('writes a review-carry line from the reviewed commit to the new head when a review line for the same verdict file stands', async () => {
     const world = reviewedPullRequest()
-    const { dir, verdict, journal } = handoff(world)
+    const { dir, verdict } = handoff(world)
     expect((await recordVerdict(verdict, dir, { commit: world.reviewed, repo: world.repo, main: 'main' })).ok).toBe(true)
     mainMoves(world, { 'other.txt': 'main moved\n' })
     const merged = updateBranch(world)
     const result = await recordVerdict(verdict, dir, { commit: merged, repo: world.repo, main: 'main' })
     expect(result.ok).toBe(true)
-    const lines = journalLines(journal)
+    const lines = ghostLines(busOf())
     expect(lines.map(line => line.event)).toEqual(['review', REVIEW_CARRY_EVENT])
     expect(lines[1]).toEqual({ event: REVIEW_CARRY_EVENT, ts: expect.any(String), task: 't', verdict: 'pass', from: world.reviewed, to: merged, tree: lines[0]!.tree, ownCommits: 1, merges: [merged], file: lines[0]!.file })
   })
 
   it('refuses a carry that fails with the tree reason and the carry reason both, and writes nothing', async () => {
     const world = reviewedPullRequest()
-    const { dir, verdict, journal } = handoff(world)
+    const { dir, verdict } = handoff(world)
     await recordVerdict(verdict, dir, { commit: world.reviewed, repo: world.repo, main: 'main' })
     mainMoves(world, { 'other.txt': 'main moved\n' })
     updateBranch(world)
@@ -163,7 +163,7 @@ describe('ghosts:verdict on the head an update-branch left', () => {
     expect(reasons).toHaveLength(2)
     expect(reasons[0]).toMatch(/^verdict tree [0-9a-f]{40} is not the tree of [0-9a-f]{40}/)
     expect(reasons[1]).toContain(`the review of ${world.reviewed.slice(0, 7)} does not carry to ${after.slice(0, 7)}`)
-    expect(journalLines(journal).map(line => line.event)).toEqual(['review'])
+    expect(ghostLines(busOf()).map(line => line.event)).toEqual(['review'])
   })
 
   it('keeps the plain tree refusal when no review line for this verdict file stands', () => {
@@ -177,7 +177,7 @@ describe('ghosts:verdict on the head an update-branch left', () => {
 
   it('carries nothing when another check of the verdict fails, and names that fault beside the tree', async () => {
     const world = reviewedPullRequest()
-    const { dir, verdict, journal } = handoff(world)
+    const { dir, verdict } = handoff(world)
     await recordVerdict(verdict, dir, { commit: world.reviewed, repo: world.repo, main: 'main' })
     writeFileSync(path.join(dir, 'review-t.md'), `${REPORT}Edited after the verdict.\n`)
     mainMoves(world, { 'other.txt': 'main moved\n' })
@@ -187,7 +187,7 @@ describe('ghosts:verdict on the head an update-branch left', () => {
     expect(reasons).toHaveLength(2)
     expect(reasons[0]).toMatch(/^verdict tree [0-9a-f]{40} is not the tree of /)
     expect(reasons[1]).toContain('review-t.md')
-    expect(journalLines(journal).map(line => line.event)).toEqual(['review'])
+    expect(ghostLines(busOf()).map(line => line.event)).toEqual(['review'])
   })
 
   it('keeps the plain tree refusal when the review line stands for another verdict file of the same task and tree', async () => {

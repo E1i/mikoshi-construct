@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runCommand } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cardBodyText } from '../scripts/bus/card-bodies.js'
+import { cardBodyText, WINDOW_LANE } from '../scripts/bus/card-bodies.js'
 import { BUS_DB_VARIABLE, openBus } from '../scripts/bus/db.js'
 import { busCardAdmissions, busCardEvents } from '../scripts/bus/intake.js'
 import { reduce } from '../scripts/bus/reducer.js'
@@ -677,8 +677,8 @@ describe('construct intake --admit and package.json', () => {
     const file = park(w, 80, CLEAN, 'package.json, src/board/**')
     expect(admit(w, file).status).toBe('admitted')
     const text = readFileSync(file, 'utf8')
-    expect(text).toContain('touches: package.json, src/board/**, tests/harness-membership.test.ts, CONTRIBUTING.md\n')
-    expect(text).toContain('corrected: touches — (absent) → tests/harness-membership.test.ts — a test that imports a touched file')
+    expect(text).toContain('touches: package.json, src/board/**, CONTRIBUTING.md, tests/harness-membership.test.ts\n')
+    expect(text).toContain('corrected: touches — (absent) → tests/harness-membership.test.ts — every change of this kind carries it')
     expect(text).toContain('corrected: touches — (absent) → CONTRIBUTING.md')
     expect(text).not.toContain('unclear:')
     expect(journalLines(w).at(-1)).toMatchObject({ confirmation: 'none' })
@@ -791,7 +791,7 @@ describe('construct intake --admit across the lanes of the parking', () => {
       }
     })()
     expect(result).toMatchObject({ status: 'written', cards: [{ file: path.join('lane-01', '2.md') }, { file: path.join('lane-02', '3.md') }, { file: path.join('lane-01', '4.md') }] })
-    expect(admittedPayloads(w).map(payload => payload.lane)).toEqual(['lane-01', 'lane-02', 'lane-01'])
+    expect(admittedPayloads(w).map(payload => payload.lane)).toEqual([WINDOW_LANE, WINDOW_LANE, WINDOW_LANE])
     expect(existsSync(path.join(w.parking, '2.md'))).toBe(false)
     expect(JSON.parse(readFileSync(path.join(w.parking, 'lane-02', 'lane.json'), 'utf8'))).toMatchObject({ touches: ['src/atlas/map.ts', '.changeset/**'], createdBy: 'intake', status: 'open' })
   })

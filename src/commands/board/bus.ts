@@ -236,7 +236,7 @@ function slotsInUse(db: BusDb): BusSlot[] {
   return db.prepare(`SELECT queue, count(*) AS used FROM tasks WHERE state = 'leased' GROUP BY queue ORDER BY queue`).all() as unknown as BusSlot[]
 }
 
-function factsOf(db: BusDb, now: Date): BusFacts {
+export function busFacts(db: BusDb, now: Date): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
   return {
@@ -256,7 +256,7 @@ export function busReaderAt(file: string, clock: () => Date = () => new Date()):
     if (!existsSync(file))
       return { status: 'absent', file }
     try {
-      return { status: 'read', file, facts: withReadOnlyBus(file, db => factsOf(db, clock())) }
+      return { status: 'read', file, facts: withReadOnlyBus(file, db => busFacts(db, clock())) }
     }
     catch (error) {
       return { status: 'unreadable', file, reason: error instanceof Error ? error.message : String(error) }

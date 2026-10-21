@@ -1,6 +1,7 @@
 import type { Kind } from '../../card/grammar.js'
 import type { DraftCard, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
+import { runsLine } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry } from '../../card/parking.js'
 import { CHANGESET_COMPANION, RISK_LEVELS, riskOf } from '../../card/risk.js'
@@ -62,7 +63,7 @@ export const COMPANION_TABLE: readonly CompanionRow[] = [
 ]
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
 const MAX_LISTED_TESTS_PER_DIRECTORY = 6
-export const COVERING_REASON = 'a test that imports a touched file, directly or through other modules, follows the touches: the rule in src/card/covering-tests.ts'
+export { COVERING_REASON } from '../../card/covering-tests.js'
 
 export interface Correction {
   field: string
@@ -273,14 +274,14 @@ function covers(touch: string, companion: string): boolean {
   return touch === companion || (touch.endsWith(PREFIX_SUFFIX) && under(companion, scopeOf(touch)))
 }
 
-function withCompanions<T extends Touched>(touched: T, repository: RepositoryFacts, published: readonly string[]): T {
+function withCompanions<T extends Touched>(touched: T, runs: readonly string[], repository: RepositoryFacts, published: readonly string[]): T {
   const missing: string[] = []
   for (const row of COMPANION_TABLE) {
     if (!repository.exists(row.keptBy))
       continue
     for (const entry of touched.touches.filter(touch => row.touched(touch, published))) {
       const touches = [...touched.touches, ...missing]
-      for (const companion of row.companions(entry, touches, repository)) {
+      for (const companion of row.companions(entry, [...touches, ...runs], repository)) {
         if (repository.exists(scopeOf(companion)) && !touches.some(touch => covers(touch, companion)))
           missing.push(companion)
       }
@@ -304,17 +305,12 @@ function listedCovering(tests: readonly string[]): string[] {
   return [...byDirectory].flatMap(([directory, members]) => members.length > MAX_LISTED_TESTS_PER_DIRECTORY ? [`${directory}${PREFIX_SUFFIX}`] : members)
 }
 
-function withCoveringTests(touched: Touched, repository: RepositoryFacts): Touched & { covering: string[] } {
-  const tests = repository.testsCovering(touched.touches)
-  const listed = listedCovering(tests.filter(test => !touched.touches.some(touch => covers(touch, test))))
-  const covering = [...new Set([...tests, ...listed])]
-  const missing = listed
-  return {
-    ...touched,
-    touches: [...touched.touches, ...missing],
-    corrections: [...touched.corrections, ...missing.map(test => ({ field: 'touches', was: '(absent)', now: test, reason: COVERING_REASON }))],
-    covering,
-  }
+function coveringRuns(touches: readonly string[], repository: RepositoryFacts): string[] {
+  return listedCovering(repository.testsCovering(touches).filter(test => !touches.some(touch => covers(touch, test))))
+}
+
+function withRuns(task: string, runs: readonly string[]): string {
+  return runs.length === 0 ? task : `${task.trimEnd()}\n\n${runsLine(runs)}`
 }
 
 interface Linked {
@@ -373,7 +369,10 @@ function byFieldOrder(corrections: Correction[]): Correction[] {
 }
 
 function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): CheckedCard {
-  const touched = withCompanions(withCoveringTests(touchesChecked(card, facts.repository), facts.repository), facts.repository, facts.published ?? [])
+  const checked = touchesChecked(card, facts.repository)
+  const covering = coveringRuns(checked.touches, facts.repository)
+  const touched = withCompanions(checked, covering, facts.repository, facts.published ?? [])
+  const runs = covering.filter(test => !touched.touches.some(touch => covers(touch, test)))
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)
@@ -382,8 +381,9 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
     ...card,
     contour: contour[0]?.now ?? card.contour,
     decision: decision[0]?.now ?? card.decision ?? unstatedDecision(card, touched.touches, facts.ownerMerges),
+    task: withRuns(card.task, runs),
     touches: touched.touches,
-    covering: touched.covering.filter(test => touched.touches.includes(test)),
+    covering: runs,
     depends: depends.kept,
     blocks: blocks.kept,
     unclear: [

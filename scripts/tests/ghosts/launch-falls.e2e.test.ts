@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_DB_VARIABLE } from '../../bus/db.js'
+import { ghostLines } from '../../ghosts/journal.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
@@ -33,16 +34,13 @@ function launch(w: string, args: string[] = []): { status: number | null, output
   const result = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs'), LAUNCH, '--tasks', path.join(w, 'tasks.json'), ...args], {
     input: 'yes\n',
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${path.join(w, 'bin')}:${process.env.PATH}`, [BUS_DB_VARIABLE]: path.join(w, 'bus.db') },
   })
   return { status: result.status, output: `${result.stdout}${result.stderr}` }
 }
 
 function journalOf(w: string): Record<string, unknown>[] {
-  const journalPath = path.join(w, 'handoff', 'ghosts.jsonl')
-  if (!existsSync(journalPath))
-    return []
-  return readFileSync(journalPath, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event !== 'path')
+  return ghostLines(path.join(w, 'bus.db'))
 }
 
 function recordTwoFalls(w: string): void {

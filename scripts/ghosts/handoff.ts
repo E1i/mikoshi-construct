@@ -17,6 +17,7 @@ import { readModelMismatches } from '../core/roles.js'
 import { callsBrowserWitness } from '../core/verification.js'
 import { readWindow } from '../core/window.js'
 import { entryOf, startedEntryOf } from './entry.js'
+import { journalText } from './journal.js'
 import { lookupMatrixRow } from './matrix.js'
 import { ghostRowState } from './status.js'
 import { cardStartedLines, readTasksFile } from './tasks.js'
@@ -133,9 +134,7 @@ function reviewLineFaults(line: unknown): string[] {
 }
 
 function readJournal(journalPath: string, warnings: string[]): { lines: JournalLine[], text: string } {
-  if (!existsSync(journalPath))
-    return { lines: [], text: '' }
-  const text = readFileSync(journalPath, 'utf8')
+  const text = journalText(journalPath)
   const lines = text.split('\n').filter(line => line !== '').flatMap((line, index): JournalLine[] => {
     let parsed: JournalLine
     try {
@@ -253,7 +252,7 @@ function handoffFileOf(dir: string, id: string): string | undefined {
 export function readHandoff(dir: string, repoRoot?: string, busPath = defaultBusPath()): Handoff {
   const warnings: string[] = []
   const journalPath = path.join(dir, 'ghosts.jsonl')
-  const { lines: journal, text: journalText } = readJournal(journalPath, warnings)
+  const { lines: journal, text: journalBody } = readJournal(journalPath, warnings)
   const starts = cardStartedLines(busPath) as unknown as PathEvent[]
   const tasksFiles = readTasksFiles(dir, warnings)
   const statusPath = path.join(dir, 'status.md')
@@ -318,7 +317,7 @@ export function readHandoff(dir: string, repoRoot?: string, busPath = defaultBus
       handoffFile: handoffFileOf(dir, ghost) ?? handoffFileOf(dir, id),
       supersededEvent: journal.filter((line): line is SupersededEvent => line.event === 'superseded' && line.task === ghost).at(-1),
       stopEvent: standingStop(id),
-      entryLine: (facts.ghost === undefined ? undefined : entryOf(journalText, facts.ghost)) ?? startedEntryOf(starts, id) ?? entryOf(journalText, id),
+      entryLine: (facts.ghost === undefined ? undefined : entryOf(journalBody, facts.ghost)) ?? startedEntryOf(starts, id) ?? entryOf(journalBody, id),
       journalPath,
     }
   })
