@@ -1,9 +1,10 @@
-import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
+import type { BusSeed, SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { BoardFiles } from '../../bus/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
@@ -11,10 +12,10 @@ import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, writeBoardPage } from '../../bus/board-page.js'
+import { DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
 import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
 import { defaultBusPath } from '../../bus/db.js'
-import { SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const roots: string[] = []
 
@@ -52,6 +53,122 @@ describe('writeBoardPage', () => {
   })
 })
 
+type Listener = (event: FakeEvent) => void
+
+interface FakeEvent {
+  target?: FakeElement
+  key?: string
+  preventDefault?: () => void
+}
+
+class FakeElement {
+  readonly dataset: Record<string, string> = {}
+  readonly listeners = new Map<string, Listener[]>()
+  innerHTML = ''
+  scrollTop = 0
+  open = false
+
+  constructor(readonly tagName: string, opens?: string) {
+    if (opens !== undefined)
+      this.dataset.open = opens
+  }
+
+  addEventListener(type: string, listener: Listener): void {
+    this.listeners.set(type, [...this.listeners.get(type) ?? [], listener])
+  }
+
+  dispatch(type: string, event: FakeEvent = {}): void {
+    for (const listener of this.listeners.get(type) ?? [])
+      listener({ target: this, ...event })
+  }
+
+  closest(selector: string): FakeElement | null {
+    return selector === '[data-open]' && this.dataset.open !== undefined ? this : null
+  }
+
+  showModal(): void {
+    this.open = true
+  }
+
+  close(): void {
+    if (!this.open)
+      return
+    this.open = false
+    this.dispatch('close')
+  }
+}
+
+class MemoryStorage {
+  readonly items = new Map<string, string>()
+
+  getItem(key: string): string | null {
+    return this.items.get(key) ?? null
+  }
+
+  setItem(key: string, value: string): void {
+    this.items.set(key, value)
+  }
+}
+
+const THROWING_STORAGE = 'throws'
+
+function templatesOf(html: string): Map<string, string> {
+  return new Map([...html.matchAll(/<template id="([^"]+)">([\s\S]*?)<\/template>/g)].map(match => [match[1]!, match[2]!]))
+}
+
+function openersOf(html: string): { tag: string, dialog: string }[] {
+  return [...html.matchAll(/<(\w+) [^>]*data-open="([^"]+)"/g)].map(match => ({ tag: match[1]!.toUpperCase(), dialog: match[2]! }))
+}
+
+function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STORAGE, hash = '') {
+  const templates = templatesOf(html)
+  const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]!))
+  const elements = new Map<string, FakeElement>()
+  const element = (id: string): FakeElement => {
+    const known = elements.get(id) ?? new FakeElement(id === 'drill' ? 'DIALOG' : 'DIV')
+    known.innerHTML = templates.get(id) ?? known.innerHTML
+    elements.set(id, known)
+    return known
+  }
+  const document = new FakeElement('DOCUMENT')
+  const page = new FakeElement('WINDOW')
+  let current = hash
+  const location = {
+    get hash() {
+      return current
+    },
+    set hash(next: string) {
+      current = next
+      page.dispatch('hashchange')
+    },
+  }
+  const context: Record<string, unknown> = {
+    document: Object.assign(document, { getElementById: (id: string) => ids.has(id) ? element(id) : null }),
+    location,
+    addEventListener: (type: string, listener: Listener) => page.addEventListener(type, listener),
+  }
+  if (storage === THROWING_STORAGE) {
+    Object.defineProperty(context, 'localStorage', {
+      get: () => {
+        throw new Error('SecurityError: localStorage is off')
+      },
+    })
+  }
+  else {
+    context.localStorage = storage
+  }
+  vm.runInNewContext(/<script>([\s\S]*?)<\/script>/.exec(html)![1]!, context)
+  return {
+    templates,
+    location,
+    dialog: element('drill'),
+    content: element('drill-content'),
+    scroller: element('backlog-scroll'),
+    click: (tag: string, dialog: string): void => document.dispatch('click', { target: new FakeElement(tag, dialog) }),
+    key: (key: string, target = new FakeElement('BODY')): void => document.dispatch('keydown', { key, target, preventDefault: () => {} }),
+  }
+}
+
 describe('board.html', () => {
   const NOW = new Date('2026-10-20T08:00:00.000Z')
 
@@ -59,13 +176,43 @@ describe('board.html', () => {
     return new Date(NOW.getTime() - minutes * 60_000).toISOString()
   }
 
+  const SECOND_CARD_TEXT = [
+    'card: #861 second [implement/netwatch/S/cheap/owner] · depends — · blocks —',
+    'branch: feat/second',
+    'touches: scripts/bus/board-page.ts',
+    'continue: stop',
+    'who: shift',
+    '',
+    'The second card follows #860 and runs `pnpm card` once.',
+    '',
+    'Witnesses:',
+    '- `pnpm exec vitest run scripts/tests/bus/board-page.test.ts` exits 0',
+    '',
+    'risk: R4 — low: tests close it',
+  ].join('\n')
+  const SECOND_CARD_SHA = 'c0ffee1181a5f00dbeef'
+
+  function busWithRecords(file: string, seed: BusSeed): string {
+    writeBus(file, seed)
+    const db = new DatabaseSync(file)
+    try {
+      db.exec('ALTER TABLE card_bodies ADD COLUMN admission_event_id INTEGER; ALTER TABLE card_bodies ADD COLUMN text_sha TEXT NOT NULL DEFAULT \'\'; ALTER TABLE decisions ADD COLUMN scope TEXT')
+      db.exec('UPDATE card_bodies SET admission_event_id = (SELECT event_id FROM cards WHERE cards.card_id = card_bodies.card_id)')
+      db.prepare('UPDATE card_bodies SET text_sha = ? WHERE card_id = 861').run(SECOND_CARD_SHA)
+    }
+    finally {
+      db.close()
+    }
+    return file
+  }
+
   function seededBus(heartbeats: SeedEvent[] = []): string {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-board-screens-'))
     roots.push(root)
-    return writeBus(path.join(root, 'bus.db'), {
+    return busWithRecords(path.join(root, 'bus.db'), {
       cards: [
-        { id: 860, state: 'queued', lane: 'lane-1', line: 'card: #860 first <task>', since: minutesAgo(30) },
-        { id: 861, state: 'running', lane: 'lane-1', line: '#861 second', since: minutesAgo(20) },
+        { id: 860, state: 'queued', lane: 'lane-1', line: 'card: #860 first <task>', since: minutesAgo(30), pr: 13 },
+        { id: 861, state: 'running', lane: 'lane-1', line: '#861 second', since: minutesAgo(20), text: SECOND_CARD_TEXT },
         { id: 862, state: 'in_review', lane: 'lane-2', line: null, since: minutesAgo(10), pr: 12 },
         { id: 863, state: 'merged', lane: null, line: '#863 done', since: minutesAgo(5) },
         { id: 864, state: 'merged', lane: 'lane-2', line: '#864 old-lease [implement/netwatch/M/cheap/owner] · depends #860 · blocks —', since: minutesAgo(1_200) },
@@ -73,13 +220,19 @@ describe('board.html', () => {
       verdicts: [[12, null]],
       tasks: [{ queue: 'review', card: 862, pr: 12, head: 'abcdef1234567', state: 'leased' }],
       roles: [{ role: 'operator', status: 'idle', state: 'awake' }],
+      decisions: [[216, 'Prerelease rights stay with the shard until #863 ships.']],
       events: [
         { ts: minutesAgo(1), type: 'netwatch.tick', card: null, payload: '{}' },
         subagent(minutesAgo(2), { role: 'implementer', task: '#861', session: 's1', tree: '/trees/mc-861', step: 'writing' }),
         checkMatrix(12, 'abcdef1234567', { killed: 3, survived: 1, notRun: 0 }),
+        { ts: minutesAgo(1), type: REVIEW_RECORDED, card: 861, payload: JSON.stringify({ verdict: 'changes' }) },
         ...heartbeats,
       ],
     })
+  }
+
+  function handoffBeside(busPath: string): string {
+    return path.join(path.dirname(busPath), 'miko.md')
   }
 
   function constructBoardLines(busPath: string): string[] {
@@ -95,12 +248,12 @@ describe('board.html', () => {
     let html = ''
     expect(printBoard(busPath, NOW, (text) => {
       html += text
-    })).toBe(0)
+    }, handoffBeside(busPath))).toBe(0)
     return html
   }
 
   function visibleText(html: string): string {
-    return html.replace(/<style>[\s\S]*?<\/style>/g, ' ').replace(/<title>[\s\S]*?<\/title>/g, ' ').replace(/<[^>]*>/g, ' ').replace(/&#39;|&quot;|&lt;|&gt;|&amp;/g, ' ')
+    return html.replace(/<style>[\s\S]*?<\/style>/g, ' ').replace(/<script>[\s\S]*?<\/script>/g, ' ').replace(/<title>[\s\S]*?<\/title>/g, ' ').replace(/<[^>]*>/g, ' ').replace(/&#39;|&quot;|&lt;|&gt;|&amp;/g, ' ')
   }
 
   function busNumbers(busPath: string): Set<number> {
@@ -146,7 +299,7 @@ describe('board.html', () => {
       expect(filterRule(state)).toContain(`tr[data-card]:not([data-state="${state}"])`)
     }
     expect(html).toContain('<a class="chip" href="#show-all">all</a>')
-    expect(html).toContain('<tr data-card="864" data-state="merged"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td>#860</td><td>—</td>')
+    expect(html).toContain('<tr data-card="864" data-state="merged" data-open="card-864" tabindex="0" aria-haspopup="dialog"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td>#860</td><td>—</td>')
   })
 
   it('every number on the page is in the bus or in eddies.json', () => {
@@ -243,7 +396,7 @@ describe('board.html', () => {
     const lines = constructBoardLines(busPath)
     const html = pageText(busPath)
     expect(lines).toContain('in work (1): #861')
-    expect(html).toContain('<span class="n">1</span><span class="name">in work</span><span class="ids">#861</span>')
+    expect(html).toContain('<span class="n">1</span><span class="name">in work</span><span class="ids"><button type="button" class="cid" data-open="card-861" tabindex="0" aria-haspopup="dialog">#861 ›</button></span>')
     for (const line of lines.slice(lines.indexOf('Services') + 1, -1))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
     const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
@@ -301,7 +454,7 @@ describe('board.html', () => {
   it('a bus pulse older than the threshold shows bus stale, not blinking', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-board-stale-'))
     roots.push(root)
-    const page = (minutes: number): string => pageText(writeBus(path.join(root, `bus-${minutes}.db`), { events: [{ ts: minutesAgo(minutes), type: 'netwatch.tick', card: null, payload: '{}' }] }))
+    const page = (minutes: number): string => pageText(busWithRecords(path.join(root, `bus-${minutes}.db`), { events: [{ ts: minutesAgo(minutes), type: 'netwatch.tick', card: null, payload: '{}' }] }))
     const fresh = page(FRESH_MS / 60_000)
     expect(fresh).toContain('<span class="live">bus live</span>')
     expect(fresh).toContain(`<b class="live">pulse ${FRESH_MS / 60_000} min</b>`)
@@ -313,7 +466,7 @@ describe('board.html', () => {
     const live = /\n\.live \{([\s\S]*?)\n\}/.exec(style)![1]!
     expect(live).toMatch(/&\[data-stale\] \{ --_fg: var\(--signal\); --_blink: none; \}/)
     expect(live).toMatch(/&::before \{[^}]*animation: var\(--_blink\)/)
-    expect(pageText(writeBus(path.join(root, 'silent.db'), {}))).toContain('<span class="live" data-stale>bus stale</span>')
+    expect(pageText(busWithRecords(path.join(root, 'silent.db'), {}))).toContain('<span class="live" data-stale>bus stale</span>')
   })
 
   it('the blink stops under prefers-reduced-motion', () => {
@@ -342,5 +495,139 @@ describe('board.html', () => {
     expect(html).toContain('bus · pulse · — · pulse 1 min ago · slots in use: review 1')
     expect(html).not.toContain('pid ')
     expect(html).not.toContain('<h2>Health</h2>')
+  })
+
+  const HANDOFF_TEXT = [
+    '## STOP — window, session 9',
+    'current card: #861',
+    'in-flight:',
+    '- #862 review',
+    '- #863 merged',
+    'owner waits: none',
+    '',
+    'The window waits for the review of #862.',
+    'STATUS: CONTINUE',
+  ].join('\n')
+
+  function pageWithHandoff(): { busPath: string, html: string } {
+    const busPath = seededBus()
+    writeFileSync(handoffBeside(busPath), HANDOFF_TEXT)
+    return { busPath, html: pageText(busPath) }
+  }
+
+  it('every clickable element opens its own dialog', () => {
+    const { html } = pageWithHandoff()
+    const board = boardWindow(html, new MemoryStorage())
+    const openers = openersOf(html)
+    const rows = [...html.matchAll(/<tr data-card="(\d+)"[^>]*>/g)]
+    expect(rows.length).toBeGreaterThan(1)
+    for (const row of rows)
+      expect(row[0]).toContain(`data-open="card-${row[1]}"`)
+    expect(sectionOf(html, '<div class="flow">', '</section>')).toContain('data-open="card-861"')
+    expect(html).toMatch(/<div class="svc" data-role="implementer" data-open="card-861"/)
+    expect(html).toMatch(/<div class="svc" data-role="window" data-open="handoff"/)
+    const statusline = sectionOf(html, '<footer class="statusline">', '</footer>')
+    expect(statusline).toContain('data-open="handoff"')
+    expect(statusline).toContain('data-open="decisions"')
+    expect(new Set(openers.map(opener => opener.dialog))).toEqual(new Set([...board.templates.keys()].map(id => id.replace(/^dialog-/, ''))))
+    for (const opener of openers) {
+      board.click(opener.tag, opener.dialog)
+      expect(board.dialog.open, opener.dialog).toBe(true)
+      expect(board.content.innerHTML).toBe(board.templates.get(`dialog-${opener.dialog}`))
+      expect(board.content.innerHTML).toContain(`<span class="drill-kind">${opener.dialog.replace(/-\d+$/, '')}</span>`)
+      board.dialog.close()
+    }
+    for (const [key, dialog] of [['H', 'handoff'], ['d', 'decisions']] as const) {
+      board.key(key)
+      expect(board.content.innerHTML).toBe(board.templates.get(`dialog-${dialog}`))
+      board.dialog.close()
+    }
+    board.key('Enter', new FakeElement('TR', 'card-860'))
+    expect(board.content.innerHTML).toBe(board.templates.get('dialog-card-860'))
+    const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    expect([...style.matchAll(/cursor: pointer/g)]).toHaveLength(1)
+    expect(style).toMatch(/\[data-open\], \[data-link\], \.drill-close \{\n {2}cursor: pointer;\n {2}color: var\(--wire\);[\s\S]*?&:focus-visible \{ outline: 2px solid var\(--amber\)/)
+    expect(style).not.toMatch(/\.svc-target \{[^}]*color/)
+  })
+
+  it('a card dialog carries the punch card, the prose, the matrix and the chain from the bus', () => {
+    const { busPath, html } = pageWithHandoff()
+    const templates = templatesOf(html)
+    const second = templates.get('dialog-card-861')!
+    expect(second.indexOf('class="punch"')).toBeLessThan(second.indexOf('>prose<'))
+    expect(second.indexOf('>prose<')).toBeLessThan(second.indexOf('>matrix<'))
+    expect(second.indexOf('>matrix<')).toBeLessThan(second.indexOf('>chain<'))
+    expect(second).toContain('<span class="pf-k">branch</span><span class="pf-v">feat/second</span>')
+    expect(second).toContain(`<span class="pf-k">text_sha</span><span class="pf-v">${SECOND_CARD_SHA}</span>`)
+    expect(second).toContain('<p>The second card follows <button type="button" class="cid" data-open="card-860" tabindex="0" aria-haspopup="dialog">#860 ›</button> and runs <code>pnpm card</code> once.</p>')
+    expect(second).toContain('<h3>Witnesses</h3><ul><li><code>pnpm exec vitest run scripts/tests/bus/board-page.test.ts</code> exits 0</li></ul>')
+    expect(second).toContain('No pull request for this card in the bus yet.')
+    const db = new DatabaseSync(busPath, { readOnly: true })
+    const ids = db.prepare('SELECT id, type FROM events WHERE card_id = 861 ORDER BY id').all() as { id: number, type: string }[]
+    db.close()
+    const admitted = ids.find(row => row.type === 'card.state')!.id
+    const reviewed = ids.find(row => row.type === REVIEW_RECORDED)!.id
+    expect(second).toContain(`<li><span class="when">event ${admitted}</span><span class="dot"></span><span class="ev">card text admitted</span></li><li><span class="when">event ${reviewed}</span><span class="dot"></span><span class="ev">review recorded · changes</span></li>`)
+    expect(second).toContain('<code>pnpm card 861 --chain</code>')
+    const reviewedCard = templates.get('dialog-card-862')!
+    expect(reviewedCard).toContain('<tr><th scope="row">killed</th><td>3</td></tr><tr><th scope="row">survived</th><td>1</td></tr>')
+    expect(reviewedCard).toContain('risk matrix')
+    const first = templates.get('dialog-card-860')!
+    expect(first).toContain(`The bus holds no check matrix for <a data-link href="${readRepositoryUrl()}/pull/13">PR #13 ›</a>.`)
+    expect(first).not.toContain('risk matrix')
+  })
+
+  it('the handoff and decisions dialogs carry miko.md and the decisions in force', () => {
+    const { html } = pageWithHandoff()
+    const templates = templatesOf(html)
+    const handoff = templates.get('dialog-handoff')!
+    expect(handoff).toContain('<span class="pf-k">current card</span><span class="pf-v"><button type="button" class="cid" data-open="card-861"')
+    expect(handoff).toContain('<div class="pf" data-wide><span class="pf-k">in-flight</span>')
+    expect(handoff).toContain('<span class="st">CONTINUE</span>')
+    expect(handoff).toContain('<p>## STOP — window, session 9</p><p>The window waits for the review of <button type="button" class="cid" data-open="card-862"')
+    const decisions = templates.get('dialog-decisions')!
+    expect(decisions).toContain('<div><b>D-216</b><span>Prerelease rights stay with the shard until <button type="button" class="cid" data-open="card-863"')
+  })
+
+  it('after a refresh the filter and the open dialog are restored', () => {
+    const { html } = pageWithHandoff()
+    const storage = new MemoryStorage()
+    const before = boardWindow(html, storage)
+    before.location.hash = '#show-queued'
+    before.scroller.scrollTop = 120
+    before.scroller.dispatch('scroll')
+    before.click('TR', 'card-862')
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-queued', scroll: 120, open: 'card-862' })
+    const after = boardWindow(html, storage)
+    expect(after.location.hash).toBe('#show-queued')
+    expect(after.scroller.scrollTop).toBe(120)
+    expect(after.dialog.open).toBe(true)
+    expect(after.content.innerHTML).toBe(after.templates.get('dialog-card-862'))
+    const kept = boardWindow(html, storage, '#show-merged')
+    expect(kept.location.hash).toBe('#show-merged')
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!).filter).toBe('#show-merged')
+  })
+
+  it('pressing Esc closes the dialog', () => {
+    const { html } = pageWithHandoff()
+    const storage = new MemoryStorage()
+    const board = boardWindow(html, storage)
+    board.click('BUTTON', 'decisions')
+    expect(board.dialog.open).toBe(true)
+    board.key('Escape')
+    expect(board.dialog.open).toBe(false)
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!).open).toBeNull()
+    expect(boardWindow(html, storage).dialog.open).toBe(false)
+  })
+
+  it('the page renders when localStorage throws', () => {
+    const { html } = pageWithHandoff()
+    expect(html).toContain('</html>')
+    const board = boardWindow(html, THROWING_STORAGE)
+    board.click('TR', 'card-861')
+    expect(board.dialog.open).toBe(true)
+    expect(board.content.innerHTML).toBe(board.templates.get('dialog-card-861'))
+    board.key('Escape')
+    expect(board.dialog.open).toBe(false)
   })
 })
