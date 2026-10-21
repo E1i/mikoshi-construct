@@ -91,6 +91,11 @@ const IN_ARRIVAL_ORDER: LeaseOrder = { onePerCard: false, firstCards: [] }
 
 const PR_STATE_OF_QUEUE: Partial<Record<Queue, string>> = { close: 'merged' }
 
+const UPDATE_DERIVED_FOR_BEHIND = `
+  SELECT 1 FROM prs JOIN tasks ON tasks.pr = prs.pr AND tasks.head = prs.head
+  WHERE prs.pr = ? AND prs.head = ? AND prs.mergeable = 'behind' AND tasks.queue = 'update' AND tasks.state IN ('${QUEUED}', '${LEASED}')
+`
+
 const LAPSED = `SELECT * FROM tasks WHERE state = '${LEASED}' AND lease_until < ? ORDER BY id`
 
 const HELD_BY_KIND = `
@@ -151,7 +156,8 @@ function foldCompleted(db: DatabaseSync, event: StoredEvent): void {
 function foldFailed(db: DatabaseSync, event: StoredEvent): void {
   const { row, payload } = heldRow(db, event)
   const next = typeof payload.next === 'string' && NEXT_STATES.has(payload.next) ? payload.next : reject(`next is not one of ${[...NEXT_STATES].join(' | ')}`)
-  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, failures = failures + 1, event_id = ? WHERE task_key = ?').run(next, event.id, row.task_key)
+  const counted = payload.uncounted === true ? 0 : 1
+  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, failures = failures + ?, event_id = ? WHERE task_key = ?').run(next, counted, event.id, row.task_key)
 }
 
 function foldReleased(db: DatabaseSync, event: StoredEvent): void {
@@ -285,17 +291,24 @@ export function completeTask(db: DatabaseSync, ts: string, lease: Lease, outcome
   })
 }
 
-function afterFailure(row: LeaseRow, failure: Failure): AfterFailure {
+function waitsForTheHead(db: DatabaseSync, row: LeaseRow, failure: Failure): boolean {
+  if (failure.reason === 'stale_head')
+    return true
+  return failure.reason === 'not_mergeable' && row.pr !== null && db.prepare(UPDATE_DERIVED_FOR_BEHIND).get(row.pr, row.head) !== undefined
+}
+
+function afterFailure(row: LeaseRow, failure: Failure, uncounted: boolean): AfterFailure {
   if (failure.withdraw)
     return WITHDRAWN
-  return row.failures + 1 >= FAILURES_TO_STOP ? STOPPED : QUEUED
+  return !uncounted && row.failures + 1 >= FAILURES_TO_STOP ? STOPPED : QUEUED
 }
 
 function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: LeaseRow, failure: Failure, context: BusEvent[]): AfterFailure {
-  const next = afterFailure(row, failure)
+  const uncounted = waitsForTheHead(db, row, failure)
+  const next = afterFailure(row, failure, uncounted)
   for (const event of context)
     appendedOnCard(db, event)
-  folded(db, taskEvent(ts, type, actor, row, row.lease_gen, `${type}:${row.task_key}:${row.lease_gen}`, { reason: failure.reason, next }))
+  folded(db, taskEvent(ts, type, actor, row, row.lease_gen, `${type}:${row.task_key}:${row.lease_gen}`, { reason: failure.reason, next, ...(uncounted ? { uncounted } : {}) }))
   if (next === STOPPED) {
     const detail = `${FAILURES_TO_STOP} failures in a row on ${row.task_key}, the last: ${failure.reason}`
     appendedOnCard(db, { ts, type: CARD_STOPPED, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${CARD_STOPPED}:${row.task_key}`, payload: { reason: 'fault', detail }, legacy: false })

@@ -5,7 +5,8 @@ import { recordDecision } from '../../bus/decisions.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
-import { assertHeld, completeTask, expireLeases, LEASE_MS, leaseNext, StaleLease } from '../../bus/lease.js'
+import { assertHeld, completeTask, expireLeases, failTask, LEASE_MS, leaseNext, leaseQueued, StaleLease } from '../../bus/lease.js'
+import { FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, spendReviewRounds, taskState } from './merge-bench.js'
@@ -80,12 +81,34 @@ describe('the merge executor', () => {
     const outcome = bench.merge(bench.lease()!)
     expect(outcome).toMatchObject({ kind: 'denied', taskKey: merge(966), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
     expect(eventsOf(bench.db, 'policy.denied')).toMatchObject([{ command: 'merge', kind: 'technical', reason: 'stale_head' }])
-    expect(taskState(bench.db, merge(966))).toEqual({ state: 'queued', lease_gen: 1, failures: 1 })
+    expect(taskState(bench.db, merge(966))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
     expect(ownerInbox(bench.db)).toEqual([])
 
     bench.gitHub.mergeStatus = 200
     expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'merged', taskKey: merge(966) })
     expect(ownerInbox(bench.db)).toEqual([])
+    bench.close()
+  })
+
+  it('a behind or stale-head merge fault never stops the card', () => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: 982, review: 'success' })
+    bench.tick()
+    bench.gitHub.mergeStatus = 409
+    for (let attempt = 0; attempt <= FAILURES_TO_STOP; attempt += 1)
+      expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'stale_head' }, next: 'queued' })
+    expect(taskState(bench.db, merge(982))).toMatchObject({ state: 'queued', failures: 0 })
+
+    bench.gitHub.open({ number: 983, review: 'success', mergeable_state: 'behind' })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    queueTask(bench.db, ts, { queue: 'update', cardId: 1083, pr: 983, head: sha('a') })
+    queueTask(bench.db, ts, { queue: 'merge', cardId: 1083, pr: 983, head: sha('a') })
+    for (let attempt = 0; attempt <= FAILURES_TO_STOP; attempt += 1)
+      failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(983), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false })
+    expect(taskState(bench.db, merge(983))).toMatchObject({ state: 'queued', failures: 0 })
+    expect(eventsOf(bench.db, 'card.stopped')).toEqual([])
+    expect(eventsOf(bench.db, 'board.alarm')).toEqual([])
     bench.close()
   })
 

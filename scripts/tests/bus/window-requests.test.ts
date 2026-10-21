@@ -164,6 +164,22 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(made.requests().run()).toEqual([{ kind: 'refused', request: twice, detail: `D-187 already allows the merge of PR #${PR} at ${HEAD}` }])
   })
 
+  it('an allow-merge request takes the dry run of the previous head after one push and refuses one two pushes back', () => {
+    const made = roundLimitedWithD186()
+    const { bench } = made
+    keepDryRun(path.join(made.root, 'dry-run-reviews'))(DRY_RUN, { pr: PR, head: HEAD })
+    bench.gitHub.open({ number: PR, head: sha('b'), review: 'failure' })
+    bench.tick()
+
+    const onePush = ask(made, { kind: 'allow-merge', pr: PR, head: sha('b'), dry_run: DRY_RUN })
+    expect(made.requests().run()[0]).toMatchObject({ kind: 'done', request: onePush })
+
+    bench.gitHub.open({ number: PR, head: sha('c'), review: 'failure' })
+    bench.tick()
+    const twoPushes = ask(made, { kind: 'allow-merge', pr: PR, head: sha('c'), dry_run: DRY_RUN })
+    expect(made.requests().run()).toEqual([{ kind: 'refused', request: twoPushes, detail: `the dry run ${DRY_RUN} is not of PR #${PR} at ${sha('c')}` }])
+  })
+
   it('an allow-merge request is refused before the round limit or without D-186 in force', () => {
     const made = room(liveBench())
     made.bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })

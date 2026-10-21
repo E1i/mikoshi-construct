@@ -21,7 +21,7 @@ import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { BOARD_ALARM, FAILURES_TO_STOP, identityOf, queueTask, TASK_ENQUEUED, TASK_FOLDS, TASK_REQUEUED } from '../../bus/queue.js'
+import { BOARD_ALARM, FAILURES_TO_STOP, identityOf, keyOf, queueTask, TASK_ENQUEUED, TASK_FOLDS, TASK_REQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REJECTED } from '../../bus/rejection.js'
 import { SHARD_ISSUED } from '../../bus/shards.js'
@@ -1006,5 +1006,19 @@ describe('the answer worker', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     expect(await runAnswerWorker([], { busPath: '/nonexistent/bus.db', answerer: async () => ({ session: 's', resumed: true, before: null, after: null, owner: null }), ownerMerges: () => OWNER_MERGES, cardText: () => null, session: 'worker-1', pause: async () => {}, isolation: () => ({ level: 'none', why: 'switched off' }) })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
+  })
+})
+
+describe('the key of a task that carries a card body', () => {
+  const BODY = '0123abcd4567ef89'
+
+  it('keyOf refuses a card body on a queue that is not answer', () => {
+    expect(() => keyOf({ queue: 'review', cardId: 1114, pr: 1014, head: sha('a'), cardBody: BODY })).toThrow('only an answer task carries a card body sha')
+    expect(keyOf({ queue: 'answer', cardId: 1114, pr: 1014, head: sha('a'), cardBody: BODY })).toBe(`${answer(1114, 1014, sha('a'))}:card-body-${BODY}`)
+  })
+
+  it('keyOf refuses a malformed card body on an answer task', () => {
+    for (const cardBody of ['', 'xyz', 'ABCDEF0123456789', '0123abc'])
+      expect(() => keyOf({ queue: 'answer', cardId: 1114, pr: 1014, head: sha('a'), cardBody })).toThrow('only an answer task carries a card body sha')
   })
 })
