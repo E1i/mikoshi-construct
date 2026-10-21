@@ -17,10 +17,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COVERING_REASON, runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { DROPPED_CARD, DROPPED_LANE, STOPPED_CARD } from '../../bus/card-automaton.js'
 import { cardBodyText } from '../../bus/card-bodies.js'
-import { appendEvent } from '../../bus/db.js'
+import { appendEvent, BUS_DB_VARIABLE } from '../../bus/db.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
+import { busIntakePorts } from '../../bus/intake.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { gitChangedPaths, ShiftCardStarter } from '../../bus/launch-starter.js'
@@ -654,19 +656,15 @@ describe('the launch node', () => {
     made.tick()
   }
 
-  it('an amend after the start restarts the session with the new text', async () => {
-    const made = bench()
-    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-amend-'))
-    roots.push(root)
-    admitText(made, 1129, 'Do the first text.', 'first')
+  function amendableSession(made: MergeBench, root: string, cardId: number): { node: ProbedLaunchNode, spawned: DetachedSpawn[], live: Set<string> } {
     const spawned: DetachedSpawn[] = []
     const live = new Set<string>()
     let sessions = 0
-    const bodyOf = (cardId: number): string | null => cardBodyText(made.db, cardId)
+    const bodyOf = (id: number): string | null => cardBodyText(made.db, id)
     const real = realStarterPorts(root, {}, 'Shift task {{task}}\n\n', () => 'unused', bodyOf)
     const ports: StarterPorts = {
       ...real,
-      cut: () => '/trees/mc-1129',
+      cut: () => `/trees/mc-${cardId}`,
       base: () => 'b'.repeat(40),
       spawnDetached: (run) => {
         spawned.push(run)
@@ -686,6 +684,57 @@ describe('the launch node', () => {
     const starter = new ShiftCardStarter({ parking: path.join(root, 'parking'), launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
     const processes: ProcessTable = { commandLine: () => live.size === 0 ? null : `sh -c claude -p --session-id ${[...live].at(-1)}`, signalGroup: () => {} }
     const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, isolation: sandboxed })
+    return { node, spawned, live }
+  }
+
+  it('an amend of a running card writes card.waiting and the restart reads the new text', async () => {
+    const made = bench()
+    vi.stubEnv(BUS_DB_VARIABLE, made.busPath)
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-intake-amend-'))
+    roots.push(root)
+    const repo = path.join(root, 'repo')
+    mkdirSync(path.join(repo, 'docs'), { recursive: true })
+    writeFileSync(path.join(repo, 'docs', 'a.md'), '')
+    const lane = path.join(root, 'parking', 'lane-a')
+    mkdirSync(lane, { recursive: true })
+    const file = path.join(lane, '1191.md')
+    const parked = (body: string): string => parkingFileText({ card: '#1191 amended-card [implement/netwatch/S/cheap/auto] · depends — · blocks —', branch: 'feat/amended-card', touches: ['docs/a.md'], continue: 'auto', who: 'shift', body })
+    const admitted = (): string => {
+      const ports = busIntakePorts(made.db, 's1')
+      const result = runAdmit({ file, dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, parkingRoot: path.join(root, 'parking'), events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, made.clock.now)
+      made.tick()
+      return result.status === 'admitted' ? result.source : result.status
+    }
+    writeFileSync(file, parked('Do the first text.'))
+    expect(admitted()).toBe('admit')
+    const { node, spawned, live } = amendableSession(made, root, 1191)
+    await once(node)
+    made.tick()
+    expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 1191`).get()).toEqual({ state: 'running' })
+    expect(spawned.map(run => run.input)).toEqual([expect.stringContaining('Do the first text.')])
+
+    writeFileSync(file, parked('Do the amended text.'))
+    made.clock.advance(1000)
+    expect(admitted()).toBe('amend')
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_WAITING)).toMatchObject([{ reason: AMENDED_AFTER_START, session: 'sess-1' }])
+    expect(spawned).toHaveLength(1)
+
+    live.clear()
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, CARD_CONTINUED)).toMatchObject([{ session: 'sess-2', from: 'sess-1', continuation: 1 }])
+    expect(spawned[1]!.input).toContain(`${CARD_TEXT_HEADING}\n\n`)
+    expect(spawned[1]!.input).toContain('Do the amended text.')
+    expect(spawned[1]!.input).not.toContain('Do the first text.')
+  })
+
+  it('an amend after the start restarts the session with the new text', async () => {
+    const made = bench()
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-amend-'))
+    roots.push(root)
+    admitText(made, 1129, 'Do the first text.', 'first')
+    const { node, spawned, live } = amendableSession(made, root, 1129)
     await once(node)
     made.tick()
     expect(spawned.map(run => run.input)).toEqual([expect.stringContaining('Do the first text.')])

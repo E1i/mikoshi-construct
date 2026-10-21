@@ -4,8 +4,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { splitSignal } from '../src/card/complexity.js'
-import { WINDOW_WHO } from '../src/card/parking.js'
+import { parkingFileText, WINDOW_WHO } from '../src/card/parking.js'
 import { RISK_LEVELS, RISK_MEANING, RISK_PREFIX, riskOf, riskReading, SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
+import { runAdmit } from '../src/commands/intake/admit.js'
+import { OWNER_MERGES } from '../src/commands/intake/check.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -293,6 +295,34 @@ describe('a proposed risk seam waits for the confirmation token corrections wait
 
   it('a card with no risk seam is written without a token', () => {
     expect(intake(['templates/attach/earlier-carriers.json', 'tests/attach-carriers.test.ts']).status).toBe('written')
+  })
+})
+
+describe('the decision reads the touches and the creates of a card', () => {
+  function admitCreating(creates: readonly string[]) {
+    const root = mkdtempSync(path.join(tmpdir(), 'intake-risk-creates-'))
+    roots.push(root)
+    const repo = path.join(root, 'repo')
+    mkdirSync(path.join(repo, 'architecture'), { recursive: true })
+    mkdirSync(path.join(repo, 'docs'), { recursive: true })
+    writeFileSync(path.join(repo, 'docs', 'cli.md'), '')
+    writeFileSync(path.join(repo, OWNER_MERGES), '# Owner merges\n')
+    const parking = path.join(root, 'parking')
+    mkdirSync(parking, { recursive: true })
+    const file = path.join(parking, '601.md')
+    writeFileSync(file, parkingFileText({ card: '#601 new-attach-step [implement/netwatch/S/cheap/auto] · depends — · blocks —', branch: 'feat/new-attach-step', touches: ['docs/cli.md'], creates, continue: 'stop', who: 'shift', body: 'Add the step.' }))
+    return runAdmit({ file, dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: true, autoConfirm: true, parkingRoot: parking })
+  }
+
+  it('a new R1 file in creates makes the decision owner', () => {
+    const result = admitCreating(['src/commands/attach/step.ts'])
+    expect(result).toMatchObject({ status: 'dryRun', card: { line: expect.stringContaining('[implement/netwatch/S/cheap/owner]') as unknown } })
+    expect(result.status === 'dryRun' ? result.card.corrections : []).toEqual([{ field: 'decision', was: 'auto', now: 'owner', reason: expect.stringContaining('src/commands/attach/step.ts is risk R1') as unknown }])
+  })
+
+  it('a new file in creates below R1 leaves the decision auto', () => {
+    const result = admitCreating(['docs/step.md'])
+    expect(result).toMatchObject({ status: 'dryRun', card: { line: expect.stringContaining('[implement/netwatch/S/cheap/auto]') as unknown } })
   })
 })
 

@@ -4,7 +4,7 @@ import type { RepositoryFacts } from './facts.js'
 import { runsLine } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry } from '../../card/parking.js'
-import { CHANGESET_COMPANION, RISK_LEVELS, riskOf } from '../../card/risk.js'
+import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { globToRegExp } from '../../model/glob.js'
 import { commandWord } from './command-word.js'
@@ -376,11 +376,12 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)
-  const decision = decisionCorrection(card, touched.touches, facts.ownerMerges)
+  const decided = touchedOrCreated(touched.touches, createdPaths(card.creates))
+  const decision = decisionCorrection(card, decided, facts.ownerMerges)
   return {
     ...card,
     contour: contour[0]?.now ?? card.contour,
-    decision: decision[0]?.now ?? card.decision ?? unstatedDecision(card, touched.touches, facts.ownerMerges),
+    decision: decision[0]?.now ?? card.decision ?? unstatedDecision(card, decided, facts.ownerMerges),
     task: withRuns(card.task, runs),
     touches: touched.touches,
     covering: runs,

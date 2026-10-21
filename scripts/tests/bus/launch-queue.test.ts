@@ -240,6 +240,22 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  it('launch never starts two cards whose touches overlap', () => {
+    const bench = launchBench()
+    bench.admitTouching(1190, 'lane-a', ['src/card/risk.ts', 'tests/intake-risk.test.ts'])
+    bench.admitTouching(1191, 'lane-b', ['src/card/**'])
+    bench.admitTouching(1192, 'lane-c', ['src/commands/intake/check.ts'])
+    bench.tick()
+
+    expect(taskState(bench.db, launch(1190))).toMatchObject({ state: 'queued' })
+    expect(taskState(bench.db, launch(1191))).toBeUndefined()
+    expect(taskState(bench.db, launch(1192))).toMatchObject({ state: 'queued' })
+    bench.started(1190)
+    bench.tick()
+    expect(taskState(bench.db, launch(1191))).toBeUndefined()
+    bench.close()
+  })
+
   it('a dropped card that had started holds neither its lane nor its touches', () => {
     const bench = launchBench()
     bench.admitTouching(889, 'lane-a', ['scripts/bus/queue.ts', 'scripts/bus/answer-worker.ts'])

@@ -150,6 +150,10 @@ function isLow(entry: string): boolean {
   return LOW_ROOTS.some(root => under(scope, root)) || (!scope.includes('/') && scope.endsWith('.md'))
 }
 
+export function touchedOrCreated(touches: readonly string[], created: readonly string[]): string[] {
+  return [...touches, ...created.filter(entry => !touches.includes(entry))]
+}
+
 export function riskOf(touch: string): RiskOfTouch {
   const core = touch === CHANGESET_COMPANION ? undefined : CORE.find(([root]) => reaches(touch, root))
   if (core !== undefined)
