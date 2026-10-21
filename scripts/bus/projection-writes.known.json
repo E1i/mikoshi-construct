@@ -1,4 +1,1 @@
-[
-  { "file": "scripts/bus/chain.ts", "unit": "observeChain", "table": "chains", "operation": "insert" },
-  { "file": "scripts/bus/lease.ts", "unit": "appendedOnCard", "table": "cards", "operation": "insert" }
-]
+[]
