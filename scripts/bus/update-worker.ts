@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { StatusPublisher } from '../ghosts/verdict.js'
+import type { RerunMode } from './check-catalog.js'
 import type { GitHub, GitHubPut } from './github.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode, Scope } from './node.js'
@@ -13,6 +14,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { PR_OPENED } from './card-automaton.js'
+import { rerunModeOf } from './check-catalog.js'
 import { defaultBusPath } from './db.js'
 import { ghApi, ghApiPut } from './github.js'
 import { CARD_STOPPED, POLICY_DENIED } from './inbox.js'
@@ -58,10 +60,12 @@ function inScope(task: QueuedTask, scope: Scope): boolean {
 
 export class UpdateNode extends Node<UpdateStep> {
   private readonly executor: UpdateExecutor
+  private readonly rerun: RerunMode
 
   constructor(parts: UpdateNodeParts) {
     super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
-    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle })
+    this.rerun = rerunModeOf(parts.env)
+    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, rerun: this.rerun })
     this.subscribe(UPDATE_ON, event => this.detectOn(event, scopeOf(event)))
   }
 
@@ -71,11 +75,11 @@ export class UpdateNode extends Node<UpdateStep> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return updateCandidates(this.db, this.ts()).filter(task => inScope(task, scope))
+    return updateCandidates(this.db, this.ts(), this.rerun).filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return updateCandidates(this.db, ts)
+    return updateCandidates(this.db, ts, this.rerun)
   }
 
   protected handle(lease: Lease): UpdateStep {

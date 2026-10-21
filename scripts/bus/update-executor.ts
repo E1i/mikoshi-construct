@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ReviewStatus, StatusPublisher } from '../ghosts/verdict.js'
+import type { RerunMode } from './check-catalog.js'
 import type { BusEvent } from './db.js'
 import type { GitHub, GitHubPut } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
@@ -7,6 +8,7 @@ import type { TechnicalReason } from './record-verdict.js'
 import type { VerdictOnHead } from './snapshot.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
+import { rerunOf, upToDateRequired } from './check-catalog.js'
 import { messageOf } from './errors.js'
 import { pollHead } from './head-poll.js'
 import { POLICY_DENIED } from './inbox.js'
@@ -22,7 +24,9 @@ const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
 const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
 
-export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof NOT_MINE
+export const MERGES_WITHOUT_UPDATE = 'merges_without_update'
+
+export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE
 
 export interface UpdateDenial {
   kind: 'technical'
@@ -44,6 +48,7 @@ export interface UpdateParts {
   publish: StatusPublisher
   clock: () => Date
   settle: () => void
+  rerun?: RerunMode
 }
 
 export interface ManualUpdate {
@@ -79,7 +84,7 @@ export interface UpdatedHead {
 interface Pull {
   state?: string
   mergeable_state?: string
-  base?: { ref?: string }
+  base?: { ref?: string, sha?: string }
   head?: { sha?: string }
 }
 
@@ -90,7 +95,7 @@ interface Before {
 
 type Checked = { kind: 'ready', before: Before } | { kind: 'denied', denial: UpdateDenial }
 
-const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable'])
+const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable', MERGES_WITHOUT_UPDATE])
 
 function technical(reason: UpdateTechnicalReason, detail: string): UpdateDenial {
   return { kind: 'technical', reason, detail }
@@ -169,13 +174,32 @@ export class UpdateExecutor {
       const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
       if (mergeable === undefined)
         return { kind: 'denied', denial: technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}`) }
-      if (mergeable !== 'behind')
-        return { kind: 'denied', denial: technical('not_behind', `#${lease.pr} is ${mergeable}, not behind`) }
+      const refused = this.parts.rerun === 'by-layers' ? this.byLayers(meter, pull, lease, mergeable) : this.notBehind(lease, mergeable)
+      if (refused !== null)
+        return { kind: 'denied', denial: refused }
       return { kind: 'ready', before: { verdict: verdictOf(meter, lease.head!), files: diffOf(meter, lease.pr!) } }
     }
     catch (error) {
       return { kind: 'denied', denial: technical('github_error', messageOf(error)) }
     }
+  }
+
+  private notBehind(lease: Lease, mergeable: string): UpdateDenial | null {
+    return mergeable === 'behind' ? null : technical('not_behind', `#${lease.pr} is ${mergeable}, not behind`)
+  }
+
+  private byLayers(meter: Meter, pull: Pull, lease: Lease, mergeable: string): UpdateDenial | null {
+    if (mergeable !== 'clean')
+      return this.notBehind(lease, mergeable) ?? this.mergesWithoutUpdate(meter, pull, lease)
+    if (upToDateRequired(meter))
+      return technical('not_behind', `#${lease.pr} is clean on a host that requires an up-to-date branch, not behind`)
+    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha)
+    return rerun.rerun ? null : technical('not_behind', `#${lease.pr} is clean and needs no update: ${rerun.why}`)
+  }
+
+  private mergesWithoutUpdate(meter: Meter, pull: Pull, lease: Lease): UpdateDenial | null {
+    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha)
+    return rerun.rerun ? null : technical(MERGES_WITHOUT_UPDATE, `#${lease.pr} merges without an update: ${rerun.why}`)
   }
 
   private requested(lease: Lease): UpdateDenial | null {

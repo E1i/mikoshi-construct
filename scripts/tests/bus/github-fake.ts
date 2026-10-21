@@ -36,6 +36,7 @@ export interface FakePull {
   body?: string
   ref?: string
   base?: string
+  baseSha?: string
   title?: string
   files?: string[]
   patches?: Record<string, string>
@@ -50,6 +51,7 @@ export class FakeGitHub {
   pulls = new Map<number, FakePull>()
   main = MAIN_1
   mainFiles: Record<string, string[]> = {}
+  upToDateRequired = true
   limited: GhResponse | null = null
   failing = false
   calls: string[] = []
@@ -100,7 +102,7 @@ export class FakeGitHub {
       merged_at: pull.merger?.at ?? null,
       mergeable_state: this.blockedOnlyByTheReview(pull) && this.statuses.get(pull.head) === 'success' ? 'clean' : pull.mergeable_state,
       auto_merge: null,
-      base: { ref: pull.base ?? 'main' },
+      base: { ref: pull.base ?? 'main', sha: pull.baseSha ?? MAIN_1 },
       head: { sha: pull.head, ref: pull.ref ?? `feat/card-${pull.number + 100}` },
     }
   }
@@ -132,7 +134,7 @@ export class FakeGitHub {
     if (expected !== pull.head)
       return { status: 422, headers: {}, body: { message: 'expected head sha didn\'t match current head ref.' } }
     this.parents.set(this.updatedHead, [pull.head, this.main])
-    this.pulls.set(pull.number, { ...pull, head: this.updatedHead, mergeable_state: 'clean', review: undefined, patches: this.updatedPatches ?? pull.patches })
+    this.pulls.set(pull.number, { ...pull, head: this.updatedHead, baseSha: this.main, mergeable_state: 'clean', review: undefined, patches: this.updatedPatches ?? pull.patches })
     return { status: 202, headers: {}, body: { message: 'Updating pull request branch.' } }
   }
 
@@ -147,6 +149,8 @@ export class FakeGitHub {
       const listed = this.pulls.get(Number(files[1]))!
       return Number(files[2]) === 1 ? (listed.files ?? []).map(filename => ({ filename, status: 'modified', patch: listed.patches?.[filename] ?? `@@ -1 +1 @@ ${filename}` })) : []
     }
+    if (endpoint === `${REPO}/branches/main/protection`)
+      return { required_status_checks: { strict: this.upToDateRequired } }
     if (endpoint === `${REPO}/contents/architecture/owner-merges.md?ref=main`)
       return { content: Buffer.from(this.ownerMerges).toString('base64') }
     const checks = /\/commits\/([0-9a-f]{40})\/check-runs/.exec(endpoint)

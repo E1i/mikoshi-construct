@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { RerunMode } from './check-catalog.js'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
@@ -12,7 +13,7 @@ import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerQuestionAnswered } from './inbox.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerQuestionAnswered, POLICY_DENIED } from './inbox.js'
 import { CARD_ADMITTED, launchCandidates } from './launch-candidates.js'
 import { PR_CLOSED } from './observations.js'
 import { roundLimitDecisionOf } from './round-limit-decision.js'
@@ -152,11 +153,27 @@ export const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`,
 
 export const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`, `mergeable IN ('clean', 'blocked')`)
 
+export const MERGE_CANDIDATES_BEHIND = mergeCandidatesWhere(`verdict_on_head = 'pass'`, `mergeable = 'behind'`)
+
+export const NEEDS_UPDATE = 'needs_update'
+
 const GREEN_BEHIND_BY_CARD_PRIORITY = `
   SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
   LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
   WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'behind' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
     AND prs.ci = 'green'
+  ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
+`
+
+const GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE = `
+  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
+  LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
+  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'clean' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
+    AND prs.ci = 'green'
+    AND EXISTS (
+      SELECT 1 FROM events AS denied WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.pr = prs.pr AND denied.head = prs.head
+        AND json_extract(denied.payload, '$.command') = 'merge' AND json_extract(denied.payload, '$.reason') = '${NEEDS_UPDATE}'
+    )
   ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
 `
 
@@ -283,8 +300,9 @@ function candidateRows(db: DatabaseSync, query: string, admits: Admits): Candida
   return (db.prepare(query).all() as unknown as Candidate[]).filter(admits)
 }
 
-function mergeRows(db: DatabaseSync, ts: string): Candidate[] {
-  return [...candidateRows(db, MERGE_CANDIDATES, everyRow), ...candidateRows(db, MERGE_CANDIDATES_WITHOUT_PASS, decidedPastRoundLimit(db, ts))]
+function mergeRows(db: DatabaseSync, ts: string, rerun: RerunMode): Candidate[] {
+  const behind = rerun === 'by-layers' ? candidateRows(db, MERGE_CANDIDATES_BEHIND, everyRow) : []
+  return [...candidateRows(db, MERGE_CANDIDATES, everyRow), ...behind, ...candidateRows(db, MERGE_CANDIDATES_WITHOUT_PASS, decidedPastRoundLimit(db, ts))]
 }
 
 function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
@@ -464,8 +482,9 @@ export function reviewCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'review', candidateRows(db, REVIEW_CANDIDATES, everyRow))
 }
 
-export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  return openCandidates(db, ts, 'update', candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)).slice(0, 1))
+export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
+  const sent = rerun === 'by-layers' ? candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) : []
+  return openCandidates(db, ts, 'update', [...candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)), ...sent].slice(0, 1))
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
@@ -478,8 +497,8 @@ export function answerCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow)))
 }
 
-export function mergeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  return openCandidates(db, ts, 'merge', mergeRows(db, ts))
+export function mergeCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
+  return openCandidates(db, ts, 'merge', mergeRows(db, ts, rerun))
 }
 
 export function launchTasks(db: DatabaseSync): QueuedTask[] {
