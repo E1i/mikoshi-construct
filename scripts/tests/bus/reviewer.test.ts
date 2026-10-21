@@ -311,6 +311,11 @@ describe('reviewer', () => {
     expect(prepareEnv({ PATH: '/bin', HOME: '/home/w', GH_TOKEN: 'secret-token', ANTHROPIC_API_KEY: 'secret-key' })).toEqual({ PATH: '/bin', HOME: '/home/w' })
   })
 
+  it('the tree is prepared with the proxy variables and without the worker credentials', () => {
+    const proxies = { HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:2', NO_PROXY: 'localhost', https_proxy: 'http://127.0.0.1:3', http_proxy: 'http://127.0.0.1:4', no_proxy: '127.0.0.1' }
+    expect(prepareEnv({ PATH: '/bin', ...proxies, GH_TOKEN: 'secret-token', ANTHROPIC_API_KEY: 'secret-key' })).toEqual({ PATH: '/bin', ...proxies })
+  })
+
   it('the tree is prepared from the cache first and fetches a package the cache does not hold', () => {
     expect(PREPARE_TREE).toContain('--prefer-offline')
     expect(PREPARE_TREE).not.toContain('--offline')

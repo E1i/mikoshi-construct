@@ -88,7 +88,9 @@ export const REVIEW_BEAT_MS = 60_000
 
 export type SessionPulse = (lease: Lease, session: string) => void
 
-export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME']
+export const PROXY_ENV_KEYS = ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy']
+
+export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', ...PROXY_ENV_KEYS]
 
 export const HEAD_MOVED = 'HEAD'
 
