@@ -1,16 +1,31 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Shell } from '../ports/worktree.js'
+import type { Shell, ShellResult } from '../ports/worktree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { WitnessSubject, WitnessVerdict } from './policy.js'
+import { spawnSync } from 'node:child_process'
 import { WITNESS_RECORDED } from '../core/events.js'
+import { execGh, stdoutOrThrow } from '../core/gh.js'
+import { witnessEnv } from '../ports/session.js'
 import { gitIn, withWorktree } from '../ports/worktree.js'
-import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
+import { isFullSha } from './identifiers.js'
+import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from './lease.js'
 import { GREEN, RED, witnessSubjectOf } from './policy.js'
+import { baseOfKey, LEASE_MS } from './queue.js'
 import { runOnTree } from './witnesses.js'
 
 export const WITNESS_UNRUN = 'witness_unrun'
-const PR_BASE = 'origin/main'
+export const WITNESS_BUDGET_MS = LEASE_MS - RENEW_MS
+const SHELL_BUFFER = 1 << 28
+
+export interface TimedShellResult extends ShellResult { timedOut: boolean }
+export type TimedShell = (command: string, cwd: string, timeoutMs: number) => TimedShellResult
+
+export function realTimedShell(command: string, cwd: string, timeoutMs: number): TimedShellResult {
+  const result = spawnSync('bash', ['-c', command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER, timeout: timeoutMs, killSignal: 'SIGKILL' })
+  const timedOut = (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
+  return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}`, timedOut }
+}
 
 export interface WitnessTrees {
   baseOf: (pr: number, head: string) => string
@@ -21,7 +36,7 @@ export interface WitnessParts {
   db: DatabaseSync
   clock: () => Date
   trees: WitnessTrees
-  shell: Shell
+  shell: TimedShell
   log: (line: string) => void
 }
 
@@ -37,11 +52,20 @@ class WitnessRed extends Error {
   }
 }
 
+class WitnessTimedOut extends Error {
+  constructor(command: string) {
+    super(`a witness command ran past the budget of ${WITNESS_BUDGET_MS} ms: ${command}`)
+  }
+}
+
 export function gitWitnessTrees(repo: string): WitnessTrees {
   return {
-    baseOf: (pr, head) => {
+    baseOf: (pr) => {
       gitIn(repo, ['fetch', '-q', 'origin', 'main', `pull/${pr}/head`])
-      return gitIn(repo, ['merge-base', head, PR_BASE])
+      const base = stdoutOrThrow(execGh)(['api', `repos/{owner}/{repo}/pulls/${pr}`, '--jq', '.base.sha']).trim()
+      if (!isFullSha(base))
+        throw new Error(`GitHub named no base sha for #${pr}`)
+      return base
     },
     withTree: (base, run) => withWorktree(repo, base, run),
   }
@@ -64,14 +88,21 @@ export class WitnessExecutor {
       }
       let base: string
       try {
-        base = this.parts.trees.baseOf(lease.pr, lease.head)
+        const current = this.parts.trees.baseOf(lease.pr, lease.head)
+        base = baseOfKey(lease.taskKey) ?? current
       }
       catch (error) {
-        const detail = `the base of ${lease.head} could not be read: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`
-        const next = failTask(this.parts.db, this.ts(), lease, { reason: WITNESS_UNRUN, withdraw: false })
-        return { kind: 'denied', taskKey: lease.taskKey, denial: { kind: 'technical', reason: WITNESS_UNRUN, detail }, next }
+        return this.unrun(lease, `the base of ${lease.head} could not be read: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
       }
-      const red = this.redOf(subject, base, lease.head)
+      let red: string | null
+      try {
+        red = this.redOf(subject, base, lease.head)
+      }
+      catch (error) {
+        if (error instanceof WitnessTimedOut)
+          return this.unrun(lease, error.message)
+        throw error
+      }
       const verdict = red === null ? GREEN : RED
       const detail = red ?? `every card witness red on the base ${base} and green on ${lease.head}`
       completeTask(this.parts.db, this.ts(), lease, [this.recorded(lease, subject, base, verdict, detail)])
@@ -84,11 +115,29 @@ export class WitnessExecutor {
     }
   }
 
+  private unrun(lease: Lease, detail: string): WitnessOutcome {
+    const next = failTask(this.parts.db, this.ts(), lease, { reason: WITNESS_UNRUN, withdraw: false })
+    return { kind: 'denied', taskKey: lease.taskKey, denial: { kind: 'technical', reason: WITNESS_UNRUN, detail }, next }
+  }
+
+  private budgeted(deadline: number): Shell {
+    return (command, cwd) => {
+      const left = deadline - this.parts.clock().getTime()
+      if (left <= 0)
+        throw new WitnessTimedOut(command)
+      const result = this.parts.shell(command, cwd, left)
+      if (result.timedOut)
+        throw new WitnessTimedOut(command)
+      return result
+    }
+  }
+
   private redOf(subject: WitnessSubject, base: string, head: string): string | null {
+    const deadline = this.parts.clock().getTime() + WITNESS_BUDGET_MS
     return this.parts.trees.withTree(base, (tree) => {
       try {
         runOnTree(
-          { tree, base, shell: this.parts.shell, log: this.parts.log, refuse: (step, problem) => {
+          { tree, base, shell: this.budgeted(deadline), log: this.parts.log, refuse: (step, problem) => {
             if (problem !== null)
               throw new WitnessRed(step, problem)
           }, time: (_name, run) => run() },

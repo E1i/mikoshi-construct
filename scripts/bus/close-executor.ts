@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
-import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_CLOSED, CARD_VERIFIED, MERGE_DONE, POLICY_DENIED } from '../core/events.js'
+import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_CLOSED, CARD_VERIFIED, POLICY_DENIED } from '../core/events.js'
 import { VERIFICATION_WORDS } from '../core/verification.js'
 import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
 import { cardSessionOf } from './answer-source.js'
@@ -16,7 +16,7 @@ import { archiveCardFile } from './card-archive.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { appendEvent } from './db.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
-import { WITNESS_REASON, witnessDenial } from './policy.js'
+import { closeWitnessDenial, MERGE_RECORD, WITNESS_REASON } from './policy.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof WITNESS_REASON | typeof NOT_MINE
 
@@ -37,6 +37,7 @@ export interface CloseDenial {
   kind: 'technical'
   reason: CloseTechnicalReason
   detail: string
+  base?: string
 }
 
 export type CloseOutcome
@@ -113,12 +114,6 @@ interface Merger {
   merged: unknown
 }
 
-const MERGE_RECORD = `
-  SELECT payload FROM events
-  WHERE pr = ? AND (type = '${MERGE_DONE}' OR (type = 'pr.closed' AND json_extract(payload, '$.merged') = 1))
-  ORDER BY CASE type WHEN '${MERGE_DONE}' THEN 0 ELSE 1 END, id LIMIT 1
-`
-
 const OBSERVED_MERGER = `
   SELECT json_extract(payload, '$.merged_by') AS by, json_extract(payload, '$.merged_at') AS merged FROM events
   WHERE pr = ? AND type = 'pr.closed' AND json_extract(payload, '$.merged') = 1
@@ -189,12 +184,12 @@ export class CloseExecutor {
         return this.denied(lease, technical('no_verification', `card ${lease.cardId} has ${verification === null ? `no verification: no card.verified for ${lease.pr === null ? 'its report' : `PR #${lease.pr}`}` : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
       if (probe !== null)
         return this.closed(lease, verification, null, probe.report)
-      const unwitnessed = witnessDenial(this.parts.db, lease.cardId, lease.head)
-      if (unwitnessed !== null)
-        return this.denied(lease, technical(WITNESS_REASON, unwitnessed))
       const commit = this.mergeCommit(lease)
       if (commit === null)
         return this.denied(lease, technical('no_merge_commit', `the bus holds no merge commit for PR #${lease.pr}`))
+      const unwitnessed = closeWitnessDenial(this.parts.db, lease.cardId, lease.pr, lease.head)
+      if (unwitnessed !== null)
+        return this.denied(lease, { ...technical(WITNESS_REASON, unwitnessed.detail), ...(unwitnessed.base === null ? {} : { base: unwitnessed.base }) })
       return this.closed(lease, verification, this.mergeLine(lease, commit))
     }
     catch (error) {

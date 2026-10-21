@@ -176,6 +176,7 @@ export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch:
 }
 
 export function mergeBaseProblem(git: TreePrPorts['git'], worktree: string, branch: string): string | null {
+  git(worktree, ['fetch', '-q', 'origin', 'main'])
   const base = git(worktree, ['rev-parse', PR_BASE]).trim()
   const mergeBase = git(worktree, ['merge-base', 'HEAD', PR_BASE]).trim()
   return mergeBase === base ? null : `the shift opened no pull request for ${branch}: its merge-base ${mergeBase || 'none'} is not the PR base ${PR_BASE} at ${base}; bring the tree onto ${PR_BASE} first`

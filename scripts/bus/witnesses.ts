@@ -1,7 +1,7 @@
 import type { Shell, ShellResult } from '../ports/worktree.js'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { lastLine, stageSketch, tailLines } from '../ports/worktree.js'
+import { gitIn, lastLine, stageSketch, tailLines } from '../ports/worktree.js'
 
 export interface Witness { criterion: string, command: string }
 
@@ -30,6 +30,7 @@ const NOT_RUN_STATUSES = [126, 127]
 const ATTACH_CARRIER_SOURCES = ['templates/ai/claude/', 'templates/attach/earlier-carriers.json']
 const EARLIER_CARRIERS_CHECK = 'pnpm exec tsx scripts/attach/earlier-carriers.ts --check'
 const LOCKFILE = 'pnpm-lock.yaml'
+const DEPENDENCY_FILES = ['package.json', LOCKFILE]
 const INSTALL = 'pnpm install --frozen-lockfile'
 const WITNESSES_SUFFIX = /\.witnesses$/
 const QUALITY_STEPS = 'quality:steps'
@@ -147,6 +148,14 @@ function lint(run: TreeRun, files: string[], label: string, where: string): void
     run.refuse('P6', greenRefusal(label, { criterion: files.join(' '), command: '' }, run.shell(`pnpm exec eslint ${files.join(' ')}`, run.tree), where))
 }
 
+function reinstallRefusal(run: TreeRun, sketchSha: string, where: string): string | null {
+  const { tree, base, shell } = run
+  const changed = gitIn(tree, ['diff', '--name-only', base, sketchSha, '--', ...DEPENDENCY_FILES])
+  if (changed === '' || !existsSync(path.join(tree, LOCKFILE)))
+    return null
+  return shell(INSTALL, tree).status === 0 ? null : `${INSTALL} failed on ${where}`
+}
+
 export function runOnTree(run: TreeRun, task: TreeTask): void {
   const { tree, base, shell, refuse, time } = run
   const baseShort = base.slice(0, 7)
@@ -170,6 +179,7 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
   const where = `the sketch ${sketchSha.slice(0, 7)} staged on the base ${baseShort}`
   time('P8 sketch', () => {
     stageSketch(tree, base, sketchSha)
+    refuse('P8', reinstallRefusal(run, sketchSha, where))
     refuse('P8', firstProblem(unmatchedOnBase, ({ witness, probe }) => shell(probe, tree).status === 0 ? null : grepRefusal(witness, `the base ${baseShort} nor ${where}`)))
     refuse('P8', firstProblem(task.acceptance, witness => greenRefusal('positive control', witness, shell(witness.command, tree), where)))
     refuse('P8', firstProblem(invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), where)))

@@ -1,22 +1,20 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Shell } from '../ports/worktree.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode, Scope } from './node.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
-import type { WitnessOutcome, WitnessTrees } from './witness-executor.js'
+import type { TimedShell, WitnessOutcome, WitnessTrees } from './witness-executor.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { CARD_ADMITTED, PR_OBSERVED, PR_OPENED, REDUCED } from '../core/events.js'
-import { realShell } from '../ports/worktree.js'
 import { defaultBusPath } from './db.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { witnessCandidates } from './queue.js'
 import { stampLogOutput } from './stamp.js'
-import { gitWitnessTrees, WitnessExecutor } from './witness-executor.js'
+import { gitWitnessTrees, realTimedShell, WitnessExecutor } from './witness-executor.js'
 
 export const PREFIX = prefixOf('witness')
 export const WITNESS_ON = [REDUCED, PR_OBSERVED, PR_OPENED, CARD_ADMITTED] as const
@@ -30,7 +28,7 @@ export interface WitnessNodeParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
   trees: WitnessTrees
-  shell: Shell
+  shell: TimedShell
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -81,7 +79,7 @@ export interface WitnessRun {
 }
 
 export async function runWitnessWorker(argv: string[], run: WitnessRun): Promise<number> {
-  return runNode(argv, 'witness', run.busPath, (db, mode) => new WitnessNode({ db, clock: () => new Date(), session: run.session, mode, env: process.env, trees: gitWitnessTrees(run.repo), shell: realShell }), { pause: run.pause })
+  return runNode(argv, 'witness', run.busPath, (db, mode) => new WitnessNode({ db, clock: () => new Date(), session: run.session, mode, env: process.env, trees: gitWitnessTrees(run.repo), shell: realTimedShell }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {

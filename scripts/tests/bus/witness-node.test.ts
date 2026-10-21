@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { TimedShell } from '../../bus/witness-executor.js'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,9 +10,10 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { RED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../bus/policy.js'
 import { reduce } from '../../bus/reducer.js'
+import { realTimedShell } from '../../bus/witness-executor.js'
 import { WitnessNode } from '../../bus/witness-worker.js'
 import { CARD_ADMITTED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
-import { realShell, withWorktree } from '../../ports/worktree.js'
+import { withWorktree } from '../../ports/worktree.js'
 
 const CARD = 1301
 const PR = 1201
@@ -48,7 +50,7 @@ interface World {
   head: string
 }
 
-function world(baseFiles: string[], headFile: string): World {
+function world(baseFiles: string[], headFile: string, alsoOnHead: string[] = []): World {
   const root = mkdtempSync(path.join(tmpdir(), 'witness-node-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
@@ -56,6 +58,8 @@ function world(baseFiles: string[], headFile: string): World {
   let base = commit(repo, 'README.md', 'base')
   for (const file of baseFiles)
     base = commit(repo, file, `base ${file}`)
+  for (const file of alsoOnHead)
+    commit(repo, file, `head ${file}`)
   const head = commit(repo, headFile, `head ${headFile}`)
   const db = openBus(path.join(root, 'bus.db'))
   dbs.push(db)
@@ -66,8 +70,8 @@ function world(baseFiles: string[], headFile: string): World {
   return { repo, db, base, head }
 }
 
-async function witnessRun(w: World): Promise<void> {
-  const node = new WitnessNode({ db: w.db, clock: () => new Date('2026-10-21T10:02:00.000Z'), session: 'witness-1', mode: 'live', env: {}, shell: realShell, trees: { baseOf: () => w.base, withTree: (base, run) => withWorktree(w.repo, base, run) } })
+async function witnessRun(w: World, shell: TimedShell = realTimedShell): Promise<void> {
+  const node = new WitnessNode({ db: w.db, clock: () => new Date('2026-10-21T10:02:00.000Z'), session: 'witness-1', mode: 'live', env: {}, shell, trees: { baseOf: () => w.base, withTree: (base, run) => withWorktree(w.repo, base, run) } })
   for (let round = 0; round < 2; round += 1) {
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })
@@ -85,31 +89,76 @@ describe('the witness node', () => {
 
     const cardBody = witnessSubjectOf(w.db, CARD)!.cardBody
     expect(recorded(w)).toEqual([`${WITNESS_RECORDED}:${CARD}:${w.head}:${w.base}:${cardBody}`])
-    expect(witnessDenial(w.db, CARD, w.head)).toBeNull()
+    expect(witnessDenial(w.db, CARD, w.head, w.base)).toBeNull()
   })
 
   it('a mutant head that leaves a witness red is denied as witness', async () => {
     const w = world([], 'other.txt')
     await witnessRun(w)
 
-    const record = witnessRecordOf(w.db, CARD, w.head, witnessSubjectOf(w.db, CARD)!.cardBody)
+    const record = witnessRecordOf(w.db, CARD, w.head, w.base, witnessSubjectOf(w.db, CARD)!.cardBody)
     expect(record).toEqual(expect.objectContaining({ verdict: RED, base: w.base }))
     expect(record!.detail).toMatch(/^P8: positive control "`test -f done\.txt` exits 0; red on main" exits 1/)
-    expect(witnessDenial(w.db, CARD, w.head)).toMatch(/is red: P8: positive control/)
+    expect(witnessDenial(w.db, CARD, w.head, w.base)!.detail).toMatch(/is red: P8: positive control/)
   })
 
   it('a witness green on the base is denied as witness', async () => {
     const w = world(['done.txt'], 'other.txt')
     await witnessRun(w)
 
-    const record = witnessRecordOf(w.db, CARD, w.head, witnessSubjectOf(w.db, CARD)!.cardBody)
+    const record = witnessRecordOf(w.db, CARD, w.head, w.base, witnessSubjectOf(w.db, CARD)!.cardBody)
     expect(record).toEqual(expect.objectContaining({ verdict: RED }))
     expect(record!.detail).toMatch(/^P7: witness .* exits 0 on the clean base/)
-    expect(witnessDenial(w.db, CARD, w.head)).toMatch(/is red: P7/)
+    expect(witnessDenial(w.db, CARD, w.head, w.base)!.detail).toMatch(/is red: P7/)
   })
 
   it('a card with no admitted witnesses is not held by the gate', () => {
     const w = world([], 'done.txt')
-    expect(witnessDenial(w.db, CARD + 1, w.head)).toBeNull()
+    expect(witnessDenial(w.db, CARD + 1, w.head, w.base)).toBeNull()
+  })
+
+  it('a record on one base does not satisfy the gate on another base', async () => {
+    const w = world([], 'done.txt')
+    await witnessRun(w)
+
+    const elsewhere = 'c'.repeat(40)
+    expect(witnessDenial(w.db, CARD, w.head, w.base)).toBeNull()
+    expect(witnessDenial(w.db, CARD, w.head, elsewhere)).toEqual({ detail: expect.stringContaining(`at head ${w.head} on the base ${elsewhere}`), base: elsewhere })
+    expect(witnessDenial(w.db, CARD, w.head, null)).toEqual({ detail: expect.stringContaining('names no base'), base: null })
+  })
+
+  it('a witness command that runs past its budget is witness_unrun and records nothing', async () => {
+    const w = world([], 'done.txt')
+    await witnessRun(w, (command, cwd, timeoutMs) => ({ ...realTimedShell(command, cwd, timeoutMs), timedOut: true }))
+
+    expect(recorded(w)).toEqual([])
+    expect(w.db.prepare(`SELECT state, failures FROM tasks WHERE queue = 'witness'`).all()).toEqual([{ state: 'queued', failures: 2 }])
+  })
+
+  it('a head that changes package.json installs again on the staged tree', async () => {
+    const w = world(['pnpm-lock.yaml'], 'done.txt', ['package.json'])
+    const installs: string[] = []
+    await witnessRun(w, (command, cwd, timeoutMs) => {
+      if (!command.startsWith('pnpm install'))
+        return realTimedShell(command, cwd, timeoutMs)
+      installs.push(command)
+      return { status: 0, output: '', timedOut: false }
+    })
+
+    expect(installs).toEqual(['pnpm install --frozen-lockfile', 'pnpm install --frozen-lockfile'])
+    expect(recorded(w)).toHaveLength(1)
+  })
+
+  it('a head that leaves package.json and the lockfile alone installs once', async () => {
+    const w = world(['pnpm-lock.yaml'], 'done.txt')
+    const installs: string[] = []
+    await witnessRun(w, (command, cwd, timeoutMs) => {
+      if (!command.startsWith('pnpm install'))
+        return realTimedShell(command, cwd, timeoutMs)
+      installs.push(command)
+      return { status: 0, output: '', timedOut: false }
+    })
+
+    expect(installs).toEqual(['pnpm install --frozen-lockfile'])
   })
 })

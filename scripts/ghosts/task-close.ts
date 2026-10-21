@@ -19,7 +19,7 @@ import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js
 import { NOT_A_BACKFILL } from '../bus/backfill-source.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db.js'
 import { legacyHistory } from '../bus/legacy-history.js'
-import { witnessDenial } from '../bus/policy.js'
+import { closeWitnessDenial } from '../bus/policy.js'
 import { openDatabase } from '../bus/sqlite.js'
 import { CARD_VERIFIED } from '../core/events.js'
 import { execGh, readGhJson } from '../core/gh.js'
@@ -217,8 +217,8 @@ function witnessRefusal(busPath: string | undefined, id: string, pr: number): st
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
     const head = (db.prepare('SELECT head FROM prs WHERE pr = ?').get(pr) as { head: string | null } | undefined)?.head ?? null
-    const denial = witnessDenial(db, Number(id), head)
-    return denial === null ? null : `#${id} closes PR #${pr} only on a green witness record, not on a reported verification: ${denial}; nothing written`
+    const denial = closeWitnessDenial(db, Number(id), pr, head)
+    return denial === null ? null : `#${id} closes PR #${pr} only on a green witness record, not on a reported verification: ${denial.detail}; nothing written`
   }
   finally {
     db.close()

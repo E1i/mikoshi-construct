@@ -74,6 +74,10 @@ function verified(bench: ReturnType<typeof mergeBench>, pr: number, verification
   cardVerified(bench.db, bench.clock.now().toISOString(), pr + 100, pr, verification)
 }
 
+function mergeDoneOn(bench: ReturnType<typeof mergeBench>, cardId: number, pr: number, witnessBase: string): void {
+  appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: MERGE_DONE, actor: 'worker:merge:worker-1', cardId, pr, head: sha('a'), dedupeKey: `${MERGE_DONE}:${pr}`, payload: { commit: sha('f'), rule: 'auto', witnessBase }, legacy: false })
+}
+
 function closedCard(bench: ReturnType<typeof mergeBench>, cardId: number): void {
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${cardId}`, payload: { verification: 'run' }, legacy: false })
 }
@@ -243,21 +247,36 @@ describe('the close queue', () => {
     const cardBody = textSha(text).slice(0, 12)
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:1096`, payload: { card: '#1096', lane: 'lane-1', text, textSha: textSha(text), bodySha: cardBody }, legacy: false })
     bench.merged(996)
+    mergeDoneOn(bench, 1096, 996, sha('e'))
 
     const denied = bench.closeCard(bench.leaseClose()!)
 
-    expect(denied).toEqual(expect.objectContaining({ kind: 'denied', next: 'withdrawn', denial: expect.objectContaining({ reason: 'witness' }) }))
+    expect(denied).toEqual(expect.objectContaining({ kind: 'denied', next: 'withdrawn', denial: expect.objectContaining({ reason: 'witness', base: sha('e') }) }))
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
 
-    const witnessed = (head: string): void => {
-      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:witness-1', cardId: 1096, pr: 996, head, dedupeKey: `${WITNESS_RECORDED}:1096:${head}:${sha('e')}:${cardBody}`, payload: { head, base: sha('e'), cardBody, verdict: 'green', detail: 'green' }, legacy: false })
+    const witnessed = (head: string, base = sha('e')): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:witness-1', cardId: 1096, pr: 996, head, dedupeKey: `${WITNESS_RECORDED}:1096:${head}:${base}:${cardBody}`, payload: { head, base, cardBody, verdict: 'green', detail: 'green' }, legacy: false })
     }
     witnessed(sha('b'))
     deriveQueues(bench.db, bench.clock.now().toISOString())
     expect(bench.leaseClose()).toBeNull()
 
+    witnessed(sha('a'), sha('d'))
+    deriveQueues(bench.db, bench.clock.now().toISOString())
+    expect(bench.leaseClose()).toBeNull()
+
     witnessed(sha('a'))
     deriveQueues(bench.db, bench.clock.now().toISOString())
+    expect(bench.closeCard(bench.leaseClose()!)).toEqual(expect.objectContaining({ kind: 'closed', verification: 'run' }))
+    bench.close()
+  })
+
+  it('a pull request merged without the bus, which holds no witness base, closes on its verification word', () => {
+    const bench = closeBench({ 1097: 'run' })
+    const text = `card: #1097 witnessed [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-1097\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nClose it.\n\nWitnesses:\n- \`test -f done.txt\` exits 0; red on main\n`
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 1097, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:1097`, payload: { card: '#1097', lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
+    bench.merged(997)
+
     expect(bench.closeCard(bench.leaseClose()!)).toEqual(expect.objectContaining({ kind: 'closed', verification: 'run' }))
     bench.close()
   })

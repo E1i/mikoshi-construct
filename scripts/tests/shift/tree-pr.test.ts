@@ -81,6 +81,34 @@ describe('the base of the tree', () => {
     expect(treePr(ports, CARD, '/tree', null)).toEqual({ kind: 'problem', why: `the shift opened no pull request for feat/x: its merge-base ${'a'.repeat(40)} is not the PR base origin/main at ${'b'.repeat(40)}; bring the tree onto origin/main first` })
     expect(calls).toContainEqual(['merge-base', 'HEAD', 'origin/main'])
   })
+
+  it('tree-pr fetches origin main before it reads the PR base, so a stale origin/main refuses', () => {
+    const calls: string[][] = []
+    let fetched = false
+    const ports: TreePrPorts = {
+      git: (_cwd, args) => {
+        calls.push(args)
+        if (args[0] === 'fetch')
+          fetched = true
+        if (args[0] === 'rev-list')
+          return '1\n'
+        if (args[0] === 'rev-parse')
+          return `${(fetched ? 'b' : 'a').repeat(40)}\n`
+        if (args[0] === 'merge-base')
+          return `${'a'.repeat(40)}\n`
+        return ''
+      },
+      gh: (args) => {
+        if (args[1] === 'list')
+          return '[]'
+        throw new Error('no pull request is opened off its base')
+      },
+    }
+    expect(treePr(ports, CARD, '/tree', null)).toEqual({ kind: 'problem', why: `the shift opened no pull request for feat/x: its merge-base ${'a'.repeat(40)} is not the PR base origin/main at ${'b'.repeat(40)}; bring the tree onto origin/main first` })
+    const names = calls.map(args => args[0])
+    expect(names.indexOf('fetch')).toBeGreaterThan(-1)
+    expect(names.indexOf('fetch')).toBeLessThan(names.indexOf('rev-parse'))
+  })
 })
 
 describe('tree-pr reads its card from the bus', () => {
