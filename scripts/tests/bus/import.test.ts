@@ -100,7 +100,7 @@ describe('the tick after the one-time import', () => {
     expect(importJournalFile(db, journal, () => null)).toMatchObject({ imported: 6 })
     appendFileSync(journal, `${JSON.stringify({ event: 'merge', task: '682', pr: 691, commit: 'c0ffee', ts: '2026-10-04T11:00:00.000Z' })}\n`)
     const clock = new Clock()
-    const { busTick } = composeBusTick(db, busPath, new FakeGitHub().client, clock.now, root)
+    const { busTick } = composeBusTick(db, busPath, new FakeGitHub().client, () => ({ status: 201, headers: {}, body: null }), clock.now, root)
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(db.prepare('SELECT count(*) AS legacy FROM events WHERE legacy = 1').get()).toEqual({ legacy: 6 })
     db.close()
