@@ -5,7 +5,7 @@ import type { IncrementalProjection } from './watermark.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES } from '../core/events.js'
 import { isBackfill } from './backfill-source.js'
 import { appendEvent } from './db.js'
-import { payloadOf, reject } from './stored.js'
+import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const QUEUED_CARD = 'queued'
@@ -31,6 +31,22 @@ const ADMITTED_AGAIN = new Set<CardState>([null, QUEUED_CARD, FALLEN_CARD, STOPP
 const ANSWERED = new Set<CardState>([STOPPED_CARD, CHANGES_CARD, IN_REVIEW_CARD])
 const FALLS = new Set<CardState>([RUNNING_CARD, IN_REVIEW_CARD, CHANGES_CARD])
 const ENDED = new Set<CardState>([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+const FAULT = 'fault'
+const LEASED_TASK = 'leased'
+
+const LAST_STOP_REASON = `
+  SELECT json_extract(payload, '$.reason') AS reason FROM events
+  WHERE legacy = 0 AND type = '${CARD_STOPPED}' AND card_id = ? AND id < ?
+  ORDER BY id DESC LIMIT 1
+`
+
+const CURRENT_LAUNCH_LEASE = `SELECT task_key, state, lease_gen FROM tasks WHERE queue = 'launch' AND card_id = ? ORDER BY event_id DESC LIMIT 1`
+
+interface LaunchLease {
+  task_key: string
+  state: string
+  lease_gen: number
+}
 
 interface Card {
   state: CardState
@@ -75,12 +91,39 @@ export function cardPrMerged(db: DatabaseSync, cardId: number, eventId: number):
     moveCard(db, cardId, MERGED_CARD, eventId)
 }
 
+function stoppedByFault(db: DatabaseSync, cardId: number, before: number): boolean {
+  if (stateOf(db, cardId) !== STOPPED_CARD)
+    return false
+  const row = db.prepare(LAST_STOP_REASON).get(cardId, before) as { reason: unknown } | undefined
+  return row?.reason === FAULT
+}
+
+function leaseGenCarriedBy(event: StoredEvent, current: LaunchLease | undefined): number | null {
+  const carried = payloadOf(event).lease_gen
+  if (typeof carried === 'number' && Number.isSafeInteger(carried) && carried > 0)
+    return carried
+  return current?.state === LEASED_TASK && event.dedupe_key === `${CARD_STARTED}:${current.task_key}` ? current.lease_gen : null
+}
+
+function restoreFromFault(db: DatabaseSync, event: StoredEvent, cardId: number): void {
+  const current = db.prepare(CURRENT_LAUNCH_LEASE).get(cardId) as LaunchLease | undefined
+  const carried = leaseGenCarriedBy(event, current)
+  if (carried === null || carried !== current?.lease_gen)
+    reject(`card ${cardId} is ${STOPPED_CARD} by ${FAULT}, and ${event.type} restores it only under the current lease_gen ${current?.lease_gen ?? 'of no launch'} of its launch, not ${carried ?? 'none'}`)
+}
+
+function storedById(db: DatabaseSync, eventId: number): StoredEvent {
+  return db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(eventId) as unknown as StoredEvent
+}
+
 export function cardPrOpened(db: DatabaseSync, cardId: number, pr: number, linkedBefore: number | null, eventId: number): void {
   const state = stateOf(db, cardId)
   if (linkedBefore === pr && state === IN_REVIEW_CARD)
     return
   const relinked = linkedBefore !== null && linkedBefore !== pr
-  if (!relinked && !OPENS_A_PULL_REQUEST.has(state))
+  if (!relinked && stoppedByFault(db, cardId, eventId))
+    restoreFromFault(db, storedById(db, eventId), cardId)
+  else if (!relinked && !OPENS_A_PULL_REQUEST.has(state))
     reject(`card ${cardId} is ${state}, and ${PR_OPENED} moves only a card that is queued, running or without state`)
   moveCard(db, cardId, IN_REVIEW_CARD, eventId)
 }
@@ -108,7 +151,13 @@ function foldMergeDone(db: DatabaseSync, event: StoredEvent): void {
 }
 
 function foldStarted(db: DatabaseSync, event: StoredEvent): void {
-  claimed(db, event, new Set([QUEUED_CARD]), RUNNING_CARD)
+  const cardId = event.card_id ?? reject(`${CARD_STARTED} needs a card_id`)
+  if (!stoppedByFault(db, cardId, event.id)) {
+    claimed(db, event, new Set([QUEUED_CARD]), RUNNING_CARD)
+    return
+  }
+  restoreFromFault(db, event, cardId)
+  moveCard(db, cardId, RUNNING_CARD, event.id)
 }
 
 function backInWork(db: DatabaseSync, cardId: number): string {

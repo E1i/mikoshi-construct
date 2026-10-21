@@ -1,3 +1,4 @@
+import type { CardStarter, LaunchOutcome } from '../../bus/launch-executor.js'
 import type { RequestTools } from '../../bus/window-requests.js'
 import type { MergeBench } from './merge-bench.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -10,6 +11,8 @@ import { recordDecision } from '../../bus/decisions.js'
 import { dryRunIn, keepDryRun } from '../../bus/dry-run-record.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { ownerInbox } from '../../bus/inbox.js'
+import { launchableCard } from '../../bus/launch-candidates.js'
+import { LaunchExecutor, technical } from '../../bus/launch-executor.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
 import { FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
@@ -17,7 +20,7 @@ import { roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { decisionsInForceAt } from '../../bus/shards.js'
 import { decisionsAdder, worktreesHolding } from '../../bus/window-request-tools.js'
 import { REQUEST_RULE, requestFromWindow, runRequest, WindowRequests } from '../../bus/window-requests.js'
-import { BOARD_ALARM, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -237,6 +240,41 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(taskState(made.bench.db, key)).toMatchObject({ state: 'queued', failures: 0 })
     made.bench.tick()
     expect(taskState(made.bench.db, key).state).toBe('queued')
+  })
+
+  it('a requeue of the launch of a card stopped by fault returns it to queued and the launch starts it, with no body edit', () => {
+    const made = room()
+    const { bench } = made
+    const cardId = CARD + 115
+    let refusals = FAILURES_TO_STOP
+    const starter: CardStarter = {
+      start: card => refusals-- > 0
+        ? { kind: 'refused', denial: technical('start_failed', `task:start for card #${card.cardId} failed`) }
+        : { kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: sha('f'), pid: 4242, pgid: 4242 } },
+      stop: () => {},
+    }
+    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const launchNext = (): LaunchOutcome => executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
+    bench.tick()
+    const key = taskKey({ queue: 'launch', cardId, generation: `admission-${cardId}` })
+    for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)
+      expect(launchNext()).toMatchObject({ kind: 'denied', denial: { reason: 'start_failed' } })
+    bench.tick()
+    expect(taskState(bench.db, key).state).toBe('stopped')
+    expect(eventsOf(bench.db, CARD_STOPPED).at(-1)).toMatchObject({ reason: 'fault' })
+    expect(launchableCard(bench.db, cardId)).toBeNull()
+
+    const request = ask(made, { kind: 'requeue', task_key: key })
+    expect(made.requests().run()[0]).toMatchObject({ kind: 'done', request })
+    bench.tick()
+    expect(taskState(bench.db, key).state).toBe('queued')
+    expect(launchableCard(bench.db, cardId)).toEqual({ lane: 'lane-a', contour: 'cheap' })
+
+    expect(launchNext()).toMatchObject({ kind: 'started', taskKey: key, card: { session: `s-${cardId}` } })
+    bench.tick()
+    expect(bench.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId)).toEqual({ state: 'running' })
+    expect(eventsOf(bench.db, CARD_ADMITTED).filter(admitted => admitted.admission === `admission-${cardId}`)).toHaveLength(1)
   })
 
   it('a requeue request is refused past the D-104 limit of requeues after one board.alarm', () => {
