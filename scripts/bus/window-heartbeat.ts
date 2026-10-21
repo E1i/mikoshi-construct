@@ -9,13 +9,16 @@ import { appendEvent, openBus } from './db.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
 export const WINDOW_BEAT_MS = 5 * 60_000
+export const WINDOW_VARIABLE = 'MIKO_WINDOW'
+export const WINDOW_MARK = '1'
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SESSION_ID = /^[^:\s]+$/
 
 export function windowSessionOf(env: NodeJS.ProcessEnv): string | null {
   const session = env[SESSION_VARIABLE]?.trim()
-  return !env[CARD_VARIABLE] && session !== undefined && SESSION_ID.test(session) ? session : null
+  const marked = env[WINDOW_VARIABLE] === WINDOW_MARK && !env[CARD_VARIABLE]
+  return marked && session !== undefined && SESSION_ID.test(session) ? session : null
 }
 
 export function recordWindowHeartbeat(db: DatabaseSync, ts: string, session: string, gauges: SessionGauges = {}): boolean {

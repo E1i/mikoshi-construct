@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
 import { recordProcessHeartbeat } from '../bus/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../bus/liveness-sites.js'
+import { WINDOW_MARK, WINDOW_VARIABLE } from '../bus/window-heartbeat.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
 import { statusOf } from '../shift/relaunch.js'
 import { ancestors, parsePs } from './exit.js'
@@ -299,7 +300,7 @@ export async function pauseUntilCtrlC(ms: number, sessionCtrlCs = 0): Promise<Pa
 export function runSession(command: string, prompt: string | undefined, request: string, pollMs: number = EXIT_POLL_MS): Promise<SessionEnd> {
   return new Promise((resolve) => {
     rmSync(request, { force: true })
-    const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit', env: { ...process.env, [LOOP_PID_VARIABLE]: String(process.pid), [EXIT_REQUEST_VARIABLE]: request } })
+    const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit', env: { ...process.env, [LOOP_PID_VARIABLE]: String(process.pid), [WINDOW_VARIABLE]: WINDOW_MARK, [EXIT_REQUEST_VARIABLE]: request } })
     const watcher = setInterval(() => {
       const requester = requesterOf(request)
       if (!takeExitRequest(request))
