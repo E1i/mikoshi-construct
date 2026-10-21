@@ -4,13 +4,14 @@ const BUS_SCHEMA = `
 CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, pr INTEGER, head TEXT, dedupe_key TEXT, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
 CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER, event_id INTEGER);
 CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT, text TEXT NOT NULL DEFAULT '');
-CREATE TABLE prs (pr INTEGER PRIMARY KEY, verdict_on_head TEXT);
+CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, state TEXT, verdict_on_head TEXT);
 CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL);
 CREATE TABLE roles (role TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL);
-CREATE TABLE decisions (decision_id INTEGER PRIMARY KEY, text TEXT NOT NULL);
+CREATE TABLE decisions (decision_id INTEGER PRIMARY KEY, text TEXT NOT NULL, scope TEXT, event_id INTEGER);
 `
 
 const CARD_STATE_EVENT = 'card.state'
+const DECISION_EVENT = 'decision.recorded'
 
 export interface SeedCard {
   id: number
@@ -48,13 +49,20 @@ export interface SeedRole {
   state: string
 }
 
+export interface SeedPr {
+  pr: number
+  card: number | null
+  state: string
+}
+
 export interface BusSeed {
   cards?: SeedCard[]
   verdicts?: [number, string | null][]
+  prs?: SeedPr[]
   tasks?: SeedTask[]
   events?: SeedEvent[]
   roles?: SeedRole[]
-  decisions?: [number, string][]
+  decisions?: [number, string, number[]?][]
 }
 
 function insertEvent(db: DatabaseSync, event: SeedEvent): number {
@@ -74,14 +82,18 @@ export function writeBus(file: string, seed: BusSeed): string {
     }
     for (const [pr, verdict] of seed.verdicts ?? [])
       db.prepare('INSERT INTO prs (pr, verdict_on_head) VALUES (?, ?)').run(pr, verdict)
+    for (const pr of seed.prs ?? [])
+      db.prepare('INSERT INTO prs (pr, card_id, state) VALUES (?, ?, ?)').run(pr.pr, pr.card, pr.state)
     for (const task of seed.tasks ?? [])
       db.prepare('INSERT INTO tasks (queue, card_id, pr, head, state) VALUES (?, ?, ?, ?, ?)').run(task.queue, task.card, task.pr, task.head, task.state)
     for (const event of seed.events ?? [])
       insertEvent(db, event)
     for (const role of seed.roles ?? [])
       db.prepare('INSERT INTO roles (role, status, state) VALUES (?, ?, ?)').run(role.role, role.status, role.state)
-    for (const [decisionId, text] of seed.decisions ?? [])
-      db.prepare('INSERT INTO decisions (decision_id, text) VALUES (?, ?)').run(decisionId, text)
+    for (const [decisionId, text, scope] of seed.decisions ?? []) {
+      const eventId = insertEvent(db, { ts: null, type: DECISION_EVENT, card: null, payload: '{}' })
+      db.prepare('INSERT INTO decisions (decision_id, text, scope, event_id) VALUES (?, ?, ?, ?)').run(decisionId, text, scope === undefined ? null : JSON.stringify(scope), eventId)
+    }
   }
   finally {
     db.close()

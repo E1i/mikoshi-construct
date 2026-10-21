@@ -4,11 +4,11 @@ import { backlogCards, backlogLines, boardScreens, flowLines, goalLines, matrixL
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
 function card(id: number, state: string | null, lane: string | null = null, line: string | null = null): BusCard {
-  return { id, state, lane, line, since: null, body: true, closed: false, closedAt: null }
+  return { id, state, stage: 'planned', lane, line, since: null, body: true, closed: false, closedAt: null }
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
-  return { at: '2026-10-02T12:00:00.000Z', goal: null, pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
+  return { at: '2026-10-02T12:00:00.000Z', goal: null, plan: null, waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
 }
 
 describe('the board screens', () => {

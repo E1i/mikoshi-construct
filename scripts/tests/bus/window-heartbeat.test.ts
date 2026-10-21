@@ -6,7 +6,7 @@ import { openBus } from '../../bus/db.js'
 import { recordWindowHeartbeat, WINDOW_BEAT_MS, windowBeat, windowSessionOf } from '../../bus/window-heartbeat.js'
 import { WINDOW_ACTOR } from '../../bus/window-requests.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
-import { sessionGauges } from '../../miko/eddies-measure.js'
+import { NO_TRANSCRIPT, sessionGauges } from '../../miko/eddies-measure.js'
 
 const START = Date.parse('2026-10-20T10:00:00.000Z')
 const roots: string[] = []
@@ -82,7 +82,7 @@ describe('the window heartbeat', () => {
     const unread = busFile()
     windowBeat(unread, 'abc-2', () => START, session => sessionGauges(home, root, session))()
     const quiet = openBus(unread)
-    expect(quiet.prepare('SELECT payload FROM events WHERE type = ?').all(WINDOW_HEARTBEAT)).toEqual([{ payload: JSON.stringify({ session: 'abc-2' }) }])
+    expect(quiet.prepare('SELECT payload FROM events WHERE type = ?').all(WINDOW_HEARTBEAT)).toEqual([{ payload: JSON.stringify({ session: 'abc-2', reason: NO_TRANSCRIPT }) }])
     quiet.close()
   })
 })

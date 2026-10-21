@@ -1,5 +1,5 @@
 import type { BusFacts, BusReading } from '../../src/commands/board/bus.js'
-import type { BusSeed } from './bus-fixture.js'
+import type { BusSeed, SeedCard, SeedEvent } from './bus-fixture.js'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -43,9 +43,104 @@ describe('the board bus reader', () => {
 
   it('reads every card with its state, lane and card line, in card order', () => {
     expect(facts({ cards: [{ id: 2, state: 'changes', lane: null, line: null }, { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha' }] }).cards).toEqual([
-      { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },
-      { id: 2, state: 'changes', lane: null, line: null, since: null, body: true, closed: false, closedAt: null },
+      { id: 1, state: 'queued', stage: 'planned', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },
+      { id: 2, state: 'changes', stage: 'answer/changes', lane: null, line: null, since: null, body: true, closed: false, closedAt: null },
     ])
+  })
+
+  it('the stage of every live card matches its task in the bus queue', () => {
+    const card = (id: number, state: string): SeedCard => ({ id, state, lane: null, line: null })
+    const read = facts({
+      cards: [card(1, 'running'), card(2, 'running'), card(3, 'in_review'), card(4, 'running'), card(5, 'queued'), card(6, 'merged'), card(7, 'stopped'), card(8, 'dropped'), card(9, 'closed'), card(10, 'running')],
+      tasks: [
+        { queue: 'review', card: 1, pr: null, head: null, state: 'queued' },
+        { queue: 'answer', card: 3, pr: null, head: null, state: 'leased' },
+        { queue: 'merge', card: 4, pr: null, head: null, state: 'leased' },
+        { queue: 'review', card: 4, pr: null, head: null, state: 'completed' },
+        { queue: 'launch', card: 5, pr: null, head: null, state: 'queued' },
+        { queue: 'answer', card: 7, pr: null, head: null, state: 'queued' },
+      ],
+      events: [{ ts: ago(HOUR), type: 'card.verified', card: 10, payload: '{}' }],
+    })
+    expect(read.cards.map(each => [each.id, each.stage])).toEqual([
+      [1, 'review'],
+      [2, 'in work'],
+      [3, 'answer/changes'],
+      [4, 'ready'],
+      [5, 'planned'],
+      [6, 'merged'],
+      [7, 'stopped'],
+      [8, 'dropped'],
+      [9, 'dropped'],
+      [10, 'merged'],
+    ])
+  })
+
+  it('the goal bar counts sum to the number of plan cards', () => {
+    const plan = (id: number, state: string, release = '0.44'): SeedCard => ({ id, state, lane: null, line: null, text: `do it\n\nPath (D-76): cheap — ${release}\n` })
+    const read = facts({
+      cards: [plan(1, 'merged'), plan(2, 'running'), plan(3, 'running'), plan(4, 'queued'), plan(5, 'dropped'), plan(6, 'stopped'), plan(7, 'merged', '0.45'), { id: 8, state: 'running', lane: null, line: null }],
+      tasks: [{ queue: 'review', card: 3, pr: null, head: null, state: 'leased' }],
+      decisions: [[GOAL_DECISION, '[owner] 0.44 scope is the list']],
+    })
+    expect(read.plan).toEqual([
+      { stage: 'planned', cards: [4] },
+      { stage: 'in work', cards: [2] },
+      { stage: 'review', cards: [3] },
+      { stage: 'answer/changes', cards: [] },
+      { stage: 'ready', cards: [] },
+      { stage: 'merged', cards: [1] },
+      { stage: 'stopped', cards: [6] },
+      { stage: 'dropped', cards: [5] },
+    ])
+    const counted = read.plan!.reduce((sum, stage) => sum + stage.cards.length, 0)
+    expect(counted).toBe(6)
+    expect(counted - read.plan!.find(stage => stage.stage === 'dropped')!.cards.length).toBe(read.goal!.total)
+    expect(facts({ cards: [plan(1, 'merged')] }).plan).toBeNull()
+  })
+
+  it('with no open owner question the waits-for-you fact is empty', () => {
+    expect(facts({}).waits).toEqual([])
+    const answered = facts({
+      cards: [{ id: 1, state: 'stopped', lane: null, line: null }, { id: 2, state: 'running', lane: null, line: null }, { id: 3, state: 'stopped', lane: null, line: null }],
+      prs: [{ pr: 30, card: 3, state: 'merged' }],
+      events: [
+        { ts: ago(3 * HOUR), type: 'card.stopped', card: 1, payload: JSON.stringify({ reason: 'question.owner', detail: 'which path?' }) },
+        { ts: ago(2 * HOUR), type: 'card.stopped', card: 2, payload: JSON.stringify({ reason: 'question.owner', detail: 'answered by its restart' }) },
+        { ts: ago(2 * HOUR), type: 'card.stopped', card: 3, payload: JSON.stringify({ reason: 'fault' }) },
+        { ts: ago(HOUR), type: 'policy.denied', card: 3, pr: 30, payload: JSON.stringify({ kind: 'authority', detail: 'the owner merges' }) },
+      ],
+      decisions: [[900, '[owner] take the first path', [1]]],
+    })
+    expect(answered.waits).toEqual([])
+  })
+
+  it('an open owner question, an owner-kind denial on an open PR and the version PR wait for the owner', () => {
+    const read = facts({
+      cards: [{ id: 1, state: 'stopped', lane: null, line: null }, { id: 2, state: 'in_review', lane: null, line: null }],
+      prs: [{ pr: 20, card: 2, state: 'open' }, { pr: 669, card: null, state: 'open' }, { pr: 600, card: null, state: 'merged' }],
+      events: [
+        { ts: ago(3 * HOUR), type: 'card.stopped', card: 1, payload: JSON.stringify({ reason: 'question.owner', detail: 'which path?' }) },
+        { ts: ago(2 * HOUR), type: 'policy.denied', card: 2, pr: 20, payload: JSON.stringify({ kind: 'authority', detail: 'first' }) },
+        { ts: ago(HOUR), type: 'policy.denied', card: 2, pr: 20, payload: JSON.stringify({ kind: 'authority', detail: 'changes architecture/security-invariants.md' }) },
+        { ts: ago(HOUR), type: 'policy.denied', card: 2, pr: 20, legacy: true, payload: JSON.stringify({ kind: 'authority', detail: 'legacy' }) },
+      ],
+      decisions: [[900, '[owner] about another card', [7]]],
+    })
+    expect(read.waits).toEqual([
+      { kind: 'question', card: 1, pr: null, detail: 'which path?', since: ago(3 * HOUR) },
+      { kind: 'decision', card: 2, pr: 20, detail: 'changes architecture/security-invariants.md', since: ago(HOUR) },
+      { kind: 'version', card: null, pr: 669, detail: null, since: null },
+    ])
+  })
+
+  it('a merged or closed card has no session tile, whatever its last pulse', () => {
+    const beat = (card: number): SeedEvent => ({ ts: ago(60_000), type: 'session.heartbeat', card, payload: JSON.stringify({ session: `s${card}`, step: 'launch' }) })
+    const services = facts({
+      cards: [{ id: 1, state: 'running', lane: null, line: null }, { id: 2, state: 'merged', lane: null, line: null }, { id: 3, state: 'closed', lane: null, line: null }, { id: 4, state: 'running', lane: null, line: null }],
+      events: [beat(1), beat(2), beat(3), beat(4), { ts: ago(HOUR), type: 'card.verified', card: 4, payload: '{}' }],
+    }).services
+    expect(services.map(service => service.task)).toEqual(['#1'])
   })
 
   it('a card with no card body, or closed through task:close, is not in Flow, and a session death is the last failure', () => {
