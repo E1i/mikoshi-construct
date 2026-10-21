@@ -55,6 +55,11 @@ export function witnessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Proces
   return { ...rest, NO_COLOR: '1' }
 }
 
+export function withoutCard(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const { [CARD_VARIABLE]: _card, ...rest } = base
+  return rest
+}
+
 export function sessionEnv(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv {
   const env = { ...witnessEnv(base), CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }
   return card === undefined ? env : { ...env, [CARD_VARIABLE]: String(card) }
@@ -69,6 +74,13 @@ export interface SpawnSessionParams {
   env?: NodeJS.ProcessEnv
   addDirs?: string[]
   model?: string
+  ceilingMs?: number
+}
+
+export class SessionCeilingReached extends Error {
+  constructor(readonly sessionId: string, readonly ceilingMs: number) {
+    super(`the session ${sessionId} ran past its ceiling of ${ceilingMs / 60_000} minutes and was ended`)
+  }
 }
 
 export function spawnSession(params: SpawnSessionParams): Promise<number> {
@@ -88,11 +100,20 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
       cwd: params.cwd,
       env: sessionEnv(params.env),
       stdio: ['ignore', outFd, errFd],
+      ...(params.ceilingMs === undefined ? {} : { timeout: params.ceilingMs, killSignal: 'SIGKILL' as const }),
     })
+    const started = Date.now()
 
     child.on('error', (error) => {
       closeOnce()
       reject(error)
+    })
+
+    child.on('exit', (_code, signal) => {
+      if (params.ceilingMs !== undefined && signal === 'SIGKILL' && Date.now() - started >= params.ceilingMs) {
+        closeOnce()
+        reject(new SessionCeilingReached(params.sessionId, params.ceilingMs))
+      }
     })
 
     child.on('close', (code) => {

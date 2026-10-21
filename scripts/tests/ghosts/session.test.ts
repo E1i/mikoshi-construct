@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, sessionEnv, sessionModelOf, spawnSession } from '../../ghosts/session.js'
+import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, SessionCeilingReached, sessionEnv, sessionModelOf, spawnSession } from '../../ghosts/session.js'
 
 function stubBinDir(script: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-session-bin-'))
@@ -132,5 +132,25 @@ describe('spawnSession', () => {
     })
 
     expect(code).toBe(3)
+  })
+
+  it('a session past its ceiling is ended and rejects with a named failure, without waiting for a child that still holds its output', async () => {
+    const bin = stubBinDir('sleep 30 &\nsleep 30')
+    const work = mkdtempSync(path.join(tmpdir(), 'ghosts-session-work-'))
+    const started = Date.now()
+
+    const ended = await spawnSession({
+      cwd: work,
+      sessionId: 'sess-3',
+      prompt: 'review it',
+      stdoutPath: path.join(work, 'out.jsonl'),
+      stderrPath: path.join(work, 'out.stderr'),
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      ceilingMs: 300,
+    }).catch((error: unknown) => error)
+
+    expect(ended).toBeInstanceOf(SessionCeilingReached)
+    expect((ended as Error).message).toBe('the session sess-3 ran past its ceiling of 0.005 minutes and was ended')
+    expect(Date.now() - started).toBeLessThan(10_000)
   })
 })

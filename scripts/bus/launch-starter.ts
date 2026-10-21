@@ -70,6 +70,12 @@ export function launchArgv(session: { command: string, treePr: string, cardFile:
   return ['-c', `env ${session.command} "$@" && ${session.treePr} ${shellWord(session.cardFile)} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', '-p', '--session-id', session.id]
 }
 
+const PATH_DELIMITERS = /[\s`'"(),;<>[\]{}]+/
+
+export function pathTokens(text: string): Set<string> {
+  return new Set(text.split(PATH_DELIMITERS).map(token => token.replace(/[.:]+$/, '')).filter(token => token !== ''))
+}
+
 export interface SessionContinuer {
   continueFrom: (card: QueuedCard, from: StartedCard) => CardStart
 }
@@ -105,8 +111,8 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
 
   private unnamedChanges(cardId: number, worktree: string): CardStart | null {
     try {
-      const report = this.ports.readReport(this.reportOf(cardId)) ?? ''
-      const unnamed = this.ports.changedPaths(worktree).filter(changed => !report.includes(changed))
+      const named = pathTokens(this.ports.readReport(this.reportOf(cardId)) ?? '')
+      const unnamed = this.ports.changedPaths(worktree).filter(changed => !named.has(changed))
       if (unnamed.length === 0)
         return null
       const detail = `card #${cardId} is not continued in ${worktree}: its handoff or report names none of the changed paths ${unnamed.join(', ')}`

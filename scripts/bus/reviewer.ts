@@ -6,12 +6,11 @@ import type { ReviewPlan } from './review-depth.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { readResultFields } from '../ghosts/result.js'
-import { reviewModelOf, sessionModelOf, spawnSession } from '../ghosts/session.js'
-import { heartbeatEnv } from './heartbeat.js'
+import { reviewModelOf, sessionModelOf, spawnSession, withoutCard } from '../ghosts/session.js'
 
 export interface TreeState {
   head: string
@@ -80,6 +79,14 @@ const VERDICTS = new Set<string>(['pass', 'changes'])
 export const PREPARE_TREE = ['pnpm', 'install', '--frozen-lockfile', '--offline', '--ignore-scripts']
 
 export const PREPARE_MS = 10 * 60_000
+
+export const REVIEW_CEILING_MINUTES = 20
+
+export const REVIEW_CEILING_MS = REVIEW_CEILING_MINUTES * 60_000
+
+export const REVIEW_BEAT_MS = 60_000
+
+export type SessionPulse = (lease: Lease, session: string) => void
 
 export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME']
 
@@ -282,13 +289,34 @@ export function reviewSession(repo: string, dir: string, session: string, lease:
     stdoutPath: path.join(dir, `${session}.out.jsonl`),
     stderrPath: path.join(dir, `${session}.err.log`),
     model: reviewModelOf(env),
-    env: { ...env, ...heartbeatEnv(lease) },
+    env: withoutCard(env),
+    ceilingMs: REVIEW_CEILING_MS,
     tree,
     verdictPath,
   }
 }
 
-export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession): Reviewer {
+function sizeOf(file: string): number {
+  return existsSync(file) ? statSync(file).size : 0
+}
+
+async function beatingWhileGrowing(run: Promise<number>, transcript: string, beat: () => void, beatMs: number): Promise<number> {
+  let seen = sizeOf(transcript)
+  const ticker = setInterval(() => {
+    const size = sizeOf(transcript)
+    if (size > seen)
+      beat()
+    seen = size
+  }, beatMs)
+  try {
+    return await run
+  }
+  finally {
+    clearInterval(ticker)
+  }
+}
+
+export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS): Reviewer {
   return async (lease, plan, card = null) => {
     const session = randomUUID()
     const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card)
@@ -300,7 +328,7 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
       const before = trees.state(tree)
       if (before.status.length > 0)
         throw new Error(`the review tree ${tree} is not clean before the review: ${before.status.join('; ')}`)
-      const code = await spawn(params)
+      const code = await beatingWhileGrowing(spawn(params), params.stdoutPath, () => pulse(lease, session), beatMs)
       if (code !== 0)
         throw new Error(`the review session ${session} exited ${code}`)
       const review = reviewOf(readFileSync(verdictPath, 'utf8'), session)

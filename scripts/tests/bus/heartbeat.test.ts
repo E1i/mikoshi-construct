@@ -16,7 +16,7 @@ import { openBus } from '../../bus/db.js'
 import { HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
 import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease, SESSION_HEARTBEAT, TASK_EXPIRED } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
-import { ReviewNode } from '../../bus/review-worker.js'
+import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../bus/review-worker.js'
 import { reviewSession } from '../../bus/reviewer.js'
 import { UpdateNode } from '../../bus/update-worker.js'
 import { CARD_VARIABLE } from '../../ghosts/session.js'
@@ -129,12 +129,19 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     db.close()
   })
 
-  it('the review session carries the heartbeat of its lease in its environment', () => {
-    const { db } = bus()
+  it('the review session carries no card in its environment; the worker beats for it, holding its lease and printing a line per beat', () => {
+    const { db, file } = bus()
     const lease = reviewLease(db)
     const plan: ReviewPlan = { depth: 'diff', round: 'first', why: 'a fixed plan', since: HEAD, touchFindings: [] }
-    const session = reviewSession(REPO_ROOT, tmpdir(), 'reviewer-1', lease, plan, {})
-    expect(session.env).toMatchObject({ [CARD_VARIABLE]: '1110', [PR_VARIABLE]: '940', [HEAD_VARIABLE]: HEAD, [STEP_VARIABLE]: 'review', [LEASE_VARIABLE]: lease.taskKey, [LEASE_GEN_VARIABLE]: String(lease.leaseGen) })
+    const session = reviewSession(REPO_ROOT, tmpdir(), 'reviewer-1', lease, plan, { [CARD_VARIABLE]: '1146' })
+    expect(session.env).not.toHaveProperty(CARD_VARIABLE)
+
+    const lines: string[] = []
+    busReviewPulse(file, () => new Date(at(RENEW_MS)), line => lines.push(line))(lease, 'reviewer-1')
+    expect(lines).toEqual([reviewBeatLine(lease, 'reviewer-1', at(RENEW_MS))])
+    expect(lastHeartbeat(db, 1110)).toEqual({ ts: at(RENEW_MS), pr: 940, head: HEAD, step: 'review', session: 'reviewer-1' })
+    expect(expireLeases(db, at(LEASE_MS + 1))).toEqual([])
+    expect(expireLeases(db, at(RENEW_MS + LEASE_MS + 1))).toEqual([lease.taskKey])
     db.close()
   })
 
