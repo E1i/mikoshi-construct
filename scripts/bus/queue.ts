@@ -91,6 +91,12 @@ const REVIEWS_OF_AN_OLD_INPUT = `
   ORDER BY tasks.task_key
 `
 
+const LIVE_ANSWERS_WITH_THE_CARD_BODY = `
+  SELECT task_key, queue, card_id, pr, head, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
+  WHERE queue = 'answer' AND state IN ('queued', 'leased')
+  ORDER BY task_key
+`
+
 const LATEST_ADMISSION_DEPENDS = `
   SELECT depends.value AS card_id FROM json_each((
     SELECT admitted.payload FROM events AS admitted
@@ -588,6 +594,13 @@ function reviewsOfAnOldInput(db: DatabaseSync): ReviewRow[] {
   return (db.prepare(REVIEWS_OF_AN_OLD_INPUT).all() as unknown as ReviewRow[]).filter(row => !underCurrentInput(row))
 }
 
+function answersOfAnOldCardBody(db: DatabaseSync): TaskRow[] {
+  return (db.prepare(LIVE_ANSWERS_WITH_THE_CARD_BODY).all() as unknown as (TaskRow & { card_body: unknown })[]).filter((row) => {
+    const current = answerCardBodyOf(row)
+    return current !== undefined && cardBodyIn(row.task_key) !== current
+  })
+}
+
 export function reviewKeysOfAnOldInput(db: DatabaseSync): string[] {
   return reviewsOfAnOldInput(db).map(row => row.task_key)
 }
@@ -641,7 +654,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   }
   for (const row of db.prepare(TASKS_OF_A_CLOSED_PULL_REQUEST).all() as unknown as TaskRow[])
     withdrawTask(db, ts, identity(row))
-  for (const row of reviewsOfAnOldInput(db)) {
+  for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db)]) {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }

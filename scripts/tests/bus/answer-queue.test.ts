@@ -348,6 +348,67 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  const admitBody = (bench: ReturnType<typeof answerBench>, cardId: number, bodySha: string): void => {
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${bodySha}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}-${bodySha}`, bodySha }, legacy: false })
+  }
+  const liveAnswerTasks = (bench: ReturnType<typeof answerBench>): { task_key: string, state: string }[] =>
+    bench.db.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'answer' AND state IN ('queued', 'leased') ORDER BY task_key`).all() as { task_key: string, state: string }[]
+
+  it('an amend while the answer task of the older card body is still queued leaves exactly one live answer task, keyed by the new body', () => {
+    const bench = answerBench()
+    bench.started(1146)
+    admitBody(bench, 1146, 'aaaa1111')
+    bench.gitHub.open({ number: 1046, review: 'failure' })
+    bench.tick()
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: `${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`, state: 'queued' }])
+
+    admitBody(bench, 1146, 'bbbb2222')
+    bench.tick()
+
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: `${answer(1146, 1046, sha('a'))}:card-body-bbbb2222`, state: 'queued' }])
+    expect(taskState(bench.db, `${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`).state).toBe('superseded')
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('an admission that arrives while a plain-key answer task is leased supersedes it and leaves exactly one live answer task', () => {
+    const bench = answerBench()
+    bench.started(1147)
+    bench.gitHub.open({ number: 1047, review: 'failure' })
+    bench.tick()
+    const leased = bench.leaseAnswer()!
+    expect(leased.taskKey).toBe(answer(1147, 1047, sha('a')))
+
+    admitBody(bench, 1147, 'cccc3333')
+    bench.tick()
+
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: `${answer(1147, 1047, sha('a'))}:card-body-cccc3333`, state: 'queued' }])
+    expect(taskState(bench.db, answer(1147, 1047, sha('a'))).state).toBe('superseded')
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('an answer task whose key carries a card body is withdrawn when its pull request closes', () => {
+    const bench = answerBench()
+    bench.started(1148)
+    admitBody(bench, 1148, 'dddd4444')
+    bench.gitHub.open({ number: 1048, review: 'failure' })
+    bench.tick()
+    const key = `${answer(1148, 1048, sha('a'))}:card-body-dddd4444`
+    expect(taskState(bench.db, key).state).toBe('queued')
+
+    bench.gitHub.close(1048, false)
+    bench.tick()
+
+    expect(taskState(bench.db, key).state).toBe('withdrawn')
+    expect(liveAnswerTasks(bench)).toEqual([])
+    bench.close()
+  })
+
   it('a card with changes on its head and a question.agent stop gets one answer task, not two', () => {
     const bench = answerBench()
     bench.gitHub.open({ number: 990, review: 'failure' })

@@ -1,7 +1,7 @@
 import type { AuthorityRule } from '../../bus/policy.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
+import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { importJournal } from '../../bus/import.js'
@@ -10,7 +10,7 @@ import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
 import { changesRoundsOf, closedByRounds, REVIEW_ROUNDS } from '../../bus/queue.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../bus/review-worker.js'
-import { dryRunHoldsAt, roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
+import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { cleanUpdatesOf } from '../../bus/update-done.js'
 import { manualUpdateDone } from '../../bus/update-executor.js'
 import { cardBody, sha } from './github-fake.js'
@@ -239,6 +239,18 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(dryRunHoldsAt(HEAD, sha('1'), observed, [])).toBe(false)
     expect(dryRunHoldsAt(HEAD, sha('e'), observed, [])).toBe(false)
     expect(dryRunHoldsAt('abc', sha('b'), observed, [])).toBe(false)
+  })
+
+  it('one push is one observed head: the head pr.opened recorded counts, so a dry-run there holds across the push to the next observed head', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 1087, pr: 987, head: sha('1'), dedupeKey: `${PR_OPENED}:1087:987`, payload: { pr: 987 }, legacy: false })
+    bench.gitHub.open({ number: 987, review: 'success', head: sha('b') })
+    bench.tick()
+
+    const observed = observedHeadsOf(bench.db, 987)
+    expect(observed).toEqual([sha('1'), sha('b')])
+    expect(dryRunHoldsAt(sha('1'), sha('b'), observed, [])).toBe(true)
   })
 
   it('a manual update-branch of PR #919 from 4a4dcb5a to b808b64a queues the merge with no new decisions:add', () => {
