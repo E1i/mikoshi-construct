@@ -2,6 +2,7 @@ import type { AnswerOutcome } from '../../bus/answer-executor.js'
 import type { AnswerNodeParts, AnswerRun, AnswerStep } from '../../bus/answer-worker.js'
 import type { Answered, Answerer } from '../../bus/answerer.js'
 import type { CardTreeTools } from '../../bus/card-tree.js'
+import type { LastHeartbeat } from '../../bus/heartbeat.js'
 import type { Lease } from '../../bus/lease.js'
 import type { DetectionMode, Scope } from '../../bus/node.js'
 import type { AnswerInput } from '../../bus/prompt-store.js'
@@ -19,6 +20,7 @@ import { AnswerNode, answerNodeOf } from '../../bus/answer-worker.js'
 import { answerPrompt, claudeAnswerer, tokensOf } from '../../bus/answerer.js'
 import { DROPPED_LANE } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
+import { busSessionPulse, lastHeartbeat } from '../../bus/heartbeat.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../bus/queue.js'
@@ -350,6 +352,30 @@ describe('the answer node', () => {
     }
   })
 
+  it('an answering session has a session.heartbeat while it lives', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const answers = path.join(trees, 'answers')
+    const seen: (LastHeartbeat | null)[] = []
+    const answerer = claudeAnswerer(answers, {
+      cardText: () => null,
+      available: () => true,
+      remoteHead: () => sha('a'),
+      spawn: async (run) => {
+        seen.push(lastHeartbeat(made.db, 905))
+        writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
+        return 0
+      },
+      newSession: () => 'new-session-1',
+      publish: () => {},
+      pulse: busSessionPulse(made.db.location()!, made.clock.now, () => ({})),
+    })
+    const held = lease()
+    expect(lastHeartbeat(made.db, 905)).toBeNull()
+    await answerer({ lease: held, source: { kind: 'question', detail: OWNER_QUESTION, widen: null, events: [] }, widened: null, card: { session: 'card-session-1', worktree: path.join(trees, 'mc-905'), branch: 'feat/card-905' } })
+    expect(seen).toEqual([{ ts: made.clock.now().toISOString(), pr: null, head: null, step: 'answer', session: 'card-session-1' }])
+  })
+
   it('card.answered carries the minutes and tokens of the answer session', async () => {
     const made = bench()
     const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
@@ -361,6 +387,53 @@ describe('the answer node', () => {
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', resumed: true, source: 'question', from: sha('a'), to: sha('e'), minutes: 7.5, tokens: 48_200 }])
+  })
+
+  it('a session that exits on the context threshold with no new head is retried once in a new session', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const contexts = new Map<string, number>([['card-session-1', 120_000]])
+    const runs: string[][] = []
+    const heads = [sha('a'), sha('a'), sha('a'), sha('e')]
+    const answerer = claudeAnswerer(path.join(trees, 'answers'), {
+      cardText: () => null,
+      available: () => true,
+      remoteHead: () => heads.shift() ?? null,
+      spawn: async (run) => {
+        runs.push(run.argv)
+        const session = run.argv.includes('--resume') ? 'card-session-1' : 'new-session-1'
+        contexts.set(session, session === 'card-session-1' ? 201_662 : 40_000)
+        writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'ended' })}\n`)
+        return 0
+      },
+      newSession: () => 'new-session-1',
+      publish: () => {},
+      context: session => contexts.get(session) ?? null,
+      contextWarn: () => 200_000,
+      diff: () => 'diff --git a/x b/x',
+    })
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', session: 'new-session-1', resumed: false, head: sha('e') })
+    expect(runs.map(argv => argv.includes('--resume'))).toEqual([true, false])
+    expect(eventsOf(made.db, CARD_STOPPED).map(each => each.reason)).toEqual(['question.agent'])
+    expect(eventsOf(made.db, CARD_ANSWERED)).toMatchObject([{ session: 'new-session-1', resumed: false }])
+  })
+
+  it('a retried session that exits on the context threshold again stops the card as a fault', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const requests: Parameters<Answerer>[0][] = []
+    const answerer: Answerer = async (request) => {
+      requests.push(request)
+      return { session: request.fresh === true ? 'new-session-1' : 'card-session-1', resumed: request.fresh !== true, atContextWarn: true, before: sha('a'), after: sha('a'), owner: null }
+    }
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'stopped', reason: 'fault' })
+    expect(requests.map(request => request.fresh)).toEqual([false, true])
   })
 
   it('the session input is rebuilt from card.answered alone with no handoff directory', async () => {

@@ -40,6 +40,8 @@ export function parseIncluded(output: string): GhResponse {
 
 export type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse
 
+export type CommandResult = { ok: boolean, status: number } | { ok: false, error: string } | { ok: true }
+
 function technical(endpoint: string, result: GhCall): GhResponse {
   if (result.kind === 'failed' && result.cause === 'budget')
     return { status: BUDGET_SPENT_STATUS, headers: { 'retry-after': String(result.retryAfterSeconds ?? 0) }, body: { message: `gh api ${endpoint}: ${result.reason}` } }
@@ -62,6 +64,14 @@ export function ghApi(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHub {
   return endpoint => included(port, cwd, ['--method', 'GET', endpoint], endpoint)
 }
 
+function withFields(method: 'PUT' | 'POST', cwd: string, port: GhPort): GitHubPut {
+  return (endpoint, fields) => included(port, cwd, ['--method', method, endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])], endpoint)
+}
+
 export function ghApiPut(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut {
-  return (endpoint, fields) => included(port, cwd, ['--method', 'PUT', endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])], endpoint)
+  return withFields('PUT', cwd, port)
+}
+
+export function ghApiPost(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut {
+  return withFields('POST', cwd, port)
 }

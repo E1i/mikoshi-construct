@@ -18,12 +18,13 @@ import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS, windowGauges
 import { DROPPED_LANE, MERGED_CARD } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, defaultBusPath, openBus } from '../../bus/db.js'
-import { recordHeartbeat, recordProcessHeartbeat } from '../../bus/heartbeat.js'
+import { busSessionPulse, recordHeartbeat, recordProcessHeartbeat } from '../../bus/heartbeat.js'
 import { importJournal } from '../../bus/import.js'
 import { RESTART_MISSED } from '../../bus/inbox.js'
-import { completeTask, leaseNext } from '../../bus/lease.js'
+import { completeTask, leaseNext, leaseWhileFree } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { queueTask } from '../../bus/queue.js'
+import { busReviewPulse } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { windowShardEnded } from '../../bus/shards.js'
 import { recordJudged } from '../../bus/supervisor.js'
@@ -419,10 +420,10 @@ describe('the factory board', () => {
 
   it('the projection beside pulse gives the latest context and spent of each card', () => {
     const bench = boardBench()
-    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null, gauges: { context: 100_000, spent: 900_000 } })
+    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null }, () => ({ context: 100_000, spent: 900_000 }))
     bench.clock.advance(1000)
-    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null, gauges: { context: 120_000, spent: 1_000_000 } })
-    recordHeartbeat(bench.db, bench.ts(), { card: 871, pr: null, head: null, step: 'implement', session: 's-871', lease: null, gauges: { spent: 50 } })
+    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null }, () => ({ context: 120_000, spent: 1_000_000 }))
+    recordHeartbeat(bench.db, bench.ts(), { card: 871, pr: null, head: null, step: 'implement', session: 's-871', lease: null }, () => ({ spent: 50 }))
     expect(cardGauges(bench.db)).toEqual([
       { card: 870, ts: bench.ts(), context: 120_000, spent: 1_000_000 },
       { card: 871, ts: bench.ts(), context: null, spent: 50 },
@@ -443,10 +444,28 @@ describe('the factory board', () => {
     expect(windowGauges(bench.db)).toBeNull()
   })
 
+  it('review and answer tiles show the context and spent bars', () => {
+    const bench = boardBench()
+    const busPath = bench.db.location()!
+    const measured = { context: 80_000, spent: 400_000 }
+    const review = leaseWhileFree(bench.db, bench.ts(), { queue: 'review', cardId: 880, pr: 980, head: sha('8') }, 'worker:review:node-1', 1)!
+    const answer = leaseWhileFree(bench.db, bench.ts(), { queue: 'answer', cardId: 881 }, 'worker:answer:node-1', 1)!
+    busReviewPulse(busPath, bench.clock.now, () => {}, () => measured)(review, 'reviewer-880')
+    busSessionPulse(busPath, bench.clock.now, () => measured)(answer, 'answer-881')
+    const written: string[] = []
+    expect(printBoard(busPath, bench.clock.now(), text => written.push(text))).toBe(0)
+    const tiles = written.join('').split('<div class="svc" ').slice(1)
+    for (const [role, task] of [['review', '#880'], ['answer', '#881']]) {
+      const sessionTile = tiles.find(each => each.startsWith(`data-role="${role}"`) && each.includes(`>${task}<`) && each.includes(' · pulse '))
+      expect(sessionTile, role).toContain('<span class="edd-k">ctx</span>')
+      expect(sessionTile, role).toContain('<span class="edd-k">spent</span>')
+    }
+  })
+
   it('a card whose heartbeat carries no fields has no bar', () => {
     const bench = boardBench()
     recordHeartbeat(bench.db, bench.ts(), { card: 872, pr: null, head: null, step: 'implement', session: 's-872', lease: null })
-    recordHeartbeat(bench.db, bench.ts(), { card: 873, pr: null, head: null, step: 'implement', session: 's-873', lease: null, gauges: {} })
+    recordHeartbeat(bench.db, bench.ts(), { card: 873, pr: null, head: null, step: 'implement', session: 's-873', lease: null }, () => ({}))
     expect(cardGauges(bench.db)).toEqual([])
     expect(bench.tick().gauges).toEqual([])
   })
@@ -622,6 +641,9 @@ describe('the factory board', () => {
     decisionRow(bench, GOAL_DECISION, '[owner] 0.44 scope is the list')
     const written: string[] = []
     expect(printBoard(bench.db.location()!, bench.clock.now(), text => written.push(text))).toBe(0)
-    expect(written.join('')).toContain('<h2 id="h-flow">Flow</h2></div>\n<div class="flow">\n<p class="goal">goal · release 0.44 · — · merged 1/2 · planned 1 · in work 0 · review 0 · answer 0 · ready 0 · stopped 0</p>\n<div class="stage"><span class="n">1</span><span class="name">planned</span>')
+    const page = written.join('')
+    expect(page).toContain('<div class="goal" id="slot-goal"><div class="goal-top"><span class="goal-k">goal</span><span class="goal-name">release 0.44</span><span class="goal-n">1<small> / 2 merged · 1 dropped</small></span></div>')
+    expect(page).toContain('<div class="bar" role="img" aria-label="Plan progress by stage"><i class="sw" data-stage="merged" style="--_n: 1" title="merged: 1"></i><i class="sw" data-stage="planned" style="--_n: 1" title="planned: 1"></i><i class="sw" data-stage="dropped" style="--_n: 1" title="dropped: 1"></i></div>')
+    expect(page).toContain('<h2 id="h-flow">Flow</h2><span class="meta">legend of the goal bar</span></div>\n<div class="flow">\n<div class="stage"><i class="sw" data-stage="merged"></i><span class="name">merged</span><span class="n">1</span></div>')
   })
 })

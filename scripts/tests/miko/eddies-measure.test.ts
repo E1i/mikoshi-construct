@@ -116,12 +116,12 @@ describe('sessionGauges measures a session from its transcript by the hook funct
     expect(sessionGauges(dir, dir, session)).toEqual({ reason: NO_TRANSCRIPT })
   })
 
-  it('an empty measure names its reason: a transcript it cannot read is unread', () => {
+  it('an empty measure names its reason: a transcript it cannot read is unread, beside the message of the error reading it threw', () => {
     const dir = scratch()
     const file = transcript(dir, [usageLine('2026-10-15T00:00:00.000Z', 'r1', { input: 1 })])
     rmSync(file)
     mkdirSync(file)
-    expect(sessionGauges(dir, dir, SESSION)).toEqual({ reason: GAUGES_UNREAD })
+    expect(sessionGauges(dir, dir, SESSION)).toEqual({ reason: GAUGES_UNREAD, error: 'EISDIR: illegal operation on a directory, read' })
   })
 })
 

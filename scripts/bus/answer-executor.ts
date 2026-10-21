@@ -78,6 +78,14 @@ function measurementOf(answered: Answered, minutes: number): { minutes: number, 
   return answered.tokens === undefined ? {} : { minutes, tokens: answered.tokens }
 }
 
+function leftNoNewHead(answered: Answered): boolean {
+  return answered.after === null || answered.after === answered.before
+}
+
+function endedOnContextWarn(answered: Answered | AnswerDenial): answered is Answered {
+  return !('kind' in answered) && answered.atContextWarn === true && answered.owner === null && leftNoNewHead(answered)
+}
+
 export class AnswerExecutor {
   constructor(private readonly parts: AnswerParts) {}
 
@@ -108,7 +116,8 @@ export class AnswerExecutor {
       if ('kind' in card)
         return this.denied(lease, card)
       const sessionStart = this.parts.clock().getTime()
-      const answered = await this.session(lease, source, widened, card)
+      const first = await this.session(lease, source, widened, card, false)
+      const answered = endedOnContextWarn(first) ? await this.session(lease, source, widened, card, true) : first
       if ('kind' in answered)
         return this.denied(lease, answered)
       return this.settled(lease, source, widened, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
@@ -137,9 +146,9 @@ export class AnswerExecutor {
     }
   }
 
-  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession): Promise<Answered | AnswerDenial> {
+  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean): Promise<Answered | AnswerDenial> {
     try {
-      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card })
+      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh })
     }
     catch (error) {
       return { kind: 'technical', reason: error instanceof CardTreeGone ? 'card_tree_gone' : 'answer_failed', detail: messageOf(error) }

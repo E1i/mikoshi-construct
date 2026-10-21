@@ -4,6 +4,7 @@ import type { StatusPublisher } from '../ports/github-status.js'
 import type { IsolationReader } from '../ports/isolation.js'
 import type { DryRunRecord } from './dry-run-record.js'
 import type { GitHub } from './github.js'
+import type { SessionMeasure } from './heartbeat.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode, Scope } from './node.js'
 import type { QueuedTask } from './queue.js'
@@ -25,12 +26,12 @@ import { defaultParking } from '../ghosts/handoff-check.js'
 import { ghStatusPublisher } from '../ports/github-status.js'
 import { realIsolationReader } from '../ports/isolation.js'
 import { HEADLESS_FLAGS, spawnSession } from '../ports/session.js'
-import { BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
 import { keepDryRun } from './dry-run-record.js'
 import { ghApi } from './github.js'
-import { recordHeartbeat } from './heartbeat.js'
+import { busSessionPulse, measureSession } from './heartbeat.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
 import { expireLeases, leaseNext, leaseQueued } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
@@ -390,18 +391,9 @@ export function reviewBeatLine(lease: Lease, session: string, ts: string): strin
   return `${PREFIX}${lease.taskKey}: reviewer session ${session} is working, heartbeat at ${ts}`
 }
 
-export function busReviewPulse(busPath: string, clock: () => Date, say: (line: string) => void = console.log): SessionPulse {
-  return (lease, session) => {
-    const ts = clock().toISOString()
-    const db = openBus(busPath)
-    try {
-      recordHeartbeat(db, ts, { card: lease.cardId, pr: lease.pr, head: lease.head, step: lease.queue, session, lease: lease.leaseGen > 0 ? { taskKey: lease.taskKey, leaseGen: lease.leaseGen } : null })
-    }
-    finally {
-      db.close()
-    }
-    say(reviewBeatLine(lease, session, ts))
-  }
+export function busReviewPulse(busPath: string, clock: () => Date, say: (line: string) => void = console.log, measure: SessionMeasure = measureSession): SessionPulse {
+  const pulse = busSessionPulse(busPath, clock, measure)
+  return (lease, session) => say(reviewBeatLine(lease, session, pulse(lease, session)))
 }
 
 export function reviewIsolationCommand(): string[] {

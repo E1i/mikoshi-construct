@@ -2,14 +2,15 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ReviewStatus, StatusPublisher } from '../ports/github-status.js'
 import type { RerunMode } from './check-catalog.js'
 import type { BusEvent } from './db.js'
-import type { GitHub, GitHubPut } from './github.js'
+import type { CommandResult, GitHub, GitHubPut } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { TechnicalReason } from './record-verdict.js'
 import type { VerdictOnHead } from './snapshot.js'
-import { POLICY_DENIED, UPDATE_DONE } from '../core/events.js'
+import { COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, UPDATE_DONE } from '../core/events.js'
 import { REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { rerunOf, upToDateRequired } from './check-catalog.js'
+import { appendEvent } from './db.js'
 import { messageOf } from './errors.js'
 import { pollHead } from './head-poll.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
@@ -24,6 +25,9 @@ const REPO = 'repos/{owner}/{repo}'
 const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
 
 export const MERGES_WITHOUT_UPDATE = 'merges_without_update'
+const UPDATE_COMMAND = 'update_branch'
+
+export type UpdateCommand = typeof UPDATE_COMMAND | 'publish'
 
 export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE
 
@@ -150,6 +154,7 @@ export class UpdateExecutor {
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
+      this.allowed(lease)
       const refused = this.requested(lease)
       if (refused !== null)
         return this.denied(lease, refused)
@@ -202,15 +207,18 @@ export class UpdateExecutor {
   }
 
   private requested(lease: Lease): UpdateDenial | null {
+    let response
     try {
-      const response = this.parts.put(`${REPO}/pulls/${lease.pr}/update-branch`, { expected_head_sha: lease.head! })
-      if (response.status === STALE_HEAD_ON_UPDATE)
-        return technical('stale_head', `GitHub answered ${response.status}: the head of #${lease.pr} is no longer ${lease.head}`)
-      return response.status === UPDATED_STATUS ? null : technical('github_error', `GitHub answered ${response.status} to the update of #${lease.pr}`)
+      response = this.parts.put(`${REPO}/pulls/${lease.pr}/update-branch`, { expected_head_sha: lease.head! })
     }
     catch (error) {
+      this.executed(lease, UPDATE_COMMAND, { ok: false, error: messageOf(error) })
       return technical('github_error', messageOf(error))
     }
+    this.executed(lease, UPDATE_COMMAND, { ok: response.status === UPDATED_STATUS, status: response.status })
+    if (response.status === STALE_HEAD_ON_UPDATE)
+      return technical('stale_head', `GitHub answered ${response.status}: the head of #${lease.pr} is no longer ${lease.head}`)
+    return response.status === UPDATED_STATUS ? null : technical('github_error', `GitHub answered ${response.status} to the update of #${lease.pr}`)
   }
 
   private newHead(lease: Lease): string | null {
@@ -246,22 +254,32 @@ export class UpdateExecutor {
       this.parts.publish({ commit: to, state: STATE_OF_VERDICT[before.verdict], context: REVIEW_STATUS_CONTEXT, description: `carried from ${lease.head} by a clean update-branch` })
     }
     catch (error) {
+      this.executed(lease, 'publish', { ok: false, error: messageOf(error) })
       return { carried: null, why: messageOf(error), clean: true }
     }
+    this.executed(lease, 'publish', { ok: true })
     return { carried: before.verdict, clean: true }
   }
 
   private updated(lease: Lease, before: Before): UpdateOutcome {
     const to = this.newHead(lease)
     const carry = this.carry(lease, before, to)
-    const event: BusEvent = { ts: this.ts(), type: UPDATE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${UPDATE_DONE}:${lease.taskKey}`, payload: { from: lease.head, to, ...carry }, legacy: false }
+    const event: BusEvent = { ts: this.ts(), type: UPDATE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${UPDATE_DONE}:${lease.taskKey}`, payload: { from: lease.head, to, ...carry, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false }
     completeTask(this.parts.db, this.ts(), lease, [event])
     return { kind: 'updated', taskKey: lease.taskKey, from: lease.head!, to, carry }
   }
 
+  private allowed(lease: Lease): void {
+    appendEvent(this.parts.db, { ts: this.ts(), type: POLICY_ALLOWED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_ALLOWED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: UPDATE_COMMAND, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false })
+  }
+
+  private executed(lease: Lease, command: UpdateCommand, result: CommandResult): void {
+    appendEvent(this.parts.db, { ts: this.ts(), type: COMMAND_EXECUTED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${COMMAND_EXECUTED}:${lease.taskKey}:${lease.leaseGen}:${command}`, payload: { command, task_key: lease.taskKey, lease_gen: lease.leaseGen, ...result }, legacy: false })
+  }
+
   private denied(lease: Lease, denial: UpdateDenial): UpdateOutcome {
     const ts = this.ts()
-    const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'update_branch', ...denial }, legacy: false }
+    const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: UPDATE_COMMAND, ...denial }, legacy: false }
     if (WAIT_REASONS.has(denial.reason)) {
       releaseTask(this.parts.db, ts, lease, denial.reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
