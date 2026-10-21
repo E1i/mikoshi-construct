@@ -70,6 +70,15 @@ function beat(made: MergeBench, lease: Lease): void {
   recordHeartbeat(made.db, now(made), { card: CARD, pr: PR, head: HEAD, step: 'answer', session: 'session-1', lease: { taskKey: lease.taskKey, leaseGen: lease.leaseGen } })
 }
 
+function cardBeat(made: MergeBench): void {
+  recordHeartbeat(made.db, now(made), { card: CARD, pr: PR, head: HEAD, step: 'launch', session: 'session-1', lease: null })
+}
+
+function failUntilTheLast(made: MergeBench): void {
+  for (let failure = 1; failure < FAILURES_TO_STOP; failure += 1)
+    failTask(made.db, now(made), leaseNext(made.db, now(made), 'answer', 'worker:answer:a')!, { reason: 'answer_failed', withdraw: false })
+}
+
 function ofTask(made: MergeBench, type: string, key: string): number {
   return eventsOf(made.db, type).filter(payload => payload.task_key === key).length
 }
@@ -90,6 +99,7 @@ describe('one lease contract', () => {
     const made = mergeBench()
     benches.push(made)
     const key = queuedAnswer(made)
+    failUntilTheLast(made)
     const killed = leaseNext(made.db, now(made), 'answer', 'worker:answer:killed')!
     const taken: Lease[] = []
     const take = (): void => {
@@ -98,20 +108,20 @@ describe('one lease contract', () => {
       if (lease !== null)
         taken.push(lease)
     }
-    for (let beats = 0; beats * RENEW_MS <= 2 * LEASE_MS; beats += 1) {
-      beat(made, killed)
-      made.clock.advance(RENEW_MS)
-      take()
-    }
+    made.clock.advance(LEASE_MS - RENEW_MS)
+    cardBeat(made)
+    made.clock.advance(RENEW_MS + 1_000)
+    take()
     expect(taken).toEqual([])
 
-    made.clock.advance(LEASE_MS)
+    made.clock.advance(SILENT_MS)
     take()
     take()
     expect(taken).toHaveLength(1)
     completeTask(made.db, now(made), taken[0]!, [])
     expect(() => completeTask(made.db, now(made), killed, [])).toThrow(StaleLease)
     expect(ofTask(made, TASK_COMPLETED, key)).toBe(1)
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
     expect(taskState(made.db, key).state).toBe('completed')
   })
 
@@ -119,8 +129,7 @@ describe('one lease contract', () => {
     const made = mergeBench()
     benches.push(made)
     const key = queuedAnswer(made)
-    for (let failure = 1; failure < FAILURES_TO_STOP; failure += 1)
-      failTask(made.db, now(made), leaseNext(made.db, now(made), 'answer', 'worker:answer:a')!, { reason: 'answer_failed', withdraw: false })
+    failUntilTheLast(made)
     const last = leaseNext(made.db, now(made), 'answer', 'worker:answer:a')!
     beat(made, last)
 

@@ -181,6 +181,19 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(made.requests().run()).toEqual([{ kind: 'refused', request: twoPushes, detail: `the dry run ${DRY_RUN} is not of PR #${PR} at ${sha('c')}` }])
   })
 
+  it('a request on head H with a fresh pr.observed at H is accepted; on another head it is refused', () => {
+    const made = roundLimitedWithD186()
+    const { bench } = made
+    keepDryRun(path.join(made.root, 'dry-run-reviews'))(DRY_RUN, { pr: PR, head: HEAD })
+    const fresh = sha('b')
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: CARD, pr: PR, head: fresh, dedupeKey: `pr.observed:${PR}:${fresh}`, payload: { pr: PR, head: fresh, state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
+
+    const onTheFreshHead = ask(made, { kind: 'allow-merge', pr: PR, head: fresh, dry_run: DRY_RUN })
+    expect(made.requests().run()[0]).toMatchObject({ kind: 'done', request: onTheFreshHead })
+    const onAnotherHead = ask(made, { kind: 'allow-merge', pr: PR, head: HEAD, dry_run: DRY_RUN })
+    expect(made.requests().run()).toEqual([{ kind: 'refused', request: onAnotherHead, detail: `PR #${PR} is at ${fresh}, not ${HEAD}` }])
+  })
+
   it('an allow-merge request is refused before the round limit or without D-186 in force', () => {
     const made = room(liveBench())
     made.bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
