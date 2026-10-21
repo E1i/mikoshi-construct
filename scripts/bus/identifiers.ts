@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 export const HEAVY_RUNS = ['quality', 'vitest'] as const
 export type HeavyRun = typeof HEAVY_RUNS[number]
 
-export const QUEUES = ['review', 'update', 'merge', 'answer', 'launch', 'restart', 'close', ...HEAVY_RUNS] as const
+export const QUEUES = ['review', 'update', 'merge', 'answer', 'launch', 'restart', 'close', 'witness', ...HEAVY_RUNS] as const
 export type Queue = typeof QUEUES[number]
 
 const FIXED_ACTORS = new Set(['netwatch', 'reducer', 'owner', 'policy'])

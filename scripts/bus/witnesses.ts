@@ -20,7 +20,7 @@ export interface TreeRun {
 export interface TreeTask {
   acceptance: Witness[]
   invariants: Witness[]
-  harnessCommand: string
+  harnessCommand: string | null
   sketchSha: string | null
   changed: string[] | null
   witnessesDir: string
@@ -96,6 +96,8 @@ function harnessLogOf(witnessesDir: string): string {
 }
 
 function harnessRefusal(run: TreeRun, task: TreeTask, where: string): string | null {
+  if (task.harnessCommand === null)
+    return null
   const log = harnessLogOf(task.witnessesDir)
   rmSync(log, { force: true })
   const result = run.shell(task.harnessCommand, run.tree)
