@@ -1,10 +1,13 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../bus/bg.js'
 import type { InForceDecision } from '../../bus/decisions.js'
 import type { BusCode, MainAdvance, SupervisingParts } from '../../bus/supervisor.js'
+import { once } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { performance } from 'node:perf_hooks'
 import process from 'node:process'
+import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
 import { RUNNING_CARD } from '../../bus/card-automaton.js'
@@ -27,6 +30,19 @@ import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../core/gh.js'
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
 const SHARED_FILE = 'scripts/bus/db.ts'
 const SHARED_CODE: ReadonlySet<string> = new Set([SHARED_FILE])
+const WRITE_LOCK_MS = 5000
+const LOCKED_AT = '2026-10-21T12:00:00.000Z'
+const HOLDS_THE_WRITE_LOCK = `
+const { DatabaseSync } = require('node:sqlite')
+const { workerData } = require('node:worker_threads')
+const db = new DatabaseSync(workerData.file)
+db.exec('BEGIN IMMEDIATE')
+Atomics.store(workerData.signal, 0, 1)
+Atomics.notify(workerData.signal, 0)
+Atomics.wait(workerData.signal, 1, 0, workerData.holdMs)
+db.exec('COMMIT')
+db.close()
+`
 
 interface Kept {
   keeper: WorkerKeeper
@@ -417,6 +433,42 @@ describe('the supervisor keeps every switched-on worker alive', () => {
   it('the backoff stops growing at its ceiling', () => {
     expect(backoffMs(100)).toBe(KEEP_MAX_MS)
   })
+
+  it('a 5 s write lock raises no worker.down and the queues continue', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-lock-'))
+    roots.push(root)
+    const file = path.join(root, 'bus.db')
+    const supervisorDb = openBus(file)
+    const nodeDb = openBus(file)
+    const merge = workerLaunches(() => []).merge
+    const journal: Record<string, unknown>[] = []
+    const keeper = new WorkerKeeper({
+      wanted: () => [merge],
+      start: ok,
+      processes: () => [{ pid: 1, args: `node pnpm.cjs --silent ${launchName(merge)}` }],
+      reduce: () => [],
+      journal: entry => journal.push(entry),
+      down: down => recordWorkerDown(supervisorDb, LOCKED_AT, down),
+      now: () => 0,
+    })
+    const signal = new Int32Array(new SharedArrayBuffer(8))
+    const holder = new Worker(HOLDS_THE_WRITE_LOCK, { eval: true, workerData: { file, signal, holdMs: WRITE_LOCK_MS } })
+    const holderDone = once(holder, 'exit')
+    expect(Atomics.wait(signal, 0, 0, 10_000)).not.toBe('timed-out')
+
+    const started = performance.now()
+    const taken = leaseWhileFree(nodeDb, LOCKED_AT, { queue: 'merge', cardId: 1181 }, 'worker:merge:alive', 1)!
+    expect(performance.now() - started).toBeGreaterThan(WRITE_LOCK_MS / 2)
+    expect(keeper.step()).toEqual([])
+    await holderDone
+
+    completeTask(nodeDb, LOCKED_AT, taken, [])
+    expect(leaseWhileFree(nodeDb, LOCKED_AT, { queue: 'merge', cardId: 1182 }, 'worker:merge:alive', 1)).not.toBeNull()
+    expect(journal).toEqual([])
+    expect(supervisorDb.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(WORKER_DOWN)).toEqual({ n: 0 })
+    nodeDb.close()
+    supervisorDb.close()
+  }, WRITE_LOCK_MS * 4)
 })
 
 describe('the supervisor starts the launch node in the mode an owner decision allows', () => {
