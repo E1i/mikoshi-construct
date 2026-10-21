@@ -11,8 +11,9 @@ import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, writeBoardPage } from '../../bus/board-page.js'
-import { BOARD_FILE } from '../../bus/board.js'
+import { DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, writeBoardPage } from '../../bus/board-page.js'
+import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
+import { defaultBusPath } from '../../bus/db.js'
 import { SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const roots: string[] = []
@@ -155,7 +156,8 @@ describe('board.html', () => {
     const html = pageText(busPath)
     const limits = readEddiesLimits()
     const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
-    const allowed = [...busNumbers(busPath), ...Object.values(limits).filter(value => value !== null), ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
+    const warnLine = limits.warnRatio === null ? [] : [Math.round(limits.warnRatio * 100)]
+    const allowed = [...busNumbers(busPath), ...Object.values(limits).filter(value => value !== null), ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
     const counts = Array.from({ length: 6 }, (_, at) => at)
     const tokens = [...visibleText(html).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
     expect(tokens).toEqual(expect.arrayContaining(['182k', '250k', '1.4M', '3M']))
@@ -244,8 +246,95 @@ describe('board.html', () => {
     expect(html).toContain('<span class="n">1</span><span class="name">in work</span><span class="ids">#861</span>')
     for (const line of lines.slice(lines.indexOf('Services') + 1, -1))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
-    for (const part of lines.at(-1)!.split(' · '))
-      expect(html).toContain(`<span>${escaped(part)}</span>`)
+    const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
+    const statusline = html.slice(html.indexOf('<footer class="statusline">'))
+    expect(statusline).toContain(`<span>agents <b>${footer['agents at work']}</b></span>`)
+    expect(statusline).toContain(`<span>review queue <b>${footer['review queue']}</b></span>`)
+    expect(statusline).toContain(`last failure <b>${escaped(footer['last failure']!)}</b>`)
+  })
+
+  function sectionOf(html: string, start: string, end: string): string {
+    const from = html.indexOf(start)
+    expect(from, start).toBeGreaterThanOrEqual(0)
+    return html.slice(from, html.indexOf(end, from))
+  }
+
+  function liveBusCopy(): string {
+    const live = defaultBusPath()
+    if (!existsSync(live))
+      return seededBus()
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-live-'))
+    roots.push(root)
+    const copy = path.join(root, 'bus.db')
+    const db = new DatabaseSync(live, { readOnly: true })
+    try {
+      db.exec(`VACUUM INTO '${copy.replace(/'/g, '\'\'')}'`)
+    }
+    finally {
+      db.close()
+    }
+    return copy
+  }
+
+  it('a page rendered from a copy of the live bus carries every header, Services, Flow and status line element of the sketch', () => {
+    const html = pageText(liveBusCopy())
+    const limits = readEddiesLimits()
+    const header = sectionOf(html, '<p class="kv">', '</p>')
+    expect(header).toContain(`<span>model <b>v${readModelVersion()}</b></span>`)
+    expect(header).toMatch(/<span>written <b>[^<]+<\/b><\/span>/)
+    expect(header).toContain('<span>refresh <b>30s</b></span>')
+    expect(header).toMatch(/<span class="live"( data-stale)?>bus (live|stale)<\/span>/)
+    const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
+    expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b> \(bus records no capacity\)<\/span>/)
+    expect(services).toContain(`<span class="meta right edd-note">eddies: warn line <b>${Math.round(limits.warnRatio! * 100)}%</b></span>`)
+    const flowNote = sectionOf(html, '<div class="flow-note">', '</div>')
+    expect(flowNote).toMatch(/<span class="fail"( data-none)?>last failure <b>[^<]+<\/b><\/span>/)
+    const statusline = sectionOf(html, '<footer class="statusline">', '</footer>')
+    expect(statusline).toContain('<span class="mode">BOARD</span>')
+    expect(statusline).toMatch(/<span>subnet <b class="live"( data-stale)?>(pulse \d+ min|no pulse)<\/b><\/span>/)
+    expect(statusline).toMatch(/<span class="fail"( data-none)?>last failure <b>[^<]+<\/b><\/span>/)
+    expect(statusline).toContain('<span>geek mode <b>--geek</b></span>')
+    expect(statusline).toContain('<span class="cursor">construct board</span>')
+    expect(html).not.toContain('sample values')
+  })
+
+  it('a bus pulse older than the threshold shows bus stale, not blinking', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-stale-'))
+    roots.push(root)
+    const page = (minutes: number): string => pageText(writeBus(path.join(root, `bus-${minutes}.db`), { events: [{ ts: minutesAgo(minutes), type: 'netwatch.tick', card: null, payload: '{}' }] }))
+    const fresh = page(FRESH_MS / 60_000)
+    expect(fresh).toContain('<span class="live">bus live</span>')
+    expect(fresh).toContain(`<b class="live">pulse ${FRESH_MS / 60_000} min</b>`)
+    const stale = page(FRESH_MS / 60_000 + 1)
+    expect(stale).toContain('<span class="live" data-stale>bus stale</span>')
+    expect(stale).toContain(`<b class="live" data-stale>pulse ${FRESH_MS / 60_000 + 1} min</b>`)
+    expect(stale).not.toContain('bus live')
+    const style = /<style>([\s\S]*?)<\/style>/.exec(stale)![1]!
+    const live = /\n\.live \{([\s\S]*?)\n\}/.exec(style)![1]!
+    expect(live).toMatch(/&\[data-stale\] \{ --_fg: var\(--signal\); --_blink: none; \}/)
+    expect(live).toMatch(/&::before \{[^}]*animation: var\(--_blink\)/)
+    expect(pageText(writeBus(path.join(root, 'silent.db'), {}))).toContain('<span class="live" data-stale>bus stale</span>')
+  })
+
+  it('the blink stops under prefers-reduced-motion', () => {
+    const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
+    expect(style).toMatch(/@keyframes --animation-blink \{/)
+    expect(style).toMatch(/--_blink: --animation-blink /)
+    expect(style).toMatch(/\.cursor::after \{[^}]*animation: --animation-blink /)
+    const reduced = /@media \(prefers-reduced-motion: reduce\) \{([^}]*)\}/.exec(style)![1]!
+    const selectors = reduced.slice(0, reduced.indexOf('{')).split(',').map(selector => selector.trim())
+    expect(selectors).toEqual(expect.arrayContaining(['.live::before', '.statusline .cursor::after']))
+    expect(reduced).toContain('animation: none;')
+  })
+
+  it('the last failure is red in Flow and in the status line, and dim when there is none', () => {
+    const failed = pageText(seededBus([{ ts: minutesAgo(4), type: 'card.stopped', card: 861, payload: JSON.stringify({ reason: 'fault', detail: 'no pull request' }) }]))
+    const line = `<span class="fail">last failure <b>card #861 stopped on a fault at ${minutesAgo(4)}</b></span>`
+    expect(sectionOf(failed, '<div class="flow-note">', '</div>')).toContain(line)
+    expect(sectionOf(failed, '<footer class="statusline">', '</footer>')).toContain(line)
+    expect(pageText(seededBus())).toContain('<span class="fail" data-none>last failure <b>none</b></span>')
+    const style = /<style>([\s\S]*?)<\/style>/.exec(failed)![1]!
+    expect(style).toMatch(/\n\.fail \{\n {2}--_fg: var\(--signal\);/)
   })
 
   it('the page reads liveness from the bus pulse and lists no process', () => {

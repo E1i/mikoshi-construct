@@ -202,16 +202,27 @@ function sessionServices(events: BoardEvents, now: Date): BusService[] {
   return [...latest.values()]
 }
 
+const FAULT_REASON = 'fault'
+
+function isSessionDeath(row: EventRow): boolean {
+  return (row.dedupe_key ?? '').startsWith(SESSION_DEATH_KEY)
+}
+
 function isFailure(row: EventRow): boolean {
-  return row.type === CARD_FELL || (row.dedupe_key ?? '').startsWith(SESSION_DEATH_KEY)
+  return row.type === CARD_FELL || isSessionDeath(row) || payloadOf(row.payload).reason === FAULT_REASON
+}
+
+function failureOf(row: EventRow): string {
+  if (row.type === CARD_FELL)
+    return 'fell'
+  return isSessionDeath(row) ? 'lost its session' : 'stopped on a fault'
 }
 
 function lastFailure(events: BoardEvents): string | null {
   const row = [...events.of(CARD_FELL), ...events.of(CARD_STOPPED)].filter(isFailure).sort((a, b) => b.id - a.id)[0]
   if (row === undefined)
     return null
-  const what = row.type === CARD_FELL ? 'fell' : 'lost its session'
-  return `card #${row.card_id ?? '?'} ${what}${row.ts === null ? '' : ` at ${row.ts}`}`
+  return `card #${row.card_id ?? '?'} ${failureOf(row)}${row.ts === null ? '' : ` at ${row.ts}`}`
 }
 
 function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {

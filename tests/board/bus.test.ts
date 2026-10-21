@@ -61,6 +61,16 @@ describe('the board bus reader', () => {
     expect(read.failure).toBe(`card #1071 lost its session at ${ago(HOUR)}`)
   })
 
+  it('the last card.stopped with reason fault is the last failure', () => {
+    const read = facts({ events: [
+      { ts: ago(3 * HOUR), type: 'card.stopped', card: 1111, dedupe: 'card.stopped:session-end:launch:1111', payload: JSON.stringify({ reason: 'fault', detail: 'session ended' }) },
+      { ts: ago(2 * HOUR), type: 'card.stopped', card: 1181, dedupe: 'card.stopped:no-pull-request:launch:1181', payload: JSON.stringify({ reason: 'fault', detail: 'no pull request' }) },
+      { ts: ago(HOUR), type: 'card.stopped', card: 1182, payload: JSON.stringify({ reason: 'fault', detail: 'the answer session left it' }) },
+      { ts: ago(HOUR / 2), type: 'card.stopped', card: 1183, payload: JSON.stringify({ reason: 'question-owner', detail: 'a question' }) },
+    ] })
+    expect(read.failure).toBe(`card #1182 stopped on a fault at ${ago(HOUR)}`)
+  })
+
   it('names the step of each leased task: a review by its verdict, any other queue by its short head', () => {
     const services = facts({
       verdicts: [[9, 'changes'], [10, null]],
