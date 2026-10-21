@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GitHubPost } from '../../bus/pr-status.js'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -80,6 +80,10 @@ describe('the PR status check the bus sets', () => {
     const clock = new Clock()
     let status = 502
     const calls: string[] = []
+    const lines: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      lines.push(String(line))
+    })
     const post: GitHubPost = (endpoint) => {
       calls.push(endpoint)
       return { status, headers: {}, body: null }
@@ -87,12 +91,32 @@ describe('the PR status check the bus sets', () => {
     const { busTick } = composeBusTick(db, busPath, new FakeGitHub().client, post, clock.now, root)
     step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
     expect(busTick.run()?.poll.kind).toBe('ticked')
+    log.mockRestore()
+    expect(lines).toContain(`${PREFIX}PR #950 ${HEAD}: GitHub answered 502 to the status ${STATUS_CONTEXT}: review; nothing recorded, the step is posted again on the next run`)
     expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(0)
     status = 201
     clock.advance(TICK_MS)
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(calls).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, `repos/{owner}/{repo}/statuses/${HEAD}`])
     expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(1)
+    db.close()
+    vi.unstubAllEnvs()
+  })
+
+  it('the board a tick writes is projected after the statuses and shows what the same tick posted', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-status-'))
+    vi.stubEnv(HANDOFF_DIR_VARIABLE, root)
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    const clock = new Clock()
+    const post: GitHubPost = () => {
+      step(db, 'card.fell', null, { reason: 'posted' }, 'worker:launch:s4')
+      return { status: 201, headers: {}, body: null }
+    }
+    const { busTick, boardFile } = composeBusTick(db, busPath, new FakeGitHub().client, post, clock.now, root)
+    step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    expect(readFileSync(boardFile, 'utf8')).toContain('card #1091 fell')
     db.close()
     vi.unstubAllEnvs()
   })
