@@ -50,6 +50,7 @@ export interface SessionGauges {
   context?: number
   spent?: number
   reason?: typeof GAUGES_UNREAD | typeof NO_TRANSCRIPT
+  error?: string
 }
 
 export interface ExitReadings {
@@ -170,8 +171,8 @@ export function sessionGauges(home: string, root: string, session: string): Sess
     const parent = hookMeasure.readTranscript(root, transcript)
     return { context: hookMeasure.contextOf(parent.last), spent: spentWithAgents(root, transcript, parent.tokens) }
   }
-  catch {
-    return { reason: GAUGES_UNREAD }
+  catch (error) {
+    return { reason: GAUGES_UNREAD, error: error instanceof Error ? error.message.split('\n')[0]! : String(error) }
   }
 }
 
