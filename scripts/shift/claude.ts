@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import process from 'node:process'
-import { sessionEnv } from '../ghosts/session.js'
+import { sessionEnv } from '../ports/session.js'
 
 export const CLAUDE_VARIABLE = 'SHIFT_CLAUDE'
 

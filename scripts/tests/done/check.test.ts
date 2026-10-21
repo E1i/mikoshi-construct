@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { doneCheck } from '../../done/check.js'
-import { realShell } from '../../ghosts/preflight-trees.js'
+import { realShell } from '../../ports/worktree.js'
 
 const LEGACY = 'export function legacy(value: number): number {\n  return 0\n}\n'
 const REAL = 'function add(sum: number, item: number): number {\n  return sum + item\n}\n\nexport function total(items: number[]): number {\n  return items.reduce(add, 0)\n}\n'

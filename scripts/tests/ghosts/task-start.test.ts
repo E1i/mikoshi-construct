@@ -11,7 +11,7 @@ import { appendEvent, openBus } from '../../bus/db.js'
 import { slotsOf } from '../../bus/scheduler.js'
 import { CARD_ADMITTED, CARD_STARTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '../../core/events.js'
 import { readJournalFile, runTaskStart } from '../../ghosts/task-start.js'
-import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ghosts/worktree-home.js'
+import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ports/worktree-home.js'
 
 const SESSION = '0d538601-aaaa-bbbb-cccc-1234567890ab'
 const NOW = new Date('2026-10-02T08:00:00.000Z')

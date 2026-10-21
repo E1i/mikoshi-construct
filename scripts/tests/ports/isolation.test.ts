@@ -1,9 +1,9 @@
-import type { IsolationFacts } from '../../ghosts/isolation.js'
+import type { IsolationFacts } from '../../ports/isolation.js'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { commandWords, NO_ISOLATION, readIsolationFacts, realIsolationReader, runtimeIsolation, settingsPaths } from '../../ghosts/isolation.js'
+import { commandWords, NO_ISOLATION, readIsolationFacts, realIsolationReader, runtimeIsolation, settingsPaths } from '../../ports/isolation.js'
 
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>()

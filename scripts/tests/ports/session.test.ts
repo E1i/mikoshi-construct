@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, SessionCeilingReached, sessionEnv, sessionModelOf, spawnSession } from '../../ghosts/session.js'
+import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, SessionCeilingReached, sessionEnv, sessionModelOf, spawnSession } from '../../ports/session.js'
 
 function stubBinDir(script: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-session-bin-'))

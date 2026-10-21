@@ -1,8 +1,9 @@
-import type { Witness } from './preflight-static.js'
-import type { Shell, ShellResult } from './preflight-trees.js'
+import type { Shell, ShellResult } from '../ports/worktree.js'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { lastLine, stageSketch, tailLines } from './preflight-trees.js'
+import { lastLine, stageSketch, tailLines } from '../ports/worktree.js'
+
+export interface Witness { criterion: string, command: string }
 
 export type Refuse = (step: string, problem: string | null) => void
 export type Timer = <T>(name: string, run: () => T) => T

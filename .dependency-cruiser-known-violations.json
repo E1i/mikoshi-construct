@@ -1,6 +1,161 @@
 [
   {
     "type": "dependency",
+    "from": "scripts/bus/answer-worker.ts",
+    "to": "scripts/ghosts/handoff-check.ts",
+    "unresolvedTo": "../ghosts/handoff-check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/close-executor.ts",
+    "to": "scripts/ghosts/task-merged.ts",
+    "unresolvedTo": "../ghosts/task-merged.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/close-worker.ts",
+    "to": "scripts/ghosts/task-close.ts",
+    "unresolvedTo": "../ghosts/task-close.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/close-worker.ts",
+    "to": "scripts/ghosts/task-merged.ts",
+    "unresolvedTo": "../ghosts/task-merged.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/import.ts",
+    "to": "scripts/ghosts/handoff-check.ts",
+    "unresolvedTo": "../ghosts/handoff-check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/intake.ts",
+    "to": "scripts/ghosts/tasks.ts",
+    "unresolvedTo": "../ghosts/tasks.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/launch-worker.ts",
+    "to": "scripts/ghosts/handoff-check.ts",
+    "unresolvedTo": "../ghosts/handoff-check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/launch-worker.ts",
+    "to": "scripts/ghosts/journal.ts",
+    "unresolvedTo": "../ghosts/journal.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/launch-worker.ts",
+    "to": "scripts/ghosts/verdict.ts",
+    "unresolvedTo": "../ghosts/verdict.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/legacy-history.ts",
+    "to": "scripts/ghosts/approval.ts",
+    "unresolvedTo": "../ghosts/approval.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/bus/review-worker.ts",
+    "to": "scripts/ghosts/handoff-check.ts",
+    "unresolvedTo": "../ghosts/handoff-check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "bus-imports-no-ladder"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "scripts/bus/ladder-starter.ts",
     "to": "scripts/bus/launch-executor.ts",
     "unresolvedTo": "./launch-executor.js",
