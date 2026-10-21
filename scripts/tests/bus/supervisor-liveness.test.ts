@@ -980,7 +980,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     expect(judgedRows(db)).toHaveLength(2)
     expect(lastProcessBeats(db).find(beat => beat.process === SUPERVISOR_PROCESS)?.ts).toBe(at(SILENT_MS))
 
-    const writers = [...livenessSources(path.resolve(import.meta.dirname, '..', '..', '..'))].filter(([, text]) => text.includes('PROCESS_JUDGED') || text.includes('recordJudged')).map(([file]) => file)
+    const writers = [...livenessSources(path.resolve(import.meta.dirname, '..', '..', '..'))].filter(([, text]) => /type: (?:PROCESS_JUDGED|'process\.judged')/.test(text) || text.includes('recordJudged')).map(([file]) => file)
     expect(writers).toEqual([LIVENESS_JUDGE])
     db.close()
   })
