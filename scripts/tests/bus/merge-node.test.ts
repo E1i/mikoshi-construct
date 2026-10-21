@@ -1,3 +1,4 @@
+import type { CheckTest } from '../../bus/check-catalog.js'
 import type { MergeNodeParts } from '../../bus/merge-worker.js'
 import type { DetectionMode, Scope } from '../../bus/node.js'
 import type { MergeBench } from './merge-bench.js'
@@ -5,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { DROPPED_LANE, MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
+import { RERUN_VARIABLE, writeCatalog } from '../../bus/check-catalog.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { POLICY_DENIED } from '../../bus/inbox.js'
@@ -12,8 +14,9 @@ import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { CARD_CLOSED, keyOf, MERGE_CANDIDATES, mergeCandidates, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
-import { cardBody, sha } from './github-fake.js'
+import { CARD_CLOSED, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
+import { UpdateNode } from '../../bus/update-worker.js'
+import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
 
@@ -42,12 +45,63 @@ function bench(): MergeBench {
   return made
 }
 
-function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow'): ProbedMergeNode {
-  const parts: MergeNodeParts = { db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode, env: {} }
+function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow', env: NodeJS.ProcessEnv = {}): ProbedMergeNode {
+  const parts: MergeNodeParts = { db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode, env }
   return new ProbedMergeNode(parts)
 }
 
-async function once(node: MergeNode): Promise<void> {
+function updateNodeOf(made: MergeBench, env: NodeJS.ProcessEnv): UpdateNode {
+  return new UpdateNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env })
+}
+
+const BY_LAYERS = { [RERUN_VARIABLE]: 'by-layers' }
+const MERGE_PUT = `${REPO}/pulls/970/merge`
+
+function catalogTest(test: string, layer: string): CheckTest {
+  return { test, layer, kind: 'unit', what: '', witness: '' }
+}
+
+const CATALOG = [catalogTest('scripts/tests/bus/merge-node.test.ts', 'bus-core,bus:merge'), catalogTest('tests/cli.test.ts', 'src')]
+
+interface Moved {
+  mainFiles: string[]
+  mergeable?: string
+  upToDateRequired?: boolean
+  prFiles?: string[]
+  prRenamedFrom?: Record<string, string>
+  mainRenamedFrom?: Record<string, string>
+  commitsBeyondTheCompare?: number
+}
+
+const PR_FILES = ['scripts/bus/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/merge-rerun.md']
+
+function mainMovedUnder(made: MergeBench, moved: Moved): void {
+  writeCatalog(made.db, { tests: CATALOG, mutations: [] })
+  made.gitHub.upToDateRequired = moved.upToDateRequired ?? false
+  made.gitHub.main = MAIN_2
+  made.gitHub.mainFiles = { [MAIN_2]: moved.mainFiles }
+  made.gitHub.mainRenamedFrom = moved.mainRenamedFrom ?? {}
+  made.gitHub.commitsBeyondTheCompare = moved.commitsBeyondTheCompare ?? 0
+  made.gitHub.open({ number: 970, review: 'success', mergeable_state: moved.mergeable ?? 'behind', files: moved.prFiles ?? PR_FILES, renamedFrom: moved.prRenamedFrom })
+  made.tick()
+}
+
+async function mergeAndUpdate(made: MergeBench, env: NodeJS.ProcessEnv): Promise<string[]> {
+  const merge = nodeOf(made, 'live', env)
+  const update = updateNodeOf(made, env)
+  for (let round = 0; round < 2; round += 1) {
+    await once(merge)
+    await once(update)
+    made.tick()
+  }
+  return made.gitHub.puts.map(each => `${each.endpoint === MERGE_PUT ? 'merge' : 'update'} ${each.fields.sha ?? each.fields.expected_head_sha}`)
+}
+
+const UPDATED_THE_LEASED_HEAD = `update ${sha('a')}`
+const MERGED_THE_LEASED_HEAD = `merge ${sha('a')}`
+const MERGED_THE_UPDATED_HEAD = `merge ${sha('d')}`
+
+async function once(node: MergeNode | UpdateNode): Promise<void> {
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })
 }
@@ -280,5 +334,103 @@ describe('the merge node', () => {
       await once(node)
       expect({ detected: eventsOf(made.db, NODE_DETECTED).length, enqueued: enqueuedOf(made, mergeKey(970)), done: eventsOf(made.db, MERGE_DONE).length }, mode).toEqual(before)
     }
+  })
+})
+
+describe('the re-run mode of the merge node', () => {
+  it('the default mode updates and re-runs as now', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['src/cli.ts'] })
+
+    expect(await mergeAndUpdate(made, {})).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
+    expect(made.gitHub.pulls.get(970)).toEqual(expect.objectContaining({ head: sha('d'), baseSha: MAIN_2 }))
+  })
+
+  it('by layers, no overlap merges without a re-run', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['src/cli.ts'] })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([MERGED_THE_LEASED_HEAD])
+    expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto' })])
+  })
+
+  it('by layers, a change of main in a layer of the pull request updates it onto main and does not merge the old head', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['scripts/bus/db.ts'] })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
+    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ command: 'merge', reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
+  })
+
+  it('by layers, a clean pull request whose layers main changed is sent to the update node on a host that does not require an up-to-date branch', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['scripts/bus/db.ts'], mergeable: 'clean' })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
+  })
+
+  it('by layers, a host that requires an up-to-date branch keeps the update as now', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['src/cli.ts'], upToDateRequired: true })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
+  })
+
+  it('by layers, a clean pull request on a host that requires an up-to-date branch merges as now', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['scripts/bus/db.ts'], mergeable: 'clean', upToDateRequired: true })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([MERGED_THE_LEASED_HEAD])
+  })
+})
+
+describe('what by layers reads of main and of the pull request', () => {
+  const UPDATED_THEN_MERGED = [`update ${sha('a')}`, `merge ${sha('d')}`]
+  const SOURCE_ONLY = Array.from({ length: 300 }, (_, index) => `src/file-${index}.ts`)
+
+  it('by layers, a compare that lists the 300 files GitHub caps it at counts as an overlap and updates', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: SOURCE_ONLY })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
+    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('300 files') }))
+  })
+
+  it('by layers, 299 files of main outside the layers of the pull request still merge without a re-run', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: SOURCE_ONLY.slice(1) })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([`merge ${sha('a')}`])
+  })
+
+  it('by layers, a compare that lists fewer commits than total_commits counts as an overlap and updates', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['src/cli.ts'], commitsBeyondTheCompare: 1 })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
+    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('1 of 2 commits') }))
+  })
+
+  it('by layers, a file main renamed out of a layer of the pull request counts that layer', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['src/db.ts'], mainRenamedFrom: { 'src/db.ts': 'scripts/bus/db.ts' } })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
+    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
+  })
+
+  it('by layers, a file the pull request renamed out of a layer main changed counts that layer', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['scripts/bus/reducer.ts'], prFiles: ['src/db.ts'], prRenamedFrom: { 'src/db.ts': 'scripts/bus/db.ts' } })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
+    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
+  })
+
+  it('by layers, the same pull request without the rename merges without a re-run', async () => {
+    const made = bench()
+    mainMovedUnder(made, { mainFiles: ['scripts/bus/reducer.ts'], prFiles: ['src/db.ts'] })
+
+    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([`merge ${sha('a')}`])
   })
 })

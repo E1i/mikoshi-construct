@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Graph } from '../ci/layers.js'
+import type { Meter } from './meter.js'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,6 +9,7 @@ import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { defaultBusPath } from './db.js'
+import { MAIN_BRANCH } from './snapshot.js'
 import { openDatabase } from './sqlite.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
@@ -22,6 +24,19 @@ const RENDERED_PERCENT = '%'
 const SHELL_QUOTED_APOSTROPHE = /'\\''/g
 const WITNESSES_HEADING = /^Witnesses:/
 const NO_LAYER = 'none'
+const UNTESTED_FILE = /^\.changeset\//
+
+export const RERUN_VARIABLE = 'BUS_RERUN'
+export const RERUN_MODES = ['as-now', 'by-layers'] as const
+export type RerunMode = typeof RERUN_MODES[number]
+export type Rerun = { rerun: true, why: string } | { rerun: false, why: string }
+
+const REPO = 'repos/{owner}/{repo}'
+const MAIN_PROTECTION = `${REPO}/branches/${MAIN_BRANCH}/protection`
+const FILES_PAGE = 100
+const COMPARE_FILES_CAP = 300
+
+interface ListedFile { filename?: string, previous_filename?: string }
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS check_tests (
@@ -239,6 +254,109 @@ export function writeCatalog(db: DatabaseSync, catalog: Catalog): void {
     db.exec('ROLLBACK')
     throw error
   }
+}
+
+export function rerunModeOf(env: NodeJS.ProcessEnv): RerunMode {
+  const given = env[RERUN_VARIABLE]
+  if (given === undefined || given === '')
+    return 'as-now'
+  const mode = RERUN_MODES.find(each => each === given)
+  if (mode === undefined)
+    throw new Error(`${RERUN_VARIABLE} is not one of ${RERUN_MODES.join(' | ')}: ${given}`)
+  return mode
+}
+
+function catalogLayersByTest(db: DatabaseSync): Map<string, string[]> {
+  if (db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'check_tests'`).get() === undefined)
+    return new Map()
+  const rows = db.prepare('SELECT test, layer FROM check_tests').all() as unknown as { test: string, layer: string }[]
+  return new Map(rows.map(row => [row.test, row.layer.split(',').filter(layer => layer !== NO_LAYER)]))
+}
+
+function layersOfFile(file: string, byTest: ReadonlyMap<string, readonly string[]>): readonly string[] | null {
+  if (isTest(file)) {
+    const layers = byTest.get(file)
+    return layers === undefined || layers.length === 0 ? null : layers
+  }
+  const layer = layerOf(file)
+  return layer === null ? null : [layer]
+}
+
+export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], mainFiles: readonly string[]): string | null {
+  const tested = (files: readonly string[]): string[] => files.filter(file => !UNTESTED_FILE.test(file))
+  const pr = tested(prFiles)
+  const main = tested(mainFiles)
+  if (main.length === 0)
+    return null
+  const byTest = catalogLayersByTest(db)
+  if (byTest.size === 0)
+    return 'the check catalog is empty, so no layer can be told apart'
+  const unplaced = [...pr, ...main].find(file => layersOfFile(file, byTest) === null)
+  if (unplaced !== undefined)
+    return `${unplaced} belongs to no layer of the check catalog`
+  const prLayers = new Set(pr.flatMap(file => layersOfFile(file, byTest)!))
+  const mainLayers = new Set(main.flatMap(file => layersOfFile(file, byTest)!))
+  const shared = [...prLayers].sort().find(layer => mainLayers.has(layer))
+  if (shared !== undefined)
+    return `main changed the layer ${shared} since the base`
+  const both = [...byTest].sort(([a], [b]) => a.localeCompare(b)).find(([, layers]) => layers.some(layer => prLayers.has(layer)) && layers.some(layer => mainLayers.has(layer)))
+  return both === undefined ? null : `${both[0]} runs for a layer of the pull request and a layer main changed`
+}
+
+function listedFiles(meter: Meter, pr: number): ListedFile[] {
+  const files: ListedFile[] = []
+  for (let page = 1; ; page += 1) {
+    const listed = meter.get(`${REPO}/pulls/${pr}/files?per_page=${FILES_PAGE}&page=${page}`) as ListedFile[]
+    files.push(...listed)
+    if (listed.length < FILES_PAGE)
+      return files
+  }
+}
+
+function pathsOf(files: readonly ListedFile[]): string[] {
+  return files.flatMap(file => [file.filename, file.previous_filename].filter(name => name !== undefined))
+}
+
+export function changedFiles(meter: Meter, pr: number): string[] {
+  return listedFiles(meter, pr).flatMap(file => file.filename === undefined ? [] : [file.filename])
+}
+
+export function upToDateRequired(meter: Meter): boolean {
+  try {
+    const protection = meter.get(MAIN_PROTECTION) as { required_status_checks?: { strict?: boolean } | null }
+    return protection.required_status_checks?.strict !== false
+  }
+  catch {
+    return true
+  }
+}
+
+type MainSince = { kind: 'files', files: string[] } | { kind: 'truncated', why: string }
+
+function mainFilesSince(meter: Meter, base: string): MainSince {
+  const main = (meter.get(`${REPO}/commits/${MAIN_BRANCH}`) as { sha?: string }).sha
+  if (main === undefined || main === base)
+    return { kind: 'files', files: [] }
+  const compared = meter.get(`${REPO}/compare/${base}...${main}`) as { files?: ListedFile[], commits?: unknown[], total_commits?: number }
+  const files = compared.files ?? []
+  const listedCommits = compared.commits?.length ?? 0
+  if (files.length >= COMPARE_FILES_CAP)
+    return { kind: 'truncated', why: `the compare of ${base}...${main} lists ${files.length} files, the most GitHub returns, so more may be missing` }
+  if ((compared.total_commits ?? listedCommits) > listedCommits)
+    return { kind: 'truncated', why: `the compare of ${base}...${main} lists ${listedCommits} of ${compared.total_commits} commits, so its files may be missing some` }
+  return { kind: 'files', files: pathsOf(files) }
+}
+
+export function rerunOf(db: DatabaseSync, meter: Meter, pr: number, base: string | undefined): Rerun {
+  if (upToDateRequired(meter))
+    return { rerun: true, why: `${MAIN_BRANCH} requires an up-to-date branch on this host` }
+  if (base === undefined)
+    return { rerun: true, why: `#${pr} came back with no base sha` }
+  const main = mainFilesSince(meter, base)
+  if (main.kind === 'truncated')
+    return { rerun: true, why: main.why }
+  const overlap = overlapWithMain(db, pathsOf(listedFiles(meter, pr)), main.files)
+  return overlap === null ? { rerun: false, why: `nothing ${MAIN_BRANCH} changed since ${base} reaches a layer of #${pr}` } : { rerun: true, why: overlap }
 }
 
 export function readBriefs(dir: string): Brief[] {

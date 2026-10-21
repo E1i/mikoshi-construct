@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { StatusPublisher } from '../ghosts/verdict.js'
+import type { RerunMode } from './check-catalog.js'
 import type { BusEvent } from './db.js'
 import type { GitHub, GitHubPut } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
@@ -9,6 +10,7 @@ import { Buffer } from 'node:buffer'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
 import { MERGE_DONE } from './card-automaton.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
+import { changedFiles, rerunOf, upToDateRequired } from './check-catalog.js'
 import { appendEvent } from './db.js'
 import { messageOf } from './errors.js'
 import { isFullSha } from './identifiers.js'
@@ -16,20 +18,19 @@ import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
 import { mergePolicy, OWNER_MERGES, underOwnerDecision, VERSION_BRANCH } from './policy.js'
-import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit } from './queue.js'
+import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE } from './queue.js'
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, SHARD_USED, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
 export const MERGE_METHOD = 'squash'
 export const STALE_HEAD_STATUS = 409
-const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate'])
+const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE])
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
-const FILES_PAGE = 100
 const RUNS_PAGE = 100
 const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
 
-export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine'
+export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof NEEDS_UPDATE
 
 export type MergeDenial
   = | { kind: 'technical', reason: MergeTechnicalReason, detail: string }
@@ -47,6 +48,7 @@ export interface ExecutorParts {
   publish: StatusPublisher
   clock: () => Date
   run: string | null
+  rerun?: RerunMode
 }
 
 interface Pull {
@@ -54,7 +56,7 @@ interface Pull {
   state?: string
   merged?: boolean
   merge_commit_sha?: string | null
-  base?: { ref?: string }
+  base?: { ref?: string, sha?: string }
   title?: string
   body?: string | null
   mergeable_state?: string
@@ -65,16 +67,6 @@ type Checked = { kind: 'ready', facts: MergeFacts, mergedCommit: string | null, 
 
 function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
-}
-
-function changedFiles(meter: Meter, pr: number): string[] {
-  const files: string[] = []
-  for (let page = 1; ; page += 1) {
-    const listed = meter.get(`${REPO}/pulls/${pr}/files?per_page=${FILES_PAGE}&page=${page}`) as { filename?: string }[]
-    files.push(...listed.flatMap(file => file.filename === undefined ? [] : [file.filename]))
-    if (listed.length < FILES_PAGE)
-      return files
-  }
 }
 
 function ownerMergesText(meter: Meter): string {
@@ -138,7 +130,7 @@ export class MergeExecutor {
   }
 
   private noLongerACandidate(lease: Lease): MergeDenial | null {
-    if (mergeCandidates(this.parts.db, this.ts()).some(task => keyOf(task) === lease.taskKey))
+    if (mergeCandidates(this.parts.db, this.ts(), this.parts.rerun).some(task => keyOf(task) === lease.taskKey))
       return null
     const reviews = (this.parts.db.prepare(REVIEWS_IN_FLIGHT).all(lease.pr, lease.head) as { task_key: string }[]).map(row => row.task_key)
     const holder = reviews.length === 0 ? 'no review in flight' : `the review ${reviews.join(', ')} in flight`
@@ -160,7 +152,7 @@ export class MergeExecutor {
         const verdict = verdictOf(meter, lease.head!)
         if (verdict !== 'pass')
           decidedPastRoundLimit = mergeDecidedPastRoundLimit(this.parts.db, this.ts(), lease.pr, lease.head)
-        const unmergeable = decidedPastRoundLimit === null ? this.notClean(pull, lease) : null
+        const unmergeable = decidedPastRoundLimit === null ? this.notReady(meter, pull, lease) : null
         if (unmergeable !== null)
           return { kind: 'denied', denial: unmergeable }
         const ci = ciOf(meter, lease.head!)
@@ -222,6 +214,19 @@ export class MergeExecutor {
     if (pull.state === 'open' && pull.head?.sha === lease.head)
       return null
     return { kind: 'technical', reason: 'stale_head', detail: `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}` }
+  }
+
+  private notReady(meter: Meter, pull: Pull, lease: Lease): MergeDenial | null {
+    const unclean = this.notClean(pull, lease)
+    const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
+    if (this.parts.rerun !== 'by-layers' || (unclean !== null && mergeable !== 'behind'))
+      return unclean
+    if (unclean === null && upToDateRequired(meter))
+      return null
+    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha)
+    if (!rerun.rerun)
+      return null
+    return { kind: 'technical', reason: NEEDS_UPDATE, detail: `#${lease.pr} is updated onto ${MAIN_BRANCH} before it merges: ${rerun.why}` }
   }
 
   private notClean(pull: Pull, lease: Lease): MergeDenial | null {

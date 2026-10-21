@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { StatusPublisher } from '../ghosts/verdict.js'
+import type { RerunMode } from './check-catalog.js'
 import type { GitHub, GitHubPut } from './github.js'
 import type { Lease } from './lease.js'
 import type { MergeOutcome } from './merge-executor.js'
@@ -13,6 +14,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { ghStatusPublisher } from '../ghosts/verdict.js'
 import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
+import { rerunModeOf } from './check-catalog.js'
 import { defaultBusPath } from './db.js'
 import { DECISIONS_IMPORTED } from './decisions.js'
 import { ghApi, ghApiPut } from './github.js'
@@ -20,7 +22,7 @@ import { DECISION_RECORDED } from './inbox.js'
 import { MergeExecutor } from './merge-executor.js'
 import { Node, NodeRefused, runNode } from './node.js'
 import { CARD_ADMITTED, PR_OBSERVED } from './operator-work.js'
-import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from './queue.js'
+import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_BEHIND, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from './queue.js'
 import { REDUCED } from './reducer.js'
 import { DRY_RUN_ACTOR } from './review-worker.js'
 import { stampLogOutput } from './stamp.js'
@@ -77,10 +79,12 @@ function scopeOf(event: StoredEvent): Scope | undefined {
 
 export class MergeNode extends Node<MergeStep> {
   private readonly executor: MergeExecutor
+  private readonly rerun: RerunMode
 
   constructor(parts: MergeNodeParts) {
     super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
-    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run })
+    this.rerun = rerunModeOf(parts.env)
+    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun })
     this.subscribe(MERGE_ON, event => this.detectOn(event, scopeOf(event)))
   }
 
@@ -94,13 +98,14 @@ export class MergeNode extends Node<MergeStep> {
     const filter = [scope.pr ?? null, scope.pr ?? null, scope.cardId ?? null, scope.cardId ?? null]
     const rows = (query: string): MergeRow[] => this.db.prepare(scoped(query)).all(...filter) as unknown as MergeRow[]
     const decided = rows(MERGE_CANDIDATES_WITHOUT_PASS).filter(row => mergeDecidedPastRoundLimit(this.db, ts, row.pr, row.head) !== null)
-    return [...rows(MERGE_CANDIDATES), ...decided]
+    const behind = this.rerun === 'by-layers' ? rows(MERGE_CANDIDATES_BEHIND) : []
+    return [...rows(MERGE_CANDIDATES), ...behind, ...decided]
       .filter(row => !closedByRounds(this.db, ts, 'merge', row.pr, row.head))
       .map(row => ({ queue: 'merge', cardId: row.card_id, pr: row.pr, head: row.head }))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return mergeCandidates(this.db, ts)
+    return mergeCandidates(this.db, ts, this.rerun)
   }
 
   protected handle(lease: Lease): MergeStep {

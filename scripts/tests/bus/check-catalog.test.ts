@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildCatalog, kindOf, readBriefs, readParking, writeCatalog } from '../../bus/check-catalog.js'
+import { buildCatalog, kindOf, overlapWithMain, readBriefs, readParking, RERUN_VARIABLE, rerunModeOf, writeCatalog } from '../../bus/check-catalog.js'
 import { openDatabase } from '../../bus/sqlite.js'
 
 const roots: string[] = []
@@ -182,5 +182,49 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     expect(readBriefs(root)).toEqual([{ card: 12, text: 'b' }])
     expect(readParking(root)).toEqual([{ card: 5, text: 'card' }])
     expect(readBriefs(path.join(root, 'missing'))).toEqual([])
+  })
+})
+
+describe('the overlap of main\'s changes since the base with the layers of a pull request', () => {
+  function cataloged(): ReturnType<typeof openDatabase> {
+    const db = openDatabase(path.join(scratch(), 'bus.db'))
+    writeCatalog(db, { tests: [
+      { test: 'scripts/tests/bus/merge-node.test.ts', layer: 'bus-core,bus:merge', kind: 'unit', what: '', witness: '' },
+      { test: 'scripts/tests/bus/shared.test.ts', layer: 'bus:merge,bus:update', kind: 'unit', what: '', witness: '' },
+      { test: 'tests/cli.test.ts', layer: 'src', kind: 'unit', what: '', witness: '' },
+      { test: 'tests/orphan.test.ts', layer: 'none', kind: 'unit', what: '', witness: '' },
+    ], mutations: [] })
+    return db
+  }
+  const PR = ['scripts/bus/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/a.md']
+
+  it('finds none when main has not moved or moved only in a changeset, and none when no layer and no test is shared', () => {
+    const db = cataloged()
+    expect(overlapWithMain(db, PR, [])).toBeNull()
+    expect(overlapWithMain(db, PR, ['.changeset/b.md'])).toBeNull()
+    expect(overlapWithMain(db, PR, ['src/cli.ts', 'tests/cli.test.ts'])).toBeNull()
+  })
+
+  it('names the shared layer, or the test that runs for a layer of each side', () => {
+    const db = cataloged()
+    expect(overlapWithMain(db, PR, ['scripts/bus/db.ts'])).toBe('main changed the layer bus-core since the base')
+    expect(overlapWithMain(db, PR, ['scripts/bus/update-worker.ts'])).toBe('scripts/tests/bus/shared.test.ts runs for a layer of the pull request and a layer main changed')
+  })
+
+  it('counts a file no layer holds, a test the catalog does not place, or an empty catalog as an overlap', () => {
+    const db = cataloged()
+    expect(overlapWithMain(db, PR, ['README.md'])).toBe('README.md belongs to no layer of the check catalog')
+    expect(overlapWithMain(db, [...PR, 'tests/orphan.test.ts'], ['src/cli.ts'])).toBe('tests/orphan.test.ts belongs to no layer of the check catalog')
+    expect(overlapWithMain(db, [...PR, 'tests/new.test.ts'], ['src/cli.ts'])).toBe('tests/new.test.ts belongs to no layer of the check catalog')
+    expect(overlapWithMain(openDatabase(path.join(scratch(), 'bus.db')), PR, ['src/cli.ts'])).toBe('the check catalog is empty, so no layer can be told apart')
+  })
+})
+
+describe('the re-run mode', () => {
+  it('is as now unless the variable names by-layers, and refuses any other value', () => {
+    expect(rerunModeOf({})).toBe('as-now')
+    expect(rerunModeOf({ [RERUN_VARIABLE]: '' })).toBe('as-now')
+    expect(rerunModeOf({ [RERUN_VARIABLE]: 'by-layers' })).toBe('by-layers')
+    expect(() => rerunModeOf({ [RERUN_VARIABLE]: 'layers' })).toThrow(`${RERUN_VARIABLE} is not one of as-now | by-layers: layers`)
   })
 })
