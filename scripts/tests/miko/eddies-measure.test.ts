@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { appendExitLine, exitLineOf, projectRoot, realExitReadings, sessionGauges, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
+import { appendExitLine, exitLineOf, GAUGES_UNREAD, NO_TRANSCRIPT, projectRoot, realExitReadings, sessionGauges, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
 
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
@@ -109,11 +109,19 @@ describe('sessionGauges measures a session from its transcript by the hook funct
     { name: 'a session id that is not a plain id', session: '../x', projects: true },
     { name: 'a session with no transcript', session: 'session-absent', projects: true },
     { name: 'a home with no projects directory', session: SESSION, projects: false },
-  ])('with $name returns no gauges and throws nothing', ({ session, projects }) => {
+  ])('an empty measure names its reason: with $name it is no-transcript and throws nothing', ({ session, projects }) => {
     const dir = scratch()
     if (projects)
       transcript(dir, [usageLine('2026-10-15T00:00:00.000Z', 'r1', { input: 1 })])
-    expect(sessionGauges(dir, dir, session)).toEqual({})
+    expect(sessionGauges(dir, dir, session)).toEqual({ reason: NO_TRANSCRIPT })
+  })
+
+  it('an empty measure names its reason: a transcript it cannot read is unread', () => {
+    const dir = scratch()
+    const file = transcript(dir, [usageLine('2026-10-15T00:00:00.000Z', 'r1', { input: 1 })])
+    rmSync(file)
+    mkdirSync(file)
+    expect(sessionGauges(dir, dir, SESSION)).toEqual({ reason: GAUGES_UNREAD })
   })
 })
 

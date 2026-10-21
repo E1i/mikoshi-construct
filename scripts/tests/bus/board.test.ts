@@ -205,8 +205,8 @@ describe('the factory board', () => {
       expect(board.written).toBe(facts.at)
       expect(board.tickMs).toBe(TICK_MS)
       expect(board.slots.kv).toContain(`<span>written <b>${facts.at}</b></span>`)
-      const rows = [...board.slots.rows.matchAll(/<tr data-card="(\d+)" data-state="([^"]*)"/g)].map(match => ({ id: Number(match[1]), state: match[2] }))
-      expect(rows).toEqual(expect.arrayContaining(backlogCards(facts.cards, facts.at, true).map(card => ({ id: card.id, state: card.state ?? '—' }))))
+      const rows = [...board.slots.rows.matchAll(/<tr data-card="(\d+)" data-stage="([^"]*)"/g)].map(match => ({ id: Number(match[1]), stage: match[2] }))
+      expect(rows).toEqual(expect.arrayContaining(backlogCards(facts.cards, facts.at, true).map(card => ({ id: card.id, stage: card.stage }))))
       expect(rows).toHaveLength(backlogCards(facts.cards, facts.at, true).length)
       expect(board.slots.status).toContain(`<span>agents <b>${facts.services.length}</b></span>`)
       expect(board.slots.status).toContain(`<span>review queue <b>${facts.reviewQueue}</b></span>`)
@@ -622,6 +622,6 @@ describe('the factory board', () => {
     decisionRow(bench, GOAL_DECISION, '[owner] 0.44 scope is the list')
     const written: string[] = []
     expect(printBoard(bench.db.location()!, bench.clock.now(), text => written.push(text))).toBe(0)
-    expect(written.join('')).toContain('<h2 id="h-flow">Flow</h2></div>\n<div class="flow">\n<p class="goal">goal · release 0.44 · — · 1 of 2 merged</p>\n<div class="stage"><span class="n">1</span><span class="name">planned</span>')
+    expect(written.join('')).toContain('<h2 id="h-flow">Flow</h2></div>\n<div class="flow">\n<p class="goal">goal · release 0.44 · — · merged 1/2 · planned 1 · in work 0 · review 0 · answer 0 · ready 0 · stopped 0</p>\n<div class="stage"><span class="n">1</span><span class="name">planned</span>')
   })
 })

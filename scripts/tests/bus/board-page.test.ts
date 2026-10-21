@@ -286,7 +286,7 @@ describe('board.html', () => {
     writeBus(file, seed)
     const db = new DatabaseSync(file)
     try {
-      db.exec('ALTER TABLE card_bodies ADD COLUMN admission_event_id INTEGER; ALTER TABLE card_bodies ADD COLUMN text_sha TEXT NOT NULL DEFAULT \'\'; ALTER TABLE decisions ADD COLUMN scope TEXT')
+      db.exec('ALTER TABLE card_bodies ADD COLUMN admission_event_id INTEGER; ALTER TABLE card_bodies ADD COLUMN text_sha TEXT NOT NULL DEFAULT \'\'')
       db.exec('UPDATE card_bodies SET admission_event_id = (SELECT event_id FROM cards WHERE cards.card_id = card_bodies.card_id)')
       db.prepare('UPDATE card_bodies SET text_sha = ? WHERE card_id = 861').run(SECOND_CARD_SHA)
     }
@@ -379,17 +379,17 @@ describe('board.html', () => {
     printConstructBoard(ui, readBoard(path.dirname(busPath), { all: true, staleHours: 4, prs: undefined, readStdin: () => '', now: NOW, bus: busReaderAt(busPath, () => NOW) }))
     const expected = backlogOf(out.trimEnd().split('\n'))
     const html = pageText(busPath)
-    const rows = [...html.matchAll(/<tr data-card="(\d+)" data-state="([^"]*)"/g)].map(match => ({ card: match[1]!, state: match[2]! }))
+    const rows = [...html.matchAll(/<tr data-card="(\d+)" data-stage="([^"]*)"/g)].map(match => ({ card: match[1]!, state: match[2]! }))
     expect(rows).toEqual(expected)
     const states = [...new Set(expected.map(row => row.state))]
     expect(states.length).toBeGreaterThan(1)
     for (const state of states) {
-      expect(html).toContain(`<a class="chip" href="#show-${state}">${state}</a>`)
+      expect(html).toContain(`<a class="chip" href="#show-${state.replace(/\W/g, '_')}">${state}</a>`)
       expect(html).toContain(filterRule(state))
-      expect(filterRule(state)).toContain(`tr[data-card]:not([data-state="${state}"])`)
+      expect(filterRule(state)).toContain(`tr[data-card]:not([data-stage="${state}"])`)
     }
     expect(html).toContain('<a class="chip" href="#show-all">all</a>')
-    expect(html).toContain('<tr data-card="864" data-state="merged" data-open="card-864" tabindex="0" aria-haspopup="dialog"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td>#860</td><td>—</td>')
+    expect(html).toContain('<tr data-card="864" data-stage="merged" data-open="card-864" tabindex="0" aria-haspopup="dialog"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td>#860</td><td>—</td>')
   })
 
   it('every number on the page is in the bus or in eddies.json', () => {
@@ -434,6 +434,18 @@ describe('board.html', () => {
     ]))
     expect(spentOnly).not.toContain('<span class="edd-k">ctx</span>')
     expect(spentOnly).toContain('<div class="edd" data-hot><span class="edd-k">spent</span>')
+  })
+
+  it('a gauge above its limit is drawn in the refusal colour', () => {
+    const { contextLimit, sessionSpend } = readEddiesLimits()
+    const html = pageText(seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: contextLimit! + 25_000, spent: sessionSpend! }) },
+    ]))
+    expect(html).toContain('<div class="edd" data-over><span class="edd-k">ctx</span>')
+    expect(html).toContain('<div class="edd" data-hot><span class="edd-k">spent</span>')
+    const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    expect(style).toContain('&[data-over] { --_bar: var(--signal); --_value: var(--signal); }')
+    expect(style.indexOf('&[data-over]')).toBeGreaterThan(style.indexOf('&[data-hot]'))
   })
 
   it('the page takes its bars from the projection beside pulse and runs no heartbeat query of its own', () => {
@@ -683,13 +695,13 @@ describe('board.html', () => {
     const { html } = pageWithHandoff()
     const storage = new MemoryStorage()
     const before = boardWindow(html, storage)
-    before.location.hash = '#show-queued'
+    before.location.hash = '#show-planned'
     before.scroller.scrollTop = 120
     before.scroller.dispatch('scroll')
     before.click('TR', 'card-862')
-    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-queued', scroll: 120, open: 'card-862' })
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862' })
     const after = boardWindow(html, storage)
-    expect(after.location.hash).toBe('#show-queued')
+    expect(after.location.hash).toBe('#show-planned')
     expect(after.scroller.scrollTop).toBe(120)
     expect(after.dialog.open).toBe(true)
     expect(after.content.innerHTML).toBe(after.templates.get('dialog-card-862'))
@@ -729,7 +741,7 @@ describe('board.html', () => {
     const { html } = projectedWithHandoff()
     const storage = new MemoryStorage()
     const board = boardWindow(html, storage)
-    board.location.hash = '#show-queued'
+    board.location.hash = '#show-planned'
     board.scroller.scrollTop = 120
     board.scroller.dispatch('scroll')
     board.click('TR', 'card-862')
@@ -753,7 +765,7 @@ describe('board.html', () => {
     expect(board.dialog.open).toBe(true)
     expect(board.content.innerHTML).toBe(opened)
     expect(board.scroller.scrollTop).toBe(120)
-    expect(board.location.hash).toBe('#show-queued')
+    expect(board.location.hash).toBe('#show-planned')
     expect(storage.getItem(VIEW_KEY)).toBe(view)
     expect(board.currentTemplates().get('dialog-card-861')).toBe(templatesOf(fresh.slots.dialogs).get('dialog-card-861'))
     expect(board.elements.get('backlog')?.prepended.map(target => target.id) ?? []).toEqual(fresh.filters.filter(id => !idsOf(html).includes(id)))
