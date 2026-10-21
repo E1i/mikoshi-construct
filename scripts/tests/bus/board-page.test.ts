@@ -1,3 +1,4 @@
+import type { BusFacts } from '../../../src/commands/board/bus.js'
 import type { BusSeed, SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { BoardData, BoardFiles } from '../../bus/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,13 +7,14 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { busReaderAt } from '../../../src/commands/board/bus.js'
+import { busFacts, busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
+import { isLive } from '../../../src/commands/board/screens.js'
 import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
 import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
 import { defaultBusPath } from '../../bus/db.js'
 import { TICK_MS } from '../../bus/netwatch.js'
@@ -157,7 +159,9 @@ function idsOf(html: string): string[] {
 }
 
 const SLOT_ENDS: Record<string, string> = {
-  kv: '</p></div>\n</header>',
+  kv: '</p></div>\n<div class="goal"',
+  goal: '</div>\n</header>',
+  waits: '</div>\n<section class="panel" id="slot-services"',
   services: '\n</section>',
   flow: '\n</section>',
   backlog: '</div>\n<div class="scroll"',
@@ -498,7 +502,7 @@ describe('board.html', () => {
     const lines = constructBoardLines(busPath)
     const html = pageText(busPath)
     expect(lines).toContain('in work (1): #861')
-    expect(html).toContain('<span class="n">1</span><span class="name">in work</span><span class="ids"><button type="button" class="cid" data-open="card-861" tabindex="0" aria-haspopup="dialog">#861 ›</button></span>')
+    expect(html).toContain('<span class="name">in work</span><span class="n">1</span><span class="ids"><button type="button" class="cid" data-open="card-861" tabindex="0" aria-haspopup="dialog">#861 ›</button></span>')
     for (const line of lines.slice(lines.indexOf('Services') + 1, -1))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
     const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
@@ -551,6 +555,121 @@ describe('board.html', () => {
     expect(statusline).toContain('<span>geek mode <b>--geek</b></span>')
     expect(statusline).toContain('<span class="cursor">construct board</span>')
     expect(html).not.toContain('sample values')
+  })
+
+  function liveFacts(busPath: string): BusFacts {
+    const db = new DatabaseSync(busPath, { readOnly: true })
+    try {
+      return busFacts(db, NOW)
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  function numbersIn(html: string): number[] {
+    return [...visibleText(html).matchAll(/\d+/g)].map(match => Number(match[0]))
+  }
+
+  function planSize(facts: BusFacts, stage: string): number {
+    return facts.plan?.find(entry => entry.stage === stage)?.cards.length ?? 0
+  }
+
+  function planTotal(facts: BusFacts): number {
+    return (facts.plan ?? []).reduce((sum, entry) => sum + entry.cards.length, 0)
+  }
+
+  it('a page rendered from a copy of the live bus draws the goal bar and the Flow legend from the board facts and no number outside the bus', () => {
+    const busPath = liveBusCopy()
+    const facts = liveFacts(busPath)
+    const html = pageText(busPath)
+    const slots = slotsOf(html)
+    const flow = slots.get('flow')!
+    const goal = slots.get('goal')!
+    const byStage = facts.plan ?? CARD_STAGES.map(stage => ({ stage, cards: facts.cards.filter(card => isLive(card) && card.stage === stage).map(card => card.id) }))
+    const stages = PROGRESS_ORDER.map(stage => byStage.find(entry => entry.stage === stage)!)
+    expect(new Set(PROGRESS_ORDER)).toEqual(new Set(CARD_STAGES))
+    const legend = [...flow.matchAll(/<div class="stage"( data-empty)?><i class="sw" data-stage="([^"]+)"><\/i><span class="name">([^<]+)<\/span><span class="n">(\d+)<\/span>(?:<span class="ids">(.*?)<\/span>)?<\/div>/g)]
+    expect(legend.map(row => ({ stage: row[2], name: row[3], n: Number(row[4]), empty: row[1] !== undefined }))).toEqual(stages.map(entry => ({ stage: entry.stage, name: entry.stage, n: entry.cards.length, empty: entry.cards.length === 0 })))
+    for (const [at, row] of legend.entries()) {
+      const shown = [...(row[5] ?? '').matchAll(/#(\d+)/g)].map(match => Number(match[1]))
+      expect(shown, row[2]).toEqual(['merged', 'dropped'].includes(row[2]!) ? [] : stages[at]!.cards)
+    }
+    if (facts.goal === null || facts.plan === null) {
+      expect(goal).toBe('')
+    }
+    else {
+      const segments = [...goal.matchAll(/<i class="sw" data-stage="([^"]+)" style="--_n: (\d+)"/g)].map(match => ({ stage: match[1], n: Number(match[2]) }))
+      expect(segments).toEqual(stages.filter(entry => entry.cards.length > 0).map(entry => ({ stage: entry.stage, n: entry.cards.length })))
+      expect(segments.reduce((sum, segment) => sum + segment.n, 0)).toBe(planTotal(facts))
+      expect(goal).toContain(`<span class="goal-name">release ${facts.goal.release}</span>`)
+      expect(goal).toContain(`<span class="goal-n">${planSize(facts, 'merged')}<small> / ${planTotal(facts) - planSize(facts, 'dropped')} merged · ${planSize(facts, 'dropped')} dropped</small></span>`)
+    }
+    const allowed = new Set([...busNumbers(busPath), ...stages.map(entry => entry.cards.length), planTotal(facts), planTotal(facts) - planSize(facts, 'dropped')])
+    for (const number of [...numbersIn(goal), ...numbersIn(flow.slice(0, flow.indexOf('<div class="flow-note">')))])
+      expect(allowed.has(number), String(number)).toBe(true)
+    for (const drawn of [goal, flow, slots.get('waits')!]) {
+      expect(drawn).not.toContain('sample')
+      expect(drawn).not.toContain('factory for all users')
+    }
+  })
+
+  it('the goal bar paints each stage of the plan in its colour, and stopped hatched', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-goal-'))
+    roots.push(root)
+    const body = (id: number): string => `card: #${id} c${id} [implement/netwatch/S/cheap/owner] · depends — · blocks —\n\nPath (D-76): cheap — 0.44.`
+    const busPath = busWithRecords(path.join(root, 'bus.db'), {
+      cards: [
+        { id: 860, state: 'merged', lane: 'lane-1', line: 'card: #860 a', since: minutesAgo(30), text: body(860) },
+        { id: 861, state: 'running', lane: 'lane-1', line: 'card: #861 b', since: minutesAgo(20), text: body(861) },
+        { id: 862, state: 'stopped', lane: 'lane-1', line: 'card: #862 c', since: minutesAgo(10), text: body(862) },
+        { id: 863, state: 'dropped', lane: 'lane-1', line: 'card: #863 d', since: minutesAgo(5), text: body(863) },
+      ],
+      decisions: [[193, 'The goal is release 0.44.']],
+    })
+    const html = pageText(busPath)
+    const goal = slotsOf(html).get('goal')!
+    expect(goal).toContain('<span class="goal-n">1<small> / 3 merged · 1 dropped</small></span>')
+    expect(goal).toContain('<i class="sw" data-stage="merged" style="--_n: 1" title="merged: 1"></i><i class="sw" data-stage="in work" style="--_n: 1" title="in work: 1"></i><i class="sw" data-stage="stopped" style="--_n: 1" title="stopped: 1"></i><i class="sw" data-stage="dropped" style="--_n: 1" title="dropped: 1"></i>')
+    expect(slotsOf(html).get('flow')).toContain('<span class="meta">legend of the goal bar</span>')
+    const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    const sw = /\n\.sw \{([\s\S]*?)\n\}/.exec(style)![1]!
+    for (const stage of CARD_STAGES)
+      expect(sw, stage).toContain(`&[data-stage="${stage}"]`)
+    expect(sw).toMatch(/&\[data-stage="stopped"\] \{[^}]*--_paint: repeating-linear-gradient\(135deg/)
+  })
+
+  it('the waits-for-you strip is absent when the fact is empty', () => {
+    const busPath = seededBus()
+    expect(liveFacts(busPath).waits).toEqual([])
+    const html = pageText(busPath)
+    expect(slotsOf(html).get('waits')).toBe('')
+    expect(html).not.toContain('<section class="owner-strip"')
+    expect(visibleText(html)).not.toContain('waits for you')
+    const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    expect(style).toContain('.waits:empty { display: none; }')
+  })
+
+  it('the waits-for-you strip opens a waiting card and draws the version PR grey and inert', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-waits-'))
+    roots.push(root)
+    const busPath = busWithRecords(path.join(root, 'bus.db'), {
+      cards: [{ id: 870, state: 'stopped', lane: 'lane-1', line: 'card: #870 asks', since: minutesAgo(30) }],
+      prs: [{ pr: 669, card: null, state: 'open' }],
+      events: [{ ts: minutesAgo(20), type: 'card.stopped', card: 870, payload: JSON.stringify({ reason: 'question.owner', detail: 'which path?' }) }],
+    })
+    const html = pageText(busPath)
+    expect(html.indexOf('id="slot-goal"')).toBeLessThan(html.indexOf('id="slot-waits"'))
+    expect(html.indexOf('id="slot-waits"')).toBeLessThan(html.indexOf('id="slot-services"'))
+    expect(slotsOf(html).get('waits')).toBe([
+      '<section class="owner-strip" aria-label="Waits for you"><span class="lbl">waits for you</span>',
+      '<button type="button" class="ask" data-open="card-870" tabindex="0" aria-haspopup="dialog"><span class="kind">Q</span><span class="what">#870 — which path?</span><span class="open-hint">open ›</span></button>',
+      '<span class="ask" data-static><span class="kind">R</span><span class="what">version PR #669</span></span>',
+      '</section>',
+    ].join(''))
+    expect(templatesOf(html).has('dialog-card-870')).toBe(true)
+    const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    expect(/\n\.ask \{([\s\S]*?)\n\}/.exec(style)![1]).toContain('&[data-static] { --_what: var(--dim); }')
   })
 
   it('a bus pulse older than the threshold shows bus stale, not blinking', () => {

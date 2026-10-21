@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BusCard, BusFacts, BusMatrix, BusService } from '../../src/commands/board/bus.js'
+import type { BusCard, BusFacts, BusMatrix, BusService, CardStage, OwnerWait, PlanStage } from '../../src/commands/board/bus.js'
 import type { CardChain } from './card-chain.js'
 import type { CardFields } from './card-contract.js'
 import type { InForceDecision } from './decisions.js'
@@ -9,8 +9,8 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { busFacts, CARD_STAGES, FLOW_STATES } from '../../src/commands/board/bus.js'
-import { backlogCards, goalLines, isLive, matrixLines, pulseLines } from '../../src/commands/board/screens.js'
+import { busFacts, CARD_STAGES } from '../../src/commands/board/bus.js'
+import { backlogCards, isLive, matrixLines, pulseLines } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
 import { mikoHandoff } from '../miko/loop.js'
@@ -114,6 +114,9 @@ const CODE_SPAN = /`([^`]+)`/g
 const HANDOFF_LINE = /^([^\s#:*-][^:]*):(?: (.*))?$/
 const LIST_ITEM = /^\s*[-*]\s+/
 const PUNCH_DIGITS = 16
+const SETTLED_STAGES: readonly CardStage[] = ['merged', 'dropped']
+export const PROGRESS_ORDER: readonly CardStage[] = ['merged', 'ready', 'answer/changes', 'review', 'in work', 'planned', 'stopped', 'dropped']
+const WAIT_KINDS: Record<OwnerWait['kind'], string> = { question: 'Q', decision: 'D', version: 'R' }
 
 function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
@@ -272,18 +275,64 @@ function failureSpan(facts: BusFacts): string {
   return `<span class="fail"${facts.failure === null ? ' data-none' : ''}>last failure <b>${escaped(facts.failure ?? 'none')}</b></span>`
 }
 
+function liveStages(cards: BusCard[]): PlanStage[] {
+  const live = cards.filter(isLive)
+  return CARD_STAGES.map(stage => ({ stage, cards: live.filter(card => card.stage === stage).map(card => card.id) }))
+}
+
+function inProgressOrder(stages: PlanStage[]): PlanStage[] {
+  return PROGRESS_ORDER.flatMap(stage => stages.filter(entry => entry.stage === stage))
+}
+
+function flowStages(facts: BusFacts): PlanStage[] {
+  return inProgressOrder(facts.plan ?? liveStages(facts.cards))
+}
+
+function swatch(stage: CardStage, count?: number): string {
+  return `<i class="sw" data-stage="${escaped(stage)}"${count === undefined ? '' : ` style="--_n: ${count}" title="${escaped(stage)}: ${count}"`}></i>`
+}
+
+function legendRow(entry: PlanStage, page: BoardPage): string {
+  const ids = SETTLED_STAGES.includes(entry.stage) || entry.cards.length === 0 ? '' : `<span class="ids">${entry.cards.map(card => cardReference(card, page)).join('')}</span>`
+  return `<div class="stage"${entry.cards.length === 0 ? ' data-empty' : ''}>${swatch(entry.stage)}<span class="name">${escaped(entry.stage)}</span><span class="n">${entry.cards.length}</span>${ids}</div>`
+}
+
+function goalSlot(facts: BusFacts): string {
+  if (facts.goal === null || facts.plan === null)
+    return ''
+  const counted = (stage: CardStage): number => facts.plan!.find(entry => entry.stage === stage)?.cards.length ?? 0
+  const planned = facts.plan.reduce((sum, entry) => sum + entry.cards.length, 0)
+  const dropped = counted('dropped')
+  return [
+    `<div class="goal-top"><span class="goal-k">goal</span><span class="goal-name">release ${escaped(facts.goal.release)}</span>`,
+    `<span class="goal-n">${counted('merged')}<small> / ${planned - dropped} merged · ${dropped} dropped</small></span></div>`,
+    `<div class="bar" role="img" aria-label="Plan progress by stage">${inProgressOrder(facts.plan).filter(entry => entry.cards.length > 0).map(entry => swatch(entry.stage, entry.cards.length)).join('')}</div>`,
+  ].join('')
+}
+
+function waitText(wait: OwnerWait): string {
+  const target = wait.kind === 'version' ? `version PR #${wait.pr ?? '?'}` : wait.pr === null ? `#${wait.card ?? '?'}` : `PR #${wait.pr}`
+  return wait.detail === null ? target : `${target} — ${wait.detail}`
+}
+
+function waitItem(wait: OwnerWait, page: BoardPage): string {
+  const inner = `<span class="kind">${WAIT_KINDS[wait.kind]}</span><span class="what">${escaped(waitText(wait))}</span>`
+  return wait.card !== null && page.details.has(wait.card)
+    ? `<button type="button" class="ask"${opener(cardDialog(wait.card))}>${inner}${OPEN_HINT}</button>`
+    : `<span class="ask" data-static>${inner}</span>`
+}
+
+function waitsSlot(page: BoardPage): string {
+  const { waits } = page.facts
+  return waits.length === 0 ? '' : `<section class="owner-strip" aria-label="Waits for you"><span class="lbl">waits for you</span>${waits.map(wait => waitItem(wait, page)).join('')}</section>`
+}
+
 function flowSlot(page: BoardPage): string {
   const { facts } = page
-  const live = facts.cards.filter(isLive)
-  const stages = PLAIN_LORE.boardFlowColumns.map((title, column) => {
-    const ids = live.filter(card => FLOW_STATES[column]!.includes(card.state ?? '')).map(card => cardReference(card.id, page))
-    return `<div class="stage"${ids.length === 0 ? ' data-empty' : ''}><span class="n">${ids.length}</span><span class="name">${escaped(title)}</span><span class="ids">${ids.length === 0 ? NONE : ids.join(' · ')}</span></div>`
-  })
   return [
-    `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2></div>`,
+    `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2><span class="meta">${facts.plan === null ? 'live cards by stage' : 'legend of the goal bar'}</span></div>`,
     '<div class="flow">',
-    ...goalLines(facts, PLAIN_LORE).map(line => `<p class="goal">${escaped(line)}</p>`),
-    ...stages,
+    ...flowStages(facts).map(entry => legendRow(entry, page)),
     `<div class="flow-note"><span>review queue <b>${facts.reviewQueue}</b></span>${failureSpan(facts)}</div>`,
     '</div>',
   ].join('\n')
@@ -379,7 +428,9 @@ function headerPanel(page: BoardPage, slots: BoardSlots): string {
     `<div class="banner-wrap"><pre class="banner" aria-label="MIKOSHI">${escaped(BANNER.replace(/^\n/, ''))}</pre>`,
     `<p class="subtitle">${escaped(LORE.subtitle(page.version))}</p></div>`,
     `<div class="head-side"><p class="board-title">construct <span>board</span></p><p class="kv" id="${SLOT_PREFIX}kv">${slots.kv}</p></div>`,
+    `<div class="goal" id="${SLOT_PREFIX}goal">${slots.goal}</div>`,
     '</header>',
+    `<div class="waits" id="${SLOT_PREFIX}waits">${slots.waits}</div>`,
   ].join('\n')
 }
 
@@ -877,20 +928,79 @@ header.panel {
 .split { display: grid; gap: var(--space-m); align-items: start; grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr); }
 @container (inline-size <= 52rem) { .split { grid-template-columns: minmax(0, 1fr); } }
 .flow { padding: var(--space-xs) 0 0.625rem; }
-.goal { padding: var(--space-s) var(--space-m) 0; color: var(--ok); font: 700 0.75rem var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; }
-.stage {
-  --_n-bg: var(--wire);
-  --_n-fg: var(--void);
-  --_ids: var(--wire);
+.goal {
+  flex-basis: 100%;
   display: grid;
-  grid-template-columns: 2.125rem 1fr;
-  gap: 0 0.625rem;
+  gap: var(--space-s);
+  padding-block-start: 0.625rem;
+  border-block-start: 1px solid var(--line);
+  &:empty { display: none; }
+}
+.goal-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-s) 1rem; }
+.goal-k { color: var(--signal); font: 700 0.75rem var(--font-display); letter-spacing: 0.2em; text-transform: uppercase; }
+.goal-n {
+  margin-inline-start: auto;
+  font: 700 1.125rem var(--font-display);
+  letter-spacing: 0.06em;
+  & small { color: var(--dim); font: 400 0.6875rem var(--font-mono); letter-spacing: 0.04em; }
+}
+.bar {
+  display: flex;
+  gap: 2px;
+  block-size: 0.875rem;
+  padding: 2px;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  & .sw { flex: var(--_n) 1 0; min-inline-size: 0; }
+}
+.sw {
+  --_c: var(--off);
+  --_paint: var(--_c);
+  display: block;
+  background: var(--_paint);
+  &[data-stage="merged"] { --_c: var(--ok); }
+  &[data-stage="ready"] { --_c: oklch(from var(--ok) calc(l - 0.2) c h); }
+  &[data-stage="answer/changes"] { --_c: var(--signal); }
+  &[data-stage="review"] { --_c: var(--wire); }
+  &[data-stage="in work"] { --_c: var(--amber); }
+  &[data-stage="planned"] { --_c: oklch(from var(--wire) calc(l - 0.3) calc(c * 0.5) h); }
+  &[data-stage="stopped"] { --_c: var(--signal); --_paint: repeating-linear-gradient(135deg, var(--_c) 0 3px, transparent 3px 6px); }
+  &[data-stage="dropped"] { --_paint: repeating-linear-gradient(135deg, var(--_c) 0 2px, transparent 2px 5px); }
+}
+.waits:empty { display: none; }
+.owner-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  border: 1px solid var(--amber);
+  background: linear-gradient(90deg, oklch(from var(--amber) l c h / 0.12), transparent 70%), var(--panel);
+  & .lbl { display: flex; align-items: center; padding: var(--space-s) var(--space-m); background: var(--amber); color: var(--void); font: 700 0.75rem var(--font-display); letter-spacing: 0.18em; text-transform: uppercase; }
+}
+.ask {
+  --_what: var(--text);
+  display: flex;
   align-items: center;
-  padding: 0.625rem var(--space-m);
-  &[data-empty] { --_n-bg: var(--line); --_n-fg: var(--dim); --_ids: var(--off); }
-  & .n { inline-size: 2.125rem; block-size: 2.125rem; display: grid; place-items: center; font: 700 1rem var(--font-display); color: var(--_n-fg); background: var(--_n-bg); clip-path: polygon(0 0, 100% 0, 100% 70%, 70% 100%, 0 100%); }
-  & .name { font: 700 0.75rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
-  & .ids { grid-column: 2; color: var(--_ids); font-size: 0.75rem; overflow-wrap: anywhere; }
+  gap: 0.625rem;
+  min-inline-size: 0;
+  padding: var(--space-s) var(--space-m);
+  border-inline-end: 1px solid var(--line);
+  text-align: start;
+  & .kind { color: var(--amber); font-weight: 700; }
+  & .what { min-inline-size: 0; color: var(--_what); overflow-wrap: anywhere; }
+  &[data-static] { --_what: var(--dim); }
+}
+.stage {
+  --_name: var(--text);
+  display: grid;
+  grid-template-columns: 0.75rem 1fr auto;
+  gap: 0.125rem 0.625rem;
+  align-items: center;
+  padding: 0.45rem var(--space-m);
+  &[data-empty] { --_name: var(--off); }
+  & .sw { inline-size: 0.75rem; block-size: 0.75rem; }
+  & .name { color: var(--_name); font: 700 0.75rem var(--font-display); letter-spacing: 0.14em; text-transform: uppercase; }
+  & .n { color: var(--_name); font: 700 0.9375rem var(--font-display); }
+  & .ids { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0.125rem 0.375rem; font-size: 0.75rem; }
 }
 .flow-note { margin: var(--space-xs) var(--space-m) 0; padding-block-start: 0.625rem; border-block-start: 1px solid var(--line); color: var(--dim); font-size: 0.6875rem; display: grid; gap: var(--space-xs); }
 .backlog { position: relative; block-size: calc(100dvh - 2rem); min-block-size: 26rem; }
@@ -1095,6 +1205,8 @@ code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); 
 
 export interface BoardSlots {
   kv: string
+  goal: string
+  waits: string
   services: string
   flow: string
   backlog: string
@@ -1116,6 +1228,8 @@ export function boardData(page: BoardPage): BoardData {
     tickMs: page.tickMs,
     slots: {
       kv: headerReadings(page),
+      goal: goalSlot(page.facts),
+      waits: waitsSlot(page),
       services: servicesSlot(page),
       flow: flowSlot(page),
       backlog: backlogSlot(page.facts),
