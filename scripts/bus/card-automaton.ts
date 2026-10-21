@@ -40,6 +40,8 @@ const LAST_STOP_REASON = `
   ORDER BY id DESC LIMIT 1
 `
 
+const SHARED_BY_A_DECISION = `SELECT 1 FROM events WHERE type = ? AND legacy = 0 AND card_id = ? AND pr = ? AND json_valid(payload) AND json_type(payload, '$.sharedBy') = 'text' LIMIT 1`
+
 const CURRENT_LAUNCH_LEASE = `SELECT task_key, state, lease_gen FROM tasks WHERE queue = 'launch' AND card_id = ? ORDER BY event_id DESC LIMIT 1`
 
 interface LaunchLease {
@@ -177,9 +179,16 @@ function closedByReport(db: DatabaseSync, cardId: number): boolean {
   return db.prepare(`SELECT 1 FROM events WHERE type = ? AND legacy = 0 AND card_id = ? AND pr IS NULL AND json_extract(payload, '$.report') IS NOT NULL LIMIT 1`).get(CARD_VERIFIED, cardId) !== undefined
 }
 
+function sharedByADecision(db: DatabaseSync, cardId: number, pr: number | null): boolean {
+  if (pr === null)
+    return false
+  const merged = db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND state = 'merged'`).get(pr) !== undefined
+  return merged && db.prepare(SHARED_BY_A_DECISION).get(CARD_VERIFIED, cardId, pr) !== undefined
+}
+
 function foldClosed(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_CLOSED} needs a card_id`)
-  if (stateOf(db, cardId) !== MERGED_CARD && linkedPrState(db, cardId) !== 'merged' && !(event.pr === null && closedByReport(db, cardId)))
+  if (stateOf(db, cardId) !== MERGED_CARD && linkedPrState(db, cardId) !== 'merged' && !(event.pr === null && closedByReport(db, cardId)) && !sharedByADecision(db, cardId, event.pr))
     reject(`card ${cardId} is ${stateOf(db, cardId) ?? 'without state'} and its pull request is not merged, and ${CARD_CLOSED} closes only a merged card`)
   moveCard(db, cardId, CLOSED_CARD, event.id)
 }

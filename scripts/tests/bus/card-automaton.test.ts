@@ -4,7 +4,7 @@ import { appendEvent } from '../../bus/db.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
 import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, PR_OPENED, REJECTED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, PR_OPENED, REJECTED } from '../../core/events.js'
 import { mergeBench } from './merge-bench.js'
 
 const benches: MergeBench[] = []
@@ -54,6 +54,79 @@ function openedUnder(made: MergeBench, cardId: number, pr: number, leaseGen: num
 function rejected(made: MergeBench, dedupeKey: string): boolean {
   return made.db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?').get(`${REJECTED}:${dedupeKey}`) !== undefined
 }
+
+function stoppedByQuestion(made: MergeBench, cardId: number): void {
+  const ts = made.clock.now().toISOString()
+  appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: `lane-${cardId}`, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
+  appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:shift:1', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: 'question.owner', detail: 'which pull request' }, legacy: false })
+  reduce(made.db)
+  expect(stateOf(made, cardId)).toBe('stopped')
+}
+
+function mergedPr(made: MergeBench, pr: number): void {
+  made.gitHub.open({ number: pr })
+  made.tick()
+  made.gitHub.close(pr, true)
+  made.tick()
+}
+
+function verifiedOn(made: MergeBench, cardId: number, pr: number, shared: Record<string, string>): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_VERIFIED, actor: 'worker:task-close:window', cardId, pr, head: null, dedupeKey: `${CARD_VERIFIED}:${cardId}:${pr}`, payload: { path: 'cheap', pr, verification: 'run', ...shared }, legacy: false })
+}
+
+function closedOn(made: MergeBench, cardId: number, pr: number): string {
+  const dedupeKey = `${CARD_CLOSED}:${cardId}`
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:worker-1', cardId, pr, head: null, dedupeKey, payload: { verification: 'run' }, legacy: false })
+  reduce(made.db)
+  return dedupeKey
+}
+
+describe('a shared close', () => {
+  it('a stopped card with a recorded decision is closed by a shared close', () => {
+    const made = bench()
+    stoppedByQuestion(made, 1301)
+    mergedPr(made, 9301)
+    verifiedOn(made, 1301, 9301, { sharedBy: 'D-189' })
+    const closed = closedOn(made, 1301, 9301)
+
+    expect(stateOf(made, 1301)).toBe('closed')
+    expect(rejected(made, closed)).toBe(false)
+  })
+
+  it('a shared close without a recorded decision is refused', () => {
+    const made = bench()
+    stoppedByQuestion(made, 1302)
+    mergedPr(made, 9302)
+    verifiedOn(made, 1302, 9302, {})
+    const closed = closedOn(made, 1302, 9302)
+
+    expect(stateOf(made, 1302)).toBe('stopped')
+    expect(rejected(made, closed)).toBe(true)
+  })
+
+  it('a decision on a pull request that is not merged closes no stopped card', () => {
+    const made = bench()
+    stoppedByQuestion(made, 1303)
+    made.gitHub.open({ number: 9303 })
+    made.tick()
+    verifiedOn(made, 1303, 9303, { sharedBy: 'D-189' })
+    const closed = closedOn(made, 1303, 9303)
+
+    expect(stateOf(made, 1303)).toBe('stopped')
+    expect(rejected(made, closed)).toBe(true)
+  })
+})
+
+describe('a card never admitted', () => {
+  it('a card never admitted is dropped', () => {
+    const made = bench()
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_DROPPED, actor: 'worker:intake:s1', cardId: 1304, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:1304`, payload: { lane: 'dropped' }, legacy: false })
+    reduce(made.db)
+
+    expect(stateOf(made, 1304)).toBe('dropped')
+    expect(made.db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = 1304`).get()).toEqual({ n: 0 })
+  })
+})
 
 describe('a card stopped by fault', () => {
   it('pr.opened or card.started with the current lease_gen restore a card stopped by fault', () => {
