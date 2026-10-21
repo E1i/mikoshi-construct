@@ -22,6 +22,7 @@ import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { CHECK_MS } from './netwatch.js'
 import { LIVE_FLAG } from './node.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
+import { touchesMechanics } from './snapshot.js'
 import { stampLogOutput } from './stamp.js'
 import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
@@ -215,6 +216,7 @@ export class BusSupervisor {
   private waiting: { sha: string, since: number, reported: boolean } | null = null
   private draining: { sha: string, since: number } | null = null
   private opened: DetachedLaunch[] = []
+  private restartedOn: { sha: string, scripts: Set<string> } | null = null
   private localMain: string | null
 
   constructor(private readonly parts: SupervisorParts, private seen: number) {
@@ -317,13 +319,14 @@ export class BusSupervisor {
       }
     }
     const sha = this.pending
-    const scope = this.scopeOf(this.parts.code.changedSince(this.codeSha))
+    const changed = this.parts.code.changedSince(this.codeSha)
     const head = this.parts.code.head()
+    const scope = this.notYetRestarted(this.scopeOf(changed), head)
     if (!scope.self && scope.launches.length === 0) {
       this.settle(head)
       return [...lines, `${PREFIX}main advanced to ${sha} with no change to the code a bus process runs; nothing restarted`]
     }
-    const drained = this.drain(head, scope)
+    const drained = touchesMechanics(changed) ? this.drain(head, scope) : await this.restartIdle(head, scope)
     if (drained.waits)
       return [...lines, ...drained.lines]
     const restarted = await this.restart(scope, head)
@@ -349,6 +352,41 @@ export class BusSupervisor {
     const launches = this.parts.known.filter(runsChanged)
     const self = runsChanged(SUPERVISOR_LAUNCH)
     return { launches, self, every: self && launches.length === this.parts.known.length }
+  }
+
+  private notYetRestarted(scope: RestartScope, head: string): RestartScope {
+    const restarted = this.restartedOn?.sha === head ? this.restartedOn.scripts : new Set<string>()
+    if (restarted.size === 0)
+      return scope
+    return { launches: scope.launches.filter(launch => !restarted.has(launch.script)), self: scope.self, every: false }
+  }
+
+  private async restartIdle(head: string, scope: RestartScope): Promise<Drained> {
+    const drain = this.parts.drain
+    if (drain === undefined)
+      return { waits: false, lines: [] }
+    const processes = this.parts.processes()
+    const busy = scope.launches.filter(launch => runningInstance(processes, launch.markers) !== undefined && drain.held([launch]).length > 0)
+    if (busy.length === 0) {
+      this.draining = null
+      return { waits: false, lines: [] }
+    }
+    const now = this.parts.now()
+    const first = this.draining?.sha !== head
+    const since = this.draining?.since ?? now
+    this.draining = { sha: head, since }
+    const held = drain.held(busy)
+    if (now - since >= DRAIN_LIMIT_MS)
+      return { waits: false, lines: [`${PREFIX}the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${head} anyway, and these are freed as ${TASK_EXPIRED}: ${held.join(', ')}`] }
+    const idle = scope.launches.filter(launch => !busy.includes(launch))
+    if (idle.length === 0 && !first)
+      return { waits: true, lines: [] }
+    const restarted = idle.length === 0 ? { lines: [], down: [] } : await this.restart({ launches: idle, self: false, every: false }, head)
+    const scripts = this.restartedOn?.sha === head ? this.restartedOn.scripts : new Set<string>()
+    this.restartedOn = { sha: head, scripts: new Set([...scripts, ...idle.map(launch => launch.script)]) }
+    const restartingNow = idle.length === 0 ? '' : `restarting ${idle.map(launch => launch.script).join(', ')} now, and `
+    const notBack = restarted.down.length === 0 ? '' : `; not brought back: ${restarted.down.join(', ')}`
+    return { waits: true, lines: [`${PREFIX}main advanced to ${head} with no change to the mechanics, so nothing drains; ${restartingNow}${busy.map(launch => launch.script).join(', ')} restart once their leases in flight finish: ${held.join(', ')}${notBack}`, ...restarted.lines] }
   }
 
   private localMainMove(): string | null {
@@ -398,6 +436,7 @@ export class BusSupervisor {
 
   private settle(head: string): void {
     this.pending = null
+    this.restartedOn = null
     this.codeSha = head
   }
 

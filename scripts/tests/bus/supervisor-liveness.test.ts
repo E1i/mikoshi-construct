@@ -30,6 +30,8 @@ import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../core/gh.js'
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
 const SHARED_FILE = 'scripts/bus/db.ts'
 const SHARED_CODE: ReadonlySet<string> = new Set([SHARED_FILE])
+const MECHANICS_FILE = 'scripts/shift/shift.ts'
+const SHARED_MECHANICS: ReadonlySet<string> = new Set([SHARED_FILE, MECHANICS_FILE])
 const WRITE_LOCK_MS = 5000
 const LOCKED_AT = '2026-10-21T12:00:00.000Z'
 const HOLDS_THE_WRITE_LOCK = `
@@ -679,7 +681,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
 
   const MERGED_AT = Date.parse('2026-10-19T15:00:00.000Z')
 
-  function drainBench(clock: { now: number }, main = { sha: NEW_MAIN, id: 1 }, failStops = { left: 0 }): { db: ReturnType<typeof openBus>, lease: NonNullable<ReturnType<typeof leaseWhileFree>>, alive: () => RunningProcess[], supervisor: BusSupervisor, ts: () => string } {
+  function drainBench(clock: { now: number }, main = { sha: NEW_MAIN, id: 1 }, failStops = { left: 0 }, changed = MECHANICS_FILE): { db: ReturnType<typeof openBus>, lease: NonNullable<ReturnType<typeof leaseWhileFree>>, alive: () => RunningProcess[], supervisor: BusSupervisor, ts: () => string } {
     const root = mkdtempSync(path.join(tmpdir(), 'supervisor-drain-'))
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
@@ -709,8 +711,8 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
         pull: () => {
           head = main.sha
         },
-        changedSince: sha => sha === head ? [] : [SHARED_FILE],
-        runs: () => SHARED_CODE,
+        changedSince: sha => sha === head ? [] : [changed],
+        runs: () => SHARED_MECHANICS,
       },
       journal: () => {},
       missed: (sha, waitedMs) => recordRestartMissed(db, ts(), sha, waitedMs),
@@ -721,7 +723,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
 
   const holderStopped = (db: ReturnType<typeof openBus>): unknown[] => db.prepare('SELECT payload FROM events WHERE type = ?').all(TASK_EXPIRED).map(row => JSON.parse(String(row.payload)) as Record<string, unknown>).filter(payload => payload.reason === 'holder_stopped')
 
-  it('a merge under scripts/bus with an answer lease in flight frees no lease as holder_stopped and restarts once the lease completes', async () => {
+  it('a merge under scripts/shift with an answer lease in flight frees no lease as holder_stopped and restarts once the lease completes', async () => {
     const clock = { now: 0 }
     const { db, lease, alive, supervisor, ts } = drainBench(clock)
 
@@ -810,7 +812,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     db.close()
   })
 
-  it('a second merge under scripts/bus while the drain waits keeps the first deadline, so continuous merges do not postpone the restart', async () => {
+  it('a second merge under scripts/shift while the drain waits keeps the first deadline, so continuous merges do not postpone the restart', async () => {
     const clock = { now: 0 }
     const main = { sha: NEW_MAIN, id: 1 }
     const { db, lease, supervisor, ts } = drainBench(clock, main)
@@ -843,7 +845,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     const started: string[] = []
     let head = OLD_MAIN
     const runs = new Map([
-      [entryOf(answer)!, new Set([entryOf(answer)!, SHARED_FILE])],
+      [entryOf(answer)!, new Set([entryOf(answer)!, SHARED_FILE, MECHANICS_FILE])],
       [entryOf(close)!, new Set([entryOf(close)!, SHARED_FILE])],
       [entryOf(SUPERVISOR_LAUNCH)!, new Set([entryOf(SUPERVISOR_LAUNCH)!, SHARED_FILE])],
     ])
@@ -868,7 +870,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
         pull: () => {
           head = NEW_MAIN
         },
-        changedSince: sha => sha === head ? [] : [entryOf(answer)!],
+        changedSince: sha => sha === head ? [] : [MECHANICS_FILE],
         runs: entry => runs.get(entry) ?? new Set(),
       },
       journal: () => {},
