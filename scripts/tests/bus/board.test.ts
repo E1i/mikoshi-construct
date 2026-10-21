@@ -18,12 +18,13 @@ import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS, windowGauges
 import { DROPPED_LANE, MERGED_CARD } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, defaultBusPath, openBus } from '../../bus/db.js'
-import { recordHeartbeat, recordProcessHeartbeat } from '../../bus/heartbeat.js'
+import { busSessionPulse, recordHeartbeat, recordProcessHeartbeat } from '../../bus/heartbeat.js'
 import { importJournal } from '../../bus/import.js'
 import { RESTART_MISSED } from '../../bus/inbox.js'
-import { completeTask, leaseNext } from '../../bus/lease.js'
+import { completeTask, leaseNext, leaseWhileFree } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { queueTask } from '../../bus/queue.js'
+import { busReviewPulse } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { windowShardEnded } from '../../bus/shards.js'
 import { recordJudged } from '../../bus/supervisor.js'
@@ -419,10 +420,10 @@ describe('the factory board', () => {
 
   it('the projection beside pulse gives the latest context and spent of each card', () => {
     const bench = boardBench()
-    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null, gauges: { context: 100_000, spent: 900_000 } })
+    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null }, () => ({ context: 100_000, spent: 900_000 }))
     bench.clock.advance(1000)
-    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null, gauges: { context: 120_000, spent: 1_000_000 } })
-    recordHeartbeat(bench.db, bench.ts(), { card: 871, pr: null, head: null, step: 'implement', session: 's-871', lease: null, gauges: { spent: 50 } })
+    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null }, () => ({ context: 120_000, spent: 1_000_000 }))
+    recordHeartbeat(bench.db, bench.ts(), { card: 871, pr: null, head: null, step: 'implement', session: 's-871', lease: null }, () => ({ spent: 50 }))
     expect(cardGauges(bench.db)).toEqual([
       { card: 870, ts: bench.ts(), context: 120_000, spent: 1_000_000 },
       { card: 871, ts: bench.ts(), context: null, spent: 50 },
@@ -443,10 +444,28 @@ describe('the factory board', () => {
     expect(windowGauges(bench.db)).toBeNull()
   })
 
+  it('review and answer tiles show the context and spent bars', () => {
+    const bench = boardBench()
+    const busPath = bench.db.location()!
+    const measured = { context: 80_000, spent: 400_000 }
+    const review = leaseWhileFree(bench.db, bench.ts(), { queue: 'review', cardId: 880, pr: 980, head: sha('8') }, 'worker:review:node-1', 1)!
+    const answer = leaseWhileFree(bench.db, bench.ts(), { queue: 'answer', cardId: 881 }, 'worker:answer:node-1', 1)!
+    busReviewPulse(busPath, bench.clock.now, () => {}, () => measured)(review, 'reviewer-880')
+    busSessionPulse(busPath, bench.clock.now, () => measured)(answer, 'answer-881')
+    const written: string[] = []
+    expect(printBoard(busPath, bench.clock.now(), text => written.push(text))).toBe(0)
+    const tiles = written.join('').split('<div class="svc" ').slice(1)
+    for (const [role, task] of [['review', '#880'], ['answer', '#881']]) {
+      const sessionTile = tiles.find(each => each.startsWith(`data-role="${role}"`) && each.includes(`>${task}<`) && each.includes(' · pulse '))
+      expect(sessionTile, role).toContain('<span class="edd-k">ctx</span>')
+      expect(sessionTile, role).toContain('<span class="edd-k">spent</span>')
+    }
+  })
+
   it('a card whose heartbeat carries no fields has no bar', () => {
     const bench = boardBench()
     recordHeartbeat(bench.db, bench.ts(), { card: 872, pr: null, head: null, step: 'implement', session: 's-872', lease: null })
-    recordHeartbeat(bench.db, bench.ts(), { card: 873, pr: null, head: null, step: 'implement', session: 's-873', lease: null, gauges: {} })
+    recordHeartbeat(bench.db, bench.ts(), { card: 873, pr: null, head: null, step: 'implement', session: 's-873', lease: null }, () => ({}))
     expect(cardGauges(bench.db)).toEqual([])
     expect(bench.tick().gauges).toEqual([])
   })

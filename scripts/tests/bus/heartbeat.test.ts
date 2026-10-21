@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { HeldLease } from '../../bus/heartbeat.js'
 import type { Lease } from '../../bus/lease.js'
 import type { ReviewPlan } from '../../bus/review-depth.js'
+import type { SessionGauges } from '../../miko/eddies-measure.js'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,13 +14,14 @@ import { AnswerNode } from '../../bus/answer-worker.js'
 import { cardFields } from '../../bus/card-contract.js'
 import { CloseNode } from '../../bus/close-worker.js'
 import { openBus } from '../../bus/db.js'
-import { HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
+import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
 import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../bus/review-worker.js'
 import { reviewSession } from '../../bus/reviewer.js'
 import { UpdateNode } from '../../bus/update-worker.js'
 import { SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
+import { sessionGauges } from '../../miko/eddies-measure.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
 import { waitFor } from '../wait-for.js'
 
@@ -328,5 +330,35 @@ describe('the PostToolUse hook starts the heartbeat CLI only in a session of a c
     runHook(root, '1110', { session_id: 'session-1' })
     await waitFor(() => existsSync(marker), () => `${marker} written by the spawned CLI`, 10_000)
     expect(readFileSync(marker, 'utf8')).toBe('session-1')
+  })
+
+  it('a session.heartbeat with step review or answer carries context and spent equal to sessionGauges on the same transcript', () => {
+    const { db, file } = bus()
+    const review = reviewLease(db)
+    const answer = leaseWhileFree(db, at(0), { queue: 'answer', cardId: 1111 }, 'worker:answer:node-1', 1)!
+    db.close()
+    const { home, root } = sessionTree('session-1', [usageLine('r1', { input: 2_000, cacheWrite: 30_000 }), usageLine('r2', { input: 300, cacheRead: 32_000 })])
+    const measure = (session: string): SessionGauges => sessionGauges(home, root, session)
+    busReviewPulse(file, () => new Date(at(RENEW_MS)), () => {}, measure)(review, 'session-1')
+    busSessionPulse(file, () => new Date(at(RENEW_MS)), measure)(answer, 'session-1')
+    const gauges = sessionGauges(home, root, 'session-1')
+    expect(gauges).toEqual({ context: 32_300, spent: expect.any(Number) as unknown })
+    expect(heartbeatPayloads(file).map(({ step, context, spent }) => ({ step, context, spent }))).toEqual([{ step: 'review', ...gauges }, { step: 'answer', ...gauges }])
+  })
+
+  it('with no transcript the heartbeat is written without gauges and nothing fails', () => {
+    const { db, file } = bus()
+    const review = reviewLease(db)
+    db.close()
+    const empty = mkdtempSync(path.join(tmpdir(), 'heartbeat-home-'))
+    roots.push(empty)
+    const lines: string[] = []
+    busReviewPulse(file, () => new Date(at(RENEW_MS)), line => lines.push(line), session => sessionGauges(empty, empty, session))(review, 'reviewer-1')
+    busSessionPulse(file, () => new Date(at(RENEW_MS + 1)), session => sessionGauges(empty, empty, session))(review, 'reviewer-1')
+    expect(lines).toEqual([reviewBeatLine(review, 'reviewer-1', at(RENEW_MS))])
+    expect(heartbeatPayloads(file).map(({ step, session, context, spent }) => ({ step, session, context, spent }))).toEqual([
+      { step: 'review', session: 'reviewer-1', context: undefined, spent: undefined },
+      { step: 'review', session: 'reviewer-1', context: undefined, spent: undefined },
+    ])
   })
 })

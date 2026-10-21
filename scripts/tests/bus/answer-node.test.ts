@@ -2,6 +2,7 @@ import type { AnswerOutcome } from '../../bus/answer-executor.js'
 import type { AnswerNodeParts, AnswerRun, AnswerStep } from '../../bus/answer-worker.js'
 import type { Answered, Answerer } from '../../bus/answerer.js'
 import type { CardTreeTools } from '../../bus/card-tree.js'
+import type { LastHeartbeat } from '../../bus/heartbeat.js'
 import type { Lease } from '../../bus/lease.js'
 import type { DetectionMode, Scope } from '../../bus/node.js'
 import type { AnswerInput } from '../../bus/prompt-store.js'
@@ -19,6 +20,7 @@ import { AnswerNode, answerNodeOf } from '../../bus/answer-worker.js'
 import { answerPrompt, claudeAnswerer, tokensOf } from '../../bus/answerer.js'
 import { DROPPED_LANE } from '../../bus/card-automaton.js'
 import { appendEvent } from '../../bus/db.js'
+import { busSessionPulse, lastHeartbeat } from '../../bus/heartbeat.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../bus/queue.js'
@@ -348,6 +350,30 @@ describe('the answer node', () => {
       expect(eventsOf(made.db, CARD_STOPPED).map(each => each.reason), tool).toEqual(['question.agent', 'question.owner'])
       expect(published, tool).toEqual([])
     }
+  })
+
+  it('an answering session has a session.heartbeat while it lives', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const answers = path.join(trees, 'answers')
+    const seen: (LastHeartbeat | null)[] = []
+    const answerer = claudeAnswerer(answers, {
+      cardText: () => null,
+      available: () => true,
+      remoteHead: () => sha('a'),
+      spawn: async (run) => {
+        seen.push(lastHeartbeat(made.db, 905))
+        writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
+        return 0
+      },
+      newSession: () => 'new-session-1',
+      publish: () => {},
+      pulse: busSessionPulse(made.db.location()!, made.clock.now, () => ({})),
+    })
+    const held = lease()
+    expect(lastHeartbeat(made.db, 905)).toBeNull()
+    await answerer({ lease: held, source: { kind: 'question', detail: OWNER_QUESTION, widen: null, events: [] }, widened: null, card: { session: 'card-session-1', worktree: path.join(trees, 'mc-905'), branch: 'feat/card-905' } })
+    expect(seen).toEqual([{ ts: made.clock.now().toISOString(), pr: null, head: null, step: 'answer', session: 'card-session-1' }])
   })
 
   it('card.answered carries the minutes and tokens of the answer session', async () => {

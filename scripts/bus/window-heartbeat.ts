@@ -1,11 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { SessionGauges } from '../miko/eddies-measure.js'
-import os from 'node:os'
-import process from 'node:process'
+import type { SessionMeasure } from './heartbeat.js'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
-import { projectRoot, sessionGauges } from '../miko/eddies-measure.js'
 import { CARD_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { appendEvent, openBus } from './db.js'
+import { measureSession } from './heartbeat.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
 export const WINDOW_BEAT_MS = 5 * 60_000
@@ -23,11 +22,7 @@ export function recordWindowHeartbeat(db: DatabaseSync, ts: string, session: str
   return appendEvent(db, { ts, type: WINDOW_HEARTBEAT, actor: `${WINDOW_ACTOR}${session}`, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_HEARTBEAT}:${session}:${ts}`, payload: { session, ...gauges }, legacy: false })
 }
 
-function windowSessionGauges(session: string): SessionGauges {
-  return sessionGauges(os.homedir(), projectRoot(process.env), session)
-}
-
-export function windowBeat(bus: string, session: string | null, now: () => number, measure: (session: string) => SessionGauges = windowSessionGauges): () => void {
+export function windowBeat(bus: string, session: string | null, now: () => number, measure: SessionMeasure = measureSession): () => void {
   let last = Number.NEGATIVE_INFINITY
   return () => {
     const at = now()
