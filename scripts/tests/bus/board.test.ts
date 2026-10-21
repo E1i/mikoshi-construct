@@ -11,11 +11,11 @@ import { GOAL_DECISION } from '../../../src/commands/board/goal.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { boardProjection, printBoard, runBoardCli } from '../../bus/board-page.js'
-import { MERGE_PAST_THE_BUS, readBoard } from '../../bus/board.js'
+import { MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS } from '../../bus/board.js'
 import { DROPPED_LANE, MERGE_DONE, MERGED_CARD } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { recordHeartbeat } from '../../bus/heartbeat.js'
+import { recordHeartbeat, recordProcessHeartbeat } from '../../bus/heartbeat.js'
 import { importJournal } from '../../bus/import.js'
 import { CARD_STARTED, CARD_STOPPED, RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
@@ -24,6 +24,7 @@ import { CARD_ADMITTED } from '../../bus/operator-work.js'
 import { queueTask } from '../../bus/queue.js'
 import { BusTick } from '../../bus/run.js'
 import { SHARD_ISSUED, SHARD_REVOKED, windowShardEnded } from '../../bus/shards.js'
+import { recordJudged } from '../../bus/supervisor.js'
 import { choose } from '../../shift/parking.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -407,6 +408,19 @@ describe('the factory board', () => {
     expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: false })
     appendEvent(bench.db, { ts: bench.ts(), type: RESTARTED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTARTED}:${sha('d')}`, payload: { sha: sha('d') }, legacy: false })
     expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: true, fact: expect.stringContaining('0 restarts after') })
+  })
+
+  it('a process judged silent shows an alarm on the board', () => {
+    const bench = boardBench()
+    const lastBeat = bench.ts()
+    recordProcessHeartbeat(bench.db, lastBeat, 'bus:merge')
+    expect(bench.tick().contract.find(link => link.link === SILENT_PROCESS)).toEqual({ link: SILENT_PROCESS, green: true, fact: 'no process judged silent' })
+
+    recordJudged(bench.db, bench.ts(), { process: 'bus:merge', lastBeat, silentMs: 21 * 60_000 })
+    expect(bench.tick().contract.find(link => link.link === SILENT_PROCESS)).toEqual({ link: SILENT_PROCESS, green: false, fact: `judged silent, no heartbeat since: bus:merge (last beat ${lastBeat})` })
+
+    recordProcessHeartbeat(bench.db, bench.ts(), 'bus:merge')
+    expect(bench.tick().contract.find(link => link.link === SILENT_PROCESS)).toMatchObject({ green: true })
   })
 
   it('a pull request merged with no merge.done reads merge past the bus', () => {

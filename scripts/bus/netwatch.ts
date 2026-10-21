@@ -6,8 +6,10 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { RUN_SCRIPT } from './bg.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { ghApi } from './github.js'
+import { recordProcessHeartbeat } from './heartbeat.js'
 import { Meter, RateLimited } from './meter.js'
 import { NETWATCH, observationsOf } from './observations.js'
 import { takeSnapshot } from './snapshot.js'
@@ -16,6 +18,7 @@ export const PREFIX = '[bus:netwatch] '
 export const TICK_MS = 60_000
 export const WAKE_GAP_MS = 3 * TICK_MS
 export const CHECK_MS = 5_000
+export const NETWATCH_SCRIPT = 'bus:netwatch'
 
 export type PollReason = 'start' | 'interval' | 'wake'
 
@@ -60,7 +63,7 @@ export class NetWatch {
   private lastPollAt: number | null = null
   private blockedUntil = 0
 
-  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date) {}
+  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT) {}
 
   dueReason(nowMs: number): PollReason | null {
     if (this.lastPollAt === null)
@@ -80,6 +83,7 @@ export class NetWatch {
     const gapSeconds = this.lastPollAt === null ? null : Math.round((nowMs - this.lastPollAt) / 1000)
     this.lastPollAt = nowMs
     const ts = now.toISOString()
+    recordProcessHeartbeat(this.db, ts, this.process)
     if (nowMs < this.blockedUntil)
       return this.skipped(ts, { kind: 'skipped', reason, cause: 'retry-after', calls: 0, until: new Date(this.blockedUntil).toISOString() })
     const meter = new Meter(this.gitHub, () => this.clock().getTime())
@@ -120,7 +124,7 @@ async function main(): Promise<number> {
   const once = process.argv.includes('--once')
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const netWatch = new NetWatch(db, ghApi(process.cwd()), () => new Date())
+  const netWatch = new NetWatch(db, ghApi(process.cwd()), () => new Date(), NETWATCH_SCRIPT)
   console.log(`${PREFIX}${busPath}, a tick every ${TICK_MS / 1000} s${once ? ', once' : ''}`)
   try {
     for (;;) {

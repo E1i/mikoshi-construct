@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
+import type { IncrementalProjection } from './watermark.js'
 import { PRIORITIES } from '../../src/card/parking.js'
 import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
 import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
@@ -17,13 +18,23 @@ import { PR_CLOSED } from './observations.js'
 import { roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
-import { payloadOf, reject, storedByKey } from './stored.js'
+import { payloadOf, reject } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
+import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_SUPERSEDED = 'task.superseded'
 export const TASK_REQUEUED = 'task.requeued'
 export const TASK_WITHDRAWN = 'task.withdrawn'
+export const TASK_LEASED = 'task.leased'
+export const TASK_RENEWED = 'task.renewed'
+export const TASK_COMPLETED = 'task.completed'
+export const TASK_FAILED = 'task.failed'
+export const TASK_EXPIRED = 'task.expired'
+export const TASK_RELEASED = 'task.released'
+export const SESSION_HEARTBEAT = 'session.heartbeat'
+export const LEASE_MS = 30 * 60_000
+export const HEARTBEAT_QUEUES: readonly Queue[] = ['review']
 export const QUEUE_ACTOR = 'policy'
 export const CARD_CLOSED = 'card.closed'
 export const BOARD_ALARM = 'board.alarm'
@@ -40,6 +51,7 @@ const FAULT = 'fault'
 const REQUEUABLE = new Set([STOPPED, WITHDRAWN, SUPERSEDED])
 const REQUEUABLE_ANSWER = new Set([...REQUEUABLE, COMPLETED])
 const UNFINISHED = new Set([QUEUED, LEASED, STOPPED])
+const AFTER_A_LEASE = new Set([QUEUED, WITHDRAWN, STOPPED])
 const NO_CARD_TREE = 'no_card_tree'
 const [TOP_PRIORITY] = PRIORITIES
 
@@ -83,12 +95,26 @@ const SUPERSEDED_REVIEWS_ON_THE_CURRENT_HEAD = `
   ORDER BY tasks.task_key
 `
 
+const SUPERSEDED_MERGES_AND_UPDATES_ON_THE_CURRENT_HEAD = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
+  JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue IN ('merge', 'update') AND tasks.state = '${SUPERSEDED}' AND tasks.head = prs.head AND prs.state = 'open'
+    AND NOT EXISTS (SELECT 1 FROM tasks AS live WHERE live.queue = tasks.queue AND live.pr = tasks.pr AND live.state IN ('${QUEUED}', '${LEASED}'))
+  ORDER BY tasks.task_key
+`
+
 const REVIEWS_OF_AN_OLD_INPUT = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, prs.body_sha, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
   JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.queue = 'review' AND tasks.state IN ('queued', 'leased') AND tasks.head = prs.head
     AND prs.body_sha IS NOT NULL AND tasks.task_key LIKE '%:pr-body-%'
   ORDER BY tasks.task_key
+`
+
+const LIVE_ANSWERS_WITH_THE_CARD_BODY = `
+  SELECT task_key, queue, card_id, pr, head, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
+  WHERE queue = 'answer' AND state IN ('queued', 'leased')
+  ORDER BY task_key
 `
 
 const LATEST_ADMISSION_DEPENDS = `
@@ -168,7 +194,7 @@ export function latestTurnOf(card: string): string {
 }
 
 const QUESTION_CANDIDATES = `
-  SELECT stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop FROM events AS stop
+  SELECT stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body FROM events AS stop
   LEFT JOIN cards ON cards.card_id = stop.card_id
   LEFT JOIN prs ON prs.pr = coalesce(stop.pr, cards.pr)
   WHERE stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 AND stop.card_id IS NOT NULL
@@ -185,7 +211,7 @@ const AN_OPEN_QUESTION = `(
 
 function answerCandidatesWhere(condition: string): string {
   return `
-  SELECT pr, card_id, head FROM prs
+  SELECT pr, card_id, head, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
   WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
@@ -269,9 +295,13 @@ function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
   ]
 }
 
+const UNFINISHED_STATES = [...UNFINISHED].map(state => `'${state}'`).join(', ')
+
+const QUEUES_A_MERGE_FINISHES = `'merge', 'close'`
+
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.state IN ('${QUEUED}', '${LEASED}') AND tasks.head IS NOT NULL AND tasks.head != prs.head
+  WHERE tasks.state IN (${UNFINISHED_STATES}) AND tasks.head IS NOT NULL AND tasks.head != prs.head
   UNION
   SELECT task_key, queue, card_id, pr, head FROM tasks
   WHERE queue = 'restart' AND state IN ('${QUEUED}', '${LEASED}')
@@ -281,7 +311,7 @@ const TASKS_OF_AN_OLD_HEAD = `
 
 const TASKS_OF_A_CLOSED_PULL_REQUEST = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE prs.state = 'closed' AND tasks.state IN (${[...UNFINISHED].map(state => `'${state}'`).join(', ')})
+  WHERE (prs.state = 'closed' OR (prs.state = 'merged' AND tasks.queue NOT IN (${QUEUES_A_MERGE_FINISHES}))) AND tasks.state IN (${UNFINISHED_STATES})
   ORDER BY tasks.task_key
 `
 
@@ -388,13 +418,28 @@ interface StoppedAnswerRow extends StoppedRow {
 
 export interface QueuedTask extends TaskIdentity {
   stop?: number
+  cardBody?: string
 }
 
 const STOP_SUFFIX = /:stop-([1-9]\d*)$/
+const BODY_SHA = /^[0-9a-f]{8,64}$/
+const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::stop-[1-9]\d*)?$/
+
+function cardBodySegment(task: QueuedTask): string {
+  if (task.cardBody === undefined)
+    return ''
+  if (task.queue !== 'answer' || !BODY_SHA.test(task.cardBody))
+    throw new Error(`only an answer task carries a card body sha: ${task.queue}, ${task.cardBody}`)
+  return `:card-body-${task.cardBody}`
+}
 
 export function keyOf(task: QueuedTask): string {
-  const key = taskKey(task)
+  const key = `${taskKey(task)}${cardBodySegment(task)}`
   return task.stop === undefined ? key : `${key}:stop-${task.stop}`
+}
+
+export function answerCardBodyOf(row: Pick<Candidate, 'card_body'>): string | undefined {
+  return typeof row.card_body === 'string' && BODY_SHA.test(row.card_body) ? row.card_body : undefined
 }
 
 function stopIn(key: unknown): number | undefined {
@@ -402,10 +447,16 @@ function stopIn(key: unknown): number | undefined {
   return match === null ? undefined : Number(match[1])
 }
 
+function cardBodyIn(key: unknown): string | undefined {
+  const match = typeof key === 'string' ? ANSWER_CARD_BODY.exec(key) : null
+  return match === null ? undefined : match[1]
+}
+
 function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows: Candidate[]): QueuedTask[] {
   return rows.filter(row => !closedByRounds(db, ts, queue, row.pr, row.head)).map((row) => {
     const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
-    return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input }
+    const cardBody = queue === 'answer' ? answerCardBodyOf(row) : undefined
+    return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input, cardBody }
   })
 }
 
@@ -446,10 +497,11 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
   const generation = typeof payload.generation === 'string' ? payload.generation : undefined
   const stop = queue === 'answer' ? stopIn(payload.task_key) : undefined
+  const cardBody = queue === 'answer' ? cardBodyIn(payload.task_key) : undefined
   const input = queue === 'review' ? reviewInputOfKey(payload.task_key) : undefined
   if (input !== undefined && (event.pr === null || event.head === null))
     reject(`${event.type} of a review input needs a pr and a head`)
-  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input })
+  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
   return { key, queue }
@@ -493,12 +545,126 @@ function foldWithdrawn(db: DatabaseSync, event: StoredEvent): void {
   db.prepare('UPDATE tasks SET state = ?, event_id = ? WHERE task_key = ?').run(WITHDRAWN, event.id, key)
 }
 
-export const TASK_FOLDS: Record<string, Fold> = {
+interface LeasedRow {
+  task_key: string
+  state: string
+  lease_gen: number
+}
+
+function leasedRowOf(db: DatabaseSync, key: string): LeasedRow | undefined {
+  return db.prepare('SELECT task_key, state, lease_gen FROM tasks WHERE task_key = ?').get(key) as LeasedRow | undefined
+}
+
+function leaseUntil(ts: string): string {
+  return new Date(Date.parse(ts) + LEASE_MS).toISOString()
+}
+
+function leaseGenOf(payload: Record<string, unknown>): number {
+  const value = payload.lease_gen
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : reject('lease_gen is not a positive integer')
+}
+
+function heldRow(db: DatabaseSync, event: StoredEvent): { row: LeasedRow, payload: Record<string, unknown> } {
+  const { key } = identityOf(event)
+  const payload = payloadOf(event)
+  const row = leasedRowOf(db, key) ?? reject(`task ${key} was never queued`)
+  if (row.state !== LEASED || row.lease_gen !== leaseGenOf(payload))
+    reject(`task ${key} is not leased under lease_gen ${String(payload.lease_gen)}`)
+  return { row, payload }
+}
+
+function foldLeased(db: DatabaseSync, event: StoredEvent): void {
+  const { key } = identityOf(event)
+  const payload = payloadOf(event)
+  const row = leasedRowOf(db, key) ?? reject(`task ${key} was never queued`)
+  if (row.state !== QUEUED)
+    reject(`task ${key} is ${row.state}, not queued`)
+  if (leaseGenOf(payload) !== row.lease_gen + 1)
+    reject(`lease_gen ${String(payload.lease_gen)} does not follow ${row.lease_gen}`)
+  db.prepare('UPDATE tasks SET state = ?, lease_gen = ?, lease_until = ?, event_id = ? WHERE task_key = ?')
+    .run(LEASED, row.lease_gen + 1, leaseUntil(event.ts), event.id, key)
+}
+
+function foldRenewed(db: DatabaseSync, event: StoredEvent): void {
+  const { row } = heldRow(db, event)
+  db.prepare('UPDATE tasks SET lease_until = ?, event_id = ? WHERE task_key = ?').run(leaseUntil(event.ts), event.id, row.task_key)
+}
+
+function foldCompleted(db: DatabaseSync, event: StoredEvent): void {
+  const { row } = heldRow(db, event)
+  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, event_id = ? WHERE task_key = ?').run(COMPLETED, event.id, row.task_key)
+}
+
+function foldFailed(db: DatabaseSync, event: StoredEvent): void {
+  const { row, payload } = heldRow(db, event)
+  const next = typeof payload.next === 'string' && AFTER_A_LEASE.has(payload.next) ? payload.next : reject(`next is not one of ${[...AFTER_A_LEASE].join(' | ')}`)
+  const counted = payload.uncounted === true ? 0 : 1
+  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, failures = failures + ?, event_id = ? WHERE task_key = ?').run(next, counted, event.id, row.task_key)
+}
+
+function foldReleased(db: DatabaseSync, event: StoredEvent): void {
+  const { row } = heldRow(db, event)
+  db.prepare('UPDATE tasks SET state = ?, lease_until = NULL, event_id = ? WHERE task_key = ?').run(QUEUED, event.id, row.task_key)
+}
+
+function foldHeartbeat(db: DatabaseSync, event: StoredEvent): void {
+  if (event.card_id === null)
+    reject('a heartbeat names no card')
+  const payload = payloadOf(event)
+  if (typeof payload.task_key !== 'string')
+    return
+  db.prepare(`UPDATE tasks SET lease_until = ? WHERE state = '${LEASED}' AND task_key = ? AND lease_gen = ? AND card_id = ? AND queue IN (SELECT value FROM json_each(?))`)
+    .run(leaseUntil(event.ts), payload.task_key, leaseGenOf(payload), event.card_id, JSON.stringify(HEARTBEAT_QUEUES))
+}
+
+const QUEUE_FOLDS: Record<string, Fold> = {
   [TASK_ENQUEUED]: foldEnqueued,
   [TASK_SUPERSEDED]: foldSuperseded,
   [TASK_REQUEUED]: foldRequeued,
   [TASK_WITHDRAWN]: foldWithdrawn,
 }
+
+const LEASE_TASK_FOLDS: Record<string, Fold> = {
+  [SESSION_HEARTBEAT]: foldHeartbeat,
+  [TASK_RELEASED]: foldReleased,
+  [TASK_LEASED]: foldLeased,
+  [TASK_RENEWED]: foldRenewed,
+  [TASK_COMPLETED]: foldCompleted,
+  [TASK_FAILED]: foldFailed,
+  [TASK_EXPIRED]: foldFailed,
+}
+
+const TASKS_FOLDS: Record<string, Fold> = { ...QUEUE_FOLDS, ...LEASE_TASK_FOLDS }
+
+export const TASKS_PROJECTION: IncrementalProjection = { table: 'tasks', folds: TASKS_FOLDS }
+
+function lastEventId(db: DatabaseSync): number {
+  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+}
+
+function reduceTasksAfter(db: DatabaseSync, current: number): void {
+  if (watermarkOf(db, TASKS_PROJECTION.table) === 0)
+    markReduced(db, TASKS_PROJECTION.table, current)
+  reduceProjection(db, TASKS_PROJECTION)
+}
+
+export function appendedAndReduced(db: DatabaseSync, event: BusEvent): boolean {
+  const current = lastEventId(db)
+  const appended = appendEvent(db, event)
+  reduceTasksAfter(db, current)
+  return appended
+}
+
+function reducedAfterItsAppend(db: DatabaseSync, event: StoredEvent): void {
+  reduceTasksAfter(db, event.id - 1)
+}
+
+function reducedOnAppend(folds: Record<string, Fold>): Record<string, Fold> {
+  return Object.fromEntries(Object.keys(folds).map(type => [type, reducedAfterItsAppend]))
+}
+
+export const TASK_FOLDS = reducedOnAppend(QUEUE_FOLDS)
+export const LEASE_FOLDS = reducedOnAppend(LEASE_TASK_FOLDS)
 
 export function generationField(generation: string | undefined): { generation?: string } {
   return generation === undefined ? {} : { generation }
@@ -512,19 +678,12 @@ function taskEvent(ts: string, type: string, task: QueuedTask, failure?: number,
   return { ts, type, actor: QUEUE_ACTOR, cardId: task.cardId, pr: task.pr ?? null, head: task.head ?? null, dedupeKey, payload: { task_key: key, queue: task.queue, ...generationField(task.generation), ...after }, legacy: false }
 }
 
-function appended(db: DatabaseSync, event: BusEvent): boolean {
-  if (!appendEvent(db, event))
-    return false
-  TASK_FOLDS[event.type]!(db, storedByKey(db, event.dedupeKey))
-  return true
-}
-
 function written(db: DatabaseSync, event: BusEvent): boolean {
-  return inTransaction(db, () => appended(db, event))
+  return inTransaction(db, () => appendedAndReduced(db, event))
 }
 
 export function queueTaskWithin(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
-  return appended(db, taskEvent(ts, TASK_ENQUEUED, task))
+  return appendedAndReduced(db, taskEvent(ts, TASK_ENQUEUED, task))
 }
 
 export function queueTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
@@ -547,7 +706,8 @@ function withdrawTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
 function identity(row: TaskRow): QueuedTask {
   const plain = { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }
   const input = row.queue === 'review' ? reviewInputOfKey(row.task_key) : undefined
-  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input }
+  const cardBody = row.queue === 'answer' ? cardBodyIn(row.task_key) : undefined
+  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody }
 }
 
 export interface BodyAdmission { bodySha: string, event: string }
@@ -565,6 +725,13 @@ function reviewsOfAnOldInput(db: DatabaseSync): ReviewRow[] {
   return (db.prepare(REVIEWS_OF_AN_OLD_INPUT).all() as unknown as ReviewRow[]).filter(row => !underCurrentInput(row))
 }
 
+function answersOfAnOldCardBody(db: DatabaseSync): TaskRow[] {
+  return (db.prepare(LIVE_ANSWERS_WITH_THE_CARD_BODY).all() as unknown as (TaskRow & { card_body: unknown })[]).filter((row) => {
+    const current = answerCardBodyOf(row)
+    return current !== undefined && cardBodyIn(row.task_key) !== current
+  })
+}
+
 export function reviewKeysOfAnOldInput(db: DatabaseSync): string[] {
   return reviewsOfAnOldInput(db).map(row => row.task_key)
 }
@@ -575,6 +742,11 @@ function reviewsOfTheCurrentInputAgain(db: DatabaseSync): SupersededReviewRow[] 
 
 export function reviewKeysOfTheCurrentInputAgain(db: DatabaseSync): string[] {
   return reviewsOfTheCurrentInputAgain(db).map(row => row.task_key)
+}
+
+function mergesAndUpdatesDueAgain(db: DatabaseSync, ts: string): StoppedRow[] {
+  const due = new Set([...mergeCandidates(db, ts), ...updateCandidates(db, ts)].map(keyOf))
+  return (db.prepare(SUPERSEDED_MERGES_AND_UPDATES_ON_THE_CURRENT_HEAD).all() as unknown as StoppedRow[]).filter(row => due.has(row.task_key))
 }
 
 function underCurrentInput(row: ReviewRow): boolean {
@@ -618,7 +790,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   }
   for (const row of db.prepare(TASKS_OF_A_CLOSED_PULL_REQUEST).all() as unknown as TaskRow[])
     withdrawTask(db, ts, identity(row))
-  for (const row of reviewsOfAnOldInput(db)) {
+  for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db)]) {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
@@ -628,7 +800,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
         derived.queued.push(row.task_key)
     }
   }
-  for (const row of reviewsOfTheCurrentInputAgain(db)) {
+  for (const row of [...reviewsOfTheCurrentInputAgain(db), ...mergesAndUpdatesDueAgain(db, ts)]) {
     if (requeueTask(db, ts, row))
       derived.queued.push(row.task_key)
   }

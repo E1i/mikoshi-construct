@@ -13,7 +13,6 @@ import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDe
 import { RUNNING_CARD } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
-import { ghApi } from './github.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { RESTART_MISSED, RESTARTED } from './inbox.js'
 import { expireLeasesHeldBy, LEASE_MS, leasesHeldBy, openDrain, TASK_EXPIRED } from './lease.js'
@@ -67,12 +66,19 @@ export interface BusCode {
   holds: (sha: string) => boolean
   pull: () => void
   busChangedSince: (sha: string) => boolean
+  localMain?: () => string | null
 }
+
+export const LOCAL_MAIN_REF = 'refs/heads/main'
 
 export function gitCode(cwd: string): BusCode {
   const git = (args: string[]): number => spawnSync('git', args, { cwd, stdio: 'ignore' }).status ?? -1
   return {
     head: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim(),
+    localMain: () => {
+      const read = spawnSync('git', ['rev-parse', '--verify', '--quiet', LOCAL_MAIN_REF], { cwd, encoding: 'utf8' })
+      return read.status === 0 ? read.stdout.trim() : null
+    },
     holds: sha => git(['merge-base', '--is-ancestor', sha, 'HEAD']) === 0,
     pull: () => {
       execFileSync('git', ['pull', '--ff-only', '--quiet'], { cwd, stdio: 'pipe' })
@@ -140,15 +146,26 @@ interface Drained {
   lines: string[]
 }
 
+function startedOrTechnical(start: (launch: DetachedLaunch) => BgResult, launch: DetachedLaunch): BgResult {
+  try {
+    return start(launch)
+  }
+  catch (error) {
+    return { stdout: [], stderr: [`${PREFIX}${launchName(launch)} did not start, a technical failure: ${error instanceof Error ? error.message : String(error)}`], exitCode: 1 }
+  }
+}
+
 export class BusSupervisor {
   private codeSha: string
   private pending: string | null = null
   private outdatedBy: string | null = null
   private waiting: { sha: string, since: number, reported: boolean } | null = null
   private draining: { sha: string, since: number } | null = null
+  private localMain: string | null
 
   constructor(private readonly parts: SupervisorParts, private seen: number) {
     this.codeSha = parts.code.head()
+    this.localMain = parts.code.localMain?.() ?? null
   }
 
   get ownCodeBehind(): string | null {
@@ -217,7 +234,7 @@ export class BusSupervisor {
       await this.parts.stop(instance, launch)
       lines.push(`${PREFIX}${launchName(launch)} runs in the other mode than workers.json lists; restarting it ${launch.args.includes(LIVE_FLAG) ? 'live' : 'in shadow'}`)
       lines.push(...this.parts.freeLeases?.([launch]) ?? [])
-      const started = this.parts.start(launch)
+      const started = startedOrTechnical(this.parts.start, launch)
       lines.push(...started.stdout, ...started.stderr)
     }
     return lines
@@ -225,10 +242,15 @@ export class BusSupervisor {
 
   private async advance(): Promise<string[]> {
     const advanced = this.parts.mainSince(this.seen)
+    const movedTo = this.localMainMove()
     const lines: string[] = []
     if (advanced.length > 0) {
       this.seen = advanced.at(-1)!.id
       this.pending = advanced.at(-1)!.sha
+    }
+    else if (movedTo !== null) {
+      this.pending = movedTo
+      lines.push(`${PREFIX}the local ${LOCAL_MAIN_REF} moved to ${movedTo} with no main.advanced on the bus; the restart follows it`)
     }
     if (this.pending === null)
       return lines
@@ -257,6 +279,14 @@ export class BusSupervisor {
     this.outdatedBy = head
     const notBack = restarted.down.length === 0 ? '' : `; not brought back: ${restarted.down.join(', ')}`
     return [...lines, ...drained.lines, `${PREFIX}main advanced to ${sha} with a change under ${BUS_CODE_PATH}; restarting every running bus process on ${head}${notBack}`, ...restarted.lines]
+  }
+
+  private localMainMove(): string | null {
+    const now = this.parts.code.localMain?.() ?? null
+    if (now === null || now === this.localMain)
+      return null
+    this.localMain = now
+    return now
   }
 
   private drain(head: string): Drained {
@@ -312,7 +342,7 @@ export class BusSupervisor {
     const down: string[] = []
     const lines = wanted.flatMap((launch) => {
       const name = launchName(launch)
-      const started = this.parts.start(launch)
+      const started = startedOrTechnical(this.parts.start, launch)
       if (started.exitCode !== 0 && started.alreadyRunning === undefined) {
         down.push(name)
         this.parts.journal({ ts: new Date(this.parts.now()).toISOString(), event: 'worker.down', worker: name, failures: [causeOf(started)], restart: head })
@@ -459,11 +489,11 @@ export class WorkerKeeper {
     if (streak !== undefined && this.parts.now() < streak.retryAt)
       return []
     const lines = [`${PREFIX}${name} is switched on and not running; starting it`]
-    let started = this.parts.start(launch)
+    let started = startedOrTechnical(this.parts.start, launch)
     const refusal = started.exitCode !== 0 && refusedByPreflight(launch, started) ? causeOf(started) : null
     if (refusal !== null) {
       lines.push(...started.stderr, `${PREFIX}${name} was refused by the projection preflight; running ${REDUCE_SCRIPT} once and starting it again`, ...this.parts.reduce())
-      started = this.parts.start(launch)
+      started = startedOrTechnical(this.parts.start, launch)
     }
     lines.push(...started.stdout, ...started.stderr)
     const up = started.exitCode === 0 || started.alreadyRunning !== undefined
@@ -540,6 +570,24 @@ export function judgeSilent(beats: readonly ProcessBeat[], nowMs: number, expect
 
 export function recordJudged(db: DatabaseSync, ts: string, judgement: Judgement): boolean {
   return appendEvent(db, { ts, type: PROCESS_JUDGED, actor: JUDGE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_JUDGED}:${judgement.process}:${judgement.lastBeat}`, payload: { process: judgement.process, verdict: 'silent', last_beat: judgement.lastBeat, silent_ms: judgement.silentMs, limit_ms: SILENT_MS }, legacy: false })
+}
+
+export interface Judged {
+  process: string
+  lastBeat: string
+}
+
+const LAST_JUDGED = `
+  SELECT json_extract(payload, '$.process') AS name, max(json_extract(payload, '$.last_beat')) AS last_beat FROM events
+  WHERE type = '${PROCESS_JUDGED}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.process') IS NOT NULL
+  GROUP BY name ORDER BY name
+`
+
+export function stillSilent(db: DatabaseSync): Judged[] {
+  const beats = new Map(lastProcessBeats(db).map(beat => [beat.process, beat.ts]))
+  return (db.prepare(LAST_JUDGED).all() as { name: string, last_beat: string }[])
+    .filter(row => (beats.get(row.name) ?? row.last_beat) <= row.last_beat)
+    .map(row => ({ process: row.name, lastBeat: row.last_beat }))
 }
 
 export const RESTART_RETRY_MS = SUPERVISOR_BEAT_MS
@@ -727,7 +775,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     down: down => recordWorkerDown(db, new Date().toISOString(), down),
     now: () => Date.now(),
   })
-  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
+  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced or a move of the local ${LOCAL_MAIN_REF} with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
   try {
     await superviseUntilReplaced({
       supervisor,
@@ -761,7 +809,7 @@ function decisionsInForce(): InForceDecision[] {
 async function main(): Promise<void> {
   const busDir = path.join(os.homedir(), '.construct', 'bus')
   const cwd = process.cwd()
-  const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath(), ghApi(cwd))
+  const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath())
   const command = bgCommand(process.argv.slice(2))
   if (command.kind === 'supervise') {
     process.exitCode = await supervise(busDir, cwd, reviewPreflight)

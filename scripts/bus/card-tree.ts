@@ -1,11 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardSession } from './answer-source.js'
+import type { GitHub } from './github.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { pnpmInstall } from '../ghosts/task-start.js'
 import { taskWorktree, worktreeHome } from '../ghosts/worktree-home.js'
 import { cardSessionOf, NO_RECORDED_SESSION, openPrOfCard } from './answer-source.js'
+import { ghApi } from './github.js'
+import { Meter } from './meter.js'
 
 const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
 
@@ -21,11 +24,18 @@ function git(repo: string, args: string[]): string {
   return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
-export function gitCardTrees(repo: string, home: string, install: (cwd: string) => void): CardTreeTools {
+function headRefOf(pull: unknown, pr: number): string {
+  const ref = (pull as { head?: { ref?: unknown } } | null)?.head?.ref
+  if (typeof ref !== 'string' || ref === '')
+    throw new Error(`GitHub names no head branch for pull request #${pr}`)
+  return ref
+}
+
+export function gitCardTrees(repo: string, home: string, install: (cwd: string) => void, gitHub: GitHub = ghApi(repo)): CardTreeTools {
   return {
     home,
     exists: existsSync,
-    branchOf: pr => execFileSync('gh', ['pr', 'view', String(pr), '--json', 'headRefName', '--jq', '.headRefName'], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(),
+    branchOf: pr => headRefOf(new Meter(gitHub, Date.now).get(`repos/{owner}/{repo}/pulls/${pr}`), pr),
     recreate: (worktree, branch) => {
       git(repo, ['worktree', 'prune'])
       git(repo, ['fetch', '-q', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`])

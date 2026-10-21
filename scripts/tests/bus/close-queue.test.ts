@@ -332,11 +332,11 @@ describe('the close queue', () => {
     }
   })
 
-  it('an alarm stays stopped once its cause is gone while its pull request is closed, its head is old or its review rounds are spent', () => {
+  it('an alarm is not requeued once its cause is gone while its pull request is closed, its head is old or its review rounds are spent', () => {
     const settings: Record<string, { after: string, before: (bench: ReturnType<typeof closeBench>) => void }> = {
       'an open pull request at the stopped head': { after: 'queued', before: () => {} },
       'a closed pull request': { after: 'withdrawn', before: bench => bench.gitHub.close(1019, false) },
-      'an old head': { after: 'stopped', before: bench => bench.gitHub.open({ number: 1019, head: sha('b') }) },
+      'an old head': { after: 'superseded', before: bench => bench.gitHub.open({ number: 1019, head: sha('b') }) },
       'spent review rounds': { after: 'stopped', before: bench => spendReviewRounds(bench, 1019, sha('a')) },
     }
     for (const [setting, { after, before }] of Object.entries(settings)) {

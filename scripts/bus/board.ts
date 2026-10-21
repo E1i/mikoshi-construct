@@ -20,6 +20,7 @@ import { REJECTED } from './rejection.js'
 import { replayDifferences } from './report.js'
 import { roleReadings } from './role.js'
 import { activeWindowShards } from './shards.js'
+import { stillSilent } from './supervisor.js'
 
 export const BOARD_FILE = 'board.html'
 export const FRESH_MS = RENEW_MS
@@ -27,6 +28,7 @@ export const NO_PROGRESS_MS = 30 * 60_000
 export const CUTOVER = 'bus.cutover'
 export const PROGRESS_EVENTS = [REVIEW_RECORDED, MERGE_DONE, PR_OPENED, 'pr.closed', CARD_STARTED, CARD_ADMITTED, CARD_CLOSED, TASK_COMPLETED] as const
 export const MERGE_PAST_THE_BUS = 'merge past the bus'
+export const SILENT_PROCESS = 'silent process'
 
 export type Health = 'alive' | 'down' | 'unknown' | 'off'
 
@@ -388,6 +390,11 @@ function writerLink(db: DatabaseSync): ContractLink {
   return link('one writer', after === 0, `${after} legacy events after the cutover`)
 }
 
+function judgedSilentLink(db: DatabaseSync): ContractLink {
+  const silent = stillSilent(db)
+  return link(SILENT_PROCESS, silent.length === 0, silent.length === 0 ? 'no process judged silent' : `judged silent, no heartbeat since: ${silent.map(judged => `${judged.process} (last beat ${judged.lastBeat})`).join(', ')}`)
+}
+
 function contractRow(db: DatabaseSync): ContractLink[] {
   const started = count(db, `SELECT count(*) AS n FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0`)
   const answered = count(db, `SELECT count(*) AS n FROM events WHERE type = '${TASK_COMPLETED}' AND legacy = 0 AND json_extract(payload, '$.queue') = 'answer'`)
@@ -406,6 +413,7 @@ function contractRow(db: DatabaseSync): ContractLink[] {
     link('replay', replayed, replayed ? 'matches' : 'differs'),
     link(REJECTED, rejected === 0, `${rejected}`),
     link(RESTART_MISSED, missed === 0, `${missed} restart${missed === 1 ? '' : 's'} after a merge under scripts/bus did not happen within the limit and no supervisor start on newer code followed`),
+    judgedSilentLink(db),
   ]
 }
 

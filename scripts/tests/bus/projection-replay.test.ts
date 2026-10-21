@@ -1,8 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
-import { LEASE_MS } from '../../bus/lease.js'
-import { FAILURES_TO_STOP } from '../../bus/queue.js'
+import { recordHeartbeat } from '../../bus/heartbeat.js'
+import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
+import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, releaseTask, renewLease } from '../../bus/lease.js'
+import { FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
 import { reduce, reducedThrough } from '../../bus/reducer.js'
 import { FOLDED_ON_APPEND, replayDifferences } from '../../bus/report.js'
 import { failRaise, leaseRole, observeRoleStop, raiseRole, returnEndedRole, returnSilentRole, ROLE_FOLDS, roleToOwner } from '../../bus/role.js'
@@ -38,16 +40,43 @@ function rolesOf(db: DatabaseSync): unknown[] {
   return db.prepare('SELECT * FROM roles ORDER BY role').all()
 }
 
+function liveTasks(): DatabaseSync {
+  const db = openBus(':memory:')
+  for (const cardId of [1, 2, 3, 4])
+    queueTask(db, at(0), { queue: 'launch', cardId, generation: `admission-${cardId}` })
+  reduce(db)
+  const done = leaseNext(db, at(1), 'launch', ACTOR)!
+  renewLease(db, at(2), done)
+  recordHeartbeat(db, at(3), { card: done.cardId, pr: null, head: null, step: 'launch', session: 'session-1', lease: { taskKey: done.taskKey, leaseGen: done.leaseGen } })
+  completeTask(db, at(4), done, [])
+  for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
+    failTask(db, at(10 + failure), leaseNext(db, at(10 + failure), 'launch', ACTOR)!, { reason: 'session_failed', withdraw: false })
+  releaseTask(db, at(20), leaseNext(db, at(20), 'launch', ACTOR)!, 'drain')
+  leaseNext(db, at(30), 'launch', ACTOR)
+  expireLeases(db, at(31 + LEASE_MS))
+  withdrawLegacyLaunchTasks(db, at(40 + LEASE_MS))
+  return db
+}
+
+function tasksOf(db: DatabaseSync): unknown[] {
+  return db.prepare('SELECT * FROM tasks ORDER BY task_key').all()
+}
+
+function rebuiltThrough(live: DatabaseSync, watermark: number): DatabaseSync {
+  const clean = openBus(':memory:')
+  const insert = clean.prepare(`INSERT INTO events (${EVENT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  for (const row of live.prepare(`SELECT ${EVENT_COLUMNS} FROM events WHERE id <= ? ORDER BY id`).all(watermark))
+    insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
+  reduce(clean)
+  return clean
+}
+
 describe('roles are a projection the reducer alone writes', () => {
   it('roles rebuilt by the reducer alone from a clean db equal the live roles at one watermark', () => {
     const live = liveRoles()
     const watermark = watermarkOf(live, 'roles')
     expect(watermark).toBeGreaterThan(reducedThrough(live))
-    const clean = openBus(':memory:')
-    const insert = clean.prepare(`INSERT INTO events (${EVENT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    for (const row of live.prepare(`SELECT ${EVENT_COLUMNS} FROM events WHERE id <= ? ORDER BY id`).all(watermark))
-      insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
-    reduce(clean)
+    const clean = rebuiltThrough(live, watermark)
     expect(clean.prepare(`SELECT count(*) AS n FROM events WHERE type = 'reducer.rejected' AND json_extract(payload, '$.type') LIKE 'role.%'`).get()).toEqual({ n: 0 })
     expect(rolesOf(clean)).toEqual(rolesOf(live))
     expect(rolesOf(live).map(row => (row as { state: string }).state)).toEqual(['raised', 'stopped'])
@@ -68,5 +97,20 @@ describe('roles are a projection the reducer alone writes', () => {
     expect(watermarkOf(db, 'roles')).toBe(reducedThrough(db))
     expect(replayDifferences(db).differences).toEqual([])
     db.close()
+  })
+})
+
+describe('tasks are a projection the reducer alone writes', () => {
+  it('tasks rebuilt by the reducer alone equal the live projection', () => {
+    const live = liveTasks()
+    const watermark = watermarkOf(live, 'tasks')
+    expect(watermark).toBeGreaterThan(reducedThrough(live))
+    const clean = rebuiltThrough(live, watermark)
+    expect(clean.prepare(`SELECT count(*) AS n FROM events WHERE type = 'reducer.rejected' AND (json_extract(payload, '$.type') LIKE 'task.%' OR json_extract(payload, '$.type') = 'session.heartbeat')`).get()).toEqual({ n: 0 })
+    expect(tasksOf(clean)).toEqual(tasksOf(live))
+    expect(tasksOf(live).map(row => (row as { state: string }).state)).toEqual(['completed', 'withdrawn', 'withdrawn', 'withdrawn'])
+    expect(replayDifferences(live).differences).toEqual([])
+    clean.close()
+    live.close()
   })
 })
