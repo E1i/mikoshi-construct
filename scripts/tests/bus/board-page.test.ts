@@ -12,9 +12,10 @@ import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, readRepositoryUrl, REFRESH_SECONDS, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
 import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
 import { defaultBusPath } from '../../bus/db.js'
+import { TICK_MS } from '../../bus/netwatch.js'
 import { REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const roots: string[] = []
@@ -66,7 +67,8 @@ class FakeElement {
   readonly listeners = new Map<string, Listener[]>()
   readonly attributes = new Map<string, string>()
   readonly prepended: FakeElement[] = []
-  innerHTML = ''
+  writes = 0
+  private html = ''
   textContent = ''
   className = ''
   id = ''
@@ -80,6 +82,15 @@ class FakeElement {
   constructor(readonly tagName: string, opens?: string) {
     if (opens !== undefined)
       this.dataset.open = opens
+  }
+
+  get innerHTML(): string {
+    return this.html
+  }
+
+  set innerHTML(next: string) {
+    this.writes++
+    this.html = next
   }
 
   setAttribute(name: string, value: string): void {
@@ -173,13 +184,16 @@ function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STOR
   const known = (id: string): boolean => shellIds.has(id) || slots().some(slot => idsOf(slot.innerHTML).includes(id)) || elements.get('backlog')?.prepended.some(child => child.id === id) === true
   const element = (id: string): FakeElement => {
     const found = elements.get(id) ?? new FakeElement(id === 'drill' ? 'DIALOG' : 'DIV')
-    found.innerHTML = templates().get(id) ?? found.innerHTML
+    const template = templates().get(id)
+    if (template !== undefined)
+      found.innerHTML = template
     elements.set(id, found)
     return found
   }
   const appended: FakeElement[] = []
-  const intervals: { run: () => void, ms: number }[] = []
-  const document = new FakeElement('DOCUMENT')
+  const timeouts: { run: () => void, ms: number }[] = []
+  const body = /<body data-written="([^"]*)" data-tick-ms="([^"]*)">/.exec(html)!
+  const document = Object.assign(new FakeElement('DOCUMENT'), { title: /<title>([^<]*)<\/title>/.exec(html)![1]!, body: { dataset: { written: body[1]!, tickMs: body[2]! } } })
   const page = new FakeElement('WINDOW')
   let current = hash
   const location = {
@@ -199,7 +213,7 @@ function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STOR
     }),
     location,
     addEventListener: (type: string, listener: Listener) => page.addEventListener(type, listener),
-    setInterval: (run: () => void, ms: number) => intervals.push({ run, ms }),
+    setTimeout: (run: () => void, ms: number) => timeouts.push({ run, ms }),
   }
   context.window = context
   if (storage === THROWING_STORAGE) {
@@ -215,7 +229,8 @@ function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STOR
   vm.createContext(context)
   vm.runInContext(/<script>([\s\S]*?)<\/script>/.exec(html)![1]!, context)
   const tick = (data: string | null): FakeElement => {
-    intervals.forEach(interval => interval.run())
+    expect(timeouts).toHaveLength(1)
+    timeouts.splice(0)[0]!.run()
     const script = appended.at(-1)!
     if (data === null) {
       script.onerror?.()
@@ -232,7 +247,8 @@ function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STOR
     templates: templates(),
     currentTemplates: templates,
     elements,
-    intervals,
+    timeouts,
+    document,
     tick,
     location,
     dialog: element('drill'),
@@ -509,7 +525,7 @@ describe('board.html', () => {
     const header = sectionOf(html, '<p class="kv"', '</p>')
     expect(header).toContain(`<span>model <b>v${readModelVersion()}</b></span>`)
     expect(header).toMatch(/<span>written <b>[^<]+<\/b><\/span>/)
-    expect(header).toContain('<span>refresh <b>30s</b></span>')
+    expect(header).toContain('<span>refresh <b>—</b></span>')
     expect(header).toMatch(/<span class="live" id="bus-live"( data-stale)?>bus (live|stale)<\/span>/)
     const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
     expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b> \(bus records no capacity\)<\/span>/)
@@ -682,16 +698,22 @@ describe('board.html', () => {
     expect(JSON.parse(storage.getItem(VIEW_KEY)!).filter).toBe('#show-merged')
   })
 
-  function dataText(busPath: string): string {
+  function projected(busPath: string, now: Date, tickMs: number = TICK_MS): { html: string, data: string } {
     const db = new DatabaseSync(busPath, { readOnly: true })
     try {
-      const projection = boardProjection(db, busPath, DISK_FILES, handoffBeside(busPath))
-      projection.project(NOW)
-      return readFileSync(projection.dataFile, 'utf8')
+      const projection = boardProjection(db, busPath, tickMs, DISK_FILES, handoffBeside(busPath))
+      projection.project(now)
+      return { html: readFileSync(projection.file, 'utf8'), data: readFileSync(projection.dataFile, 'utf8') }
     }
     finally {
       db.close()
     }
+  }
+
+  function projectedWithHandoff(now: Date = NOW, tickMs: number = TICK_MS, heartbeats: SeedEvent[] = []): { html: string, data: string } {
+    const busPath = seededBus(heartbeats)
+    writeFileSync(handoffBeside(busPath), HANDOFF_TEXT)
+    return projected(busPath, now, tickMs)
   }
 
   function boardOf(data: string): BoardData {
@@ -700,8 +722,11 @@ describe('board.html', () => {
     return window.BOARD!
   }
 
+  const LATER = new Date(NOW.getTime() + 60_000)
+  const STOPPED = [{ ts: minutesAgo(4), type: 'card.stopped', card: 861, payload: JSON.stringify({ reason: 'fault', detail: 'no pull request' }) }]
+
   it('a data tick keeps the shell DOM and replaces only the panel nodes', () => {
-    const { html } = pageWithHandoff()
+    const { html } = projectedWithHandoff()
     const storage = new MemoryStorage()
     const board = boardWindow(html, storage)
     board.location.hash = '#show-queued'
@@ -711,14 +736,12 @@ describe('board.html', () => {
     const opened = board.content.innerHTML
     const view = storage.getItem(VIEW_KEY)
     const shell = new Map([...board.elements].filter(([id]) => !id.startsWith('slot-')))
-    const next = seededBus([{ ts: minutesAgo(4), type: 'card.stopped', card: 861, payload: JSON.stringify({ reason: 'fault', detail: 'no pull request' }) }])
-    writeFileSync(handoffBeside(next), HANDOFF_TEXT)
-    const data = dataText(next)
+    const { data } = projectedWithHandoff(LATER, TICK_MS, STOPPED)
     const fresh = boardOf(data)
+    expect(fresh.written).toBe(LATER.toISOString())
     expect(Object.keys(fresh.slots)).toEqual(Object.keys(SLOT_ENDS))
     expect(slotsOf(html).get('status')).not.toContain('card #861 stopped on a fault')
     expect(fresh.slots.status).toContain('card #861 stopped on a fault')
-    expect(board.intervals.map(interval => interval.ms)).toEqual([REFRESH_SECONDS * 1000])
     const script = board.tick(data)
     expect(script.src).toMatch(new RegExp(`^${BOARD_DATA_FILE.replace('.', '\\.')}\\?t=\\d+$`))
     expect(script.removed).toBe(true)
@@ -726,6 +749,7 @@ describe('board.html', () => {
       expect(board.elements.get(`slot-${name}`)!.innerHTML, name).toBe(inner)
     for (const [id, element] of shell)
       expect(board.elements.get(id), id).toBe(element)
+    expect(board.document.title).toBe(`construct board · ${fresh.written}`)
     expect(board.dialog.open).toBe(true)
     expect(board.content.innerHTML).toBe(opened)
     expect(board.scroller.scrollTop).toBe(120)
@@ -736,10 +760,60 @@ describe('board.html', () => {
     expect(html).not.toContain('http-equiv="refresh"')
   })
 
+  it('two polls in a row with the same written leave the DOM untouched', () => {
+    const { html, data } = projectedWithHandoff()
+    const board = boardWindow(html, new MemoryStorage())
+    board.click('TR', 'card-862')
+    const opened = board.content.innerHTML
+    const slots = [...board.elements].filter(([id]) => id.startsWith('slot-'))
+    const writes = (): number[] => slots.map(([, slot]) => slot.writes)
+    const before = writes()
+    const templates = board.currentTemplates()
+    const title = board.document.title
+    const same = boardOf(data)
+    expect(same.written).toBe(/data-written="([^"]+)"/.exec(html)![1])
+    board.tick(data)
+    const reshaped = `window.BOARD = ${JSON.stringify({ ...same, slots: Object.fromEntries(Object.keys(same.slots).map(name => [name, '<p>other</p>'])) })}\n`
+    board.tick(reshaped)
+    expect(writes()).toEqual(before)
+    expect(board.currentTemplates()).toEqual(templates)
+    expect(board.document.title).toBe(title)
+    expect(board.content.innerHTML).toBe(opened)
+    expect(board.dialog.open).toBe(true)
+    expect(board.elements.get('bus-live')?.attributes.has('data-stale') ?? false).toBe(false)
+    const { data: later } = projectedWithHandoff(LATER)
+    board.tick(later)
+    expect(writes().every((count, at) => count === before[at]! + 1)).toBe(true)
+    board.tick(later)
+    expect(writes().every((count, at) => count === before[at]! + 1)).toBe(true)
+    expect(board.content.innerHTML).toBe(opened)
+  })
+
+  it('the poll period is BOARD.tickMs', () => {
+    const { html, data } = projectedWithHandoff(NOW, 45_000)
+    expect(boardOf(data).tickMs).toBe(45_000)
+    expect(html).toContain('data-tick-ms="45000"')
+    expect(html).toContain('<span>refresh <b>45s</b></span>')
+    const board = boardWindow(html, new MemoryStorage())
+    expect(board.timeouts.map(timeout => timeout.ms)).toEqual([45_000])
+    const { data: faster } = projectedWithHandoff(LATER, 7_000)
+    board.tick(faster)
+    expect(board.timeouts.map(timeout => timeout.ms)).toEqual([7_000])
+    board.tick(null)
+    expect(board.timeouts.map(timeout => timeout.ms)).toEqual([7_000])
+    const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1]!
+    expect(script).not.toMatch(/setInterval|setTimeout\(update, \d/)
+    expect(script).toContain('setTimeout(update, period)')
+    const snapshot = boardWindow(pageText(seededBus()), new MemoryStorage())
+    expect(snapshot.timeouts).toEqual([])
+    const { html: projectedShell } = projectedWithHandoff(NOW, TICK_MS)
+    expect(projectedShell).toContain(`<span>refresh <b>${TICK_MS / 1000}s</b></span>`)
+  })
+
   it('a broken board-data.js keeps the previous data and shows bus stale', () => {
-    const { html } = pageWithHandoff()
+    const { html } = projectedWithHandoff()
     expect(html).toContain('<span class="live" id="bus-live">bus live</span>')
-    for (const data of ['window.BOARD = {"at": ', 'window.BOARD = 42', 'window.BOARD = {"at": "x", "slots": null, "filters": []}', null]) {
+    for (const data of ['window.BOARD = {"written": ', 'window.BOARD = 42', 'window.BOARD = {"written": "x", "tickMs": 60000, "slots": null, "filters": []}', null]) {
       const board = boardWindow(html, new MemoryStorage())
       const script = board.tick(data)
       expect(script.removed, String(data)).toBe(true)
@@ -749,6 +823,7 @@ describe('board.html', () => {
       expect(live.attributes.get('data-stale'), String(data)).toBe('')
       expect(live.textContent).toBe('bus stale')
       expect(board.elements.get('bus-pulse')!.attributes.get('data-stale')).toBe('')
+      expect(board.timeouts).toHaveLength(1)
     }
   })
 

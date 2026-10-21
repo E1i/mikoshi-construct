@@ -22,7 +22,6 @@ import { inForceDecisions } from './decisions.js'
 import { openDatabase } from './sqlite.js'
 
 export const PREFIX = '[bus:board] '
-export const REFRESH_SECONDS = 30
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 export const EDDIES_FILE = path.join(REPOSITORY_ROOT, '.claude/eddies.json')
 export const MODEL_FILE = path.join(REPOSITORY_ROOT, 'construct.model.json')
@@ -78,6 +77,7 @@ export interface BoardPage {
   decisions: InForceDecision[]
   handoff: Handoff
   repository: string | null
+  tickMs: number | null
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, sessionSpend: null, warnRatio: null }
@@ -99,6 +99,7 @@ export const SLOT_PREFIX = 'slot-'
 const BUS_LIVE = 'bus-live'
 const BUS_PULSE = 'bus-pulse'
 const STALE_READING = 'bus stale'
+const TITLE_PREFIX = 'construct board · '
 const BACKLOG = 'backlog'
 const DRILL = 'drill'
 const DRILL_CONTENT = 'drill-content'
@@ -392,7 +393,7 @@ function headerReadings(page: BoardPage): string {
   return [
     `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>`,
     `<span>written <b>${escaped(facts.at)}</b></span>`,
-    `<span>refresh <b>${REFRESH_SECONDS}s</b></span>`,
+    `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b></span>`,
     `<span class="live" id="${BUS_LIVE}"${liveAttribute(facts)}>${busFresh(facts) ? 'bus live' : STALE_READING}</span>`,
   ].join('')
 }
@@ -675,9 +676,10 @@ const SCRIPT = `
     if (pulse) pulse.setAttribute('data-stale', '')
   }
   function readable(board) {
-    return board !== null && typeof board === 'object' && board.slots !== null && typeof board.slots === 'object' && Array.isArray(board.filters)
+    return board !== null && typeof board === 'object' && typeof board.written === 'string' && board.slots !== null && typeof board.slots === 'object' && Array.isArray(board.filters)
   }
   function apply(board) {
+    document.title = '${TITLE_PREFIX}' + board.written
     for (var name in board.slots) {
       var slot = document.getElementById('${SLOT_PREFIX}' + name)
       if (slot && typeof board.slots[name] === 'string') slot.innerHTML = board.slots[name]
@@ -691,15 +693,27 @@ const SCRIPT = `
       backlog.prepend(target)
     })
   }
+  var written = document.body.dataset.written
+  var period = Number(document.body.dataset.tickMs)
+  function receive(board) {
+    if (!readable(board)) { stale(); return }
+    if (typeof board.tickMs === 'number' && board.tickMs > 0) period = board.tickMs
+    if (board.written === written) return
+    written = board.written
+    apply(board)
+  }
+  function schedule() {
+    if (period > 0) setTimeout(update, period)
+  }
   function update() {
     window.BOARD = undefined
     var script = document.createElement('script')
-    script.onload = function () { script.remove(); if (readable(window.BOARD)) apply(window.BOARD); else stale() }
-    script.onerror = function () { script.remove(); stale() }
+    script.onload = function () { script.remove(); receive(window.BOARD); schedule() }
+    script.onerror = function () { script.remove(); stale(); schedule() }
     script.src = '${BOARD_DATA_FILE}?t=' + Date.now()
     document.head.appendChild(script)
   }
-  setInterval(update, ${REFRESH_SECONDS * 1000})
+  schedule()
 })()
 `
 
@@ -1093,14 +1107,16 @@ export interface BoardSlots {
 }
 
 export interface BoardData {
-  at: string
+  written: string
+  tickMs: number | null
   slots: BoardSlots
   filters: string[]
 }
 
 export function boardData(page: BoardPage): BoardData {
   return {
-    at: page.facts.at,
+    written: page.facts.at,
+    tickMs: page.tickMs,
     slots: {
       kv: headerReadings(page),
       services: servicesSlot(page),
@@ -1124,8 +1140,8 @@ export function renderBoard(page: BoardPage): string {
     '<!doctype html>',
     '<html lang="en"><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<title>construct board</title>`,
-    `<style>${STYLE}</style></head><body>`,
+    `<title>${TITLE_PREFIX}${escaped(page.facts.at)}</title>`,
+    `<style>${STYLE}</style></head><body data-written="${escaped(page.facts.at)}" data-tick-ms="${page.tickMs ?? ''}">`,
     headerPanel(page, slots),
     `<section class="panel" id="${SLOT_PREFIX}services" aria-labelledby="h-services">\n${slots.services}\n</section>`,
     '<div class="split">',
@@ -1139,7 +1155,7 @@ export function renderBoard(page: BoardPage): string {
   ].join('\n')
 }
 
-function boardPageOf(db: DatabaseSync, now: Date, handoffFile: string): BoardPage {
+function boardPageOf(db: DatabaseSync, now: Date, handoffFile: string, tickMs: number | null): BoardPage {
   const facts = busFacts(db, now)
   return {
     version: VERSION,
@@ -1152,6 +1168,7 @@ function boardPageOf(db: DatabaseSync, now: Date, handoffFile: string): BoardPag
     decisions: inForceDecisions(db),
     handoff: readHandoff(handoffFile),
     repository: readRepositoryUrl(),
+    tickMs,
   }
 }
 
@@ -1164,7 +1181,7 @@ export function writeBoardPage(file: string, html: string, files: BoardFiles = D
 export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE): number {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    write(renderBoard(boardPageOf(db, now, handoffFile)))
+    write(renderBoard(boardPageOf(db, now, handoffFile, null)))
     return 0
   }
   finally {
@@ -1186,7 +1203,7 @@ export interface BoardProjection {
   project: (now: Date) => void
 }
 
-export function boardProjection(db: DatabaseSync, busPath: string, files: BoardFiles = DISK_FILES, handoffFile: string = HANDOFF_FILE): BoardProjection {
+export function boardProjection(db: DatabaseSync, busPath: string, tickMs: number, files: BoardFiles = DISK_FILES, handoffFile: string = HANDOFF_FILE): BoardProjection {
   const file = path.join(path.dirname(busPath), BOARD_FILE)
   const dataFile = path.join(path.dirname(busPath), BOARD_DATA_FILE)
   return {
@@ -1194,7 +1211,7 @@ export function boardProjection(db: DatabaseSync, busPath: string, files: BoardF
     dataFile,
     project: (now) => {
       try {
-        const page = boardPageOf(db, now, handoffFile)
+        const page = boardPageOf(db, now, handoffFile, tickMs)
         writeBoardPage(dataFile, boardDataScript(boardData(page)), files)
         writeBoardPage(file, renderBoard(page), files)
       }

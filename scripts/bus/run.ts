@@ -73,7 +73,7 @@ export interface ComposedTick {
 }
 
 export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, post: GitHubPost, clock: () => Date, home: string): ComposedTick {
-  const board = boardProjection(db, busPath)
+  const board = boardProjection(db, busPath, TICK_MS)
   const requests = new WindowRequests(db, clock, realRequestTools(db, process.cwd(), process.env, home))
   const answer = (): void => {
     for (const outcome of requests.run())

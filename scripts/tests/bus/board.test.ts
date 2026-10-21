@@ -153,7 +153,7 @@ describe('the factory board', () => {
     expect(board.blocked).toEqual([{ card: '863', lane: 'lane-2', reason: 'waits question' }])
 
     const busPath = bench.db.location()!
-    const projection = boardProjection(bench.db, busPath)
+    const projection = boardProjection(bench.db, busPath, TICK_MS)
     projection.project(bench.clock.now())
     const projected = readFileSync(projection.file, 'utf8')
     expect(projected).toContain('#861')
@@ -195,14 +195,15 @@ describe('the factory board', () => {
     const now = new Date()
     const db = new DatabaseSync(copy, { readOnly: true })
     try {
-      const projection = boardProjection(db, copy, DISK_FILES, path.join(path.dirname(copy), 'miko.md'))
+      const projection = boardProjection(db, copy, TICK_MS, DISK_FILES, path.join(path.dirname(copy), 'miko.md'))
       expect(projection.dataFile).toBe(path.join(path.dirname(copy), BOARD_DATA_FILE))
       projection.project(now)
       const window: { BOARD?: BoardData } = {}
       vm.runInNewContext(readFileSync(projection.dataFile, 'utf8'), { window })
       const board = window.BOARD!
       const facts = busFacts(db, now)
-      expect(board.at).toBe(facts.at)
+      expect(board.written).toBe(facts.at)
+      expect(board.tickMs).toBe(TICK_MS)
       expect(board.slots.kv).toContain(`<span>written <b>${facts.at}</b></span>`)
       const rows = [...board.slots.rows.matchAll(/<tr data-card="(\d+)" data-state="([^"]*)"/g)].map(match => ({ id: Number(match[1]), state: match[2] }))
       expect(rows).toEqual(expect.arrayContaining(backlogCards(facts.cards, facts.at, true).map(card => ({ id: card.id, state: card.state ?? '—' }))))
@@ -241,7 +242,7 @@ describe('the factory board', () => {
         DISK_FILES.rename(from, to)
       },
     }
-    const projection = boardProjection(bench.db, busPath, files)
+    const projection = boardProjection(bench.db, busPath, TICK_MS, files)
     expect(projection.dataFile).toBe(dataFile)
     projection.project(bench.clock.now())
     const [dataWrite, dataRename, pageWrite, pageRename] = calls
