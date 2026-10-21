@@ -3,7 +3,7 @@ import type { ShiftTask } from '../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, SESSION_HEARTBEAT } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, SESSION_HEARTBEAT, TASK_REQUEUED } from '../core/events.js'
 import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
@@ -17,9 +17,13 @@ export type Contour = 'cheap' | 'ladder'
 
 const FREE_ROW = 'free'
 
+const FAULT = 'fault'
+
+const REQUEUED_BY_REQUEST = `(type = '${TASK_REQUEUED}' AND json_extract(payload, '$.queue') = 'launch' AND json_type(payload, '$.request') = 'integer')`
+
 const CARD_LIFE = `
   SELECT id, type, card_id, dedupe_key, payload FROM events
-  WHERE legacy = 0 AND card_id IS NOT NULL AND type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${GHOST_ROW}')
+  WHERE legacy = 0 AND card_id IS NOT NULL AND (type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${GHOST_ROW}') OR ${REQUEUED_BY_REQUEST})
     AND ${NOT_A_BACKFILL}
   ORDER BY id
 `
@@ -101,6 +105,7 @@ interface CardLife {
   startedAt: number | null
   freeRow: number | null
   closed: boolean
+  stoppedByFault: boolean
 }
 
 function payloadOf(row: Pick<LifeRow, 'payload'>): Record<string, unknown> {
@@ -177,7 +182,15 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       const running = life !== undefined && life.started && !life.closed
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: taskOf(row, payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: taskOf(row, payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false })
+      continue
+    }
+    if (life !== undefined && row.type === TASK_REQUEUED) {
+      if (life.stoppedByFault && payloadOf(row).generation === life.generation) {
+        life.started = false
+        life.closed = false
+        life.stoppedByFault = false
+      }
       continue
     }
     if (life !== undefined && row.type === CARD_STARTED) {
@@ -187,8 +200,10 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
     }
     if (life !== undefined && row.type === GHOST_ROW && life.startedAt !== null && life.freeRow === null && payloadOf(row).state === FREE_ROW)
       life.freeRow = row.id
-    if (life !== undefined && (row.type === CARD_CLOSED || row.type === CARD_STOPPED))
+    if (life !== undefined && (row.type === CARD_CLOSED || row.type === CARD_STOPPED)) {
       life.closed = true
+      life.stoppedByFault = row.type === CARD_STOPPED && payloadOf(row).reason === FAULT
+    }
   }
   return lives
 }

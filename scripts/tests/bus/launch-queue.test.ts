@@ -21,13 +21,14 @@ import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
 import { busCardEvents } from '../../bus/intake.js'
-import { launchCandidates } from '../../bus/launch-candidates.js'
+import { launchableCard, launchCandidates } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
 import { busCardBodies, busStarterPorts, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { SILENT_MS } from '../../bus/liveness-sites.js'
+import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
 import { busLaunches } from '../../bus/workers.js'
@@ -723,6 +724,44 @@ describe('the launch queue', () => {
 
     expect(bench.launch(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'card_not_queued' }, next: 'withdrawn' })
     expect(starter.starts).toEqual([])
+    bench.close()
+  })
+
+  function requeuedAfterFaultStop(bench: ReturnType<typeof launchBench>, cardId: number, stop: Record<string, unknown> | null): void {
+    const ts = (): string => bench.clock.now().toISOString()
+    bench.admit(cardId, `lane-${cardId}`)
+    bench.tick()
+    for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1) {
+      const lease = bench.leaseLaunch()!
+      expect(bench.launch(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'start_failed' } })
+    }
+    if (stop !== null)
+      appendEvent(bench.db, { ts: ts(), type: CARD_STOPPED, actor: 'worker:shift:1', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:after-fault-${cardId}`, payload: stop, legacy: false })
+    bench.tick()
+    const refuse = (): never => {
+      throw new Error('a requeue of a launch uses no tree tool')
+    }
+    requestFromWindow(bench.db, ts(), 'test', { kind: 'requeue', task_key: launch(cardId) })
+    expect(new WindowRequests(bench.db, bench.clock.now, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null }).run()).toMatchObject([{ kind: 'done' }])
+    bench.tick()
+  }
+
+  it('a card stopped by fault whose launch the window requeued is launchable again', () => {
+    const bench = launchBench(new FakeStarter(card => ({ kind: 'refused', denial: { kind: 'technical', reason: 'start_failed', detail: `no tree for card #${card.cardId}` } })))
+    requeuedAfterFaultStop(bench, 1185, null)
+
+    expect(taskState(bench.db, launch(1185))).toMatchObject({ state: 'queued' })
+    expect(launchableCard(bench.db, 1185)).toEqual({ lane: 'lane-1185', contour: 'cheap' })
+    bench.close()
+  })
+
+  it('a card stopped by question stays out of the candidates', () => {
+    const bench = launchBench(new FakeStarter(card => ({ kind: 'refused', denial: { kind: 'technical', reason: 'start_failed', detail: `no tree for card #${card.cardId}` } })))
+    requeuedAfterFaultStop(bench, 1186, { reason: 'question.owner', detail: 'which lane' })
+
+    expect(taskState(bench.db, launch(1186))).toMatchObject({ state: 'queued' })
+    expect(launchableCard(bench.db, 1186)).toBeNull()
+    expect(launchCandidates(bench.db)).toEqual([])
     bench.close()
   })
 
