@@ -27,7 +27,7 @@ function starterFor(step: LadderStep, options: { tree?: string | null, parked?: 
   const cut: string[] = []
   const tree = options.tree === undefined ? '/trees/known' : options.tree
   const ports: StarterPorts = {
-    read: file => options.parked === false ? null : readFileSync(file, 'utf8'),
+    read: cardId => options.parked === false ? null : readFileSync(path.join(parking, 'lane-x', `${cardId}.md`), 'utf8'),
     cut: () => {
       cut.push('cut')
       return '/trees/cut'
@@ -57,7 +57,7 @@ function starterFor(step: LadderStep, options: { tree?: string | null, parked?: 
     body: (_task, kind) => `body of the ${kind} step`,
   }
   const starter = new LadderCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: '/repo' }, ports, steps)
-  return { starter, spawned, killed, cut, parking }
+  return { starter, spawned, killed, cut, parking, launchDir: path.join(root, 'launch') }
 }
 
 describe('the brief chain', () => {
@@ -105,13 +105,11 @@ describe('the ladder starter chains', () => {
   })
 
   it('the review chain runs the claude session in the known tree and opens the pull request', () => {
-    const { starter, spawned } = starterFor({ kind: 'review' })
+    const { starter, spawned, launchDir } = starterFor({ kind: 'review' })
     const start = starter.start({ cardId: CARD, lane: 'lane-x' })
 
     expect(start).toMatchObject({ kind: 'started', card: { worktree: '/trees/known', step: 'review' } })
-    const script = spawned[0]!.args[1]!
-    expect(script.startsWith('env claude --permission-mode dontAsk "$@" && tree-pr ')).toBe(true)
-    expect(script).toContain(`'/trees/known'`)
+    expect(spawned[0]!.args[1]).toBe(`env claude --permission-mode dontAsk "$@" && tree-pr ${CARD} '/trees/known' '${path.join(launchDir, `report-${CARD}.md`)}'`)
     expect(spawned[0]!.input).toContain('body of the review step')
   })
 
@@ -133,10 +131,10 @@ describe('the ladder starter chains', () => {
     expect([...running.spawned, ...fault.spawned]).toEqual([])
   })
 
-  it('a card file that is not there is refused as unreadable', () => {
+  it('a card the bus holds no body of is refused as unreadable', () => {
     const { starter } = starterFor({ kind: 'brief' }, { parked: false })
 
-    expect(starter.start({ cardId: CARD, lane: 'lane-x' })).toMatchObject({ kind: 'refused', denial: { reason: 'card_unreadable' } })
+    expect(starter.start({ cardId: CARD, lane: 'lane-x' })).toMatchObject({ kind: 'refused', denial: { reason: 'card_unreadable', detail: `the bus holds no card body of card #${CARD}` } })
   })
 
   it('a process group that cannot be read kills the chain before start_failed', () => {

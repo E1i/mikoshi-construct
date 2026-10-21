@@ -5,7 +5,7 @@ import path from 'node:path'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { messageOf } from './errors.js'
 import { technical } from './launch-executor.js'
-import { cardCommand, shellWord } from './launch-starter.js'
+import { cardCommand, shellWord, unreadableCard } from './launch-starter.js'
 
 export type LadderStep
   = | { kind: 'brief' }
@@ -65,7 +65,7 @@ function launchScript(context: ChainContext): string {
 }
 
 function treePrScript(context: ChainContext): string {
-  return [context.places.treePr, shellWord(context.cardFile), shellWord(context.worktree), shellWord(context.report)].join(' ')
+  return [context.places.treePr, String(context.task.card.id), shellWord(context.worktree), shellWord(context.report)].join(' ')
 }
 
 function claudeScript(context: ChainContext): string {
@@ -88,9 +88,9 @@ export class LadderCardStarter implements CardStarter {
   start(card: QueuedCard): CardStart {
     const laneDir = path.join(this.places.parking, card.lane)
     const file = `${card.cardId}.md`
-    const text = this.ports.read(path.join(laneDir, file))
+    const text = this.ports.read(card.cardId)
     if (text === null)
-      return refused('card_unreadable', `${path.join(laneDir, file)} is not there`)
+      return refused('card_unreadable', unreadableCard(card.cardId))
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')
       return refused('card_unreadable', parsed.reason)

@@ -20,7 +20,7 @@ export interface DetachedSpawn {
 }
 
 export interface StarterPorts {
-  read: (file: string) => string | null
+  read: (cardId: number) => string | null
   cut: (task: ShiftTask, laneDir: string) => string
   base: (worktree: string) => string
   spawnDetached: (spawn: DetachedSpawn) => number
@@ -66,8 +66,12 @@ export function treePrCommand(repo: string): string {
   return `pnpm --dir ${shellWord(repo)} --silent exec tsx scripts/shift/tree-pr-cli.ts`
 }
 
-export function launchArgv(session: { command: string, treePr: string, cardFile: string, worktree: string, report: string, id: string }): string[] {
-  return ['-c', `env ${session.command} "$@" && ${session.treePr} ${shellWord(session.cardFile)} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', '-p', '--session-id', session.id]
+export function launchArgv(session: { command: string, treePr: string, cardId: number, worktree: string, report: string, id: string }): string[] {
+  return ['-c', `env ${session.command} "$@" && ${session.treePr} ${session.cardId} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', '-p', '--session-id', session.id]
+}
+
+export function unreadableCard(cardId: number): string {
+  return `the bus holds no card body of card #${cardId}`
 }
 
 const PATH_DELIMITERS = /[\s`'"(),;<>[\]{}]+/
@@ -130,9 +134,9 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
   private session(card: QueuedCard, treeOf: (task: ShiftTask, laneDir: string) => SessionTree): CardStart {
     const laneDir = path.join(this.places.parking, card.lane)
     const file = `${card.cardId}.md`
-    const text = this.ports.read(path.join(laneDir, file))
+    const text = this.ports.read(card.cardId)
     if (text === null)
-      return { kind: 'refused', denial: technical('card_unreadable', `${path.join(laneDir, file)} is not there`) }
+      return { kind: 'refused', denial: technical('card_unreadable', unreadableCard(card.cardId)) }
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')
       return { kind: 'refused', denial: technical('card_unreadable', parsed.reason) }
@@ -144,7 +148,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       const prompt = this.ports.prompt({ ...task, body: body(task, { worktree, report }) }, { worktree, report })
       const pid = this.ports.spawnDetached({
         command: 'sh',
-        args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardFile: path.join(laneDir, file), worktree, report, id: session }),
+        args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardId: card.cardId, worktree, report, id: session }),
         cwd: worktree,
         env: this.ports.envOf(card.cardId),
         input: prompt,

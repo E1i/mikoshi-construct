@@ -448,13 +448,9 @@ export function busCardBodies(busPath: string): CardBodyReader {
   }
 }
 
-export function cardTextReader(bodyOf: CardBodyReader): (file: string) => string | null {
-  return file => bodyOf(Number(path.basename(file, '.md'))) ?? (existsSync(file) ? readFileSync(file, 'utf8') : null)
-}
-
 export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null): StarterPorts {
   return {
-    read: cardTextReader(bodyOf),
+    read: bodyOf,
     cut: (task, laneDir) => {
       execFileSync('pnpm', ['--silent', 'task:start', task.branch, '--card', task.card.line, '--parking', laneDir], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
       return taskWorktree(worktreeHome(env), String(task.card.id))

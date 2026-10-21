@@ -5,8 +5,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { BUS_DB_VARIABLE } from '../../bus/db.js'
+import { textSha } from '../../../src/card/text-sha.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
+import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
+import { busCardBodies } from '../../bus/launch-worker.js'
+import { reduce } from '../../bus/reducer.js'
 import { sessionEnv } from '../../ghosts/session.js'
 import { renderPrompt } from '../../shift/prompt.js'
 import { waitFor } from '../wait-for.js'
@@ -80,8 +84,16 @@ function launchWorld(claudeExit: number, report = '') {
   git(worktree, ['checkout', '-q', '-b', BRANCH])
 
   const parking = path.join(root, 'parking')
-  mkdirSync(path.join(parking, 'lane-x'), { recursive: true })
-  writeFileSync(path.join(parking, 'lane-x', `${CARD_ID}.md`), parkingFileText({ card: CARD_LINE, branch: BRANCH, touches: ['scripts/bus/**', 'x.txt'], continue: 'stop', who: 'shift', body: 'Do the card.\nPath (D-76): cheap, a fixture card the stub closes in one run' }))
+  const cardText = parkingFileText({ card: CARD_LINE, branch: BRANCH, touches: ['scripts/bus/**', 'x.txt'], continue: 'stop', who: 'shift', body: 'Do the card.\nPath (D-76): cheap, a fixture card the stub closes in one run' })
+  const busPath = path.join(root, 'bus.db')
+  const db = openBus(busPath)
+  try {
+    appendEvent(db, { ts: '2026-10-21T00:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: CARD_ID, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { lane: 'lane-x', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD_ID}`, text: cardText, textSha: textSha(cardText) }, legacy: false })
+    reduce(db)
+  }
+  finally {
+    db.close()
+  }
 
   const bin = path.join(root, 'bin')
   mkdirSync(bin)
@@ -92,11 +104,11 @@ function launchWorld(claudeExit: number, report = '') {
   const claude = script(path.join(root, 'claude-stub.sh'), `#!/bin/sh\ncat > /dev/null\nprintf 'green\\n' > x.txt\n${writeReport}exit ${claudeExit}\n`)
 
   const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'shift', 'tree-pr-cli.ts'))}`
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, [BUS_DB_VARIABLE]: path.join(root, 'bus.db') }
+  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, [BUS_DB_VARIABLE]: busPath }
   const starter = new ShiftCardStarter(
     { parking, launchDir, claude, treePr },
     {
-      read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+      read: busCardBodies(busPath),
       cut: () => worktree,
       base: tree => git(tree, ['rev-parse', 'HEAD']).trim(),
       spawnDetached: (run) => {

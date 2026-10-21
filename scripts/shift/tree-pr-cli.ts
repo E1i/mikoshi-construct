@@ -2,19 +2,21 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { TreePr, TreePrPorts } from './tree-pr.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { PR_OPENED } from '../bus/card-automaton.js'
-import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
+import { cardContract } from '../bus/card-contract.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../bus/inbox.js'
+import { openDatabase } from '../bus/sqlite.js'
 import { execGh, stdoutOrThrow } from '../core/gh.js'
 import { shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift:tree-pr] '
 
 export interface TreePrCliPorts extends TreePrPorts {
+  card: (cardId: number) => string | null
   opened: (cardId: number, pr: number) => void
   stopped: (cardId: number, why: string) => void
 }
@@ -65,50 +67,64 @@ export function busCardStopped(bus: PrOpenedBus): TreePrCliPorts['stopped'] {
   })
 }
 
+export function busCardText(busPath: string): TreePrCliPorts['card'] {
+  return (cardId) => {
+    if (!existsSync(busPath))
+      return null
+    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    try {
+      return cardContract(db, cardId)?.text ?? null
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
 const REAL_BUS: PrOpenedBus = { busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => process.stderr.write(`${line}\n`) }
 
 const REAL_PORTS: TreePrCliPorts = {
   git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
   gh: stdoutOrThrow(execGh),
+  card: busCardText(REAL_BUS.busPath),
   opened: busPrOpened(REAL_BUS),
   stopped: busCardStopped(REAL_BUS),
 }
 
-function cardIdOf(cardFile: string): number | null {
-  const id = path.basename(cardFile, '.md')
-  return /^[1-9]\d*$/.test(id) ? Number(id) : null
+function cardIdOf(word: string): number | null {
+  return /^[1-9]\d*$/.test(word) ? Number(word) : null
 }
 
-function outcomeLine(cardFile: string, outcome: Exclude<TreePr, { kind: 'problem' }>): string {
+function outcomeLine(cardId: number, outcome: Exclude<TreePr, { kind: 'problem' }>): string {
   if (outcome.kind === 'pr')
-    return `${PREFIX}${path.basename(cardFile)}: PR #${outcome.number}`
-  return `${PREFIX}${path.basename(cardFile)}: nothing to commit or push`
+    return `${PREFIX}card #${cardId}: PR #${outcome.number}`
+  return `${PREFIX}card #${cardId}: nothing to commit or push`
 }
 
 export function runTreePr(argv: string[], ports: TreePrCliPorts = REAL_PORTS, out: (line: string) => void = line => process.stdout.write(`${line}\n`)): number {
-  const [cardFile, worktree, report] = argv
-  if (cardFile === undefined || worktree === undefined) {
-    out(`${PREFIX}usage: tree-pr <parking card file> <worktree> [<session report>]`)
+  const [cardWord, worktree, report] = argv
+  const cardId = cardWord === undefined ? null : cardIdOf(cardWord)
+  if (cardId === null || worktree === undefined) {
+    out(`${PREFIX}usage: tree-pr <card id> <worktree> [<session report>]`)
     return 2
   }
   const refuse = (why: string): number => {
-    const cardId = cardIdOf(cardFile)
-    if (cardId !== null)
-      ports.stopped(cardId, why)
-    out(`${PREFIX}${path.basename(cardFile)}: ${why}`)
+    ports.stopped(cardId, why)
+    out(`${PREFIX}card #${cardId}: ${why}`)
     return 1
   }
-  if (!existsSync(cardFile))
-    return refuse(`the card file ${cardFile} is gone (moved to another lane or archived while the session ran); the tree is left uncommitted`)
-  const parsed = parseParkingFile(path.basename(cardFile), readFileSync(cardFile, 'utf8'))
+  const text = ports.card(cardId)
+  if (text === null)
+    return refuse(`the bus holds no card body of card #${cardId} that parses; the tree is left uncommitted`)
+  const parsed = parseParkingFile(`${cardId}.md`, text)
   if (parsed.kind === 'refused')
     return refuse(parsed.reason)
   const outcome = treePr(ports, shiftTreeCard(parsed.parked.task), worktree, report !== undefined && existsSync(report) ? readFileSync(report, 'utf8') : null)
   if (outcome.kind === 'problem')
     return refuse(outcome.why)
   if (outcome.kind === 'pr')
-    ports.opened(Number(parsed.parked.task.id), Number(outcome.number))
-  out(outcomeLine(cardFile, outcome))
+    ports.opened(cardId, Number(outcome.number))
+  out(outcomeLine(cardId, outcome))
   return 0
 }
 
