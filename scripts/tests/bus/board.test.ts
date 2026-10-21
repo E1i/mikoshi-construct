@@ -1,19 +1,23 @@
-import type { DatabaseSync } from 'node:sqlite'
+import type { BoardData, BoardFiles } from '../../bus/board-page.js'
 import type { Board, LaneParking, LeaseOrders, Watched } from '../../bus/board.js'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { DatabaseSync } from 'node:sqlite'
+import vm from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { busFacts } from '../../../src/commands/board/bus.js'
 import { GOAL_DECISION } from '../../../src/commands/board/goal.js'
+import { backlogCards } from '../../../src/commands/board/screens.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
-import { boardProjection, printBoard, runBoardCli } from '../../bus/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, printBoard, runBoardCli } from '../../bus/board-page.js'
 import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS, windowGauges } from '../../bus/board.js'
 import { DROPPED_LANE, MERGED_CARD } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
-import { appendEvent, openBus } from '../../bus/db.js'
+import { appendEvent, defaultBusPath, openBus } from '../../bus/db.js'
 import { recordHeartbeat, recordProcessHeartbeat } from '../../bus/heartbeat.js'
 import { importJournal } from '../../bus/import.js'
 import { RESTART_MISSED } from '../../bus/inbox.js'
@@ -149,7 +153,7 @@ describe('the factory board', () => {
     expect(board.blocked).toEqual([{ card: '863', lane: 'lane-2', reason: 'waits question' }])
 
     const busPath = bench.db.location()!
-    const projection = boardProjection(bench.db, busPath)
+    const projection = boardProjection(bench.db, busPath, TICK_MS)
     projection.project(bench.clock.now())
     const projected = readFileSync(projection.file, 'utf8')
     expect(projected).toContain('#861')
@@ -162,6 +166,98 @@ describe('the factory board', () => {
 
     bench.db.prepare('UPDATE cards SET state = ? WHERE card_id = ?').run('merged', 860)
     expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).waiting).toEqual([])
+  })
+
+  function liveBusCopy(): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-data-'))
+    roots.push(root)
+    const copy = path.join(root, 'bus.db')
+    const live = defaultBusPath()
+    if (!existsSync(live)) {
+      const bench = boardBench()
+      seedProjections(bench)
+      bench.tick()
+      bench.db.exec(`VACUUM INTO '${copy.replace(/'/g, '\'\'')}'`)
+      return copy
+    }
+    const db = new DatabaseSync(live, { readOnly: true })
+    try {
+      db.exec(`VACUUM INTO '${copy.replace(/'/g, '\'\'')}'`)
+    }
+    finally {
+      db.close()
+    }
+    return copy
+  }
+
+  it('window.BOARD in board-data.js holds the facts of a copy of the live bus.db', () => {
+    const copy = liveBusCopy()
+    const now = new Date()
+    const db = new DatabaseSync(copy, { readOnly: true })
+    try {
+      const projection = boardProjection(db, copy, TICK_MS, DISK_FILES, path.join(path.dirname(copy), 'miko.md'))
+      expect(projection.dataFile).toBe(path.join(path.dirname(copy), BOARD_DATA_FILE))
+      projection.project(now)
+      const window: { BOARD?: BoardData } = {}
+      vm.runInNewContext(readFileSync(projection.dataFile, 'utf8'), { window })
+      const board = window.BOARD!
+      const facts = busFacts(db, now)
+      expect(board.written).toBe(facts.at)
+      expect(board.tickMs).toBe(TICK_MS)
+      expect(board.slots.kv).toContain(`<span>written <b>${facts.at}</b></span>`)
+      const rows = [...board.slots.rows.matchAll(/<tr data-card="(\d+)" data-state="([^"]*)"/g)].map(match => ({ id: Number(match[1]), state: match[2] }))
+      expect(rows).toEqual(expect.arrayContaining(backlogCards(facts.cards, facts.at, true).map(card => ({ id: card.id, state: card.state ?? '—' }))))
+      expect(rows).toHaveLength(backlogCards(facts.cards, facts.at, true).length)
+      expect(board.slots.status).toContain(`<span>agents <b>${facts.services.length}</b></span>`)
+      expect(board.slots.status).toContain(`<span>review queue <b>${facts.reviewQueue}</b></span>`)
+      const shell = readFileSync(projection.file, 'utf8')
+      expect(shell).not.toContain('http-equiv="refresh"')
+      expect(shell).toContain(`<table id="slot-rows">\n${board.slots.rows}\n</table>`)
+      for (const id of board.filters)
+        expect(shell).toContain(`<span class="filter-target" id="${id}"></span>`)
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it('board-data.js is written through tmp and rename', () => {
+    const bench = boardBench()
+    seedProjections(bench)
+    const busPath = bench.db.location()!
+    const root = path.dirname(busPath)
+    const previous = 'window.BOARD = "previous"\n'
+    const dataFile = path.join(root, BOARD_DATA_FILE)
+    writeFileSync(dataFile, previous)
+    const calls: string[][] = []
+    const files: BoardFiles = {
+      write: (file, text) => {
+        if (calls.length === 0)
+          expect(readFileSync(dataFile, 'utf8')).toBe(previous)
+        calls.push(['write', file, text.slice(0, 15)])
+        DISK_FILES.write(file, text)
+      },
+      rename: (from, to) => {
+        calls.push(['rename', from, to])
+        DISK_FILES.rename(from, to)
+      },
+    }
+    const projection = boardProjection(bench.db, busPath, TICK_MS, files)
+    expect(projection.dataFile).toBe(dataFile)
+    projection.project(bench.clock.now())
+    const [dataWrite, dataRename, pageWrite, pageRename] = calls
+    expect(dataWrite).toEqual(['write', dataWrite![1], 'window.BOARD = '])
+    expect(dataRename).toEqual(['rename', dataWrite![1], projection.dataFile])
+    expect(pageWrite).toEqual(['write', pageWrite![1], '<!doctype html>'])
+    expect(pageRename).toEqual(['rename', pageWrite![1], projection.file])
+    expect(calls).toHaveLength(4)
+    for (const temporary of [dataWrite![1]!, pageWrite![1]!]) {
+      expect(path.dirname(temporary)).toBe(root)
+      expect(existsSync(temporary)).toBe(false)
+    }
+    expect(dataWrite![1]).not.toBe(projection.dataFile)
+    expect(readFileSync(projection.dataFile, 'utf8')).toMatch(/^window\.BOARD = \{/)
+    expect(readdirSync(root).filter(name => name.endsWith('.tmp'))).toEqual([])
   })
 
   it('the board command exits 1 on a missing database and prints the page for a seeded one', () => {

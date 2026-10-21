@@ -22,7 +22,6 @@ import { inForceDecisions } from './decisions.js'
 import { openDatabase } from './sqlite.js'
 
 export const PREFIX = '[bus:board] '
-export const REFRESH_SECONDS = 30
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 export const EDDIES_FILE = path.join(REPOSITORY_ROOT, '.claude/eddies.json')
 export const MODEL_FILE = path.join(REPOSITORY_ROOT, 'construct.model.json')
@@ -78,6 +77,7 @@ export interface BoardPage {
   decisions: InForceDecision[]
   handoff: Handoff
   repository: string | null
+  tickMs: number | null
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, sessionSpend: null, warnRatio: null }
@@ -94,6 +94,13 @@ const STATE_ORDER = [...FLOW_STATES.flat(), 'stopped', 'merged', 'closed', 'drop
 const THOUSAND = 1_000
 const MILLION = 1_000_000
 const MINUTE_MS = 60_000
+export const BOARD_DATA_FILE = 'board-data.js'
+export const SLOT_PREFIX = 'slot-'
+const BUS_LIVE = 'bus-live'
+const BUS_PULSE = 'bus-pulse'
+const STALE_READING = 'bus stale'
+const TITLE_PREFIX = 'construct board · '
+const BACKLOG = 'backlog'
 const DRILL = 'drill'
 const DRILL_CONTENT = 'drill-content'
 const BACKLOG_SCROLL = 'backlog-scroll'
@@ -248,17 +255,16 @@ function servicesMeta(page: BoardPage): string {
   ].join('')
 }
 
-function servicesPanel(page: BoardPage): string {
+function servicesSlot(page: BoardPage): string {
   const { facts } = page
   const tiles = facts.services.length === 0 ? [lineTile('window', PLAIN_LORE.boardNoServices)] : facts.services.map(service => serviceTile(service, page))
   return [
-    '<section class="panel" aria-labelledby="h-services">',
     `<div class="panel-head"><h2 id="h-services">${PLAIN_LORE.boardTabServices}</h2>${servicesMeta(page)}</div>`,
     '<div class="svc-grid">',
     ...tiles,
     ...pulseLines(facts, PLAIN_LORE).map(line => lineTile('bus', line)),
     ...matrixLines(facts, PLAIN_LORE).map(line => lineTile('matrix', line)),
-    '</div></section>',
+    '</div>',
   ].join('\n')
 }
 
@@ -266,7 +272,7 @@ function failureSpan(facts: BusFacts): string {
   return `<span class="fail"${facts.failure === null ? ' data-none' : ''}>last failure <b>${escaped(facts.failure ?? 'none')}</b></span>`
 }
 
-function flowPanel(page: BoardPage): string {
+function flowSlot(page: BoardPage): string {
   const { facts } = page
   const live = facts.cards.filter(isLive)
   const stages = PLAIN_LORE.boardFlowColumns.map((title, column) => {
@@ -274,13 +280,12 @@ function flowPanel(page: BoardPage): string {
     return `<div class="stage"${ids.length === 0 ? ' data-empty' : ''}><span class="n">${ids.length}</span><span class="name">${escaped(title)}</span><span class="ids">${ids.length === 0 ? NONE : ids.join(' · ')}</span></div>`
   })
   return [
-    '<section class="panel" aria-labelledby="h-flow">',
     `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2></div>`,
     '<div class="flow">',
     ...goalLines(facts, PLAIN_LORE).map(line => `<p class="goal">${escaped(line)}</p>`),
     ...stages,
     `<div class="flow-note"><span>review queue <b>${facts.reviewQueue}</b></span>${failureSpan(facts)}</div>`,
-    '</div></section>',
+    '</div>',
   ].join('\n')
 }
 
@@ -335,42 +340,62 @@ export function filterRule(filter: string): string {
 
 const COLUMNS = ['card', 'slug', 'kind', 'contour', 'size', 'path', 'gate', 'depends', 'blocks', 'state', '']
 
-function backlogPanel(facts: BusFacts): string {
+function backlogFilters(facts: BusFacts): string[] {
+  return [LIVE_FILTER, ...statesOf(backlogCards(facts.cards, facts.at, true))]
+}
+
+function filterTargetIds(facts: BusFacts): string[] {
+  return [ALL_FILTER, ...backlogFilters(facts)].map(filterId)
+}
+
+function backlogSlot(facts: BusFacts): string {
   const cards = backlogCards(facts.cards, facts.at, true)
-  const filters = [LIVE_FILTER, ...statesOf(cards)]
+  const filters = backlogFilters(facts)
   const chip = (filter: string): string => `<a class="chip" href="#${filterId(filter)}">${escaped(filter)}</a>`
   return [
-    '<section class="panel backlog" aria-labelledby="h-backlog">',
-    ...[ALL_FILTER, ...filters].map(filter => `<span class="filter-target" id="${filterId(filter)}"></span>`),
     `<style>${filters.map(filterRule).join('\n')}</style>`,
     `<div class="panel-head"><h2 id="h-backlog">${PLAIN_LORE.boardTabBacklog}</h2><span class="meta">${cards.length} cards · grouped by lane</span></div>`,
     `<nav class="filters" aria-label="Filter by state">${chip(ALL_FILTER)}${filters.map(chip).join('')}</nav>`,
-    `<div class="scroll" id="${BACKLOG_SCROLL}"><table>`,
+  ].join('\n')
+}
+
+function rowsSlot(facts: BusFacts): string {
+  const cards = backlogCards(facts.cards, facts.at, true)
+  return [
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
     ...lanesOf(cards).map(lane => laneBody(lane, cards)),
+  ].join('\n')
+}
+
+function backlogPanel(facts: BusFacts, slots: BoardSlots): string {
+  return [
+    `<section class="panel backlog" id="${BACKLOG}" aria-labelledby="h-backlog">`,
+    ...filterTargetIds(facts).map(id => `<span class="filter-target" id="${id}"></span>`),
+    `<div id="${SLOT_PREFIX}backlog">${slots.backlog}</div>`,
+    `<div class="scroll" id="${BACKLOG_SCROLL}"><table id="${SLOT_PREFIX}rows">`,
+    slots.rows,
     '</table></div></section>',
   ].join('\n')
 }
 
-function headerPanel(page: BoardPage): string {
+function headerPanel(page: BoardPage, slots: BoardSlots): string {
   return [
     '<header class="panel">',
     `<div class="banner-wrap"><pre class="banner" aria-label="MIKOSHI">${escaped(BANNER.replace(/^\n/, ''))}</pre>`,
     `<p class="subtitle">${escaped(LORE.subtitle(page.version))}</p></div>`,
-    `<div class="head-side"><p class="board-title">construct <span>board</span></p>${headerReadings(page)}</div>`,
+    `<div class="head-side"><p class="board-title">construct <span>board</span></p><p class="kv" id="${SLOT_PREFIX}kv">${slots.kv}</p></div>`,
     '</header>',
   ].join('\n')
 }
 
 function headerReadings(page: BoardPage): string {
   const { facts } = page
-  const readings = [
+  return [
     `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>`,
     `<span>written <b>${escaped(facts.at)}</b></span>`,
-    `<span>refresh <b>${REFRESH_SECONDS}s</b></span>`,
-    `<span class="live"${liveAttribute(facts)}>${busFresh(facts) ? 'bus live' : 'bus stale'}</span>`,
-  ]
-  return `<p class="kv">${readings.join('')}</p>`
+    `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b></span>`,
+    `<span class="live" id="${BUS_LIVE}"${liveAttribute(facts)}>${busFresh(facts) ? 'bus live' : STALE_READING}</span>`,
+  ].join('')
 }
 
 function pulseReading(facts: BusFacts): string {
@@ -378,10 +403,10 @@ function pulseReading(facts: BusFacts): string {
   return age === null ? 'no pulse' : `pulse ${Math.round(age / MINUTE_MS)} min`
 }
 
-function statusLine(facts: BusFacts): string {
-  const parts = [
+function statusSlot(facts: BusFacts): string {
+  return [
     '<span class="mode">BOARD</span>',
-    `<span>subnet <b class="live"${liveAttribute(facts)}>${pulseReading(facts)}</b></span>`,
+    `<span>subnet <b class="live" id="${BUS_PULSE}"${liveAttribute(facts)}>${pulseReading(facts)}</b></span>`,
     `<span>agents <b>${facts.services.length}</b></span>`,
     `<span>review queue <b>${facts.reviewQueue}</b></span>`,
     failureSpan(facts),
@@ -389,8 +414,7 @@ function statusLine(facts: BusFacts): string {
     `<button type="button"${opener(DECISIONS_DIALOG)}><kbd>D</kbd> decisions ›</button>`,
     '<span>geek mode <b>--geek</b></span>',
     '<span class="cursor">construct board</span>',
-  ]
-  return `<footer class="statusline">${parts.join('')}</footer>`
+  ].join('')
 }
 
 function opener(dialog: string): string {
@@ -645,19 +669,70 @@ const SCRIPT = `
   if (scroller) scroller.scrollTop = view.scroll
   if (view.open) open(view.open)
   save()
+  function stale() {
+    var live = document.getElementById('${BUS_LIVE}')
+    if (live) { live.setAttribute('data-stale', ''); live.textContent = '${STALE_READING}' }
+    var pulse = document.getElementById('${BUS_PULSE}')
+    if (pulse) pulse.setAttribute('data-stale', '')
+  }
+  function readable(board) {
+    return board !== null && typeof board === 'object' && typeof board.written === 'string' && board.slots !== null && typeof board.slots === 'object' && Array.isArray(board.filters)
+  }
+  function apply(board) {
+    document.title = '${TITLE_PREFIX}' + board.written
+    for (var name in board.slots) {
+      var slot = document.getElementById('${SLOT_PREFIX}' + name)
+      if (slot && typeof board.slots[name] === 'string') slot.innerHTML = board.slots[name]
+    }
+    var backlog = document.getElementById('${BACKLOG}')
+    board.filters.forEach(function (id) {
+      if (!backlog || typeof id !== 'string' || document.getElementById(id)) return
+      var target = document.createElement('span')
+      target.className = 'filter-target'
+      target.id = id
+      backlog.prepend(target)
+    })
+  }
+  var written = document.body.dataset.written
+  var period = Number(document.body.dataset.tickMs)
+  function receive(board) {
+    if (!readable(board)) { stale(); return }
+    if (typeof board.tickMs === 'number' && board.tickMs > 0) period = board.tickMs
+    if (board.written === written) return
+    written = board.written
+    apply(board)
+  }
+  function schedule() {
+    if (period > 0) setTimeout(update, period)
+  }
+  function update() {
+    window.BOARD = undefined
+    var script = document.createElement('script')
+    script.onload = function () { script.remove(); receive(window.BOARD); schedule() }
+    script.onerror = function () { script.remove(); stale(); schedule() }
+    script.src = '${BOARD_DATA_FILE}?t=' + Date.now()
+    document.head.appendChild(script)
+  }
+  schedule()
 })()
 `
 
-function dialogs(page: BoardPage): string {
+function dialogsSlot(page: BoardPage): string {
   const cards = page.facts.cards.flatMap((card) => {
     const detail = page.details.get(card.id)
     return detail === undefined ? [] : [dialogTemplate(cardDialog(card.id), cardDialogHtml(card, detail, page))]
   })
   return [
-    `<dialog class="drill" id="${DRILL}" aria-labelledby="drill-title"><div class="drill-wrap" id="${DRILL_CONTENT}"></div></dialog>`,
     dialogTemplate(HANDOFF_DIALOG, handoffDialogHtml(page)),
     dialogTemplate(DECISIONS_DIALOG, decisionsDialogHtml(page)),
     ...cards,
+  ].join('\n')
+}
+
+function dialogs(slots: BoardSlots): string {
+  return [
+    `<dialog class="drill" id="${DRILL}" aria-labelledby="drill-title"><div class="drill-wrap" id="${DRILL_CONTENT}"></div></dialog>`,
+    `<div id="${SLOT_PREFIX}dialogs" hidden>${slots.dialogs}</div>`,
     `<script>${SCRIPT}</script>`,
   ].join('\n')
 }
@@ -1021,30 +1096,68 @@ code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); 
 }
 `
 
+export interface BoardSlots {
+  kv: string
+  services: string
+  flow: string
+  backlog: string
+  rows: string
+  status: string
+  dialogs: string
+}
+
+export interface BoardData {
+  written: string
+  tickMs: number | null
+  slots: BoardSlots
+  filters: string[]
+}
+
+export function boardData(page: BoardPage): BoardData {
+  return {
+    written: page.facts.at,
+    tickMs: page.tickMs,
+    slots: {
+      kv: headerReadings(page),
+      services: servicesSlot(page),
+      flow: flowSlot(page),
+      backlog: backlogSlot(page.facts),
+      rows: rowsSlot(page.facts),
+      status: statusSlot(page.facts),
+      dialogs: dialogsSlot(page),
+    },
+    filters: filterTargetIds(page.facts),
+  }
+}
+
+export function boardDataScript(data: BoardData): string {
+  return `window.BOARD = ${JSON.stringify(data)}\n`
+}
+
 export function renderBoard(page: BoardPage): string {
+  const { slots } = boardData(page)
   return [
     '<!doctype html>',
     '<html lang="en"><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<meta http-equiv="refresh" content="${REFRESH_SECONDS}">`,
-    `<title>construct board · ${escaped(page.facts.at)}</title>`,
-    `<style>${STYLE}</style></head><body>`,
-    headerPanel(page),
-    servicesPanel(page),
+    `<title>${TITLE_PREFIX}${escaped(page.facts.at)}</title>`,
+    `<style>${STYLE}</style></head><body data-written="${escaped(page.facts.at)}" data-tick-ms="${page.tickMs ?? ''}">`,
+    headerPanel(page, slots),
+    `<section class="panel" id="${SLOT_PREFIX}services" aria-labelledby="h-services">\n${slots.services}\n</section>`,
     '<div class="split">',
-    flowPanel(page),
-    backlogPanel(page.facts),
+    `<section class="panel" id="${SLOT_PREFIX}flow" aria-labelledby="h-flow">\n${slots.flow}\n</section>`,
+    backlogPanel(page.facts, slots),
     '</div>',
-    statusLine(page.facts),
-    dialogs(page),
+    `<footer class="statusline" id="${SLOT_PREFIX}status">${slots.status}</footer>`,
+    dialogs(slots),
     '</body></html>',
     '',
   ].join('\n')
 }
 
-function pageOf(db: DatabaseSync, now: Date, handoffFile: string): string {
+function boardPageOf(db: DatabaseSync, now: Date, handoffFile: string, tickMs: number | null): BoardPage {
   const facts = busFacts(db, now)
-  return renderBoard({
+  return {
     version: VERSION,
     modelVersion: readModelVersion(),
     facts,
@@ -1055,7 +1168,8 @@ function pageOf(db: DatabaseSync, now: Date, handoffFile: string): string {
     decisions: inForceDecisions(db),
     handoff: readHandoff(handoffFile),
     repository: readRepositoryUrl(),
-  })
+    tickMs,
+  }
 }
 
 export function writeBoardPage(file: string, html: string, files: BoardFiles = DISK_FILES): void {
@@ -1067,7 +1181,7 @@ export function writeBoardPage(file: string, html: string, files: BoardFiles = D
 export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE): number {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    write(pageOf(db, now, handoffFile))
+    write(renderBoard(boardPageOf(db, now, handoffFile, null)))
     return 0
   }
   finally {
@@ -1085,16 +1199,21 @@ export function runBoardCli(busPath: string = defaultBusPath()): number {
 
 export interface BoardProjection {
   file: string
+  dataFile: string
   project: (now: Date) => void
 }
 
-export function boardProjection(db: DatabaseSync, busPath: string): BoardProjection {
+export function boardProjection(db: DatabaseSync, busPath: string, tickMs: number, files: BoardFiles = DISK_FILES, handoffFile: string = HANDOFF_FILE): BoardProjection {
   const file = path.join(path.dirname(busPath), BOARD_FILE)
+  const dataFile = path.join(path.dirname(busPath), BOARD_DATA_FILE)
   return {
     file,
+    dataFile,
     project: (now) => {
       try {
-        writeBoardPage(file, pageOf(db, now, HANDOFF_FILE))
+        const page = boardPageOf(db, now, handoffFile, tickMs)
+        writeBoardPage(dataFile, boardDataScript(boardData(page)), files)
+        writeBoardPage(file, renderBoard(page), files)
       }
       catch (error) {
         console.error(`${PREFIX}${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
