@@ -12,9 +12,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { noPullRequestDetail } from '../../bus/launch-worker.js'
 import { prClosed } from '../../bus/observations.js'
+import { QUEUE_ACTOR } from '../../bus/queue.js'
 import { REVIEW_ROUNDS_SPENT } from '../../bus/review-executor.js'
 import { recordJudged, recordWorkerDown } from '../../bus/supervisor.js'
-import { CARD_CLOSED, CARD_STOPPED, CARD_WAITING, LADDER_APPROVAL, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
+import { CARD_CLOSED, CARD_STOPPED, CARD_WAITING, LADDER_APPROVAL, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
 import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, stuckOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../miko/watch.js'
 import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
@@ -389,6 +390,28 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       watch.child.kill()
     }
   }, 20_000)
+
+  it('a window.request.refused written to the bus wakes the window', () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const deps = { ...productionDeps(path.dirname(file), bus), beat: () => {} }
+    const state = watchState(deps)
+    const refused = writeBusEvent(bus, REQUEST_REFUSED, QUEUE_ACTOR, 'window.request:7:answered', JSON.stringify({ request: 7, kind: 'review', detail: 'the card is not in review' }), 950, null, 1050)
+    expect(tick(state, deps)).toEqual([`bus ${REQUEST_REFUSED} card 1050 pr 950 ${refused}`])
+    expect(tick(state, deps)).toEqual([])
+  })
+
+  it('a window.request.done does not wake the window', () => {
+    const file = journal()
+    const bus = path.join(path.dirname(file), 'bus.db')
+    writeStop(bus, 1)
+    const deps = { ...productionDeps(path.dirname(file), bus), beat: () => {} }
+    const state = watchState(deps)
+    writeBusEvent(bus, REQUEST_DONE, QUEUE_ACTOR, 'window.request:8:answered', JSON.stringify({ request: 8, kind: 'review', detail: 'enqueued' }), 950, null, 1050)
+    const fence = writeStop(bus, 2)
+    expect(tick(state, deps)).toEqual([`bus ${STOP_EVENT} card - pr - ${fence}`])
+  })
 
   it('wakes on a line only once it is whole, when it arrives in two writes', () => {
     const file = journal()
