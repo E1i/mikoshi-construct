@@ -13,7 +13,7 @@ import { AnswerNode } from '../../bus/answer-worker.js'
 import { cardFields } from '../../bus/card-contract.js'
 import { CloseNode } from '../../bus/close-worker.js'
 import { openBus } from '../../bus/db.js'
-import { HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
+import { EDDIES_STATE_FILE, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
 import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../bus/review-worker.js'
@@ -188,6 +188,46 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const reopened = openBus(file)
     expect(reopened.prepare(`SELECT count(*) AS n FROM events WHERE type = '${SESSION_HEARTBEAT}'`).get()).toEqual({ n: 1 })
     expect(lastHeartbeat(reopened, 1110)).toEqual({ ts: at(0), pr: 940, head: HEAD, step: 'review', session: 'session-1' })
+    reopened.close()
+  })
+
+  it('a session heartbeat carries the context and spent the eddies hook state holds at that moment', () => {
+    const { db, file } = bus()
+    db.close()
+    const tree = mkdtempSync(path.join(tmpdir(), 'heartbeat-tree-'))
+    roots.push(tree)
+    mkdirSync(path.join(tree, '.construct'))
+    const gauge = (level: string, session: string, spent: number): string => `${JSON.stringify({ v: 1, event: 'budget-warn', level, spent, limit: 1, session_id: session, agent_id: null })}\n`
+    writeFileSync(path.join(tree, EDDIES_STATE_FILE), [
+      gauge('session-context', 'session-1', 200_000),
+      gauge('session-spend', 'session-1', 2_400_000),
+      gauge('session-context', 'session-2', 9),
+      'not json\n',
+      gauge('agent', 'session-1', 7),
+      gauge('session-context', 'session-1', 210_000),
+    ].join(''))
+    const env = { [CARD_VARIABLE]: '1110', [STEP_VARIABLE]: 'implement' }
+    expect(runHeartbeat(env, 'session-1', file, () => new Date(START), tree)).toBe(0)
+    const reopened = openBus(file)
+    const row = reopened.prepare(`SELECT payload FROM events WHERE type = '${SESSION_HEARTBEAT}'`).get() as { payload: string }
+    expect(JSON.parse(row.payload)).toEqual({ step: 'implement', session: 'session-1', context: 210_000, spent: 2_400_000 })
+    reopened.close()
+  })
+
+  it('with no eddies state the session heartbeat goes out without the fields and is no refusal or fault', () => {
+    const { db, file } = bus()
+    db.close()
+    const tree = mkdtempSync(path.join(tmpdir(), 'heartbeat-tree-'))
+    roots.push(tree)
+    const env = { [CARD_VARIABLE]: '1110', [STEP_VARIABLE]: 'implement' }
+    expect(runHeartbeat(env, 'session-1', file, () => new Date(START), tree)).toBe(0)
+    mkdirSync(path.join(tree, '.construct'))
+    writeFileSync(path.join(tree, EDDIES_STATE_FILE), `${JSON.stringify({ level: 'session-context', spent: 5, session_id: 'session-2' })}\n`)
+    expect(runHeartbeat(env, 'session-1', file, () => new Date(START + 1000), tree)).toBe(0)
+    const reopened = openBus(file)
+    const rows = reopened.prepare(`SELECT type, payload FROM events ORDER BY id`).all() as { type: string, payload: string }[]
+    expect(rows.map(row => row.type)).toEqual([SESSION_HEARTBEAT, SESSION_HEARTBEAT])
+    expect(rows.map(row => JSON.parse(row.payload))).toEqual([{ step: 'implement', session: 'session-1' }, { step: 'implement', session: 'session-1' }])
     reopened.close()
   })
 })

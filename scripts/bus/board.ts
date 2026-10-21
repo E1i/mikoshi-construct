@@ -7,7 +7,7 @@ import type { WindowShard } from './shards.js'
 import path from 'node:path'
 import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, TASK_COMPLETED, TASK_LEASED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_LEASED } from '../core/events.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from './card-automaton.js'
 import { cardContract } from './card-contract.js'
@@ -109,6 +109,13 @@ export interface Progress {
   cause: string | null
 }
 
+export interface CardGauges {
+  card: number
+  ts: string
+  context: number | null
+  spent: number | null
+}
+
 export interface ActiveShard extends WindowShard {
   leftMinutes: number
 }
@@ -127,6 +134,7 @@ export interface Board {
   progress: Progress
   contract: ContractLink[]
   queues: TaskQueue[]
+  gauges: CardGauges[]
 }
 
 const BLOCKING = ['waits question', 'waits boundary', 'waits fault', DEPENDS_FAILED.trim(), 'classify']
@@ -201,6 +209,13 @@ const LEASED_TASKS = `
   SELECT tasks.task_key, tasks.card_id, tasks.lease_gen, leased.actor, leased.ts FROM tasks
   LEFT JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
   WHERE tasks.queue = ? AND tasks.state = '${LEASED}' ORDER BY tasks.id
+`
+
+const LAST_GAUGES = `
+  SELECT card_id, ts, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent FROM events
+  WHERE id IN (SELECT max(id) FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL GROUP BY card_id)
+    AND json_valid(payload)
+  ORDER BY card_id
 `
 
 function count(db: DatabaseSync, sql: string, ...params: (string | number)[]): number {
@@ -429,6 +444,16 @@ function taskQueues(db: DatabaseSync, orders: LeaseOrders): TaskQueue[] {
   })).filter(queue => queue.leased.length + queue.waiting.length > 0)
 }
 
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+export function cardGauges(db: DatabaseSync): CardGauges[] {
+  return (db.prepare(LAST_GAUGES).all() as { card_id: number, ts: string, context: unknown, spent: unknown }[])
+    .map(row => ({ card: row.card_id, ts: row.ts, context: numberOrNull(row.context), spent: numberOrNull(row.spent) }))
+    .filter(row => row.context !== null || row.spent !== null)
+}
+
 export function readBoard(sources: BoardSources): Board {
   const { db, now } = sources
   const chains = db.prepare(CHAINS).all() as unknown as ChainLane[]
@@ -454,6 +479,7 @@ export function readBoard(sources: BoardSources): Board {
     progress: progressOf(db, now, health, queue.blocked, queue.ready),
     contract: contractRow(db),
     queues: taskQueues(db, sources.leaseOrders),
+    gauges: cardGauges(db),
   }
 }
 
