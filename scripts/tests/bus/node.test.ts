@@ -7,8 +7,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { PROCESS_HEARTBEAT } from '../../bus/heartbeat.js'
 import { completeTask } from '../../bus/lease.js'
-import { Node, NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE, SecondSubscription } from '../../bus/node.js'
+import { TICK_MS } from '../../bus/netwatch.js'
+import { Node, NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE, nodeProcess, SecondSubscription } from '../../bus/node.js'
 import { keyOf, TASK_ENQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { slotsVariable } from '../../bus/scheduler.js'
@@ -97,6 +99,27 @@ function cursorOf(db: DatabaseSync): number | null {
 }
 
 describe('a node', () => {
+  it('a running bus node writes process.heartbeat every tick', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    const node = new FakeNode(db, clock, 'shadow')
+    const ticks: string[] = []
+    const controller = new AbortController()
+    await node.run({
+      pause: async () => {
+        ticks.push(clock.now().toISOString())
+        clock.advance(TICK_MS)
+        if (ticks.length === 3)
+          controller.abort()
+      },
+      signal: controller.signal,
+    })
+
+    const beats = db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(PROCESS_HEARTBEAT) as { ts: string, payload: string }[]
+    expect(nodeProcess('merge')).toBe('bus:merge')
+    expect(beats.map(beat => ({ ts: beat.ts, process: (JSON.parse(beat.payload) as { process: string }).process }))).toEqual(ticks.map(ts => ({ ts, process: 'bus:merge' })))
+  })
+
   it('holds one subscription: a second subscribe throws, and a pattern is event types with at most a trailing *', () => {
     const node = new FakeNode(newBus(), new Clock(), 'shadow')
     expect(() => node.subscribe(['other'], () => {})).toThrow(SecondSubscription)
@@ -129,7 +152,7 @@ describe('a node', () => {
     await once(node)
 
     expect(detections(db, 'event')).toEqual([{ key: keyOf(task(970)), via: 'event', event_id: probe }, { key: keyOf(task(971)), via: 'event', event_id: ci }])
-    expect(cursorOf(db)).toBe(Number((db.prepare(`SELECT max(id) AS id FROM events WHERE type != ?`).get(NODE_DETECTED) as { id: number }).id))
+    expect(cursorOf(db)).toBe(Number((db.prepare(`SELECT max(id) AS id FROM events WHERE type NOT IN (?, ?)`).get(NODE_DETECTED, PROCESS_HEARTBEAT) as { id: number }).id))
   })
 
   for (const mode of ['shadow', 'live'] as const) {

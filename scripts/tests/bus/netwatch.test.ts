@@ -2,10 +2,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { RUN_SCRIPT } from '../../bus/bg.js'
 import { openBus } from '../../bus/db.js'
 import { parseIncluded } from '../../bus/github.js'
+import { lastProcessBeats, PROCESS_HEARTBEAT } from '../../bus/heartbeat.js'
 import { prBodySha } from '../../bus/identifiers.js'
-import { NetWatch, TICK_MS, WAKE_GAP_MS } from '../../bus/netwatch.js'
+import { NetWatch, NETWATCH_SCRIPT, TICK_MS, WAKE_GAP_MS } from '../../bus/netwatch.js'
 import { reduce } from '../../bus/reducer.js'
 import { touchesMechanics } from '../../bus/snapshot.js'
 import { cardBody, Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, MERGER, REPO, sha } from './github-fake.js'
@@ -184,6 +186,38 @@ describe('netwatch', () => {
       expect(events(db, 'pr.observed').map(event => event.pr)).toEqual([906])
       db.close()
     }
+  })
+
+  it('every poll that runs writes process.heartbeat under its process name, the ticked, the rate-limited and the retry-after skipped alike', () => {
+    const { db, gitHub, clock } = setUp()
+    const netWatch = new NetWatch(db, gitHub.client, clock.now, NETWATCH_SCRIPT)
+    const beats = (): { ts: string, process: unknown }[] => db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(PROCESS_HEARTBEAT).map(row => ({ ts: String(row.ts), process: (JSON.parse(String(row.payload)) as { process?: unknown }).process }))
+    const polled: string[] = []
+    gitHub.open({ number: 907 })
+
+    gitHub.limited = { status: 429, headers: { 'retry-after': '150', 'x-ratelimit-remaining': '0' }, body: { message: 'rate limit' } }
+    polled.push(clock.now().toISOString())
+    expect(netWatch.poll()).toMatchObject({ kind: 'skipped', cause: 'rate-limited' })
+    gitHub.limited = null
+    clock.advance(TICK_MS / 2)
+    expect(netWatch.poll()).toBeNull()
+    clock.advance(TICK_MS / 2)
+    polled.push(clock.now().toISOString())
+    expect(netWatch.poll()).toMatchObject({ kind: 'skipped', cause: 'retry-after' })
+    clock.advance(2 * TICK_MS)
+    polled.push(clock.now().toISOString())
+    expect(netWatch.poll()).toMatchObject({ kind: 'ticked' })
+
+    expect(beats()).toEqual(polled.map(ts => ({ ts, process: NETWATCH_SCRIPT })))
+    expect(lastProcessBeats(db)).toEqual([{ process: NETWATCH_SCRIPT, ts: polled.at(-1) }])
+    db.close()
+  })
+
+  it('a NetWatch inside bus:run beats as bus:run when no process name is given', () => {
+    const { db, netWatch } = setUp()
+    expect(netWatch.poll()).toMatchObject({ kind: 'ticked' })
+    expect(lastProcessBeats(db).map(beat => beat.process)).toEqual([RUN_SCRIPT])
+    db.close()
   })
 
   it('after a wake the next tick is an immediate full reconciliation', () => {
