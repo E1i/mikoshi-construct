@@ -77,7 +77,7 @@ export const PREFIX = '[bus:review] '
 
 const VERDICTS = new Set<string>(['pass', 'changes'])
 
-export const PREPARE_TREE = ['pnpm', 'install', '--frozen-lockfile', '--offline', '--ignore-scripts']
+export const PREPARE_TREE = ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts']
 
 export const PREPARE_MS = 10 * 60_000
 
