@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { selectRun } from '../../ci/layers.js'
+import { cruise } from '../../ci/select.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const DEPCRUISE = path.join(REPO_ROOT, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruiser.mjs')
@@ -169,5 +171,12 @@ describe('the layer rules of the bus hold over scripts and src', () => {
       'src/commands/intake/index.ts': 'export const CARD_MOVED = \'card.moved\'\n',
     })
     expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts', 'src'])).toEqual({ status: 1, violations: ['bus-takes-event-names-from-core scripts/bus/card-automaton.ts -> src/commands/intake/index.ts'] })
+  }, CRUISE_TIMEOUT_MS)
+})
+
+describe('a test that scans the scripts or src tree runs on every pull request', () => {
+  it('a diff of only scripts/bus/board-page.ts selects scripts/tests/core/events.test.ts', () => {
+    const run = selectRun(['scripts/bus/board-page.ts'], cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8'))
+    expect(run.kind === 'layers' ? run.tests : run.why).toContain('scripts/tests/core/events.test.ts')
   }, CRUISE_TIMEOUT_MS)
 })

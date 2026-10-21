@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { isTest, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
+import { scansATree } from './tree-scanners.js'
 
 export { isTest }
 
@@ -80,7 +81,8 @@ export function selectRun(changed: readonly string[], graph: Graph, testText: (t
   const reverse = reverseGraph(graph)
   const reached = dependents(changed, reverse)
   const readers = [...graph.keys()].filter(underTestRoot)
-  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests))]
+  const treeScanners = allTests.filter(test => scansATree(testText(test)))
+  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners]
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].map(layerOf).filter(layer => layer !== null))].sort()
   const tests = [...closure].filter(isTest).sort()

@@ -58,6 +58,12 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(run.tests).toEqual(['scripts/tests/notes/spawn.test.ts'])
   })
 
+  it('a test that walks the scripts or src tree is selected by a change it neither imports nor names', () => {
+    const scan = '[\'scripts\', \'src\'].flatMap(root => readdirSync(path.join(REPO_ROOT, root), { recursive: true }))'
+    const run = layersRun(['scripts/bus/merge-worker.ts'], test => test === 'scripts/tests/notes/spawn.test.ts' ? scan : '')
+    expect(run.tests).toEqual(['scripts/tests/bus/merge-worker.test.ts', 'scripts/tests/notes/spawn.test.ts'])
+  })
+
   it('a change in src/ui/lore.ts selects tests/dependency-policy.test.ts, which scans src without importing it', () => {
     const graph: Graph = new Map([
       ['src/ui/lore.ts', []],
