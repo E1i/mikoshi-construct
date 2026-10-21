@@ -2,13 +2,12 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
+import { CHAIN_OBSERVED, CHAIN_RESTARTED } from '../core/events.js'
 import { appendEvent, inTransaction } from './db.js'
 import { isFullSha } from './identifiers.js'
 import { payloadOf, reject } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
-export const CHAIN_OBSERVED = 'chain.observed'
-export const CHAIN_RESTARTED = 'chain.restarted'
 export const CHAIN_STATES = ['running', 'waiting', 'stopped', 'fault'] as const
 
 export type ChainState = typeof CHAIN_STATES[number]

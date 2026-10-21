@@ -1,13 +1,13 @@
 import type { Correction } from './check.js'
 import type { SlicedCard } from './slice.js'
 import { createHash } from 'node:crypto'
+import { INTAKE_EVENT } from '../../../scripts/core/events.js'
 import { SEAM_PREFIX } from '../../card/risk.js'
 import { COMPANION_REASON, correctionText, COVERING_REASON } from './check.js'
 
 export type Confirmation = 'auto' | 'person' | 'none'
 
 const TOKEN_LENGTH = 12
-export const INTAKE_EVENT = 'intake'
 export const TOUCHES_HEADER = 'touches: '
 
 function digest(text: string): string {

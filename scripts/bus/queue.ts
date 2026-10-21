@@ -5,17 +5,13 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { PRIORITIES } from '../../src/card/parking.js'
-import { INTAKE_EVENT } from '../../src/commands/intake/confirm.js'
-import { INTAKE_MOVE_EVENT } from '../../src/commands/intake/move.js'
-import { CARD_VERIFIED } from '../ghosts/task-close.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN } from '../core/events.js'
 import { BACKFILL_SOURCE } from './backfill-source.js'
-import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, ownerQuestionAnswered, POLICY_DENIED } from './inbox.js'
-import { CARD_ADMITTED, launchCandidates } from './launch-candidates.js'
-import { PR_CLOSED } from './observations.js'
+import { ownerQuestionAnswered } from './inbox.js'
+import { launchCandidates } from './launch-candidates.js'
 import { roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
@@ -23,22 +19,9 @@ import { payloadOf, reject } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
-export const TASK_ENQUEUED = 'task.enqueued'
-export const TASK_SUPERSEDED = 'task.superseded'
-export const TASK_REQUEUED = 'task.requeued'
-export const TASK_WITHDRAWN = 'task.withdrawn'
-export const TASK_LEASED = 'task.leased'
-export const TASK_RENEWED = 'task.renewed'
-export const TASK_COMPLETED = 'task.completed'
-export const TASK_FAILED = 'task.failed'
-export const TASK_EXPIRED = 'task.expired'
-export const TASK_RELEASED = 'task.released'
-export const SESSION_HEARTBEAT = 'session.heartbeat'
 export const LEASE_MS = 30 * 60_000
 export const HEARTBEAT_QUEUES: readonly Queue[] = ['review']
 export const QUEUE_ACTOR = 'policy'
-export const CARD_CLOSED = 'card.closed'
-export const BOARD_ALARM = 'board.alarm'
 export const FAILURES_TO_STOP = 3
 export const REVIEW_ROUNDS = 3
 
@@ -202,8 +185,6 @@ const CLOSE_CANDIDATES = `
   ORDER BY prs.pr, verified.card_id
 `
 
-export const QUESTION_AGENT = 'question.agent'
-export const QUESTION_OWNER = 'question.owner'
 const CARD_TURNS = `'${CARD_STOPPED}', '${CARD_ANSWERED}', '${CARD_STARTED}'`
 
 export function latestTurnOf(card: string): string {

@@ -106,4 +106,36 @@ describe('the layer rules of the bus hold over scripts and src', () => {
     })
     expect(depcruise(root, ['--config', LAYER_CONFIG, 'src', 'scripts'])).toEqual({ status: 1, violations: ['src-imports-no-script src/cli.ts -> scripts/bus/db.ts'] })
   }, CRUISE_TIMEOUT_MS)
+
+  it('lets the product import the core contour', () => {
+    const root = sampleTree({
+      'src/cli.ts': 'import { CARD_ADMITTED } from \'../scripts/core/events.js\'\nexport const cli = CARD_ADMITTED\n',
+      'scripts/core/events.ts': 'export const CARD_ADMITTED = \'card.admitted\'\n',
+    })
+    expect(depcruise(root, ['--config', LAYER_CONFIG, 'src', 'scripts'])).toEqual({ status: 0, violations: [] })
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses an import from the core contour into the bus, ghosts, shift or miko', () => {
+    const root = sampleTree({
+      'scripts/core/events.ts': ['bus/db', 'ghosts/journal', 'shift/shift', 'miko/loop'].map((module, index) => `import { a${index} } from '../${module}.js'`).join('\n'),
+      'scripts/bus/db.ts': 'export const a0 = 1\n',
+      'scripts/ghosts/journal.ts': 'export const a1 = 1\n',
+      'scripts/shift/shift.ts': 'export const a2 = 1\n',
+      'scripts/miko/loop.ts': 'export const a3 = 1\n',
+    })
+    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts']).violations.sort()).toEqual([
+      'core-imports-no-factory scripts/core/events.ts -> scripts/bus/db.ts',
+      'core-imports-no-factory scripts/core/events.ts -> scripts/ghosts/journal.ts',
+      'core-imports-no-factory scripts/core/events.ts -> scripts/miko/loop.ts',
+      'core-imports-no-factory scripts/core/events.ts -> scripts/shift/shift.ts',
+    ])
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses an import from the bus into the intake command for an event name', () => {
+    const root = sampleTree({
+      'scripts/bus/card-automaton.ts': 'import { CARD_MOVED } from \'../../src/commands/intake/index.js\'\nexport const moved = CARD_MOVED\n',
+      'src/commands/intake/index.ts': 'export const CARD_MOVED = \'card.moved\'\n',
+    })
+    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts', 'src'])).toEqual({ status: 1, violations: ['bus-takes-event-names-from-core scripts/bus/card-automaton.ts -> src/commands/intake/index.ts'] })
+  }, CRUISE_TIMEOUT_MS)
 })

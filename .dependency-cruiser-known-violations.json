@@ -71,9 +71,9 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/bus/review-executor.ts",
-    "to": "scripts/bus/close-executor.ts",
-    "unresolvedTo": "./close-executor.js",
+    "from": "scripts/bus/update-worker.ts",
+    "to": "scripts/bus/merge-worker.ts",
+    "unresolvedTo": "./merge-worker.js",
     "dependencyTypes": [
       "local",
       "import"
@@ -85,16 +85,16 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/bus/update-worker.ts",
-    "to": "scripts/bus/merge-worker.ts",
-    "unresolvedTo": "./merge-worker.js",
+    "from": "scripts/bus/backfill.ts",
+    "to": "src/commands/intake/index.ts",
+    "unresolvedTo": "../../src/commands/intake/index.js",
     "dependencyTypes": [
       "local",
       "import"
     ],
     "rule": {
       "severity": "error",
-      "name": "bus-services-import-no-other-service"
+      "name": "bus-takes-event-names-from-core"
     }
   }
 ]

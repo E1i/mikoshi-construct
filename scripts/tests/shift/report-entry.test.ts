@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { CARD_STARTED } from '../../bus/inbox.js'
+import { CARD_STARTED } from '../../core/events.js'
 import { runReport } from '../../shift/report.js'
 import { ran } from '../core/gh-fake.js'
 

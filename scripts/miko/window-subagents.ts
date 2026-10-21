@@ -3,8 +3,8 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { WINDOW_SUBAGENT_EVENT } from '../../src/commands/board/bus.js'
 import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
+import { WINDOW_SUBAGENT_EVENT } from '../core/events.js'
 
 export const WINDOW_ACTOR = 'owner'
 

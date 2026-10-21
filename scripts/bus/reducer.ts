@@ -4,13 +4,13 @@ import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, PR_OPENED } from './card-automaton.js'
+import { CARD_ADMITTED, PR_OPENED } from '../core/events.js'
+import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAINS_PROJECTION } from './chain.js'
 import { defaultBusPath, inTransaction, openBus } from './db.js'
 import { DECISION_FOLDS } from './decisions.js'
 import { isFullSha, prOf } from './identifiers.js'
-import { CARD_ADMITTED } from './launch-candidates.js'
 import { TASKS_PROJECTION } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { ROLE_FOLDS, ROLES_PROJECTION } from './role.js'
@@ -18,7 +18,6 @@ import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced } from './watermark.js'
 
 export const PREFIX = '[bus:reduce] '
-export const REDUCED = 'reducer.reduced'
 export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id' }
 export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION]
 

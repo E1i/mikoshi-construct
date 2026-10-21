@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../bus/db.js'
 import { describe, expect, it } from 'vitest'
-import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
@@ -14,6 +13,7 @@ import { failRaise, leaseRole, observeRoleStop, raiseRole, returnEndedRole, retu
 import { watermarkOf } from '../../bus/watermark.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { requestFromWindow } from '../../bus/window-requests.js'
+import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from '../../core/events.js'
 
 const EVENT_COLUMNS = 'id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy'
 const START = Date.parse('2026-10-20T10:00:00.000Z')

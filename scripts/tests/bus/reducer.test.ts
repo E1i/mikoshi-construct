@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { cardIdOfDescription } from '../../bus/identifiers.js'
 import { reduce } from '../../bus/reducer.js'
-import { REJECTED } from '../../bus/rejection.js'
+import { REJECTED } from '../../core/events.js'
 import { ghostLines } from '../../ghosts/journal.js'
 import { recordFall } from '../../ghosts/supervise.js'
 

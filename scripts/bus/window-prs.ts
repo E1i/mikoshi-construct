@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { CARD_STARTED } from './inbox.js'
+import { CARD_STARTED } from '../core/events.js'
 
 export const STARTER_ACTOR = 'worker:start:'
 

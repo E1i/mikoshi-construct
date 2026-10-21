@@ -9,8 +9,9 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
-import { PROCESS_HEARTBEAT, recordProcessHeartbeat } from '../bus/heartbeat.js'
+import { recordProcessHeartbeat } from '../bus/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../bus/liveness-sites.js'
+import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
 import { statusOf } from '../shift/relaunch.js'
 import { ancestors, parsePs } from './exit.js'
 import { windowEndObserver } from './role-end.js'
@@ -28,8 +29,6 @@ export const EXIT_REQUEST_PREFIX = 'miko-exit'
 export const EXIT_POLL_MS = 200
 export const LOOP_PROCESS = 'miko:'
 export const LOOP_BEAT_MS = 5 * 60_000
-export const PROCESS_REFUSED = 'process.refused'
-export const PROCESS_ENDED = 'process.ended'
 
 const LAST_LOOP_BEATS = `
   SELECT beats.name, beats.ts FROM (

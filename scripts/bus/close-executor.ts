@@ -8,17 +8,14 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
+import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_CLOSED, CARD_VERIFIED, MERGE_DONE, POLICY_DENIED } from '../core/events.js'
 import { VERIFICATION_WORDS } from '../core/verification.js'
-import { CARD_VERIFIED } from '../ghosts/task-close.js'
 import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
 import { cardSessionOf } from './answer-source.js'
 import { archiveCardFile } from './card-archive.js'
-import { MERGE_DONE } from './card-automaton.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { appendEvent } from './db.js'
-import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
-import { CARD_CLOSED } from './queue.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof NOT_MINE
 
@@ -47,9 +44,6 @@ export type CloseOutcome
     | { kind: 'fenced', taskKey: string }
 
 export type ReportedVerification = (cardId: number, pr: number | null) => string | null
-
-export const ARTIFACT_REMOVED = 'artifact.removed'
-export const ARTIFACT_KEPT = 'artifact.kept'
 
 export interface RemovedTree {
   path: string
