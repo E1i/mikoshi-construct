@@ -1,11 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GitHubPost } from '../../bus/pr-status.js'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { PR_STATUS_REFUSED, PR_STATUS_SET, setStepStatuses, STATUS_CONTEXT } from '../../bus/pr-status.js'
+import { TICK_MS } from '../../bus/netwatch.js'
+import { PR_STATUS_REFUSED, PR_STATUS_SET, PREFIX, setStepStatuses, STATUS_CONTEXT } from '../../bus/pr-status.js'
+import { composeBusTick } from '../../bus/run.js'
+import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
+import { Clock, FakeGitHub } from './github-fake.js'
 
 const HEAD = 'b'.repeat(40)
 const NEXT = 'c'.repeat(40)
@@ -29,17 +33,25 @@ function recorder(): { post: GitHubPost, calls: [string, Record<string, string>]
 
 describe('the PR status check the bus sets', () => {
   it('the bus sets the status check mikoshi: <step> on the PR head at each step', () => {
-    const db = bus()
-    step(db, 'pr.opened', null, { pr: 950 }, 'netwatch')
-    db.prepare('INSERT INTO prs (pr, card_id, head, state, event_id) VALUES (?, ?, ?, ?, (SELECT max(id) FROM events))').run(950, 1091, HEAD, 'open')
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-status-'))
+    vi.stubEnv(HANDOFF_DIR_VARIABLE, root)
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    const gitHub = new FakeGitHub()
+    gitHub.open({ number: 950, head: HEAD })
+    const clock = new Clock()
+    const { post, calls } = recorder()
+    const { busTick } = composeBusTick(db, busPath, gitHub.client, post, clock.now, root)
+    step(db, 'pr.opened', null, { pr: 950 }, 'worker:shift:1')
+    expect(busTick.run()?.poll.kind).toBe('ticked')
     step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
     step(db, 'review.recorded', HEAD, { head: HEAD, verdict: 'changes' })
     step(db, 'card.answered', NEXT, { from: HEAD, to: NEXT }, 'worker:answer:s2')
     step(db, 'review.recorded', NEXT, { head: NEXT, verdict: 'pass' })
     step(db, 'merge.done', NEXT, { commit: 'd'.repeat(40), rule: 'auto' }, 'worker:merge:s3')
     step(db, 'node.equivalence', null, { same: [] })
-    const { post, calls } = recorder()
-    expect(setStepStatuses(db, post, () => NOW).map(status => status.step)).toEqual(['opened', 'review', 'review changes', 'answered', 'review pass', 'merged'])
+    clock.advance(TICK_MS)
+    expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(calls).toEqual([
       [`repos/{owner}/{repo}/statuses/${HEAD}`, { state: 'pending', context: STATUS_CONTEXT, description: 'mikoshi: opened' }],
       [`repos/{owner}/{repo}/statuses/${HEAD}`, { state: 'pending', context: STATUS_CONTEXT, description: 'mikoshi: review' }],
@@ -48,13 +60,87 @@ describe('the PR status check the bus sets', () => {
       [`repos/{owner}/{repo}/statuses/${NEXT}`, { state: 'success', context: STATUS_CONTEXT, description: 'mikoshi: review pass' }],
       [`repos/{owner}/{repo}/statuses/${NEXT}`, { state: 'success', context: STATUS_CONTEXT, description: 'mikoshi: merged' }],
     ])
-    const again = recorder()
-    expect(setStepStatuses(db, again.post, () => NOW)).toEqual([])
-    expect(again.calls).toEqual([])
+    clock.advance(TICK_MS)
+    busTick.run()
+    expect(calls).toHaveLength(6)
     step(db, 'card.stopped', NEXT, { reason: 'fault' }, 'worker:launch:s4')
-    const stopped = recorder()
-    expect(setStepStatuses(db, stopped.post, () => NOW)).toEqual([{ pr: 950, head: NEXT, step: 'stopped', state: 'failure' }])
+    clock.advance(TICK_MS)
+    busTick.run()
+    expect(calls.at(-1)).toEqual([`repos/{owner}/{repo}/statuses/${NEXT}`, { state: 'failure', context: STATUS_CONTEXT, description: 'mikoshi: stopped' }])
     expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(7)
+    db.close()
+    vi.unstubAllEnvs()
+  })
+
+  it('a bus tick whose status post GitHub refuses for now still ticks, and the next tick posts the step', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-status-'))
+    vi.stubEnv(HANDOFF_DIR_VARIABLE, root)
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    const clock = new Clock()
+    let status = 502
+    const calls: string[] = []
+    const lines: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      lines.push(String(line))
+    })
+    const post: GitHubPost = (endpoint) => {
+      calls.push(endpoint)
+      return { status, headers: {}, body: null }
+    }
+    const { busTick } = composeBusTick(db, busPath, new FakeGitHub().client, post, clock.now, root)
+    step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    log.mockRestore()
+    expect(lines).toContain(`${PREFIX}PR #950 ${HEAD}: GitHub answered 502 to the status ${STATUS_CONTEXT}: review; nothing recorded, the step is posted again on the next run`)
+    expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(0)
+    status = 201
+    clock.advance(TICK_MS)
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    expect(calls).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, `repos/{owner}/{repo}/statuses/${HEAD}`])
+    expect(Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_STATUS_SET) as { n: number }).n)).toBe(1)
+    db.close()
+    vi.unstubAllEnvs()
+  })
+
+  it('the board a tick writes is projected after the statuses and shows what the same tick posted', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-status-'))
+    vi.stubEnv(HANDOFF_DIR_VARIABLE, root)
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    const clock = new Clock()
+    const post: GitHubPost = () => {
+      step(db, 'card.fell', null, { reason: 'posted' }, 'worker:launch:s4')
+      return { status: 201, headers: {}, body: null }
+    }
+    const { busTick, boardFile } = composeBusTick(db, busPath, new FakeGitHub().client, post, clock.now, root)
+    step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    expect(readFileSync(boardFile, 'utf8')).toContain('card #1091 fell')
+    db.close()
+    vi.unstubAllEnvs()
+  })
+
+  it('a bus tick whose status post breaks on something other than a GitHub answer logs it under the pr-status prefix and still ticks', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-status-'))
+    vi.stubEnv(HANDOFF_DIR_VARIABLE, root)
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    const clock = new Clock()
+    const lines: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      lines.push(String(line))
+    })
+    const broken: GitHubPost = () => {
+      throw new Error('spawnSync gh ENOENT')
+    }
+    const { busTick } = composeBusTick(db, busPath, new FakeGitHub().client, broken, clock.now, root)
+    step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    log.mockRestore()
+    expect(lines).toContain(`${PREFIX}the status step broke and recorded nothing, the bus tick goes on: spawnSync gh ENOENT`)
+    db.close()
+    vi.unstubAllEnvs()
   })
 
   it('a 401, an expired or revoked token, records nothing and the step is posted on the next run', () => {
