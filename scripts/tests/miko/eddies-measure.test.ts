@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { appendExitLine, exitLineOf, projectRoot, realExitReadings, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
+import { appendExitLine, exitLineOf, projectRoot, realExitReadings, sessionGauges, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
 
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
@@ -86,6 +86,34 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
   ])('reads limits it cannot validate as unknown, never as zero: $name', ({ limits, read }) => {
     const dir = scratch(limits)
     expect(realExitReadings({}, dir, dir, path.join(dir, 'bus.db'))).toEqual(read)
+  })
+})
+
+describe('sessionGauges measures a session from its transcript by the hook functions', () => {
+  it('takes the context of the last answer and the spend over parent and subagents, as realExitReadings does', () => {
+    const dir = scratch()
+    const file = transcript(dir, [
+      usageLine('2026-10-15T00:00:00.000Z', 'r1', { input: 100, cacheWrite: 1000, cacheRead: 0 }),
+      usageLine('2026-10-15T00:01:00.000Z', 'r2', { input: 10, cacheWrite: 200, cacheRead: 1100 }),
+    ])
+    const agent = path.join(file.replace(/\.jsonl$/, ''), 'subagents', 'agent-a1.jsonl')
+    mkdirSync(path.dirname(agent), { recursive: true })
+    writeFileSync(agent, `${usageLine('2026-10-15T00:00:30.000Z', 'a1', { input: 50 })}\n`)
+    const gauges = sessionGauges(dir, dir, SESSION)
+    expect(gauges).toEqual({ context: 1310, spent: 100 + 10 + 50 + (1000 + 200) * 1.25 + 1100 * 0.1 })
+    const exit = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
+    expect(gauges).toEqual({ context: exit.context, spent: exit.spent })
+  })
+
+  it.each([
+    { name: 'a session id that is not a plain id', session: '../x', projects: true },
+    { name: 'a session with no transcript', session: 'session-absent', projects: true },
+    { name: 'a home with no projects directory', session: SESSION, projects: false },
+  ])('with $name returns no gauges and throws nothing', ({ session, projects }) => {
+    const dir = scratch()
+    if (projects)
+      transcript(dir, [usageLine('2026-10-15T00:00:00.000Z', 'r1', { input: 1 })])
+    expect(sessionGauges(dir, dir, session)).toEqual({})
   })
 })
 

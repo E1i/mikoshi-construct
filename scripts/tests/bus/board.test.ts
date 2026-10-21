@@ -10,7 +10,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { GOAL_DECISION } from '../../../src/commands/board/goal.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { boardProjection, printBoard, runBoardCli } from '../../bus/board-page.js'
-import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS } from '../../bus/board.js'
+import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS, windowGauges } from '../../bus/board.js'
 import { DROPPED_LANE, MERGED_CARD } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
@@ -23,6 +23,7 @@ import { queueTask } from '../../bus/queue.js'
 import { BusTick } from '../../bus/run.js'
 import { windowShardEnded } from '../../bus/shards.js'
 import { recordJudged } from '../../bus/supervisor.js'
+import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { CARD_ADMITTED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, RESTARTED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
 import { choose } from '../../shift/parking.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -331,6 +332,19 @@ describe('the factory board', () => {
       { card: 871, ts: bench.ts(), context: null, spent: 50 },
     ])
     expect(bench.tick().gauges).toEqual(cardGauges(bench.db))
+  })
+
+  it('the projection beside pulse gives the gauges of the latest window heartbeat, and none when it carries no fields', () => {
+    const bench = boardBench()
+    expect(windowGauges(bench.db)).toBeNull()
+    recordWindowHeartbeat(bench.db, bench.ts(), 'w-1', { context: 50_000, spent: 70_000 })
+    bench.clock.advance(1000)
+    recordWindowHeartbeat(bench.db, bench.ts(), 'w-2', { spent: 90_000 })
+    expect(windowGauges(bench.db)).toEqual({ session: 'w-2', ts: bench.ts(), context: null, spent: 90_000 })
+    expect(bench.tick().windowGauges).toEqual(windowGauges(bench.db))
+    bench.clock.advance(1000)
+    recordWindowHeartbeat(bench.db, bench.ts(), 'w-1')
+    expect(windowGauges(bench.db)).toBeNull()
   })
 
   it('a card whose heartbeat carries no fields has no bar', () => {
