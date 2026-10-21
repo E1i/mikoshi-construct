@@ -19,7 +19,7 @@ import { Meter } from '../../bus/meter.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reduce } from '../../bus/reducer.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
+import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, restartSilentSupervisor, startingBaseline, stillSilent, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, SUPERVISOR_SILENT_MS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { busLaunches, switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
 import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../core/gh.js'
@@ -1160,6 +1160,87 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
       relaunch: () => ++attempts < 2 ? { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 } : parts.relaunch(),
     })
     expect(m.lines).toContain(`${PREFIX}bus:merge restarted by the judge`)
+    db.close()
+  })
+
+  it('a gh that hangs past its timeout does not stop the supervisor loop', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-gh-hang-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const clock = { now: BEAT_AT }
+    const hanging = ghPort({ spawn: (_command, _args, options) => {
+      clock.now += options.timeoutMs
+      return { status: null, stdout: '', stderr: '', error: Object.assign(new Error('spawnSync gh ETIMEDOUT'), { code: 'ETIMEDOUT' }) }
+    }, pause: (ms) => {
+      clock.now += ms
+    }, budget: new GhBudgetWindow({ calls: 10_000, windowMs: 1000 }, () => clock.now) })
+    const review = reviewLaunch(() => {
+      new Meter(ghApi('.', hanging), () => clock.now).get('repos/o/r/pulls?state=open')
+      return []
+    })
+    const starts: number[] = []
+    const start = (launch: DetachedLaunch): BgResult => {
+      starts.push(clock.now)
+      launch.preflight?.()
+      return ok(launch)
+    }
+    const supervisor = new BusSupervisor({ known: [review], wanted: () => [review], start, stop: async () => {}, processes: () => [], mainSince: () => [], code: { head: () => OLD_MAIN, holds: () => true, pull: () => {}, busChangedSince: () => false }, journal: () => {}, now: () => clock.now }, 0)
+    const keeper = new WorkerKeeper({ wanted: () => [review], start, processes: () => [], reduce: () => [], journal: () => {}, now: () => clock.now })
+    const lines: string[] = []
+    const enough = new Error('enough ticks')
+    let ticks = 0
+
+    await expect(superviseUntilReplaced({
+      supervisor,
+      keeper,
+      judge: new LivenessJudge(db, () => clock.now, expecting(SUPERVISOR_PROCESS)),
+      relaunch: () => ({ stdout: [], stderr: [], exitCode: 1 }),
+      print: line => lines.push(line),
+      pause: async () => {
+        if (++ticks >= 60)
+          throw enough
+        clock.now += CHECK_MS
+      },
+    })).rejects.toBe(enough)
+
+    expect(starts.length).toBeGreaterThanOrEqual(3)
+    expect(lines.join('\n')).toContain(`${launchName(review)} did not start, a technical failure: GitHub answered 599`)
+    const beats = (db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id').all('process.heartbeat') as { ts: string }[]).map(row => Date.parse(row.ts))
+    const marks = [BEAT_AT, ...beats, clock.now]
+    const gaps = marks.slice(1).map((at, index) => at - marks[index]!)
+    expect(clock.now - BEAT_AT).toBeGreaterThan(5 * SUPERVISOR_SILENT_MS)
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(SUPERVISOR_SILENT_MS)
+    expect(await restartSilentSupervisor({ db, now: () => clock.now, startedAt: () => null, processes: () => [{ pid: 500, args: SUPERVISOR_ARGS }], stop: async () => {} })).toEqual([])
+    db.close()
+  })
+
+  it('no supervisor heartbeat for 2 min raises an alarm', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-heartbeat-alarm-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    recordProcessHeartbeat(db, at(0), SUPERVISOR_PROCESS)
+    const stopped: number[] = []
+    const watch = (nowMs: number, startedAt: number | null = null, processes: RunningProcess[] = [{ pid: 500, args: SUPERVISOR_ARGS }]): Promise<string[]> => restartSilentSupervisor({
+      db,
+      now: () => BEAT_AT + nowMs,
+      startedAt: () => startedAt === null ? null : BEAT_AT + startedAt,
+      processes: () => processes,
+      stop: async (running) => {
+        stopped.push(running.pid)
+      },
+    })
+
+    expect(await watch(SUPERVISOR_SILENT_MS)).toEqual([])
+    expect(await watch(SUPERVISOR_SILENT_MS + 1, 60_000)).toEqual([])
+    expect(await watch(10 * SUPERVISOR_SILENT_MS, null, [])).toEqual([])
+    expect(judgedRows(db)).toEqual([])
+    expect(stopped).toEqual([])
+
+    const lines = await watch(SUPERVISOR_SILENT_MS + 1)
+    expect(lines.join('\n')).toContain(`the supervisor (pid 500) has not beaten for ${Math.round((SUPERVISOR_SILENT_MS + 1) / 1000)}s`)
+    expect(judgedRows(db)).toEqual([{ actor: JUDGE_ACTOR, payload: { process: SUPERVISOR_PROCESS, verdict: 'silent', last_beat: at(0), silent_ms: SUPERVISOR_SILENT_MS + 1, limit_ms: SUPERVISOR_SILENT_MS } }])
+    expect(stopped).toEqual([500])
+    expect(stillSilent(db)).toEqual([{ process: SUPERVISOR_PROCESS, lastBeat: at(0) }])
     db.close()
   })
 
