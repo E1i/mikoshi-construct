@@ -1,20 +1,16 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { StatusPublisher } from '../ghosts/verdict.js'
-import type { CardFields } from './card-contract.js'
 import type { BusEvent } from './db.js'
 import type { GitHub, GitHubPut } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { AllowedRule, AuthorityRule, MergeFacts } from './policy.js'
 import type { TechnicalReason } from './record-verdict.js'
 import { Buffer } from 'node:buffer'
-import { parseParkingFile } from '../../src/card/parking.js'
 import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
-import { CLOSED_CARD, DROPPED_CARD, MERGE_DONE } from './card-automaton.js'
-import { CARD_BODIES } from './card-bodies.js'
-import { cardFields } from './card-contract.js'
+import { MERGE_DONE } from './card-automaton.js'
+import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { appendEvent } from './db.js'
 import { messageOf } from './errors.js'
-import { lastHeartbeat } from './heartbeat.js'
 import { isFullSha } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
@@ -32,12 +28,6 @@ const FILES_PAGE = 100
 const RUNS_PAGE = 100
 const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
-const NOT_THE_BUS_CARD_STATES: ReadonlySet<string | null> = new Set([CLOSED_CARD, DROPPED_CARD])
-const BODY_OF_CARD = `
-  SELECT body.admission_event_id, body.text, body.text_sha, body.lane, cards.state
-  FROM ${CARD_BODIES} body LEFT JOIN cards ON cards.card_id = body.card_id
-  WHERE body.card_id = ?
-`
 
 export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine'
 
@@ -77,24 +67,6 @@ function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
 }
 
-interface BodyRow { admission_event_id: number, text: string, text_sha: string, lane: string | null, state: string | null }
-
-function cardOf(db: DatabaseSync, cardId: number): CardFields | null {
-  const row = db.prepare(BODY_OF_CARD).get(cardId) as BodyRow | undefined
-  if (row === undefined)
-    return null
-  const parsed = parseParkingFile(`${cardId}.md`, row.text)
-  if (parsed.kind === 'refused')
-    return null
-  return cardFields(parsed.parked, { admissionEventId: row.admission_event_id, text: row.text, textSha: row.text_sha, lane: row.lane, state: row.state, lastHeartbeat: lastHeartbeat(db, cardId) })
-}
-
-function notMine(card: CardFields | null): MergeDenial | null {
-  if (card === null || !NOT_THE_BUS_CARD_STATES.has(card.state))
-    return null
-  return { kind: 'technical', reason: 'not_mine', detail: `card #${card.id} is ${card.state} in the bus, so no pull request of it is the bus's to merge` }
-}
-
 function changedFiles(meter: Meter, pr: number): string[] {
   const files: string[] = []
   for (let page = 1; ; page += 1) {
@@ -129,9 +101,9 @@ export class MergeExecutor {
   merge(lease: Lease): MergeOutcome {
     try {
       assertHeld(this.parts.db, lease)
-      const foreign = notMine(cardOf(this.parts.db, lease.cardId))
+      const foreign = notMine(cardContract(this.parts.db, lease.cardId), 'merge')
       if (foreign !== null)
-        return this.denied(lease, foreign)
+        return this.denied(lease, { kind: 'technical', reason: NOT_MINE, detail: foreign })
       for (const expired of expiredWindowShards(this.parts.db, this.parts.clock(), lease.actor))
         appendEvent(this.parts.db, expired)
       const checked = this.fresh(lease)

@@ -7,6 +7,7 @@ import path from 'node:path'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGE_DONE, MERGED_CARD, PR_OPENED, QUEUED_CARD, REVIEW_RECORDED, STOPPED_CARD } from './card-automaton.js'
+import { cardContract } from './card-contract.js'
 import { CHAIN_OBSERVED, WAITING } from './chain.js'
 import { QUEUES } from './identifiers.js'
 import { CARD_STARTED, CARD_STOPPED, RESTART_MISSED, RESTARTED } from './inbox.js'
@@ -345,6 +346,17 @@ function queueBlockedCause(inWork: readonly number[], blocked: readonly QueueCar
   return blocking.length === 0 ? null : `queue blocked: ${blocking.map(card => `#${card.card} ${card.reason}`).join('; ')}`
 }
 
+function silentAtStep(db: DatabaseSync, now: Date, inWork: readonly number[]): string | null {
+  const silent = inWork.flatMap((card) => {
+    const beat = cardContract(db, card)?.lastHeartbeat
+    if (beat === null || beat === undefined)
+      return []
+    const minutes = Math.floor(ageMs(now, lastProgress(db, [card]) ?? beat.ts) / 60_000)
+    return [`#${card} no progress ${minutes} min, step ${beat.step ?? 'unknown'}`]
+  })
+  return silent.length === 0 ? null : silent.join('; ')
+}
+
 function progressOf(db: DatabaseSync, now: Date, health: readonly ComponentHealth[], blocked: readonly QueueCard[], ready: readonly QueueCard[]): Progress {
   const inWork = (db.prepare(CARDS_IN_WORK).all() as { card_id: number }[]).map(row => row.card_id)
   const last = lastProgress(db, inWork)
@@ -356,7 +368,9 @@ function progressOf(db: DatabaseSync, now: Date, health: readonly ComponentHealt
   const queueBlocked = queueBlockedCause(inWork, blocked, ready)
   if (queueBlocked !== null)
     return { last, stalled: true, cause: queueBlocked }
-  return inWork.length === 0 ? { last, stalled: false, cause: null } : { last, stalled: true, cause: 'cause unknown' }
+  if (inWork.length === 0)
+    return { last, stalled: false, cause: null }
+  return { last, stalled: true, cause: silentAtStep(db, now, inWork) ?? 'cause unknown' }
 }
 
 function link(name: string, green: boolean, fact: string): ContractLink {

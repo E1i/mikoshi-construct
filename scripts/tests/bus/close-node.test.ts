@@ -431,6 +431,24 @@ describe('the close node', () => {
     expect(eventsOf(made.db, CARD_CLOSED)).toHaveLength(1)
   })
 
+  it('close skips a candidate cardContract reads as not mine', async () => {
+    const made = bench()
+    admittedBody(made, 1240)
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId: 1240, pr: null, head: null, dedupeKey: `${CARD_MOVED}:1240`, payload: { lane: DROPPED_LANE }, legacy: false })
+    probeVerified(made, 1240, { path: 'cheap', verification: 'run', report: '/shift/report-1240.md' })
+    made.tick()
+    expect(cardStateOf(made, 1240)).toBe('dropped')
+
+    const node = nodeOf(made, { mode: 'live' })
+    await once(node)
+    await once(node)
+
+    expect(eventsOf(made.db, CARD_CLOSED)).toEqual([])
+    expect(cardStateOf(made, 1240)).toBe('dropped')
+    expect(eventsOf(made.db, POLICY_DENIED)).toEqual([expect.objectContaining({ command: 'close', kind: 'technical', reason: 'not_mine', detail: expect.stringContaining('is dropped in the bus') })])
+    expect(made.db.prepare(`SELECT state FROM tasks WHERE queue = 'close' AND card_id = ?`).all(1240)).toEqual([{ state: 'withdrawn' }])
+  })
+
   it('a probe close removes the card session tree like a pull request close does', async () => {
     const made = bench()
     const worktree = '/trees/mc-1230'
