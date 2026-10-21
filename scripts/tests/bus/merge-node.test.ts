@@ -73,6 +73,8 @@ interface Moved {
 
 const PR_FILES = ['scripts/bus/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/merge-rerun.md']
 
+const A_MATRIX_COUNT_LINE = '■ 4 □ 1 · 1'
+
 function mainMovedUnder(made: MergeBench, moved: Moved): void {
   writeCatalog(made.db, { tests: CATALOG, mutations: [] })
   made.gitHub.upToDateRequired = moved.upToDateRequired ?? false
@@ -80,7 +82,7 @@ function mainMovedUnder(made: MergeBench, moved: Moved): void {
   made.gitHub.mainFiles = { [MAIN_2]: moved.mainFiles }
   made.gitHub.mainRenamedFrom = moved.mainRenamedFrom ?? {}
   made.gitHub.commitsBeyondTheCompare = moved.commitsBeyondTheCompare ?? 0
-  made.gitHub.open({ number: 970, review: 'success', mergeable_state: moved.mergeable ?? 'behind', files: moved.prFiles ?? PR_FILES, renamedFrom: moved.prRenamedFrom })
+  made.gitHub.open({ number: 970, review: 'success', mergeable_state: moved.mergeable ?? 'behind', files: moved.prFiles ?? PR_FILES, renamedFrom: moved.prRenamedFrom, body: `${cardBody(970)}\n\n${A_MATRIX_COUNT_LINE}` })
   made.tick()
 }
 

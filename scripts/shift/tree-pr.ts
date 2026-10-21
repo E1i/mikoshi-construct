@@ -7,9 +7,9 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { runsCover, runsOf, TestCoverage, withinTouches } from '../../src/card/covering-tests.js'
 import { COMPANION_TABLE, PACKAGE_MANIFEST, publishedRootsOf } from '../../src/commands/intake/check.js'
+import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../bus/policy.js'
 import { changedFilesFrom } from '../morse/diff.js'
 import { classify, MorseRefusal } from '../morse/rules.js'
-import { MATRIX_COUNT_LINE, pathWithoutMatrix } from './merge.js'
 
 export type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'problem', why: string }
 
