@@ -43,9 +43,13 @@ export interface Counters {
   cache_read: number
 }
 
+export const GAUGES_UNREAD = 'unread'
+export const NO_TRANSCRIPT = 'no-transcript'
+
 export interface SessionGauges {
   context?: number
   spent?: number
+  reason?: typeof GAUGES_UNREAD | typeof NO_TRANSCRIPT
 }
 
 export interface ExitReadings {
@@ -145,6 +149,10 @@ function transcriptOf(home: string, session: string): string | null {
   return readdirSync(projects).map(project => path.join(projects, project, `${session}.jsonl`)).find(existsSync) ?? null
 }
 
+function foundTranscriptOf(home: string, session: string): string | null {
+  return PLAIN_ID.test(session) && existsSync(path.join(home, '.claude', 'projects')) ? transcriptOf(home, session) : null
+}
+
 function spentWithAgents(root: string, transcript: string, parent: Tokens): number {
   const agents = hookMeasure.sumTranscripts(root, hookMeasure.agentTranscriptsUnder(path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')))
   return hookMeasure.spentOf(hookMeasure.addTokens({ ...parent }, agents))
@@ -156,14 +164,14 @@ function sessionSpent(root: string, transcript: string): number {
 
 export function sessionGauges(home: string, root: string, session: string): SessionGauges {
   try {
-    const transcript = PLAIN_ID.test(session) ? transcriptOf(home, session) : null
+    const transcript = foundTranscriptOf(home, session)
     if (transcript === null)
-      return {}
+      return { reason: NO_TRANSCRIPT }
     const parent = hookMeasure.readTranscript(root, transcript)
     return { context: hookMeasure.contextOf(parent.last), spent: spentWithAgents(root, transcript, parent.tokens) }
   }
   catch {
-    return {}
+    return { reason: GAUGES_UNREAD }
   }
 }
 
