@@ -13,7 +13,7 @@ import { defaultBusPath, openBus } from '../bus/db.js'
 import { busParkingReads } from '../bus/parking-reads.js'
 import { activeDecisionsShard, VERSION_PR_RESERVATION } from '../bus/shards.js'
 import { windowOf } from '../bus/window.js'
-import { execGh } from '../core/gh.js'
+import { execGh, readGhJson } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { BLOCKED_LABEL, defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { CARD_VARIABLE } from '../ghosts/session.js'
@@ -415,13 +415,9 @@ function busDecisionsShard(busPath: string, now: Date): WindowShard | null {
 }
 
 function ghPrState(pr: number): PrState {
-  try {
-    const state = (JSON.parse(execGh(['pr', 'view', String(pr), '--json', 'state'])) as { state?: string }).state
-    return state === 'OPEN' || state === 'MERGED' || state === 'CLOSED' ? state : 'unread'
-  }
-  catch {
-    return 'unread'
-  }
+  const read = readGhJson<{ state?: string } | null>(execGh, ['pr', 'view', String(pr), '--json', 'state'])
+  const state = read.kind === 'read' ? read.value?.state : undefined
+  return state === 'OPEN' || state === 'MERGED' || state === 'CLOSED' ? state : 'unread'
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

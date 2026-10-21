@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runCurrent } from '../../shift/current.js'
+import { callerOf } from '../core/gh-fake.js'
 
 const OWNER_MERGES = readFileSync(path.resolve(import.meta.dirname, '../../../architecture/owner-merges.md'), 'utf8')
 
@@ -36,7 +37,7 @@ function setup(prs: FakePr[], options: { conflict?: number[], journal?: string, 
   const calls: string[][] = []
   const appended: string[] = []
   const heads = [...(options.heads ?? ['new-head'])]
-  const gh = (args: string[]): string => {
+  const gh = callerOf((args: string[]): string => {
     calls.push(args)
     if (args[1] === 'list')
       return JSON.stringify(prs.map(listed))
@@ -47,7 +48,7 @@ function setup(prs: FakePr[], options: { conflict?: number[], journal?: string, 
     if (args[1] === 'view')
       return JSON.stringify({ body: listed(prs.find(pr => String(pr.number) === args[2])!).body, headRefOid: heads.length > 1 ? heads.shift() : heads[0], files: [] })
     return ''
-  }
+  })
   const carry = {
     gh,
     git: (args: string[]) => args[0] === 'range-diff' ? '1:  aaaaaaa = 1:  bbbbbbb own' : args[0] === 'rev-list' && args[1] === '--count' ? '1' : '',

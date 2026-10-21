@@ -20,6 +20,7 @@ import { busMerge, HANDED_TO_THE_BUS, isListed, runCarry, runMerge, runUpdated, 
 import { runShift } from '../../shift/shift.js'
 import { cardBody as busCardBody, Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { detectReview } from '../bus/review-detection.js'
+import { callerOf, ran } from '../core/gh-fake.js'
 import { captured, depsOf, eventsOf, fakeGh, newWorld, cardLine as parkedCardLine } from './fixtures/autopilot-world.js'
 import { prReviewLine } from './fixtures/pr-review-line.js'
 
@@ -37,7 +38,7 @@ function run(body: string, files: string[]): { calls: string[][], result: Return
     calls.push(args)
     return args[1] === 'view' ? JSON.stringify({ body, headRefOid: HEAD, files: files.map(file => ({ path: file })) }) : ''
   }
-  return { calls, result: runMerge(['42'], { gh, ownerMergesText: () => OWNER_MERGES }) }
+  return { calls, result: runMerge(['42'], { gh: callerOf(gh), ownerMergesText: () => OWNER_MERGES }) }
 }
 
 function armed(calls: string[][], result: ReturnType<typeof runMerge>): boolean {
@@ -130,7 +131,7 @@ describe('runMerge', () => {
   })
 
   it('refuses an argument that is not a pull request number', () => {
-    expect(runMerge(['#42'], { gh: () => '', ownerMergesText: () => OWNER_MERGES }).exitCode).toBe(1)
+    expect(runMerge(['#42'], { gh: () => ran(''), ownerMergesText: () => OWNER_MERGES }).exitCode).toBe(1)
   })
 })
 
@@ -237,7 +238,7 @@ describe('runVerdict', () => {
     const statuses: ReviewStatus[] = []
     const posted: StatusPublisher = status => statuses.push(status)
     const gh = (): string => JSON.stringify({ body: busCardBody(pr), headRefOid: sha('a'), files: [{ path: 'scripts/board/derive.ts' }] })
-    return { db, bus, journal, statuses, run: (argv, publish = posted, session = 'reviewer-1') => runVerdict(argv, { gh, gitHub: gitHub.client, bus, session, now: clock.now, publish }) }
+    return { db, bus, journal, statuses, run: (argv, publish = posted, session = 'reviewer-1') => runVerdict(argv, { gh: callerOf(gh), gitHub: gitHub.client, bus, session, now: clock.now, publish }) }
   }
 
   function recorded(db: DatabaseSync): Record<string, unknown>[] {
@@ -325,7 +326,7 @@ describe('runCarry', () => {
     const posted: ReviewStatus[] = []
     const journal = prReviewLine({ task: '7', pr: 42, verdict: 'pass', commit: reviewed }, new Date('2026-10-09T03:00:00.000Z'))
     const gh = (): string => JSON.stringify({ body, headRefOid: head, files: [{ path: 'scripts/board/derive.ts' }] })
-    const result = runCarry(['42', '--carry'], { gh, git: args => git(repo, ...args), fetch: () => {}, journal: () => journal, main: 'main', publish: status => posted.push(status) })
+    const result = runCarry(['42', '--carry'], { gh: callerOf(gh), git: args => git(repo, ...args), fetch: () => {}, journal: () => journal, main: 'main', publish: status => posted.push(status) })
     return { posted, result }
   }
 
@@ -366,7 +367,7 @@ describe('runCarry', () => {
   it('publishes nothing for a pull request with no review verdict on record', () => {
     const posted: ReviewStatus[] = []
     const gh = (): string => JSON.stringify({ body: cardLine('auto'), headRefOid: HEAD, files: [] })
-    const result = runCarry(['42', '--carry'], { gh, git: () => '', fetch: () => {}, journal: () => null, main: 'main', publish: status => posted.push(status) })
+    const result = runCarry(['42', '--carry'], { gh: callerOf(gh), git: () => '', fetch: () => {}, journal: () => null, main: 'main', publish: status => posted.push(status) })
     expect([posted, result.exitCode]).toEqual([[], 1])
   })
 
@@ -374,7 +375,7 @@ describe('runCarry', () => {
     function updatedRun(repo: string, argv: string[], head: string): { updates: CleanUpdate[], result: MergeResult } {
       const bus = path.join(mkdtempSync(path.join(tmpdir(), 'shift-merge-updated-')), 'bus.db')
       const gh = (): string => JSON.stringify({ body: cardLine('auto'), headRefOid: head, files: [] })
-      const result = runUpdated(argv, { gh, git: args => git(repo, ...args), fetch: () => {}, main: 'main', bus, session: 'window-s78', now: () => new Date('2026-10-19T20:00:00.000Z') })
+      const result = runUpdated(argv, { gh: callerOf(gh), git: args => git(repo, ...args), fetch: () => {}, main: 'main', bus, session: 'window-s78', now: () => new Date('2026-10-19T20:00:00.000Z') })
       const db = openBus(bus)
       try {
         return { updates: cleanUpdatesOf(db, 42), result }

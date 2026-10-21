@@ -5,6 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { entryOf } from '../../ghosts/entry.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
+import { read } from '../core/gh-fake.js'
 
 const JOURNAL = '/handoff/ghosts.jsonl'
 const V1 = '{"event":"entry","task":"548","CONTRACT":"implement · cheap · owner · touches not recorded on the card · law not recorded on the card","EXPECT":"expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone","ACTION":"task:start fix/shift-left-reason-closed-first #548: cut /Users/eli/projects/mc-548 from origin/main; start line written to /Users/eli/.construct/handoff/ghosts.jsonl","RESULT":"accepted · not started","ts":"2026-10-04T19:04:01.015Z"}'
@@ -26,7 +27,7 @@ function closeCard(journal: string[], id: string): string[] {
     exists: () => false,
     session: undefined,
     projectsDir: '/projects',
-    prBody: () => null,
+    prBody: () => read(null),
   }
   return runTaskClose([id, '--pr', '1', '--verification', 'run'], deps).stdout
 }

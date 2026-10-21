@@ -6,6 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cardStartedLines } from '../../ghosts/tasks.js'
 import { runShift } from '../../shift/shift.js'
+import { ran } from '../core/gh-fake.js'
 import { admitCards } from './fixtures/admitted.js'
 
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
@@ -60,7 +61,7 @@ function shiftDeps(world: World, out: string[]): ShiftDeps {
     projectsDir: path.join(world.root, 'projects'),
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: () => {},
-    gh: () => '[]',
+    gh: () => ran('[]'),
     listDir: dir => readdirSync(dir),
     read: file => readFileSync(file, 'utf8'),
     exists: existsSync,

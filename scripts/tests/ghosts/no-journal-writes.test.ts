@@ -12,6 +12,7 @@ import { recordFall } from '../../ghosts/supervise.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
 import { recordDisposition } from '../../ghosts/verdict.js'
 import { runShift } from '../../shift/shift.js'
+import { read } from '../core/gh-fake.js'
 import { captured, depsOf, fakeGh, newWorld } from '../shift/fixtures/autopilot-world.js'
 import { ownBusPerTest } from './own-bus.js'
 
@@ -48,7 +49,7 @@ function closeDeps(handoffDir: string, busPath: string): TaskCloseDeps {
     session: undefined,
     projectsDir: path.join(handoffDir, 'projects'),
     tokens: () => null,
-    prBody: () => null,
+    prBody: () => read(null),
   }
 }
 

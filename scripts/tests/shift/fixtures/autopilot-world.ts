@@ -8,6 +8,7 @@ import { afterEach } from 'vitest'
 import { ghostLines } from '../../../ghosts/journal.js'
 import { runClaude } from '../../../shift/claude.js'
 import { HANDED_TO_THE_BUS } from '../../../shift/merge.js'
+import { callerOf } from '../../core/gh-fake.js'
 import { admitCards } from './admitted.js'
 import { verifiedClosings } from './verified.js'
 import './stub-handoff.js'
@@ -101,7 +102,7 @@ export function depsOf(world: World, gh: (args: string[]) => string, io: Capture
     projectsDir: path.join(world.root, 'projects'),
     git,
     install: () => {},
-    gh,
+    gh: callerOf(gh),
     listDir: dir => readdirSync(dir),
     read: file => readFileSync(file, 'utf8'),
     exists: existsSync,

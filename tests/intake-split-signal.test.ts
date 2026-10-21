@@ -7,6 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { relation } from '../scripts/shift/overlap.js'
 import { runShift } from '../scripts/shift/shift.js'
+import { failed } from '../scripts/tests/core/gh-fake.js'
 import { CHARACTERS_PER_TOKEN, SESSION_READING_TOKENS, splitSignal } from '../src/card/complexity.js'
 import { WINDOW_WHO } from '../src/card/parking.js'
 import { SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
@@ -140,9 +141,7 @@ function shiftDeps(root: string, out: string[], err: string[]): ShiftDeps {
     projectsDir: path.join(root, 'projects'),
     git: unused,
     install: unused,
-    gh: () => {
-      throw new Error('gh is not read in this test')
-    },
+    gh: () => failed('gh is not read in this test'),
     listDir: dir => readdirSync(dir),
     read: file => readFileSync(file, 'utf8'),
     exists: existsSync,

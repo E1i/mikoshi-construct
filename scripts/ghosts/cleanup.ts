@@ -11,7 +11,7 @@ import { parseArgs } from 'node:util'
 import { LEDGER_FILE } from '../../src/commands/cost/ledger.js'
 import { STEP_CACHE_FILE } from '../../src/commands/cost/step-cache.js'
 import { defaultBusPath } from '../bus/db.js'
-import { execGh, listPrs } from '../core/gh.js'
+import { execGh, listPrs, PROCESS_GH_PORT, readGhJson } from '../core/gh.js'
 import { execGit } from '../core/git.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { handLadderPolicy, handLadderRows } from '../core/policy.js'
@@ -328,13 +328,9 @@ export async function cleanupMerged(task: Target, ctx: CleanupContext): Promise<
 }
 
 function defaultRepo(cwd: string): string | undefined {
-  try {
-    const parsed = JSON.parse(execFileSync('gh', ['repo', 'view', '--json', 'nameWithOwner'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) as { nameWithOwner?: unknown }
-    return typeof parsed.nameWithOwner === 'string' ? parsed.nameWithOwner : undefined
-  }
-  catch {
-    return undefined
-  }
+  const read = readGhJson<{ nameWithOwner?: unknown } | null>(args => PROCESS_GH_PORT.call(args, { cwd }), ['repo', 'view', '--json', 'nameWithOwner'])
+  const name = read.kind === 'read' ? read.value?.nameWithOwner : undefined
+  return typeof name === 'string' ? name : undefined
 }
 
 function toplevel(): string {

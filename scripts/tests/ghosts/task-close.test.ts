@@ -1,3 +1,4 @@
+import type { GhRead } from '../../core/gh.js'
 import type { OpenIssue, TaskCloseDeps } from '../../ghosts/task-close.js'
 import { chmodSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,6 +9,7 @@ import { legacyEventOf } from '../../bus/import.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { CARD_VERIFIED, cardVerifiedClosings, closingHistoryLines, runTaskClose } from '../../ghosts/task-close.js'
 import { prCardOf } from '../../ghosts/tasks.js'
+import { failed, ran, read, unread } from '../core/gh-fake.js'
 import { busWithCardStarted } from './card-started-bus.js'
 
 const LAUNCH_SESSION = 'ghost-session'
@@ -72,7 +74,7 @@ function world(journal: string[], sessionFiles: string[] = [], files: Record<str
       session: undefined,
       projectsDir: PROJECTS,
       tokens: () => null,
-      prBody: () => null,
+      prBody: () => read(null),
     },
   }
 }
@@ -472,7 +474,7 @@ describe('a cloud run closes on its cloud-start line', () => {
 })
 
 describe('the card line of the pull request body', () => {
-  const prBodyOf = (body: string | null) => (): string | null => body
+  const prBodyOf = (body: string | null) => (): GhRead<string | null> => read(body)
 
   it('warns when the body does not open with the card line, and still closes', () => {
     const { deps, written } = world([startLine('123', 'implement')])
@@ -496,9 +498,7 @@ describe('the card line of the pull request body', () => {
 
   it('refuses a body that cannot be read and writes nothing', () => {
     const { deps, written } = world([startLine('123', 'implement')])
-    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: () => {
-      throw new Error('gh: no network')
-    } })
+    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: () => unread('gh: no network') })
     expect(result.exitCode).toBe(1)
     expect(written).toEqual([])
     expect(result.stderr).toEqual(['[task:close] the body of PR #460 was not read, so whose result it is was not checked: gh: no network; nothing written'])
@@ -518,8 +518,11 @@ describe('the card line of the pull request body', () => {
     const result = runTaskClose(['889', '--pr', '786', '--verification', 'run'], {
       ...deps,
       prBody: prBodyOf('#855 card-automaton-folds [implement/netwatch/S/cheap/auto] · depends — · blocks —\n\nbody'),
-      openIssue: () => ({ title: 'n', body: null }),
-      closeIssue: issue => closed.push(issue),
+      openIssue: () => read({ title: 'n', body: null }),
+      closeIssue: (issue) => {
+        closed.push(issue)
+        return ran('')
+      },
     })
     expect(result.exitCode).toBe(1)
     expect(result.stdout).toEqual([])
@@ -538,7 +541,7 @@ describe('a PR shared by an owner decision', () => {
 
   function shared(argv: string[], files: Record<string, string> = { [ARCHIVE]: `# Owner decisions archive\n\n${D33}\n` }): { result: ReturnType<typeof runTaskClose>, written: string[] } {
     const { deps, written } = world([startLine('532', 'implement')], [], files)
-    return { result: runTaskClose(['532', '--pr', '642', ...argv, '--verification', 'review'], { ...deps, prBody: () => SHARED_BODY, decisionsFile: DECISIONS }), written }
+    return { result: runTaskClose(['532', '--pr', '642', ...argv, '--verification', 'review'], { ...deps, prBody: () => read(SHARED_BODY), decisionsFile: DECISIONS }), written }
   }
 
   it('closes on a decision in the archive that names both cards, and records it on the path line', () => {
@@ -576,7 +579,7 @@ describe('a PR shared by an owner decision', () => {
 
   it('refuses --shared-by when no decisions file is given', () => {
     const { deps, written } = world([startLine('532', 'implement')])
-    expect(runTaskClose(['532', '--pr', '642', '--shared-by', 'D-33', '--verification', 'run'], { ...deps, prBody: () => SHARED_BODY }).stderr[0]).toContain('no decisions file is given')
+    expect(runTaskClose(['532', '--pr', '642', '--shared-by', 'D-33', '--verification', 'run'], { ...deps, prBody: () => read(SHARED_BODY) }).stderr[0]).toContain('no decisions file is given')
     expect(written).toEqual([])
   })
 })
@@ -584,7 +587,10 @@ describe('a PR shared by an owner decision', () => {
 describe('task:close closes the GitHub issue of its card', () => {
   function issues(open: Record<number, OpenIssue>): { closed: [number, string][], deps: Pick<TaskCloseDeps, 'openIssue' | 'closeIssue'> } {
     const closed: [number, string][] = []
-    return { closed, deps: { openIssue: number => open[number] ?? null, closeIssue: (number, comment) => closed.push([number, comment]) } }
+    return { closed, deps: { openIssue: number => read(open[number] ?? null), closeIssue: (number, comment) => {
+      closed.push([number, comment])
+      return ran('')
+    } } }
   }
 
   it('task:close closes the issue of its card with a link to the PR', () => {
@@ -631,14 +637,10 @@ describe('task:close closes the GitHub issue of its card', () => {
 
   it('still closes the task when the issue cannot be read or closed, and names it', () => {
     const { deps, written } = world([startLine('123', 'implement')])
-    const unread = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, openIssue: () => {
-      throw new Error('gh: no network')
-    }, closeIssue: () => {} })
-    expect(unread.exitCode).toBe(0)
-    expect(unread.stdout.at(-1)).toBe('[task:close] issue #123 not read, left as it is: gh: no network')
-    const unclosed = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => new Date(NOW.getTime() + 1000), openIssue: () => ({ title: 'n', body: null }), closeIssue: () => {
-      throw new Error('gh: forbidden')
-    } })
+    const notRead = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, openIssue: () => unread('gh: no network'), closeIssue: () => ran('') })
+    expect(notRead.exitCode).toBe(0)
+    expect(notRead.stdout.at(-1)).toBe('[task:close] issue #123 not read, left as it is: gh: no network')
+    const unclosed = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => new Date(NOW.getTime() + 1000), openIssue: () => read({ title: 'n', body: null }), closeIssue: () => failed('gh: forbidden') })
     expect(unclosed.exitCode).toBe(0)
     expect(unclosed.stdout.at(-1)).toBe('[task:close] issue #123 not closed: gh: forbidden; re-run task:close #123 to close it')
     expect(written).toHaveLength(2)
@@ -840,7 +842,7 @@ describe('task:close reads the start of a task from card.started in the bus', ()
 })
 
 describe('task:close takes whose result a PR is from prs.card_id in the bus', () => {
-  const noCardLine = (): string | null => 'not a card\n\nbody'
+  const noCardLine = (): GhRead<string | null> => read('not a card\n\nbody')
 
   it('witness 5: task:close #889 --pr 786 is refused by prs.card_id = 855 though the PR body has no card line', () => {
     const { deps, written } = world([startLine('889', 'implement')])
@@ -869,7 +871,7 @@ describe('task:close takes whose result a PR is from prs.card_id in the bus', ()
   it('closes a PR with no prs row whose body opens with the card line', () => {
     const { deps, written } = world([startLine('123', 'implement')])
     const body = '#123 n [implement/ghosts/S/cheap/owner] · depends — · blocks —\n\nbody'
-    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: () => body, prCard: () => null }).exitCode).toBe(0)
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, prBody: () => read(body), prCard: () => null }).exitCode).toBe(0)
     expect(written).toHaveLength(1)
   })
 
@@ -890,7 +892,7 @@ describe('task:close takes whose result a PR is from prs.card_id in the bus', ()
 
     it('shares the PR with the card of its prs row, not the card its body line names', () => {
       const { deps, written } = world([startLine('532', 'implement')], [], { [DECISIONS]: `# Owner decisions\n\n${D60}\n` })
-      const result = runTaskClose(['532', '--pr', '642', '--shared-by', 'D-60', '--verification', 'run'], { ...deps, decisionsFile: DECISIONS, prBody: () => BODY_OF_534, prCard: () => 533 })
+      const result = runTaskClose(['532', '--pr', '642', '--shared-by', 'D-60', '--verification', 'run'], { ...deps, decisionsFile: DECISIONS, prBody: () => read(BODY_OF_534), prCard: () => 533 })
       expect(result.exitCode).toBe(0)
       expect(JSON.parse(written[0]!)).toMatchObject({ event: 'path', task: '532', pr: 642, sharedBy: 'D-60' })
     })

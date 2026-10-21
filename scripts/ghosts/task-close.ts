@@ -2,7 +2,7 @@ import type { Card } from '../../src/card/grammar.js'
 import type { CheapForecast, CheapSession } from '../../src/commands/cost/cheap.js'
 import type { SignalStyle } from '../../src/ui/signal.js'
 import type { BusEvent } from '../bus/db.js'
-import type { GhRunner } from '../core/gh.js'
+import type { GhCall, GhCaller, GhRead } from '../core/gh.js'
 import type { Decision } from '../decisions/decisions.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -20,7 +20,7 @@ import { NOT_A_BACKFILL } from '../bus/backfill-source.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db.js'
 import { legacyHistory } from '../bus/legacy-history.js'
 import { openDatabase } from '../bus/sqlite.js'
-import { execGh } from '../core/gh.js'
+import { execGh, readGhJson } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { VERIFICATION_WORDS } from '../core/verification.js'
 import { parseDecisions } from '../decisions/decisions.js'
@@ -86,11 +86,11 @@ export interface TaskCloseDeps {
   tokens?: (session: CheapSession) => number | null
   forecast?: (taskClass: string) => CheapForecast
   style?: SignalStyle
-  prBody: (pr: number) => string | null
+  prBody: (pr: number) => GhRead<string | null>
   prCard?: (pr: number) => number | null
   decisionsFile?: string
-  openIssue?: (issue: number) => OpenIssue | null
-  closeIssue?: (issue: number, comment: string) => void
+  openIssue?: (issue: number) => GhRead<OpenIssue | null>
+  closeIssue?: (issue: number, comment: string) => GhCall
 }
 
 export interface OpenIssue {
@@ -369,8 +369,11 @@ function actualText(actual: Actual): string {
   return `actual tokens ${tokens}, minutes ${minutes}`
 }
 
-export function prBodyOf(gh: GhRunner): (pr: number) => string | null {
-  return pr => (JSON.parse(gh(['pr', 'view', String(pr), '-R', REPO, '--json', 'body'])) as { body: string | null }).body
+export function prBodyOf(gh: GhCaller): (pr: number) => GhRead<string | null> {
+  return (pr) => {
+    const read = readGhJson<{ body: string | null }>(gh, ['pr', 'view', String(pr), '-R', REPO, '--json', 'body'])
+    return read.kind === 'read' ? { kind: 'read', value: read.value.body } : read
+  }
 }
 
 interface Ownership {
@@ -398,13 +401,10 @@ function sharingRefusal(deps: TaskCloseDeps, reference: string, cards: number[])
 }
 
 function ownershipOf(deps: TaskCloseDeps, id: string, pr: number, reference: string | undefined): Ownership | string {
-  let body: string | null
-  try {
-    body = deps.prBody(pr)
-  }
-  catch (error) {
-    return `the body of PR #${pr} was not read, so whose result it is was not checked: ${firstLine(error)}; nothing written`
-  }
+  const read: GhRead<string | null> = typeof deps.prBody === 'function' ? deps.prBody(pr) : { kind: 'failed', reason: 'no reader of the PR body is given', cause: 'failed' }
+  if (read.kind === 'failed')
+    return `the body of PR #${pr} was not read, so whose result it is was not checked: ${firstLine(read.reason)}; nothing written`
+  const body = read.value
   const parsed = readBodyCard(body ?? '')
   const cardLine = parsed.kind === 'card' ? parsed.card.id : null
   let busOwner: number | null = null
@@ -451,23 +451,17 @@ function firstLine(error: unknown): string {
 function issueLines(deps: TaskCloseDeps, card: Card, closedBy: string): string[] {
   if (deps.openIssue === undefined || deps.closeIssue === undefined)
     return []
-  let issue: OpenIssue | null
-  try {
-    issue = deps.openIssue(card.id)
-  }
-  catch (error) {
-    return [`${PREFIX}issue #${card.id} not read, left as it is: ${firstLine(error)}`]
-  }
+  const read = deps.openIssue(card.id)
+  if (read.kind === 'failed')
+    return [`${PREFIX}issue #${card.id} not read, left as it is: ${firstLine(read.reason)}`]
+  const issue = read.value
   if (issue === null)
     return []
   if (!namesCard(issue, card))
     return [`${PREFIX}issue #${card.id} '${issue.title}' is about another card, not ${card.name}; left open`]
-  try {
-    deps.closeIssue(card.id, `Closed by task:close #${card.id} ${card.name}: ${closedBy}.`)
-  }
-  catch (error) {
-    return [`${PREFIX}issue #${card.id} not closed: ${firstLine(error)}; re-run task:close #${card.id} to close it`]
-  }
+  const closed = deps.closeIssue(card.id, `Closed by task:close #${card.id} ${card.name}: ${closedBy}.`)
+  if (closed.kind === 'failed')
+    return [`${PREFIX}issue #${card.id} not closed: ${firstLine(closed.reason)}; re-run task:close #${card.id} to close it`]
   return [`${PREFIX}issue #${card.id} closed with a comment naming ${closedBy}`]
 }
 
@@ -596,12 +590,10 @@ function realDeps(): TaskCloseDeps {
     prBody: prBodyOf(execGh),
     decisionsFile: defaultDecisions(os.homedir()),
     openIssue: (issue) => {
-      const open = JSON.parse(execGh(['issue', 'list', '-R', REPO, '--state', 'open', '--limit', String(OPEN_ISSUE_LIMIT), '--json', 'number,title,body'])) as (OpenIssue & { number: number })[]
-      return open.find(candidate => candidate.number === issue) ?? null
+      const open = readGhJson<(OpenIssue & { number: number })[]>(execGh, ['issue', 'list', '-R', REPO, '--state', 'open', '--limit', String(OPEN_ISSUE_LIMIT), '--json', 'number,title,body'])
+      return open.kind === 'read' ? { kind: 'read', value: open.value.find(candidate => candidate.number === issue) ?? null } : open
     },
-    closeIssue: (issue, comment) => {
-      execGh(['issue', 'close', String(issue), '-R', REPO, '--comment', comment])
-    },
+    closeIssue: (issue, comment) => execGh(['issue', 'close', String(issue), '-R', REPO, '--comment', comment]),
   }
 }
 

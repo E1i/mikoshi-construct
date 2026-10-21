@@ -1,6 +1,6 @@
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { BudgetLine } from '../core/eddies.js'
-import type { GhRunner, PrList } from '../core/gh.js'
+import type { GhCaller, PrList } from '../core/gh.js'
 import type { TaskLine } from './places.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -26,7 +26,7 @@ const RESULT_LINE = /^result:(.*)$/m
 export interface ReportDeps {
   cwd: string
   handoffDir: string
-  gh: GhRunner
+  gh: GhCaller
   read: (file: string) => string | null
   budget: (worktree: string) => BudgetLine[]
   out: (line: string) => void

@@ -1,8 +1,8 @@
 import type { RoleStop } from '../bus/role.js'
+import type { GhCall, GhPort } from '../core/gh.js'
 import type { ParkedDepends } from '../ghosts/handoff-check.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
 import type { OperatorWork } from './role-bus.js'
-import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { claudeProjectsDir } from '../../src/commands/cost/index.js'
 import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
 import { raisedByTheBus } from '../bus/role.js'
+import { PROCESS_GH_PORT } from '../core/gh.js'
 import { DECISION_FORMAT } from '../decisions/decisions.js'
 import { decisionsPath, defaultParking, handoffRefusals, parkedDepends, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { runClaude } from './claude.js'
@@ -56,7 +57,7 @@ export interface RelaunchDeps {
   pid: number
   claude: string
   env: NodeJS.ProcessEnv
-  ghToken: (account: string) => string
+  ghToken: (account: string) => GhCall
   bus: string
   projectsDir: string
   read: (file: string) => string
@@ -353,17 +354,15 @@ export function operatorToken(deps: RelaunchDeps): OperatorToken {
   const account = configuredAccount(deps, file)
   if (account === null)
     return { kind: 'unset', reason: `no ${GH_ACCOUNT_KEY} in ${file}: the Operator keeps this environment's GitHub credentials` }
-  try {
-    const token = deps.ghToken(account).trim()
-    return token === '' ? { kind: 'failed', reason: `gh auth token --user ${account} printed no token` } : { kind: 'token', token }
-  }
-  catch (error) {
-    return { kind: 'failed', reason: `gh auth token --user ${account} failed: ${error instanceof Error ? error.message : String(error)}` }
-  }
+  const called = deps.ghToken(account)
+  if (called.kind === 'failed')
+    return { kind: 'failed', reason: `gh auth token --user ${account} failed: ${called.reason}` }
+  const token = called.stdout.trim()
+  return token === '' ? { kind: 'failed', reason: `gh auth token --user ${account} printed no token` } : { kind: 'token', token }
 }
 
-export function ghAccountToken(account: string, env: NodeJS.ProcessEnv = process.env): string {
-  return execFileSync('gh', ['auth', 'token', '--user', account], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+export function ghAccountToken(account: string, env: NodeJS.ProcessEnv = process.env, port: GhPort = PROCESS_GH_PORT): GhCall {
+  return port.call(['auth', 'token', '--user', account], { env })
 }
 
 function record(deps: RelaunchDeps, entry: { event: string, ts: string } & Record<string, unknown>): void {
