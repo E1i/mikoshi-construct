@@ -6,10 +6,11 @@ import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { SILENT_MS } from './liveness-sites.js'
+import { RateLimited } from './meter.js'
 import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
 import { reject } from './stored.js'
 
-export { HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from './queue.js'
+export { SESSION_HELD_QUEUES as HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from './queue.js'
 
 export const RENEW_MS = 10 * 60_000
 export const LEASE_EXPIRED = 'lease_expired'
@@ -85,7 +86,15 @@ const LAST_BEAT_OF_THE_TASK = `
 
 const QUEUES_THAT_RUN_A_CARD_SESSION: ReadonlySet<Queue> = new Set(['answer', 'launch'])
 
-const RETRY_AFTER = /GitHub answered \d{3}; retry after (\d+) s/
+const STATUS_MARK = 111
+const SECONDS_MARK = 222222
+
+function retryAfterPattern(): RegExp {
+  const message = new RateLimited(STATUS_MARK, SECONDS_MARK).message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(message.replace(String(SECONDS_MARK), '(\\d+)').replace(String(STATUS_MARK), '\\d+'))
+}
+
+const RETRY_AFTER = retryAfterPattern()
 
 const LEASABLE_IN_GRANT_ORDER = `SELECT tasks.task_key, tasks.card_id, ${HELD_CARD} AS held ${LEASABLE_FROM} ${GRANT_ORDER}`
 

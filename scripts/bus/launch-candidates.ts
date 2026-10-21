@@ -279,9 +279,9 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
     }
     if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, trees, beating))
       continue
-    busy.add(life.lane)
     if (bodyNotFoldedYet(db, life.cardId))
       continue
+    busy.add(life.lane)
     if (life.task !== null)
       taken.push(life.task)
     chosen.push({ cardId: life.cardId, generation: life.generation, ...continuedTree(life, trees) })

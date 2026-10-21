@@ -20,7 +20,7 @@ import { cleanUpdatesOf } from './update-done.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const LEASE_MS = 30 * 60_000
-export const HEARTBEAT_QUEUES: readonly Queue[] = ['review']
+export const SESSION_HELD_QUEUES: readonly Queue[] = ['review']
 export const QUEUE_ACTOR = 'policy'
 export const FAILURES_TO_STOP = 3
 export const REVIEW_ROUNDS = 3
@@ -613,8 +613,8 @@ function foldHeartbeat(db: DatabaseSync, event: StoredEvent): void {
   const payload = payloadOf(event)
   if (typeof payload.task_key !== 'string')
     return
-  db.prepare(`UPDATE tasks SET lease_until = ? WHERE state = '${LEASED}' AND task_key = ? AND lease_gen = ? AND card_id = ? AND queue IN (SELECT value FROM json_each(?))`)
-    .run(leaseUntil(event.ts), payload.task_key, leaseGenOf(payload), event.card_id, JSON.stringify(HEARTBEAT_QUEUES))
+  db.prepare(`UPDATE tasks SET lease_until = ? WHERE state = '${LEASED}' AND task_key = ? AND lease_gen = ? AND card_id = ?`)
+    .run(leaseUntil(event.ts), payload.task_key, leaseGenOf(payload), event.card_id)
 }
 
 const QUEUE_FOLDS: Record<string, Fold> = {

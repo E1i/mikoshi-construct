@@ -176,4 +176,25 @@ describe('one lease contract', () => {
     made.clock.advance(120_000)
     expect(leaseNext(made.db, now(made), 'answer', 'worker:answer:a')).toMatchObject({ taskKey: key })
   })
+
+  it('a 403 with retry-after that the merge executor meets ends the merge task as wait and counts no failure', () => {
+    const made = mergeBench()
+    benches.push(made)
+    made.gitHub.open({ number: 981, head: sha('b'), review: 'success' })
+    made.gitHub.statuses.set(sha('b'), 'success')
+    made.tick()
+    made.tick()
+    detectMerge(made)
+    const lease = made.lease()!
+    made.gitHub.limited = { status: 403, headers: { 'retry-after': '120' }, body: { message: 'API rate limit exceeded' } }
+
+    expect(made.merge(lease)).toMatchObject({ kind: 'denied', next: 'queued' })
+    expect(ofTask(made, TASK_FAILED, lease.taskKey)).toBe(0)
+    expect(taskState(made.db, lease.taskKey)).toMatchObject({ state: 'queued', failures: 0 })
+    expect(made.lease()).toBeNull()
+
+    made.gitHub.limited = null
+    made.clock.advance(120_000)
+    expect(made.lease()).toMatchObject({ taskKey: lease.taskKey })
+  })
 })

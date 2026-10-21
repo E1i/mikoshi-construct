@@ -321,13 +321,13 @@ describe('the launch node', () => {
     expect(starter.starts.map(card => card.cardId)).toEqual([975])
   })
 
-  it('a card waiting on its body holds its lane, so a later card of that lane does not overtake it', () => {
+  it('a card waiting on its body does not hold its lane: a later card of that lane is offered meanwhile', () => {
     const made = bench()
     const text = 'the body of card 978'
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 978, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:978`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-978', text, textSha: textSha(text) }, legacy: false })
     admit(made, 979, 'lane-a')
     const node = nodeOf(made)
-    expect(node.found()).toEqual([])
+    expect(node.found()).toEqual([launchKey(979)])
 
     reduce(made.db)
     expect(node.found()).toEqual([launchKey(978)])
