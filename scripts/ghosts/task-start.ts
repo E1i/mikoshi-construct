@@ -25,10 +25,11 @@ import { slotsOf, slotsVariable } from '../bus/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../bus/window-prs.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { worktreeHome } from '../ports/worktree-home.js'
+import { adoptTree, cutTree, pnpmInstall } from '../ports/worktree.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from './entry.js'
 import { withGhostLines } from './journal.js'
 import { busCardStates } from './tasks.js'
-import { taskWorktree, worktreeHome } from './worktree-home.js'
 
 export const PREFIX = '[task:start] '
 export const USAGE = 'usage: pnpm task:start <branch> --card "<card>" [--parking <dir>] [--without-intake "<reason>"]'
@@ -39,8 +40,6 @@ export const ADOPT_USAGE = 'usage: pnpm task:start <branch> --card "<card>" --ad
 const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SAFE_BRANCH = /^[^\s-]\S*$/
-const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
-const FETCH_MAIN_OVER_HTTPS = ['-c', 'url.https://github.com/.insteadOf=git@github.com:', '-c', 'url.https://github.com/.insteadOf=ssh://git@github.com/', 'fetch', 'origin', 'main']
 
 export interface TaskStartDeps {
   cwd: string
@@ -199,27 +198,6 @@ function firstLine(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).split('\n')[0]!
 }
 
-function branchExists(deps: TaskStartDeps, repo: string, branch: string): boolean {
-  try {
-    deps.git(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-function removeTree(deps: TaskStartDeps, repo: string, worktree: string, branch: string): string {
-  try {
-    deps.git(repo, ['worktree', 'remove', '--force', worktree])
-    deps.git(repo, ['branch', '-D', branch])
-    return `the tree and branch ${branch} were removed`
-  }
-  catch (error) {
-    return `removing the tree failed (${firstLine(error)}); remove ${worktree} and branch ${branch} by hand`
-  }
-}
-
 function flagValue(argv: string[], flag: string): { at: number, value: string | undefined } {
   const at = argv.indexOf(flag)
   return { at, value: at === -1 ? undefined : argv[at + 1] }
@@ -332,111 +310,6 @@ function whoAndRisk(cardFile: CardFile): { who?: string, risk?: WrittenRisk } {
   return { who: cardFile.parked.who, ...(risk === undefined ? {} : { risk }) }
 }
 
-interface ReadyTree {
-  worktree: string
-  how: string
-  failedAppend: string
-}
-
-function adoptTree(deps: TaskStartDeps, tree: string, branch: string): ReadyTree | TaskStartResult {
-  const worktree = path.resolve(deps.cwd, tree)
-  let toplevel: string, commonDir: string, head: string, repoCommonDir: string
-  try {
-    [toplevel = '', commonDir = '', head = ''] = deps.git(worktree, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir', '--abbrev-ref', 'HEAD']).trim().split('\n')
-  }
-  catch (error) {
-    return refuse(`cannot adopt ${worktree}: it is not a git tree (${firstLine(error)}); nothing written`)
-  }
-  if (toplevel !== worktree)
-    return refuse(`cannot adopt ${worktree}: it is not the top of a tree, ${toplevel} is; nothing written`)
-  try {
-    repoCommonDir = deps.git(deps.cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
-  }
-  catch (error) {
-    return refuse(`not inside a git repository: ${firstLine(error)}`)
-  }
-  if (commonDir !== repoCommonDir)
-    return refuse(`cannot adopt ${worktree}: it belongs to the repository at ${commonDir}, not to ${repoCommonDir}; nothing written`)
-  if (head !== branch)
-    return refuse(`cannot adopt ${worktree}: its HEAD is on ${head}, not on the card's branch ${branch}; nothing written`)
-  return { worktree, how: `adopts ${worktree}`, failedAppend: `${worktree} was adopted on ${branch}` }
-}
-
-function cutTree(deps: TaskStartDeps, id: string, branch: string): ReadyTree | TaskStartResult {
-  let repo: string
-  try {
-    repo = deps.git(deps.cwd, ['rev-parse', '--show-toplevel']).trim()
-  }
-  catch (error) {
-    return refuse(`not inside a git repository: ${firstLine(error)}`)
-  }
-  const worktree = taskWorktree(deps.worktreeHome ?? path.dirname(repo), id)
-  if (deps.exists(worktree))
-    return refuse(`${worktree} already exists; nothing written`)
-  if (branchExists(deps, repo, branch))
-    return refuse(`branch ${branch} already exists; nothing written`)
-  let absent: string[] = []
-  try {
-    deps.git(repo, FETCH_MAIN_OVER_HTTPS)
-  }
-  catch (error) {
-    return refuse(`could not cut ${worktree}: ${firstLine(error)}; nothing written`)
-  }
-  try {
-    deps.git(repo, ['worktree', 'add', '-b', branch, worktree, 'origin/main'])
-  }
-  catch (error) {
-    const recovered = recoverCheckout(deps, worktree, error)
-    if (recovered === null)
-      return refuse(`could not cut ${worktree}: ${gitMessage(error)}; nothing written`)
-    if (!Array.isArray(recovered))
-      return refuse(`could not cut ${worktree}: ${recovered.failed}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
-    absent = recovered
-  }
-  try {
-    deps.install(worktree, INSTALL_ARGS)
-  }
-  catch (error) {
-    return refuse(`pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written`)
-  }
-  const left = absent.length === 0 ? '' : `; absent from the tree, kept out of git status with skip-worktree because the sandbox refused the write: ${absent.join(', ')}`
-  return { worktree, how: `cut ${worktree} from origin/main${left}`, failedAppend: `${worktree} was cut on ${branch}${left}` }
-}
-
-const UNABLE_TO_CREATE = /unable to create file (.+?): /g
-
-function gitMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).trim().split('\n').map(line => line.trim()).filter(line => line !== '').join(' / ')
-}
-
-export function unwritablePaths(message: string): string[] {
-  return [...new Set([...message.matchAll(UNABLE_TO_CREATE)].map(match => match[1]!))]
-}
-
-function recoverCheckout(deps: TaskStartDeps, worktree: string, error: unknown): string[] | { failed: string } | null {
-  const refused = unwritablePaths(error instanceof Error ? error.message : String(error))
-  if (refused.length === 0 || !deps.exists(worktree))
-    return null
-  try {
-    deps.git(worktree, ['read-tree', 'HEAD'])
-    deps.git(worktree, ['checkout-index', '-a', '-f', '-u'])
-  }
-  catch (retry) {
-    const stillRefused = unwritablePaths(retry instanceof Error ? retry.message : String(retry))
-    if (stillRefused.length === 0)
-      return { failed: gitMessage(retry) }
-    refused.push(...stillRefused)
-  }
-  const absent = [...new Set(refused)]
-  try {
-    deps.git(worktree, ['update-index', '--skip-worktree', '--', ...absent])
-  }
-  catch (skip) {
-    return { failed: gitMessage(skip) }
-  }
-  return absent
-}
-
 export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {
   if (!argv.includes(CARD_FLAG))
     return refuse(`a task starts from its card now: ${USAGE}; the id is the card's #<id>`)
@@ -477,8 +350,8 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   if (typeof contract === 'string')
     return refuse(contract)
   const ready = args.adopt === undefined ? cutTree(deps, id, branch) : adoptTree(deps, args.adopt, branch)
-  if ('exitCode' in ready)
-    return ready
+  if ('refused' in ready)
+    return refuse(ready.refused)
   const { worktree } = ready
   const at = deps.now().toISOString()
   const start = { path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, ...(args.adopt === undefined ? {} : { adopts: worktree }), branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted) }
@@ -497,10 +370,6 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
     : { ...entry, ACTION: `task:start ${branch} #${id}: ${ready.how}; ${CARD_STARTED} is the launch worker's, which holds the launch of #${id}${unsessioned}` }
   const stdout = renderSignal(`task:start #${id} ${card.name}`, signal, deps.style ?? PLAIN_STYLE)
   return { stdout, stderr: [], exitCode: 0, worktree }
-}
-
-export function pnpmInstall(cwd: string, args: string[]): void {
-  execFileSync('pnpm', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
 export function gitIn(cwd: string, args: string[]): string {

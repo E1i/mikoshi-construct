@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../bus/db.js'
 import type { CleanUpdate } from '../../bus/update-done.js'
-import type { ReviewStatus, StatusPublisher } from '../../ghosts/verdict.js'
+import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
 import type { MergeResult } from '../../shift/merge.js'
 import type { World } from './fixtures/autopilot-world.js'
 import { execFileSync } from 'node:child_process'

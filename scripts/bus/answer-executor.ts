@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Isolation, IsolationReader } from '../ghosts/isolation.js'
+import type { Isolation, IsolationReader } from '../ports/isolation.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
 import type { Answered, Answerer } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'

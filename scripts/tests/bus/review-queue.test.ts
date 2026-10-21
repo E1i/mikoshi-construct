@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { IsolationReader } from '../../ghosts/isolation.js'
+import type { IsolationReader } from '../../ports/isolation.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'

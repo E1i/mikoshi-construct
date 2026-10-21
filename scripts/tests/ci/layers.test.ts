@@ -131,6 +131,38 @@ describe('the layer rules of the bus hold over scripts and src', () => {
     ])
   }, CRUISE_TIMEOUT_MS)
 
+  it('refuses an import from the bus into the ladder scripts outside ladder-starter', () => {
+    const root = sampleTree({
+      'scripts/bus/launch-worker.ts': 'import { journal } from \'../ghosts/journal.js\'\nexport const launch = journal\n',
+      'scripts/ghosts/journal.ts': 'export const journal = 1\n',
+    })
+    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 1, violations: ['bus-imports-no-ladder scripts/bus/launch-worker.ts -> scripts/ghosts/journal.ts'] })
+  }, CRUISE_TIMEOUT_MS)
+
+  it('lets ladder-starter import the ladder', () => {
+    const root = sampleTree({
+      'scripts/bus/ladder-starter.ts': 'import { supervise } from \'../ghosts/supervise.js\'\nexport const ladder = supervise\n',
+      'scripts/ghosts/supervise.ts': 'export const supervise = 1\n',
+    })
+    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 0, violations: [] })
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses an import from the ports contour into the bus, ghosts, shift or miko', () => {
+    const root = sampleTree({
+      'scripts/ports/session.ts': ['bus/db', 'ghosts/journal', 'shift/shift', 'miko/loop'].map((module, index) => `import { a${index} } from '../${module}.js'`).join('\n'),
+      'scripts/bus/db.ts': 'export const a0 = 1\n',
+      'scripts/ghosts/journal.ts': 'export const a1 = 1\n',
+      'scripts/shift/shift.ts': 'export const a2 = 1\n',
+      'scripts/miko/loop.ts': 'export const a3 = 1\n',
+    })
+    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts']).violations.sort()).toEqual([
+      'ports-import-no-caller scripts/ports/session.ts -> scripts/bus/db.ts',
+      'ports-import-no-caller scripts/ports/session.ts -> scripts/ghosts/journal.ts',
+      'ports-import-no-caller scripts/ports/session.ts -> scripts/miko/loop.ts',
+      'ports-import-no-caller scripts/ports/session.ts -> scripts/shift/shift.ts',
+    ])
+  }, CRUISE_TIMEOUT_MS)
+
   it('refuses an import from the bus into the intake command for an event name', () => {
     const root = sampleTree({
       'scripts/bus/card-automaton.ts': 'import { CARD_MOVED } from \'../../src/commands/intake/index.js\'\nexport const moved = CARD_MOVED\n',

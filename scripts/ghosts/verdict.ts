@@ -1,6 +1,6 @@
 import type { Buffer } from 'node:buffer'
 import type { RiskLevel } from '../../src/card/risk.js'
-import type { GhPort } from '../core/gh.js'
+import type { ReviewStatus, StatusPublisher } from '../ports/github-status.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -11,11 +11,13 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { riskReading } from '../../src/card/risk.js'
 import { readContourSchema, violations } from '../contract/contours.js'
-import { GhFailed, PROCESS_GH_PORT } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { ghStatusPublisher, REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { approvedHashPath, extractApprovedHash } from './approval.js'
 import { journalText, recordGhostLine } from './journal.js'
 import { reviewCarry } from './review-carry.js'
+
+export { REVIEW_STATUS_CONTEXT }
 
 const JOURNAL_FILE = 'ghosts.jsonl'
 const CLOUD_REPORT_NAME = /^review(?:-[\w.-]+)?\.md$/
@@ -27,7 +29,6 @@ const ISSUE_NUMBER = /^[1-9]\d*$/
 export const DISPOSITION_EVENT = 'disposition'
 export const MERGE_FOLLOW_UP = 'merge-follow-up'
 export const DISPOSITION_DECIDERS = ['owner', 'window'] as const
-export const REVIEW_STATUS_CONTEXT = 'review'
 const STATUS_STATE: Record<string, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
 
 export const REVIEW_DEPTHS = ['none', 'diff', 'full'] as const
@@ -46,15 +47,6 @@ export function reviewOf(...pathSets: readonly (readonly string[])[]): { risk: R
   const risk = pathSets.length === 0 || pathSets.some(paths => paths.length === 0) ? UNREAD_RISK : riskReading(pathSets.flat(), false).level
   return { risk, depth: reviewDepth(risk) }
 }
-
-export interface ReviewStatus {
-  commit: string
-  state: 'success' | 'failure'
-  context: typeof REVIEW_STATUS_CONTEXT
-  description: string
-}
-
-export type StatusPublisher = (status: ReviewStatus) => void
 
 interface Digest {
   path: string
@@ -289,14 +281,6 @@ export function reviewStatus(line: Record<string, unknown>): ReviewStatus {
   if (line.event === REVIEW_CARRY_EVENT)
     return { commit: String(line.to), state, context: REVIEW_STATUS_CONTEXT, description: `carried from ${String(line.from)}` }
   return { commit: String(line.commit), state, context: REVIEW_STATUS_CONTEXT, description: `review verdict ${verdict} for task ${String(line.task)}` }
-}
-
-export function ghStatusPublisher(repo: string, port: GhPort = PROCESS_GH_PORT): StatusPublisher {
-  return (status) => {
-    const posted = port.call(['api', '--method', 'POST', `repos/{owner}/{repo}/statuses/${status.commit}`, '-f', `state=${status.state}`, '-f', `context=${status.context}`, '-f', `description=${status.description}`], { cwd: repo })
-    if (posted.kind === 'failed')
-      throw new GhFailed(posted)
-  }
 }
 
 export function publishReasons(publish: StatusPublisher, status: ReviewStatus): string[] {

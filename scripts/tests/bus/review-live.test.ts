@@ -1,7 +1,7 @@
 import type { DetectionMode, Scope } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import type { Reviewer } from '../../bus/reviewer.js'
-import type { IsolationReader } from '../../ghosts/isolation.js'
+import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'

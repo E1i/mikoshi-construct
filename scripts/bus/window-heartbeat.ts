@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
-import { CARD_VARIABLE } from '../ghosts/session.js'
+import { CARD_VARIABLE } from '../ports/session.js'
 import { appendEvent, openBus } from './db.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 

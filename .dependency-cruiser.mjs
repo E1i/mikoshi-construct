@@ -4,6 +4,10 @@ const BUS_SERVICE_OF_SAME_NAME = '^scripts/bus/$1-(worker|executor|starter)\\.ts
 const CORE = '^scripts/core/'
 const FACTORY = '^(scripts/(bus|ghosts|shift|miko|decisions|lanes)/|src/commands/)'
 const FORMER_EVENT_HOMES = '^src/commands/intake/(index|move)\\.ts$'
+const LADDER = '^scripts/ghosts/'
+const LADDER_STARTER = '^scripts/bus/ladder-starter\\.ts$'
+const PORTS = '^scripts/ports/'
+const PORT_CALLERS = '^scripts/(bus|ghosts|shift|miko)/'
 
 export default {
   forbidden: [
@@ -30,6 +34,18 @@ export default {
       severity: 'error',
       from: { path: CORE },
       to: { path: FACTORY },
+    },
+    {
+      name: 'bus-imports-no-ladder',
+      severity: 'error',
+      from: { path: '^scripts/bus/', pathNot: LADDER_STARTER },
+      to: { path: LADDER },
+    },
+    {
+      name: 'ports-import-no-caller',
+      severity: 'error',
+      from: { path: PORTS },
+      to: { path: PORT_CALLERS },
     },
     {
       name: 'bus-takes-event-names-from-core',
