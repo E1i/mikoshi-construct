@@ -1,5 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -9,7 +9,8 @@ import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REJECTED } from '../../bus/rejection.js'
 import { replayDifferences } from '../../bus/report.js'
-import { failRaise, leaseRole, observeRoleStop, returnEndedRole, returnSilentRole, ROLE_RETURNED, roleToOwner, WINDOW_ENDS } from '../../bus/role.js'
+import { failRaise, leaseRole, observeRoleStop, returnEndedRole, returnSilentRole, ROLE_RETURNED, ROLES_PROJECTION, roleToOwner, WINDOW_ENDS } from '../../bus/role.js'
+import { reduceProjection } from '../../bus/watermark.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { requestFromWindow } from '../../bus/window-requests.js'
 import { cloudOn } from '../../ghosts/cloud-key.js'
@@ -43,6 +44,9 @@ describe('ghosts:role', () => {
     expect([{ CONSTRUCT_CLOUD: '1' }, { CONSTRUCT_CLOUD: '0' }, { CONSTRUCT_CLOUD: 'on' }, {}].map(cloudOn)).toEqual([true, false, false, false])
   })
 })
+
+const INCIDENT = path.join(import.meta.dirname, '../bus/fixtures/role-returned-incident.json')
+const INCIDENT_COLUMNS = ['id', 'ts', 'type', 'actor', 'card_id', 'pr', 'head', 'dedupe_key', 'payload', 'legacy']
 
 describe('the window role with the owner', () => {
   const HANDOFF = '/handoff/miko.md'
@@ -106,26 +110,26 @@ describe('the window role with the owner', () => {
   })
 
   it('a replay after role.returned matches the live roles row', () => {
-    const bus = ownerBus()
-    requestFromWindow(bus.db, at(1000), 'owner-session', { kind: 'status' })
-    reduce(bus.db)
-    expect(returnSilentRole(bus.db, at(1001 + LEASE_MS), 'worker:restart:w')).toMatchObject({ role: 'miko' })
-    for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-      failRaise(bus.db, at(1001 + LEASE_MS + failure), leaseRole(bus.db, at(1001 + LEASE_MS + failure), 'worker:restart:w')!, 'relaunch did not start')
-    const lastRaiseFailed = Number((bus.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
-    const liveRow = { state: 'stopped', lease_gen: 2 * FAILURES_TO_STOP, event_id: lastRaiseFailed }
-    const rolesRow = (): unknown => bus.db.prepare('SELECT state, lease_gen, event_id FROM roles WHERE role = ?').get('miko')
+    const incident = JSON.parse(readFileSync(INCIDENT, 'utf8')) as Record<string, SQLInputValue>[]
+    const returnedAt = incident.find(row => row.type === ROLE_RETURNED)!.id as number
+    const db = openBus(':memory:')
+    const insert = db.prepare(`INSERT INTO events (${INCIDENT_COLUMNS.join(', ')}) VALUES (${INCIDENT_COLUMNS.map(() => '?').join(', ')})`)
+    const append = (rows: Record<string, SQLInputValue>[]): void => rows.forEach(row => insert.run(...INCIDENT_COLUMNS.map(column => row[column]!)))
+    append(incident.filter(row => (row.id as number) < returnedAt))
+    reduce(db)
+    append(incident.filter(row => (row.id as number) >= returnedAt))
+    reduceProjection(db, ROLES_PROJECTION)
+    const liveRow = { state: 'stopped', lease_gen: 12, event_id: incident.at(-1)!.id }
+    const rolesRow = (): unknown => db.prepare('SELECT state, lease_gen, event_id FROM roles WHERE role = ?').get('miko')
     expect(rolesRow()).toEqual(liveRow)
 
-    expect(replayDifferences(bus.db).differences).toEqual([])
-    const live = projectionDump(bus.db)
-    reduce(bus.db)
-    expect(bus.db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${REJECTED}' AND json_extract(payload, '$.type') LIKE 'role.%'`).get()).toEqual({ n: 0 })
+    expect(replayDifferences(db).differences).toEqual([])
+    const live = projectionDump(db)
+    reduce(db)
+    expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${REJECTED}' AND json_extract(payload, '$.type') LIKE 'role.%'`).get()).toEqual({ n: 0 })
     expect(rolesRow()).toEqual(liveRow)
-    expect(projectionDump(bus.db)).toBe(live)
-    expect(roleToOwner(bus.db, at(1010 + LEASE_MS), 'worker:restart:w')).toMatchObject({ role: 'miko' })
-    expect(replayDifferences(bus.db).differences).toEqual([])
-    bus.close()
+    expect(projectionDump(db)).toBe(live)
+    db.close()
   })
 
   it.each(WINDOW_ENDS)('the end of a window session by Eddies, miko:exit or close returns the role as an event (%s)', (end) => {
