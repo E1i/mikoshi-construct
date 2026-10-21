@@ -1,18 +1,20 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { recordWindowHeartbeat, WINDOW_BEAT_MS, windowBeat, windowSessionOf } from '../../bus/window-heartbeat.js'
 import { WINDOW_ACTOR } from '../../bus/window-requests.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
 import { NO_TRANSCRIPT, sessionGauges } from '../../miko/eddies-measure.js'
-import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
+import { productionDeps } from '../../miko/watch.js'
+import { CARD_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 
 const START = Date.parse('2026-10-20T10:00:00.000Z')
 const roots: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -88,5 +90,29 @@ describe('the window heartbeat', () => {
     const quiet = openBus(unread)
     expect(quiet.prepare('SELECT payload FROM events WHERE type = ?').all(WINDOW_HEARTBEAT)).toEqual([{ payload: JSON.stringify({ session: 'abc-2', reason: NO_TRANSCRIPT }) }])
     quiet.close()
+  })
+
+  it('the beat of miko:watch, measured the way the watch measures, writes a window.heartbeat with the context and spend of the window transcript', () => {
+    const home = mkdtempSync(path.join(tmpdir(), 'watch-home-'))
+    const root = mkdtempSync(path.join(tmpdir(), 'watch-tree-'))
+    roots.push(home, root)
+    const transcript = path.join(home, '.claude', 'projects', '-repo', 'window-1.jsonl')
+    mkdirSync(path.dirname(transcript), { recursive: true })
+    writeFileSync(transcript, [
+      { requestId: 'r1', message: { role: 'assistant', usage: { input_tokens: 1_000, cache_creation_input_tokens: 20_000, cache_read_input_tokens: 0 } } },
+      { requestId: 'r2', message: { role: 'assistant', usage: { input_tokens: 500, cache_creation_input_tokens: 4_000, cache_read_input_tokens: 21_000 } } },
+    ].map(line => `${JSON.stringify(line)}\n`).join(''))
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('CLAUDE_PROJECT_DIR', root)
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', 'window-1')
+    vi.stubEnv(WINDOW_VARIABLE, WINDOW_MARK)
+    vi.stubEnv(CARD_VARIABLE, '')
+    const file = busFile()
+    productionDeps(root, file).beat()
+    const db = openBus(file)
+    const row = db.prepare('SELECT actor, payload FROM events WHERE type = ?').get(WINDOW_HEARTBEAT) as { actor: string, payload: string }
+    db.close()
+    expect(row.actor).toBe(`${WINDOW_ACTOR}window-1`)
+    expect(JSON.parse(row.payload)).toEqual({ session: 'window-1', context: 25_500, spent: 1_500 + 24_000 * 1.25 + 21_000 * 0.1 })
   })
 })
