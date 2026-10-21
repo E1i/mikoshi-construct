@@ -115,7 +115,7 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
     const response = post(`repos/{owner}/{repo}/statuses/${status.head}`, statusFields(status))
     const refused = !isSuccess(response.status)
     if (refused && !isPermanentRefusal(response.status))
-      throw new Error(`${PREFIX}PR #${status.pr} ${status.head}: GitHub answered ${response.status} to the status ${STATUS_CONTEXT}: ${status.step}; nothing recorded, the step is posted again on the next run`)
+      throw new StatusRefusedForNow(`${PREFIX}PR #${status.pr} ${status.head}: GitHub answered ${response.status} to the status ${STATUS_CONTEXT}: ${status.step}; nothing recorded, the step is posted again on the next run`)
     appendEvent(db, {
       ts: now().toISOString(),
       type: refused ? PR_STATUS_REFUSED : PR_STATUS_SET,
@@ -130,6 +130,18 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
     set.push(refused ? { ...status, refused: response.status } : status)
   }
   return set
+}
+
+export class StatusRefusedForNow extends Error {}
+
+export function statusFailureLine(error: unknown): string {
+  if (error instanceof StatusRefusedForNow)
+    return error.message
+  return `${PREFIX}the status step broke and recorded nothing, the bus tick goes on: ${error instanceof Error ? error.message : String(error)}`
+}
+
+export function statusLine(status: StepStatus): string {
+  return `${PREFIX}PR #${status.pr} ${status.head.slice(0, 7)}: ${STATUS_CONTEXT}: ${status.step} (${status.refused === undefined ? status.state : `refused ${status.refused}, recorded and passed`})`
 }
 
 export function ghApiPost(cwd: string, command = 'gh'): GitHubPost {
@@ -148,7 +160,7 @@ function main(): number {
   const db = openBus(defaultBusPath())
   try {
     for (const status of setStepStatuses(db, ghApiPost(process.cwd())))
-      console.log(`${PREFIX}PR #${status.pr} ${status.head.slice(0, 7)}: ${STATUS_CONTEXT}: ${status.step} (${status.refused === undefined ? status.state : `refused ${status.refused}, recorded and passed`})`)
+      console.log(statusLine(status))
     return 0
   }
   finally {
