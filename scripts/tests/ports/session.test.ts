@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, SessionCeilingReached, sessionEnv, sessionModelOf, spawnSession } from '../../ports/session.js'
+import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, SessionCeilingReached, sessionEnv, sessionModelOf, spawnSession, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
 
 function stubBinDir(script: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-session-bin-'))
@@ -152,5 +152,12 @@ describe('spawnSession', () => {
     expect(ended).toBeInstanceOf(SessionCeilingReached)
     expect((ended as Error).message).toBe('the session sess-3 ran past its ceiling of 0.005 minutes and was ended')
     expect(Date.now() - started).toBeLessThan(10_000)
+  })
+})
+
+describe('withoutCard', () => {
+  it('a session the window spawns carries neither the card nor the window marker', () => {
+    const env = withoutCard({ PATH: '/bin', CONSTRUCT_CARD: '1197', [WINDOW_VARIABLE]: WINDOW_MARK })
+    expect(env).toEqual({ PATH: '/bin' })
   })
 })
