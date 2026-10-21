@@ -10,7 +10,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { GOAL_DECISION } from '../../../src/commands/board/goal.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { boardProjection, printBoard, runBoardCli } from '../../bus/board-page.js'
-import { MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS } from '../../bus/board.js'
+import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS } from '../../bus/board.js'
 import { DROPPED_LANE, MERGED_CARD } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
 import { appendEvent, openBus } from '../../bus/db.js'
@@ -318,6 +318,27 @@ describe('the factory board', () => {
     expect(working.tick().progress).toMatchObject({ stalled: true, cause: 'cause unknown' })
     working.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '850', reason: 'waits question' }, { id: '851', reason: 'waits question' }, { id: '852', reason: 'depends #850 not merged' }] } }]
     expect(working.tick().progress.cause).toBe('queue blocked: #850 waits question')
+  })
+
+  it('the projection beside pulse gives the latest context and spent of each card', () => {
+    const bench = boardBench()
+    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null, gauges: { context: 100_000, spent: 900_000 } })
+    bench.clock.advance(1000)
+    recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null, gauges: { context: 120_000, spent: 1_000_000 } })
+    recordHeartbeat(bench.db, bench.ts(), { card: 871, pr: null, head: null, step: 'implement', session: 's-871', lease: null, gauges: { spent: 50 } })
+    expect(cardGauges(bench.db)).toEqual([
+      { card: 870, ts: bench.ts(), context: 120_000, spent: 1_000_000 },
+      { card: 871, ts: bench.ts(), context: null, spent: 50 },
+    ])
+    expect(bench.tick().gauges).toEqual(cardGauges(bench.db))
+  })
+
+  it('a card whose heartbeat carries no fields has no bar', () => {
+    const bench = boardBench()
+    recordHeartbeat(bench.db, bench.ts(), { card: 872, pr: null, head: null, step: 'implement', session: 's-872', lease: null })
+    recordHeartbeat(bench.db, bench.ts(), { card: 873, pr: null, head: null, step: 'implement', session: 's-873', lease: null, gauges: {} })
+    expect(cardGauges(bench.db)).toEqual([])
+    expect(bench.tick().gauges).toEqual([])
   })
 
   it('the board shows no progress for N minutes at step X from the last heartbeat', () => {
