@@ -1,16 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
+import { BOARD_ALARM, CARD_STOPPED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED } from '../core/events.js'
 import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
-import { CARD_STOPPED, RESTARTED } from './inbox.js'
-import { appendedAndReduced, BOARD_ALARM, FAILURES_TO_STOP, generationField, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WITHDRAWN } from './queue.js'
+import { SILENT_MS } from './liveness-sites.js'
+import { RateLimited } from './meter.js'
+import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
 import { reject } from './stored.js'
 
-export { HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED } from './queue.js'
+export { SESSION_HELD_QUEUES as HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from './queue.js'
 
-export const LEASES_DRAINING = 'leases.draining'
 export const RENEW_MS = 10 * 60_000
 export const LEASE_EXPIRED = 'lease_expired'
 
@@ -31,6 +32,11 @@ export interface Lease {
 export interface Failure {
   reason: string
   withdraw: boolean
+}
+
+export interface Wait {
+  reason: string
+  until: string
 }
 
 export const SUPERSEDED_LEASE = 'superseded'
@@ -62,11 +68,33 @@ const GRANT_ORDER = `ORDER BY tasks.card_id IN (SELECT value FROM json_each(?)) 
 
 const HELD_CARD = `EXISTS (SELECT 1 FROM tasks AS held WHERE held.queue = tasks.queue AND held.state = '${LEASED}' AND held.card_id = tasks.card_id)`
 
+const WAITING_UNTIL_LATER = `EXISTS (
+  SELECT 1 FROM events AS waited WHERE waited.id = tasks.event_id AND waited.type = '${TASK_RELEASED}' AND json_extract(waited.payload, '$.until') > ?
+)`
+
 const NEXT_LEASABLE = `
   SELECT tasks.* ${LEASABLE_FROM}
-    AND NOT (? AND ${HELD_CARD})
+    AND NOT (? AND ${HELD_CARD}) AND NOT ${WAITING_UNTIL_LATER}
   ${GRANT_ORDER} LIMIT 1
 `
+
+const LAST_BEAT_OF_THE_TASK = `
+  SELECT max(ts) AS ts FROM events
+  WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id = ?
+    AND (json_extract(payload, '$.task_key') = ? OR (json_type(payload, '$.task_key') IS NULL AND ?))
+`
+
+const QUEUES_THAT_RUN_A_CARD_SESSION: ReadonlySet<Queue> = new Set(['answer', 'launch'])
+
+const STATUS_MARK = 111
+const SECONDS_MARK = 222222
+
+function retryAfterPattern(): RegExp {
+  const message = new RateLimited(STATUS_MARK, SECONDS_MARK).message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(message.replace(String(SECONDS_MARK), '(\\d+)').replace(String(STATUS_MARK), '\\d+'))
+}
+
+const RETRY_AFTER = retryAfterPattern()
 
 const LEASABLE_IN_GRANT_ORDER = `SELECT tasks.task_key, tasks.card_id, ${HELD_CARD} AS held ${LEASABLE_FROM} ${GRANT_ORDER}`
 
@@ -130,15 +158,19 @@ export function queuedCards(db: DatabaseSync, queue: Queue): number[] {
 
 export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string, order: LeaseOrder = IN_ARRIVAL_ORDER): Lease | null {
   return inTransaction(db, () => {
-    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', order.onePerCard ? 1 : 0, JSON.stringify(order.firstCards)) as LeaseRow | undefined
+    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', order.onePerCard ? 1 : 0, ts, JSON.stringify(order.firstCards)) as LeaseRow | undefined
     return row === undefined ? null : leased(db, ts, row, actor)
   })
+}
+
+function waitsPast(db: DatabaseSync, key: string, ts: string): boolean {
+  return db.prepare(`SELECT 1 FROM tasks WHERE task_key = ? AND ${WAITING_UNTIL_LATER}`).get(key, ts) !== undefined
 }
 
 export function leaseQueued(db: DatabaseSync, ts: string, key: string, actor: string): Lease | null {
   return inTransaction(db, () => {
     const row = rowOf(db, key)
-    return row?.state === QUEUED ? leased(db, ts, row, actor) : null
+    return row?.state === QUEUED && !waitsPast(db, key, ts) ? leased(db, ts, row, actor) : null
   })
 }
 
@@ -210,9 +242,32 @@ function afterFailure(row: LeaseRow, failure: Failure, uncounted: boolean): Afte
   return !uncounted && row.failures + 1 >= FAILURES_TO_STOP ? STOPPED : QUEUED
 }
 
+function freshBeatUntil(db: DatabaseSync, ts: string, row: LeaseRow): string | null {
+  const cardSessionBeats = QUEUES_THAT_RUN_A_CARD_SESSION.has(row.queue) ? 1 : 0
+  const beat = (db.prepare(LAST_BEAT_OF_THE_TASK).get(row.card_id, row.task_key, cardSessionBeats) as { ts: string | null }).ts
+  if (beat === null)
+    return null
+  const until = new Date(Date.parse(beat) + SILENT_MS).toISOString()
+  return until > ts ? until : null
+}
+
+function waited(db: DatabaseSync, ts: string, actor: string, row: LeaseRow, wait: Wait, context: BusEvent[]): typeof QUEUED {
+  for (const event of context)
+    appendedOnCard(db, event)
+  appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason: wait.reason, until: wait.until }))
+  return QUEUED
+}
+
+export function waitTask(db: DatabaseSync, ts: string, lease: Lease, wait: Wait, context: BusEvent[] = []): typeof QUEUED {
+  return inTransaction(db, () => waited(db, ts, lease.actor, held(db, lease), wait, context))
+}
+
 function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: LeaseRow, failure: Failure, context: BusEvent[]): AfterFailure {
   const uncounted = waitsForTheHead(db, row, failure)
   const next = afterFailure(row, failure, uncounted)
+  const beating = next === STOPPED ? freshBeatUntil(db, ts, row) : null
+  if (beating !== null)
+    return waited(db, ts, actor, row, { reason: failure.reason, until: beating }, context)
   for (const event of context)
     appendedOnCard(db, event)
   appendedAndReduced(db, taskEvent(ts, type, actor, row, row.lease_gen, `${type}:${row.task_key}:${row.lease_gen}`, { reason: failure.reason, next, ...(uncounted ? { uncounted } : {}) }))
@@ -224,9 +279,22 @@ function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: 
   return next
 }
 
+function retryAfterIn(ts: string, context: readonly BusEvent[]): string | null {
+  for (const event of context) {
+    const detail = (event.payload as Record<string, unknown> | null)?.detail
+    const match = typeof detail === 'string' ? RETRY_AFTER.exec(detail) : null
+    if (match !== null)
+      return new Date(Date.parse(ts) + Number(match[1]) * 1000).toISOString()
+  }
+  return null
+}
+
 export function failTask(db: DatabaseSync, ts: string, lease: Lease, failure: Failure, context: BusEvent[] = []): AfterFailure {
   if (failure.reason === STALE_HEAD && !failure.withdraw)
     return supersedeLease(db, ts, lease, context)
+  const rateLimitedUntil = failure.withdraw ? null : retryAfterIn(ts, context)
+  if (rateLimitedUntil !== null)
+    return waitTask(db, ts, lease, { reason: failure.reason, until: rateLimitedUntil }, context)
   return inTransaction(db, () => failed(db, ts, TASK_FAILED, lease.actor, held(db, lease), failure, context))
 }
 

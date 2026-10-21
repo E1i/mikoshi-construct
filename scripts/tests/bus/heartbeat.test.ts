@@ -14,11 +14,12 @@ import { cardFields } from '../../bus/card-contract.js'
 import { CloseNode } from '../../bus/close-worker.js'
 import { openBus } from '../../bus/db.js'
 import { HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
-import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease, SESSION_HEARTBEAT, TASK_EXPIRED } from '../../bus/lease.js'
+import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../bus/review-worker.js'
 import { reviewSession } from '../../bus/reviewer.js'
 import { UpdateNode } from '../../bus/update-worker.js'
+import { SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
 import { CARD_VARIABLE } from '../../ghosts/session.js'
 import { waitFor } from '../wait-for.js'
 
@@ -121,11 +122,12 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     db.close()
   })
 
-  it('a heartbeat of a session holds no lease of a queue the timer renews', () => {
+  it('a heartbeat naming its lease holds the lease of every queue, a queue the timer renews included', () => {
     const { db } = bus()
     const merge = leaseWhileFree(db, at(0), { queue: 'merge', cardId: 1110, pr: 940, head: HEAD }, 'worker:merge:node-1', 1)!
     beat(db, RENEW_MS, merge)
-    expect(expireLeases(db, at(LEASE_MS + 1))).toEqual([merge.taskKey])
+    expect(expireLeases(db, at(LEASE_MS + 1))).toEqual([])
+    expect(expireLeases(db, at(RENEW_MS + LEASE_MS + 1))).toEqual([merge.taskKey])
     db.close()
   })
 

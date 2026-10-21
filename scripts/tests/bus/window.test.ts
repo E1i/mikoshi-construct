@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { keyOf, queueTask } from '../../bus/queue.js'
 import { COMPLETION_OF, main, USAGE, windowLines, windowOf } from '../../bus/window.js'
+import { NODE_DETECTED, NODE_EQUIVALENCE } from '../../core/events.js'
 
 const TS = '2026-10-17T10:00:00.000Z'
 const roots: string[] = []

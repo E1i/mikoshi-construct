@@ -2,9 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { IncrementalProjection } from '../../bus/watermark.js'
 import { describe, expect, it } from 'vitest'
 import { appendEvent, inTransaction, openBus } from '../../bus/db.js'
-import { REJECTED } from '../../bus/rejection.js'
 import { reject } from '../../bus/stored.js'
 import { markReduced, reduceProjection, watermarkOf } from '../../bus/watermark.js'
+import { REJECTED } from '../../core/events.js'
 
 const AT = '2026-10-20T10:00:00.000Z'
 

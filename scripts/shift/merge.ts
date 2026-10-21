@@ -13,15 +13,14 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { readBodyCard } from '../../src/card/grammar.js'
-import { MERGE_DONE } from '../bus/card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
 import { ghApi } from '../bus/github.js'
-import { POLICY_DENIED } from '../bus/inbox.js'
+import { pathWithoutMatrix } from '../bus/policy.js'
 import { QUEUED } from '../bus/queue.js'
 import { fullReview } from '../bus/review-depth.js'
 import { ReviewWorker, SPAWNS_NO_SESSION } from '../bus/review-worker.js'
-import { UPDATE_DONE } from '../bus/update-done.js'
 import { manualUpdateDone } from '../bus/update-executor.js'
+import { MERGE_DONE, POLICY_DENIED, UPDATE_DONE } from '../core/events.js'
 import { execGh, readGhJson } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { reviewCarry } from '../ghosts/review-carry.js'
@@ -34,8 +33,6 @@ export const PREFIX = '[shift:merge] '
 export const USAGE = 'usage: pnpm shift:merge <pull request number>'
 export const OWNER_MERGES_ON_MAIN = 'origin/main:architecture/owner-merges.md'
 export const GHOSTS_FILES_ON_MAIN = `origin/main:${GHOSTS_FILES}`
-export const MATRIX_COUNT_LINE = /■ \d+ □ \d+ · \d+/
-const MATRIX_REQUIRED_UNDER = ['src/', 'templates/']
 
 export type MergeVerdict
   = | { kind: 'arm' }
@@ -72,10 +69,6 @@ export function mergeVerdict(decision: Decision, files: string[], kinds: OwnerMe
     return { kind: 'owner-decision' }
   const paths = ownerPaths(files, kinds)
   return paths.length === 0 ? { kind: 'arm' } : { kind: 'owner-paths', paths }
-}
-
-export function pathWithoutMatrix(body: string, files: string[]): string | undefined {
-  return MATRIX_COUNT_LINE.test(body) ? undefined : files.find(file => MATRIX_REQUIRED_UNDER.some(root => file.startsWith(root)))
 }
 
 function refuse(message: string): MergeResult {

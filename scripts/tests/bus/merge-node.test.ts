@@ -4,18 +4,16 @@ import type { DetectionMode, Scope } from '../../bus/node.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { CARD_MOVED } from '../../../src/commands/intake/index.js'
-import { DROPPED_LANE, MERGE_DONE, REVIEW_RECORDED } from '../../bus/card-automaton.js'
+import { DROPPED_LANE } from '../../bus/card-automaton.js'
 import { RERUN_VARIABLE, writeCatalog } from '../../bus/check-catalog.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
-import { POLICY_DENIED } from '../../bus/inbox.js'
-import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
-import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { CARD_CLOSED, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
+import { NODE_CURSORS } from '../../bus/node.js'
+import { keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../bus/queue.js'
 import { UpdateNode } from '../../bus/update-worker.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
 import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -75,6 +73,8 @@ interface Moved {
 
 const PR_FILES = ['scripts/bus/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/merge-rerun.md']
 
+const A_MATRIX_COUNT_LINE = '■ 4 □ 1 · 1'
+
 function mainMovedUnder(made: MergeBench, moved: Moved): void {
   writeCatalog(made.db, { tests: CATALOG, mutations: [] })
   made.gitHub.upToDateRequired = moved.upToDateRequired ?? false
@@ -82,7 +82,7 @@ function mainMovedUnder(made: MergeBench, moved: Moved): void {
   made.gitHub.mainFiles = { [MAIN_2]: moved.mainFiles }
   made.gitHub.mainRenamedFrom = moved.mainRenamedFrom ?? {}
   made.gitHub.commitsBeyondTheCompare = moved.commitsBeyondTheCompare ?? 0
-  made.gitHub.open({ number: 970, review: 'success', mergeable_state: moved.mergeable ?? 'behind', files: moved.prFiles ?? PR_FILES, renamedFrom: moved.prRenamedFrom })
+  made.gitHub.open({ number: 970, review: 'success', mergeable_state: moved.mergeable ?? 'behind', files: moved.prFiles ?? PR_FILES, renamedFrom: moved.prRenamedFrom, body: `${cardBody(970)}\n\n${A_MATRIX_COUNT_LINE}` })
   made.tick()
 }
 

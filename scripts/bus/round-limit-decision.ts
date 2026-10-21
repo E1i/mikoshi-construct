@@ -1,10 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { InForceDecision } from './decisions.js'
 import type { CleanUpdate } from './update-done.js'
+import { PR_OBSERVED, PR_OPENED } from '../core/events.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
-import { PR_OPENED } from './card-automaton.js'
 import { isFullSha } from './identifiers.js'
-import { PR_OBSERVED } from './operator-work.js'
 
 const OWNER_PREFIX = `${OWNER_SOURCE.replace(/[[\]]/g, '\\$&')} `
 

@@ -20,6 +20,7 @@ import { NOT_A_BACKFILL } from '../bus/backfill-source.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db.js'
 import { legacyHistory } from '../bus/legacy-history.js'
 import { openDatabase } from '../bus/sqlite.js'
+import { CARD_VERIFIED } from '../core/events.js'
 import { execGh, readGhJson } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { VERIFICATION_WORDS } from '../core/verification.js'
@@ -32,7 +33,6 @@ import { withGhostLines } from './journal.js'
 import { cardStartedLines, prCardOf } from './tasks.js'
 
 export const PREFIX = '[task:close] '
-export const CARD_VERIFIED = 'card.verified'
 export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>] [--shared-by D-<N>]'
 const FLAGS = ['--pr', '--report', '--verification', '--override-report', '--shared-by'] as const
 const PR_NUMBER = /^[1-9]\d*$/

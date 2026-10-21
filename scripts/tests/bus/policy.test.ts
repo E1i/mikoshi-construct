@@ -50,6 +50,19 @@ describe('the merge policy', () => {
     expect(mergePolicy(facts({ shardActive: true }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
   })
 
+  it('an auto card that changes src/ or templates/ with no matrix count line is denied with the shift:merge reason', () => {
+    for (const file of ['src/cli.ts', 'templates/base/AGENTS.md.eta'])
+      expect(mergePolicy(facts({ files: ['scripts/bus/policy.ts', file] }))).toEqual({ kind: 'denied', rule: 'no_matrix_count_line', detail: `changes ${file} and its description has no code matrix count line ■ n □ n · n (architecture/code-matrix.md)` })
+  })
+
+  it('an auto card that changes src/ with a matrix count line is allowed to merge', () => {
+    expect(mergePolicy(facts({ description: `${cardBody(942)}\n\n■ 3 □ 1 · 2`, files: ['src/cli.ts'] }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
+  it('an auto card that changes only scripts/ with no matrix count line is allowed to merge', () => {
+    expect(mergePolicy(facts({ files: ['scripts/bus/policy.ts', 'scripts/shift/merge.ts'] }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
   it('an auto card that changes an owner path is the owner\'s, whatever its card says', () => {
     expect(mergePolicy(facts({ files: ['AGENTS.md'] }))).toMatchObject({ kind: 'denied', rule: 'owner_without_shard', detail: expect.stringContaining('changes AGENTS.md') as unknown })
   })

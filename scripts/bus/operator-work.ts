@@ -1,9 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { MERGE_DONE, REVIEW_RECORDED } from './card-automaton.js'
-import { CHAIN_OBSERVED } from './chain.js'
+import { CARD_ADMITTED, CHAIN_OBSERVED, MERGE_DONE, PR_OBSERVED, REVIEW_RECORDED } from '../core/events.js'
 
-export const CARD_ADMITTED = 'card.admitted'
-export const PR_OBSERVED = 'pr.observed'
 export const OPERATOR_WORK_EVENTS = [REVIEW_RECORDED, MERGE_DONE, CHAIN_OBSERVED, CARD_ADMITTED] as const
 
 const WORK_SINCE = `

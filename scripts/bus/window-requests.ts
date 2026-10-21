@@ -7,19 +7,16 @@ import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { FACTORY_MODE, FACTORY_MODES, isFactoryMode } from './card-bodies.js'
+import { BOARD_ALARM, FACTORY_MODE, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
+import { FACTORY_MODES, isFactoryMode } from './card-bodies.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from './identifiers.js'
-import { POLICY_DENIED } from './inbox.js'
-import { BOARD_ALARM, changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS, TASK_REQUEUED } from './queue.js'
+import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from './queue.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt } from './shards.js'
 import { storedByKey } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
 
-export const WINDOW_REQUEST = 'window.request'
-export const REQUEST_DONE = 'window.request.done'
-export const REQUEST_REFUSED = 'window.request.refused'
 export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'requeue', 'mode'] as const
 export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_UNDER = 186
@@ -71,6 +68,19 @@ const PENDING = `
     AND NOT EXISTS (SELECT 1 FROM events AS answer WHERE answer.dedupe_key = '${WINDOW_REQUEST}:' || request.id || ':answered')
   ORDER BY request.id
 `
+
+const LATEST_OBSERVATION = `
+  SELECT id, head, json_extract(payload, '$.state') AS state FROM events
+  WHERE type = '${PR_OBSERVED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL
+  ORDER BY id DESC LIMIT 1
+`
+
+interface PrAsObserved {
+  card_id: number | null
+  head: string | null
+  state: string | null
+  event_id: number
+}
 
 const LAST_ALARM = `SELECT id FROM events WHERE type = '${BOARD_ALARM}' AND json_extract(payload, '$.task_key') = ? ORDER BY id DESC LIMIT 1`
 
@@ -159,7 +169,7 @@ export class WindowRequests {
     const inForce = decisionsInForceAt(this.db, now)
     if (!inForce.some(decision => decision.decisionId === ALLOW_MERGE_UNDER))
       return { done: false, why: `D-${ALLOW_MERGE_UNDER} is not in force` }
-    const row = this.db.prepare('SELECT card_id, head, state FROM prs WHERE pr = ?').get(pr) as { card_id: number | null, head: string | null, state: string | null } | undefined
+    const row = this.observed(pr)
     if (row?.state !== 'open')
       return { done: false, why: `PR #${pr} is not open` }
     if (row.card_id === null)
@@ -178,6 +188,14 @@ export class WindowRequests {
       return { done: false, why: `D-${decided} already allows the merge of PR #${pr} at ${head}` }
     const written = this.tools.addDecision(['--card', `#${row.card_id}`, `[owner] allow-merge PR #${pr} at ${head} · by D-${ALLOW_MERGE_UNDER}`])
     return { done: written.code === 0, why: written.lines.join('; ') }
+  }
+
+  private observed(pr: number): PrAsObserved | undefined {
+    const row = this.db.prepare('SELECT card_id, head, state, event_id FROM prs WHERE pr = ?').get(pr) as PrAsObserved | undefined
+    const fresh = this.db.prepare(LATEST_OBSERVATION).get(pr) as { id: number, head: string, state: unknown } | undefined
+    if (row === undefined || fresh === undefined || Number(fresh.id) <= Number(row.event_id))
+      return row
+    return { ...row, head: fresh.head, state: typeof fresh.state === 'string' ? fresh.state : row.state }
   }
 
   private requeue(request: number, payload: Record<string, unknown>): Executed {

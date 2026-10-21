@@ -100,7 +100,7 @@ describe('the code a bus process runs', () => {
   it('the shared bus code is in the code of every node, and one node\'s worker is not in another\'s', () => {
     const { answer, close } = workerLaunches(() => [])
     for (const launch of [...busLaunches(() => []), SUPERVISOR_LAUNCH]) {
-      for (const shared of ['scripts/bus/db.ts', 'scripts/bus/queue.ts', 'scripts/bus/reducer.ts'])
+      for (const shared of ['scripts/bus/db.ts', 'scripts/bus/node.ts', 'scripts/bus/lease.ts', 'scripts/bus/queue.ts', 'scripts/bus/reducer.ts'])
         expect(runsOf(launch)).toContain(shared)
     }
     for (const launch of Object.values(workerLaunches(() => [])))

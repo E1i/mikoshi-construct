@@ -7,7 +7,7 @@ import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
 import type { SessionContinuer, StarterPlaces, StarterPorts } from './launch-starter.js'
 import type { Lease } from './lease.js'
-import type { DetectionMode } from './node.js'
+import type { DetectionMode, WaitStep } from './node.js'
 import type { QueuedTask } from './queue.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -18,6 +18,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { commandWords, realIsolationReader } from '../ghosts/isolation.js'
 import { ghostLinesText } from '../ghosts/journal.js'
@@ -28,25 +29,21 @@ import { continuationRefusal, CONTINUE_PROMPT, MAX_RESTARTS } from '../shift/con
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../shift/ladder.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
-import { DROPPED_CARD, GHOST_ROW, MERGE_DONE, PR_OPENED, RUNNING_CARD } from './card-automaton.js'
+import { DROPPED_CARD, RUNNING_CARD } from './card-automaton.js'
 import { CARD_BODIES, cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
-import { CARD_STARTED, CARD_STOPPED } from './inbox.js'
 import { LadderCardStarter } from './ladder-starter.js'
-import { CARD_ADMITTED, CARD_CLOSED } from './launch-candidates.js'
+import { bodyNotFoldedYet } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
-import { TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from './lease.js'
+import { TICK_MS } from './netwatch.js'
 import { Node, prefixOf, runNode } from './node.js'
-import { PR_CLOSED } from './observations.js'
-import { PR_OBSERVED } from './operator-work.js'
 import { promptsDirOf, storedInput } from './prompt-store.js'
-import { launchTasks, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED } from './queue.js'
-import { REDUCED } from './reducer.js'
+import { launchTasks } from './queue.js'
 import { openDatabase } from './sqlite.js'
 import { stampLogOutput } from './stamp.js'
 
@@ -75,7 +72,9 @@ const LEGACY_PATH = 'path'
 
 export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
 
-export type LaunchStep = LaunchOutcome
+export type LaunchStep = LaunchOutcome | WaitStep
+
+export const BODY_NOT_FOLDED = 'body_not_folded'
 
 export interface LaunchNodeParts {
   db: DatabaseSync
@@ -107,14 +106,6 @@ interface RunningStart {
   payload: string
 }
 
-export const CARD_CONTINUED = 'card.continued'
-
-export const CARD_WAITING = 'card.waiting'
-
-export const LADDER_APPROVAL = 'ladder.approval'
-
-export const CARD_SESSION_ENDED = 'card.session.ended'
-
 const SESSION_STARTS = `'${CARD_STARTED}', '${CARD_CONTINUED}'`
 
 function latestStartsOf(state: string, condition = ''): string {
@@ -144,8 +135,6 @@ const CONTINUATIONS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_CON
 const PR_SINCE = `SELECT 1 FROM events WHERE card_id = ? AND id > ? AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') LIMIT 1`
 
 const GHOST_ROW_SINCE = `SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
-
-export const CARD_PULSE = 'card.pulse'
 
 export const PULSE_MINUTES = 5
 
@@ -383,6 +372,8 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   protected handle(lease: Lease): LaunchStep {
+    if (bodyNotFoldedYet(this.db, lease.cardId))
+      return this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.parts.clock().getTime() + TICK_MS).toISOString())
     return this.executor.launch(lease)
   }
 

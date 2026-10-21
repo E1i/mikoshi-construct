@@ -17,22 +17,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COVERING_REASON, runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { CARD_MOVED } from '../../../src/commands/intake/index.js'
-import { CARD_FELL, DROPPED_CARD, DROPPED_LANE, GHOST_ROW, PR_OPENED, STOPPED_CARD } from '../../bus/card-automaton.js'
+import { DROPPED_CARD, DROPPED_LANE, STOPPED_CARD } from '../../bus/card-automaton.js'
 import { cardBodyText } from '../../bus/card-bodies.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
-import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
-import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { gitChangedPaths, ShiftCardStarter } from '../../bus/launch-starter.js'
-import { AMENDED_AFTER_START, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_TEXT_HEADING, CARD_WAITING, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LADDER_APPROVAL, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
-import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
-import { PR_CLOSED } from '../../bus/observations.js'
-import { keyOf, launchTasks, queueTask, TASK_ENQUEUED } from '../../bus/queue.js'
+import { TICK_MS } from '../../bus/netwatch.js'
+import { NODE_CURSORS } from '../../bus/node.js'
+import { keyOf, launchTasks, queueTask } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
+import { CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, NODE_EQUIVALENCE, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { recordGhostLine } from '../../ghosts/journal.js'
@@ -300,6 +298,39 @@ describe('the launch node', () => {
 
     await once(node)
     expect(starter.starts.map(card => card.cardId)).toEqual([970, 971])
+  })
+
+  it('an admitted card whose body is not folded yet waits and counts no failure', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    const text = 'the body of card 975'
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 975, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:975`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-975', text, textSha: textSha(text) }, legacy: false })
+    queueTask(made.db, made.clock.now().toISOString(), { queue: 'launch', cardId: 975, generation: 'admission-975' })
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
+    expect(node.found()).toEqual([])
+
+    await once(node)
+    expect(starter.starts).toEqual([])
+    expect(taskState(made.db, launchKey(975))).toMatchObject({ state: 'queued', failures: 0 })
+    expect(eventsOf(made.db, TASK_FAILED)).toEqual([])
+    expect(eventsOf(made.db, TASK_RELEASED)).toMatchObject([{ task_key: launchKey(975), reason: BODY_NOT_FOLDED }])
+
+    reduce(made.db)
+    made.clock.advance(TICK_MS)
+    await once(node)
+    expect(starter.starts.map(card => card.cardId)).toEqual([975])
+  })
+
+  it('a card waiting on its body does not hold its lane: a later card of that lane is offered meanwhile', () => {
+    const made = bench()
+    const text = 'the body of card 978'
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 978, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:978`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-978', text, textSha: textSha(text) }, legacy: false })
+    admit(made, 979, 'lane-a')
+    const node = nodeOf(made)
+    expect(node.found()).toEqual([launchKey(979)])
+
+    reduce(made.db)
+    expect(node.found()).toEqual([launchKey(978)])
   })
 
   it('the session input is rebuilt from card.started alone with no handoff directory', () => {

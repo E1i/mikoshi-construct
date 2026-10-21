@@ -12,8 +12,9 @@ matrix over its alphabet: the upper triangle, one sign per cell, and a count lin
 pull request that changes only `scripts/`, the matrix is optional. A cell is expanded only on request.
 The shift header (`scripts/shift/header.md`) and the window's pull request procedure
 ([window.md § Pull requests and branches](window.md#pull-requests-and-branches)) name the rule, and
-`pnpm shift:merge` refuses to arm auto-merge on a pull request that changes `src/` or `templates/` and
-whose description has no count line.
+the bus merge policy (`mergePolicy` in `scripts/bus/policy.ts`) denies the merge of a pull request that
+changes `src/` or `templates/` and whose description has no count line, past the review round limit too;
+`pnpm shift:merge` refuses to hand such a pull request to the bus.
 
 ## Alphabet
 
