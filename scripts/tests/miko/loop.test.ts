@@ -12,11 +12,11 @@ import { SILENT_MS } from '../../bus/liveness-sites.js'
 import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { failRaise, leaseRole, observeRoleStop, roleToOwner } from '../../bus/role.js'
-import { WINDOW_MARK, WINDOW_VARIABLE } from '../../bus/window-heartbeat.js'
 import { PROCESS_ENDED, PROCESS_REFUSED, ROLE_RETURNED } from '../../core/events.js'
 import { HANDOFF_FIELDS, STATE_LABELS } from '../../ghosts/handoff-check.js'
 import { parsePs } from '../../miko/exit.js'
 import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
+import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')

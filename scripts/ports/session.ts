@@ -49,6 +49,8 @@ export function sessionModelOf(streamJson: string): string | undefined {
 }
 
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
+export const WINDOW_VARIABLE = 'MIKO_WINDOW'
+export const WINDOW_MARK = '1'
 
 export function witnessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const { FORCE_COLOR: _forced, CLICOLOR_FORCE: _clicolorForced, ...rest } = base
@@ -56,7 +58,7 @@ export function witnessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Proces
 }
 
 export function withoutCard(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const { [CARD_VARIABLE]: _card, ...rest } = base
+  const { [CARD_VARIABLE]: _card, [WINDOW_VARIABLE]: _window, ...rest } = base
   return rest
 }
 

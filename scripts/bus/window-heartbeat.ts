@@ -4,13 +4,11 @@ import os from 'node:os'
 import process from 'node:process'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
 import { projectRoot, sessionGauges } from '../miko/eddies-measure.js'
-import { CARD_VARIABLE } from '../ports/session.js'
+import { CARD_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { appendEvent, openBus } from './db.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
 export const WINDOW_BEAT_MS = 5 * 60_000
-export const WINDOW_VARIABLE = 'MIKO_WINDOW'
-export const WINDOW_MARK = '1'
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SESSION_ID = /^[^:\s]+$/

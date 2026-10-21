@@ -5,10 +5,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { recordWindowHeartbeat, WINDOW_BEAT_MS, WINDOW_MARK, WINDOW_VARIABLE } from '../../bus/window-heartbeat.js'
+import { recordWindowHeartbeat, WINDOW_BEAT_MS } from '../../bus/window-heartbeat.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
 import { lastWindowBeat, LIVE_WATCH, NO_LIVE_WATCH, NOT_A_WINDOW, realTurnWatchDeps, runTurnWatch, watchIsLive } from '../../miko/turn-watch.js'
-import { withoutCard } from '../../ports/session.js'
+import { WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const TURN_WATCH = path.join(REPO_ROOT, 'scripts', 'miko', 'turn-watch.ts')
@@ -117,6 +117,8 @@ describe('the window is the session the loop marked, not any session without a c
 
   it('a reviewer session started withoutCard is not a window and its stop is not blocked', () => {
     expect(hook(withoutCard({ CLAUDE_CODE_SESSION_ID: 's-reviewer', CONSTRUCT_CARD: '1197' }))).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
+    expect(hook(withoutCard({ ...marked, CLAUDE_CODE_SESSION_ID: 's-reviewer', CONSTRUCT_CARD: '1197' }))).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
+    expect(hook(withoutCard({ ...marked, CLAUDE_CODE_SESSION_ID: 's-reviewer' }))).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
   })
 
   it('a session with neither the window marker nor a card is not blocked', () => {
