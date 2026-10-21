@@ -9,13 +9,14 @@ import { RERUN_VARIABLE, writeCatalog } from '../../bus/check-catalog.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
+import { MergeExecutor } from '../../bus/merge-executor.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../bus/queue.js'
 import { UpdateNode } from '../../bus/update-worker.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
 import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
-import { eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
+import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
 
 const benches: MergeBench[] = []
@@ -104,6 +105,21 @@ const MERGED_THE_UPDATED_HEAD = `merge ${sha('d')}`
 async function once(node: MergeNode | UpdateNode): Promise<void> {
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+}
+
+function lawOf(made: MergeBench): Record<string, unknown>[] {
+  return made.db.prepare(`SELECT type, payload FROM events WHERE type IN (?, ?, ?) ORDER BY id`).all(POLICY_ALLOWED, COMMAND_EXECUTED, MERGE_DONE).map(row => ({ type: row.type, ...(JSON.parse(String(row.payload)) as Record<string, unknown>) }))
+}
+
+function executorOf(made: MergeBench, parts: Partial<ConstructorParameters<typeof MergeExecutor>[0]>): MergeExecutor {
+  return new MergeExecutor({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, ...parts })
+}
+
+function ownerDecided(made: MergeBench, pr: number): void {
+  made.gitHub.open({ number: pr, review: 'failure', mergeable_state: 'blocked', blockedBy: 'review' })
+  spendReviewRounds(made, pr, sha('a'))
+  recordDecision(made.db, { ts: made.clock.now().toISOString(), decisionId: 120, text: `[owner] allow-merge PR #${pr} at ${sha('a')} past the round limit`, cards: [] })
+  made.tick()
 }
 
 function mergeKey(pr: number, head = sha('a')): string {
@@ -323,14 +339,83 @@ describe('the merge node', () => {
     await once(node)
     await once(node)
 
-    const law = made.db.prepare(`SELECT type, payload FROM events WHERE type IN (?, ?, ?) ORDER BY id`).all(POLICY_ALLOWED, COMMAND_EXECUTED, MERGE_DONE).map(row => ({ type: row.type, ...(JSON.parse(String(row.payload)) as Record<string, unknown>) }))
     const lease = { task_key: mergeKey(970), lease_gen: 1 }
-    expect(law).toEqual([
+    expect(lawOf(made)).toEqual([
       { type: POLICY_ALLOWED, command: 'merge', rule: 'auto', ...lease },
       { type: COMMAND_EXECUTED, command: 'merge', ok: true, status: 200, ...lease },
       { type: MERGE_DONE, commit: expect.any(String) as unknown, rule: 'auto', ...lease },
     ])
     expect(made.gitHub.puts.map(each => each.endpoint)).toEqual([MERGE_PUT])
+  })
+
+  it('a merge GitHub refuses with 409 is followed by command.executed ok false with its status', () => {
+    const made = liveBench()
+    benches.push(made)
+    made.gitHub.open({ number: 960, review: 'success' })
+    made.tick()
+    made.gitHub.mergeStatus = 409
+    expect(made.merge(made.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'stale_head' } })
+    const lease = { task_key: mergeKey(960), lease_gen: 1 }
+    expect(lawOf(made)).toEqual([
+      { type: POLICY_ALLOWED, command: 'merge', rule: 'auto', ...lease },
+      { type: COMMAND_EXECUTED, command: 'merge', ok: false, status: 409, ...lease },
+    ])
+  })
+
+  it('a merge put that throws is followed by command.executed ok false with the error', () => {
+    const made = liveBench()
+    benches.push(made)
+    made.gitHub.open({ number: 960, review: 'success' })
+    made.tick()
+    const executor = executorOf(made, { put: () => {
+      throw new Error('gh api: connection reset')
+    } })
+    expect(executor.merge(made.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'github_error' } })
+    expect(lawOf(made)).toEqual([
+      { type: POLICY_ALLOWED, command: 'merge', rule: 'auto', task_key: mergeKey(960), lease_gen: 1 },
+      { type: COMMAND_EXECUTED, command: 'merge', ok: false, error: 'gh api: connection reset', task_key: mergeKey(960), lease_gen: 1 },
+    ])
+  })
+
+  it('the status an owner decision publishes is followed by command.executed, ok true before the merge and ok false when it throws', () => {
+    const published = liveBench()
+    benches.push(published)
+    ownerDecided(published, 990)
+    expect(published.merge(published.lease()!)).toMatchObject({ kind: 'merged', rule: 'owner_after_round_limit' })
+    const lease = { task_key: mergeKey(990), lease_gen: 1 }
+    expect(lawOf(published).map(({ type, command, ok }) => [type, command, ok])).toEqual([[POLICY_ALLOWED, 'merge', undefined], [COMMAND_EXECUTED, 'publish', true], [COMMAND_EXECUTED, 'merge', true], [MERGE_DONE, undefined, undefined]])
+
+    const refused = liveBench()
+    benches.push(refused)
+    ownerDecided(refused, 990)
+    const executor = executorOf(refused, { publish: () => {
+      throw new Error('gh api: HTTP 502')
+    } })
+    expect(executor.merge(refused.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'github_error' } })
+    expect(lawOf(refused)).toEqual([
+      { type: POLICY_ALLOWED, command: 'merge', rule: 'owner_after_round_limit', ...lease },
+      { type: COMMAND_EXECUTED, command: 'publish', ok: false, error: 'gh api: HTTP 502', ...lease },
+    ])
+    expect(refused.gitHub.puts).toEqual([])
+  })
+
+  it('policy.allowed is written just before the first write, or before the merge.done of a pull request already merged, and not for a merge the version lock stops', () => {
+    const merged = liveBench()
+    benches.push(merged)
+    merged.gitHub.open({ number: 972, review: 'success' })
+    merged.tick()
+    const lease = merged.lease()!
+    merged.gitHub.close(972, true)
+    expect(merged.merge(lease)).toMatchObject({ kind: 'merged' })
+    expect(lawOf(merged).map(each => each.type)).toEqual([POLICY_ALLOWED, MERGE_DONE])
+
+    const locked = liveBench()
+    benches.push(locked)
+    locked.gitHub.open({ number: 980, review: 'success' })
+    locked.gitHub.open({ number: 981, head: sha('c'), ref: 'changeset-release/main', runs: [{ status: 'completed', conclusion: 'success' }] })
+    locked.tick()
+    expect(locked.merge(locked.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'version_pr_open' } })
+    expect(lawOf(locked)).toEqual([])
   })
 
   it('i3: a cursor reset to 0 after the merge gives no second detection, no second task and no second merge.done', async () => {

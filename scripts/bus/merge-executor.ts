@@ -110,13 +110,15 @@ export class MergeExecutor {
       const verdict = decision === null ? policy : underOwnerDecision(policy, decision, lease.pr!, lease.head!)
       if (verdict.kind === 'denied')
         return this.denied(lease, { kind: 'authority', rule: verdict.rule, detail: verdict.detail })
-      this.allowed(lease, verdict.rule)
       const spent = policy.rule === 'owner_under_shard' ? checked.shard : null
-      if (checked.mergedCommit !== null)
+      if (checked.mergedCommit !== null) {
+        this.allowed(lease, verdict.rule)
         return this.finished(lease, checked.mergedCommit, verdict.rule, spent)
+      }
       const locked = this.versionLock(lease)
       if (locked !== null)
         return this.denied(lease, locked)
+      this.allowed(lease, verdict.rule)
       if (decision !== null) {
         const unready = this.reviewStatusOfTheDecision(lease, decision) ?? this.cleanAfterTheStatus(lease)
         if (unready !== null)

@@ -36,6 +36,8 @@ describe('the GitHub API is called through one port, and every other caller is r
     const workflow = (run: string): string => YAML.stringify({ name: 'w', on: { push: null }, jobs: { j: { 'runs-on': 'ubuntu-24.04', 'steps': [{ uses: 'actions/checkout@v7' }, { run }] } } })
     expect(ghCallers(new Map([['.github/workflows/x.yml', workflow('count=$(gh api "repos/$REPOSITORY/actions/runs/1/artifacts" --jq .total_count)\n')]]))).toEqual(['.github/workflows/x.yml'])
     expect(ghCallers(new Map([['.github/workflows/x.yml', workflow('node -e "fetch(\'https://api.github.com/repos/o/r\')"')]]))).toEqual(['.github/workflows/x.yml'])
+    for (const quoted of ['sh -c "gh api repos/o/r/pulls"\n', 'bash -c \'gh pr edit 1 --body x\'\n'])
+      expect(ghCallers(new Map([['.github/workflows/x.yml', workflow(quoted)]])), quoted).toEqual(['.github/workflows/x.yml'])
     expect(ghCallers(new Map([['.github/workflows/x.yml', workflow('pnpm run release:verify\ngit push origin gh-pages\n')]]))).toEqual([])
   })
 
