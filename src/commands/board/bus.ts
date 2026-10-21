@@ -1,22 +1,16 @@
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
+import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
 
-export const WINDOW_SUBAGENT_EVENT = 'window.subagent'
-export const SESSION_HEARTBEAT_EVENT = 'session.heartbeat'
-export const CARD_VERIFIED_EVENT = 'card.verified'
-const CARD_STOPPED_EVENT = 'card.stopped'
-export const SESSION_DEATH_KEY = `${CARD_STOPPED_EVENT}:session-end:`
-const CARD_FELL_EVENT = 'card.fell'
-export const CHECKS_MATRIX_EVENT = 'checks.matrix'
+export const SESSION_DEATH_KEY = `${CARD_STOPPED}:session-end:`
 export const SHORT_SHA = 7
 export const SUBAGENT_SHOWN_HOURS = 12
 export const SESSION_SHOWN_MINUTES = 20
 export const FLOW_STATES = [['queued'], ['running', 'changes'], ['in_review'], ['ready']]
 export const LIVE_STATES = FLOW_STATES.flat()
-export const BUS_PULSE_EVENT = 'netwatch.tick'
 const HOUR_MS = 3_600_000
 const MINUTE_MS = 60_000
 
@@ -149,7 +143,7 @@ function windowRoles(db: BusDb): BusService[] {
   return rows.map(row => ({ role: 'window', task: row.role, tree: null, step: `${row.state} · ${row.status}` }))
 }
 
-const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT_EVENT, CARD_FELL_EVENT, CARD_STOPPED_EVENT, CARD_VERIFIED_EVENT]
+const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_FELL, CARD_STOPPED, CARD_VERIFIED]
 
 interface BoardEvents {
   of: (type: string) => EventRow[]
@@ -197,7 +191,7 @@ function minutesAgo(ts: string, now: Date): number {
 
 function sessionServices(events: BoardEvents, now: Date): BusService[] {
   const latest = new Map<string, BusService>()
-  for (const row of events.of(SESSION_HEARTBEAT_EVENT)) {
+  for (const row of events.of(SESSION_HEARTBEAT)) {
     if (row.ts === null || now.getTime() - Date.parse(row.ts) > SESSION_SHOWN_MINUTES * MINUTE_MS)
       continue
     const payload = payloadOf(row.payload)
@@ -209,14 +203,14 @@ function sessionServices(events: BoardEvents, now: Date): BusService[] {
 }
 
 function isFailure(row: EventRow): boolean {
-  return row.type === CARD_FELL_EVENT || (row.dedupe_key ?? '').startsWith(SESSION_DEATH_KEY)
+  return row.type === CARD_FELL || (row.dedupe_key ?? '').startsWith(SESSION_DEATH_KEY)
 }
 
 function lastFailure(events: BoardEvents): string | null {
-  const row = [...events.of(CARD_FELL_EVENT), ...events.of(CARD_STOPPED_EVENT)].filter(isFailure).sort((a, b) => b.id - a.id)[0]
+  const row = [...events.of(CARD_FELL), ...events.of(CARD_STOPPED)].filter(isFailure).sort((a, b) => b.id - a.id)[0]
   if (row === undefined)
     return null
-  const what = row.type === CARD_FELL_EVENT ? 'fell' : 'lost its session'
+  const what = row.type === CARD_FELL ? 'fell' : 'lost its session'
   return `card #${row.card_id ?? '?'} ${what}${row.ts === null ? '' : ` at ${row.ts}`}`
 }
 
@@ -226,12 +220,12 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
     FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id LEFT JOIN events e ON e.id = c.event_id
     ORDER BY c.card_id
   `).all() as unknown as CardRow[]
-  const closed = new Map(events.of(CARD_VERIFIED_EVENT).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
+  const closed = new Map(events.of(CARD_VERIFIED).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
   return rows.map(row => ({ id: row.id, state: row.state, lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
 }
 
 function lastPulse(db: BusDb): string | null {
-  const row = db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(BUS_PULSE_EVENT) as { ts: string | null } | undefined
+  const row = db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(BUS_PULSE) as { ts: string | null } | undefined
   return row?.ts ?? null
 }
 

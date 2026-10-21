@@ -2,8 +2,8 @@ import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { GHOST_ROW } from '../../bus/card-automaton.js'
 import { openBus } from '../../bus/db.js'
+import { GHOST_ROW } from '../../core/events.js'
 import { freeRow, ghostRowSessionId, ghostRowState, ghostRowSupervisor, installFailedOutcome, installUnspawnableOutcome, rowTimestamp, sessionOutcome, sessionUnspawnableOutcome, upsertGhostRow, writeGhostRow, writingRow } from '../../ghosts/status.js'
 
 const STATUS = `# Ghosts — window status

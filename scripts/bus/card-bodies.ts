@@ -4,10 +4,9 @@ import type { StoredEvent } from './stored.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { isLaneName, laneName, laneNumber } from '../../src/commands/intake/admit.js'
-import { CARD_ADMITTED } from '../../src/commands/intake/index.js'
+import { CARD_ADMITTED, FACTORY_MODE } from '../core/events.js'
 
 export const CARD_BODIES = 'card_bodies'
-export const FACTORY_MODE = 'factory.mode'
 export const FACTORY_MODES = ['window', 'parallel'] as const
 export const DEFAULT_MODE: FactoryMode = 'window'
 export const WINDOW_LANE = 'lane-window'

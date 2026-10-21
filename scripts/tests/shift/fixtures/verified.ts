@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { BUSY_TIMEOUT_MS } from '../../../bus/db.js'
 import { openDatabase } from '../../../bus/sqlite.js'
-import { CARD_VERIFIED } from '../../../ghosts/task-close.js'
+import { CARD_VERIFIED } from '../../../core/events.js'
 
 export function verifiedClosings(bus: string): Record<string, unknown>[] {
   if (!existsSync(bus))

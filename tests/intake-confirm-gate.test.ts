@@ -3,11 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { parseParkingFile } from '../src/card/parking.js'
 import { textSha } from '../src/card/text-sha.js'
 import { ADMIT_SOURCE, AMEND_SOURCE, runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
-import { CARD_ADMITTED, INTAKE_EXIT, printIntake, runIntake } from '../src/commands/intake/index.js'
+import { INTAKE_EXIT, printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 

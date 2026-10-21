@@ -5,7 +5,6 @@ import path from 'node:path'
 import { runMain } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../../../src/commands/intake/index.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
 import { parkingLane } from '../../bus/admissions.js'
@@ -14,6 +13,7 @@ import { BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { importJournalFile } from '../../bus/import.js'
 import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
 import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../../core/events.js'
 
 const NOW = new Date('2026-10-12T16:00:00.000Z')
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')

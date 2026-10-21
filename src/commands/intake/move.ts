@@ -2,11 +2,10 @@ import type { Ui } from '../../ui/console.js'
 import type { CardEventPort } from './index.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync } from 'node:fs'
 import path from 'node:path'
+import { CARD_DROPPED, CARD_MOVED, INTAKE_MOVE_EVENT, TERMINAL_LANES } from '../../../scripts/core/events.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { bodySha } from './confirm.js'
-import { CARD_DROPPED, CARD_MOVED, INTAKE_EXIT, recordIntake, TERMINAL_LANES } from './index.js'
-
-export const INTAKE_MOVE_EVENT = 'intake-move'
+import { INTAKE_EXIT, recordIntake } from './index.js'
 
 const CARD_NUMBER = /^#?(\d+)$/
 

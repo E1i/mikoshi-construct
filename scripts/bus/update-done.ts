@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-
-export const UPDATE_DONE = 'update.done'
+import { UPDATE_DONE } from '../core/events.js'
 
 export interface CleanUpdate {
   from: string

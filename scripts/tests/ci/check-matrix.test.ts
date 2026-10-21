@@ -8,11 +8,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { busReaderAt, CHECKS_MATRIX_EVENT } from '../../../src/commands/board/bus.js'
+import { busReaderAt } from '../../../src/commands/board/bus.js'
 import { buildCatalog, writeCatalog } from '../../bus/check-catalog.js'
 import { appendMatrix, buildMatrix, matrixArguments, matrixSummary, runMatrix, runMutation } from '../../bus/check-matrix.js'
 import { openBus } from '../../bus/db.js'
 import { openDatabase } from '../../bus/sqlite.js'
+import { CHECKS_MATRIX_EVENT } from '../../core/events.js'
 
 const MATRIX_MODULE = path.resolve(import.meta.dirname, '../../bus/check-matrix.ts')
 

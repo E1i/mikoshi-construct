@@ -7,7 +7,7 @@ import { appendEvent, openBus } from '../../bus/db.js'
 import { decisionsIntake } from '../../bus/decisions-import.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { REJECTED } from '../../bus/rejection.js'
+import { REJECTED } from '../../core/events.js'
 import { runDecisionsAdd } from '../../decisions/add.js'
 
 const FILE = '/d/owner-decisions.md'

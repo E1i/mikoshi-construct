@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { CARD_ADMITTED } from '../../../src/commands/intake/index.js'
 import { cardBodyText, WINDOW_LANE } from '../../bus/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { busCardAdmissions, busIntakePorts, intakeAdmissions } from '../../bus/intake.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { replayDifferences } from '../../bus/report.js'
+import { CARD_ADMITTED } from '../../core/events.js'
 
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
 const CARD = '#90 body-card [implement/netwatch/S/cheap/auto] · depends — · blocks —'

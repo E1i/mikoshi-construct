@@ -1,7 +1,7 @@
 import type { BusCardStates } from '../../card/closed.js'
+import { INTAKE_EVENT } from '../../../scripts/core/events.js'
 import { writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { TASK_FILE } from '../../card/task-file.js'
-import { INTAKE_EVENT } from './confirm.js'
 
 const TAKEN_TOKEN = /^#?(\d+)$/
 

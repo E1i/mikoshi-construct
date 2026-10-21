@@ -1,6 +1,6 @@
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { TASK_ENQUEUED } from '../../bus/queue.js'
+import { TASK_ENQUEUED } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'

@@ -9,13 +9,14 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
 import { RUNNING_CARD } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
-import { RESTART_MISSED, RESTARTED } from './inbox.js'
-import { expireLeasesHeldBy, LEASE_MS, leasesHeldBy, openDrain, TASK_EXPIRED } from './lease.js'
+import { RESTART_MISSED } from './inbox.js'
+import { expireLeasesHeldBy, LEASE_MS, leasesHeldBy, openDrain } from './lease.js'
 import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { CHECK_MS } from './netwatch.js'
@@ -406,7 +407,6 @@ export const KEEP_MAX_MS = 10 * 60_000
 export const FAILURES_REPORTED = 3
 export const SUPERVISOR_JOURNAL = 'supervisor.jsonl'
 export const REDUCE_SCRIPT = 'bus:reduce'
-export const WORKER_DOWN = 'worker.down'
 
 export interface WorkerDown {
   worker: string
@@ -542,7 +542,6 @@ export class WorkerKeeper {
   }
 }
 
-export const PROCESS_JUDGED = 'process.judged'
 export const SUPERVISOR_PROCESS = 'supervisor'
 export const JUDGE_ACTOR = 'worker:supervisor:judge'
 export const SUPERVISOR_BEAT_MS = 30_000

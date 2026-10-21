@@ -1,16 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
+import { BOARD_ALARM, CARD_STOPPED, LEASES_DRAINING, RESTARTED, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED } from '../core/events.js'
 import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
-import { CARD_STOPPED, RESTARTED } from './inbox.js'
-import { appendedAndReduced, BOARD_ALARM, FAILURES_TO_STOP, generationField, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WITHDRAWN } from './queue.js'
+import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
 import { reject } from './stored.js'
 
-export { HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED } from './queue.js'
+export { HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from './queue.js'
 
-export const LEASES_DRAINING = 'leases.draining'
 export const RENEW_MS = 10 * 60_000
 export const LEASE_EXPIRED = 'lease_expired'
 

@@ -5,7 +5,7 @@ import { parseCard } from '../../src/card/grammar.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
-export { BUS_DB_VARIABLE, defaultBusPath } from '../../src/commands/intake/bus-path.js'
+export { BUS_DB_VARIABLE, defaultBusPath } from '../core/bus-path.js'
 export const BUSY_TIMEOUT_MS = 30_000
 export const CARD_BLOCKS = 'card_blocks'
 
