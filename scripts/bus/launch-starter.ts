@@ -1,6 +1,6 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { PromptPlaces } from '../shift/prompt.js'
-import type { CardStart, CardStarter, QueuedCard, StartedCard } from './launch-executor.js'
+import type { CardStart, CardStarter, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync } from 'node:fs'
 import path from 'node:path'
@@ -8,7 +8,7 @@ import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { continuationBody } from '../shift/prompt.js'
 import { messageOf } from './errors.js'
-import { technical } from './launch-executor.js'
+import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 
 export interface DetachedSpawn {
   command: string
@@ -29,6 +29,8 @@ export interface StarterPorts {
   uuid: () => string
   envOf: (cardId: number) => NodeJS.ProcessEnv
   prompt: (task: ShiftTask, places: { worktree: string, report: string }) => string
+  changedPaths: (worktree: string) => string[]
+  readReport: (file: string) => string | null
 }
 
 export interface StarterPlaces {
@@ -82,6 +84,8 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
   constructor(private readonly places: StarterPlaces, private readonly ports: StarterPorts) {}
 
   start(card: QueuedCard): CardStart {
+    if (card.continueIn !== undefined)
+      return this.continueIn(card, card.continueIn)
     return this.session(card, (task, laneDir) => {
       const worktree = this.ports.cut(task, laneDir)
       return { worktree, base: this.ports.base(worktree), body: each => each.body }
@@ -89,7 +93,32 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
   }
 
   continueFrom(card: QueuedCard, from: StartedCard): CardStart {
-    return this.session(card, () => ({ worktree: from.worktree, base: from.base, body: continuationBody }))
+    return this.continueIn(card, { worktree: from.worktree, base: from.base })
+  }
+
+  private continueIn(card: QueuedCard, held: HeldTree): CardStart {
+    const refusal = this.unnamedChanges(card.cardId, held.worktree)
+    if (refusal !== null)
+      return refusal
+    return this.session(card, () => ({ worktree: held.worktree, base: held.base ?? this.ports.base(held.worktree), body: continuationBody }))
+  }
+
+  private unnamedChanges(cardId: number, worktree: string): CardStart | null {
+    try {
+      const report = this.ports.readReport(this.reportOf(cardId)) ?? ''
+      const unnamed = this.ports.changedPaths(worktree).filter(changed => !report.includes(changed))
+      if (unnamed.length === 0)
+        return null
+      const detail = `card #${cardId} is not continued in ${worktree}: its handoff or report names none of the changed paths ${unnamed.join(', ')}`
+      return { kind: 'refused', denial: { ...technical(HELD_TREE_CHANGED, detail), paths: unnamed } }
+    }
+    catch (error) {
+      return { kind: 'refused', denial: technical('start_failed', messageOf(error)) }
+    }
+  }
+
+  private reportOf(cardId: number): string {
+    return path.join(this.places.launchDir, `report-${cardId}.md`)
   }
 
   private session(card: QueuedCard, treeOf: (task: ShiftTask, laneDir: string) => SessionTree): CardStart {
@@ -105,7 +134,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     try {
       const { worktree, base, body } = treeOf(task, laneDir)
       const session = this.ports.uuid()
-      const report = path.join(this.places.launchDir, `report-${card.cardId}.md`)
+      const report = this.reportOf(card.cardId)
       const prompt = this.ports.prompt({ ...task, body: body(task, { worktree, report }) }, { worktree, report })
       const pid = this.ports.spawnDetached({
         command: 'sh',
@@ -160,6 +189,20 @@ export function spawnDetached(run: DetachedSpawn): number {
   finally {
     closeSync(fd)
   }
+}
+
+export function gitChangedPaths(worktree: string): string[] {
+  const entries = execFileSync('git', ['-C', worktree, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], { encoding: 'utf8' }).split('\0')
+  const paths: string[] = []
+  for (let at = 0; at < entries.length; at++) {
+    const entry = entries[at]!
+    if (entry.length < 4)
+      continue
+    paths.push(entry.slice(3))
+    if (/[RC]/.test(entry.slice(0, 2)))
+      paths.push(entries[++at] ?? '')
+  }
+  return paths.filter(each => each !== '')
 }
 
 export function psPgid(pid: number): number {
