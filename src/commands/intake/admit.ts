@@ -2,7 +2,7 @@ import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
 import type { Ui } from '../../ui/console.js'
-import type { CheckedCard, ShellSyntax } from './check.js'
+import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
@@ -136,7 +136,6 @@ export interface AdmitOptions {
   events?: CardEventPort
   cardStates?: CardStatesPort
   admissions?: CardAdmissionsPort
-  shellSyntax?: ShellSyntax
 }
 
 export type AdmitResult
@@ -332,7 +331,6 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
-    ...(options.shellSyntax === undefined ? {} : { shellSyntax: options.shellSyntax }),
   }) as [CheckedCard]
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {

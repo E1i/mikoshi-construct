@@ -78,8 +78,6 @@ export interface CheckedCard extends DraftCard {
   covering: string[]
 }
 
-export type ShellSyntax = (command: string) => string | null
-
 export interface NamedCommand { criterion: string, command: string }
 
 export function movingRefRefusal(witnesses: readonly NamedCommand[]): string | null {
@@ -88,7 +86,6 @@ export function movingRefRefusal(witnesses: readonly NamedCommand[]): string | n
 }
 
 export interface CheckFacts {
-  shellSyntax?: ShellSyntax
   taken: ReadonlySet<number>
   parked: ReadonlySet<number>
   done: ReadonlySet<string>
@@ -349,27 +346,23 @@ function referencesChecked(field: 'depends' | 'blocks', references: readonly str
   return linked
 }
 
-function commandsUnclear(witness: string, shellSyntax: ShellSyntax | undefined): UnclearField[] {
+function movingRefsUnclear(witness: string): UnclearField[] {
   return [...witness.matchAll(BACKTICKED)].flatMap(([, command]) => {
     const moving = movingRefRefusal([{ criterion: witness.trim(), command: command! }])
-    const syntax = shellSyntax?.(command!) ?? null
-    return [
-      ...(moving === null ? [] : [{ field: 'witnesses', reason: moving }]),
-      ...(syntax === null ? [] : [{ field: 'witnesses', reason: `'${command!}' fails bash -n: ${syntax}` }]),
-    ]
+    return moving === null ? [] : [{ field: 'witnesses', reason: moving }]
   })
 }
 
-function witnessesUnclear(card: DraftCard, facts: CheckFacts): UnclearField[] {
+function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): UnclearField[] {
   return card.witnesses.flatMap((witness) => {
     const words = [...witness.matchAll(BACKTICKED)].flatMap(match => commandWord(match[1]!) || [])
     if (words.length === 0)
       return [{ field: 'witnesses', reason: `'${witness.trim()}' names no command; a witness is run by a command` }]
     return [
       ...[...new Set(words)]
-        .filter(word => !facts.repository.commandResolves(word))
+        .filter(word => !repository.commandResolves(word))
         .map(word => ({ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` })),
-      ...commandsUnclear(witness, facts.shellSyntax),
+      ...movingRefsUnclear(witness),
     ]
   })
 }
@@ -417,7 +410,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
       ...touched.unclear,
       ...depends.unclear,
       ...blocks.unclear,
-      ...witnessesUnclear(card, facts),
+      ...witnessesUnclear(card, facts.repository),
     ],
     corrections: byFieldOrder([
       ...numberCorrection(card, assigned, facts),

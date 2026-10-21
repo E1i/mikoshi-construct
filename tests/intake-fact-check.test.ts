@@ -96,16 +96,6 @@ function printed(result: IntakeResult): string {
   return lines.join('\n')
 }
 
-function bashSyntax(command: string): string | null {
-  try {
-    execFileSync('bash', ['-n', '-c', command], { stdio: ['ignore', 'pipe', 'pipe'] })
-    return null
-  }
-  catch (error) {
-    return String((error as { stderr?: unknown }).stderr ?? error).trim().split('\n')[0] ?? 'bash -n failed'
-  }
-}
-
 function draftCard(fields: Partial<DraftCard> = {}): DraftCard {
   return { name: 'check-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['scripts/a.ts'], task: TASK, witnesses: ['`true` passes'], depends: [], blocks: [], creates: [], unclear: [], ...fields }
 }
@@ -208,12 +198,11 @@ describe('intake fact check', () => {
     expect(checked!.witnesses).toEqual(['it works', '`nosuchtool --flag` fails', '`pnpm run quality` passes', '`   ` nothing'])
   })
 
-  it('a witness that fails bash -n or names origin/main is refused at intake', () => {
+  it('a witness that names origin/main is refused at intake', () => {
     const repo = repositoryFacts({ commandResolves: word => word === 'test' || word === 'git' })
-    const witnesses = ['`test -f a.txt` exits 0', '`test -f "a.txt` exits 0', '`git diff --quiet origin/main` exits 0']
-    const [checked] = checkDraft([draftCard({ witnesses })], [2], facts({ repository: repo, shellSyntax: bashSyntax }))
+    const witnesses = ['`test -f a.txt` exits 0', '`git diff --quiet origin/main` exits 0']
+    const [checked] = checkDraft([draftCard({ witnesses })], [2], facts({ repository: repo }))
     expect(checked!.unclear.map(entry => entry.reason)).toEqual([
-      expect.stringMatching(/^'test -f "a\.txt' fails bash -n: .+/),
       'witness "`git diff --quiet origin/main` exits 0" names origin/main, which moves while the run goes; compare with HEAD, which the launcher pins at the base',
     ])
   })
