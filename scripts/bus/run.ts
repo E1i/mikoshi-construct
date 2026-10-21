@@ -15,7 +15,7 @@ import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { decisionsIntake } from './decisions-import.js'
 import { ghApi } from './github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from './netwatch.js'
-import { ghApiPost, setStepStatuses, STATUS_CONTEXT, statusFailureLine, statusLine } from './pr-status.js'
+import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from './pr-status.js'
 import { deriveQueues } from './queue.js'
 import { reduce, REDUCED } from './reducer.js'
 import { stampLogOutput } from './stamp.js'
@@ -78,6 +78,8 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
       console.log(`${PREFIX}${WINDOW_REQUEST} ${outcome.request} ${outcome.kind}: ${outcome.detail}`)
   }
   const statuses = (): void => {
+    if (statusesSwitchedOff(busPath))
+      return
     try {
       for (const status of setStepStatuses(db, post, clock))
         console.log(statusLine(status))
@@ -93,7 +95,7 @@ async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   const { busTick, boardFile } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
-  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues, the ${STATUS_CONTEXT} status check on each PR head and ${boardFile} every ${TICK_MS / 1000} s; no workers`)
+  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues, the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it, and ${boardFile} every ${TICK_MS / 1000} s; no workers`)
   try {
     for (;;) {
       const tick = busTick.run()

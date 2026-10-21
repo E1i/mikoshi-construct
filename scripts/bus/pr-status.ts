@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GhResponse } from './github.js'
 import { spawnSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { MERGE_DONE, PR_OPENED, REVIEW_RECORDED } from './card-automaton.js'
@@ -15,6 +16,7 @@ import { lastEventId } from './operator-work.js'
 export const PREFIX = '[bus:pr-status] '
 export const STATUS_CURSOR = 'pr-status'
 export const STATUS_BATCH = 20
+export const STATUS_OFF_FILE = 'pr-status.off'
 export const PR_STATUS_SET = 'pr.status.set'
 export const PR_STATUS_REFUSED = 'pr.status.refused'
 export const STATUS_CONTEXT = 'mikoshi'
@@ -145,6 +147,10 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
     set.push(refused ? { ...status, refused: response.status } : status)
   }
   return set
+}
+
+export function statusesSwitchedOff(busPath: string): boolean {
+  return existsSync(path.join(path.dirname(busPath), STATUS_OFF_FILE))
 }
 
 export class StatusRefusedForNow extends Error {}

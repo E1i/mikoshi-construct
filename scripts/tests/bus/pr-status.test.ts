@@ -1,12 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GitHubPost } from '../../bus/pr-status.js'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { TICK_MS } from '../../bus/netwatch.js'
-import { PR_STATUS_REFUSED, PR_STATUS_SET, PREFIX, setStepStatuses, STATUS_BATCH, STATUS_CONTEXT } from '../../bus/pr-status.js'
+import { PR_STATUS_REFUSED, PR_STATUS_SET, PREFIX, setStepStatuses, STATUS_BATCH, STATUS_CONTEXT, STATUS_OFF_FILE } from '../../bus/pr-status.js'
 import { composeBusTick } from '../../bus/run.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { Clock, FakeGitHub } from './github-fake.js'
@@ -153,6 +153,24 @@ describe('the PR status check the bus sets', () => {
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(calls).toHaveLength(2 * STATUS_BATCH)
     expect(count(db, PR_STATUS_SET)).toBe(2 * STATUS_BATCH)
+    db.close()
+    vi.unstubAllEnvs()
+  })
+
+  it('with the status node switched off a tick makes no status call, and switched back on the next tick posts', () => {
+    const { db, busPath, root, clock } = tickedBus()
+    const { post, calls } = recorder()
+    const { busTick } = composeBusTick(db, busPath, openOn(HEAD).client, post, clock.now, root)
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    writeFileSync(path.join(path.dirname(busPath), STATUS_OFF_FILE), '')
+    step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
+    clock.advance(TICK_MS)
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    expect(calls).toEqual([])
+    rmSync(path.join(path.dirname(busPath), STATUS_OFF_FILE))
+    clock.advance(TICK_MS)
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    expect(calls.map(([endpoint]) => endpoint)).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`])
     db.close()
     vi.unstubAllEnvs()
   })
