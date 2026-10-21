@@ -361,12 +361,12 @@ describe('the launch queue', () => {
     bench.close()
   })
 
-  function stoppedInTree(bench: ReturnType<typeof launchBench>, cardId: number, tree: string): void {
+  function stoppedInTree(bench: ReturnType<typeof launchBench>, cardId: number, tree: string, contour = 'cheap'): void {
     const ts = bench.clock.now().toISOString()
-    bench.admit(cardId, 'lane-a')
+    bench.admit(cardId, 'lane-a', [], contour)
     appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: 'earlier', worktree: tree }, legacy: false })
     appendEvent(bench.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: 'fault', detail: 'session-end' }, legacy: false })
-    appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:again`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `again-${cardId}` }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:again`, payload: { lane: 'lane-a', decision: 'auto', contour, depends: [], admission: `again-${cardId}` }, legacy: false })
   }
 
   it('a card with a live tree mc-N does not join the launch queue', () => {
@@ -385,7 +385,7 @@ describe('the launch queue', () => {
     bench.close()
   })
 
-  it('a stopped cheap card with a tree and no live heartbeat is continued by launch in the same tree', () => {
+  it('a stopped cheap card with a tree and no live heartbeat becomes a launch candidate naming that tree', () => {
     const bench = launchBench()
     const tree = path.join(tempRoot(), 'mc-1160')
     mkdirSync(tree)
@@ -398,6 +398,16 @@ describe('the launch queue', () => {
 
     bench.tick()
     expect(taskState(bench.db, launch(1160, 'again-1160'))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  it('a stopped ladder card with a standing tree is launched afresh, not continued in that tree', () => {
+    const bench = launchBench()
+    const tree = path.join(tempRoot(), 'mc-1161')
+    mkdirSync(tree)
+    stoppedInTree(bench, 1161, tree, 'ladder')
+
+    expect(launchCandidates(bench.db, existsSync, () => Date.parse('2026-10-01T00:00:00.000Z'))).toEqual([{ cardId: 1161, generation: 'again-1161' }])
     bench.close()
   })
 
