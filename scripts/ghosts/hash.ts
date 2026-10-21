@@ -5,7 +5,7 @@ import type { Preflight } from './preflight.js'
 import type { Sketch } from './sketch.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -16,7 +16,7 @@ import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/sli
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { approvalEvent, approvalSha256, approvedHashPath, canonicalImplementText, cardNumberOf, carriedReason, contourSuggestion, fallsOf, journalEvents, MORSE, morseCarryOf, revocationOf, suggestionEvent } from './approval.js'
 import { parseExpect } from './expect.js'
-import { appendJournalEvent } from './journal.js'
+import { recordGhostLine } from './journal.js'
 import { pinnedBaseAtCwd, runPreflight, witnessesDirOf } from './preflight.js'
 import { parseSketch } from './sketch.js'
 
@@ -81,8 +81,9 @@ interface PreflightKey { sha256: string, base: string, witnesses: string }
 
 export interface RememberedPreflight {
   preflight: Preflight
-  journaled: () => Promise<void>
 }
+
+const WRITER = 'hash'
 
 export function witnessFilesDigest(witnessesDir: string): string {
   if (!existsSync(witnessesDir))
@@ -102,19 +103,16 @@ function passedOn(events: JournalEvent[], key: PreflightKey): boolean {
 }
 
 export function rememberedPreflight(preflight: Preflight, memory: PreflightMemory): RememberedPreflight {
-  let journaled: Promise<void> = Promise.resolve()
   return {
     preflight: (input) => {
       const key: PreflightKey = { sha256: approvalSha256(input.text), base: memory.base(), witnesses: witnessFilesDigest(witnessesDirOf(input.briefPath)) }
       if (passedOn(journalEvents(memory.journalPath), key)) {
-        memory.log(`preflight: base ${key.base.slice(0, 7)}; green on this text, base and witness files in ${memory.journalPath}, not run again`)
+        memory.log(`preflight: base ${key.base.slice(0, 7)}; green on this text, base and witness files on the bus, not run again`)
         return
       }
       preflight({ ...input, base: key.base })
-      mkdirSync(path.dirname(memory.journalPath), { recursive: true })
-      journaled = appendJournalEvent(memory.journalPath, { event: PREFLIGHT_EVENT, ...key, ok: true, ts: memory.now().toISOString() })
+      recordGhostLine(WRITER, { event: PREFLIGHT_EVENT, ...key, ok: true, ts: memory.now().toISOString() })
     },
-    journaled: () => journaled,
   }
 }
 
@@ -256,12 +254,12 @@ export async function morseApprove(briefPath: string, options: MorseOptions): Pr
   })
   const suggestion = contourSuggestion(parked.card, forecast)
   try {
-    await appendJournalEvent(journalPath, event)
+    recordGhostLine(WRITER, event)
     if (suggestion !== undefined)
-      await appendJournalEvent(journalPath, suggestionEvent(card, suggestion, now.toISOString()))
+      recordGhostLine(WRITER, suggestionEvent(card, suggestion, now.toISOString()))
   }
   catch (error) {
-    throw new Error(`the journal ${journalPath} cannot be written (${error instanceof Error ? error.message : String(error)}), so no approval file was written`)
+    throw new Error(`the bus cannot be written (${error instanceof Error ? error.message : String(error)}), so no approval file was written`)
   }
   writeFileSync(approvedHashPath(briefPath), `${line}\n`)
   return suggestion === undefined ? { line } : { line, suggestion }
@@ -335,9 +333,6 @@ async function main(): Promise<void> {
   catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1
-  }
-  finally {
-    await remembered.journaled()
   }
 }
 

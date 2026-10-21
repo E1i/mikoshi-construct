@@ -3,8 +3,22 @@ import type { ParkedTask } from '../../src/card/parking.js'
 import type { StoredEvent } from './stored.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
+import { isLaneName, laneName, laneNumber } from '../../src/commands/intake/admit.js'
+import { CARD_ADMITTED } from '../../src/commands/intake/index.js'
 
 export const CARD_BODIES = 'card_bodies'
+export const FACTORY_MODE = 'factory.mode'
+export const FACTORY_MODES = ['window', 'parallel'] as const
+export const DEFAULT_MODE: FactoryMode = 'window'
+export const WINDOW_LANE = 'lane-window'
+
+export type FactoryMode = typeof FACTORY_MODES[number]
+
+const MODE_IN_FORCE = `SELECT json_extract(payload, '$.mode') AS mode FROM events WHERE legacy = 0 AND type = '${FACTORY_MODE}' ORDER BY id DESC LIMIT 1`
+
+const LANE_OF_CARD = `SELECT json_extract(payload, '$.lane') AS lane FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
+
+const ADMITTED_LANES = `SELECT DISTINCT json_extract(payload, '$.lane') AS lane FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}'`
 
 interface ParsedColumns {
   who: string | null
@@ -43,6 +57,34 @@ function payloadOrNull(event: StoredEvent): Record<string, unknown> | null {
   catch {
     return null
   }
+}
+
+export function isFactoryMode(mode: unknown): mode is FactoryMode {
+  return typeof mode === 'string' && (FACTORY_MODES as readonly string[]).includes(mode)
+}
+
+export function factoryMode(db: DatabaseSync): FactoryMode {
+  const row = db.prepare(MODE_IN_FORCE).get() as { mode: unknown } | undefined
+  return isFactoryMode(row?.mode) ? row.mode : DEFAULT_MODE
+}
+
+function laneOfCard(db: DatabaseSync, cardId: unknown): string | null {
+  if (typeof cardId !== 'number')
+    return null
+  const lane = (db.prepare(LANE_OF_CARD).get(cardId) as { lane: unknown } | undefined)?.lane
+  return typeof lane === 'string' && isLaneName(lane) ? lane : null
+}
+
+function newLane(db: DatabaseSync): string {
+  const lanes = (db.prepare(ADMITTED_LANES).all() as { lane: unknown }[]).flatMap(row => typeof row.lane === 'string' ? [laneNumber(row.lane) ?? 0] : [])
+  return laneName(Math.max(0, ...lanes) + 1)
+}
+
+export function admittedLane(db: DatabaseSync, cardId: number, depends: unknown): string {
+  if (factoryMode(db) === 'window')
+    return WINDOW_LANE
+  const parents = Array.isArray(depends) ? depends : []
+  return laneOfCard(db, cardId) ?? parents.map(parent => laneOfCard(db, parent)).find(lane => lane !== null) ?? newLane(db)
 }
 
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {

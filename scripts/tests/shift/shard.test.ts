@@ -7,9 +7,10 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { activeWindowShards, expiredWindowShards, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from '../../bus/shards.js'
+import { CARD_VERIFIED } from '../../ghosts/task-close.js'
 import { runShard, USAGE } from '../../shift/shard.js'
 import { runShift } from '../../shift/shift.js'
-import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld, stubRuns } from './fixtures/autopilot-world.js'
+import { captured, cardLine, depsOf, eventsOf, fakeGh, newWorld, stubRuns } from './fixtures/autopilot-world.js'
 
 const OWNER = 'implement/runner/S/cheap/owner'
 const MANIFEST = path.resolve(import.meta.dirname, '../../../construct.json')
@@ -55,6 +56,17 @@ function issue(world: World): string {
 
 function busEvents(db: DatabaseSync): Record<string, unknown>[] {
   return db.prepare('SELECT type, actor, card_id, pr, payload FROM events ORDER BY id').all().map(row => ({ ...row, payload: JSON.parse(String(row.payload)) as unknown }))
+}
+
+function closedAt(world: World, card: number): string {
+  const db = openBus(world.bus)
+  try {
+    const row = db.prepare('SELECT ts FROM events WHERE type = ? AND card_id = ?').get(CARD_VERIFIED, card) as { ts: string }
+    return row.ts
+  }
+  finally {
+    db.close()
+  }
 }
 
 function merges(calls: string[][]): string[][] {
@@ -207,9 +219,8 @@ describe('a shard delegates one owner merge to one shift run', () => {
     expect(io.out).toContain(`[shift:merge] owner decision delegated, shard ${shard} — PR #101 goes to the bus at ${HEAD}; the chain waits for its merge.done`)
     expect(eventsOf(world, 'delegated')).toMatchObject([{ task: '1', pr: 101, shard, why: `owner decision delegated, shard ${shard}` }])
     expect(eventsOf(world, 'stop')).toEqual([])
-    const journal = lines(world.journal).map(line => line.event)
-    expect(journal.indexOf('shard-used')).toBeLessThan(journal.indexOf('path'))
     expect(eventsOf(world, 'shard-used')).toMatchObject([{ id: shard, run: world.shift }])
+    expect(Date.parse(String(eventsOf(world, 'shard-used')[0]!.ts))).toBeLessThan(Date.parse(closedAt(world, 1)))
   })
 
   it('a question with a shard stops', async () => {

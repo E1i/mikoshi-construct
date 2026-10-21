@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
-import { CARD_ADMITTED, CARD_MOVED } from '../src/commands/intake/index.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED } from '../src/commands/intake/index.js'
 import { printMove, runMove } from '../src/commands/intake/move.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -111,14 +111,40 @@ describe('intake --move', () => {
 
   it('a move into the folder that already holds the card writes card.moved and leaves the file where it is', () => {
     const w = world()
-    const file = park(path.join(w.parking, 'dropped'), 709)
+    const file = park(path.join(w.parking, 'notes'), 709)
     const text = readFileSync(file, 'utf8')
     const bus: CardEvent[] = []
-    const result = move(w, 709, 'dropped', event => bus.push(event))
-    expect(result).toEqual({ status: 'recordedInPlace', file })
+    const result = move(w, 709, 'notes', event => bus.push(event))
+    expect(result).toEqual({ status: 'recordedInPlace', file, event: CARD_MOVED })
     expect(printed(result).lines.join('\n')).toContain('the file was not moved')
     expect(readFileSync(file, 'utf8')).toBe(text)
-    expect(bus).toMatchObject([{ type: CARD_MOVED, cardId: 709, payload: { from: path.dirname(file), to: path.dirname(file), lane: 'dropped' } }])
+    expect(bus).toMatchObject([{ type: CARD_MOVED, cardId: 709, payload: { from: path.dirname(file), to: path.dirname(file), lane: 'notes' } }])
+  })
+
+  it('a move into dropped writes card.dropped, not card.moved, also when the card already sits there', () => {
+    const w = world()
+    park(w.parking, 710)
+    const inPlace = park(path.join(w.parking, 'dropped'), 711)
+    const bus: CardEvent[] = []
+    expect(move(w, 710, 'dropped', event => bus.push(event)).status).toBe('moved')
+    const recorded = move(w, 711, 'dropped', event => bus.push(event))
+    expect(recorded).toEqual({ status: 'recordedInPlace', file: inPlace, event: CARD_DROPPED })
+    expect(printed(recorded).lines.join('\n')).toContain('The bus holds the move as card.dropped; the file was not moved.')
+    const to = path.join(w.parking, 'dropped')
+    expect(bus).toMatchObject([
+      { type: CARD_DROPPED, cardId: 710, dedupeKey: `${CARD_DROPPED}:710:${to}:${NOW.toISOString()}`, payload: { from: w.parking, to, lane: 'dropped' } },
+      { type: CARD_DROPPED, cardId: 711, payload: { from: to, to, lane: 'dropped' } },
+    ])
+  })
+
+  it.each(['archive', 'superseded'])('a move into %s is a drop: it writes card.dropped and says so', (lane) => {
+    const w = world()
+    park(w.parking, 713)
+    const bus: CardEvent[] = []
+    const result = move(w, 713, lane, event => bus.push(event))
+    expect(result).toMatchObject({ status: 'moved', event: CARD_DROPPED })
+    expect(printed(result).lines.join('\n')).toContain('The bus holds the move as card.dropped; the card is unchanged.')
+    expect(bus).toMatchObject([{ type: CARD_DROPPED, cardId: 713, payload: { lane } }])
   })
 
   it('a move the bus refuses puts the file back, removes the directory it created and leaves no journal line', () => {

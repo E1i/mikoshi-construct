@@ -44,7 +44,6 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'relaunch': 'runs the coordinating window\'s handoff in headless sessions when run by hand; its own tests, on a claude stub, are its gate',
   'shift': 'runs a shift of headless sessions when run by hand; its own tests, on a claude stub, are its gate',
   'relaunch:bg': 'starts relaunch as a detached process when run by hand; its own tests, on nohup and pnpm stubs, are its gate',
-  'doctor:factory': 'compares the factory permissions contract with the local settings of the machine it runs on, which the harness does not have; its own tests, on a gh stub, are its gate',
   'shift:bg': 'starts a shift as a detached process when run by hand; its own tests, on nohup, setsid and pnpm stubs, are its gate',
   'shift:current': 'updates the open armed or owner-merge pull requests that are behind main when run by hand; its own tests, on a gh stub, are its gate',
   'shift:merge': 'arms auto-merge on a shift task\'s pull request when run by hand; its own tests, on a gh stub, are its gate',
@@ -73,7 +72,6 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'release-notes:render': 'a writer; the release index tests are its gate',
   'release:evidence': 'a read-only report on merged cards from the journal, not a verdict on a change',
   'release:verify': 'a gate, deliberately outside: it inspects what was published, which does not exist when the harness runs',
-  'task:merged': 'appends merge lines to the journal from gh pr view; its own tests are its gate',
   'test:watch': 'a local loop over the same tests',
   'test:weights': 'rewrites the table CI balances its vitest shards by; it changes how the tests are split, not whether they pass',
   'version-packages': 'the version step; the release index tests gate its output',
@@ -86,7 +84,7 @@ describe('every gate is reachable from the harness, and anything outside it says
   })
 
   it('runs the harness steps under scripts/quality/lock.ts, so two quality runs on one machine take turns', () => {
-    expect(packageScripts().quality).toBe('tsx scripts/quality/lock.ts tsx scripts/scratch/run.ts pnpm run quality:steps')
+    expect(packageScripts().quality).toBe('node --import tsx scripts/quality/lock.ts node --import tsx scripts/scratch/run.ts pnpm run quality:steps')
     expect(reachedByHarness()).toContain('quality:steps')
   })
 

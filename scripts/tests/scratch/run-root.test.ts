@@ -219,8 +219,8 @@ const PASSING_TEST = `it('passes', () => {})\n`
 
 describe('pnpm test', () => {
   it('runs vitest through run.ts, in watch mode too', () => {
-    expect(PACKAGE_SCRIPTS.test).toBe('tsx scripts/scratch/run.ts vitest run')
-    expect(PACKAGE_SCRIPTS['test:watch']).toBe('tsx scripts/scratch/run.ts vitest')
+    expect(PACKAGE_SCRIPTS.test).toBe('node --import tsx scripts/scratch/run.ts vitest run')
+    expect(PACKAGE_SCRIPTS['test:watch']).toBe('node --import tsx scripts/scratch/run.ts vitest')
   })
 
   it('leaves no Vitest temp dir in a fresh outer TMPDIR when vitest runs through run.ts', () => {

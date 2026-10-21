@@ -64,7 +64,7 @@ describe('bus review depth follows the MORSE instructions rule', () => {
       base: () => BASE,
       changed: () => paths,
       predict: () => ({ prediction: classify(paths.map(file => ({ path: file, status: 'M', additions: 1, deletions: 0 }))), files: paths }),
-      touches: () => touches,
+      scope: () => ({ touches, runs: [] }),
     }
   }
 

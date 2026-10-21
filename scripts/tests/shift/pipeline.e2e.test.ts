@@ -7,7 +7,7 @@ import { openBus } from '../../bus/db.js'
 import { latestPrReview, PR_REVIEW_EVENT, runVerdict } from '../../shift/merge.js'
 import { runShift } from '../../shift/shift.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
-import { captured, cardLine, depsOf, eventsOf, fakeGh, lines, newWorld } from './fixtures/autopilot-world.js'
+import { captured, cardLine, depsOf, eventsOf, fakeGh, journalOf, newWorld } from './fixtures/autopilot-world.js'
 import { prReviewLine } from './fixtures/pr-review-line.js'
 
 const HEAD = 'a1b2c3d'
@@ -148,12 +148,10 @@ describe('a pipeline of two cards', () => {
         review(world, 102, 'pass')
     })).toBe(0)
     expect(merges(chain)).toEqual(['101', '102'])
-    const journal = lines(world.journal)
+    const journal = journalOf(world)
     for (const task of ['1', '2']) {
-      const reviewed = journal.findIndex(line => line.event === PR_REVIEW_EVENT && line.task === task)
-      const merged = journal.findIndex(line => line.event === 'merge' && line.task === task)
-      expect(reviewed).toBeGreaterThan(-1)
-      expect(merged).toBeGreaterThan(reviewed)
+      expect(journal.some(line => line.event === PR_REVIEW_EVENT && line.task === task)).toBe(true)
+      expect(journal.some(line => line.event === 'merge' && line.task === task)).toBe(true)
     }
     expect(eventsOf(world, 'chain').map(line => `${String(line.step)} ${String(line.task ?? line.reason)}`)).toEqual(['wait 1', 'reviewed 1', 'merged 1', 'next 2', 'wait 2', 'reviewed 2', 'merged 2', 'end no-eligible'])
   })

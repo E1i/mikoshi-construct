@@ -13,7 +13,7 @@ import { CARD_ADMITTED, CARD_MOVED } from '../../src/commands/intake/index.js'
 import { createMain } from '../../src/program.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
-import { cardBodyText } from './card-bodies.js'
+import { admittedLane, cardBodyText } from './card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from './db.js'
 import { openDatabase } from './sqlite.js'
 
@@ -94,6 +94,10 @@ export function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
   return { ...event, payload: { ...event.payload, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
 }
 
+function laid(db: DatabaseSync, event: CardEvent): CardEvent {
+  return event.type === CARD_ADMITTED ? { ...event, payload: { ...event.payload, lane: admittedLane(db, event.cardId, event.payload.depends) } } : event
+}
+
 function append(db: DatabaseSync, actor: string, unversioned: CardEvent): void {
   const event = versioned(db, unversioned)
   appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
@@ -120,12 +124,16 @@ function admissionOfMove(move: CardEvent): CardEvent | null {
   }
 }
 
+function needsAnAdmission(event: CardEvent): boolean {
+  return event.type === CARD_MOVED
+}
+
 export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}${session}`
   return event => inTransaction(db, () => {
-    if (event.type === CARD_MOVED && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
+    if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
-    append(db, actor, event)
+    append(db, actor, laid(db, event))
     const admitted = event.type === CARD_MOVED ? admissionOfMove(event) : null
     if (admitted !== null)
       append(db, actor, admitted)
