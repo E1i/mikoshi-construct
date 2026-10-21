@@ -1,9 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { TimedShell } from '../../bus/witness-executor.js'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
@@ -78,6 +79,23 @@ async function witnessRun(w: World, shell: TimedShell = realTimedShell): Promise
   }
 }
 
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function survivesWithin(pid: number, ms: number): boolean {
+  const deadline = Date.now() + ms
+  while (alive(pid) && Date.now() < deadline)
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+  return alive(pid)
+}
+
 function recorded(w: World): string[] {
   return (w.db.prepare(`SELECT dedupe_key FROM events WHERE type = ?`).all(WITNESS_RECORDED) as { dedupe_key: string }[]).map(row => row.dedupe_key)
 }
@@ -133,6 +151,27 @@ describe('the witness node', () => {
 
     expect(recorded(w)).toEqual([])
     expect(w.db.prepare(`SELECT state, failures FROM tasks WHERE queue = 'witness'`).all()).toEqual([{ state: 'queued', failures: 2 }])
+  })
+
+  it('a timed-out witness command leaves no surviving child', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'witness-group-'))
+    const pidFile = path.join(dir, 'grandchild.pid')
+    try {
+      const result = realTimedShell(`bash -c 'sleep 60' & echo $! > ${pidFile}; wait`, dir, 500)
+
+      expect(result.timedOut).toBe(true)
+      const grandchild = Number(readFileSync(pidFile, 'utf8').trim())
+      expect(survivesWithin(grandchild, 3_000)).toBe(false)
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a witness command that ends within its budget is not timed out and keeps its exit status', () => {
+    const result = realTimedShell('echo out; exit 3', tmpdir(), 5_000)
+
+    expect(result).toEqual({ status: 3, output: 'out\n', timedOut: false })
   })
 
   it('a head that changes package.json installs again on the staged tree', async () => {

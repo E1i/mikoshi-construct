@@ -4,6 +4,7 @@ import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { WitnessSubject, WitnessVerdict } from './policy.js'
 import { spawnSync } from 'node:child_process'
+import process from 'node:process'
 import { WITNESS_RECORDED } from '../core/events.js'
 import { execGh, stdoutOrThrow } from '../core/gh.js'
 import { witnessEnv } from '../ports/session.js'
@@ -21,9 +22,27 @@ const SHELL_BUFFER = 1 << 28
 export interface TimedShellResult extends ShellResult { timedOut: boolean }
 export type TimedShell = (command: string, cwd: string, timeoutMs: number) => TimedShellResult
 
+const GROUP_KILL_GRACE_MS = 10_000
+const GROUP_RUNNER = [
+  `const { spawn } = require('node:child_process')`,
+  `const { constants } = require('node:os')`,
+  `const [budget, command] = process.argv.slice(1)`,
+  `const child = spawn('bash', ['-c', command], { detached: true, stdio: 'inherit' })`,
+  `const timer = setTimeout(() => {`,
+  `  try { process.kill(-child.pid, 'SIGKILL') } catch {}`,
+  `  process.kill(process.pid, 'SIGKILL')`,
+  `}, Number(budget))`,
+  `child.on('error', () => process.exit(127))`,
+  `child.on('exit', (code, signal) => {`,
+  `  clearTimeout(timer)`,
+  `  process.exit(code ?? 128 + (constants.signals[signal] ?? 0))`,
+  `})`,
+].join('\n')
+
 export function realTimedShell(command: string, cwd: string, timeoutMs: number): TimedShellResult {
-  const result = spawnSync('bash', ['-c', command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER, timeout: timeoutMs, killSignal: 'SIGKILL' })
-  const timedOut = (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
+  const budget = String(Math.max(1, Math.floor(timeoutMs)))
+  const result = spawnSync(process.execPath, ['-e', GROUP_RUNNER, budget, command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER, timeout: timeoutMs + GROUP_KILL_GRACE_MS, killSignal: 'SIGKILL' })
+  const timedOut = result.signal === 'SIGKILL' || (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
   return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}`, timedOut }
 }
 
