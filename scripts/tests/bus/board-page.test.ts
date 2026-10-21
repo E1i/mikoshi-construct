@@ -191,6 +191,36 @@ describe('board.html', () => {
     expect(spentOnly).toContain('<div class="edd" data-hot><span class="edd-k">spent</span>')
   })
 
+  it('the page takes its bars from the projection beside pulse and runs no heartbeat query of its own', () => {
+    const html = pageText(seededBus([
+      { ts: minutesAgo(4), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 120_000 }) },
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 240_000 }), legacy: true },
+    ]))
+    expect(html).toContain('<span class="edd-k">ctx</span>')
+    expect(html).toContain('<span class="edd-v">120k')
+    expect(html).not.toContain('240k')
+    const source = readFileSync(path.resolve(import.meta.dirname, '../../bus/board-page.ts'), 'utf8')
+    expect(source).toContain('cardGauges(db)')
+    expect(source).not.toContain('SESSION_HEARTBEAT')
+    expect(source).not.toMatch(/FROM events/)
+  })
+
+  it('the page style declares no custom property it never reads', () => {
+    const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
+    const declared = new Set([...style.matchAll(/(--[\w-]+)\s*:/g)].map(match => match[1]!))
+    const read = new Set([...style.matchAll(/var\((--[\w-]+)/g)].map(match => match[1]!))
+    expect([...declared].filter(name => !read.has(name))).toEqual([])
+  })
+
+  it('a filter anchor is positioned inside the backlog, not the page', () => {
+    const html = pageText(seededBus())
+    const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    expect(style).toMatch(/\.filter-target \{[^}]*position: absolute/)
+    expect(style).toMatch(/\.backlog \{[^}]*position: relative/)
+    const backlog = html.slice(html.indexOf('<section class="panel backlog"'))
+    expect(backlog.slice(0, backlog.indexOf('</section>'))).toContain('<span class="filter-target" id="show-all"></span>')
+  })
+
   it('the page carries the flow, services and status lines construct board prints', () => {
     const busPath = seededBus()
     const lines = constructBoardLines(busPath)

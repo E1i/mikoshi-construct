@@ -8,8 +8,7 @@ import { busFacts, FLOW_STATES } from '../../src/commands/board/bus.js'
 import { backlogCards, goalLines, isLive, matrixLines, pulseLines } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
-import { SESSION_HEARTBEAT } from '../core/events.js'
-import { BOARD_FILE } from './board.js'
+import { BOARD_FILE, cardGauges } from './board.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { openDatabase } from './sqlite.js'
 
@@ -78,24 +77,8 @@ export function readEddiesLimits(file: string = EDDIES_FILE): EddiesLimits {
   }
 }
 
-function payloadOf(text: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(text) as unknown
-    return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-  }
-  catch {
-    return {}
-  }
-}
-
-export function sessionGauges(db: DatabaseSync): Map<string, Gauges> {
-  const rows = db.prepare(`SELECT card_id, payload FROM events WHERE type = ? AND card_id IS NOT NULL ORDER BY id`).all(SESSION_HEARTBEAT) as unknown as { card_id: number, payload: string }[]
-  const gauges = new Map<string, Gauges>()
-  for (const row of rows) {
-    const payload = payloadOf(row.payload)
-    gauges.set(`#${row.card_id}`, { context: positive(payload.context), spent: positive(payload.spent) })
-  }
-  return gauges
+function projectedGauges(db: DatabaseSync): Map<string, Gauges> {
+  return new Map(cardGauges(db).map(row => [`#${row.card}`, { context: positive(row.context), spent: positive(row.spent) }]))
 }
 
 function compact(value: number): string {
@@ -274,7 +257,6 @@ const STYLE = `
   --space-l: 1.25rem;
   --cut: 0.875rem;
   --head-block-size: 1.875rem;
-  --bp-cq-split: 52rem;
 }
 * { box-sizing: border-box; }
 body {
@@ -395,7 +377,7 @@ header.panel {
   & .ids { grid-column: 2; color: var(--_ids); font-size: 0.75rem; overflow-wrap: anywhere; }
 }
 .flow-note { margin: var(--space-xs) var(--space-m) 0; padding-block-start: 0.625rem; border-block-start: 1px solid var(--line); color: var(--dim); font-size: 0.6875rem; display: grid; gap: var(--space-xs); }
-.backlog { block-size: calc(100dvh - 2rem); min-block-size: 26rem; }
+.backlog { position: relative; block-size: calc(100dvh - 2rem); min-block-size: 26rem; }
 .filter-target { position: absolute; inset-block-start: 0; }
 .filters { display: flex; flex-wrap: wrap; gap: 0.375rem; padding: var(--space-s) var(--space-m); border-block-end: 1px solid var(--line); }
 .chip {
@@ -510,7 +492,7 @@ export function renderBoard(page: BoardPage): string {
 }
 
 function pageOf(db: DatabaseSync, now: Date): string {
-  return renderBoard({ version: VERSION, facts: busFacts(db, now), gauges: sessionGauges(db), limits: readEddiesLimits() })
+  return renderBoard({ version: VERSION, facts: busFacts(db, now), gauges: projectedGauges(db), limits: readEddiesLimits() })
 }
 
 export function writeBoardPage(file: string, html: string, files: BoardFiles = DISK_FILES): void {
