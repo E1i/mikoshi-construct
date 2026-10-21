@@ -231,7 +231,7 @@ describe('the update queue', () => {
 
     expect(bench.update(bench.leaseUpdate()!)).toMatchObject({ kind: 'denied', taskKey: update(990), denial: { kind: 'technical', reason: 'stale_head' }, next: 'queued' })
     expect(eventsOf(bench.db, 'policy.denied')).toMatchObject([{ command: 'update_branch', kind: 'technical', reason: 'stale_head' }])
-    expect(taskState(bench.db, update(990))).toEqual({ state: 'queued', lease_gen: 1, failures: 1 })
+    expect(taskState(bench.db, update(990))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
     expect(ownerInbox(bench.db)).toEqual([])
     expect(bench.gitHub.published).toEqual([])
     bench.close()

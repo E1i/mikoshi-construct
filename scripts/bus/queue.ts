@@ -91,6 +91,12 @@ const REVIEWS_OF_AN_OLD_INPUT = `
   ORDER BY tasks.task_key
 `
 
+const LIVE_ANSWERS_WITH_THE_CARD_BODY = `
+  SELECT task_key, queue, card_id, pr, head, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
+  WHERE queue = 'answer' AND state IN ('queued', 'leased')
+  ORDER BY task_key
+`
+
 const LATEST_ADMISSION_DEPENDS = `
   SELECT depends.value AS card_id FROM json_each((
     SELECT admitted.payload FROM events AS admitted
@@ -168,7 +174,7 @@ export function latestTurnOf(card: string): string {
 }
 
 const QUESTION_CANDIDATES = `
-  SELECT stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop FROM events AS stop
+  SELECT stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body FROM events AS stop
   LEFT JOIN cards ON cards.card_id = stop.card_id
   LEFT JOIN prs ON prs.pr = coalesce(stop.pr, cards.pr)
   WHERE stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 AND stop.card_id IS NOT NULL
@@ -185,7 +191,7 @@ const AN_OPEN_QUESTION = `(
 
 function answerCandidatesWhere(condition: string): string {
   return `
-  SELECT pr, card_id, head FROM prs
+  SELECT pr, card_id, head, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
   WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
@@ -388,13 +394,28 @@ interface StoppedAnswerRow extends StoppedRow {
 
 export interface QueuedTask extends TaskIdentity {
   stop?: number
+  cardBody?: string
 }
 
 const STOP_SUFFIX = /:stop-([1-9]\d*)$/
+const BODY_SHA = /^[0-9a-f]{8,64}$/
+const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::stop-[1-9]\d*)?$/
+
+function cardBodySegment(task: QueuedTask): string {
+  if (task.cardBody === undefined)
+    return ''
+  if (task.queue !== 'answer' || !BODY_SHA.test(task.cardBody))
+    throw new Error(`only an answer task carries a card body sha: ${task.queue}, ${task.cardBody}`)
+  return `:card-body-${task.cardBody}`
+}
 
 export function keyOf(task: QueuedTask): string {
-  const key = taskKey(task)
+  const key = `${taskKey(task)}${cardBodySegment(task)}`
   return task.stop === undefined ? key : `${key}:stop-${task.stop}`
+}
+
+export function answerCardBodyOf(row: Pick<Candidate, 'card_body'>): string | undefined {
+  return typeof row.card_body === 'string' && BODY_SHA.test(row.card_body) ? row.card_body : undefined
 }
 
 function stopIn(key: unknown): number | undefined {
@@ -402,10 +423,16 @@ function stopIn(key: unknown): number | undefined {
   return match === null ? undefined : Number(match[1])
 }
 
+function cardBodyIn(key: unknown): string | undefined {
+  const match = typeof key === 'string' ? ANSWER_CARD_BODY.exec(key) : null
+  return match === null ? undefined : match[1]
+}
+
 function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows: Candidate[]): QueuedTask[] {
   return rows.filter(row => !closedByRounds(db, ts, queue, row.pr, row.head)).map((row) => {
     const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
-    return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input }
+    const cardBody = queue === 'answer' ? answerCardBodyOf(row) : undefined
+    return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input, cardBody }
   })
 }
 
@@ -446,10 +473,11 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
   const generation = typeof payload.generation === 'string' ? payload.generation : undefined
   const stop = queue === 'answer' ? stopIn(payload.task_key) : undefined
+  const cardBody = queue === 'answer' ? cardBodyIn(payload.task_key) : undefined
   const input = queue === 'review' ? reviewInputOfKey(payload.task_key) : undefined
   if (input !== undefined && (event.pr === null || event.head === null))
     reject(`${event.type} of a review input needs a pr and a head`)
-  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input })
+  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
   return { key, queue }
@@ -547,7 +575,8 @@ function withdrawTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
 function identity(row: TaskRow): QueuedTask {
   const plain = { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }
   const input = row.queue === 'review' ? reviewInputOfKey(row.task_key) : undefined
-  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input }
+  const cardBody = row.queue === 'answer' ? cardBodyIn(row.task_key) : undefined
+  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody }
 }
 
 export interface BodyAdmission { bodySha: string, event: string }
@@ -563,6 +592,13 @@ export function cardBodyShaOfCard(db: DatabaseSync, cardId: number): string | nu
 
 function reviewsOfAnOldInput(db: DatabaseSync): ReviewRow[] {
   return (db.prepare(REVIEWS_OF_AN_OLD_INPUT).all() as unknown as ReviewRow[]).filter(row => !underCurrentInput(row))
+}
+
+function answersOfAnOldCardBody(db: DatabaseSync): TaskRow[] {
+  return (db.prepare(LIVE_ANSWERS_WITH_THE_CARD_BODY).all() as unknown as (TaskRow & { card_body: unknown })[]).filter((row) => {
+    const current = answerCardBodyOf(row)
+    return current !== undefined && cardBodyIn(row.task_key) !== current
+  })
 }
 
 export function reviewKeysOfAnOldInput(db: DatabaseSync): string[] {
@@ -618,7 +654,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   }
   for (const row of db.prepare(TASKS_OF_A_CLOSED_PULL_REQUEST).all() as unknown as TaskRow[])
     withdrawTask(db, ts, identity(row))
-  for (const row of reviewsOfAnOldInput(db)) {
+  for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db)]) {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }

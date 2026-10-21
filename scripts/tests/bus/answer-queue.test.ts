@@ -21,7 +21,7 @@ import { importJournal } from '../../bus/import.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, inboxText, ownerInbox, POLICY_DENIED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { BOARD_ALARM, FAILURES_TO_STOP, identityOf, queueTask, TASK_ENQUEUED, TASK_FOLDS, TASK_REQUEUED } from '../../bus/queue.js'
+import { answerCardBodyOf, BOARD_ALARM, FAILURES_TO_STOP, identityOf, keyOf, queueTask, TASK_ENQUEUED, TASK_FOLDS, TASK_REQUEUED } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { REJECTED } from '../../bus/rejection.js'
 import { SHARD_ISSUED } from '../../bus/shards.js'
@@ -316,6 +316,96 @@ describe('the answer queue', () => {
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('an amend on the same head queues a new answer task', async () => {
+    const bench = answerBench()
+    bench.tools.heads = [sha('a'), sha('a')]
+    const admit = (bodySha: string): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 1146, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1146:${bodySha}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-1146-${bodySha}`, bodySha }, legacy: false })
+    }
+    const answerTasks = (state: string): string[] => (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND state = ? ORDER BY task_key`).all(state) as { task_key: string }[]).map(row => row.task_key)
+    bench.started(1146)
+    admit('aaaa1111')
+    bench.gitHub.open({ number: 1046, review: 'failure' })
+    bench.tick()
+    const asking = bench.leaseAnswer()!
+    expect(asking.taskKey).toBe(`${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`)
+    completeTask(bench.db, bench.clock.now().toISOString(), asking, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: asking.actor, cardId: 1146, pr: 1046, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${asking.taskKey}:${asking.leaseGen}`, payload: { reason: 'question.agent', detail: 'widen touches to the worker test' }, legacy: false }])
+    bench.tick()
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'fault' })
+    bench.tick()
+    expect(answerTasks('queued')).toEqual([])
+
+    admit('bbbb2222')
+    bench.tick()
+
+    expect(answerTasks('queued')).toEqual([`${answer(1146, 1046, sha('a'))}:card-body-bbbb2222`])
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  const admitBody = (bench: ReturnType<typeof answerBench>, cardId: number, bodySha: string): void => {
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${bodySha}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}-${bodySha}`, bodySha }, legacy: false })
+  }
+  const liveAnswerTasks = (bench: ReturnType<typeof answerBench>): { task_key: string, state: string }[] =>
+    bench.db.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'answer' AND state IN ('queued', 'leased') ORDER BY task_key`).all() as { task_key: string, state: string }[]
+
+  it('an amend while the answer task of the older card body is still queued leaves exactly one live answer task, keyed by the new body', () => {
+    const bench = answerBench()
+    bench.started(1146)
+    admitBody(bench, 1146, 'aaaa1111')
+    bench.gitHub.open({ number: 1046, review: 'failure' })
+    bench.tick()
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: `${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`, state: 'queued' }])
+
+    admitBody(bench, 1146, 'bbbb2222')
+    bench.tick()
+
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: `${answer(1146, 1046, sha('a'))}:card-body-bbbb2222`, state: 'queued' }])
+    expect(taskState(bench.db, `${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`).state).toBe('superseded')
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('an admission that arrives while a plain-key answer task is leased supersedes it and leaves exactly one live answer task', () => {
+    const bench = answerBench()
+    bench.started(1147)
+    bench.gitHub.open({ number: 1047, review: 'failure' })
+    bench.tick()
+    const leased = bench.leaseAnswer()!
+    expect(leased.taskKey).toBe(answer(1147, 1047, sha('a')))
+
+    admitBody(bench, 1147, 'cccc3333')
+    bench.tick()
+
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: `${answer(1147, 1047, sha('a'))}:card-body-cccc3333`, state: 'queued' }])
+    expect(taskState(bench.db, answer(1147, 1047, sha('a'))).state).toBe('superseded')
+    const live = projectionDump(bench.db)
+    reduce(bench.db)
+    expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('an answer task whose key carries a card body is withdrawn when its pull request closes', () => {
+    const bench = answerBench()
+    bench.started(1148)
+    admitBody(bench, 1148, 'dddd4444')
+    bench.gitHub.open({ number: 1048, review: 'failure' })
+    bench.tick()
+    const key = `${answer(1148, 1048, sha('a'))}:card-body-dddd4444`
+    expect(taskState(bench.db, key).state).toBe('queued')
+
+    bench.gitHub.close(1048, false)
+    bench.tick()
+
+    expect(taskState(bench.db, key).state).toBe('withdrawn')
+    expect(liveAnswerTasks(bench)).toEqual([])
     bench.close()
   })
 
@@ -977,5 +1067,25 @@ describe('the answer worker', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     expect(await runAnswerWorker([], { busPath: '/nonexistent/bus.db', answerer: async () => ({ session: 's', resumed: true, before: null, after: null, owner: null }), ownerMerges: () => OWNER_MERGES, cardText: () => null, session: 'worker-1', pause: async () => {}, isolation: () => ({ level: 'none', why: 'switched off' }) })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
+  })
+})
+
+describe('the key of a task that carries a card body', () => {
+  const BODY = '0123abcd4567ef89'
+
+  it('keyOf refuses a card body on a queue that is not answer', () => {
+    expect(() => keyOf({ queue: 'review', cardId: 1114, pr: 1014, head: sha('a'), cardBody: BODY })).toThrow('only an answer task carries a card body sha')
+    expect(keyOf({ queue: 'answer', cardId: 1114, pr: 1014, head: sha('a'), cardBody: BODY })).toBe(`${answer(1114, 1014, sha('a'))}:card-body-${BODY}`)
+  })
+
+  it('keyOf refuses a malformed card body on an answer task', () => {
+    for (const cardBody of ['', 'xyz', 'ABCDEF0123456789', '0123abc'])
+      expect(() => keyOf({ queue: 'answer', cardId: 1114, pr: 1014, head: sha('a'), cardBody })).toThrow('only an answer task carries a card body sha')
+  })
+
+  it('answerCardBodyOf carries only a well-formed card body sha from a candidate row', () => {
+    expect(answerCardBodyOf({ card_body: BODY })).toBe(BODY)
+    for (const card_body of [undefined, null, 1146, '', 'xyz', 'ABCDEF0123456789', '0123abc', `${BODY}${BODY}${BODY}${BODY}${BODY}`])
+      expect(answerCardBodyOf({ card_body })).toBeUndefined()
   })
 })

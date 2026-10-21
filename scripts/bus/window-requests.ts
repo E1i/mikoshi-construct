@@ -12,7 +12,7 @@ import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from './identifiers.js'
 import { POLICY_DENIED } from './inbox.js'
 import { BOARD_ALARM, changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS, TASK_REQUEUED } from './queue.js'
-import { roundLimitDecisionOf } from './round-limit-decision.js'
+import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt } from './shards.js'
 import { storedByKey } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
@@ -170,9 +170,10 @@ export class WindowRequests {
     if (rounds < REVIEW_ROUNDS)
       return { done: false, why: `PR #${pr} has ${rounds} of ${REVIEW_ROUNDS} review rounds, not past the round limit` }
     const dryRun = this.tools.dryRunOf(session)
-    if (dryRun?.pr !== pr || dryRun.head !== head)
+    const cleanUpdates = cleanUpdatesOf(this.db, pr)
+    if (dryRun?.pr !== pr || !dryRunHoldsAt(dryRun.head, head, observedHeadsOf(this.db, pr), cleanUpdates))
       return { done: false, why: `the dry run ${session} is not of PR #${pr} at ${head}` }
-    const decided = roundLimitDecisionOf(inForce, pr, head, cleanUpdatesOf(this.db, pr))
+    const decided = roundLimitDecisionOf(inForce, pr, head, cleanUpdates)
     if (decided !== null)
       return { done: false, why: `D-${decided} already allows the merge of PR #${pr} at ${head}` }
     const written = this.tools.addDecision(['--card', `#${row.card_id}`, `[owner] allow-merge PR #${pr} at ${head} · by D-${ALLOW_MERGE_UNDER}`])
