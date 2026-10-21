@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../bus/review-depth.js'
-import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
+import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
 import { sessionArgv, SessionCeilingReached } from '../../ghosts/session.js'
 import { sha } from './github-fake.js'
 
@@ -89,6 +89,32 @@ describe('reviewer', () => {
       expect((failed as Error).message).toMatch(/^the session \S+ ran past its ceiling of 20 minutes and was ended$/)
     }
     finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a pulse that throws costs one heartbeat and a named line, never the review or the worker', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-beat-fails-'))
+    const said = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const working = async (params: SpawnSessionParams): Promise<number> => {
+        await new Promise(resolve => setTimeout(resolve, 60))
+        writeFileSync(params.stdoutPath, '{"type":"assistant"}\n')
+        await new Promise(resolve => setTimeout(resolve, 150))
+        writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+        return 0
+      }
+      const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
+      const locked = (): void => {
+        throw new Error('database is locked')
+      }
+      const review = await claudeReviewer(trees, working, locked, 50)(lease, full)
+      expect(review.verdict).toBe('pass')
+      expect(said.mock.calls.map(call => call[0])).toEqual([missedBeatLine(review.session, new Error('database is locked'))])
+      expect(missedBeatLine('s-1', new Error('database is locked'))).toBe('[bus:review] the heartbeat of review session s-1 was not recorded, the review goes on: database is locked')
+    }
+    finally {
+      said.mockRestore()
       rmSync(dir, { recursive: true, force: true })
     }
   })

@@ -300,13 +300,23 @@ function sizeOf(file: string): number {
   return existsSync(file) ? statSync(file).size : 0
 }
 
-async function beatingWhileGrowing(run: Promise<number>, transcript: string, beat: () => void, beatMs: number): Promise<number> {
-  let seen = sizeOf(transcript)
+export function missedBeatLine(session: string, error: unknown): string {
+  return `${PREFIX}the heartbeat of review session ${session} was not recorded, the review goes on: ${error instanceof Error ? error.message : String(error)}`
+}
+
+async function beatingWhileGrowing(run: Promise<number>, transcript: string, beat: () => void, beatMs: number, missed: (error: unknown) => void): Promise<number> {
+  let seen = 0
   const ticker = setInterval(() => {
-    const size = sizeOf(transcript)
-    if (size > seen)
-      beat()
-    seen = size
+    try {
+      const size = sizeOf(transcript)
+      const grew = size > seen
+      seen = size
+      if (grew)
+        beat()
+    }
+    catch (error) {
+      missed(error)
+    }
   }, beatMs)
   try {
     return await run
@@ -328,7 +338,7 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
       const before = trees.state(tree)
       if (before.status.length > 0)
         throw new Error(`the review tree ${tree} is not clean before the review: ${before.status.join('; ')}`)
-      const code = await beatingWhileGrowing(spawn(params), params.stdoutPath, () => pulse(lease, session), beatMs)
+      const code = await beatingWhileGrowing(spawn(params), params.stdoutPath, () => pulse(lease, session), beatMs, error => console.error(missedBeatLine(session, error)))
       if (code !== 0)
         throw new Error(`the review session ${session} exited ${code}`)
       const review = reviewOf(readFileSync(verdictPath, 'utf8'), session)
