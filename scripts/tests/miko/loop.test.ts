@@ -16,6 +16,7 @@ import { PROCESS_ENDED, PROCESS_REFUSED, ROLE_RETURNED } from '../../core/events
 import { HANDOFF_FIELDS, STATE_LABELS } from '../../ghosts/handoff-check.js'
 import { parsePs } from '../../miko/exit.js'
 import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
+import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -660,6 +661,13 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     const seen = `${file}.seen`
     expect(await runSession(`sh -c 'echo "$MIKO_LOOP_PID $MIKO_EXIT_REQUEST" > ${seen}'`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
     expect(readFileSync(seen, 'utf8').trim()).toBe(`${process.pid} ${file}`)
+  }, 10_000)
+
+  it('the loop marks the claude it spawns as the window', async () => {
+    const file = request()
+    const seen = `${file}.seen`
+    expect(await runSession(`sh -c 'echo "$${WINDOW_VARIABLE}" > ${seen}'`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
+    expect(readFileSync(seen, 'utf8').trim()).toBe(WINDOW_MARK)
   }, 10_000)
 })
 

@@ -1,6 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BusCard, BusFacts, BusService } from '../../src/commands/board/bus.js'
+import type { BusCard, BusFacts, BusMatrix, BusService } from '../../src/commands/board/bus.js'
+import type { CardChain } from './card-chain.js'
+import type { CardFields } from './card-contract.js'
+import type { InForceDecision } from './decisions.js'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -8,15 +13,20 @@ import { busFacts, CARD_STAGES, FLOW_STATES } from '../../src/commands/board/bus
 import { backlogCards, goalLines, isLive, matrixLines, pulseLines } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
+import { mikoHandoff } from '../miko/loop.js'
 import { BOARD_FILE, cardGauges, FRESH_MS, windowGauges } from './board.js'
+import { cardChain } from './card-chain.js'
+import { cardContract } from './card-contract.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
+import { inForceDecisions } from './decisions.js'
 import { openDatabase } from './sqlite.js'
 
 export const PREFIX = '[bus:board] '
-export const REFRESH_SECONDS = 30
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 export const EDDIES_FILE = path.join(REPOSITORY_ROOT, '.claude/eddies.json')
 export const MODEL_FILE = path.join(REPOSITORY_ROOT, 'construct.model.json')
+export const PACKAGE_FILE = path.join(REPOSITORY_ROOT, 'package.json')
+export const HANDOFF_FILE = mikoHandoff(os.homedir())
 
 export interface BoardFiles {
   write: (file: string, text: string) => void
@@ -45,6 +55,17 @@ export interface EddiesLimits {
   warnRatio: number | null
 }
 
+export interface CardDetail {
+  contract: CardFields | null
+  chain: CardChain | null
+  pr: number | null
+}
+
+export interface Handoff {
+  file: string
+  text: string | null
+}
+
 export interface BoardPage {
   version: string
   modelVersion: number | null
@@ -52,6 +73,11 @@ export interface BoardPage {
   gauges: Map<string, Gauges>
   windowGauges: Gauges | null
   limits: EddiesLimits
+  details: Map<number, CardDetail>
+  decisions: InForceDecision[]
+  handoff: Handoff
+  repository: string | null
+  tickMs: number | null
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, sessionSpend: null, warnRatio: null }
@@ -67,6 +93,27 @@ const LIVE_FILTER = 'live'
 const THOUSAND = 1_000
 const MILLION = 1_000_000
 const MINUTE_MS = 60_000
+export const BOARD_DATA_FILE = 'board-data.js'
+export const SLOT_PREFIX = 'slot-'
+const BUS_LIVE = 'bus-live'
+const PULSE_ELEMENT_ID = 'bus-pulse'
+const STALE_READING = 'bus stale'
+const TITLE_PREFIX = 'construct board · '
+const BACKLOG = 'backlog'
+const DRILL = 'drill'
+const DRILL_CONTENT = 'drill-content'
+const BACKLOG_SCROLL = 'backlog-scroll'
+const DIALOG_PREFIX = 'dialog-'
+const HANDOFF_DIALOG = 'handoff'
+const DECISIONS_DIALOG = 'decisions'
+const HANDOFF_STATUS = 'STATUS'
+const OPEN_HINT = '<span class="open-hint">open ›</span>'
+const CARD_TASK = /^#(\d+)$/
+const CARD_REFERENCE = /(?<!&)#(\d+)\b/g
+const CODE_SPAN = /`([^`]+)`/g
+const HANDOFF_LINE = /^([^\s#:*-][^:]*):(?: (.*))?$/
+const LIST_ITEM = /^\s*[-*]\s+/
+const PUNCH_DIGITS = 16
 
 function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
@@ -90,6 +137,35 @@ export function readModelVersion(file: string = MODEL_FILE): number | null {
   catch {
     return null
   }
+}
+
+export function readRepositoryUrl(file: string = PACKAGE_FILE): string | null {
+  try {
+    const url = (JSON.parse(readFileSync(file, 'utf8')) as { repository?: { url?: unknown } } | null)?.repository?.url
+    return typeof url === 'string' ? url.replace(/^git\+/, '').replace(/\.git$/, '') : null
+  }
+  catch {
+    return null
+  }
+}
+
+export function readHandoff(file: string = HANDOFF_FILE): Handoff {
+  try {
+    return { file, text: readFileSync(file, 'utf8') }
+  }
+  catch {
+    return { file, text: null }
+  }
+}
+
+function cardPrs(db: DatabaseSync): Map<number, number> {
+  const rows = db.prepare('SELECT card_id, pr FROM cards WHERE pr IS NOT NULL').all() as { card_id: number, pr: number }[]
+  return new Map(rows.map(row => [Number(row.card_id), Number(row.pr)]))
+}
+
+function cardDetails(db: DatabaseSync, facts: BusFacts): Map<number, CardDetail> {
+  const prs = cardPrs(db)
+  return new Map(facts.cards.map(card => [card.id, { contract: cardContract(db, card.id), chain: cardChain(db, card.id), pr: prs.get(card.id) ?? null }]))
 }
 
 function projectedGauges(db: DatabaseSync): Map<string, Gauges> {
@@ -127,14 +203,22 @@ function gaugesOf(service: BusService, page: BoardPage): Gauges | null | undefin
   return SESSION_STEP.test(service.step) ? page.gauges.get(service.task) : undefined
 }
 
+function tileDialog(service: BusService, page: BoardPage): string | null {
+  if (service.role === WINDOW_ROLE)
+    return HANDOFF_DIALOG
+  const card = CARD_TASK.exec(service.task)?.[1]
+  return card !== undefined && page.details.has(Number(card)) ? cardDialog(Number(card)) : null
+}
+
 function serviceTile(service: BusService, page: BoardPage): string {
   const gauges = gaugesOf(service, page)
   const bars = gauges == null
     ? ''
     : eddiesBar('ctx', gauges.context, page.limits.contextLimit, page.limits.warnRatio) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.warnRatio)
+  const dialog = tileDialog(service, page)
   return [
-    `<div class="svc" data-role="${escaped(service.role)}">`,
-    `<div class="svc-top"><span class="svc-kind">${escaped(service.role)}</span><span class="lore">${LORE_NAMES[service.role] ?? RUNNER}</span><span class="svc-target">${escaped(service.task)}</span></div>`,
+    `<div class="svc" data-role="${escaped(service.role)}"${dialog === null ? '' : `${opener(dialog)} role="button"`}>`,
+    `<div class="svc-top"><span class="svc-kind">${escaped(service.role)}</span><span class="lore">${LORE_NAMES[service.role] ?? RUNNER}</span><span class="svc-target">${escaped(service.task)}</span>${dialog === null ? '' : OPEN_HINT}</div>`,
     `<div class="svc-line">${escaped(PLAIN_LORE.boardServiceLine(service.role, service.task, service.tree ?? undefined, service.step))}</div>`,
     bars,
     '</div>',
@@ -171,17 +255,16 @@ function servicesMeta(page: BoardPage): string {
   ].join('')
 }
 
-function servicesPanel(page: BoardPage): string {
+function servicesSlot(page: BoardPage): string {
   const { facts } = page
   const tiles = facts.services.length === 0 ? [lineTile('window', PLAIN_LORE.boardNoServices)] : facts.services.map(service => serviceTile(service, page))
   return [
-    '<section class="panel" aria-labelledby="h-services">',
     `<div class="panel-head"><h2 id="h-services">${PLAIN_LORE.boardTabServices}</h2>${servicesMeta(page)}</div>`,
     '<div class="svc-grid">',
     ...tiles,
     ...pulseLines(facts, PLAIN_LORE).map(line => lineTile('bus', line)),
     ...matrixLines(facts, PLAIN_LORE).map(line => lineTile('matrix', line)),
-    '</div></section>',
+    '</div>',
   ].join('\n')
 }
 
@@ -189,20 +272,20 @@ function failureSpan(facts: BusFacts): string {
   return `<span class="fail"${facts.failure === null ? ' data-none' : ''}>last failure <b>${escaped(facts.failure ?? 'none')}</b></span>`
 }
 
-function flowPanel(facts: BusFacts): string {
+function flowSlot(page: BoardPage): string {
+  const { facts } = page
   const live = facts.cards.filter(isLive)
   const stages = PLAIN_LORE.boardFlowColumns.map((title, column) => {
-    const ids = live.filter(card => FLOW_STATES[column]!.includes(card.state ?? '')).map(card => `#${card.id}`)
+    const ids = live.filter(card => FLOW_STATES[column]!.includes(card.state ?? '')).map(card => cardReference(card.id, page))
     return `<div class="stage"${ids.length === 0 ? ' data-empty' : ''}><span class="n">${ids.length}</span><span class="name">${escaped(title)}</span><span class="ids">${ids.length === 0 ? NONE : ids.join(' · ')}</span></div>`
   })
   return [
-    '<section class="panel" aria-labelledby="h-flow">',
     `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2></div>`,
     '<div class="flow">',
     ...goalLines(facts, PLAIN_LORE).map(line => `<p class="goal">${escaped(line)}</p>`),
     ...stages,
     `<div class="flow-note"><span>review queue <b>${facts.reviewQueue}</b></span>${failureSpan(facts)}</div>`,
-    '</div></section>',
+    '</div>',
   ].join('\n')
 }
 
@@ -222,7 +305,7 @@ function cardFields(card: BusCard): string[] {
 function cardRow(card: BusCard): string {
   const cells = cardFields(card).map((field, at) => `<td${at === 0 ? ' class="slug"' : ''}>${escaped(field)}</td>`).join('')
   const stage = escaped(card.stage)
-  return `<tr data-card="${card.id}" data-stage="${stage}"${isLive(card) ? ' data-live' : ''}><td class="id">#${card.id}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span></td></tr>`
+  return `<tr data-card="${card.id}" data-stage="${stage}"${isLive(card) ? ' data-live' : ''}${opener(cardDialog(card.id))}><td class="id">#${card.id}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span></td><td>${OPEN_HINT}</td></tr>`
 }
 
 function lanesOf(cards: BusCard[]): (string | null)[] {
@@ -250,44 +333,64 @@ export function filterRule(filter: string): string {
   return `.backlog:has(#${id}:target) { & tr[data-card]:not(${shown}), & tbody:not(:has(tr${shown})) { display: none; } & .chip[href="#${id}"] { --_bg: var(--wire); --_fg: var(--void); --_bd: var(--wire); } }`
 }
 
-const COLUMNS = ['card', 'slug', 'kind', 'contour', 'size', 'path', 'gate', 'depends', 'blocks', 'state']
+const COLUMNS = ['card', 'slug', 'kind', 'contour', 'size', 'path', 'gate', 'depends', 'blocks', 'state', '']
 
-function backlogPanel(facts: BusFacts): string {
+function backlogFilters(facts: BusFacts): string[] {
+  return [LIVE_FILTER, ...stagesOf(backlogCards(facts.cards, facts.at, true))]
+}
+
+function filterTargetIds(facts: BusFacts): string[] {
+  return [ALL_FILTER, ...backlogFilters(facts)].map(filterId)
+}
+
+function backlogSlot(facts: BusFacts): string {
   const cards = backlogCards(facts.cards, facts.at, true)
-  const filters = [LIVE_FILTER, ...stagesOf(cards)]
+  const filters = backlogFilters(facts)
   const chip = (filter: string): string => `<a class="chip" href="#${filterId(filter)}">${escaped(filter)}</a>`
   return [
-    '<section class="panel backlog" aria-labelledby="h-backlog">',
-    ...[ALL_FILTER, ...filters].map(filter => `<span class="filter-target" id="${filterId(filter)}"></span>`),
     `<style>${filters.map(filterRule).join('\n')}</style>`,
     `<div class="panel-head"><h2 id="h-backlog">${PLAIN_LORE.boardTabBacklog}</h2><span class="meta">${cards.length} cards · grouped by lane</span></div>`,
     `<nav class="filters" aria-label="Filter by stage">${chip(ALL_FILTER)}${filters.map(chip).join('')}</nav>`,
-    '<div class="scroll"><table>',
+  ].join('\n')
+}
+
+function rowsSlot(facts: BusFacts): string {
+  const cards = backlogCards(facts.cards, facts.at, true)
+  return [
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
     ...lanesOf(cards).map(lane => laneBody(lane, cards)),
+  ].join('\n')
+}
+
+function backlogPanel(facts: BusFacts, slots: BoardSlots): string {
+  return [
+    `<section class="panel backlog" id="${BACKLOG}" aria-labelledby="h-backlog">`,
+    ...filterTargetIds(facts).map(id => `<span class="filter-target" id="${id}"></span>`),
+    `<div id="${SLOT_PREFIX}backlog">${slots.backlog}</div>`,
+    `<div class="scroll" id="${BACKLOG_SCROLL}"><table id="${SLOT_PREFIX}rows">`,
+    slots.rows,
     '</table></div></section>',
   ].join('\n')
 }
 
-function headerPanel(page: BoardPage): string {
+function headerPanel(page: BoardPage, slots: BoardSlots): string {
   return [
     '<header class="panel">',
     `<div class="banner-wrap"><pre class="banner" aria-label="MIKOSHI">${escaped(BANNER.replace(/^\n/, ''))}</pre>`,
     `<p class="subtitle">${escaped(LORE.subtitle(page.version))}</p></div>`,
-    `<div class="head-side"><p class="board-title">construct <span>board</span></p>${headerReadings(page)}</div>`,
+    `<div class="head-side"><p class="board-title">construct <span>board</span></p><p class="kv" id="${SLOT_PREFIX}kv">${slots.kv}</p></div>`,
     '</header>',
   ].join('\n')
 }
 
 function headerReadings(page: BoardPage): string {
   const { facts } = page
-  const readings = [
+  return [
     `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>`,
     `<span>written <b>${escaped(facts.at)}</b></span>`,
-    `<span>refresh <b>${REFRESH_SECONDS}s</b></span>`,
-    `<span class="live"${liveAttribute(facts)}>${busFresh(facts) ? 'bus live' : 'bus stale'}</span>`,
-  ]
-  return `<p class="kv">${readings.join('')}</p>`
+    `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b></span>`,
+    `<span class="live" id="${BUS_LIVE}"${liveAttribute(facts)}>${busFresh(facts) ? 'bus live' : STALE_READING}</span>`,
+  ].join('')
 }
 
 function pulseReading(facts: BusFacts): string {
@@ -295,17 +398,338 @@ function pulseReading(facts: BusFacts): string {
   return age === null ? 'no pulse' : `pulse ${Math.round(age / MINUTE_MS)} min`
 }
 
-function statusLine(facts: BusFacts): string {
-  const parts = [
+function statusSlot(facts: BusFacts): string {
+  return [
     '<span class="mode">BOARD</span>',
-    `<span>subnet <b class="live"${liveAttribute(facts)}>${pulseReading(facts)}</b></span>`,
+    `<span>subnet <b class="live" id="${PULSE_ELEMENT_ID}"${liveAttribute(facts)}>${pulseReading(facts)}</b></span>`,
     `<span>agents <b>${facts.services.length}</b></span>`,
     `<span>review queue <b>${facts.reviewQueue}</b></span>`,
     failureSpan(facts),
+    `<button type="button"${opener(HANDOFF_DIALOG)}><kbd>H</kbd> handoff ›</button>`,
+    `<button type="button"${opener(DECISIONS_DIALOG)}><kbd>D</kbd> decisions ›</button>`,
     '<span>geek mode <b>--geek</b></span>',
     '<span class="cursor">construct board</span>',
+  ].join('')
+}
+
+function opener(dialog: string): string {
+  return ` data-open="${dialog}" tabindex="0" aria-haspopup="dialog"`
+}
+
+function cardDialog(card: number): string {
+  return `card-${card}`
+}
+
+function cardReference(card: number, page: BoardPage): string {
+  return page.details.has(card) ? `<button type="button" class="cid"${opener(cardDialog(card))}>#${card} ›</button>` : `#${card}`
+}
+
+function linked(text: string, page: BoardPage): string {
+  return escaped(text).replace(CARD_REFERENCE, (_, card: string) => cardReference(Number(card), page)).replace(CODE_SPAN, '<code>$1</code>')
+}
+
+type PunchValue = string | number | null | undefined | readonly string[]
+
+function punchField(label: string, value: PunchValue, page: BoardPage, wide = false): string {
+  const empty = value === null || value === undefined || value === '' || value === NONE || (Array.isArray(value) && value.length === 0)
+  const shown = empty ? NONE : Array.isArray(value) ? value.map(item => `<span class="tag">${linked(item, page)}</span>`).join(' ') : linked(String(value), page)
+  return `<div class="pf"${wide ? ' data-wide' : ''}><span class="pf-k">${escaped(label)}</span><span class="pf-v"${empty ? ' data-none' : ''}>${shown}</span></div>`
+}
+
+function holes(sha: string): string {
+  return [...sha.slice(0, PUNCH_DIGITS)].flatMap(digit => Number.parseInt(digit, 16).toString(2).padStart(4, '0').split('')).map(bit => `<i${bit === '1' ? ' data-on' : ''}></i>`).join('')
+}
+
+function punch(label: string, sha: string, fields: string[]): string {
+  return `<div class="punch"><span class="punch-label">${escaped(label)}</span><div class="punch-holes" aria-hidden="true">${holes(sha)}</div><div class="punch-grid">${fields.join('')}</div></div>`
+}
+
+function divider(name: string): string {
+  return `<div class="divider">${name}</div>`
+}
+
+function note(html: string): string {
+  return `<p class="note">${html}</p>`
+}
+
+function paragraphs(text: string, page: BoardPage): string {
+  return text.split(/\n\s*\n/).map(part => part.trim()).filter(part => part !== '').map(part => `<p>${linked(part, page)}</p>`).join('')
+}
+
+function listed(heading: string, items: readonly string[], page: BoardPage): string {
+  return items.length === 0 ? '' : `<h3>${heading}</h3><ul>${items.map(item => `<li>${linked(item, page)}</li>`).join('')}</ul>`
+}
+
+function dialogHead(kind: string, id: string, name: string, state: string): string {
+  return `<div class="drill-head"><span class="drill-kind">${kind}</span><span class="drill-id" id="drill-title">${escaped(id)}</span><span class="drill-name">${escaped(name)}</span>${state}<form method="dialog"><button class="drill-close" value="close">esc · close</button></form></div>`
+}
+
+function cardPunch(card: BusCard, detail: CardDetail, page: BoardPage): string {
+  const [slug, kind, contour, size, cardPath, gate, depends, blocks] = cardFields(card)
+  const contract = detail.contract
+  const fields = [
+    punchField('kind', kind, page),
+    punchField('contour', contour, page),
+    punchField('size', size, page),
+    punchField('path', cardPath, page),
+    punchField('gate', gate, page),
+    punchField('milestone', contract?.milestone, page),
+    punchField('decision', contract?.decision, page),
+    punchField('who', contract?.who, page),
+    punchField('priority', contract?.priority, page),
+    punchField('risk', contract?.risk, page),
+    punchField('lane', card.lane, page),
+    punchField('continue', contract?.continue, page),
+    punchField('depends', depends, page),
+    punchField('blocks', blocks, page),
+    punchField('branch', contract?.branch, page, true),
+    punchField('card line', contract?.cardLine ?? card.line, page, true),
+    punchField('touches', contract?.touches, page, true),
+    punchField('creates', contract?.creates, page, true),
+    punchField('seam', contract?.seam, page),
+    punchField('slice', contract?.slice, page),
+    punchField('text_sha', contract?.textSha, page),
+    punchField('admission', contract?.admissionEventId, page),
+    punchField('last heartbeat', contract?.lastHeartbeat?.ts, page),
   ]
-  return `<footer class="statusline">${parts.join('')}</footer>`
+  return punch(`card · ${slug === NONE ? `#${card.id}` : slug}`, contract?.textSha ?? card.id.toString(16).padStart(PUNCH_DIGITS, '0'), fields)
+}
+
+function cardProse(detail: CardDetail, page: BoardPage): string {
+  const contract = detail.contract
+  if (contract === null)
+    return note('The bus holds no admitted card text for this card.')
+  return `<div class="prose">${paragraphs(contract.prose, page)}${listed('Witnesses', contract.witnesses, page)}${listed('Unclear', contract.unclear, page)}</div>`
+}
+
+function matrixRows(rows: [string, string][]): string {
+  return `<div class="mx-wrap"><table class="mx"><tbody>${rows.map(([key, value]) => `<tr><th scope="row">${escaped(key)}</th><td>${escaped(value)}</td></tr>`).join('')}</tbody></table></div>`
+}
+
+function pullLink(pr: number, page: BoardPage): string {
+  return page.repository === null ? `PR #${pr}` : `<a data-link href="${escaped(`${page.repository}/pull/${pr}`)}">PR #${pr} ›</a>`
+}
+
+function cardMatrix(detail: CardDetail, page: BoardPage): string {
+  if (detail.pr === null)
+    return note('No pull request for this card in the bus yet.')
+  const matrix: BusMatrix | undefined = page.facts.matrices.find(entry => entry.pr === detail.pr)
+  if (matrix === undefined)
+    return note(`The bus holds no check matrix for ${pullLink(detail.pr, page)}.`)
+  const contract = detail.contract
+  const check = matrixRows([['pull request', `PR #${matrix.pr}`], ['head', matrix.head ?? NONE], ['killed', String(matrix.killed)], ['survived', String(matrix.survived)], ['not run', String(matrix.notRun)], ['full run', matrix.full ?? NONE]])
+  const risk = matrixRows([['risk', contract?.risk ?? NONE], ['seam', contract?.seam.join(', ') || NONE], ['slice', contract?.slice.join(', ') || NONE]])
+  return `<div><p class="mx-title">check matrix · ${pullLink(matrix.pr, page)}</p>${check}</div><div><p class="mx-title">risk matrix</p>${risk}</div>`
+}
+
+function verdictText(verdict: unknown): string {
+  return typeof verdict === 'string' ? verdict : JSON.stringify(verdict) ?? NONE
+}
+
+function chainEntries(chain: CardChain): [number, string][] {
+  const entries: [number, string][] = chain.versions.map(event => [event, 'card text admitted'])
+  if (chain.verdict !== null)
+    entries.push([chain.verdict.event, `review recorded · ${verdictText(chain.verdict.verdict)}`])
+  if (chain.proof !== null)
+    entries.push([chain.proof, 'card verified'])
+  return entries.sort((a, b) => a[0] - b[0])
+}
+
+function cardChainHtml(card: BusCard, detail: CardDetail): string {
+  const command = `<code>pnpm card ${card.id} --chain</code>`
+  if (detail.chain === null)
+    return note(`No chain: the bus holds no admitted text for this card (${command}).`)
+  const entries = chainEntries(detail.chain).map(([event, what]) => `<li><span class="when">event ${event}</span><span class="dot"></span><span class="ev">${escaped(what)}</span></li>`)
+  const decisions = detail.chain.decisions.length === 0 ? '' : note(`decisions named: ${escaped(detail.chain.decisions.join(', '))}`)
+  return `<ol class="chain">${entries.join('')}</ol>${decisions}${note(`the same fact as ${command}`)}`
+}
+
+function cardDialogHtml(card: BusCard, detail: CardDetail, page: BoardPage): string {
+  const stage = escaped(card.stage)
+  return [
+    dialogHead('card', `#${card.id}`, cardFields(card)[0]!, `<span class="st" data-stage="${stage}">${stage}</span>`),
+    '<div class="drill-body">',
+    cardPunch(card, detail, page),
+    divider('prose'),
+    cardProse(detail, page),
+    divider('matrix'),
+    cardMatrix(detail, page),
+    divider('chain'),
+    cardChainHtml(card, detail),
+    '</div>',
+  ].join('')
+}
+
+interface HandoffParts {
+  fields: [string, string[]][]
+  prose: string[]
+}
+
+function handoffParts(text: string): HandoffParts {
+  const parts: HandoffParts = { fields: [], prose: [] }
+  let field: [string, string[]] | null = null
+  for (const line of text.split(/\r?\n/)) {
+    const labelled = HANDOFF_LINE.exec(line)
+    if (labelled !== null) {
+      field = [labelled[1]!, labelled[2] === undefined ? [] : [labelled[2]]]
+      parts.fields.push(field)
+    }
+    else if (field !== null && LIST_ITEM.test(line)) {
+      field[1].push(line.replace(LIST_ITEM, ''))
+    }
+    else if (line.trim() !== '') {
+      field = null
+      parts.prose.push(line.trim())
+    }
+  }
+  return parts
+}
+
+function handoffDialogHtml(page: BoardPage): string {
+  const name = path.basename(page.handoff.file)
+  if (page.handoff.text === null)
+    return `${dialogHead('handoff', LORE_NAMES.window!, name, '')}<div class="drill-body">${note(`No ${escaped(name)} to read.`)}</div>`
+  const { fields, prose } = handoffParts(page.handoff.text)
+  const status = fields.find(([label]) => label === HANDOFF_STATUS)?.[1][0]
+  const punchFields = fields.map(([label, values]) => punchField(label, values.length === 1 ? values[0] : values, page, values.length > 1))
+  return [
+    dialogHead('handoff', LORE_NAMES.window!, name, status === undefined ? '' : `<span class="st">${escaped(status)}</span>`),
+    '<div class="drill-body">',
+    punch(`handoff · ${name}`, createHash('sha256').update(page.handoff.text).digest('hex'), punchFields),
+    divider('prose'),
+    prose.length === 0 ? note(`${escaped(name)} carries no prose.`) : `<div class="prose">${prose.map(line => `<p>${linked(line, page)}</p>`).join('')}</div>`,
+    '</div>',
+  ].join('')
+}
+
+function decisionsDialogHtml(page: BoardPage): string {
+  const rows = page.decisions.map(decision => `<div><b>D-${decision.decisionId}</b><span>${linked(decision.text, page)}</span></div>`)
+  return [
+    dialogHead('decisions', 'in force', `${page.decisions.length} owner decisions`, ''),
+    '<div class="drill-body">',
+    rows.length === 0 ? note('The bus holds no owner decision in force.') : `<div class="dec">${rows.join('')}</div>`,
+    '</div>',
+  ].join('')
+}
+
+function dialogTemplate(dialog: string, html: string): string {
+  return `<template id="${DIALOG_PREFIX}${dialog}">${html}</template>`
+}
+
+export const VIEW_KEY = 'construct-board:view'
+
+const SCRIPT = `
+(function () {
+  var dialog = document.getElementById('${DRILL}')
+  var content = document.getElementById('${DRILL_CONTENT}')
+  var scroller = document.getElementById('${BACKLOG_SCROLL}')
+  var view = { filter: '', scroll: 0, open: null }
+  function save() {
+    try { localStorage.setItem('${VIEW_KEY}', JSON.stringify(view)) }
+    catch (error) {}
+  }
+  try {
+    var stored = JSON.parse(localStorage.getItem('${VIEW_KEY}') || '{}')
+    if (typeof stored.filter === 'string') view.filter = stored.filter
+    if (typeof stored.scroll === 'number') view.scroll = stored.scroll
+    if (typeof stored.open === 'string') view.open = stored.open
+  }
+  catch (error) {}
+  function open(name) {
+    var template = document.getElementById('${DIALOG_PREFIX}' + name)
+    if (!template) { view.open = dialog.open ? view.open : null; return }
+    content.innerHTML = template.innerHTML
+    if (!dialog.open) dialog.showModal()
+    view.open = name
+    save()
+  }
+  dialog.addEventListener('close', function () { view.open = null; save() })
+  dialog.addEventListener('click', function (event) { if (event.target === dialog) dialog.close() })
+  document.addEventListener('click', function (event) {
+    var hit = event.target.closest && event.target.closest('[data-open]')
+    if (hit) open(hit.dataset.open)
+  })
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') { if (dialog.open) dialog.close(); return }
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+    var hit = event.target.closest && event.target.closest('[data-open]')
+    if (hit && hit.tagName !== 'BUTTON' && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(hit.dataset.open); return }
+    if (event.key === 'h' || event.key === 'H') open('${HANDOFF_DIALOG}')
+    if (event.key === 'd' || event.key === 'D') open('${DECISIONS_DIALOG}')
+  })
+  addEventListener('hashchange', function () { view.filter = location.hash; save() })
+  if (scroller) scroller.addEventListener('scroll', function () { view.scroll = scroller.scrollTop; save() })
+  if (location.hash) view.filter = location.hash
+  else if (view.filter && document.getElementById(view.filter.slice(1))) location.hash = view.filter
+  if (scroller) scroller.scrollTop = view.scroll
+  if (view.open) open(view.open)
+  save()
+  function stale() {
+    var live = document.getElementById('${BUS_LIVE}')
+    if (live) { live.setAttribute('data-stale', ''); live.textContent = '${STALE_READING}' }
+    var pulse = document.getElementById('${PULSE_ELEMENT_ID}')
+    if (pulse) pulse.setAttribute('data-stale', '')
+  }
+  function readable(board) {
+    return board !== null && typeof board === 'object' && typeof board.written === 'string' && board.slots !== null && typeof board.slots === 'object' && Array.isArray(board.filters)
+  }
+  function apply(board) {
+    document.title = '${TITLE_PREFIX}' + board.written
+    for (var name in board.slots) {
+      var slot = document.getElementById('${SLOT_PREFIX}' + name)
+      if (slot && typeof board.slots[name] === 'string') slot.innerHTML = board.slots[name]
+    }
+    var backlog = document.getElementById('${BACKLOG}')
+    board.filters.forEach(function (id) {
+      if (!backlog || typeof id !== 'string' || document.getElementById(id)) return
+      var target = document.createElement('span')
+      target.className = 'filter-target'
+      target.id = id
+      backlog.prepend(target)
+    })
+  }
+  var written = document.body.dataset.written
+  var period = Number(document.body.dataset.tickMs)
+  function receive(board) {
+    if (!readable(board)) { stale(); return }
+    if (typeof board.tickMs === 'number' && board.tickMs > 0) period = board.tickMs
+    if (board.written === written) return
+    written = board.written
+    apply(board)
+  }
+  function schedule() {
+    if (period > 0) setTimeout(update, period)
+  }
+  function update() {
+    window.BOARD = undefined
+    var script = document.createElement('script')
+    script.onload = function () { script.remove(); receive(window.BOARD); schedule() }
+    script.onerror = function () { script.remove(); stale(); schedule() }
+    script.src = '${BOARD_DATA_FILE}?t=' + Date.now()
+    document.head.appendChild(script)
+  }
+  schedule()
+})()
+`
+
+function dialogsSlot(page: BoardPage): string {
+  const cards = page.facts.cards.flatMap((card) => {
+    const detail = page.details.get(card.id)
+    return detail === undefined ? [] : [dialogTemplate(cardDialog(card.id), cardDialogHtml(card, detail, page))]
+  })
+  return [
+    dialogTemplate(HANDOFF_DIALOG, handoffDialogHtml(page)),
+    dialogTemplate(DECISIONS_DIALOG, decisionsDialogHtml(page)),
+    ...cards,
+  ].join('\n')
+}
+
+function dialogs(slots: BoardSlots): string {
+  return [
+    `<dialog class="drill" id="${DRILL}" aria-labelledby="drill-title"><div class="drill-wrap" id="${DRILL_CONTENT}"></div></dialog>`,
+    `<div id="${SLOT_PREFIX}dialogs" hidden>${slots.dialogs}</div>`,
+    `<script>${SCRIPT}</script>`,
+  ].join('\n')
 }
 
 const STYLE = `
@@ -426,7 +850,7 @@ header.panel {
 }
 .svc-top { display: flex; gap: var(--space-s); align-items: baseline; }
 .svc-kind { font: 700 0.8125rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
-.svc-target { margin-inline-start: auto; color: var(--wire); }
+.svc-target { margin-inline-start: auto; }
 .svc-line { color: var(--dim); font-size: 0.72rem; overflow-wrap: anywhere; }
 .lore { color: var(--amber); font: 700 0.75rem var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; }
 .edd {
@@ -552,9 +976,115 @@ td.slug { color: var(--text); white-space: normal; min-inline-size: 16rem; }
   border: 1px solid var(--line);
   background: var(--panel);
   font-size: 0.72rem;
-  & > span { padding: 0.3rem 0.75rem; border-inline-end: 1px solid var(--line); color: var(--dim); }
+  & > span, & > button { padding: 0.3rem 0.75rem; border-inline-end: 1px solid var(--line); color: var(--dim); }
+  & > button { color: var(--wire); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
   & .mode { background: var(--signal); color: var(--void); font-weight: 700; letter-spacing: 0.12em; }
   & .cursor::after { content: "\\2588"; color: var(--wire); margin-inline-start: 0.3em; animation: --animation-blink 1s steps(1) infinite; }
+}
+button { margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
+[data-open], [data-link], .drill-close {
+  cursor: pointer;
+  color: var(--wire);
+  text-decoration: none;
+  &:hover { background: var(--wire-soft); box-shadow: inset 0 -2px var(--wire); }
+  &:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+}
+tr[data-open] td:last-child { text-align: end; }
+.open-hint { color: var(--wire); font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+.cid { padding-inline: 0.2em; }
+kbd { padding: 0 0.25rem; border: 1px solid var(--wire); color: var(--wire); font: 700 0.625rem var(--font-mono); }
+dialog.drill {
+  --cut: 1.375rem;
+  inline-size: min(56rem, calc(100vi - 2rem));
+  max-block-size: calc(100dvh - 3rem);
+  padding: 0;
+  border: 1px solid var(--signal);
+  background: var(--panel);
+  color: var(--text);
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+  &::backdrop { background: oklch(from var(--void) l c h / 0.7); backdrop-filter: blur(2px); }
+}
+.drill-wrap { display: flex; flex-direction: column; max-block-size: calc(100dvh - 3rem); }
+.drill-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-s) var(--space-m);
+  padding: var(--space-m) var(--space-l);
+  border-block-end: 1px solid var(--line);
+  background: linear-gradient(90deg, var(--signal-soft), transparent 70%);
+  & form { margin: 0; }
+}
+.drill-kind { color: var(--signal); font: 700 0.6875rem var(--font-display); letter-spacing: 0.2em; text-transform: uppercase; }
+.drill-id { font: 700 1.375rem var(--font-display); letter-spacing: 0.06em; }
+.drill-name { flex: 1; min-inline-size: 0; font-weight: 700; overflow-wrap: anywhere; }
+.drill-close { padding: var(--space-xs) 0.625rem; border: 1px solid var(--wire); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+.drill-body { overflow: auto; padding: var(--space-l); display: grid; gap: var(--space-l); }
+.punch { position: relative; border: 1px solid var(--line); background: var(--panel-raised); }
+.punch-holes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: var(--space-s) 0.625rem;
+  border-block-end: 1px dashed var(--line);
+  & i { inline-size: 0.375rem; block-size: 0.625rem; border: 1px solid var(--line); }
+  & i[data-on] { background: var(--signal); border-color: var(--signal); }
+}
+.punch-label { position: absolute; inset-block-start: 0.375rem; inset-inline-end: 0.625rem; color: var(--dim); font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; }
+.punch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr)); }
+.pf {
+  min-inline-size: 0;
+  padding: 0.4rem 0.625rem;
+  border-inline-end: 1px solid var(--line);
+  border-block-end: 1px solid var(--line);
+  &[data-wide] { grid-column: 1 / -1; }
+}
+.pf-k { display: block; color: var(--dim); font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; }
+.pf-v { display: block; overflow-wrap: anywhere; &[data-none] { color: var(--off); } }
+.tag { display: inline-block; margin: 2px 4px 0 0; padding: 0 0.375rem; border: 1px solid var(--line); }
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  color: var(--signal);
+  font: 700 0.6875rem var(--font-display);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  &::before, &::after { content: ""; flex: 1; block-size: 1px; background: repeating-linear-gradient(90deg, var(--signal) 0 6px, transparent 6px 10px); }
+}
+.prose {
+  display: grid;
+  gap: 0.625rem;
+  max-inline-size: 78ch;
+  line-height: 1.65;
+  & h3 { margin: 0; color: var(--amber); font: 700 0.6875rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
+  & ul { margin: 0; padding-inline-start: 1.2em; display: grid; gap: 3px; }
+}
+code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); }
+.note { padding-inline-start: var(--space-s); border-inline-start: 2px solid var(--amber); color: var(--dim); font-size: 0.6875rem; }
+.mx-title { margin-block-end: 0.375rem; color: var(--amber); font: 700 0.6875rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
+.mx-wrap { overflow-x: auto; border: 1px solid var(--line); }
+.mx {
+  min-inline-size: 0;
+  font-size: 0.75rem;
+  & th { inline-size: 10rem; padding: 0.3rem 0.625rem; background: var(--panel-raised); color: var(--dim); font-weight: 600; text-align: start; }
+  & td { padding: 0.3rem 0.625rem; border-block-end: 1px solid var(--line); }
+}
+.chain {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  & li { display: grid; grid-template-columns: 7rem 0.875rem minmax(0, 1fr); gap: 0.625rem; align-items: start; padding-block: var(--space-xs); }
+  & .when { color: var(--dim); font-size: 0.7rem; text-align: end; }
+  & .dot { inline-size: 0.625rem; block-size: 0.625rem; margin-block-start: var(--space-xs); border: 2px solid var(--wire); }
+}
+.dec {
+  display: grid;
+  border: 1px solid var(--line);
+  & div { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 0.75rem; padding: var(--space-s) 0.75rem; border-block-end: 1px solid var(--line); }
+  & div:last-child { border-block-end: 0; }
+  & b { color: var(--amber); font-family: var(--font-display); letter-spacing: 0.06em; }
 }
 @keyframes --animation-board-banner-flicker { 0%, 96%, 100% { transform: none; } 97% { transform: translateX(2px); } 98% { transform: translateX(-1px); } }
 @keyframes --animation-blink { 50% { opacity: 0.2; } }
@@ -563,28 +1093,80 @@ td.slug { color: var(--text); white-space: normal; min-inline-size: 16rem; }
 }
 `
 
+export interface BoardSlots {
+  kv: string
+  services: string
+  flow: string
+  backlog: string
+  rows: string
+  status: string
+  dialogs: string
+}
+
+export interface BoardData {
+  written: string
+  tickMs: number | null
+  slots: BoardSlots
+  filters: string[]
+}
+
+export function boardData(page: BoardPage): BoardData {
+  return {
+    written: page.facts.at,
+    tickMs: page.tickMs,
+    slots: {
+      kv: headerReadings(page),
+      services: servicesSlot(page),
+      flow: flowSlot(page),
+      backlog: backlogSlot(page.facts),
+      rows: rowsSlot(page.facts),
+      status: statusSlot(page.facts),
+      dialogs: dialogsSlot(page),
+    },
+    filters: filterTargetIds(page.facts),
+  }
+}
+
+export function boardDataScript(data: BoardData): string {
+  return `window.BOARD = ${JSON.stringify(data)}\n`
+}
+
 export function renderBoard(page: BoardPage): string {
+  const { slots } = boardData(page)
   return [
     '<!doctype html>',
     '<html lang="en"><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<meta http-equiv="refresh" content="${REFRESH_SECONDS}">`,
-    `<title>construct board · ${escaped(page.facts.at)}</title>`,
-    `<style>${STYLE}</style></head><body>`,
-    headerPanel(page),
-    servicesPanel(page),
+    `<title>${TITLE_PREFIX}${escaped(page.facts.at)}</title>`,
+    `<style>${STYLE}</style></head><body data-written="${escaped(page.facts.at)}" data-tick-ms="${page.tickMs ?? ''}">`,
+    headerPanel(page, slots),
+    `<section class="panel" id="${SLOT_PREFIX}services" aria-labelledby="h-services">\n${slots.services}\n</section>`,
     '<div class="split">',
-    flowPanel(page.facts),
-    backlogPanel(page.facts),
+    `<section class="panel" id="${SLOT_PREFIX}flow" aria-labelledby="h-flow">\n${slots.flow}\n</section>`,
+    backlogPanel(page.facts, slots),
     '</div>',
-    statusLine(page.facts),
+    `<footer class="statusline" id="${SLOT_PREFIX}status">${slots.status}</footer>`,
+    dialogs(slots),
     '</body></html>',
     '',
   ].join('\n')
 }
 
-function pageOf(db: DatabaseSync, now: Date): string {
-  return renderBoard({ version: VERSION, modelVersion: readModelVersion(), facts: busFacts(db, now), gauges: projectedGauges(db), windowGauges: projectedWindowGauges(db), limits: readEddiesLimits() })
+function boardPageOf(db: DatabaseSync, now: Date, handoffFile: string, tickMs: number | null): BoardPage {
+  const facts = busFacts(db, now)
+  return {
+    version: VERSION,
+    modelVersion: readModelVersion(),
+    facts,
+    gauges: projectedGauges(db),
+    windowGauges: projectedWindowGauges(db),
+    limits: readEddiesLimits(),
+    details: cardDetails(db, facts),
+    decisions: inForceDecisions(db),
+    handoff: readHandoff(handoffFile),
+    repository: readRepositoryUrl(),
+    tickMs,
+  }
 }
 
 export function writeBoardPage(file: string, html: string, files: BoardFiles = DISK_FILES): void {
@@ -593,10 +1175,10 @@ export function writeBoardPage(file: string, html: string, files: BoardFiles = D
   files.rename(temporary, file)
 }
 
-export function printBoard(busPath: string, now: Date, write: (text: string) => void): number {
+export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE): number {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    write(pageOf(db, now))
+    write(renderBoard(boardPageOf(db, now, handoffFile, null)))
     return 0
   }
   finally {
@@ -614,16 +1196,21 @@ export function runBoardCli(busPath: string = defaultBusPath()): number {
 
 export interface BoardProjection {
   file: string
+  dataFile: string
   project: (now: Date) => void
 }
 
-export function boardProjection(db: DatabaseSync, busPath: string): BoardProjection {
+export function boardProjection(db: DatabaseSync, busPath: string, tickMs: number, files: BoardFiles = DISK_FILES, handoffFile: string = HANDOFF_FILE): BoardProjection {
   const file = path.join(path.dirname(busPath), BOARD_FILE)
+  const dataFile = path.join(path.dirname(busPath), BOARD_DATA_FILE)
   return {
     file,
+    dataFile,
     project: (now) => {
       try {
-        writeBoardPage(file, pageOf(db, now))
+        const page = boardPageOf(db, now, handoffFile, tickMs)
+        writeBoardPage(dataFile, boardDataScript(boardData(page)), files)
+        writeBoardPage(file, renderBoard(page), files)
       }
       catch (error) {
         console.error(`${PREFIX}${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)

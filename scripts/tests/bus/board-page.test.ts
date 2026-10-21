@@ -1,9 +1,10 @@
-import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
-import type { BoardFiles } from '../../bus/board-page.js'
+import type { BusSeed, SeedEvent } from '../../../tests/board/bus-fixture.js'
+import type { BoardData, BoardFiles } from '../../bus/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
@@ -11,10 +12,11 @@ import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, writeBoardPage } from '../../bus/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
 import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
 import { defaultBusPath } from '../../bus/db.js'
-import { SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { TICK_MS } from '../../bus/netwatch.js'
+import { REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const roots: string[] = []
 
@@ -52,6 +54,211 @@ describe('writeBoardPage', () => {
   })
 })
 
+type Listener = (event: FakeEvent) => void
+
+interface FakeEvent {
+  target?: FakeElement
+  key?: string
+  preventDefault?: () => void
+}
+
+class FakeElement {
+  readonly dataset: Record<string, string> = {}
+  readonly listeners = new Map<string, Listener[]>()
+  readonly attributes = new Map<string, string>()
+  readonly prepended: FakeElement[] = []
+  writes = 0
+  private html = ''
+  textContent = ''
+  className = ''
+  id = ''
+  src = ''
+  scrollTop = 0
+  open = false
+  removed = false
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+
+  constructor(readonly tagName: string, opens?: string) {
+    if (opens !== undefined)
+      this.dataset.open = opens
+  }
+
+  get innerHTML(): string {
+    return this.html
+  }
+
+  set innerHTML(next: string) {
+    this.writes++
+    this.html = next
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value)
+  }
+
+  prepend(child: FakeElement): void {
+    this.prepended.unshift(child)
+  }
+
+  remove(): void {
+    this.removed = true
+  }
+
+  addEventListener(type: string, listener: Listener): void {
+    this.listeners.set(type, [...this.listeners.get(type) ?? [], listener])
+  }
+
+  dispatch(type: string, event: FakeEvent = {}): void {
+    for (const listener of this.listeners.get(type) ?? [])
+      listener({ target: this, ...event })
+  }
+
+  closest(selector: string): FakeElement | null {
+    return selector === '[data-open]' && this.dataset.open !== undefined ? this : null
+  }
+
+  showModal(): void {
+    this.open = true
+  }
+
+  close(): void {
+    if (!this.open)
+      return
+    this.open = false
+    this.dispatch('close')
+  }
+}
+
+class MemoryStorage {
+  readonly items = new Map<string, string>()
+
+  getItem(key: string): string | null {
+    return this.items.get(key) ?? null
+  }
+
+  setItem(key: string, value: string): void {
+    this.items.set(key, value)
+  }
+}
+
+const THROWING_STORAGE = 'throws'
+
+function templatesOf(html: string): Map<string, string> {
+  return new Map([...html.matchAll(/<template id="([^"]+)">([\s\S]*?)<\/template>/g)].map(match => [match[1]!, match[2]!]))
+}
+
+function openersOf(html: string): { tag: string, dialog: string }[] {
+  return [...html.matchAll(/<(\w+) [^>]*data-open="([^"]+)"/g)].map(match => ({ tag: match[1]!.toUpperCase(), dialog: match[2]! }))
+}
+
+function idsOf(html: string): string[] {
+  return [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]!)
+}
+
+const SLOT_ENDS: Record<string, string> = {
+  kv: '</p></div>\n</header>',
+  services: '\n</section>',
+  flow: '\n</section>',
+  backlog: '</div>\n<div class="scroll"',
+  rows: '\n</table>',
+  status: '</footer>',
+  dialogs: '</div>\n<script>',
+}
+
+function slotsOf(html: string): Map<string, string> {
+  return new Map(Object.entries(SLOT_ENDS).map(([name, end]) => {
+    const open = html.indexOf('>', html.indexOf(`id="slot-${name}"`)) + 1
+    const from = html[open] === '\n' ? open + 1 : open
+    return [name, html.slice(from, html.indexOf(end, from))]
+  }))
+}
+
+function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STORAGE, hash = '') {
+  const shellIds = new Set(idsOf(html))
+  const elements = new Map<string, FakeElement>()
+  for (const [name, inner] of slotsOf(html))
+    elements.set(`slot-${name}`, Object.assign(new FakeElement('DIV'), { innerHTML: inner }))
+  const slots = (): FakeElement[] => [...elements].filter(([id]) => id.startsWith('slot-')).map(([, slot]) => slot)
+  const templates = (): Map<string, string> => templatesOf(elements.get('slot-dialogs')?.innerHTML ?? html)
+  const known = (id: string): boolean => shellIds.has(id) || slots().some(slot => idsOf(slot.innerHTML).includes(id)) || elements.get('backlog')?.prepended.some(child => child.id === id) === true
+  const element = (id: string): FakeElement => {
+    const found = elements.get(id) ?? new FakeElement(id === 'drill' ? 'DIALOG' : 'DIV')
+    const template = templates().get(id)
+    if (template !== undefined)
+      found.innerHTML = template
+    elements.set(id, found)
+    return found
+  }
+  const appended: FakeElement[] = []
+  const timeouts: { run: () => void, ms: number }[] = []
+  const body = /<body data-written="([^"]*)" data-tick-ms="([^"]*)">/.exec(html)!
+  const document = Object.assign(new FakeElement('DOCUMENT'), { title: /<title>([^<]*)<\/title>/.exec(html)![1]!, body: { dataset: { written: body[1]!, tickMs: body[2]! } } })
+  const page = new FakeElement('WINDOW')
+  let current = hash
+  const location = {
+    get hash() {
+      return current
+    },
+    set hash(next: string) {
+      current = next
+      page.dispatch('hashchange')
+    },
+  }
+  const context: Record<string, unknown> = {
+    document: Object.assign(document, {
+      getElementById: (id: string) => known(id) ? elements.get('backlog')?.prepended.find(child => child.id === id) ?? element(id) : null,
+      createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
+      head: { appendChild: (child: FakeElement) => appended.push(child) },
+    }),
+    location,
+    addEventListener: (type: string, listener: Listener) => page.addEventListener(type, listener),
+    setTimeout: (run: () => void, ms: number) => timeouts.push({ run, ms }),
+  }
+  context.window = context
+  if (storage === THROWING_STORAGE) {
+    Object.defineProperty(context, 'localStorage', {
+      get: () => {
+        throw new Error('SecurityError: localStorage is off')
+      },
+    })
+  }
+  else {
+    context.localStorage = storage
+  }
+  vm.createContext(context)
+  vm.runInContext(/<script>([\s\S]*?)<\/script>/.exec(html)![1]!, context)
+  const tick = (data: string | null): FakeElement => {
+    expect(timeouts).toHaveLength(1)
+    timeouts.splice(0)[0]!.run()
+    const script = appended.at(-1)!
+    if (data === null) {
+      script.onerror?.()
+      return script
+    }
+    try {
+      vm.runInContext(data, context)
+    }
+    catch {}
+    script.onload?.()
+    return script
+  }
+  return {
+    templates: templates(),
+    currentTemplates: templates,
+    elements,
+    timeouts,
+    document,
+    tick,
+    location,
+    dialog: element('drill'),
+    content: element('drill-content'),
+    scroller: element('backlog-scroll'),
+    click: (tag: string, dialog: string): void => document.dispatch('click', { target: new FakeElement(tag, dialog) }),
+    key: (key: string, target = new FakeElement('BODY')): void => document.dispatch('keydown', { key, target, preventDefault: () => {} }),
+  }
+}
+
 describe('board.html', () => {
   const NOW = new Date('2026-10-20T08:00:00.000Z')
 
@@ -59,13 +266,43 @@ describe('board.html', () => {
     return new Date(NOW.getTime() - minutes * 60_000).toISOString()
   }
 
+  const SECOND_CARD_TEXT = [
+    'card: #861 second [implement/netwatch/S/cheap/owner] · depends — · blocks —',
+    'branch: feat/second',
+    'touches: scripts/bus/board-page.ts',
+    'continue: stop',
+    'who: shift',
+    '',
+    'The second card follows #860 and runs `pnpm card` once.',
+    '',
+    'Witnesses:',
+    '- `pnpm exec vitest run scripts/tests/bus/board-page.test.ts` exits 0',
+    '',
+    'risk: R4 — low: tests close it',
+  ].join('\n')
+  const SECOND_CARD_SHA = 'c0ffee1181a5f00dbeef'
+
+  function busWithRecords(file: string, seed: BusSeed): string {
+    writeBus(file, seed)
+    const db = new DatabaseSync(file)
+    try {
+      db.exec('ALTER TABLE card_bodies ADD COLUMN admission_event_id INTEGER; ALTER TABLE card_bodies ADD COLUMN text_sha TEXT NOT NULL DEFAULT \'\'')
+      db.exec('UPDATE card_bodies SET admission_event_id = (SELECT event_id FROM cards WHERE cards.card_id = card_bodies.card_id)')
+      db.prepare('UPDATE card_bodies SET text_sha = ? WHERE card_id = 861').run(SECOND_CARD_SHA)
+    }
+    finally {
+      db.close()
+    }
+    return file
+  }
+
   function seededBus(heartbeats: SeedEvent[] = []): string {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-board-screens-'))
     roots.push(root)
-    return writeBus(path.join(root, 'bus.db'), {
+    return busWithRecords(path.join(root, 'bus.db'), {
       cards: [
-        { id: 860, state: 'queued', lane: 'lane-1', line: 'card: #860 first <task>', since: minutesAgo(30) },
-        { id: 861, state: 'running', lane: 'lane-1', line: '#861 second', since: minutesAgo(20) },
+        { id: 860, state: 'queued', lane: 'lane-1', line: 'card: #860 first <task>', since: minutesAgo(30), pr: 13 },
+        { id: 861, state: 'running', lane: 'lane-1', line: '#861 second', since: minutesAgo(20), text: SECOND_CARD_TEXT },
         { id: 862, state: 'in_review', lane: 'lane-2', line: null, since: minutesAgo(10), pr: 12 },
         { id: 863, state: 'merged', lane: null, line: '#863 done', since: minutesAgo(5) },
         { id: 864, state: 'merged', lane: 'lane-2', line: '#864 old-lease [implement/netwatch/M/cheap/owner] · depends #860 · blocks —', since: minutesAgo(1_200) },
@@ -73,13 +310,19 @@ describe('board.html', () => {
       verdicts: [[12, null]],
       tasks: [{ queue: 'review', card: 862, pr: 12, head: 'abcdef1234567', state: 'leased' }],
       roles: [{ role: 'operator', status: 'idle', state: 'awake' }],
+      decisions: [[216, 'Prerelease rights stay with the shard until #863 ships.']],
       events: [
         { ts: minutesAgo(1), type: 'netwatch.tick', card: null, payload: '{}' },
         subagent(minutesAgo(2), { role: 'implementer', task: '#861', session: 's1', tree: '/trees/mc-861', step: 'writing' }),
         checkMatrix(12, 'abcdef1234567', { killed: 3, survived: 1, notRun: 0 }),
+        { ts: minutesAgo(1), type: REVIEW_RECORDED, card: 861, payload: JSON.stringify({ verdict: 'changes' }) },
         ...heartbeats,
       ],
     })
+  }
+
+  function handoffBeside(busPath: string): string {
+    return path.join(path.dirname(busPath), 'miko.md')
   }
 
   function constructBoardLines(busPath: string): string[] {
@@ -95,12 +338,12 @@ describe('board.html', () => {
     let html = ''
     expect(printBoard(busPath, NOW, (text) => {
       html += text
-    })).toBe(0)
+    }, handoffBeside(busPath))).toBe(0)
     return html
   }
 
   function visibleText(html: string): string {
-    return html.replace(/<style>[\s\S]*?<\/style>/g, ' ').replace(/<title>[\s\S]*?<\/title>/g, ' ').replace(/<[^>]*>/g, ' ').replace(/&#39;|&quot;|&lt;|&gt;|&amp;/g, ' ')
+    return html.replace(/<style>[\s\S]*?<\/style>/g, ' ').replace(/<script>[\s\S]*?<\/script>/g, ' ').replace(/<title>[\s\S]*?<\/title>/g, ' ').replace(/<[^>]*>/g, ' ').replace(/&#39;|&quot;|&lt;|&gt;|&amp;/g, ' ')
   }
 
   function busNumbers(busPath: string): Set<number> {
@@ -146,7 +389,7 @@ describe('board.html', () => {
       expect(filterRule(state)).toContain(`tr[data-card]:not([data-stage="${state}"])`)
     }
     expect(html).toContain('<a class="chip" href="#show-all">all</a>')
-    expect(html).toContain('<tr data-card="864" data-stage="merged"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td>#860</td><td>—</td>')
+    expect(html).toContain('<tr data-card="864" data-stage="merged" data-open="card-864" tabindex="0" aria-haspopup="dialog"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td>#860</td><td>—</td>')
   })
 
   it('every number on the page is in the bus or in eddies.json', () => {
@@ -173,11 +416,11 @@ describe('board.html', () => {
     const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
     expect(html).toContain(`<pre class="banner" aria-label="MIKOSHI">${escaped(BANNER.replace(/^\n/, ''))}</pre>`)
     expect(html).toContain(`<p class="subtitle">${escaped(LORE.subtitle(version.version))}</p>`)
-    expect(html).toContain(`<meta http-equiv="refresh" content="30">`)
+    expect(html).not.toContain('http-equiv="refresh"')
     expect(html.indexOf('<header')).toBeLessThan(html.indexOf('id="h-services"'))
     expect(html.indexOf('id="h-services"')).toBeLessThan(html.indexOf('id="h-flow"'))
     expect(html.indexOf('id="h-flow"')).toBeLessThan(html.indexOf('id="h-backlog"'))
-    expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline">'))
+    expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline"'))
   })
 
   it('an eddies tile has no bar while the bus holds no context or spent for it', () => {
@@ -255,11 +498,11 @@ describe('board.html', () => {
     const lines = constructBoardLines(busPath)
     const html = pageText(busPath)
     expect(lines).toContain('in work (1): #861')
-    expect(html).toContain('<span class="n">1</span><span class="name">in work</span><span class="ids">#861</span>')
+    expect(html).toContain('<span class="n">1</span><span class="name">in work</span><span class="ids"><button type="button" class="cid" data-open="card-861" tabindex="0" aria-haspopup="dialog">#861 ›</button></span>')
     for (const line of lines.slice(lines.indexOf('Services') + 1, -1))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
     const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
-    const statusline = html.slice(html.indexOf('<footer class="statusline">'))
+    const statusline = html.slice(html.indexOf('<footer class="statusline"'))
     expect(statusline).toContain(`<span>agents <b>${footer['agents at work']}</b></span>`)
     expect(statusline).toContain(`<span>review queue <b>${footer['review queue']}</b></span>`)
     expect(statusline).toContain(`last failure <b>${escaped(footer['last failure']!)}</b>`)
@@ -291,19 +534,19 @@ describe('board.html', () => {
   it('a page rendered from a copy of the live bus carries every header, Services, Flow and status line element of the sketch', () => {
     const html = pageText(liveBusCopy())
     const limits = readEddiesLimits()
-    const header = sectionOf(html, '<p class="kv">', '</p>')
+    const header = sectionOf(html, '<p class="kv"', '</p>')
     expect(header).toContain(`<span>model <b>v${readModelVersion()}</b></span>`)
     expect(header).toMatch(/<span>written <b>[^<]+<\/b><\/span>/)
-    expect(header).toContain('<span>refresh <b>30s</b></span>')
-    expect(header).toMatch(/<span class="live"( data-stale)?>bus (live|stale)<\/span>/)
+    expect(header).toContain('<span>refresh <b>—</b></span>')
+    expect(header).toMatch(/<span class="live" id="bus-live"( data-stale)?>bus (live|stale)<\/span>/)
     const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
     expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b> \(bus records no capacity\)<\/span>/)
     expect(services).toContain(`<span class="meta right edd-note">eddies: warn line <b>${Math.round(limits.warnRatio! * 100)}%</b></span>`)
     const flowNote = sectionOf(html, '<div class="flow-note">', '</div>')
     expect(flowNote).toMatch(/<span class="fail"( data-none)?>last failure <b>[^<]+<\/b><\/span>/)
-    const statusline = sectionOf(html, '<footer class="statusline">', '</footer>')
+    const statusline = sectionOf(html, '<footer class="statusline"', '</footer>')
     expect(statusline).toContain('<span class="mode">BOARD</span>')
-    expect(statusline).toMatch(/<span>subnet <b class="live"( data-stale)?>(pulse \d+ min|no pulse)<\/b><\/span>/)
+    expect(statusline).toMatch(/<span>subnet <b class="live" id="bus-pulse"( data-stale)?>(pulse \d+ min|no pulse)<\/b><\/span>/)
     expect(statusline).toMatch(/<span class="fail"( data-none)?>last failure <b>[^<]+<\/b><\/span>/)
     expect(statusline).toContain('<span>geek mode <b>--geek</b></span>')
     expect(statusline).toContain('<span class="cursor">construct board</span>')
@@ -313,19 +556,19 @@ describe('board.html', () => {
   it('a bus pulse older than the threshold shows bus stale, not blinking', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-board-stale-'))
     roots.push(root)
-    const page = (minutes: number): string => pageText(writeBus(path.join(root, `bus-${minutes}.db`), { events: [{ ts: minutesAgo(minutes), type: 'netwatch.tick', card: null, payload: '{}' }] }))
+    const page = (minutes: number): string => pageText(busWithRecords(path.join(root, `bus-${minutes}.db`), { events: [{ ts: minutesAgo(minutes), type: 'netwatch.tick', card: null, payload: '{}' }] }))
     const fresh = page(FRESH_MS / 60_000)
-    expect(fresh).toContain('<span class="live">bus live</span>')
-    expect(fresh).toContain(`<b class="live">pulse ${FRESH_MS / 60_000} min</b>`)
+    expect(fresh).toContain('<span class="live" id="bus-live">bus live</span>')
+    expect(fresh).toContain(`<b class="live" id="bus-pulse">pulse ${FRESH_MS / 60_000} min</b>`)
     const stale = page(FRESH_MS / 60_000 + 1)
-    expect(stale).toContain('<span class="live" data-stale>bus stale</span>')
-    expect(stale).toContain(`<b class="live" data-stale>pulse ${FRESH_MS / 60_000 + 1} min</b>`)
+    expect(stale).toContain('<span class="live" id="bus-live" data-stale>bus stale</span>')
+    expect(stale).toContain(`<b class="live" id="bus-pulse" data-stale>pulse ${FRESH_MS / 60_000 + 1} min</b>`)
     expect(stale).not.toContain('bus live')
     const style = /<style>([\s\S]*?)<\/style>/.exec(stale)![1]!
     const live = /\n\.live \{([\s\S]*?)\n\}/.exec(style)![1]!
     expect(live).toMatch(/&\[data-stale\] \{ --_fg: var\(--signal\); --_blink: none; \}/)
     expect(live).toMatch(/&::before \{[^}]*animation: var\(--_blink\)/)
-    expect(pageText(writeBus(path.join(root, 'silent.db'), {}))).toContain('<span class="live" data-stale>bus stale</span>')
+    expect(pageText(busWithRecords(path.join(root, 'silent.db'), {}))).toContain('<span class="live" id="bus-live" data-stale>bus stale</span>')
   })
 
   it('the blink stops under prefers-reduced-motion', () => {
@@ -343,7 +586,7 @@ describe('board.html', () => {
     const failed = pageText(seededBus([{ ts: minutesAgo(4), type: 'card.stopped', card: 861, payload: JSON.stringify({ reason: 'fault', detail: 'no pull request' }) }]))
     const line = `<span class="fail">last failure <b>card #861 stopped on a fault at ${minutesAgo(4)}</b></span>`
     expect(sectionOf(failed, '<div class="flow-note">', '</div>')).toContain(line)
-    expect(sectionOf(failed, '<footer class="statusline">', '</footer>')).toContain(line)
+    expect(sectionOf(failed, '<footer class="statusline"', '</footer>')).toContain(line)
     expect(pageText(seededBus())).toContain('<span class="fail" data-none>last failure <b>none</b></span>')
     const style = /<style>([\s\S]*?)<\/style>/.exec(failed)![1]!
     expect(style).toMatch(/\n\.fail \{\n {2}--_fg: var\(--signal\);/)
@@ -354,5 +597,268 @@ describe('board.html', () => {
     expect(html).toContain('bus · pulse · — · pulse 1 min ago · slots in use: review 1')
     expect(html).not.toContain('pid ')
     expect(html).not.toContain('<h2>Health</h2>')
+  })
+
+  const HANDOFF_TEXT = [
+    '## STOP — window, session 9',
+    'current card: #861',
+    'in-flight:',
+    '- #862 review',
+    '- #863 merged',
+    'owner waits: none',
+    '',
+    'The window waits for the review of #862.',
+    'STATUS: CONTINUE',
+  ].join('\n')
+
+  function pageWithHandoff(): { busPath: string, html: string } {
+    const busPath = seededBus()
+    writeFileSync(handoffBeside(busPath), HANDOFF_TEXT)
+    return { busPath, html: pageText(busPath) }
+  }
+
+  it('every clickable element opens its own dialog', () => {
+    const { html } = pageWithHandoff()
+    const board = boardWindow(html, new MemoryStorage())
+    const openers = openersOf(html)
+    const rows = [...html.matchAll(/<tr data-card="(\d+)"[^>]*>/g)]
+    expect(rows.length).toBeGreaterThan(1)
+    for (const row of rows)
+      expect(row[0]).toContain(`data-open="card-${row[1]}"`)
+    expect(sectionOf(html, '<div class="flow">', '</section>')).toContain('data-open="card-861"')
+    expect(html).toMatch(/<div class="svc" data-role="implementer" data-open="card-861"/)
+    expect(html).toMatch(/<div class="svc" data-role="window" data-open="handoff"/)
+    const statusline = sectionOf(html, '<footer class="statusline"', '</footer>')
+    expect(statusline).toContain('data-open="handoff"')
+    expect(statusline).toContain('data-open="decisions"')
+    expect(new Set(openers.map(opener => opener.dialog))).toEqual(new Set([...board.templates.keys()].map(id => id.replace(/^dialog-/, ''))))
+    for (const opener of openers) {
+      board.click(opener.tag, opener.dialog)
+      expect(board.dialog.open, opener.dialog).toBe(true)
+      expect(board.content.innerHTML).toBe(board.templates.get(`dialog-${opener.dialog}`))
+      expect(board.content.innerHTML).toContain(`<span class="drill-kind">${opener.dialog.replace(/-\d+$/, '')}</span>`)
+      board.dialog.close()
+    }
+    for (const [key, dialog] of [['H', 'handoff'], ['d', 'decisions']] as const) {
+      board.key(key)
+      expect(board.content.innerHTML).toBe(board.templates.get(`dialog-${dialog}`))
+      board.dialog.close()
+    }
+    board.key('Enter', new FakeElement('TR', 'card-860'))
+    expect(board.content.innerHTML).toBe(board.templates.get('dialog-card-860'))
+    const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    expect([...style.matchAll(/cursor: pointer/g)]).toHaveLength(1)
+    expect(style).toMatch(/\[data-open\], \[data-link\], \.drill-close \{\n {2}cursor: pointer;\n {2}color: var\(--wire\);[\s\S]*?&:focus-visible \{ outline: 2px solid var\(--amber\)/)
+    expect(style).not.toMatch(/\.svc-target \{[^}]*color/)
+  })
+
+  it('a card dialog carries the punch card, the prose, the matrix and the chain from the bus', () => {
+    const { busPath, html } = pageWithHandoff()
+    const templates = templatesOf(html)
+    const second = templates.get('dialog-card-861')!
+    expect(second.indexOf('class="punch"')).toBeLessThan(second.indexOf('>prose<'))
+    expect(second.indexOf('>prose<')).toBeLessThan(second.indexOf('>matrix<'))
+    expect(second.indexOf('>matrix<')).toBeLessThan(second.indexOf('>chain<'))
+    expect(second).toContain('<span class="pf-k">branch</span><span class="pf-v">feat/second</span>')
+    expect(second).toContain(`<span class="pf-k">text_sha</span><span class="pf-v">${SECOND_CARD_SHA}</span>`)
+    expect(second).toContain('<p>The second card follows <button type="button" class="cid" data-open="card-860" tabindex="0" aria-haspopup="dialog">#860 ›</button> and runs <code>pnpm card</code> once.</p>')
+    expect(second).toContain('<h3>Witnesses</h3><ul><li><code>pnpm exec vitest run scripts/tests/bus/board-page.test.ts</code> exits 0</li></ul>')
+    expect(second).toContain('No pull request for this card in the bus yet.')
+    const db = new DatabaseSync(busPath, { readOnly: true })
+    const ids = db.prepare('SELECT id, type FROM events WHERE card_id = 861 ORDER BY id').all() as { id: number, type: string }[]
+    db.close()
+    const admitted = ids.find(row => row.type === 'card.state')!.id
+    const reviewed = ids.find(row => row.type === REVIEW_RECORDED)!.id
+    expect(second).toContain(`<li><span class="when">event ${admitted}</span><span class="dot"></span><span class="ev">card text admitted</span></li><li><span class="when">event ${reviewed}</span><span class="dot"></span><span class="ev">review recorded · changes</span></li>`)
+    expect(second).toContain('<code>pnpm card 861 --chain</code>')
+    const reviewedCard = templates.get('dialog-card-862')!
+    expect(reviewedCard).toContain('<tr><th scope="row">killed</th><td>3</td></tr><tr><th scope="row">survived</th><td>1</td></tr>')
+    expect(reviewedCard).toContain('risk matrix')
+    const first = templates.get('dialog-card-860')!
+    expect(first).toContain(`The bus holds no check matrix for <a data-link href="${readRepositoryUrl()}/pull/13">PR #13 ›</a>.`)
+    expect(first).not.toContain('risk matrix')
+  })
+
+  it('the handoff and decisions dialogs carry miko.md and the decisions in force', () => {
+    const { html } = pageWithHandoff()
+    const templates = templatesOf(html)
+    const handoff = templates.get('dialog-handoff')!
+    expect(handoff).toContain('<span class="pf-k">current card</span><span class="pf-v"><button type="button" class="cid" data-open="card-861"')
+    expect(handoff).toContain('<div class="pf" data-wide><span class="pf-k">in-flight</span>')
+    expect(handoff).toContain('<span class="st">CONTINUE</span>')
+    expect(handoff).toContain('<p>## STOP — window, session 9</p><p>The window waits for the review of <button type="button" class="cid" data-open="card-862"')
+    const decisions = templates.get('dialog-decisions')!
+    expect(decisions).toContain('<div><b>D-216</b><span>Prerelease rights stay with the shard until <button type="button" class="cid" data-open="card-863"')
+  })
+
+  it('after a refresh the filter and the open dialog are restored', () => {
+    const { html } = pageWithHandoff()
+    const storage = new MemoryStorage()
+    const before = boardWindow(html, storage)
+    before.location.hash = '#show-planned'
+    before.scroller.scrollTop = 120
+    before.scroller.dispatch('scroll')
+    before.click('TR', 'card-862')
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862' })
+    const after = boardWindow(html, storage)
+    expect(after.location.hash).toBe('#show-planned')
+    expect(after.scroller.scrollTop).toBe(120)
+    expect(after.dialog.open).toBe(true)
+    expect(after.content.innerHTML).toBe(after.templates.get('dialog-card-862'))
+    const kept = boardWindow(html, storage, '#show-merged')
+    expect(kept.location.hash).toBe('#show-merged')
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!).filter).toBe('#show-merged')
+  })
+
+  function projected(busPath: string, now: Date, tickMs: number = TICK_MS): { html: string, data: string } {
+    const db = new DatabaseSync(busPath, { readOnly: true })
+    try {
+      const projection = boardProjection(db, busPath, tickMs, DISK_FILES, handoffBeside(busPath))
+      projection.project(now)
+      return { html: readFileSync(projection.file, 'utf8'), data: readFileSync(projection.dataFile, 'utf8') }
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  function projectedWithHandoff(now: Date = NOW, tickMs: number = TICK_MS, heartbeats: SeedEvent[] = []): { html: string, data: string } {
+    const busPath = seededBus(heartbeats)
+    writeFileSync(handoffBeside(busPath), HANDOFF_TEXT)
+    return projected(busPath, now, tickMs)
+  }
+
+  function boardOf(data: string): BoardData {
+    const window: { BOARD?: BoardData } = {}
+    vm.runInNewContext(data, { window })
+    return window.BOARD!
+  }
+
+  const LATER = new Date(NOW.getTime() + 60_000)
+  const STOPPED = [{ ts: minutesAgo(4), type: 'card.stopped', card: 861, payload: JSON.stringify({ reason: 'fault', detail: 'no pull request' }) }]
+
+  it('a data tick keeps the shell DOM and replaces only the panel nodes', () => {
+    const { html } = projectedWithHandoff()
+    const storage = new MemoryStorage()
+    const board = boardWindow(html, storage)
+    board.location.hash = '#show-planned'
+    board.scroller.scrollTop = 120
+    board.scroller.dispatch('scroll')
+    board.click('TR', 'card-862')
+    const opened = board.content.innerHTML
+    const view = storage.getItem(VIEW_KEY)
+    const shell = new Map([...board.elements].filter(([id]) => !id.startsWith('slot-')))
+    const { data } = projectedWithHandoff(LATER, TICK_MS, STOPPED)
+    const fresh = boardOf(data)
+    expect(fresh.written).toBe(LATER.toISOString())
+    expect(Object.keys(fresh.slots)).toEqual(Object.keys(SLOT_ENDS))
+    expect(slotsOf(html).get('status')).not.toContain('card #861 stopped on a fault')
+    expect(fresh.slots.status).toContain('card #861 stopped on a fault')
+    const script = board.tick(data)
+    expect(script.src).toMatch(new RegExp(`^${BOARD_DATA_FILE.replace('.', '\\.')}\\?t=\\d+$`))
+    expect(script.removed).toBe(true)
+    for (const [name, inner] of Object.entries(fresh.slots))
+      expect(board.elements.get(`slot-${name}`)!.innerHTML, name).toBe(inner)
+    for (const [id, element] of shell)
+      expect(board.elements.get(id), id).toBe(element)
+    expect(board.document.title).toBe(`construct board · ${fresh.written}`)
+    expect(board.dialog.open).toBe(true)
+    expect(board.content.innerHTML).toBe(opened)
+    expect(board.scroller.scrollTop).toBe(120)
+    expect(board.location.hash).toBe('#show-planned')
+    expect(storage.getItem(VIEW_KEY)).toBe(view)
+    expect(board.currentTemplates().get('dialog-card-861')).toBe(templatesOf(fresh.slots.dialogs).get('dialog-card-861'))
+    expect(board.elements.get('backlog')?.prepended.map(target => target.id) ?? []).toEqual(fresh.filters.filter(id => !idsOf(html).includes(id)))
+    expect(html).not.toContain('http-equiv="refresh"')
+  })
+
+  it('two polls in a row with the same written leave the DOM untouched', () => {
+    const { html, data } = projectedWithHandoff()
+    const board = boardWindow(html, new MemoryStorage())
+    board.click('TR', 'card-862')
+    const opened = board.content.innerHTML
+    const slots = [...board.elements].filter(([id]) => id.startsWith('slot-'))
+    const writes = (): number[] => slots.map(([, slot]) => slot.writes)
+    const before = writes()
+    const templates = board.currentTemplates()
+    const title = board.document.title
+    const same = boardOf(data)
+    expect(same.written).toBe(/data-written="([^"]+)"/.exec(html)![1])
+    board.tick(data)
+    const reshaped = `window.BOARD = ${JSON.stringify({ ...same, slots: Object.fromEntries(Object.keys(same.slots).map(name => [name, '<p>other</p>'])) })}\n`
+    board.tick(reshaped)
+    expect(writes()).toEqual(before)
+    expect(board.currentTemplates()).toEqual(templates)
+    expect(board.document.title).toBe(title)
+    expect(board.content.innerHTML).toBe(opened)
+    expect(board.dialog.open).toBe(true)
+    expect(board.elements.get('bus-live')?.attributes.has('data-stale') ?? false).toBe(false)
+    const { data: later } = projectedWithHandoff(LATER)
+    board.tick(later)
+    expect(writes().every((count, at) => count === before[at]! + 1)).toBe(true)
+    board.tick(later)
+    expect(writes().every((count, at) => count === before[at]! + 1)).toBe(true)
+    expect(board.content.innerHTML).toBe(opened)
+  })
+
+  it('the poll period is BOARD.tickMs', () => {
+    const { html, data } = projectedWithHandoff(NOW, 45_000)
+    expect(boardOf(data).tickMs).toBe(45_000)
+    expect(html).toContain('data-tick-ms="45000"')
+    expect(html).toContain('<span>refresh <b>45s</b></span>')
+    const board = boardWindow(html, new MemoryStorage())
+    expect(board.timeouts.map(timeout => timeout.ms)).toEqual([45_000])
+    const { data: faster } = projectedWithHandoff(LATER, 7_000)
+    board.tick(faster)
+    expect(board.timeouts.map(timeout => timeout.ms)).toEqual([7_000])
+    board.tick(null)
+    expect(board.timeouts.map(timeout => timeout.ms)).toEqual([7_000])
+    const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1]!
+    expect(script).not.toMatch(/setInterval|setTimeout\(update, \d/)
+    expect(script).toContain('setTimeout(update, period)')
+    const snapshot = boardWindow(pageText(seededBus()), new MemoryStorage())
+    expect(snapshot.timeouts).toEqual([])
+    const { html: projectedShell } = projectedWithHandoff(NOW, TICK_MS)
+    expect(projectedShell).toContain(`<span>refresh <b>${TICK_MS / 1000}s</b></span>`)
+  })
+
+  it('a broken board-data.js keeps the previous data and shows bus stale', () => {
+    const { html } = projectedWithHandoff()
+    expect(html).toContain('<span class="live" id="bus-live">bus live</span>')
+    for (const data of ['window.BOARD = {"written": ', 'window.BOARD = 42', 'window.BOARD = {"written": "x", "tickMs": 60000, "slots": null, "filters": []}', null]) {
+      const board = boardWindow(html, new MemoryStorage())
+      const script = board.tick(data)
+      expect(script.removed, String(data)).toBe(true)
+      for (const [name, inner] of slotsOf(html))
+        expect(board.elements.get(`slot-${name}`)!.innerHTML, `${data} ${name}`).toBe(inner)
+      const live = board.elements.get('bus-live')!
+      expect(live.attributes.get('data-stale'), String(data)).toBe('')
+      expect(live.textContent).toBe('bus stale')
+      expect(board.elements.get('bus-pulse')!.attributes.get('data-stale')).toBe('')
+      expect(board.timeouts).toHaveLength(1)
+    }
+  })
+
+  it('pressing Esc closes the dialog', () => {
+    const { html } = pageWithHandoff()
+    const storage = new MemoryStorage()
+    const board = boardWindow(html, storage)
+    board.click('BUTTON', 'decisions')
+    expect(board.dialog.open).toBe(true)
+    board.key('Escape')
+    expect(board.dialog.open).toBe(false)
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!).open).toBeNull()
+    expect(boardWindow(html, storage).dialog.open).toBe(false)
+  })
+
+  it('the page renders when localStorage throws', () => {
+    const { html } = pageWithHandoff()
+    expect(html).toContain('</html>')
+    const board = boardWindow(html, THROWING_STORAGE)
+    board.click('TR', 'card-861')
+    expect(board.dialog.open).toBe(true)
+    expect(board.content.innerHTML).toBe(board.templates.get('dialog-card-861'))
+    board.key('Escape')
+    expect(board.dialog.open).toBe(false)
   })
 })
