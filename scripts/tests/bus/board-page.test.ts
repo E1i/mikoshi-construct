@@ -1,5 +1,5 @@
 import type { BusSeed, SeedEvent } from '../../../tests/board/bus-fixture.js'
-import type { BoardFiles } from '../../bus/board-page.js'
+import type { BoardData, BoardFiles } from '../../bus/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -12,7 +12,7 @@ import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, printBoard, readEddiesLimits, readModelVersion, readRepositoryUrl, REFRESH_SECONDS, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
 import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
 import { defaultBusPath } from '../../bus/db.js'
 import { REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
@@ -64,13 +64,34 @@ interface FakeEvent {
 class FakeElement {
   readonly dataset: Record<string, string> = {}
   readonly listeners = new Map<string, Listener[]>()
+  readonly attributes = new Map<string, string>()
+  readonly prepended: FakeElement[] = []
   innerHTML = ''
+  textContent = ''
+  className = ''
+  id = ''
+  src = ''
   scrollTop = 0
   open = false
+  removed = false
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
 
   constructor(readonly tagName: string, opens?: string) {
     if (opens !== undefined)
       this.dataset.open = opens
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value)
+  }
+
+  prepend(child: FakeElement): void {
+    this.prepended.unshift(child)
+  }
+
+  remove(): void {
+    this.removed = true
   }
 
   addEventListener(type: string, listener: Listener): void {
@@ -120,16 +141,44 @@ function openersOf(html: string): { tag: string, dialog: string }[] {
   return [...html.matchAll(/<(\w+) [^>]*data-open="([^"]+)"/g)].map(match => ({ tag: match[1]!.toUpperCase(), dialog: match[2]! }))
 }
 
+function idsOf(html: string): string[] {
+  return [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]!)
+}
+
+const SLOT_ENDS: Record<string, string> = {
+  kv: '</p></div>\n</header>',
+  services: '\n</section>',
+  flow: '\n</section>',
+  backlog: '</div>\n<div class="scroll"',
+  rows: '\n</table>',
+  status: '</footer>',
+  dialogs: '</div>\n<script>',
+}
+
+function slotsOf(html: string): Map<string, string> {
+  return new Map(Object.entries(SLOT_ENDS).map(([name, end]) => {
+    const open = html.indexOf('>', html.indexOf(`id="slot-${name}"`)) + 1
+    const from = html[open] === '\n' ? open + 1 : open
+    return [name, html.slice(from, html.indexOf(end, from))]
+  }))
+}
+
 function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STORAGE, hash = '') {
-  const templates = templatesOf(html)
-  const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]!))
+  const shellIds = new Set(idsOf(html))
   const elements = new Map<string, FakeElement>()
+  for (const [name, inner] of slotsOf(html))
+    elements.set(`slot-${name}`, Object.assign(new FakeElement('DIV'), { innerHTML: inner }))
+  const slots = (): FakeElement[] => [...elements].filter(([id]) => id.startsWith('slot-')).map(([, slot]) => slot)
+  const templates = (): Map<string, string> => templatesOf(elements.get('slot-dialogs')?.innerHTML ?? html)
+  const known = (id: string): boolean => shellIds.has(id) || slots().some(slot => idsOf(slot.innerHTML).includes(id)) || elements.get('backlog')?.prepended.some(child => child.id === id) === true
   const element = (id: string): FakeElement => {
-    const known = elements.get(id) ?? new FakeElement(id === 'drill' ? 'DIALOG' : 'DIV')
-    known.innerHTML = templates.get(id) ?? known.innerHTML
-    elements.set(id, known)
-    return known
+    const found = elements.get(id) ?? new FakeElement(id === 'drill' ? 'DIALOG' : 'DIV')
+    found.innerHTML = templates().get(id) ?? found.innerHTML
+    elements.set(id, found)
+    return found
   }
+  const appended: FakeElement[] = []
+  const intervals: { run: () => void, ms: number }[] = []
   const document = new FakeElement('DOCUMENT')
   const page = new FakeElement('WINDOW')
   let current = hash
@@ -143,10 +192,16 @@ function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STOR
     },
   }
   const context: Record<string, unknown> = {
-    document: Object.assign(document, { getElementById: (id: string) => ids.has(id) ? element(id) : null }),
+    document: Object.assign(document, {
+      getElementById: (id: string) => known(id) ? elements.get('backlog')?.prepended.find(child => child.id === id) ?? element(id) : null,
+      createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
+      head: { appendChild: (child: FakeElement) => appended.push(child) },
+    }),
     location,
     addEventListener: (type: string, listener: Listener) => page.addEventListener(type, listener),
+    setInterval: (run: () => void, ms: number) => intervals.push({ run, ms }),
   }
+  context.window = context
   if (storage === THROWING_STORAGE) {
     Object.defineProperty(context, 'localStorage', {
       get: () => {
@@ -157,9 +212,28 @@ function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STOR
   else {
     context.localStorage = storage
   }
-  vm.runInNewContext(/<script>([\s\S]*?)<\/script>/.exec(html)![1]!, context)
+  vm.createContext(context)
+  vm.runInContext(/<script>([\s\S]*?)<\/script>/.exec(html)![1]!, context)
+  const tick = (data: string | null): FakeElement => {
+    intervals.forEach(interval => interval.run())
+    const script = appended.at(-1)!
+    if (data === null) {
+      script.onerror?.()
+      return script
+    }
+    try {
+      vm.runInContext(data, context)
+    }
+    catch {}
+    script.onload?.()
+    return script
+  }
   return {
-    templates,
+    templates: templates(),
+    currentTemplates: templates,
+    elements,
+    intervals,
+    tick,
     location,
     dialog: element('drill'),
     content: element('drill-content'),
@@ -326,11 +400,11 @@ describe('board.html', () => {
     const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
     expect(html).toContain(`<pre class="banner" aria-label="MIKOSHI">${escaped(BANNER.replace(/^\n/, ''))}</pre>`)
     expect(html).toContain(`<p class="subtitle">${escaped(LORE.subtitle(version.version))}</p>`)
-    expect(html).toContain(`<meta http-equiv="refresh" content="30">`)
+    expect(html).not.toContain('http-equiv="refresh"')
     expect(html.indexOf('<header')).toBeLessThan(html.indexOf('id="h-services"'))
     expect(html.indexOf('id="h-services"')).toBeLessThan(html.indexOf('id="h-flow"'))
     expect(html.indexOf('id="h-flow"')).toBeLessThan(html.indexOf('id="h-backlog"'))
-    expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline">'))
+    expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline"'))
   })
 
   it('an eddies tile has no bar while the bus holds no context or spent for it', () => {
@@ -400,7 +474,7 @@ describe('board.html', () => {
     for (const line of lines.slice(lines.indexOf('Services') + 1, -1))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
     const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
-    const statusline = html.slice(html.indexOf('<footer class="statusline">'))
+    const statusline = html.slice(html.indexOf('<footer class="statusline"'))
     expect(statusline).toContain(`<span>agents <b>${footer['agents at work']}</b></span>`)
     expect(statusline).toContain(`<span>review queue <b>${footer['review queue']}</b></span>`)
     expect(statusline).toContain(`last failure <b>${escaped(footer['last failure']!)}</b>`)
@@ -432,19 +506,19 @@ describe('board.html', () => {
   it('a page rendered from a copy of the live bus carries every header, Services, Flow and status line element of the sketch', () => {
     const html = pageText(liveBusCopy())
     const limits = readEddiesLimits()
-    const header = sectionOf(html, '<p class="kv">', '</p>')
+    const header = sectionOf(html, '<p class="kv"', '</p>')
     expect(header).toContain(`<span>model <b>v${readModelVersion()}</b></span>`)
     expect(header).toMatch(/<span>written <b>[^<]+<\/b><\/span>/)
     expect(header).toContain('<span>refresh <b>30s</b></span>')
-    expect(header).toMatch(/<span class="live"( data-stale)?>bus (live|stale)<\/span>/)
+    expect(header).toMatch(/<span class="live" id="bus-live"( data-stale)?>bus (live|stale)<\/span>/)
     const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
     expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b> \(bus records no capacity\)<\/span>/)
     expect(services).toContain(`<span class="meta right edd-note">eddies: warn line <b>${Math.round(limits.warnRatio! * 100)}%</b></span>`)
     const flowNote = sectionOf(html, '<div class="flow-note">', '</div>')
     expect(flowNote).toMatch(/<span class="fail"( data-none)?>last failure <b>[^<]+<\/b><\/span>/)
-    const statusline = sectionOf(html, '<footer class="statusline">', '</footer>')
+    const statusline = sectionOf(html, '<footer class="statusline"', '</footer>')
     expect(statusline).toContain('<span class="mode">BOARD</span>')
-    expect(statusline).toMatch(/<span>subnet <b class="live"( data-stale)?>(pulse \d+ min|no pulse)<\/b><\/span>/)
+    expect(statusline).toMatch(/<span>subnet <b class="live" id="bus-pulse"( data-stale)?>(pulse \d+ min|no pulse)<\/b><\/span>/)
     expect(statusline).toMatch(/<span class="fail"( data-none)?>last failure <b>[^<]+<\/b><\/span>/)
     expect(statusline).toContain('<span>geek mode <b>--geek</b></span>')
     expect(statusline).toContain('<span class="cursor">construct board</span>')
@@ -456,17 +530,17 @@ describe('board.html', () => {
     roots.push(root)
     const page = (minutes: number): string => pageText(busWithRecords(path.join(root, `bus-${minutes}.db`), { events: [{ ts: minutesAgo(minutes), type: 'netwatch.tick', card: null, payload: '{}' }] }))
     const fresh = page(FRESH_MS / 60_000)
-    expect(fresh).toContain('<span class="live">bus live</span>')
-    expect(fresh).toContain(`<b class="live">pulse ${FRESH_MS / 60_000} min</b>`)
+    expect(fresh).toContain('<span class="live" id="bus-live">bus live</span>')
+    expect(fresh).toContain(`<b class="live" id="bus-pulse">pulse ${FRESH_MS / 60_000} min</b>`)
     const stale = page(FRESH_MS / 60_000 + 1)
-    expect(stale).toContain('<span class="live" data-stale>bus stale</span>')
-    expect(stale).toContain(`<b class="live" data-stale>pulse ${FRESH_MS / 60_000 + 1} min</b>`)
+    expect(stale).toContain('<span class="live" id="bus-live" data-stale>bus stale</span>')
+    expect(stale).toContain(`<b class="live" id="bus-pulse" data-stale>pulse ${FRESH_MS / 60_000 + 1} min</b>`)
     expect(stale).not.toContain('bus live')
     const style = /<style>([\s\S]*?)<\/style>/.exec(stale)![1]!
     const live = /\n\.live \{([\s\S]*?)\n\}/.exec(style)![1]!
     expect(live).toMatch(/&\[data-stale\] \{ --_fg: var\(--signal\); --_blink: none; \}/)
     expect(live).toMatch(/&::before \{[^}]*animation: var\(--_blink\)/)
-    expect(pageText(busWithRecords(path.join(root, 'silent.db'), {}))).toContain('<span class="live" data-stale>bus stale</span>')
+    expect(pageText(busWithRecords(path.join(root, 'silent.db'), {}))).toContain('<span class="live" id="bus-live" data-stale>bus stale</span>')
   })
 
   it('the blink stops under prefers-reduced-motion', () => {
@@ -484,7 +558,7 @@ describe('board.html', () => {
     const failed = pageText(seededBus([{ ts: minutesAgo(4), type: 'card.stopped', card: 861, payload: JSON.stringify({ reason: 'fault', detail: 'no pull request' }) }]))
     const line = `<span class="fail">last failure <b>card #861 stopped on a fault at ${minutesAgo(4)}</b></span>`
     expect(sectionOf(failed, '<div class="flow-note">', '</div>')).toContain(line)
-    expect(sectionOf(failed, '<footer class="statusline">', '</footer>')).toContain(line)
+    expect(sectionOf(failed, '<footer class="statusline"', '</footer>')).toContain(line)
     expect(pageText(seededBus())).toContain('<span class="fail" data-none>last failure <b>none</b></span>')
     const style = /<style>([\s\S]*?)<\/style>/.exec(failed)![1]!
     expect(style).toMatch(/\n\.fail \{\n {2}--_fg: var\(--signal\);/)
@@ -526,7 +600,7 @@ describe('board.html', () => {
     expect(sectionOf(html, '<div class="flow">', '</section>')).toContain('data-open="card-861"')
     expect(html).toMatch(/<div class="svc" data-role="implementer" data-open="card-861"/)
     expect(html).toMatch(/<div class="svc" data-role="window" data-open="handoff"/)
-    const statusline = sectionOf(html, '<footer class="statusline">', '</footer>')
+    const statusline = sectionOf(html, '<footer class="statusline"', '</footer>')
     expect(statusline).toContain('data-open="handoff"')
     expect(statusline).toContain('data-open="decisions"')
     expect(new Set(openers.map(opener => opener.dialog))).toEqual(new Set([...board.templates.keys()].map(id => id.replace(/^dialog-/, ''))))
@@ -606,6 +680,76 @@ describe('board.html', () => {
     const kept = boardWindow(html, storage, '#show-merged')
     expect(kept.location.hash).toBe('#show-merged')
     expect(JSON.parse(storage.getItem(VIEW_KEY)!).filter).toBe('#show-merged')
+  })
+
+  function dataText(busPath: string): string {
+    const db = new DatabaseSync(busPath, { readOnly: true })
+    try {
+      const projection = boardProjection(db, busPath, DISK_FILES, handoffBeside(busPath))
+      projection.project(NOW)
+      return readFileSync(projection.dataFile, 'utf8')
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  function boardOf(data: string): BoardData {
+    const window: { BOARD?: BoardData } = {}
+    vm.runInNewContext(data, { window })
+    return window.BOARD!
+  }
+
+  it('a data tick keeps the shell DOM and replaces only the panel nodes', () => {
+    const { html } = pageWithHandoff()
+    const storage = new MemoryStorage()
+    const board = boardWindow(html, storage)
+    board.location.hash = '#show-queued'
+    board.scroller.scrollTop = 120
+    board.scroller.dispatch('scroll')
+    board.click('TR', 'card-862')
+    const opened = board.content.innerHTML
+    const view = storage.getItem(VIEW_KEY)
+    const shell = new Map([...board.elements].filter(([id]) => !id.startsWith('slot-')))
+    const next = seededBus([{ ts: minutesAgo(4), type: 'card.stopped', card: 861, payload: JSON.stringify({ reason: 'fault', detail: 'no pull request' }) }])
+    writeFileSync(handoffBeside(next), HANDOFF_TEXT)
+    const data = dataText(next)
+    const fresh = boardOf(data)
+    expect(Object.keys(fresh.slots)).toEqual(Object.keys(SLOT_ENDS))
+    expect(slotsOf(html).get('status')).not.toContain('card #861 stopped on a fault')
+    expect(fresh.slots.status).toContain('card #861 stopped on a fault')
+    expect(board.intervals.map(interval => interval.ms)).toEqual([REFRESH_SECONDS * 1000])
+    const script = board.tick(data)
+    expect(script.src).toMatch(new RegExp(`^${BOARD_DATA_FILE.replace('.', '\\.')}\\?t=\\d+$`))
+    expect(script.removed).toBe(true)
+    for (const [name, inner] of Object.entries(fresh.slots))
+      expect(board.elements.get(`slot-${name}`)!.innerHTML, name).toBe(inner)
+    for (const [id, element] of shell)
+      expect(board.elements.get(id), id).toBe(element)
+    expect(board.dialog.open).toBe(true)
+    expect(board.content.innerHTML).toBe(opened)
+    expect(board.scroller.scrollTop).toBe(120)
+    expect(board.location.hash).toBe('#show-queued')
+    expect(storage.getItem(VIEW_KEY)).toBe(view)
+    expect(board.currentTemplates().get('dialog-card-861')).toBe(templatesOf(fresh.slots.dialogs).get('dialog-card-861'))
+    expect(board.elements.get('backlog')?.prepended.map(target => target.id) ?? []).toEqual(fresh.filters.filter(id => !idsOf(html).includes(id)))
+    expect(html).not.toContain('http-equiv="refresh"')
+  })
+
+  it('a broken board-data.js keeps the previous data and shows bus stale', () => {
+    const { html } = pageWithHandoff()
+    expect(html).toContain('<span class="live" id="bus-live">bus live</span>')
+    for (const data of ['window.BOARD = {"at": ', 'window.BOARD = 42', 'window.BOARD = {"at": "x", "slots": null, "filters": []}', null]) {
+      const board = boardWindow(html, new MemoryStorage())
+      const script = board.tick(data)
+      expect(script.removed, String(data)).toBe(true)
+      for (const [name, inner] of slotsOf(html))
+        expect(board.elements.get(`slot-${name}`)!.innerHTML, `${data} ${name}`).toBe(inner)
+      const live = board.elements.get('bus-live')!
+      expect(live.attributes.get('data-stale'), String(data)).toBe('')
+      expect(live.textContent).toBe('bus stale')
+      expect(board.elements.get('bus-pulse')!.attributes.get('data-stale')).toBe('')
+    }
   })
 
   it('pressing Esc closes the dialog', () => {
