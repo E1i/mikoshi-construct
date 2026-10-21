@@ -223,11 +223,10 @@ describe('pnpm bus:review:bg', () => {
     expect(refused.stderr.join('\n')).toContain('pid 4343')
   })
 
-  it('a missing bus.db or a GitHub error in the preflight is a prefixed refusal', async () => {
+  it('a missing bus.db in the preflight is a prefixed refusal', async () => {
     const w = world()
-    const gitHub = new FakeGitHub()
     const busPath = path.join(w.busDir, 'bus.db')
-    const launch = reviewLaunch(() => busShadowProblems(busPath, gitHub.client))
+    const launch = reviewLaunch(() => busShadowProblems(busPath))
 
     const missing = startDetached(launch, w.busDir, w.env, w.processes)
     expect(missing.exitCode).toBe(1)
@@ -235,19 +234,10 @@ describe('pnpm bus:review:bg', () => {
     expect(missing.stderr[0]!.startsWith(PREFIX)).toBe(true)
     expect(missing.stderr.join('\n')).toContain(busPath)
     expect(existsSync(busPath)).toBe(false)
-
-    openBus(busPath).close()
-    gitHub.failing = true
-    const failing = startDetached(launch, w.busDir, w.env, w.processes)
-    expect(w.processes()).toEqual([])
-    expect(failing.exitCode).toBe(1)
-    expect(failing.stdout).toEqual([])
-    expect(failing.stderr[0]!.startsWith(PREFIX)).toBe(true)
-    expect(failing.stderr.join('\n')).toContain('gh api: connection refused')
     expect(existsSync(path.join(w.busDir, REVIEW_INSTANCE_FILE))).toBe(false)
   })
 
-  it('a prs head behind GitHub starts review and leaves the wait to the node', async () => {
+  it('the preflight reads the bus alone: GitHub offline and a prs head behind it still start review', async () => {
     const w = world()
     const gitHub = new FakeGitHub()
     const clock = new Clock()
@@ -257,12 +247,15 @@ describe('pnpm bus:review:bg', () => {
     new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now).run()
     db.close()
     gitHub.open({ number: 966, head: sha('c') })
+    gitHub.failing = true
+    const calls = gitHub.calls.length
 
-    expect(busShadowProblems(busPath, gitHub.client)).toEqual([])
-    const result = startDetached(reviewLaunch(() => busShadowProblems(busPath, gitHub.client)), w.busDir, w.env, w.processes)
+    expect(busShadowProblems(busPath)).toEqual([])
+    const result = startDetached(reviewLaunch(() => busShadowProblems(busPath)), w.busDir, w.env, w.processes)
     expect(result.exitCode).toBe(0)
     started.push(Number(result.stdout[0]))
     expect(result.stdout[0]).toBe(await stubPid(w, result.stdout[0]))
+    expect(gitHub.calls).toHaveLength(calls)
   })
 
   it('the review worker and bus:run are told apart by their markers', () => {

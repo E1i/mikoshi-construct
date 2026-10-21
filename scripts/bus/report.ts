@@ -1,5 +1,4 @@
 import type { DatabaseSync, SQLOutputValue } from 'node:sqlite'
-import type { GitHub } from './github.js'
 import { Buffer } from 'node:buffer'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
@@ -7,9 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { CARD_FOLDED_ON_APPEND } from './card-automaton.js'
 import { CHAIN_OBSERVED } from './chain.js'
 import { defaultBusPath, openBus } from './db.js'
-import { ghApi } from './github.js'
 import { LEASE_FOLDS } from './lease.js'
-import { Meter } from './meter.js'
 import { TASK_ENQUEUED, TASK_FOLDS, TASK_SUPERSEDED } from './queue.js'
 import { INCREMENTAL_PROJECTIONS, PROJECTION_KEYS, projectionDump, reduce, REDUCED, reducedThrough } from './reducer.js'
 import { REJECTED } from './rejection.js'
@@ -18,7 +15,7 @@ import { watermarkOf } from './watermark.js'
 export const PREFIX = '[bus:report] '
 
 export const EXIT_CRITERIA = {
-  prs: 'prs vs GitHub',
+  prs: 'prs projection',
   latency: 'review latency',
   superseded: 'superseded old-head tasks',
   lag: 'projection lag',
@@ -26,7 +23,6 @@ export const EXIT_CRITERIA = {
   replay: 'replay byte-diff',
 } as const
 
-const REPO = 'repos/{owner}/{repo}'
 const ALL_EVENT_COLUMNS = 'id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy'
 
 interface Row {
@@ -35,20 +31,6 @@ interface Row {
   pr: number | null
   head: string | null
   payload: string
-}
-
-type GitHubState = 'open' | 'merged' | 'closed'
-
-interface Pull {
-  number: number
-  state: string
-  merged?: boolean
-  head?: { sha?: string }
-}
-
-interface GitHubPull {
-  state: GitHubState
-  head: string | null
 }
 
 class Period {
@@ -73,51 +55,14 @@ function median(values: number[]): number {
   return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
 }
 
-function gitHubPullOf(pull: Pull): GitHubPull {
-  return { state: pull.state === 'open' ? 'open' : pull.merged === true ? 'merged' : 'closed', head: pull.head?.sha ?? null }
-}
+const PR_STATES = ['open', 'merged', 'closed'] as const
 
-function gitHubPulls(gitHub: GitHub, projected: number[], nowMs: () => number): Map<number, GitHubPull> {
-  const meter = new Meter(gitHub, nowMs)
-  const pulls = new Map<number, GitHubPull>()
-  for (const pull of meter.get(`${REPO}/pulls?state=open&per_page=100`) as Pull[])
-    pulls.set(pull.number, gitHubPullOf(pull))
-  for (const pr of projected.filter(each => !pulls.has(each)))
-    pulls.set(pr, gitHubPullOf(meter.get(`${REPO}/pulls/${pr}`) as Pull))
-  return pulls
-}
-
-interface Comparison {
-  agree: Record<GitHubState, number>
-  mismatches: string[]
-  missing: string[]
-  headMismatches: string[]
-}
-
-function compared(db: DatabaseSync, gitHub: GitHub, nowMs: () => number): Comparison {
-  const projected = db.prepare('SELECT pr, state, head FROM prs ORDER BY pr').all() as { pr: number, state: string, head: string | null }[]
-  const pulls = gitHubPulls(gitHub, projected.map(row => row.pr), nowMs)
-  const comparison: Comparison = { agree: { open: 0, merged: 0, closed: 0 }, mismatches: [], missing: [], headMismatches: [] }
-  for (const row of projected) {
-    const actual = pulls.get(row.pr)!
-    if (actual.state === row.state)
-      comparison.agree[actual.state] += 1
-    else
-      comparison.mismatches.push(`#${row.pr} ${row.state} here, ${actual.state} on GitHub`)
-    if (actual.state === 'open' && row.state === 'open' && actual.head !== row.head)
-      comparison.headMismatches.push(`#${row.pr} at ${row.head ?? 'no head'} here, ${actual.head ?? 'no head'} on GitHub`)
-  }
-  comparison.missing = [...pulls].filter(([pr, pull]) => pull.state === 'open' && !projected.some(row => row.pr === pr)).map(([pr]) => `#${pr}`)
-  return comparison
-}
-
-function prsLine(db: DatabaseSync, period: Period, gitHub: GitHub, nowMs: () => number): string {
-  const projected = db.prepare('SELECT pr FROM prs').all()
-  const { agree, mismatches, missing } = compared(db, gitHub, nowMs)
+function prsLine(db: DatabaseSync, period: Period): string {
+  const projected = (db.prepare('SELECT state FROM prs').all() as { state: string }[]).map(row => row.state)
+  const counts = PR_STATES.map(state => `${state} ${projected.filter(each => each === state).length}`).join(', ')
   const closings = period.events('pr.closed').map(row => payload(row).merged === true)
-  return `${EXIT_CRITERIA.prs}: ${agree.open + agree.merged + agree.closed} of ${projected.length} agree (open ${agree.open}, merged ${agree.merged}, closed ${agree.closed}); `
-    + `transitions seen: merged ${closings.filter(Boolean).length}, closed ${closings.filter(merged => !merged).length}; `
-    + `mismatched: ${mismatches.join(', ') || 'none'}; open on GitHub, missing here: ${missing.join(', ') || 'none'}`
+  return `${EXIT_CRITERIA.prs}: ${projected.length} in the projection (${counts}); `
+    + `transitions seen: merged ${closings.filter(Boolean).length}, closed ${closings.filter(merged => !merged).length}`
 }
 
 function eligible(row: Row): boolean {
@@ -289,7 +234,6 @@ function replayLine(db: DatabaseSync): string {
 }
 
 export interface ShadowReading {
-  headLag: string[]
   problems: string[]
   foreign: string[]
 }
@@ -300,33 +244,19 @@ function readBy(readSet: ReadSet | undefined, difference: ReplayDifference): boo
   return readSet === undefined || difference.table === null || readSet.has(difference.table)
 }
 
-export function shadowReading(db: DatabaseSync, gitHub: GitHub, nowMs: () => number, readSet?: ReadSet): ShadowReading {
-  const { mismatches, missing, headMismatches } = compared(db, gitHub, nowMs)
+export function shadowReading(db: DatabaseSync, readSet?: ReadSet): ShadowReading {
   const { differences } = replayDifferences(db)
   const replayLines = (read: boolean): string[] => differences.filter(difference => readBy(readSet, difference) === read).map(difference => `${EXIT_CRITERIA.replay}: ${difference.line}`)
-  return {
-    headLag: headMismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
-    problems: [
-      ...mismatches.map(mismatch => `${EXIT_CRITERIA.prs}: ${mismatch}`),
-      ...missing.map(pr => `${EXIT_CRITERIA.prs}: ${pr} open on GitHub, missing here`),
-      ...replayLines(true),
-    ],
-    foreign: replayLines(false),
-  }
+  return { problems: replayLines(true), foreign: replayLines(false) }
 }
 
-export function shadowProblems(db: DatabaseSync, gitHub: GitHub, nowMs: () => number): string[] {
-  const { headLag, problems } = shadowReading(db, gitHub, nowMs)
-  return [...problems, ...headLag]
-}
-
-export function shadowReport(db: DatabaseSync, gitHub: GitHub, since: string, nowMs: () => number): string[] {
+export function shadowReport(db: DatabaseSync, since: string): string[] {
   const period = new Period(db, since)
   const ticks = period.events('netwatch.tick').length
   const skipped = period.events('netwatch.skipped').length
   return [
     `${since === '' ? 'over the whole log' : `since ${since}`}: ${ticks} ticks, ${skipped} skipped polls`,
-    prsLine(db, period, gitHub, nowMs),
+    prsLine(db, period),
     latencyLine(period),
     supersededLine(db, period),
     lagLine(period),
@@ -343,7 +273,7 @@ function sinceOf(argv: string[]): string {
 function main(): number {
   const db = openBus(defaultBusPath())
   try {
-    console.log(shadowReport(db, ghApi(process.cwd()), sinceOf(process.argv), () => Date.now()).join('\n'))
+    console.log(shadowReport(db, sinceOf(process.argv)).join('\n'))
     return 0
   }
   finally {

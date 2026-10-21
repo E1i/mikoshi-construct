@@ -1,5 +1,4 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
-import type { GitHub } from './github.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -7,7 +6,6 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { alive, printBg, psList, startDetached } from './bg.js'
 import { defaultBusPath, openBus } from './db.js'
-import { ghApi } from './github.js'
 import { shadowReading } from './report.js'
 import { REVIEW_READS, SWITCH_FLAG } from './review-worker.js'
 
@@ -18,12 +16,12 @@ export const REVIEW_INSTANCE_FILE = 'bus-review.pid'
 export const REVIEW_START_LOCK = 'bus-review-bg.lock'
 export const REVIEW_WORKER_MARKERS = [`scripts/bus/review-worker.ts ${SWITCH_FLAG}`, `--silent ${REVIEW_SCRIPT} ${SWITCH_FLAG}`] as const
 
-export function busShadowProblems(busPath: string, gitHub: GitHub): string[] {
+export function busShadowProblems(busPath: string): string[] {
   if (!existsSync(busPath))
     return [`there is no bus.db at ${busPath}; the shadow has not run there`]
   const db = openBus(busPath)
   try {
-    return shadowReading(db, gitHub, () => Date.now(), REVIEW_READS).problems
+    return shadowReading(db, REVIEW_READS).problems
   }
   catch (error) {
     return [`the shadow report could not be read: ${error instanceof Error ? error.message : String(error)}`]
@@ -67,6 +65,6 @@ export function reviewLaunch(preflight: () => string[]): DetachedLaunch {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const preflight = (): string[] => busShadowProblems(defaultBusPath(), ghApi(process.cwd()))
+  const preflight = (): string[] => busShadowProblems(defaultBusPath())
   printBg(startReviewWorker(reviewLaunch(preflight), path.join(os.homedir(), '.construct', 'bus'), process.env, psList()))
 }

@@ -9,17 +9,20 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
 import { RUNNING_CARD } from '../../bus/card-automaton.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { ghApi } from '../../bus/github.js'
 import { CARD_PROCESS, lastProcessBeats, recordHeartbeat, recordProcessHeartbeat, WINDOW_PROCESS } from '../../bus/heartbeat.js'
 import { CARD_STARTED, RESTART_MISSED, RESTARTED } from '../../bus/inbox.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLease, TASK_EXPIRED } from '../../bus/lease.js'
 import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../bus/liveness-sites.js'
+import { Meter } from '../../bus/meter.js'
 import { CHECK_MS } from '../../bus/netwatch.js'
 import { reduce } from '../../bus/reducer.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
 import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { busLaunches, switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
+import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../core/gh.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
 
@@ -203,6 +206,35 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     s.keeper.step()
     expect(s.reduces).toEqual([])
     expect(s.starts).toHaveLength(1)
+  })
+
+  it('a GitHub error at a node start is technical and the supervisor loop goes on', () => {
+    const spawned: number[] = []
+    const hanging = ghPort({ spawn: () => {
+      spawned.push(1)
+      return { status: null, stdout: '', stderr: '', error: Object.assign(new Error('spawnSync gh ETIMEDOUT'), { code: 'ETIMEDOUT' }) }
+    }, pause: () => {}, budget: new GhBudgetWindow({ calls: 100, windowMs: 1000 }, () => 0) })
+    const review = reviewLaunch(() => {
+      new Meter(ghApi('.', hanging), () => 0).get('repos/o/r/pulls?state=open')
+      return []
+    })
+    const merge = workerLaunches(() => []).merge
+    const s = kept([review, merge], (launch) => {
+      launch.preflight?.()
+      return ok(launch)
+    })
+
+    const lines = s.keeper.step()
+    expect(spawned).toHaveLength(GH_ATTEMPTS)
+    expect(s.starts).toEqual([launchName(review), launchName(merge)])
+    expect(s.alive.map(process => process.args)).toEqual([`node pnpm.cjs --silent ${launchName(merge)}`])
+    expect(lines.join('\n')).toContain(`${PREFIX}${launchName(review)} did not start, a technical failure: GitHub answered 599`)
+    expect(lines.join('\n')).toContain(`${launchName(review)} failed to start 1 time(s) in a row; the next attempt in ${backoffMs(1) / 1000}s`)
+    expect(lines.join('\n')).not.toContain('keeping the workers alive failed')
+
+    s.clock.now = backoffMs(1)
+    s.keeper.step()
+    expect(s.starts).toEqual([launchName(review), launchName(merge), launchName(review)])
   })
 
   it('three failed starts in a row write a journal line and a report', () => {

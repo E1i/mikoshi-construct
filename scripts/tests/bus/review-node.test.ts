@@ -346,12 +346,14 @@ describe('the review node', () => {
 
     const unclean = bench()
     unclean.gitHub.open({ number: 948 })
+    unclean.tick()
+    unclean.db.prepare(`UPDATE prs SET state = 'closed' WHERE pr = 948`).run()
     const pause = vi.fn(async () => {
       throw new Error('the node paused')
     })
     expect(await runReview(['--on'], runOf(unclean, reviewer, pause))).toBe(1)
     expect(String(errors.mock.calls.at(-1)?.[0])).toContain('refused to start, the shadow report is not clean')
-    expect(String(errors.mock.calls.at(-1)?.[0])).toContain('#948 open on GitHub, missing here')
+    expect(String(errors.mock.calls.at(-1)?.[0])).toContain('replay byte-diff: prs 948: state live "closed", replay "open"')
     expect(pause).not.toHaveBeenCalled()
     expect(reviewed).toHaveLength(1)
 

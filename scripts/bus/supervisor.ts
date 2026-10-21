@@ -13,7 +13,6 @@ import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDe
 import { RUNNING_CARD } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
-import { ghApi } from './github.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { RESTART_MISSED, RESTARTED } from './inbox.js'
 import { expireLeasesHeldBy, LEASE_MS, leasesHeldBy, openDrain, TASK_EXPIRED } from './lease.js'
@@ -140,6 +139,15 @@ interface Drained {
   lines: string[]
 }
 
+function startedOrTechnical(start: (launch: DetachedLaunch) => BgResult, launch: DetachedLaunch): BgResult {
+  try {
+    return start(launch)
+  }
+  catch (error) {
+    return { stdout: [], stderr: [`${PREFIX}${launchName(launch)} did not start, a technical failure: ${error instanceof Error ? error.message : String(error)}`], exitCode: 1 }
+  }
+}
+
 export class BusSupervisor {
   private codeSha: string
   private pending: string | null = null
@@ -217,7 +225,7 @@ export class BusSupervisor {
       await this.parts.stop(instance, launch)
       lines.push(`${PREFIX}${launchName(launch)} runs in the other mode than workers.json lists; restarting it ${launch.args.includes(LIVE_FLAG) ? 'live' : 'in shadow'}`)
       lines.push(...this.parts.freeLeases?.([launch]) ?? [])
-      const started = this.parts.start(launch)
+      const started = startedOrTechnical(this.parts.start, launch)
       lines.push(...started.stdout, ...started.stderr)
     }
     return lines
@@ -312,7 +320,7 @@ export class BusSupervisor {
     const down: string[] = []
     const lines = wanted.flatMap((launch) => {
       const name = launchName(launch)
-      const started = this.parts.start(launch)
+      const started = startedOrTechnical(this.parts.start, launch)
       if (started.exitCode !== 0 && started.alreadyRunning === undefined) {
         down.push(name)
         this.parts.journal({ ts: new Date(this.parts.now()).toISOString(), event: 'worker.down', worker: name, failures: [causeOf(started)], restart: head })
@@ -459,11 +467,11 @@ export class WorkerKeeper {
     if (streak !== undefined && this.parts.now() < streak.retryAt)
       return []
     const lines = [`${PREFIX}${name} is switched on and not running; starting it`]
-    let started = this.parts.start(launch)
+    let started = startedOrTechnical(this.parts.start, launch)
     const refusal = started.exitCode !== 0 && refusedByPreflight(launch, started) ? causeOf(started) : null
     if (refusal !== null) {
       lines.push(...started.stderr, `${PREFIX}${name} was refused by the projection preflight; running ${REDUCE_SCRIPT} once and starting it again`, ...this.parts.reduce())
-      started = this.parts.start(launch)
+      started = startedOrTechnical(this.parts.start, launch)
     }
     lines.push(...started.stdout, ...started.stderr)
     const up = started.exitCode === 0 || started.alreadyRunning !== undefined
@@ -761,7 +769,7 @@ function decisionsInForce(): InForceDecision[] {
 async function main(): Promise<void> {
   const busDir = path.join(os.homedir(), '.construct', 'bus')
   const cwd = process.cwd()
-  const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath(), ghApi(cwd))
+  const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath())
   const command = bgCommand(process.argv.slice(2))
   if (command.kind === 'supervise') {
     process.exitCode = await supervise(busDir, cwd, reviewPreflight)
