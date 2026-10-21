@@ -1,9 +1,15 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { InForceDecision } from './decisions.js'
+import type { Witness } from './witnesses.js'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
+import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { ownerPathsOf } from '../../src/commands/intake/check.js'
+import { WITNESS_RECORDED } from '../core/events.js'
 import { matchGlob } from '../shredder/glob.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
+import { cardBodyText } from './card-bodies.js'
+import { cardBodyShaOfCard } from './queue.js'
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const VERSION_BRANCH = /^changeset-release\//
@@ -151,4 +157,78 @@ export function underOwnerDecision(verdict: MergeVerdict, decisionId: number, pr
   if (verdict.kind === 'denied' && !YIELDS_TO_THE_OWNER_DECISION.has(verdict.rule))
     return verdict
   return pastRoundLimit(verdict.detail, decisionId, pr, head)
+}
+
+export const WITNESS_REASON = 'witness'
+export const GREEN = 'green'
+export const RED = 'red'
+
+const RED_ON_THE_BASE = /\bred on (?:main|the base)\b/
+const BACKTICKED = /`([^`]+)`/g
+
+export type WitnessVerdict = typeof GREEN | typeof RED
+
+export interface CardWitnesses {
+  acceptance: Witness[]
+  invariants: Witness[]
+}
+
+export interface WitnessSubject extends CardWitnesses {
+  cardId: number
+  cardBody: string
+}
+
+export interface WitnessRecord {
+  verdict: WitnessVerdict
+  base: string
+  detail: string
+}
+
+const LATEST_RECORD = `
+  SELECT payload FROM events
+  WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND card_id = ? AND head = ? AND json_extract(payload, '$.cardBody') = ?
+  ORDER BY id DESC LIMIT 1
+`
+
+function commandsOf(item: string): string[] {
+  return [...item.matchAll(BACKTICKED)].map(match => match[1]!.trim()).filter(command => command !== '')
+}
+
+export function cardWitnessesOf(body: string): CardWitnesses {
+  const items = witnessesOf(body).filter(item => commandsOf(item).length > 0)
+  return {
+    acceptance: items.filter(item => RED_ON_THE_BASE.test(item)).map(item => ({ criterion: item, command: commandsOf(item).join(' && ') })),
+    invariants: items.filter(item => !RED_ON_THE_BASE.test(item)).flatMap(item => commandsOf(item).map(command => ({ criterion: item, command }))),
+  }
+}
+
+export function witnessSubjectOf(db: DatabaseSync, cardId: number): WitnessSubject | null {
+  const cardBody = cardBodyShaOfCard(db, cardId)
+  const text = cardBodyText(db, cardId)
+  if (cardBody === null || text === null)
+    return null
+  const witnesses = cardWitnessesOf(text)
+  return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody, ...witnesses }
+}
+
+export function witnessRecordOf(db: DatabaseSync, cardId: number, head: string, cardBody: string): WitnessRecord | null {
+  const row = db.prepare(LATEST_RECORD).get(cardId, head, cardBody) as { payload: string } | undefined
+  if (row === undefined)
+    return null
+  const payload = JSON.parse(row.payload) as { verdict?: unknown, base?: unknown, detail?: unknown }
+  return { verdict: payload.verdict === GREEN ? GREEN : RED, base: String(payload.base ?? ''), detail: String(payload.detail ?? '') }
+}
+
+export function witnessDenial(db: DatabaseSync, cardId: number, head: string | null): string | null {
+  const subject = witnessSubjectOf(db, cardId)
+  if (subject === null)
+    return null
+  if (head === null)
+    return `card #${cardId} declares witnesses and the task names no head to hold a witness record for`
+  const record = witnessRecordOf(db, cardId, head, subject.cardBody)
+  if (record === null)
+    return `no ${WITNESS_RECORDED} for card #${cardId} at head ${head} under card body ${subject.cardBody}: the witness node has not run every card witness red on the base and green on this head`
+  if (record.verdict !== GREEN)
+    return `the ${WITNESS_RECORDED} for card #${cardId} at head ${head} on the base ${record.base} under card body ${subject.cardBody} is red: ${record.detail}`
+  return null
 }

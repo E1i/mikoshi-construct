@@ -16,7 +16,7 @@ import { messageOf } from './errors.js'
 import { isFullSha } from './identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
 import { Meter } from './meter.js'
-import { mergePolicy, OWNER_MERGES, underOwnerDecision, VERSION_BRANCH } from './policy.js'
+import { mergePolicy, OWNER_MERGES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial } from './policy.js'
 import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE } from './queue.js'
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
@@ -29,7 +29,7 @@ const RUNS_PAGE = 100
 const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
 
-export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof NEEDS_UPDATE
+export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof WITNESS_REASON | typeof NEEDS_UPDATE
 
 export type MergeDenial
   = | { kind: 'technical', reason: MergeTechnicalReason, detail: string }
@@ -100,6 +100,9 @@ export class MergeExecutor {
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
+      const unwitnessed = checked.mergedCommit === null ? witnessDenial(this.parts.db, lease.cardId, lease.head) : null
+      if (unwitnessed !== null)
+        return this.denied(lease, { kind: 'technical', reason: WITNESS_REASON, detail: unwitnessed })
       const withdrawn = checked.mergedCommit === null ? this.noLongerACandidate(lease) : null
       if (withdrawn !== null)
         return this.denied(lease, withdrawn)
@@ -289,7 +292,7 @@ export class MergeExecutor {
       releaseTask(this.parts.db, ts, lease, reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

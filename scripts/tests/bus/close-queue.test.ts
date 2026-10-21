@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSy
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
 import { CloseExecutor } from '../../bus/close-executor.js'
 import { CloseNode, closingVerification, runCloseWorker } from '../../bus/close-worker.js'
 import { appendEvent } from '../../bus/db.js'
@@ -15,9 +16,9 @@ import { legacyEventOf } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
 import { launchCandidates } from '../../bus/launch-candidates.js'
 import { expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
+import { deriveQueues, FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_VERIFIED, MERGE_DONE, PR_CLOSED, REVIEW_RECORDED, TASK_REQUEUED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_VERIFIED, MERGE_DONE, PR_CLOSED, REVIEW_RECORDED, TASK_REQUEUED, WITNESS_RECORDED } from '../../core/events.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
 import { appendToJournal, journalLine } from '../../ghosts/task-merged.js'
 import { writeLaneJson } from '../../lanes/lane-json.js'
@@ -233,6 +234,31 @@ describe('the close queue', () => {
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('a close with no witness record for head, base and card body is denied', () => {
+    const bench = closeBench({ 1096: 'run' })
+    const text = `card: #1096 witnessed [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-1096\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nClose it.\n\nWitnesses:\n- \`test -f done.txt\` exits 0; red on main\n`
+    const cardBody = textSha(text).slice(0, 12)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 1096, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:1096`, payload: { card: '#1096', lane: 'lane-1', text, textSha: textSha(text), bodySha: cardBody }, legacy: false })
+    bench.merged(996)
+
+    const denied = bench.closeCard(bench.leaseClose()!)
+
+    expect(denied).toEqual(expect.objectContaining({ kind: 'denied', next: 'withdrawn', denial: expect.objectContaining({ reason: 'witness' }) }))
+    expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
+
+    const witnessed = (head: string): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:witness-1', cardId: 1096, pr: 996, head, dedupeKey: `${WITNESS_RECORDED}:1096:${head}:${sha('e')}:${cardBody}`, payload: { head, base: sha('e'), cardBody, verdict: 'green', detail: 'green' }, legacy: false })
+    }
+    witnessed(sha('b'))
+    deriveQueues(bench.db, bench.clock.now().toISOString())
+    expect(bench.leaseClose()).toBeNull()
+
+    witnessed(sha('a'))
+    deriveQueues(bench.db, bench.clock.now().toISOString())
+    expect(bench.closeCard(bench.leaseClose()!)).toEqual(expect.objectContaining({ kind: 'closed', verification: 'run' }))
     bench.close()
   })
 
@@ -482,6 +508,27 @@ describe('the close queue', () => {
     expect(readdirSync(path.join(bench.parking, 'archive')).sort()).toEqual(['1101.md', '1102.md'])
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'run' }, { verification: 'run' }])
     expect(bench.leaseClose()).toBeNull()
+    bench.close()
+  })
+
+  it('task:close refuses a reported run on a card with witnesses until a green witness record holds its pull request head', () => {
+    const bench = closeBench()
+    mkdirSync(path.dirname(bench.journal), { recursive: true })
+    writeFileSync(bench.journal, `${windowStartLine(1117)}\n`)
+    const text = `card: #1117 witnessed [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-1117\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nClose it.\n\nWitnesses:\n- \`test -f done.txt\` exits 0; red on main\n`
+    const cardBody = textSha(text).slice(0, 12)
+    appendEvent(bench.db, { ts: AFTER_HISTORY.toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 1117, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:1117`, payload: { card: '#1117', lane: 'lane-1', text, textSha: textSha(text), bodySha: cardBody }, legacy: false })
+    bench.gitHub.open({ number: 1017 })
+    bench.tick()
+    const closing = (): ReturnType<typeof runTaskClose> => runTaskClose(['1117', '--pr', '1017', '--verification', 'run'], { ...taskCloseDeps(path.dirname(bench.journal), AFTER_HISTORY), busPath: bench.busPath })
+
+    const refused = closing()
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr.join('\n')).toContain(`only on a green witness record, not on a reported verification: no ${WITNESS_RECORDED} for card #1117 at head ${sha('a')}`)
+    expect(eventsOf(bench.db, CARD_VERIFIED)).toEqual([])
+
+    appendEvent(bench.db, { ts: AFTER_HISTORY.toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:witness-1', cardId: 1117, pr: 1017, head: sha('a'), dedupeKey: `${WITNESS_RECORDED}:1117:${sha('a')}:${sha('e')}:${cardBody}`, payload: { head: sha('a'), base: sha('e'), cardBody, verdict: 'green', detail: 'green' }, legacy: false })
+    expect(closing().exitCode).toBe(0)
     bench.close()
   })
 

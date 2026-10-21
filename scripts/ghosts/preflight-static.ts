@@ -1,9 +1,10 @@
 import type { Witness } from '../bus/witnesses.js'
 import { GHOSTS_FILES, readGhostsFiles } from '../shredder/reader.js'
 
+export { movingRefRefusal } from '../../src/commands/intake/check.js'
+
 export type ShowAt = (file: string) => string | null
 
-const MOVING_REF = /\borigin\/main\b/
 const INVARIANT_WITNESS = /^(.*?) — witness: `([^`]+)`$/
 const GHOSTS_FILE = /^scripts\/ghosts\/[\w./-]+\.\w+$/
 const IMMUTABLE_PATH = /^[\w.@+-]+(?:\/[\w.@+-]+)*\/?$/
@@ -26,11 +27,6 @@ export function invariantWitnesses(invariants: string[]): Witness[] {
 export function unreadInvariantRefusal(invariants: string[]): string | null {
   const unread = invariants.find(item => !INVARIANT_WITNESS.test(item))
   return unread === undefined ? null : `invariant "${unread}" carries no witness the preflight can read, so it cannot be run on the base: end it with — witness: and the command in backticks`
-}
-
-export function movingRefRefusal(witnesses: Witness[]): string | null {
-  const named = witnesses.find(witness => MOVING_REF.test(witness.command))
-  return named === undefined ? null : `witness "${named.criterion}" names origin/main, which moves while the run goes; compare with HEAD, which the launcher pins at the base`
 }
 
 export function generatorRefusal(design: string, changed: string[]): string | null {

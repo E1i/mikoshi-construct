@@ -16,8 +16,9 @@ import { archiveCardFile } from './card-archive.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { appendEvent } from './db.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
+import { WITNESS_REASON, witnessDenial } from './policy.js'
 
-export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof NOT_MINE
+export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof WITNESS_REASON | typeof NOT_MINE
 
 export type MergeLineStep = 'written' | 'present' | 'no-merger' | 'in-bus'
 
@@ -188,6 +189,9 @@ export class CloseExecutor {
         return this.denied(lease, technical('no_verification', `card ${lease.cardId} has ${verification === null ? `no verification: no card.verified for ${lease.pr === null ? 'its report' : `PR #${lease.pr}`}` : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
       if (probe !== null)
         return this.closed(lease, verification, null, probe.report)
+      const unwitnessed = witnessDenial(this.parts.db, lease.cardId, lease.head)
+      if (unwitnessed !== null)
+        return this.denied(lease, technical(WITNESS_REASON, unwitnessed))
       const commit = this.mergeCommit(lease)
       if (commit === null)
         return this.denied(lease, technical('no_merge_commit', `the bus holds no merge commit for PR #${lease.pr}`))
@@ -261,7 +265,7 @@ export class CloseExecutor {
   private denied(lease: Lease, denial: CloseDenial): CloseOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'close', ...denial }, legacy: false }
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === 'card_closed' || denial.reason === NOT_MINE }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === 'card_closed' || denial.reason === NOT_MINE || denial.reason === WITNESS_REASON }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

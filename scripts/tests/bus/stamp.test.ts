@@ -71,7 +71,7 @@ describe('the bus log stamper', () => {
   })
 
   it('names every script a detached bus start launches, the supervisor and bus:run included', () => {
-    expect(new Set(DETACHED_SCRIPTS)).toEqual(new Set(['bus:run', 'bus:bg', 'bus:review', 'bus:merge', 'bus:update', 'bus:launch', 'bus:restart', 'bus:answer', 'bus:close']))
+    expect(new Set(DETACHED_SCRIPTS)).toEqual(new Set(['bus:run', 'bus:bg', 'bus:review', 'bus:merge', 'bus:update', 'bus:launch', 'bus:restart', 'bus:answer', 'bus:close', 'bus:witness']))
   })
 
   it.each(DETACHED_SCRIPTS)('the entry behind %s imports stampLogOutput and calls it', (script) => {

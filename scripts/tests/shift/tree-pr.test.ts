@@ -58,6 +58,31 @@ describe('treePr', () => {
   })
 })
 
+describe('the base of the tree', () => {
+  it('tree-pr refuses a tree whose merge-base is not the PR base', () => {
+    const calls: string[][] = []
+    const ports: TreePrPorts = {
+      git: (_cwd, args) => {
+        calls.push(args)
+        if (args[0] === 'rev-list')
+          return '1\n'
+        if (args[0] === 'rev-parse')
+          return `${'b'.repeat(40)}\n`
+        if (args[0] === 'merge-base')
+          return `${'a'.repeat(40)}\n`
+        return ''
+      },
+      gh: (args) => {
+        if (args[1] === 'list')
+          return '[]'
+        throw new Error('no pull request is opened off its base')
+      },
+    }
+    expect(treePr(ports, CARD, '/tree', null)).toEqual({ kind: 'problem', why: `the shift opened no pull request for feat/x: its merge-base ${'a'.repeat(40)} is not the PR base origin/main at ${'b'.repeat(40)}; bring the tree onto origin/main first` })
+    expect(calls).toContainEqual(['merge-base', 'HEAD', 'origin/main'])
+  })
+})
+
 describe('tree-pr reads its card from the bus', () => {
   const CARD_TEXT = parkingFileText({ card: '#951 x [implement/netwatch/S/cheap/auto] · depends — · blocks —', branch: 'feat/x', touches: ['docs/x.md'], continue: 'stop', who: 'shift', body: 'Do x.' })
 

@@ -50,7 +50,8 @@ export function shiftTreeCard(task: ShiftTask): TreeCard {
   }
 }
 
-const SHIFTED_RANGE = 'origin/main...HEAD'
+const PR_BASE = 'origin/main'
+const SHIFTED_RANGE = `${PR_BASE}...HEAD`
 const PUBLISHED_CODE = COMPANION_TABLE.find(row => row.kind === 'published code') as CompanionRow
 const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
 const UNNAMED_REASON = 'the cheap path is held without a named reason'
@@ -174,6 +175,12 @@ export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch:
   return 'pushed'
 }
 
+export function mergeBaseProblem(git: TreePrPorts['git'], worktree: string, branch: string): string | null {
+  const base = git(worktree, ['rev-parse', PR_BASE]).trim()
+  const mergeBase = git(worktree, ['merge-base', 'HEAD', PR_BASE]).trim()
+  return mergeBase === base ? null : `the shift opened no pull request for ${branch}: its merge-base ${mergeBase || 'none'} is not the PR base ${PR_BASE} at ${base}; bring the tree onto ${PR_BASE} first`
+}
+
 export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, report: string | null): TreePr {
   try {
     if (commitAndPush(ports.git, worktree, card.branch, card.commitMessage) === 'clean')
@@ -181,6 +188,9 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     const open = openPrOf(ports, card.branch)
     if (open !== null)
       return { kind: 'pr', number: open }
+    const offBase = mergeBaseProblem(ports.git, worktree, card.branch)
+    if (offBase !== null)
+      return { kind: 'problem', why: offBase }
     const shifted = shiftedPath(ports.git, worktree, card)
     const body = prBodyOf(card, shifted.line, matrixCountLineOf(report))
     const outside = changedOutsideTouches(ports.git, worktree, shifted.files.map(file => file.path), card.touches, card.runs)

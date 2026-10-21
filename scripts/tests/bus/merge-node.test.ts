@@ -11,9 +11,9 @@ import { recordDecision } from '../../bus/decisions.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { NODE_CURSORS } from '../../bus/node.js'
-import { keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../bus/queue.js'
+import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../bus/queue.js'
 import { UpdateNode } from '../../bus/update-worker.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
 import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -125,6 +125,17 @@ function mergeDone(made: MergeBench, cardId: number, pr: number): number {
 
 function admitted(made: MergeBench, cardId: number, text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nMerge it.\n`): void {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: `#${cardId}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+}
+
+function witnessedCard(made: MergeBench, cardId: number): string {
+  const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nMerge it.\n\nWitnesses:\n- \`test -f done.txt\` exits 0; red on main\n`
+  const cardBody = textSha(text).slice(0, 12)
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: `#${cardId}`, lane: 'lane-1', text, textSha: textSha(text), bodySha: cardBody }, legacy: false })
+  return cardBody
+}
+
+function witnessGreen(made: MergeBench, cardId: number, pr: number, head: string, cardBody: string): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:witness-1', cardId, pr, head, dedupeKey: `${WITNESS_RECORDED}:${cardId}:${head}:${sha('e')}:${cardBody}`, payload: { head, base: sha('e'), cardBody, verdict: 'green', detail: 'every card witness red on the base and green on the head' }, legacy: false })
 }
 
 function dropped(made: MergeBench, cardId: number): void {
@@ -299,6 +310,30 @@ describe('the merge node', () => {
       expect(eventsOf(made.db, POLICY_DENIED), body).toEqual([])
       expect(eventsOf(made.db, MERGE_DONE), body).toEqual([expect.objectContaining({ rule: 'auto' })])
     }
+  })
+
+  it('a new commit after a green witness run is denied as witness until a run on the new head', async () => {
+    const made = bench()
+    const cardBody = witnessedCard(made, 1070)
+    made.gitHub.open({ number: 970, review: 'success' })
+    made.tick()
+    witnessGreen(made, 1070, 970, sha('a'), cardBody)
+    made.gitHub.open({ number: 970, review: 'success', head: sha('b') })
+    made.tick()
+    const node = nodeOf(made, 'live')
+    await once(node)
+    await once(node)
+
+    expect(eventsOf(made.db, POLICY_DENIED)).toEqual([expect.objectContaining({ command: 'merge', reason: 'witness' })])
+    expect(eventsOf(made.db, MERGE_DONE)).toEqual([])
+    expect(taskState(made.db, keyOf({ queue: 'merge', cardId: 1070, pr: 970, head: sha('b') })).state).toBe('withdrawn')
+
+    witnessGreen(made, 1070, 970, sha('b'), cardBody)
+    deriveQueues(made.db, made.clock.now().toISOString())
+    await once(node)
+
+    expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto' })])
+    expect(made.gitHub.puts.map(each => each.fields.sha)).toEqual([sha('b')])
   })
 
   it('merge takes a candidate cardContract reads as its own', async () => {

@@ -59,6 +59,7 @@
     "bus:run": "node --import tsx scripts/bus/run.ts",
     "bus:slot": "node --import tsx scripts/bus/slot.ts",
     "bus:update": "node --import tsx scripts/bus/update-worker.ts",
+    "bus:witness": "node --import tsx scripts/bus/witness-worker.ts",
     "card": "node --import tsx scripts/bus/card.ts",
     "changeset": "changeset",
     "checks:catalog": "node --import tsx scripts/bus/check-catalog.ts",
