@@ -24,7 +24,6 @@ function queueWorkerLaunch(worker: Exclude<BusWorker, 'review'>): DetachedLaunch
     script,
     args: [SWITCH_FLAG],
     markers: [`scripts/bus/${worker}-worker.ts ${SWITCH_FLAG}`, `--silent ${script} ${SWITCH_FLAG}`],
-    instanceFile: `bus-${worker}.pid`,
     startLock: `bus-${worker}-bg.lock`,
     log: `${worker}.log`,
   }

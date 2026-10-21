@@ -7,12 +7,14 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
+import { lastProcessBeats, recordProcessHeartbeat } from '../../bus/heartbeat.js'
+import { SILENT_MS } from '../../bus/liveness-sites.js'
 import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { failRaise, leaseRole, observeRoleStop, ROLE_RETURNED, roleToOwner } from '../../bus/role.js'
-import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
+import { HANDOFF_FIELDS, STATE_LABELS } from '../../ghosts/handoff-check.js'
 import { parsePs } from '../../miko/exit.js'
-import { CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
+import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, PROCESS_ENDED, PROCESS_REFUSED, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -135,7 +137,7 @@ async function pauseLine(stderr: () => string, deadlineMs = READY_DEADLINE_MS): 
 function writeMikoDraft(dir: string, status: Status): void {
   mkdirSync(path.join(dir, 'parking'))
   const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.filter(field => field.id !== 'stop-reason').map(field => [field.label, field.id === 'decisions' ? LOOP : `${field.id} value`])), 'queue': 'none', 'in-flight': 'none', 'owner waits': 'none', 'next task': '#1 implement' }
-  const fields = Object.entries(values).map(([label, value]) => `${label}: ${value}`)
+  const fields = Object.entries(values).filter(([label]) => !(STATE_LABELS as readonly string[]).includes(label)).map(([label, value]) => `${label}: ${value}`)
   writeFileSync(path.join(dir, 'draft.md'), `# Handoff\n\nrole: window\nsession: 1\n${fields.join('\n')}\n\nSTATUS: ${status}\n`)
 }
 
@@ -238,7 +240,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     atTheContextWarn(dir)
     mkdirSync(path.join(dir, 'parking'))
     const values: Record<string, string> = { ...Object.fromEntries(HANDOFF_FIELDS.filter(field => field.id !== 'stop-reason').map(field => [field.label, field.id === 'decisions' ? LOOP : `${field.id} value`])), 'queue': 'none', 'in-flight': 'none', 'owner waits': 'none', 'next task': '#1 implement' }
-    const fields = Object.entries(values).map(([label, value]) => `${label}: ${value}`)
+    const fields = Object.entries(values).filter(([label]) => !(STATE_LABELS as readonly string[]).includes(label)).map(([label, value]) => `${label}: ${value}`)
     writeFileSync(path.join(dir, 'draft.md'), `# Handoff\n\nrole: window\nsession: 1\n${fields.join('\n')}\n\nSTATUS: CONTINUE\n`)
     const operator = path.join(dir, '.construct', 'handoff', 'mikoshi.md')
     writeFileSync(operator, '## STOP — Operator\nSTATUS: CONTINUE\n')
@@ -658,4 +660,69 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     expect(await runSession(`sh -c 'echo "$MIKO_LOOP_PID $MIKO_EXIT_REQUEST" > ${seen}'`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
     expect(readFileSync(seen, 'utf8').trim()).toBe(`${process.pid} ${file}`)
   }, 10_000)
+})
+
+describe('one pnpm miko loop at a time, judged by its heartbeat', () => {
+  const NOW = Date.parse('2026-10-21T10:00:00.000Z')
+  const minutesAgo = (minutes: number): string => new Date(NOW - minutes * 60_000).toISOString()
+
+  function busOf(dir: string): ReturnType<typeof openBus> {
+    return openBus(path.join(dir, '.construct', 'bus.db'))
+  }
+
+  function eventsOf(dir: string, type: string): Record<string, unknown>[] {
+    const db = busOf(dir)
+    try {
+      return (db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(type) as { payload: string }[]).map(row => JSON.parse(row.payload) as Record<string, unknown>)
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  it('a second loop refuses while one has a live heartbeat', async () => {
+    const dir = home(['quiet 0'])
+    const db = busOf(dir)
+    recordProcessHeartbeat(db, new Date(Date.now() - 60_000).toISOString(), loopProcess(4242))
+    db.close()
+
+    const { code, stderr } = await startLoop(dir).done
+
+    expect(code).toBe(1)
+    expect(stderr).toContain(`another pnpm miko loop is alive as ${loopProcess(4242)}`)
+    expect(existsSync(path.join(dir, 'count'))).toBe(false)
+    expect(eventsOf(dir, PROCESS_REFUSED)).toEqual([expect.objectContaining({ live: loopProcess(4242) })])
+  })
+
+  it('a loop that ended records it, so the next loop starts at once', async () => {
+    const dir = home(['quiet 0', 'quiet 0'])
+    expect((await startLoop(dir).done).code).toBe(0)
+    const second = await startLoop(dir).done
+    expect(second.code, second.stderr).toBe(0)
+    expect(lines(dir, 'count')).toEqual(['2'])
+    expect(eventsOf(dir, PROCESS_ENDED)).toHaveLength(2)
+    expect(eventsOf(dir, PROCESS_REFUSED)).toEqual([])
+  })
+
+  it('a start beats as its own instance and is refused by no beat of its own, of an ended loop or past SILENT_MS', () => {
+    const dir = home([])
+    const db = busOf(dir)
+    try {
+      recordProcessHeartbeat(db, minutesAgo(1), loopProcess(7))
+      expect(liveLoop(db, 7, NOW)).toBeNull()
+      recordProcessHeartbeat(db, minutesAgo(SILENT_MS / 60_000 + 1), loopProcess(8))
+      expect(liveLoop(db, 7, NOW)).toBeNull()
+      recordProcessHeartbeat(db, minutesAgo(2), loopProcess(9))
+      expect(liveLoop(db, 7, NOW)).toEqual({ process: loopProcess(9), lastBeat: minutesAgo(2) })
+      recordLoopEnded(db, 9, new Date(NOW - 60_000))
+      expect(liveLoop(db, 7, NOW)).toBeNull()
+      recordProcessHeartbeat(db, minutesAgo(0.5), 'bus:merge')
+      expect(claimLoop(db, 7, new Date(NOW))).toBeNull()
+      expect(lastProcessBeats(db).find(beat => beat.process === loopProcess(7))?.ts).toBe(new Date(NOW).toISOString())
+      expect(claimLoop(db, 10, new Date(NOW))).toContain(loopProcess(7))
+    }
+    finally {
+      db.close()
+    }
+  })
 })

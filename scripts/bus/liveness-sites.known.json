@@ -1,13 +1,11 @@
 [
   { "file": "scripts/bus/bg.ts", "kind": "kill" },
-  { "file": "scripts/bus/bg.ts", "kind": "pid-file" },
   { "file": "scripts/bus/bg.ts", "kind": "ps" },
   { "file": "scripts/bus/chain-process.ts", "kind": "kill" },
   { "file": "scripts/bus/chain-process.ts", "kind": "ps" },
   { "file": "scripts/bus/launch-starter.ts", "kind": "kill" },
   { "file": "scripts/bus/launch-starter.ts", "kind": "ps" },
   { "file": "scripts/bus/review-bg.ts", "kind": "pid-file" },
-  { "file": "scripts/bus/workers.ts", "kind": "pid-file" },
   { "file": "scripts/construct/browser-witness.mjs", "kind": "kill" },
   { "file": "scripts/ghosts/cleanup.ts", "kind": "kill" },
   { "file": "scripts/ghosts/watch-process.ts", "kind": "ps" },

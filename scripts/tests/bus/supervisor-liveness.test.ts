@@ -19,7 +19,7 @@ import { reduce } from '../../bus/reducer.js'
 import { reviewLaunch } from '../../bus/review-bg.js'
 import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, PROCESS_JUDGED, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, WORKER_DOWN, WorkerKeeper } from '../../bus/supervisor.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
-import { switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
+import { busLaunches, switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
 
@@ -1146,6 +1146,52 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     expect(stopped).toEqual([7])
     expect(lines).toEqual([`${PREFIX}${processName(merge)} was judged silent; restarting it`, `${PREFIX}pnpm ${launchName(merge)}`])
     expect(await restartSilent(`${CARD_PROCESS}1160`, [merge], { processes: () => alive, stop: async () => {}, start: ok })).toEqual([])
+  })
+})
+
+describe('the switch is a flag, and the supervisor moves each worker to it', () => {
+  it('brings a worker to its flag within one tick', async () => {
+    const busDir = mkdtempSync(path.join(tmpdir(), 'supervisor-flag-'))
+    roots.push(busDir)
+    switchWorker(busDir, 'merge', true)
+    let alive: RunningProcess[] = [{ pid: 1, args: 'node pnpm.cjs --silent bus:run' }, { pid: 2, args: 'node pnpm.cjs --silent bus:update --on' }]
+    const stopped: number[] = []
+    const starts: string[] = []
+    const start = (launch: DetachedLaunch): BgResult => {
+      starts.push(launchName(launch))
+      alive = [...alive, { pid: 3, args: `node pnpm.cjs --silent ${launchName(launch)}` }]
+      return ok(launch)
+    }
+    const processes = (): RunningProcess[] => alive
+    const wanted = (): DetachedLaunch[] => wantedLaunches(busDir, () => [])
+    const code: BusCode = { head: () => 'a'.repeat(40), holds: () => true, pull: () => {}, busChangedSince: () => false }
+    const supervisor = new BusSupervisor({
+      known: busLaunches(() => []),
+      wanted,
+      start,
+      stop: async (running) => {
+        stopped.push(running.pid)
+        alive = alive.filter(candidate => candidate.pid !== running.pid)
+      },
+      processes,
+      mainSince: () => [],
+      code,
+      journal: () => {},
+      now: () => 0,
+    }, 0)
+    const keeper = new WorkerKeeper({ wanted, start, processes, reduce: () => [], journal: () => {}, now: () => 0 })
+    const lines: string[] = []
+    const oneTick = new Error('one tick')
+
+    await expect(superviseUntilReplaced({ supervisor, keeper, relaunch: () => ({ stdout: [], stderr: [], exitCode: 1 }), print: line => lines.push(line), pause: async () => {
+      throw oneTick
+    } })).rejects.toBe(oneTick)
+
+    expect(stopped).toEqual([2])
+    expect(starts).toEqual(['bus:merge --on'])
+    expect(alive.map(candidate => candidate.args)).toEqual(['node pnpm.cjs --silent bus:run', 'node pnpm.cjs --silent bus:merge --on'])
+    expect(lines).toContain(`${PREFIX}bus:update --on is switched off and was running as pid 2; stopped it`)
+    expect(lines).toContain(`${PREFIX}bus:merge --on is switched on and not running; starting it`)
   })
 })
 
