@@ -16,8 +16,10 @@ import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COVERING_REASON, runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
+import { textSha } from '../../../src/card/text-sha.js'
 import { CARD_MOVED } from '../../../src/commands/intake/index.js'
 import { CARD_FELL, DROPPED_CARD, DROPPED_LANE, GHOST_ROW, PR_OPENED, STOPPED_CARD } from '../../bus/card-automaton.js'
+import { cardBodyText } from '../../bus/card-bodies.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../bus/inbox.js'
@@ -25,7 +27,7 @@ import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { CARD_ADMITTED } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { gitChangedPaths, ShiftCardStarter } from '../../bus/launch-starter.js'
-import { CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_WAITING, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LADDER_APPROVAL, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { AMENDED_AFTER_START, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_TEXT_HEADING, CARD_WAITING, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LADDER_APPROVAL, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS, NODE_DETECTED, NODE_EQUIVALENCE } from '../../bus/node.js'
 import { PR_CLOSED } from '../../bus/observations.js'
@@ -613,6 +615,75 @@ describe('the launch node', () => {
     expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 1123`).get()).toEqual({ state: 'running' })
     expect(launchRows(made, 1123)).toBe(1)
     expect(starter.starts).toHaveLength(1)
+  })
+
+  function admitText(made: MergeBench, cardId: number, body: string, key: string): void {
+    const text = parkingFileText({ card: `#${cardId} a-card [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: 'feat/a-card', touches: ['scripts/bus/**'], continue: 'auto', who: 'shift', body })
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${key}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}`, text, textSha: textSha(text) }, legacy: false })
+    made.tick()
+  }
+
+  it('an amend after the start restarts the session with the new text', async () => {
+    const made = bench()
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-amend-'))
+    roots.push(root)
+    admitText(made, 1129, 'Do the first text.', 'first')
+    const spawned: DetachedSpawn[] = []
+    const live = new Set<string>()
+    let sessions = 0
+    const bodyOf = (cardId: number): string | null => cardBodyText(made.db, cardId)
+    const real = realStarterPorts(root, {}, 'Shift task {{task}}\n\n', () => 'unused', bodyOf)
+    const ports: StarterPorts = {
+      ...real,
+      cut: () => '/trees/mc-1129',
+      base: () => 'b'.repeat(40),
+      spawnDetached: (run) => {
+        spawned.push(run)
+        return 5150 + spawned.length
+      },
+      pgidOf: pid => pid,
+      kill: () => {},
+      uuid: () => {
+        sessions += 1
+        live.add(`sess-${sessions}`)
+        return `sess-${sessions}`
+      },
+      envOf: () => ({}),
+      changedPaths: () => [],
+      readReport: () => null,
+    }
+    const starter = new ShiftCardStarter({ parking: path.join(root, 'parking'), launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
+    const processes: ProcessTable = { commandLine: () => live.size === 0 ? null : `sh -c claude -p --session-id ${[...live].at(-1)}`, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, isolation: sandboxed })
+    await once(node)
+    made.tick()
+    expect(spawned.map(run => run.input)).toEqual([expect.stringContaining('Do the first text.')])
+
+    admitText(made, 1129, 'Do the first text.', 'same-again')
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_WAITING)).toEqual([])
+
+    admitText(made, 1129, 'Do the amended text.', 'amend')
+    expect(node.stopOverdue()).toEqual([])
+    expect(node.stopOverdue()).toEqual([])
+    const [waiting, ...more] = eventsOf(made.db, CARD_WAITING) as { reason: string, session: string, detail: string }[]
+    expect(more).toEqual([])
+    expect(waiting).toMatchObject({ reason: AMENDED_AFTER_START, session: 'sess-1', detail: expect.stringMatching(/^card #1129 was amended from body \w{12} to \w{12} after session sess-1 started on the first; the session runs to its end, then it is restarted on the amended text$/) as unknown })
+    expect(spawned).toHaveLength(1)
+
+    live.clear()
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, CARD_CONTINUED)).toMatchObject([{ session: 'sess-2', worktree: '/trees/mc-1129', from: 'sess-1', continuation: 1 }])
+    expect(spawned.map(run => run.cwd)).toEqual(['/trees/mc-1129', '/trees/mc-1129'])
+    expect(spawned[1]!.input).toContain(CONTINUE_PROMPT)
+    expect(spawned[1]!.input).toContain(`${CARD_TEXT_HEADING}\n\nDo the amended text.`)
+    expect(spawned[1]!.input).not.toContain('Do the first text.')
+
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_WAITING)).toHaveLength(1)
+    made.tick()
+    expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 1129`).get()).toEqual({ state: 'running' })
   })
 
   it('a fourth Eddies exit of one card stops it at the D-104 limit', async () => {
