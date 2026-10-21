@@ -624,6 +624,7 @@ describe('the factory board', () => {
     expect(printBoard(bench.db.location()!, bench.clock.now(), text => written.push(text))).toBe(0)
     const page = written.join('')
     expect(page).toContain('<div class="goal" id="slot-goal"><div class="goal-top"><span class="goal-k">goal</span><span class="goal-name">release 0.44</span><span class="goal-n">1<small> / 2 merged · 1 dropped</small></span></div>')
+    expect(page).toContain('<div class="bar" role="img" aria-label="Plan progress by stage"><i class="sw" data-stage="merged" style="--_n: 1" title="merged: 1"></i><i class="sw" data-stage="planned" style="--_n: 1" title="planned: 1"></i><i class="sw" data-stage="dropped" style="--_n: 1" title="dropped: 1"></i></div>')
     expect(page).toContain('<h2 id="h-flow">Flow</h2><span class="meta">legend of the goal bar</span></div>\n<div class="flow">\n<div class="stage"><i class="sw" data-stage="merged"></i><span class="name">merged</span><span class="n">1</span></div>')
   })
 })
