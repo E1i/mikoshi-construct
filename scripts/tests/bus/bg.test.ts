@@ -7,10 +7,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { alive, BUS_RUN_LAUNCH, INSTANCE_FILE, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached } from '../../bus/bg.js'
+import { alive, BUS_RUN_LAUNCH, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { startReviewWorker } from '../../bus/review-bg.js'
-import { applySwitch, bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
+import { bgCommand, BusSupervisor, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
@@ -31,6 +31,8 @@ afterEach(() => {
 
 const SYSTEM_BIN_DIRS = ['/bin', '/usr/bin']
 const NO_PREFLIGHT = (): string[] => []
+const UNREAD_INSTANCE_FILE = 'bus-run.pid'
+const SUPERVISOR_ENTRY = path.resolve(import.meta.dirname, '..', '..', 'bus', 'supervisor.ts')
 
 function linkFromSystem(bin: string, name: string): void {
   const source = SYSTEM_BIN_DIRS.map(dir => path.join(dir, name)).find(file => existsSync(file))
@@ -117,7 +119,7 @@ describe('pnpm bus:bg', () => {
     const log = path.join(w.busDir, SHADOW_LOG)
     expect(result.stdout[0]).toBe(await settled(path.join(w.out, 'pid')))
     expect(result.stdout[1]).toContain(`log ${log}`)
-    expect(readFileSync(path.join(w.busDir, INSTANCE_FILE), 'utf8').trim()).toBe(result.stdout[0])
+    expect(existsSync(path.join(w.busDir, UNREAD_INSTANCE_FILE))).toBe(false)
     expect(await argvLines(w, 1)).toEqual(['--silent bus:run'])
     expect(argsOf(Number(result.stdout[0]))).toContain('bus:run')
     await waitFor(() => readFileSync(log, 'utf8').includes('bus:run output'), () => `"bus:run output" in ${log}`, ARRIVAL_GUARD_MS)
@@ -153,7 +155,6 @@ describe('pnpm bus:bg', () => {
     expect(second.exitCode).toBe(0)
     expect(second.stderr).toEqual([])
     expect(second.stdout).toEqual([`${PREFIX}bus:run is already running as pid ${pid}; left alone`])
-    expect(readFileSync(path.join(w.busDir, INSTANCE_FILE), 'utf8').trim()).toBe(pid)
     expect(w.processes().map(candidate => candidate.pid)).toEqual([Number(pid)])
   })
 
@@ -163,7 +164,6 @@ describe('pnpm bus:bg', () => {
     const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, byHand)
     expect(result.exitCode).toBe(0)
     expect(result.stdout.join('\n')).toContain('pid 4242')
-    expect(existsSync(path.join(w.busDir, INSTANCE_FILE))).toBe(false)
     expect(existsSync(path.join(w.busDir, START_LOCK))).toBe(false)
     expect(w.processes()).toEqual([])
   })
@@ -233,16 +233,17 @@ describe('pnpm bus:bg', () => {
     expect(result.stderr).toEqual([])
   })
 
-  it('a start lock and an instance file left by dead processes do not block a start', async () => {
+  it('a start lock and an old pid file left by dead processes do not block a start, and no pid file is written', async () => {
     const w = world()
     mkdirSync(w.busDir, { recursive: true })
-    writeFileSync(path.join(w.busDir, START_LOCK), `${deadPid()}\n`)
-    writeFileSync(path.join(w.busDir, INSTANCE_FILE), `${deadPid()}\n`)
+    const dead = String(deadPid())
+    writeFileSync(path.join(w.busDir, START_LOCK), `${dead}\n`)
+    writeFileSync(path.join(w.busDir, UNREAD_INSTANCE_FILE), `${dead}\n`)
     const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, w.processes)
     expect(result.exitCode).toBe(0)
     started.push(Number(result.stdout[0]))
     expect(result.stdout[0]).toBe(await settled(path.join(w.out, 'pid')))
-    expect(readFileSync(path.join(w.busDir, INSTANCE_FILE), 'utf8').trim()).toBe(result.stdout[0])
+    expect(readFileSync(path.join(w.busDir, UNREAD_INSTANCE_FILE), 'utf8').trim()).toBe(dead)
     expect(existsSync(path.join(w.busDir, START_LOCK))).toBe(false)
   })
 
@@ -312,78 +313,25 @@ describe('pnpm bus:bg', () => {
     }
   })
 
-  it('bus:bg --on and --off start and stop the named worker', async () => {
-    const busDir = path.join(tempRoot('bus-bg-switch-run-'), 'bus')
-    const update = busLaunches(NO_PREFLIGHT).find(launch => launch.script === 'bus:update')!
-    let running: RunningProcess[] = []
-    const startedNames: string[] = []
-    const stoppedNames: string[] = []
-    const control = {
-      processes: () => running,
-      start: (launch: DetachedLaunch): BgResult => {
-        startedNames.push(launchName(launch))
-        running = [{ pid: 900, args: `node pnpm.cjs --silent ${launchName(launch)}` }]
-        return { stdout: ['900'], stderr: [], exitCode: 0 }
-      },
-      stop: async (instance: RunningProcess, launch: DetachedLaunch): Promise<void> => {
-        stoppedNames.push(launchName(launch))
-        running = running.filter(candidate => candidate.pid !== instance.pid)
-      },
+  it('switch writes the flag without ps or kill', () => {
+    const root = tempRoot('bus-bg-switch-flag-')
+    const bin = path.join(root, 'bin')
+    const calls = path.join(root, 'calls')
+    mkdirSync(bin)
+    for (const name of ['ps', 'pgrep', 'kill', 'pkill', 'nohup', 'pnpm'])
+      stub(bin, name, `echo "${name} $*" >> "${calls}"`)
+    const env = { ...process.env, HOME: root, PATH: [bin, path.dirname(process.execPath), ...SYSTEM_BIN_DIRS].join(path.delimiter), CONSTRUCT_BUS_DB: path.join(root, 'bus.db') }
+    const busDir = path.join(root, '.construct', 'bus')
+
+    for (const [flag, worker] of [['--on', 'merge'], ['--on', 'update'], ['--off', 'merge']] as const) {
+      const run = spawnSync(process.execPath, ['--import', TSX_LOADER, SUPERVISOR_ENTRY, flag, worker], { cwd: root, env, encoding: 'utf8' })
+      expect(run.status, run.stderr).toBe(0)
+      expect(existsSync(calls) ? readFileSync(calls, 'utf8') : '').toBe('')
+      expect(run.stdout).toContain('the supervisor starts what is switched on and stops what is switched off on its next tick')
     }
 
-    const on = await applySwitch(busDir, 'update', true, control, NO_PREFLIGHT)
-    expect(on.exitCode).toBe(0)
     expect(switchedOn(busDir)).toEqual(['update'])
-    expect(startedNames).toEqual([launchName(update)])
-
-    await applySwitch(busDir, 'update', true, control, NO_PREFLIGHT)
-    expect(startedNames).toHaveLength(1)
-
-    const off = await applySwitch(busDir, 'update', false, control, NO_PREFLIGHT)
-    expect(off.exitCode).toBe(0)
-    expect(switchedOn(busDir)).toEqual([])
-    expect(stoppedNames).toEqual([launchName(update)])
-    expect(running).toEqual([])
-
-    const unknown = await applySwitch(busDir, 'deploy', true, control, NO_PREFLIGHT)
-    expect(unknown.exitCode).toBe(1)
-    expect(startedNames).toHaveLength(1)
-  })
-
-  it('bus:bg --on returns the output and exit code of a start that fails', async () => {
-    const busDir = path.join(tempRoot('bus-bg-switch-fail-'), 'bus')
-    const control = {
-      processes: () => [],
-      start: (): BgResult => ({ stdout: ['out line'], stderr: ['err line'], exitCode: 3 }),
-      stop: async (): Promise<void> => {},
-    }
-
-    const failed = await applySwitch(busDir, 'update', true, control, NO_PREFLIGHT)
-
-    expect(failed.exitCode).toBe(3)
-    expect(failed.stderr).toEqual(['err line'])
-    expect(failed.stdout).toContain('out line')
-    expect(failed.stdout).toContain(switchCommand(busDir, 'update', true).stdout[0])
-  })
-
-  it('bus:bg --off on a worker that is not running says so and stops nothing', async () => {
-    const busDir = path.join(tempRoot('bus-bg-switch-idle-'), 'bus')
-    const update = busLaunches(NO_PREFLIGHT).find(launch => launch.script === 'bus:update')!
-    let stops = 0
-    const control = {
-      processes: () => [],
-      start: (): BgResult => ({ stdout: [], stderr: [], exitCode: 0 }),
-      stop: async (): Promise<void> => {
-        stops++
-      },
-    }
-
-    const off = await applySwitch(busDir, 'update', false, control, NO_PREFLIGHT)
-
-    expect(off.exitCode).toBe(0)
-    expect(off.stdout[0]).toBe(switchCommand(busDir, 'update', false).stdout[0])
-    expect(off.stdout.at(-1)).toBe(`${PREFIX}${launchName(update)} was not running`)
-    expect(stops).toBe(0)
+    expect(existsSync(calls) ? readFileSync(calls, 'utf8') : '').toBe('')
   })
 
   it('bus:bg --on and --off take one known worker and write the switch file', () => {
@@ -514,22 +462,22 @@ describe('bus:bg --supervise', () => {
     expect(live.freed).toEqual([['bus:update --on']])
   })
 
-  it('main advancing with a change under scripts/bus restarts every running bus process on the new code', async () => {
+  it('main advancing with a change under scripts/bus restarts every switched-on bus process on the new code, and a switched-off one is stopped, not brought back', async () => {
     const r = repo()
     const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
     switchWorker(busDir, 'review', true)
     switchWorker(busDir, 'merge', true)
     const s = supervised(r, busDir, RUNNING)
-    expect(await s.supervisor.step()).toEqual([])
+    expect(await s.supervisor.step()).toEqual([`${PREFIX}bus:update --on is switched off and was running as pid 103; stopped it`, `${FREED_LINE} bus:update --on`])
     const next = r.commit('scripts/bus/queue.ts')
     s.advance(next)
     const lines = await s.supervisor.step()
-    expect(s.stopped).toEqual([101, 102, 103])
-    expect(s.starts.map(start => start.name).sort()).toEqual(['bus:merge --on', 'bus:review --on', 'bus:run', 'bus:update --on'])
+    expect(s.stopped).toEqual([103, 101, 102])
+    expect(s.starts.map(start => start.name).sort()).toEqual(['bus:merge --on', 'bus:review --on', 'bus:run'])
     expect(s.starts.every(start => start.head === next)).toBe(true)
     expect(lines[0]).toContain(`main advanced to ${next} with a change under scripts/bus`)
     expect(await s.supervisor.step()).toEqual([])
-    expect(s.starts).toHaveLength(4)
+    expect(s.starts).toHaveLength(3)
   })
 
   it('a restart waits until the checkout holds the advanced main', async () => {
@@ -622,7 +570,8 @@ describe('bus:bg --supervise', () => {
   it('main advancing with no change under scripts/bus restarts nothing', async () => {
     const r = repo()
     const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
-    switchWorker(busDir, 'merge', true)
+    for (const worker of ['merge', 'review', 'update'] as const)
+      switchWorker(busDir, worker, true)
     const s = supervised(r, busDir, RUNNING)
     const next = r.commit('scripts/board/gh.ts')
     s.advance(next)
@@ -652,7 +601,7 @@ describe('bus:bg --supervise', () => {
     writeFileSync(path.join(busDir, WORKERS_FILE), '{"on":["merge"]}\n')
     await s.supervisor.step()
     expect(s.stopped).toEqual([101, 102])
-    expect(s.starts.map(start => start.name).sort()).toEqual(['bus:merge --on', 'bus:review --on', 'bus:run'])
+    expect(s.starts.map(start => start.name).sort()).toEqual(['bus:merge --on', 'bus:run'])
   })
 
   it('a restart whose review preflight refuses journals worker.down and names the worker it did not bring back', async () => {

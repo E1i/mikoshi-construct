@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { Status } from '../shift/relaunch.js'
 import type { ProcessRow } from './exit.js'
 import { execFileSync, spawn } from 'node:child_process'
@@ -7,7 +8,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { defaultBusPath } from '../bus/db.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
+import { PROCESS_HEARTBEAT, recordProcessHeartbeat } from '../bus/heartbeat.js'
+import { beatsLive, SILENT_MS } from '../bus/liveness-sites.js'
 import { statusOf } from '../shift/relaunch.js'
 import { ancestors, parsePs } from './exit.js'
 import { windowEndObserver } from './role-end.js'
@@ -23,6 +26,23 @@ export const LOOP_PID_VARIABLE = 'MIKO_LOOP_PID'
 export const EXIT_REQUEST_VARIABLE = 'MIKO_EXIT_REQUEST'
 export const EXIT_REQUEST_PREFIX = 'miko-exit'
 export const EXIT_POLL_MS = 200
+export const LOOP_PROCESS = 'miko:'
+export const LOOP_BEAT_MS = 5 * 60_000
+export const PROCESS_REFUSED = 'process.refused'
+export const PROCESS_ENDED = 'process.ended'
+
+const LAST_LOOP_BEATS = `
+  SELECT beats.name, beats.ts FROM (
+    SELECT json_extract(payload, '$.process') AS name, max(ts) AS ts FROM events
+    WHERE type = '${PROCESS_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.process') LIKE '${LOOP_PROCESS}%'
+    GROUP BY name
+  ) AS beats
+  WHERE NOT EXISTS (
+    SELECT 1 FROM events AS ended
+    WHERE ended.type = '${PROCESS_ENDED}' AND json_valid(ended.payload) AND json_extract(ended.payload, '$.process') = beats.name AND ended.ts >= beats.ts
+  )
+  ORDER BY beats.ts DESC
+`
 
 const SHELL_COULD_NOT_RUN_THE_COMMAND = new Set([126, 127])
 
@@ -80,6 +100,79 @@ function readTable(): ProcessRow[] | null {
   }
   catch {
     return null
+  }
+}
+
+export interface LiveLoop {
+  process: string
+  lastBeat: string
+}
+
+export function loopProcess(pid: number): string {
+  return `${LOOP_PROCESS}${pid}`
+}
+
+function loopActor(pid: number): string {
+  return `worker:miko:${pid}`
+}
+
+export function liveLoop(db: DatabaseSync, pid: number, nowMs: number): LiveLoop | null {
+  const own = loopProcess(pid)
+  const live = (db.prepare(LAST_LOOP_BEATS).all() as { name: string, ts: string }[]).find(beat => beat.name !== own && beatsLive(beat.ts, nowMs))
+  return live === undefined ? null : { process: live.name, lastBeat: live.ts }
+}
+
+export function claimLoop(db: DatabaseSync, pid: number, now: Date): string | null {
+  const ts = now.toISOString()
+  const own = loopProcess(pid)
+  return inTransaction(db, () => {
+    const live = liveLoop(db, pid, now.getTime())
+    if (live === null) {
+      recordProcessHeartbeat(db, ts, own)
+      return null
+    }
+    appendEvent(db, { ts, type: PROCESS_REFUSED, actor: loopActor(pid), cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_REFUSED}:${own}:${ts}`, payload: { process: own, live: live.process, last_beat: live.lastBeat }, legacy: false })
+    return `${PREFIX}another pnpm miko loop is alive as ${live.process} (last heartbeat ${live.lastBeat}, within ${SILENT_MS / 60_000} min): ${PROCESS_REFUSED}, this one starts no session`
+  })
+}
+
+export function recordLoopEnded(db: DatabaseSync, pid: number, now: Date): void {
+  const ts = now.toISOString()
+  const own = loopProcess(pid)
+  appendEvent(db, { ts, type: PROCESS_ENDED, actor: loopActor(pid), cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_ENDED}:${own}:${ts}`, payload: { process: own }, legacy: false })
+}
+
+export interface LoopInstance {
+  claim: () => string | null
+  beat: () => void
+  end: () => void
+}
+
+export function loopInstance(busPath: string, pid: number, now: () => Date, err: (line: string) => void): LoopInstance {
+  const onBus = (what: string, work: (db: DatabaseSync) => void): void => {
+    try {
+      const db = openBus(busPath)
+      try {
+        work(db)
+      }
+      finally {
+        db.close()
+      }
+    }
+    catch (error) {
+      err(`${PREFIX}${what} not written to ${busPath}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  return {
+    claim: () => {
+      let refusal: string | null = null
+      onBus('the start heartbeat', (db) => {
+        refusal = claimLoop(db, pid, now())
+      })
+      return refusal
+    },
+    beat: () => onBus(PROCESS_HEARTBEAT, db => recordProcessHeartbeat(db, now().toISOString(), loopProcess(pid))),
+    end: () => onBus(PROCESS_ENDED, db => recordLoopEnded(db, pid, now())),
   }
 }
 
@@ -260,11 +353,23 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     console.error(refusal)
     process.exit(1)
   }
+  const instance = loopInstance(defaultBusPath(), process.pid, () => new Date(), line => console.error(line))
+  const refused = instance.claim()
+  if (refused !== null) {
+    console.error(refused)
+    process.exit(1)
+  }
+  const beating = setInterval(instance.beat, LOOP_BEAT_MS)
+  beating.unref()
   const ctrlC = doubleCtrlCWatcher()
   process.on('SIGINT', ctrlC.press)
   const handoff = mikoHandoff(os.homedir())
   const request = exitRequestFile(os.homedir(), process.pid)
-  const ended = once(() => windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) })('close'))
+  const ended = once(() => {
+    clearInterval(beating)
+    instance.end()
+    windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) })('close')
+  })
   endOnHangup(ended, code => process.exit(code))
   try {
     process.exitCode = await runMikoLoop({

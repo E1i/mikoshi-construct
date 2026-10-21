@@ -158,7 +158,7 @@ export class BusSupervisor {
   async step(): Promise<string[]> {
     try {
       const advanced = await this.advance()
-      return [...advanced, ...await this.moveModes(), ...this.watchLimit()]
+      return [...advanced, ...await this.stopSwitchedOff(), ...await this.moveModes(), ...this.watchLimit()]
     }
     catch (error) {
       const waiting = this.pending === null ? '' : `; main.advanced to ${this.pending} stays pending and is retried on the next tick`
@@ -189,6 +189,21 @@ export class BusSupervisor {
 
   private drainWaits(): boolean {
     return this.draining !== null && this.parts.now() - this.draining.since < DRAIN_LIMIT_MS
+  }
+
+  private async stopSwitchedOff(): Promise<string[]> {
+    const processes = this.parts.processes()
+    const wanted = new Set(this.parts.wanted().map(launch => launch.script))
+    const off = this.parts.known.flatMap((launch) => {
+      const instance = wanted.has(launch.script) ? undefined : runningInstance(processes, launch.markers)
+      return instance === undefined ? [] : [{ launch, instance }]
+    })
+    const lines: string[] = []
+    for (const { launch, instance } of off) {
+      await this.parts.stop(instance, launch)
+      lines.push(`${PREFIX}${launchName(launch)} is switched off and was running as pid ${instance.pid}; stopped it`)
+    }
+    return off.length === 0 ? lines : [...lines, ...this.parts.freeLeases?.(off.map(({ launch }) => launch)) ?? []]
   }
 
   private async moveModes(): Promise<string[]> {
@@ -294,9 +309,8 @@ export class BusSupervisor {
       await this.parts.stop(instance, launch)
     const stopped = running.map(({ launch }) => launch)
     const freed = this.parts.freeLeases?.(stopped) ?? []
-    const again = [...wanted, ...stopped.filter(launch => !wanted.some(want => launchName(want) === launchName(launch)))]
     const down: string[] = []
-    const lines = again.flatMap((launch) => {
+    const lines = wanted.flatMap((launch) => {
       const name = launchName(launch)
       const started = this.parts.start(launch)
       if (started.exitCode !== 0 && started.alreadyRunning === undefined) {
@@ -672,32 +686,13 @@ export function switchCommand(busDir: string, worker: string, on: boolean): BgRe
   if (!isBusWorker(worker))
     return { stdout: [], stderr: [`${PREFIX}${worker === '' ? 'no worker named' : `unknown worker ${worker}`}; one of ${WORKERS.join(', ')}`], exitCode: 1 }
   const now = switchWorker(busDir, worker, on)
-  return { stdout: [`${PREFIX}switched on: ${now.join(', ') || 'none'}; pnpm bus:bg starts what is switched on and not running, a restart leaves out what is switched off`], stderr: [], exitCode: 0 }
+  return { stdout: [`${PREFIX}switched on: ${now.join(', ') || 'none'}; the supervisor starts what is switched on and stops what is switched off on its next tick`], stderr: [], exitCode: 0 }
 }
 
 export interface SwitchControl {
   processes: ProcessList
   start: (launch: DetachedLaunch) => BgResult
   stop: (running: RunningProcess, launch: DetachedLaunch) => Promise<void>
-}
-
-export async function applySwitch(busDir: string, worker: string, on: boolean, control: SwitchControl, reviewPreflight: () => string[], decisions: readonly InForceDecision[] = []): Promise<BgResult> {
-  const switched = switchCommand(busDir, worker, on)
-  if (switched.exitCode !== 0)
-    return switched
-  const script = `bus:${worker}`
-  const launch = (on ? wantedLaunches(busDir, reviewPreflight, decisions) : busLaunches(reviewPreflight)).find(each => each.script === script)!
-  const running = runningInstance(control.processes(), launch.markers)
-  if (!on) {
-    if (running === undefined)
-      return { ...switched, stdout: [...switched.stdout, `${PREFIX}${launchName(launch)} was not running`] }
-    await control.stop(running, launch)
-    return { ...switched, stdout: [...switched.stdout, `${PREFIX}${launchName(launch)} stopped`] }
-  }
-  if (running !== undefined)
-    return { ...switched, stdout: [...switched.stdout, `${PREFIX}${launchName(launch)} is already running as pid ${running.pid}; left alone`] }
-  const started = control.start(launch)
-  return { stdout: [...switched.stdout, ...started.stdout], stderr: started.stderr, exitCode: started.exitCode }
 }
 
 async function supervise(busDir: string, cwd: string, reviewPreflight: () => string[]): Promise<number> {
@@ -732,7 +727,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     down: down => recordWorkerDown(db, new Date().toISOString(), down),
     now: () => Date.now(),
   })
-  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and a switched-on worker that is not running is started again`)
+  console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced with a change under ${BUS_CODE_PATH} restarts them and then this supervisor once ${cwd} holds it, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
   try {
     await superviseUntilReplaced({
       supervisor,
@@ -773,12 +768,7 @@ async function main(): Promise<void> {
     return
   }
   if (command.kind === 'switch') {
-    const processes = psList()
-    printBg(await applySwitch(busDir, command.worker, command.on, {
-      processes,
-      start: launch => startReviewWorker(launch, busDir, process.env, processes),
-      stop: (running, launch) => stopInstance(running, launch.markers, processes),
-    }, reviewPreflight, decisionsInForce()))
+    printBg(switchCommand(busDir, command.worker, command.on))
     return
   }
   if (command.kind === 'detection') {

@@ -6,7 +6,6 @@ import { STAMP_ENV } from './stamp.js'
 
 export const PREFIX = '[bus:bg] '
 export const SHADOW_LOG = 'shadow.log'
-export const INSTANCE_FILE = 'bus-run.pid'
 export const START_LOCK = 'bus-bg.lock'
 export const START_LOCK_LIMIT_MS = 10 * 60 * 1000
 export const RUN_SCRIPT = 'bus:run'
@@ -31,7 +30,7 @@ export interface DetachedLaunch {
   script: string
   args: string[]
   markers: readonly string[]
-  instanceFile: string
+  instanceFile?: string
   startLock: string
   log: string
   preflight?: () => string[]
@@ -42,7 +41,6 @@ export const BUS_RUN_LAUNCH: DetachedLaunch = {
   script: RUN_SCRIPT,
   args: [],
   markers: BUS_RUN_MARKERS,
-  instanceFile: INSTANCE_FILE,
   startLock: START_LOCK,
   log: SHADOW_LOG,
 }
@@ -122,7 +120,6 @@ function startHolder(lock: string, processes: ProcessList): number | null {
 
 export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
   const { prefix, script } = launch
-  const instance = path.join(busDir, launch.instanceFile)
   const lock = path.join(busDir, launch.startLock)
   const log = path.join(busDir, launch.log)
   mkdirSync(busDir, { recursive: true })
@@ -144,7 +141,8 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
       child.unref()
       if (child.pid === undefined)
         return { stdout: [], stderr: [`${prefix}${command} did not start`], exitCode: 1 }
-      writeFileSync(instance, `${child.pid}\n`)
+      if (launch.instanceFile !== undefined)
+        writeFileSync(path.join(busDir, launch.instanceFile), `${child.pid}\n`)
       return { stdout: [String(child.pid), `${prefix}pnpm ${[script, ...launch.args].join(' ')} · log ${log}`], stderr: [], exitCode: 0 }
     }
     finally {
