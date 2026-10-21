@@ -243,6 +243,11 @@ describe('reviewer', () => {
     expect(prepareEnv({ PATH: '/bin', HOME: '/home/w', GH_TOKEN: 'secret-token', ANTHROPIC_API_KEY: 'secret-key' })).toEqual({ PATH: '/bin', HOME: '/home/w' })
   })
 
+  it('the tree is prepared from the cache first and fetches a package the cache does not hold', () => {
+    expect(PREPARE_TREE).toContain('--prefer-offline')
+    expect(PREPARE_TREE).not.toContain('--offline')
+  })
+
   it('a worktree add that fails is not a held tree, so nothing is left to release', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-add-'))
     try {
