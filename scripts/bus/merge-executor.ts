@@ -2,12 +2,12 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { StatusPublisher } from '../ports/github-status.js'
 import type { RerunMode } from './check-catalog.js'
 import type { BusEvent } from './db.js'
-import type { GitHub, GitHubPut } from './github.js'
+import type { CommandResult, GitHub, GitHubPut } from './github.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { AllowedRule, AuthorityRule, MergeFacts } from './policy.js'
 import type { TechnicalReason } from './record-verdict.js'
 import { Buffer } from 'node:buffer'
-import { MERGE_DONE, POLICY_DENIED, SHARD_USED } from '../core/events.js'
+import { COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../core/events.js'
 import { REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { changedFiles, rerunOf, upToDateRequired } from './check-catalog.js'
@@ -34,6 +34,8 @@ export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_
 export type MergeDenial
   = | { kind: 'technical', reason: MergeTechnicalReason, detail: string }
     | { kind: 'authority', rule: AuthorityRule, detail: string }
+
+export type MergeCommand = 'merge' | 'publish'
 
 export type MergeOutcome
   = | { kind: 'merged', taskKey: string, commit: string, rule: AllowedRule }
@@ -109,11 +111,14 @@ export class MergeExecutor {
       if (verdict.kind === 'denied')
         return this.denied(lease, { kind: 'authority', rule: verdict.rule, detail: verdict.detail })
       const spent = policy.rule === 'owner_under_shard' ? checked.shard : null
-      if (checked.mergedCommit !== null)
+      if (checked.mergedCommit !== null) {
+        this.allowed(lease, verdict.rule)
         return this.finished(lease, checked.mergedCommit, verdict.rule, spent)
+      }
       const locked = this.versionLock(lease)
       if (locked !== null)
         return this.denied(lease, locked)
+      this.allowed(lease, verdict.rule)
       if (decision !== null) {
         const unready = this.reviewStatusOfTheDecision(lease, decision) ?? this.cleanAfterTheStatus(lease)
         if (unready !== null)
@@ -192,11 +197,13 @@ export class MergeExecutor {
   private reviewStatusOfTheDecision(lease: Lease, decision: number): MergeDenial | null {
     try {
       this.parts.publish({ commit: lease.head!, state: 'success', context: REVIEW_STATUS_CONTEXT, description: `owner decision D-${decision}, no review pass` })
-      return null
     }
     catch (error) {
+      this.executed(lease, 'publish', { ok: false, error: messageOf(error) })
       return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
     }
+    this.executed(lease, 'publish', { ok: true })
+    return null
   }
 
   private cleanAfterTheStatus(lease: Lease): MergeDenial | null {
@@ -263,18 +270,28 @@ export class MergeExecutor {
       response = this.parts.put(`${REPO}/pulls/${lease.pr}/merge`, { sha: lease.head!, merge_method: MERGE_METHOD })
     }
     catch (error) {
+      this.executed(lease, 'merge', { ok: false, error: messageOf(error) })
       return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: messageOf(error) })
     }
+    const commit = (response.body as { sha?: unknown } | null)?.sha
+    this.executed(lease, 'merge', { ok: response.status === 200 && isFullSha(commit), status: response.status })
     if (response.status === STALE_HEAD_STATUS)
       return this.denied(lease, { kind: 'technical', reason: 'stale_head', detail: `GitHub answered ${response.status}: the head of #${lease.pr} is no longer ${lease.head}` })
-    const commit = (response.body as { sha?: unknown } | null)?.sha
     if (response.status !== 200 || !isFullSha(commit))
       return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: `GitHub answered ${response.status} to the merge of #${lease.pr}` })
     return this.finished(lease, commit, rule, spent)
   }
 
   private done(lease: Lease, commit: string, rule: AllowedRule): BusEvent {
-    return { ts: this.ts(), type: MERGE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${MERGE_DONE}:${lease.taskKey}`, payload: { commit, rule }, legacy: false }
+    return { ts: this.ts(), type: MERGE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${MERGE_DONE}:${lease.taskKey}`, payload: { commit, rule, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false }
+  }
+
+  private allowed(lease: Lease, rule: AllowedRule): void {
+    appendEvent(this.parts.db, { ts: this.ts(), type: POLICY_ALLOWED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_ALLOWED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', rule, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false })
+  }
+
+  private executed(lease: Lease, command: MergeCommand, result: CommandResult): void {
+    appendEvent(this.parts.db, { ts: this.ts(), type: COMMAND_EXECUTED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${COMMAND_EXECUTED}:${lease.taskKey}:${lease.leaseGen}:${command}`, payload: { command, task_key: lease.taskKey, lease_gen: lease.leaseGen, ...result }, legacy: false })
   }
 
   private used(lease: Lease, commit: string, shard: string): BusEvent {

@@ -1,7 +1,7 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { requestCancel, runIdentityFrom } from './cancel-run.js'
+import { downloadStageRecord, requestCancel, runIdentityFrom } from './cancel-run.js'
 import { readReleaseRoute } from './changesets.js'
 import { describeOutcome, describeStaged, EXIT_CODE, pollForVersion, REGISTRY, withStage } from './registry.js'
 import { readStageRecord, STAGE_ARTIFACT, STAGE_RECORD_FILE, stageFor } from './stage.js'
@@ -14,6 +14,9 @@ const sleep = async (milliseconds: number): Promise<void> => new Promise(resolve
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as { name: string, version: string }
 const request = { packageName: manifest.name, version: manifest.version }
+const releaseRun = process.env.RELEASE_RUN
+if (releaseRun && process.env.GITHUB_REPOSITORY)
+  downloadStageRecord({ repository: process.env.GITHUB_REPOSITORY, runId: releaseRun })
 const stage = stageFor(readStageRecord(path.join(STAGE_ARTIFACT, STAGE_RECORD_FILE)), manifest.version)
 
 const polled = await pollForVersion(request, {
@@ -40,7 +43,7 @@ if (summaryPath)
 
 if (outcome === 'staged') {
   const run = runIdentityFrom(process.env)
-  if (run && await requestCancel(run, fetch))
+  if (run && requestCancel(run))
     await sleep(CANCEL_GRACE_MS)
   console.error('This run could not be held as pending, so it ends red rather than green; the stage still awaits approval.')
 }

@@ -1,13 +1,18 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
+import YAML from 'yaml'
 
 export const KNOWN_CALLERS = 'scripts/core/gh-callers.known.json'
 export const GH_PORT = 'scripts/core/gh.ts'
 export const GH_CALLER_SCAN = 'scripts/core/gh-callers.ts'
 
-const SCANNED_ROOT = 'scripts'
+const SCANNED_ROOTS = ['scripts', 'src']
+const WORKFLOWS = '.github/workflows'
 const UNSCANNED = 'scripts/tests/'
+const API_HOST = 'api.github.com'
+const WORKFLOW_EXTENSIONS = ['.yml', '.yaml']
+const GH_IN_A_STEP = /(?:^|[\s;&|(`"'])gh\s+[a-z]/m
 const SPAWNING_MODULES = new Set(['node:child_process', 'child_process'])
 const SHELL_SPAWNS = new Set(['exec', 'execSync'])
 const GH_COMMAND = 'gh'
@@ -20,6 +25,12 @@ function sourceOf(file: string, text: string): ts.SourceFile {
 
 function isText(node: ts.Node): node is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral {
   return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
+}
+
+function namesApiHost(node: ts.Node): boolean {
+  if (isText(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node))
+    return node.text.includes(API_HOST)
+  return false
 }
 
 function leadingText(node: ts.Node): string | null {
@@ -75,6 +86,7 @@ class CallerScan {
   namesSpawnModule = false
   namesGh = false
   callsGh = false
+  callsApiHost = false
 
   constructor(private readonly ghNames: Set<string>) {}
 
@@ -85,6 +97,8 @@ class CallerScan {
   visit(node: ts.Node): void {
     if (isText(node) && SPAWNING_MODULES.has(node.text))
       this.namesSpawnModule = true
+    if (namesApiHost(node))
+      this.callsApiHost = true
     if (this.isGh(node) && !(ts.isIdentifier(node) && ts.isImportSpecifier(node.parent)))
       this.namesGh = true
     if (ts.isCallExpression(node) && node.arguments.length > 0) {
@@ -96,38 +110,58 @@ class CallerScan {
     ts.forEachChild(node, child => this.visit(child))
   }
 
-  get spawnsGh(): boolean {
-    return this.callsGh || (this.namesSpawnModule && this.namesGh)
+  get callsGitHub(): boolean {
+    return this.callsApiHost || this.callsGh || (this.namesSpawnModule && this.namesGh)
   }
 }
 
+interface WorkflowStep {
+  run?: unknown
+}
+
+function workflowSteps(text: string): WorkflowStep[] {
+  const workflow = YAML.parse(text) as { jobs?: Record<string, { steps?: WorkflowStep[] }> } | null
+  return Object.values(workflow?.jobs ?? {}).flatMap(job => job.steps ?? [])
+}
+
+export function stepCallsGitHub(text: string): boolean {
+  return workflowSteps(text).some(step => typeof step.run === 'string' && (GH_IN_A_STEP.test(step.run) || step.run.includes(API_HOST)))
+}
+
+function isWorkflow(file: string): boolean {
+  return WORKFLOW_EXTENSIONS.some(extension => file.endsWith(extension))
+}
+
 export function ghCallers(sources: ReadonlyMap<string, string>): string[] {
-  const parsed = new Map([...sources].map(([file, text]) => [file, sourceOf(file, text)] as const))
+  const workflows = [...sources].filter(([file, text]) => isWorkflow(file) && stepCallsGitHub(text)).map(([file]) => file)
+  const parsed = new Map([...sources].filter(([file]) => !isWorkflow(file)).map(([file, text]) => [file, sourceOf(file, text)] as const))
   const constants = new Map([...parsed].map(([file, source]) => [file, ghConstants(source)] as const))
-  return [...parsed].filter(([file, source]) => {
+  const code = [...parsed].filter(([file, source]) => {
     if (file === GH_PORT || file === GH_CALLER_SCAN)
       return false
     const scan = new CallerScan(importedGhNames(file, source, constants))
     scan.visit(source)
-    return scan.spawnsGh
-  }).map(([file]) => file).sort()
+    return scan.callsGitHub
+  }).map(([file]) => file)
+  return [...workflows, ...code].sort()
 }
 
-export function spawnsGh(file: string, text: string): boolean {
+export function callsGitHub(file: string, text: string): boolean {
   return ghCallers(new Map([[file, text]])).includes(file)
 }
 
-function scriptsUnder(root: string, dir: string): string[] {
+function filesUnder(root: string, dir: string, extensions: readonly string[]): string[] {
   return readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((entry) => {
     const relative = path.posix.join(dir, entry.name)
     if (entry.isDirectory())
-      return `${relative}/` === UNSCANNED ? [] : scriptsUnder(root, relative)
-    return SCANNED_EXTENSIONS.some(extension => entry.name.endsWith(extension)) && !entry.name.endsWith('.d.ts') ? [relative] : []
+      return `${relative}/` === UNSCANNED ? [] : filesUnder(root, relative, extensions)
+    return extensions.some(extension => entry.name.endsWith(extension)) && !entry.name.endsWith('.d.ts') ? [relative] : []
   })
 }
 
-export function repositoryScripts(root: string): Map<string, string> {
-  return new Map(scriptsUnder(root, SCANNED_ROOT).map(file => [file, readFileSync(path.join(root, file), 'utf8')]))
+export function repositorySources(root: string): Map<string, string> {
+  const files = [...SCANNED_ROOTS.flatMap(dir => filesUnder(root, dir, SCANNED_EXTENSIONS)), ...filesUnder(root, WORKFLOWS, WORKFLOW_EXTENSIONS)]
+  return new Map(files.map(file => [file, readFileSync(path.join(root, file), 'utf8')]))
 }
 
 export function knownCallers(root: string): string[] {

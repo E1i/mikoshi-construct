@@ -170,7 +170,7 @@ describe('the update queue', () => {
     expect(bench.update(bench.leaseUpdate()!)).toEqual({ kind: 'updated', taskKey: update(987), from: sha('a'), to: NEW_HEAD, carry: { carried: 'pass', clean: true } })
     expect(bench.gitHub.puts).toEqual([{ endpoint: 'repos/{owner}/{repo}/pulls/987/update-branch', fields: { expected_head_sha: sha('a') } }])
     expect(bench.gitHub.published).toEqual([{ commit: NEW_HEAD, state: 'success', context: 'review', description: `carried from ${sha('a')} by a clean update-branch` }])
-    expect(eventsOf(bench.db, 'update.done')).toEqual([{ from: sha('a'), to: NEW_HEAD, carried: 'pass', clean: true }])
+    expect(eventsOf(bench.db, 'update.done')).toEqual([{ from: sha('a'), to: NEW_HEAD, carried: 'pass', clean: true, task_key: update(987), lease_gen: 1 }])
     expect(taskState(bench.db, update(987))).toEqual({ state: 'completed', lease_gen: 1, failures: 0 })
 
     bench.tick()

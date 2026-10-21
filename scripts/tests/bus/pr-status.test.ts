@@ -8,7 +8,7 @@ import { appendEvent, openBus } from '../../bus/db.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { PREFIX, setStepStatuses, STATUS_BATCH, STATUS_CONTEXT, STATUS_OFF_FILE } from '../../bus/pr-status.js'
 import { composeBusTick } from '../../bus/run.js'
-import { PR_STATUS_REFUSED, PR_STATUS_SET } from '../../core/events.js'
+import { COMMAND_EXECUTED, PR_STATUS_REFUSED, PR_STATUS_SET } from '../../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 
@@ -42,6 +42,10 @@ function recorder(): { post: GitHubPost, calls: [string, Record<string, string>]
     calls.push([endpoint, fields])
     return { status: 201, headers: {}, body: null }
   } }
+}
+
+function executedStatuses(db: DatabaseSync): unknown[] {
+  return db.prepare(`SELECT json_extract(payload, '$.command') AS command, json_extract(payload, '$.endpoint') AS endpoint, json_extract(payload, '$.status') AS status FROM events WHERE type = ? ORDER BY id`).all(COMMAND_EXECUTED).map(row => ({ ...row }))
 }
 
 function count(db: DatabaseSync, type: string): number {
@@ -194,13 +198,15 @@ describe('the PR status check the bus sets', () => {
     clock.advance(TICK_MS)
     expect(busTick.run()?.poll.kind).toBe('ticked')
     log.mockRestore()
-    expect(lines).toContain(`${PREFIX}PR #950 ${HEAD}: GitHub answered 502 to the status ${STATUS_CONTEXT}: review; nothing recorded, the step is posted again on the next run`)
+    expect(lines).toContain(`${PREFIX}PR #950 ${HEAD}: GitHub answered 502 to the status ${STATUS_CONTEXT}: review; the step is not recorded and is posted again on the next run`)
     expect(count(db, PR_STATUS_SET)).toBe(0)
+    expect(executedStatuses(db)).toEqual([{ command: 'status', endpoint: `repos/{owner}/{repo}/statuses/${HEAD}`, status: 502 }])
     status = 201
     clock.advance(TICK_MS)
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(calls).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, `repos/{owner}/{repo}/statuses/${HEAD}`])
     expect(count(db, PR_STATUS_SET)).toBe(1)
+    expect(executedStatuses(db)).toEqual([502, 201].map(answered => ({ command: 'status', endpoint: `repos/{owner}/{repo}/statuses/${HEAD}`, status: answered })))
     db.close()
     vi.unstubAllEnvs()
   })

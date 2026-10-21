@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { execGh, stdoutOrThrow } from '../core/gh.js'
 
 export const SECURITY_INVARIANTS_FILE = 'architecture/security-invariants.md'
 export const UNCHANGED = 'без изменений'
@@ -49,8 +50,9 @@ function main(): void {
   const cwd = process.cwd()
   const tag = lastReleaseTag(cwd)
   const block = securityInvariantsBlock(tag, securityInvariantsDiff(cwd, tag))
-  const body = execFileSync('gh', ['pr', 'view', pr, '--json', 'body', '--jq', '.body'], { encoding: 'utf8' })
-  execFileSync('gh', ['pr', 'edit', pr, '--body', withSecurityInvariantsBlock(body, block)], { stdio: 'inherit' })
+  const gh = stdoutOrThrow(execGh)
+  const body = gh(['pr', 'view', pr, '--json', 'body', '--jq', '.body'])
+  gh(['pr', 'edit', pr, '--body', withSecurityInvariantsBlock(body, block)])
   console.log(block)
 }
 

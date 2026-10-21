@@ -1,13 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { GhResponse } from './github.js'
-import { spawnSync } from 'node:child_process'
+import type { GitHubPut } from './github.js'
 import { existsSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { CARD_STOPPED, MERGE_DONE, PR_OPENED, PR_STATUS_REFUSED, PR_STATUS_SET, REVIEW_RECORDED, TASK_LEASED } from '../core/events.js'
+import { CARD_STOPPED, COMMAND_EXECUTED, MERGE_DONE, PR_OPENED, PR_STATUS_REFUSED, PR_STATUS_SET, REVIEW_RECORDED, TASK_LEASED } from '../core/events.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
-import { parseIncluded } from './github.js'
+import { ghApiPost } from './github.js'
 import { NODE_CURSORS } from './node.js'
 import { lastEventId } from './operator-work.js'
 
@@ -19,7 +18,6 @@ export const STATUS_CONTEXT = 'mikoshi'
 export const STATUS_ACTOR = 'worker:status:bus'
 export const STEP_EVENTS = [PR_OPENED, TASK_LEASED, REVIEW_RECORDED, 'card.answered', 'update.done', MERGE_DONE, CARD_STOPPED] as const
 
-const GH_TIMEOUT_MS = 20_000
 const HEAD_IS_GONE = 422
 
 export type StatusState = 'pending' | 'success' | 'failure'
@@ -40,7 +38,9 @@ export interface StepEvent {
   payload: string
 }
 
-export type GitHubPost = (endpoint: string, fields: Record<string, string>) => GhResponse
+export type GitHubPost = GitHubPut
+
+export { ghApiPost }
 
 function payloadOf(text: string): Record<string, unknown> {
   try {
@@ -124,12 +124,15 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
       moveCursor(db, event.id)
       continue
     }
-    const response = post(`repos/{owner}/{repo}/statuses/${status.head}`, statusFields(status))
+    const endpoint = `repos/{owner}/{repo}/statuses/${status.head}`
+    const response = post(endpoint, statusFields(status))
+    const ts = now().toISOString()
+    appendEvent(db, { ts, type: COMMAND_EXECUTED, actor: STATUS_ACTOR, cardId: null, pr: status.pr, head: status.head, dedupeKey: `${COMMAND_EXECUTED}:status:${event.id}:${ts}`, payload: { command: 'status', event_id: event.id, endpoint, status: response.status }, legacy: false })
     const refused = !isSuccess(response.status)
     if (refused && !isPermanentRefusal(response.status))
-      throw new StatusRefusedForNow(`${PREFIX}PR #${status.pr} ${status.head}: GitHub answered ${response.status} to the status ${STATUS_CONTEXT}: ${status.step}; nothing recorded, the step is posted again on the next run`)
+      throw new StatusRefusedForNow(`${PREFIX}PR #${status.pr} ${status.head}: GitHub answered ${response.status} to the status ${STATUS_CONTEXT}: ${status.step}; the step is not recorded and is posted again on the next run`)
     appendEvent(db, {
-      ts: now().toISOString(),
+      ts,
       type: refused ? PR_STATUS_REFUSED : PR_STATUS_SET,
       actor: STATUS_ACTOR,
       cardId: null,
@@ -159,18 +162,6 @@ export function statusFailureLine(error: unknown): string {
 
 export function statusLine(status: StepStatus): string {
   return `${PREFIX}PR #${status.pr} ${status.head.slice(0, 7)}: ${STATUS_CONTEXT}: ${status.step} (${status.refused === undefined ? status.state : `refused ${status.refused}, recorded and passed`})`
-}
-
-export function ghApiPost(cwd: string, command = 'gh'): GitHubPost {
-  return (endpoint, fields) => {
-    const args = ['api', '--include', '--method', 'POST', endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])]
-    const run = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: GH_TIMEOUT_MS, killSignal: 'SIGKILL' })
-    if (run.error !== undefined)
-      throw run.error
-    if (run.stdout.trim() === '')
-      throw new Error(`gh api ${endpoint} printed nothing: ${run.stderr.trim()}`)
-    return parseIncluded(run.stdout)
-  }
 }
 
 function main(): number {
