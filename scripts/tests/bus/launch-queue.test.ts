@@ -27,7 +27,7 @@ import { CARD_ADMITTED, launchCandidates } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
-import { busCardBodies, busStarterPorts, cardTextReader, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
+import { busCardBodies, busStarterPorts, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { SILENT_MS } from '../../bus/liveness-sites.js'
 import { reduce } from '../../bus/reducer.js'
@@ -148,7 +148,10 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
   if (shiftClaude === undefined)
     delete env.SHIFT_CLAUDE
   const ports: StarterPorts = {
-    read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    read: (read) => {
+      const file = path.join(parking, 'lane-x', `${read}.md`)
+      return existsSync(file) ? readFileSync(file, 'utf8') : null
+    },
     cut: () => worktree,
     base: () => 'b'.repeat(40),
     spawnDetached: (run) => {
@@ -416,13 +419,12 @@ describe('the launch queue', () => {
   function heldTreeStarter(cardId: number, changed: string[], report: string | null) {
     const root = tempRoot()
     const parking = path.join(root, 'parking')
-    mkdirSync(path.join(parking, 'lane-a'), { recursive: true })
-    writeFileSync(path.join(parking, 'lane-a', `${cardId}.md`), parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: ['scripts/bus/**'], continue: 'auto', who: 'shift', body: 'Do the card.' }))
+    const cardText = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: ['scripts/bus/**'], continue: 'auto', who: 'shift', body: 'Do the card.' })
     const launchDir = path.join(root, 'launch')
     const cuts: string[] = []
     const spawned: string[] = []
     const ports: StarterPorts = {
-      read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+      read: read => read === cardId ? cardText : null,
       cut: (task) => {
         cuts.push(task.branch)
         return path.join(root, 'fresh')
@@ -531,7 +533,7 @@ describe('the launch queue', () => {
     const root = tempRoot()
     let piped: string | undefined
     let bodyOf: (cardId: number) => string | null = () => null
-    const starter = realStarter(root, undefined, 930, { read: cardTextReader(cardId => bodyOf(cardId)), spawnDetached: (run) => {
+    const starter = realStarter(root, undefined, 930, { read: cardId => bodyOf(cardId), spawnDetached: (run) => {
       piped = run.input
       return 4242
     }, pgidOf: () => 4242 })
@@ -583,16 +585,15 @@ describe('the launch queue', () => {
     it('the ports the launch worker builds from its bus path read the bus body over a differing parking file', () => {
       const root = tempRoot()
       const busPath = busWithBody(root)
-      expect(busStarterPorts(busPath, root, {}, '', () => 'u').read(parked(root, '931.md'))).toBe(BUS_TEXT)
+      parked(root, '931.md')
+      expect(busStarterPorts(busPath, root, {}, '', () => 'u').read(931)).toBe(BUS_TEXT)
     })
 
-    it('the bus body comes first, the parking file is the fallback, and a name that is not a card number reads the file', () => {
+    it('a parking file the bus holds no body of is never read', () => {
       const root = tempRoot()
-      const read = cardTextReader(cardId => cardId === 931 ? BUS_TEXT : null)
-      expect(read(parked(root, '931.md'))).toBe(BUS_TEXT)
-      expect(read(parked(root, '933.md'))).toBe(FILE_TEXT)
-      expect(read(parked(root, 'notes.md'))).toBe(FILE_TEXT)
-      expect(read(path.join(root, 'parking', 'lane-x', '934.md'))).toBeNull()
+      const busPath = busWithBody(root)
+      parked(root, '933.md')
+      expect(busStarterPorts(busPath, root, {}, '', () => 'u').read(933)).toBeNull()
     })
   })
 
