@@ -17,8 +17,6 @@ import { approvedHashPath, extractApprovedHash } from './approval.js'
 import { journalText, recordGhostLine } from './journal.js'
 import { reviewCarry } from './review-carry.js'
 
-export { REVIEW_STATUS_CONTEXT }
-
 const JOURNAL_FILE = 'ghosts.jsonl'
 const CLOUD_REPORT_NAME = /^review(?:-[\w.-]+)?\.md$/
 const VERDICT_SCHEMA = 'review-verdict'

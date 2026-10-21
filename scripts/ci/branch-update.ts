@@ -1,4 +1,4 @@
-import { REVIEW_STATUS_CONTEXT } from '../ghosts/verdict.js'
+import { REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 
 export const TOKEN_SECRET = 'BRANCH_UPDATE_TOKEN'
 
