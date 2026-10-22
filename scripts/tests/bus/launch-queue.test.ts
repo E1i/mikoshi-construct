@@ -465,7 +465,6 @@ describe('the launch queue', () => {
 
   function heldTreeStarter(cardId: number, changed: string[], report: string | null) {
     const root = tempRoot()
-    const parking = path.join(root, 'parking')
     const cardText = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: ['scripts/bus/**'], continue: 'auto', who: 'shift', body: 'Do the card.' })
     const launchDir = path.join(root, 'launch')
     const cuts: string[] = []

@@ -83,7 +83,6 @@ function launchWorld(claudeExit: number, report = '') {
   git(worktree, ['config', 'commit.gpgsign', 'false'])
   git(worktree, ['checkout', '-q', '-b', BRANCH])
 
-  const parking = path.join(root, 'parking')
   const cardText = parkingFileText({ card: CARD_LINE, branch: BRANCH, touches: ['scripts/bus/**', 'x.txt'], continue: 'stop', who: 'shift', body: 'Do the card.\nPath (D-76): cheap, a fixture card the stub closes in one run' })
   const busPath = path.join(root, 'bus.db')
   const db = openBus(busPath)

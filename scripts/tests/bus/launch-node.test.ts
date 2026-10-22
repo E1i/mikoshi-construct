@@ -1333,7 +1333,6 @@ describe('what a launched session left behind', () => {
 
   it('a continued session is spawned in the tree it left, on its base, with the continuation prompt and no new cut', () => {
     const root = scratch()
-    const parking = path.join(root, 'parking')
     const cardText = parkingFileText({ card: '#1123 a-card [implement/netwatch/S/cheap/auto] · depends — · blocks —', branch: 'feat/a-card', touches: ['scripts/bus/**'], continue: 'auto', who: 'shift', body: 'Do the card.' })
     const spawned: DetachedSpawn[] = []
     const cuts: string[] = []
