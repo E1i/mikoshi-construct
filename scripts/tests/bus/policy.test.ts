@@ -7,7 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decisionsIntake } from '../../bus/decisions-import.js'
 import { ownerInbox } from '../../bus/inbox.js'
-import { mergePolicy } from '../../bus/policy.js'
+import { mergePolicy, MERGES_UNDER_A_SHARD } from '../../bus/policy.js'
 import { cardBody } from './github-fake.js'
 import { liveBench } from './merge-bench.js'
 
@@ -76,7 +76,58 @@ describe('the merge policy', () => {
     const owner = { description: cardBody(942, 'owner') }
     expect(mergePolicy(facts(owner))).toMatchObject({ kind: 'denied', rule: 'owner_without_shard' })
     expect(mergePolicy(facts({ ...owner, shardActive: true }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard' })
-    expect(mergePolicy(facts({ ...owner, files: ['.github/workflows/release.yml'], shardActive: true }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard' })
+    expect(mergePolicy(facts({ ...owner, files: ['.github/workflows/release.yml'], shardActive: true }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge' })
+  })
+
+  it('a pull request changing .github/workflows/ci.yml under an active D-216 shard is denied for the owner, not owner_under_shard', () => {
+    const d216 = { decisionId: 216, text: 'Delegation of owner pull requests to the bus.', cards: [] }
+    expect(mergePolicy(facts({ description: cardBody(942, 'owner'), files: ['.github/workflows/ci.yml'], shardActive: true, shardUnder: 216, decisions: [d216] })))
+      .toEqual({ kind: 'denied', rule: 'no_shard_merge', detail: 'changes .github/workflows/ci.yml (workflows), which does not merge under a shard or a decision, and stays the owner\'s' })
+  })
+
+  it('a pull request changing .github/workflows/ci.yml under the window shard and under D-77 is denied for the owner', () => {
+    const d77 = { decisionId: 77, text: 'Owner-PR мержится шиной.', cards: [] }
+    const ci = { description: cardBody(942, 'owner'), files: ['.github/workflows/ci.yml'] }
+    expect(mergePolicy(facts({ ...ci, windowShard: 'shard-window' }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge' })
+    expect(mergePolicy(facts({ ...ci, decisions: [d77] }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge' })
+  })
+
+  it('a pull request changing architecture/security-invariants.md under an active D-216 shard is policy.denied, not owner_under_shard', () => {
+    const d216 = { decisionId: 216, text: 'Delegation of owner pull requests to the bus.', cards: [] }
+    for (const file of ['architecture/security-invariants.md', 'templates/base/architecture/security-invariants.md']) {
+      expect(mergePolicy(facts({ description: cardBody(942, 'owner'), files: [file], shardActive: true, shardUnder: 216, decisions: [d216] })))
+        .toMatchObject({ kind: 'denied', rule: 'no_shard_merge', detail: expect.stringContaining(`${file} (security-invariants)`) as unknown })
+    }
+  })
+
+  it('a pull request with an ordinary owner file by risk under a shard is still owner_under_shard', () => {
+    const d216 = { decisionId: 216, text: 'Delegation of owner pull requests to the bus.', cards: [] }
+    const owner = { description: cardBody(942, 'owner'), files: ['scripts/ghosts/approve.ts'] }
+    expect(mergePolicy(facts({ ...owner, shardActive: true, shardUnder: 216, decisions: [d216] }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard', detail: expect.stringContaining('D-216') as unknown })
+    expect(mergePolicy(facts({ ...owner, files: ['AGENTS.md'], shardActive: true, shardUnder: 216, decisions: [d216] }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard' })
+    expect(mergePolicy(facts({ ...owner, windowShard: 'shard-window' }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard' })
+  })
+
+  it('an unknown value of the no-shard-merge mark is denied', () => {
+    const shard = { description: cardBody(942, 'owner'), files: ['.github/workflows/ci.yml'], shardActive: true, shardUnder: 216, decisions: [{ decisionId: 216, text: 'Delegation.', cards: [] }] }
+    for (const value of ['maybe', '']) {
+      const ownerMergesText = OWNER_MERGES.replace(/(\| workflows \|.*\| )no \|/, `$1${value} |`)
+      expect(ownerMergesText).not.toBe(OWNER_MERGES)
+      expect(mergePolicy(facts({ ...shard, ownerMergesText }))).toMatchObject({ kind: 'denied', rule: 'owner_merges_unread', detail: expect.stringContaining(`«${value}», neither yes nor no`) as unknown })
+    }
+    const unmarkedAgents = OWNER_MERGES.replace(/(\| own-instructions \|.*\| )yes \|/, '$1maybe |')
+    expect(mergePolicy(facts({ ...shard, files: ['scripts/bus/queue.ts'], ownerMergesText: unmarkedAgents }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard' })
+  })
+
+  it('an owner-merges.md that does not parse is denied', () => {
+    const withoutColumn = OWNER_MERGES.replace(`| ${MERGES_UNDER_A_SHARD} |\n|---|---|---|---|---|`, '|\n|---|---|---|---|')
+    const ragged = OWNER_MERGES.replace(/(\| workflows \|.*\| )no \|/, '$1')
+    expect(withoutColumn).not.toBe(OWNER_MERGES)
+    expect(ragged).not.toBe(OWNER_MERGES)
+    for (const ownerMergesText of ['', '# Owner-merged kinds\n\nno table here\n', withoutColumn, ragged]) {
+      for (const overrides of [{}, { description: cardBody(942, 'owner'), shardActive: true, shardUnder: 216, decisions: [{ decisionId: 216, text: 'Delegation.', cards: [] }] }, { windowShard: 'shard-window' }])
+        expect(mergePolicy(facts({ ...overrides, ownerMergesText })), ownerMergesText.slice(0, 40)).toMatchObject({ kind: 'denied', rule: 'owner_merges_unread' })
+    }
   })
 
   it('a decision is never taken by default', () => {
@@ -90,8 +141,8 @@ describe('the merge policy', () => {
     const cases: [Partial<FakePull> & { number: number }, string][] = [
       [{ number: 950, ref: 'changeset-release/main' }, 'version_pr'],
       [{ number: 951, title: 'chore: version packages' }, 'version_pr'],
-      [{ number: 952, files: ['architecture/security-invariants.md'] }, 'security_invariants'],
-      [{ number: 953, files: ['templates/base/architecture/security-invariants.md'] }, 'security_invariants'],
+      [{ number: 952, files: ['architecture/security-invariants.md'] }, 'no_shard_merge'],
+      [{ number: 953, files: ['templates/base/architecture/security-invariants.md'] }, 'no_shard_merge'],
       [{ number: 954, files: ['scripts/bus/policy.ts', 'scripts/ghosts/approve.ts'] }, 'owner_by_risk'],
       [{ number: 955, body: `${cardBody(955, 'owner')}\n\n#1055 reserved` }, 'reserved'],
     ]
@@ -118,7 +169,7 @@ describe('the merge policy', () => {
     for (const files of [['scripts/ghosts/approve.ts'], ['scripts/bus/queue.ts']])
       expect(mergePolicy(facts({ ...owner, files }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard', detail: expect.stringContaining('shard-window') as unknown })
     expect(mergePolicy(facts({ ...owner, headRef: 'changeset-release/main' }))).toMatchObject({ kind: 'denied', rule: 'version_pr' })
-    expect(mergePolicy(facts({ ...owner, files: ['architecture/security-invariants.md'] }))).toMatchObject({ kind: 'denied', rule: 'security_invariants' })
+    expect(mergePolicy(facts({ ...owner, files: ['architecture/security-invariants.md'] }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge' })
     expect(mergePolicy(facts({ ...owner, description: `${cardBody(942, 'owner')}\n#1042 reserved` }))).toMatchObject({ kind: 'denied', rule: 'reserved' })
   })
 
@@ -131,7 +182,8 @@ describe('the merge policy', () => {
       expect(mergePolicy(facts({ ...owner, decisions, description: `${cardBody(942, 'owner')}\n#1042 reserved` }))).toMatchObject({ kind: 'denied', rule: 'reserved' })
       expect(mergePolicy(facts({ ...owner, decisions: [...decisions, { decisionId: 84, text: '#1042 reserved: Eli merges it.', cards: [1042] }] }))).toMatchObject({ kind: 'denied', rule: 'reserved' })
     }
-    expect(mergePolicy(facts({ ...owner, decisions: [d82], files: ['architecture/security-invariants.md', 'scripts/ghosts/approve.ts'] }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard', detail: expect.stringContaining('D-82') as unknown })
+    expect(mergePolicy(facts({ ...owner, decisions: [d82], files: ['architecture/security-invariants.md', 'scripts/ghosts/approve.ts'] }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge' })
+    expect(mergePolicy(facts({ ...owner, decisions: [d82], files: ['scripts/ghosts/approve.ts'] }))).toMatchObject({ kind: 'allowed', rule: 'owner_under_shard', detail: expect.stringContaining('D-82') as unknown })
     expect(mergePolicy(facts({ ...owner, decisions: [], files: ['scripts/ghosts/approve.ts'] }))).toMatchObject({ kind: 'denied', rule: 'owner_by_risk' })
   })
 
@@ -156,8 +208,8 @@ describe('the merge policy', () => {
     const bench = underDecisions(D77)
     const cases: [number, string[], string][] = [
       [970, ['.claude/agents/review.md'], 'r1'],
-      [971, ['.github/workflows/ci.yml'], 'r1'],
-      [972, ['architecture/security-invariants.md'], 'security_invariants'],
+      [971, ['.github/workflows/ci.yml'], 'no_shard_merge'],
+      [972, ['architecture/security-invariants.md'], 'no_shard_merge'],
     ]
     for (const [number, files] of cases)
       bench.gitHub.open({ number, review: 'success', body: cardBody(number, 'owner'), files })

@@ -47,6 +47,7 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     { files: ['templates/attach/AGENTS.md.eta'], ownerMerged: true },
     { files: ['contract/factory-permissions.json'], ownerMerged: true },
     { files: ['.github/workflows/release.yml'], ownerMerged: true },
+    { files: ['.github/workflows/ci.yml'], ownerMerged: true },
     { files: ['architecture/security-invariants.md'], ownerMerged: true },
     { files: ['architecture/owner-merges.md'], ownerMerged: true },
     { files: ['scripts/ghosts/launch.ts'], ownerMerged: false },
@@ -60,8 +61,9 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     expect(ownerMerges(files, kinds).ownerMerged).toBe(ownerMerged)
   })
 
-  it('owner-merged kinds are release, release-workflow, security-invariants, agent-permissions, new-write-path and own-instructions', () => {
-    expect(kinds.map(kind => kind.kind).sort()).toEqual(['agent-permissions', 'new-write-path', 'own-instructions', 'release', 'release-workflow', 'security-invariants'])
+  it('owner-merged kinds are release, release-workflow, workflows, security-invariants, agent-permissions, new-write-path and own-instructions', () => {
+    expect(kinds.map(kind => kind.kind).sort()).toEqual(['agent-permissions', 'new-write-path', 'own-instructions', 'release', 'release-workflow', 'security-invariants', 'workflows'])
+    expect(kinds.find(kind => kind.kind === 'workflows')?.globs).toEqual(['.github/workflows/**'])
     expect(kinds.find(kind => kind.kind === 'release')?.title).toBe('chore: version packages')
     expect(kinds.find(kind => kind.kind === 'new-write-path')?.notChecked).toBe(true)
     expect(kinds.find(kind => kind.kind === 'own-instructions')?.globs).toEqual(['.claude/agents/**', '.claude/rules/**', '.claude/settings*.json', '.claude/skills/**', '.claude/commands/**', '.claude/hooks/**', '.claude/eddies.json', 'AGENTS.md', 'scripts/construct/**', 'templates/ai/claude/**', 'templates/attach/**', 'architecture/owner-merges.md'])
