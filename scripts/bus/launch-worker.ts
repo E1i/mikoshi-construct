@@ -19,7 +19,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, LANE_OVERLAP, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
@@ -39,6 +39,7 @@ import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
+import { currentLane, laneCount, layLanes } from './lane-assign.js'
 import { bodyNotFoldedYet } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
@@ -98,6 +99,7 @@ export interface LaunchNodeParts {
   continuer?: SessionContinuer
   isolation: IsolationReader
   prompts?: string
+  lanes?: () => number
 }
 
 export interface SessionStart {
@@ -402,7 +404,13 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   protected candidates(): QueuedTask[] {
-    return launchTasks(this.db)
+    if (!this.executes())
+      return launchTasks(this.db)
+    const ts = this.ts()
+    layLanes(this.db, (this.launchParts.lanes ?? (() => laneCount(process.cwd())))(), ts, this.actor)
+    return launchTasks(this.db, (cardId, generation) => {
+      appendEvent(this.db, { ts, type: LANE_OVERLAP, actor: this.actor, cardId, pr: null, head: null, dedupeKey: `${LANE_OVERLAP}:${generation}`, payload: { lane: currentLane(this.db, cardId), generation }, legacy: false })
+    })
   }
 
   protected override derivedCandidates(): QueuedTask[] {

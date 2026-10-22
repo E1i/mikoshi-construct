@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { LANE_ASSIGNED } from '../../scripts/core/events.js'
 
 const BUS_SCHEMA = `
 CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, pr INTEGER, head TEXT, dedupe_key TEXT, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
@@ -79,6 +80,8 @@ export function writeBus(file: string, seed: BusSeed): string {
       db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, ?, ?)').run(card.id, card.state, card.pr ?? null, eventId)
       if (card.body ?? true)
         db.prepare('INSERT INTO card_bodies (card_id, lane, card_line, text) VALUES (?, ?, ?, ?)').run(card.id, card.lane, card.line, card.text ?? '')
+      if (card.lane !== null)
+        insertEvent(db, { ts: card.since ?? null, type: LANE_ASSIGNED, card: card.id, payload: JSON.stringify({ lane: card.lane }) })
     }
     for (const [pr, verdict] of seed.verdicts ?? [])
       db.prepare('INSERT INTO prs (pr, verdict_on_head) VALUES (?, ?)').run(pr, verdict)

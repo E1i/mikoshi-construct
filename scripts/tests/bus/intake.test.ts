@@ -13,7 +13,7 @@ import { BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { importJournalFile } from '../../bus/import.js'
 import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
 import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, LANE_ASSIGNED } from '../../core/events.js'
 
 const NOW = new Date('2026-10-12T16:00:00.000Z')
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
@@ -48,7 +48,7 @@ function park(w: World, dir: string): string {
 function cardEvents(w: World): Record<string, unknown>[] {
   const db = openBus(w.bus)
   try {
-    return (db.prepare('SELECT type, actor, card_id, payload FROM events WHERE legacy = 0 ORDER BY id').all() as { type: string, actor: string, card_id: number, payload: string }[])
+    return (db.prepare(`SELECT type, actor, card_id, payload FROM events WHERE legacy = 0 AND type != '${LANE_ASSIGNED}' ORDER BY id`).all() as { type: string, actor: string, card_id: number, payload: string }[])
       .map(row => ({ type: row.type, actor: row.actor, cardId: row.card_id, payload: JSON.parse(row.payload) as unknown }))
   }
   finally {
@@ -177,6 +177,18 @@ describe('pnpm intake writes card events to bus.db', () => {
     const file = park(w, 'lane-7')
     expect(withPort(w, events => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
     expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: WINDOW_LANE, depends: [], decision: 'auto', contour: 'cheap' } }])
+  })
+
+  it('an --admit through the port writes the card a lane.assigned', () => {
+    const w = world()
+    expect(withPort(w, events => runAdmit({ file: park(w, 'lane-7'), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
+    const db = openBus(w.bus)
+    try {
+      expect(db.prepare(`SELECT card_id, json_extract(payload, '$.lane') AS lane FROM events WHERE type = '${LANE_ASSIGNED}'`).all()).toEqual([{ card_id: 90, lane: 'lane-1' }])
+    }
+    finally {
+      db.close()
+    }
   })
 
   it('an --admit with the bus writes text, textSha, prevTextSha and prevAdmissionId', () => {

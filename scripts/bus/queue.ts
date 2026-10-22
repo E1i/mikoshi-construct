@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { RerunMode } from './check-catalog.js'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
+import type { OverlapCatch } from './launch-candidates.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { PRIORITIES } from '../../src/card/parking.js'
@@ -552,8 +553,8 @@ export function mergeCandidates(db: DatabaseSync, ts: string, rerun: RerunMode =
   return openCandidates(db, ts, 'merge', mergeRows(db, ts, rerun))
 }
 
-export function launchTasks(db: DatabaseSync): QueuedTask[] {
-  return launchCandidates(db).map(({ cardId, generation }) => ({ queue: 'launch', cardId, generation }))
+export function launchTasks(db: DatabaseSync, onOverlap?: OverlapCatch): QueuedTask[] {
+  return launchCandidates(db, undefined, undefined, onOverlap).map(({ cardId, generation }) => ({ queue: 'launch', cardId, generation }))
 }
 
 export interface Derived {
