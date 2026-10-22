@@ -12,11 +12,14 @@ import { CARD_PERMISSION_MODE } from '../bus/launch-starter.js'
 import { openDatabase } from '../bus/sqlite.js'
 import { CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT } from '../core/events.js'
 import { execGh, stdoutOrThrow } from '../core/gh.js'
+import { sessionEnv } from '../ports/session.js'
 import { refusalOf, shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift:tree-pr] '
 
 export const RETURNED_TO_SESSION = 'tree-pr-return'
+
+export const RETURN_CEILING_MINUTES = 60
 
 export interface TreePrWait {
   code: string
@@ -133,7 +136,7 @@ export function busLastRefusal(busPath: string): TreePrCliPorts['lastRefusal'] {
   }
 }
 
-export function claudeResume(busPath: string): TreePrCliPorts['resume'] {
+export function claudeResume(busPath: string, claude = 'claude', ceilingMs = RETURN_CEILING_MINUTES * 60_000): TreePrCliPorts['resume'] {
   return (cardId, worktree, prompt) => {
     if (!existsSync(busPath))
       return false
@@ -147,7 +150,8 @@ export function claudeResume(busPath: string): TreePrCliPorts['resume'] {
     }
     if (session === undefined)
       return false
-    return spawnSync('claude', ['--permission-mode', CARD_PERMISSION_MODE, '-p', '--resume', session, prompt], { cwd: worktree, stdio: 'inherit' }).status === 0
+    const run = spawnSync(claude, ['--permission-mode', CARD_PERMISSION_MODE, '-p', '--resume', session, prompt], { cwd: worktree, env: sessionEnv(process.env, cardId), stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
+    return run.error === undefined && run.status === 0
   }
 }
 

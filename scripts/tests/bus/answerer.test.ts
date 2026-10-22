@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { claudeAnswerer, FreshBaseConflict, realAnswererTools } from '../../bus/answerer.js'
+import { claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools } from '../../bus/answerer.js'
 
 const CARD_SESSION = 'card-session-1207'
 const NEW_SESSION = 'new-session-1'
@@ -146,7 +146,7 @@ describe('the answer path publishes on a fresh base', () => {
         publish: () => {
           const files = conflicts.shift() ?? []
           if (files.length > 0)
-            throw new FreshBaseConflict(files)
+            throw new FreshBaseConflict({ files, failure: null })
         },
         context: () => 30_000,
         contextWarn: () => CONTEXT_WARN,
@@ -159,5 +159,36 @@ describe('the answer path publishes on a fresh base', () => {
       { owner: null, runs: 2, merge: true },
       { owner: 'merging a fresh origin/main into feat/card-1207 conflicts in a.md and the answer session did not resolve it', runs: 2, merge: true },
     ])
+  })
+
+  it('the merge session after a conflict counts its tokens and its owner question stops the push', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-answerer-'))
+    roots.push(root)
+    const dir = path.join(root, 'answers')
+    const usage = [{ input_tokens: 100, output_tokens: 20 }, { input_tokens: 7, output_tokens: 3 }]
+    const question = 'origin/main rewrote the gate this card changes; keep which?'
+    const published: number[] = []
+    const answerer = claudeAnswerer(dir, {
+      cardText: () => CARD_BODY,
+      available: () => true,
+      remoteHead: () => 'a'.repeat(40),
+      spawn: async (run) => {
+        writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered', usage: usage.shift() })}\n`)
+        if (run.stdoutPath.includes('.merge.'))
+          writeFileSync(ownerQuestionPath(dir, CARD_SESSION, 1), `${question}\n`)
+        return 0
+      },
+      newSession: () => NEW_SESSION,
+      publish: () => {
+        published.push(published.length)
+        throw new FreshBaseConflict({ files: [], failure: 'untracked working tree files would be overwritten by merge: b.md' })
+      },
+      context: () => 30_000,
+      contextWarn: () => CONTEXT_WARN,
+    })
+
+    const answered = await answerer(requestIn(root))
+
+    expect({ owner: answered.owner, tokens: answered.tokens, publishes: published.length }).toEqual({ owner: question, tokens: 130, publishes: 1 })
   })
 })

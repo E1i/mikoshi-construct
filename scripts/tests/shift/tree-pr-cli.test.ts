@@ -1,10 +1,12 @@
 import type { PrOpenedBus, TreePrCliPorts } from '../../shift/tree-pr-cli.js'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { busCardStopped, busPrOpened, PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
+import { CARD_PERMISSION_MODE } from '../../bus/launch-starter.js'
+import { CARD_VARIABLE } from '../../ports/session.js'
+import { busCardStopped, busPrOpened, claudeResume, PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
 
 const roots: string[] = []
 
@@ -351,5 +353,38 @@ describe('tree-pr for a finished card session', () => {
     const code = runTreePr(['951', root], { ...shiftedPorts(diff, [], busCard(diff.contour).cardText), opened: busPrOpened({ busPath: path.join(blocked, 'bus.db'), pid: 4242, now: () => new Date(), err: line => errors.push(line) }) }, line => lines.push(line))
 
     expect({ code, lines, errors }).toEqual({ code: 0, lines: [`${PREFIX}card #951: PR #901`], errors: [expect.stringContaining(`pr.opened of PR #901 not written to ${path.join(blocked, 'bus.db')}`)] })
+  })
+})
+
+describe('the session a refusal returns the card to', () => {
+  const SESSION = 'card-session-951'
+
+  function resumed(script: string, ceilingMs: number) {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-resume-'))
+    roots.push(root)
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    appendEvent(db, { ts: '2026-10-22T04:00:00.000Z', type: 'card.started', actor: 'worker:launch:1', cardId: 951, pr: null, head: null, dedupeKey: START_KEY, payload: { session: SESSION, worktree: root, branch: 'feat/x' }, legacy: false })
+    db.close()
+    const claude = path.join(root, 'claude')
+    const seen = path.join(root, 'seen.txt')
+    writeFileSync(claude, `#!/bin/sh\n${script.replaceAll('SEEN', seen)}\n`)
+    chmodSync(claude, 0o755)
+    const started = Date.now()
+    const ran = claudeResume(busPath, claude, ceilingMs)(951, root, 'merge a fresh origin/main')
+    return { ran, seen, ms: Date.now() - started }
+  }
+
+  it('resumes the card session in its tree with the card environment and the card permission mode', () => {
+    const { ran, seen } = resumed(`printf '%s\\n' "$PWD" "$${CARD_VARIABLE}" "$NO_COLOR" "$@" > SEEN`, 10_000)
+
+    const [cwd, card, noColor, ...argv] = readFileSync(seen, 'utf8').trim().split('\n')
+    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
+  })
+
+  it('a returned session that hangs past its ceiling is ended and reads as not run to its end', () => {
+    const { ran, ms } = resumed('exec sleep 30', 500)
+
+    expect({ ran, endedAtTheCeiling: ms < 10_000 }).toEqual({ ran: false, endedAtTheCeiling: true })
   })
 })

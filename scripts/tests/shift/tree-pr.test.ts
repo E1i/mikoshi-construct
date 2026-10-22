@@ -295,6 +295,44 @@ describe('a stale base is not a stop', () => {
   })
 })
 
+describe('a fresh base merge that does not go through is never a fault', () => {
+  it('a merge that fails without a conflict returns the card to its session with the git failure, then waits, and writes no fault', () => {
+    const tree = cardTree()
+    write(tree.worktree, { 'docs/x.md': 'mine\n' })
+    const orphan = path.join(tree.root, 'orphan')
+    execFileSync('git', ['init', '-q', '-b', 'main', orphan])
+    committer(orphan)
+    write(orphan, { 'docs/z.md': 'another history\n' })
+    git(orphan, ['add', '-A'])
+    git(orphan, ['commit', '-q', '-m', 'another history'])
+    git(orphan, ['push', '-q', '--force', path.join(tree.root, 'origin.git'), 'main'])
+    const bus = launchedBus(tree.root, [951])
+    const prompts: string[] = []
+
+    const code = runTreePr(['951', tree.worktree], { ...busPorts(bus, cardText('cheap', ['docs/x.md'])), git, gh: openingGh(), resume: (_cardId, _worktree, prompt) => prompts.push(prompt) > 0 }, () => {})
+
+    expect({ code, events: refusalsOf(bus.busPath, 951), returns: prompts.length, failure: prompts[0]?.includes('refusing to merge unrelated histories') }).toEqual({ code: 1, events: [RETURNED('a:stale-base'), WAITED('a:stale-base')], returns: 1, failure: true })
+  })
+
+  it('a merge the session left unconcluded is not committed with its conflict markers and pushes nothing', () => {
+    const tree = cardTree()
+    write(tree.worktree, { 'docs/x.md': 'mine\n' })
+    tree.moveMain({ 'docs/x.md': 'theirs\n' })
+    const bus = launchedBus(tree.root, [951])
+    const leaveTheMergeOpen = (): boolean => {
+      try {
+        git(tree.worktree, ['merge', '-q', 'origin/main'])
+      }
+      catch {}
+      return true
+    }
+
+    const code = runTreePr(['951', tree.worktree], { ...busPorts(bus, cardText('cheap', ['docs/x.md'])), git, gh: openingGh(), resume: leaveTheMergeOpen }, () => {})
+
+    expect({ code, events: refusalsOf(bus.busPath, 951), pushed: git(tree.worktree, ['ls-remote', 'origin', 'feat/x']).trim(), committedMarkers: git(tree.worktree, ['show', 'HEAD:docs/x.md']).includes('<<<<<<<') }).toEqual({ code: 1, events: [RETURNED('a:stale-base'), WAITED('a:stale-base')], pushed: '', committedMarkers: false })
+  })
+})
+
 interface DiffState {
   files: { path: string, status?: string }[]
 }

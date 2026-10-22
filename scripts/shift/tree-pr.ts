@@ -222,28 +222,45 @@ function openPrOf(ports: TreePrPorts, branch: string): string | null {
   return open.length === 0 ? null : String(open[0]!.number)
 }
 
-export type Pushed = { kind: 'pushed' } | { kind: 'clean' } | { kind: 'conflict', files: string[] }
+export interface FreshBaseGap {
+  files: string[]
+  failure: string | null
+}
+
+export type Pushed = { kind: 'pushed' } | { kind: 'clean' } | ({ kind: 'conflict' } & FreshBaseGap)
 
 function conflictedFiles(git: TreePrPorts['git'], worktree: string): string[] {
   return git(worktree, ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(file => file !== '')
 }
 
-function mergeFreshBase(git: TreePrPorts['git'], worktree: string): string[] {
+function mergeInProgress(git: TreePrPorts['git'], worktree: string): boolean {
+  try {
+    git(worktree, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function mergeFreshBase(git: TreePrPorts['git'], worktree: string): FreshBaseGap | null {
   try {
     git(worktree, ['merge', '-q', '--no-edit', PR_BASE])
-    return []
+    return null
   }
   catch (error) {
     const files = conflictedFiles(git, worktree)
-    if (files.length === 0)
-      throw error
-    git(worktree, ['merge', '--abort'])
-    return files
+    if (mergeInProgress(git, worktree))
+      git(worktree, ['merge', '--abort'])
+    return { files, failure: files.length === 0 ? failureOf(error) : null }
   }
 }
 
 export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch: string, commitMessage: string): Pushed {
   git(worktree, ['fetch', '-q', 'origin', 'main'])
+  const leftUnmerged = conflictedFiles(git, worktree)
+  if (leftUnmerged.length > 0)
+    return { kind: 'conflict', files: leftUnmerged, failure: null }
   const uncommitted = git(worktree, ['status', '--porcelain']).trim() !== ''
   const ahead = Number(git(worktree, ['rev-list', '--count', `${PR_BASE}..HEAD`]).trim())
   if (!uncommitted && ahead === 0)
@@ -252,19 +269,24 @@ export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch:
     git(worktree, ['add', '-A'])
     git(worktree, ['commit', '-q', '-m', commitMessage])
   }
-  const conflicts = mergeFreshBase(git, worktree)
-  if (conflicts.length > 0)
-    return { kind: 'conflict', files: conflicts }
+  const gap = mergeFreshBase(git, worktree)
+  if (gap !== null)
+    return { kind: 'conflict', ...gap }
   git(worktree, ['push', '-q', '-u', 'origin', `HEAD:refs/heads/${branch}`])
   return { kind: 'pushed' }
 }
 
-export function freshBaseTask(worktree: string, files: readonly string[]): string {
-  return `merge a fresh ${PR_BASE} into the branch (git -C ${worktree} fetch origin main, then git -C ${worktree} merge ${PR_BASE}; merge, not rebase), resolve every conflict in ${files.join(', ')} keeping what the card asks for, and conclude the merge with git -C ${worktree} commit --no-edit`
+export function freshBaseProblem(gap: FreshBaseGap): string {
+  return gap.failure === null ? `conflicts in ${gap.files.join(', ')}` : `fails without a conflict: ${gap.failure}`
 }
 
-function staleBase(branch: string, worktree: string, files: string[]): TreePr {
-  return { kind: 'problem', why: `the shift opened no pull request for ${branch}: merging a fresh ${PR_BASE} into it conflicts in ${files.join(', ')}`, gaps: [{ reason: 'stale-base', task: freshBaseTask(worktree, files), paths: files }] }
+export function freshBaseTask(worktree: string, gap: FreshBaseGap): string {
+  const settle = gap.failure === null ? `resolve every conflict in ${gap.files.join(', ')} keeping what the card asks for` : `clear what stopped it (${gap.failure}) without dropping the card's work`
+  return `merge a fresh ${PR_BASE} into the branch (git -C ${worktree} fetch origin main, then git -C ${worktree} merge ${PR_BASE}; merge, not rebase), ${settle}, and conclude the merge with git -C ${worktree} commit --no-edit`
+}
+
+function staleBase(branch: string, worktree: string, gap: FreshBaseGap): TreePr {
+  return { kind: 'problem', why: `the shift opened no pull request for ${branch}: merging a fresh ${PR_BASE} into it ${freshBaseProblem(gap)}`, gaps: [{ reason: 'stale-base', task: freshBaseTask(worktree, gap), paths: gap.files }] }
 }
 
 export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, report: string | null): TreePr {
@@ -273,7 +295,7 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     if (pushed.kind === 'clean')
       return { kind: 'clean' }
     if (pushed.kind === 'conflict')
-      return staleBase(card.branch, worktree, pushed.files)
+      return staleBase(card.branch, worktree, pushed)
     const open = openPrOf(ports, card.branch)
     if (open !== null)
       return { kind: 'pr', number: open }
