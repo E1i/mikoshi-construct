@@ -20,7 +20,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { commandWords, realIsolationReader } from '../ports/isolation.js'
@@ -543,7 +543,7 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, lastSession: (cardId: number) => string | null = () => null): StarterPorts {
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => []): StarterPorts {
   return {
     read: bodyOf,
     cut: (task) => {
@@ -559,7 +559,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     prompt: (task, places) => renderPrompt(header, continuedOnCardText(task, bodyOf), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
-    lastSession,
+    cardSessions,
     readTranscript: (worktree, session) => {
       const file = transcriptFile(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), worktree, session)
       return file !== null && existsSync(file) ? readFileSync(file, 'utf8') : null
@@ -577,20 +577,20 @@ export function readTreeFile(file: string): TreeFile | null {
   }
 }
 
-const LAST_STARTED_SESSION = `
+const CARD_SESSIONS = `
   SELECT json_extract(payload, '$.session') AS session FROM events
-  WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
-  ORDER BY id DESC LIMIT 1
+  WHERE legacy = 0 AND type IN ('${CARD_STARTED}', '${CARD_ANSWERED}') AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
+  ORDER BY id
 `
 
-export function busLastSession(busPath: string): (cardId: number) => string | null {
+export function busCardSessions(busPath: string): (cardId: number) => string[] {
   return (cardId) => {
     if (!existsSync(busPath))
-      return null
+      return []
     const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     try {
-      const row = db.prepare(LAST_STARTED_SESSION).get(cardId) as { session: string } | undefined
-      return row?.session ?? null
+      const rows = db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]
+      return [...new Set(rows.map(row => row.session))]
     }
     finally {
       db.close()
@@ -599,7 +599,7 @@ export function busLastSession(busPath: string): (cardId: number) => string | nu
 }
 
 export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
-  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busLastSession(busPath))
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath))
 }
 
 export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv, busPath: string): LadderSteps {

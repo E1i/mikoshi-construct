@@ -2,11 +2,15 @@ import type { CardStart, StartedCard } from '../../bus/launch-executor.js'
 import type { StarterPorts } from '../../bus/launch-starter.js'
 import type { TreeFile } from '../../bus/session-journal.js'
 import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { devNull, tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
+import { appendEvent, openBus } from '../../bus/db.js'
 import { HTTPS_ORIGIN_ENV, ShiftCardStarter } from '../../bus/launch-starter.js'
+import { busCardSessions } from '../../bus/launch-worker.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 
 const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }
 
@@ -70,6 +74,18 @@ const TREE_FILES: Record<string, TreeFile> = {
   'src/late.ts': { content: 'late line\n', mtimeMs: at(45) },
   'src/shelled.ts': { content: 'shelled line\nand more\n', mtimeMs: at(6) },
   'src/foreign.ts': { content: 'nobody here wrote this\n', mtimeMs: at(2) },
+  'src/earlier.ts': { content: 'earlier\n', mtimeMs: at(1) },
+}
+
+const EARLIER = 'sess-earlier'
+
+const EARLIER_JOURNAL = transcript(
+  toolCall(1, 'Write', { file_path: `${TREE}/src/earlier.ts`, content: 'earlier\n' }),
+)
+
+const earlierSession: Partial<StarterPorts> = {
+  cardSessions: () => [EARLIER, SESSION],
+  readTranscript: (worktree, session) => worktree !== TREE ? null : session === EARLIER ? EARLIER_JOURNAL : session === SESSION ? SESSION_JOURNAL : null,
 }
 
 const CARD_TEXT = parkingFileText({ card: `#${CARD} card-${CARD} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${CARD}`, touches: ['src/**'], continue: 'auto', who: 'shift', body: 'Do the card.' })
@@ -93,7 +109,7 @@ function heldTree(changed: string[], overrides: Partial<StarterPorts> = {}): { s
     prompt: task => task.body,
     changedPaths: () => changed,
     readReport: file => file === path.join(LAUNCH_DIR, `report-${CARD}.md`) ? 'result: stopped at a boundary\nnotes.md holds the plan\n' : null,
-    lastSession: () => SESSION,
+    cardSessions: () => [SESSION],
     readTranscript: (worktree, session) => worktree === TREE && session === SESSION ? SESSION_JOURNAL : null,
     treeFile: file => TREE_FILES[path.relative(TREE, file)] ?? null,
     ...overrides,
@@ -119,12 +135,12 @@ describe('the held tree guard reads the session journal', () => {
     expect(held.spawned).toEqual([TREE])
   })
 
-  it('a held tree continued from start() reads the journal of the last session the bus started on it', () => {
+  it('a held tree continued from start() reads the journals of the sessions the bus records for the card', () => {
     const asked: number[] = []
     const held = heldTree(['src/written.ts'], {
-      lastSession: (cardId) => {
+      cardSessions: (cardId) => {
         asked.push(cardId)
-        return SESSION
+        return [SESSION]
       },
     })
 
@@ -132,9 +148,44 @@ describe('the held tree guard reads the session journal', () => {
     expect(asked).toEqual([CARD])
   })
 
+  it('a file an earlier session of the card changed and the last session did not continues in the held tree', () => {
+    const held = heldTree(['notes.md', 'src/written.ts', 'src/earlier.ts'], earlierSession)
+
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE, session: 'sess-next' } })
+    expect(held.startQueued()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(held.spawned).toEqual([TREE, TREE])
+  })
+
+  it('a file outside the journals of every session of the card is refused by name', () => {
+    const held = heldTree(['notes.md', 'src/earlier.ts', 'src/foreign.ts'], earlierSession)
+
+    const outcome = held.start()
+
+    expect(refusedPaths(outcome)).toEqual(['src/foreign.ts'])
+    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain(`src/foreign.ts (session ${EARLIER}: the session journal holds no Write or Edit of it; session ${SESSION}: the session journal holds no Write or Edit of it)`)
+    expect(held.spawned).toEqual([])
+  })
+
+  it('a file an earlier session wrote and something changed after that session ended is refused by name', () => {
+    const held = heldTree(['src/earlier.ts'], { ...earlierSession, treeFile: file => path.relative(TREE, file) === 'src/earlier.ts' ? { content: 'earlier\n', mtimeMs: at(45) } : null })
+
+    expect(refusedPaths(held.start())).toEqual(['src/earlier.ts'])
+    expect(held.spawned).toEqual([])
+  })
+
+  it('an unreadable transcript of an earlier session is a safe refusal', () => {
+    const held = heldTree(['src/written.ts'], { cardSessions: () => [EARLIER, SESSION] })
+
+    const outcome = held.start()
+
+    expect(refusedPaths(outcome)).toEqual(['src/written.ts'])
+    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain(`the journal of session ${EARLIER} cannot be read`)
+    expect(held.spawned).toEqual([])
+  })
+
   it('a held tree the report names whole never reads a journal', () => {
     const held = heldTree(['notes.md'], {
-      lastSession: () => {
+      cardSessions: () => {
         throw new Error('the journal is read only for an unnamed path')
       },
     })
@@ -173,13 +224,40 @@ describe('the held tree guard reads the session journal', () => {
     }
   })
 
-  it('a held tree whose last session the bus does not record is refused by name', () => {
-    const held = heldTree(['notes.md', 'src/written.ts'], { lastSession: () => null })
+  it('a held tree the bus records no session of is refused by name', () => {
+    const held = heldTree(['notes.md', 'src/written.ts'], { cardSessions: () => [] })
 
     const outcome = held.startQueued()
 
     expect(refusedPaths(outcome)).toEqual(['src/written.ts'])
     expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('the bus records no session that held the tree')
     expect(held.spawned).toEqual([])
+  })
+})
+
+describe('the sessions of a card on the bus', () => {
+  it('are the sessions its card.started and card.answered events name, in order and once each', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'card-sessions-'))
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    const event = (id: number, type: string, cardId: number, payload: Record<string, unknown>): void => {
+      appendEvent(db, { ts: stamp(id), type, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `test:${id}`, payload, legacy: false })
+    }
+    try {
+      event(1, CARD_STARTED, CARD, { session: EARLIER })
+      event(2, CARD_ANSWERED, CARD, { session: 'sess-answer' })
+      event(3, CARD_STARTED, CARD + 1, { session: 'sess-other-card' })
+      event(4, CARD_STARTED, CARD, {})
+      event(5, CARD_STOPPED, CARD, { session: 'sess-stopped' })
+      event(6, CARD_STARTED, CARD, { session: SESSION })
+      event(7, CARD_STARTED, CARD, { session: EARLIER })
+      db.close()
+
+      expect(busCardSessions(busPath)(CARD)).toEqual([EARLIER, 'sess-answer', SESSION])
+      expect(busCardSessions(path.join(root, 'absent.db'))(CARD)).toEqual([])
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

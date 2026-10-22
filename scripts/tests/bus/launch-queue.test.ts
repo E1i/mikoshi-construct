@@ -166,7 +166,7 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
     prompt: (task, at) => renderPrompt('card {{card}} in {{worktree}}, report {{report}}\n\n', task, at),
     changedPaths: () => [],
     readReport: () => null,
-    lastSession: () => null,
+    cardSessions: () => [],
     readTranscript: () => null,
     treeFile: () => null,
     ...overrides,
@@ -487,7 +487,7 @@ describe('the launch queue', () => {
       prompt: task => task.body,
       changedPaths: () => changed,
       readReport: file => file === path.join(launchDir, `report-${cardId}.md`) ? report : null,
-      lastSession: () => null,
+      cardSessions: () => [],
       readTranscript: () => null,
       treeFile: () => null,
     }

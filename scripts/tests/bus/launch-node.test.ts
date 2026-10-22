@@ -727,7 +727,7 @@ describe('the launch node', () => {
       envOf: () => ({}),
       changedPaths: () => [],
       readReport: () => null,
-      lastSession: () => null,
+      cardSessions: () => [],
       readTranscript: () => null,
       treeFile: () => null,
     }
@@ -1015,7 +1015,7 @@ function ladderWorld(made: MergeBench, handoffState: { brief: string, approved: 
     prompt: task => task.body,
     changedPaths: () => [],
     readReport: () => null,
-    lastSession: () => null,
+    cardSessions: () => [],
     readTranscript: () => null,
     treeFile: () => null,
   }
@@ -1354,7 +1354,7 @@ describe('what a launched session left behind', () => {
       prompt: task => task.body,
       changedPaths: () => [],
       readReport: () => null,
-      lastSession: () => null,
+      cardSessions: () => [],
       readTranscript: () => null,
       treeFile: () => null,
     }
