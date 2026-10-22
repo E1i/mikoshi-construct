@@ -7,13 +7,10 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { rememberedPreflight } from '../../ghosts/hash.js'
-import { ghostLines } from '../../ghosts/journal.js'
 import { recordFall } from '../../ghosts/supervise.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
 import { recordDisposition } from '../../ghosts/verdict.js'
-import { runShift } from '../../shift/shift.js'
 import { read } from '../core/gh-fake.js'
-import { captured, depsOf, fakeGh, newWorld } from '../shift/fixtures/autopilot-world.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const NOW = new Date('2026-10-21T09:00:00.000Z')
@@ -69,12 +66,6 @@ function inHandoff(): Place {
   return { handoff: mkdtempSync(path.join(tmpdir(), 'no-journal-')), bus: busOf() }
 }
 
-async function failingShiftCard(): Promise<Place> {
-  const world = newWorld([{ id: 1, body: 'do 1 STUB-FAIL' }])
-  await runShift([world.shift, '--parking', world.parking], depsOf(world, fakeGh({}).gh, captured()))
-  return { handoff: world.handoff, bus: world.bus }
-}
-
 const COMMANDS: { name: string, run: () => Promise<Place>, writes: string }[] = [
   { name: 'verdict --disposition', run: async () => {
     const place = inHandoff()
@@ -107,7 +98,6 @@ const COMMANDS: { name: string, run: () => Promise<Place>, writes: string }[] = 
     remembered.preflight({ briefPath: path.join(place.handoff, 'brief.md'), text: '/implement 123 n', sketch: { kind: 'none', reason: 'r' }, buildStdout: '' })
     return place
   }, writes: 'ghost.line' },
-  { name: 'a shift card that stops', run: failingShiftCard, writes: 'ghost.line' },
 ]
 
 describe('the window commands write the bus, not the journal', () => {
@@ -115,10 +105,5 @@ describe('the window commands write the bus, not the journal', () => {
     const place = await run()
     expect(journalBytes(place)).toBe('')
     expect(eventTypes(place.bus)).toContain(writes)
-  })
-
-  it('no window command appends to ghosts.jsonl: a shift stop line is read back from the bus', async () => {
-    const place = await failingShiftCard()
-    expect(ghostLines(place.bus).filter(line => line.event === 'stop')).toMatchObject([{ task: '1', at: 'fault' }])
   })
 })

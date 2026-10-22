@@ -1,13 +1,11 @@
-import type { ShiftDeps } from '../scripts/shift/shift.js'
 import type { SignalName } from '../src/card/complexity.js'
 import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { relation } from '../scripts/shift/overlap.js'
-import { runShift } from '../scripts/shift/shift.js'
-import { failed } from '../scripts/tests/core/gh-fake.js'
+import { relation, taskConflicts } from '../scripts/shift/overlap.js'
+import { readParking } from '../scripts/shift/parking.js'
 import { CHARACTERS_PER_TOKEN, SESSION_READING_TOKENS, splitSignal } from '../src/card/complexity.js'
 import { WINDOW_WHO } from '../src/card/parking.js'
 import { SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
@@ -128,30 +126,13 @@ function sliced(result: IntakeResult) {
   return result.cards
 }
 
-function shiftDeps(root: string, out: string[], err: string[]): ShiftDeps {
-  const unused = (): never => {
-    throw new Error('a --check run starts nothing')
+function parkingCheck(root: string): { errors: string[], chosen: string[] } {
+  const unread = (): never => {
+    throw new Error('a parking check reads no git')
   }
-  return {
-    cwd: root,
-    claude: undefined,
-    header: '',
-    handoffDir: path.join(root, 'handoff'),
-    readJournal: unused,
-    projectsDir: path.join(root, 'projects'),
-    git: unused,
-    install: unused,
-    gh: () => failed('gh is not read in this test'),
-    listDir: dir => readdirSync(dir),
-    read: file => readFileSync(file, 'utf8'),
-    exists: existsSync,
-    append: unused,
-    now: () => new Date('2026-10-05T00:00:00.000Z'),
-    uuid: () => 'uuid',
-    run: unused,
-    out: line => out.push(line),
-    err: line => err.push(line),
-  }
+  const reads = { cwd: root, handoffDir: path.join(root, 'handoff'), listDir: (dir: string) => readdirSync(dir), read: (file: string) => readFileSync(file, 'utf8'), exists: existsSync, git: unread }
+  const { choice, errors } = readParking(reads, path.join(root, 'parking'))
+  return { errors: [...errors, ...taskConflicts(choice.chosen)], chosen: choice.chosen.map(task => task.file) }
 }
 
 describe('the split signal reads the 04–05.10 cards as the owner did', () => {
@@ -205,7 +186,7 @@ describe('intake writes the slicing principle into a card the signal splits', ()
   })
 
   for (const name of ['#55 red-base-gate']) {
-    it(`${name}: the proposed slices take disjoint touches and pass shift --check as cards`, async () => {
+    it(`${name}: the proposed slices take disjoint touches and read as runnable cards`, () => {
       const verdict = splitSignal({ touches: WITNESS_CARDS[name]!.touches, unclear: 0 })
       expect(verdict.slices.length).toBeGreaterThan(1)
       expect(verdict.slices.flatMap(slice => slice.touches).sort()).toEqual([...WITNESS_CARDS[name]!.touches].sort())
@@ -214,14 +195,9 @@ describe('intake writes the slicing principle into a card the signal splits', ()
       expect(crossing).toEqual([])
       const root = scratch()
       const written = sliced(intake(root, verdict.slices.map(slice => draftCard(`slice-${slice.area}`, slice.touches))))
-      const out: string[] = []
-      const err: string[] = []
-      const exit = await runShift([path.join(root, 'shift'), '--parking', path.join(root, 'parking'), '--check'], shiftDeps(root, out, err))
-      expect(err.filter(line => !line.includes('open pull requests not read'))).toEqual([])
-      expect(exit).toBe(0)
       const taken = written.filter(card => card.who === 'shift').map(card => card.file)
       expect(taken.length).toBeGreaterThan(0)
-      expect(out.join('\n')).toContain(`check passed: ${taken.join(', ')}`)
+      expect(parkingCheck(root)).toEqual({ errors: [], chosen: taken })
     })
   }
 

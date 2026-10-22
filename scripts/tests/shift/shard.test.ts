@@ -1,6 +1,6 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../bus/db.js'
 import type { ShardDeps } from '../../shift/shard.js'
-import type { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { activeWindowShards, expiredWindowShards } from '../../bus/shards.js'
 import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
-import { runShard, USAGE } from '../../shift/shard.js'
 import { GHOST_JOURNAL } from '../../shift/places.js'
+import { runShard, USAGE } from '../../shift/shard.js'
 
 const SHARD = '5a4d0000-0000-4000-8000-000000000650'
 

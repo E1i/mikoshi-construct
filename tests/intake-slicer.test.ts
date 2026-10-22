@@ -1,12 +1,11 @@
 import type { Buffer } from 'node:buffer'
-import type { ShiftDeps } from '../scripts/shift/shift.js'
 import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runShift } from '../scripts/shift/shift.js'
-import { failed } from '../scripts/tests/core/gh-fake.js'
+import { taskConflicts } from '../scripts/shift/overlap.js'
+import { readParking } from '../scripts/shift/parking.js'
 import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
 import { INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -72,30 +71,13 @@ function detail(result: IntakeResult): string[] {
   return result.status === 'refused' ? result.detail : []
 }
 
-function shiftDeps(root: string, out: string[], err: string[]): ShiftDeps {
-  const unused = (): never => {
-    throw new Error('a --check run starts nothing')
+function parkingCheck(root: string): { errors: string[], chosen: string[] } {
+  const unread = (): never => {
+    throw new Error('a parking check reads no git')
   }
-  return {
-    cwd: root,
-    claude: undefined,
-    header: '',
-    handoffDir: path.join(root, 'handoff'),
-    readJournal: unused,
-    projectsDir: path.join(root, 'projects'),
-    git: unused,
-    install: unused,
-    gh: () => failed('gh is not read in this test'),
-    listDir: dir => readdirSync(dir),
-    read: file => readFileSync(file, 'utf8'),
-    exists: existsSync,
-    append: unused,
-    now: () => new Date('2026-10-04T00:00:00.000Z'),
-    uuid: () => 'uuid',
-    run: unused,
-    out: line => out.push(line),
-    err: line => err.push(line),
-  }
+  const reads = { cwd: root, handoffDir: path.join(root, 'handoff'), listDir: (dir: string) => readdirSync(dir), read: (file: string) => readFileSync(file, 'utf8'), exists: existsSync, git: unread }
+  const { choice, errors } = readParking(reads, path.join(root, 'parking'))
+  return { errors: [...errors, ...taskConflicts(choice.chosen)], chosen: choice.chosen.map(task => task.file) }
 }
 
 describe('intake slices a three-paragraph retelling into parking cards', () => {
@@ -117,17 +99,12 @@ describe('intake slices a three-paragraph retelling into parking cards', () => {
     expect(written[2]!.line).toBe('#544 release-version-probe [probe/infra/S/cheap/none] · depends — · blocks —')
   })
 
-  it('leaves a parking that pnpm shift --check passes', async () => {
+  it('leaves a parking whose cards read without refusal and take disjoint touches', () => {
     const root = scratch()
     const parking = path.join(root, 'parking')
     cards(intake(SLICED, '530', parking))
     rmSync(path.join(root, 'draft.json'))
-    const out: string[] = []
-    const err: string[] = []
-    const exit = await runShift([path.join(root, 'shift'), '--parking', parking, '--check'], shiftDeps(root, out, err))
-    expect(err.filter(line => !line.includes('open pull requests not read'))).toEqual([])
-    expect(exit).toBe(0)
-    expect(out).toContain('[shift] check passed: 531.md')
+    expect(parkingCheck(root)).toEqual({ errors: [], chosen: ['531.md'] })
   })
 
   it('prints the cards and writes nothing on a dry run', () => {

@@ -17,7 +17,6 @@ import { openDatabase } from '../bus/sqlite.js'
 import { INTAKE_EVENT } from '../core/events.js'
 import { cardVerifiedClosings } from '../ghosts/task-close.js'
 import { busMerges } from '../ghosts/task-merged.js'
-import { PREFIX as MERGE_PREFIX } from '../shift/merge.js'
 import { SHIFT_JOURNAL } from '../shift/places.js'
 
 export const PREFIX = '[release:evidence] '
@@ -25,6 +24,7 @@ export const USAGE = 'usage: pnpm release:evidence <from> <to>'
 export const UNKNOWN = 'unknown'
 export const GAP = 'gap'
 const BUDGET_SOURCE = 'no budget is recorded apart from the forecast'
+const SHIFT_MERGE_LINE_PREFIX = '[shift:merge] '
 
 interface Line {
   entry: Record<string, unknown>
@@ -116,9 +116,9 @@ function shiftMergeField(deps: EvidenceDeps, task: string, shift: unknown): Fiel
     return { name, value: UNKNOWN, source: `${file} cannot be read` }
   const line = lastOf(linesOf(text, file), task, entry => entry.event === 'task')
   const recorded = line?.entry.merge
-  const merges = Array.isArray(recorded) ? recorded.filter((row): row is string => typeof row === 'string' && row.startsWith(MERGE_PREFIX)) : []
+  const merges = Array.isArray(recorded) ? recorded.filter((row): row is string => typeof row === 'string' && row.startsWith(SHIFT_MERGE_LINE_PREFIX)) : []
   return merges.length === 0
-    ? { name, value: UNKNOWN, source: `no ${MERGE_PREFIX.trim()} line for #${task} in ${file}` }
+    ? { name, value: UNKNOWN, source: `no ${SHIFT_MERGE_LINE_PREFIX.trim()} line for #${task} in ${file}` }
     : { name, value: merges.join(' | '), source: line!.source }
 }
 

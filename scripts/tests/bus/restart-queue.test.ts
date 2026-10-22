@@ -2,7 +2,6 @@ import type { ProcessTable } from '../../bus/chain-process.js'
 import type { ChainObservation } from '../../bus/chain.js'
 import type { Lease } from '../../bus/lease.js'
 import type { Role, RoleLease, RoleStop } from '../../bus/role.js'
-import type { World } from '../shift/fixtures/autopilot-world.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -15,28 +14,14 @@ import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { RestartExecutor } from '../../bus/restart-executor.js'
-import { launchSwitchedOn, MIKO_LAUNCH_OFF, restartStepLine, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
-import { leaseRole, observeRoleStop, RAISED_VARIABLE, RAISES_PER_HANDOFF } from '../../bus/role.js'
+import { launchSwitchedOn, MIKO_LAUNCH_OFF, OPERATOR_LAUNCH_GONE, restartStepLine, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
+import { leaseRole, observeRoleStop, RAISES_PER_HANDOFF } from '../../bus/role.js'
 import { requestFromWindow } from '../../bus/window-requests.js'
 import { switchWorker } from '../../bus/workers.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
 import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
-import { runBg } from '../../shift/bg.js'
-import { chainObserver } from '../../shift/chain-bus.js'
-import { CLAUDE_VARIABLE } from '../../shift/claude.js'
-import { runRelaunchBg } from '../../shift/relaunch-bg.js'
-import { runShift } from '../../shift/shift.js'
-import { captured, depsOf, fakeGh, newWorld } from '../shift/fixtures/autopilot-world.js'
 import { MAIN_1, MAIN_2 } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
-
-vi.mock('../../shift/bg.js', () => ({
-  runBg: vi.fn(() => ({ stdout: ['5151'], stderr: [], exitCode: 0 })),
-}))
-
-vi.mock('../../shift/relaunch-bg.js', () => ({
-  runRelaunchBg: vi.fn(() => ({ stdout: ['6161'], stderr: [], exitCode: 0 })),
-}))
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -269,38 +254,6 @@ describe('the restart queue', () => {
   })
 })
 
-describe('the chain producer', () => {
-  async function chainOf(body: string, busPath: string, now: () => Date): Promise<World> {
-    const world = newWorld([{ id: 1, body }])
-    const observeChain = chainObserver({ busPath, sha: () => MAIN_1, pid: 4242, leader: () => null, now, err: () => {} })
-    await runShift([world.shift, '--parking', world.parking, '--chain'], depsOf(world, fakeGh({}).gh, captured(), { sleep: async () => {}, observeChain }))
-    return world
-  }
-
-  it('a chain that stops at fault writes chain.observed and a restart task enters the queue', async () => {
-    const bench = restartBench()
-    const world = await chainOf('do 1 STUB-FAIL', bench.busPath, bench.clock.now)
-
-    expect(eventsOf(bench.db, 'chain.observed').map(({ state, boundary }) => `${String(state)} ${String(boundary)}`)).toEqual(['running false', 'running true', 'fault true'])
-    bench.tick()
-    expect(restartTasks(bench)).toEqual([{ task_key: restart(MAIN_1, 1), state: 'queued' }])
-    expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'handed', taskKey: restart(MAIN_1, 1), dir: world.shift, cardId: 1, cardStopped: false })
-    expect(bench.signalled).toEqual([])
-    expect(bench.db.prepare('SELECT dir, state FROM chains').all()).toEqual([{ dir: world.shift, state: 'stopped' }])
-    bench.close()
-  })
-
-  it('a chain that stops on a question writes chain.observed and enters no restart', async () => {
-    const bench = restartBench()
-    await chainOf('do 1 STUB-QUESTION STUB-NO-PR', bench.busPath, bench.clock.now)
-
-    expect(eventsOf(bench.db, 'chain.observed').at(-1)).toMatchObject({ state: 'stopped', boundary: true })
-    bench.tick()
-    expect(restartTasks(bench)).toEqual([])
-    bench.close()
-  })
-})
-
 describe('relaunch(role)', () => {
   it('the Operator and the Miko window stopped at a threshold with STATUS: CONTINUE are raised by role without the owner', () => {
     const bench = restartBench()
@@ -406,23 +359,6 @@ describe('the ceiling on relaunch(role)', () => {
     bench.close()
   })
 
-  it('a failed raise names its cause: the exit code and what pnpm relaunch printed go into role.raise_failed', () => {
-    vi.mocked(runRelaunchBg).mockReturnValueOnce({ stdout: [], stderr: ['[relaunch] claude did not start'], exitCode: 1 })
-    vi.mocked(runRelaunchBg).mockReturnValueOnce({ stdout: ['[relaunch] started'], stderr: [], exitCode: 0 })
-    const bench = restartBench()
-    bench.roles.raise = roleLauncher({}).raise
-    const worker = bench.worker()
-    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'context' })
-    bench.tick()
-
-    const exited = `pnpm relaunch ${OPERATOR_HANDOFF} exited 1 (stderr: [relaunch] claude did not start, no stdout)`
-    const noPid = `pnpm relaunch ${OPERATOR_HANDOFF} exited 0 with no PID on its first line (no stderr, stdout: [relaunch] started)`
-    expect(worker.step()).toMatchObject({ kind: 'raise_failed', detail: exited })
-    expect(worker.step()).toMatchObject({ kind: 'raise_failed', detail: noPid })
-    expect(eventsOf(bench.db, 'role.raise_failed').map(payload => payload.detail)).toEqual([exited, noPid])
-    bench.close()
-  })
-
   it('a role the owner\'s window left silent comes back from the owner and is raised again', () => {
     const bench = restartBench()
     bench.roles.raise = () => {
@@ -446,13 +382,21 @@ describe('the ceiling on relaunch(role)', () => {
   })
 
   it('the real role launcher keeps the launch of pnpm miko switched off and names why', () => {
-    expect(() => roleLauncher({}).raise('miko', MIKO_HANDOFF)).toThrow(MIKO_LAUNCH_OFF)
+    expect(() => roleLauncher().raise('miko', MIKO_HANDOFF)).toThrow(MIKO_LAUNCH_OFF)
   })
 
-  it('a raised Operator keeps the worker\'s SHIFT_CLAUDE unchanged', () => {
-    const ownerMode = 'claude --permission-mode auto'
-    expect(roleLauncher({ [CLAUDE_VARIABLE]: ownerMode }).raise('operator', OPERATOR_HANDOFF)).toBe(ROLE_PIDS.operator)
-    expect(vi.mocked(runRelaunchBg)).toHaveBeenLastCalledWith([OPERATOR_HANDOFF], { [CLAUDE_VARIABLE]: ownerMode, [RAISED_VARIABLE]: '1' })
+  it('the real role launcher raises no Operator: with pnpm relaunch removed, a stopped Operator goes to the owner', () => {
+    const bench = restartBench()
+    bench.roles.raise = roleLauncher().raise
+    const worker = bench.worker()
+    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'context' })
+    bench.tick()
+
+    expect(worker.step()).toMatchObject({ kind: 'raise_failed', detail: OPERATOR_LAUNCH_GONE })
+    for (let failure = 1; failure < FAILURES_TO_STOP; failure += 1)
+      worker.step()
+    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator' })
+    bench.close()
   })
 })
 
@@ -648,7 +592,7 @@ describe('a dead chain', () => {
     bench.close()
   })
 
-  it('a dead chain is raised through a launch task, never through shift:bg', () => {
+  it('a dead chain is raised through a launch task', () => {
     const bench = restartBench()
     bench.switchLaunch(() => true)
     const admit = (cardId: number): void => {
@@ -665,7 +609,6 @@ describe('a dead chain', () => {
     expect(worker.step()).toEqual({ kind: 'dead_chains', chains: [{ dir: DIR, cardId: CARD, state: 'fault' }] })
     bench.tick()
     expect(worker.step()).toEqual({ kind: 'handed', taskKey: restart(MAIN_1), dir: DIR, cardId: CARD, cardStopped: true })
-    expect(vi.mocked(runBg)).not.toHaveBeenCalled()
     expect(eventsOf(bench.db, 'chain.restarted')).toEqual([])
     expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
     expect(chainRows(bench)).toEqual([{ dir: DIR, card_id: CARD, state: 'stopped' }])
