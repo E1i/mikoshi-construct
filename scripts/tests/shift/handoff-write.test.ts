@@ -18,7 +18,7 @@ import { UNREAD } from '../../miko/eddies-measure.js'
 import { stopReasonOf } from '../../miko/exit.js'
 import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../shift/day-archive.js'
 import { busMerged, nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
-import { statusOf } from '../../shift/relaunch.js'
+import { statusOf } from '../../miko/loop.js'
 
 const roots: string[] = []
 const UNBOUNDED_OWNER_STATUSES = [

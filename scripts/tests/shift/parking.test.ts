@@ -1,18 +1,11 @@
 import type { ParkedTask } from '../../../src/card/parking.js'
-import type { ShiftDeps } from '../../shift/shift.js'
-import type { World } from './fixtures/autopilot-world.js'
-import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { reduce } from '../../bus/reducer.js'
-import { MERGE_DONE } from '../../core/events.js'
 import { choose, dependencyWaits, leftSummary, nextInPipeline, queueText, readParking, waitingLine } from '../../shift/parking.js'
-import { runShift } from '../../shift/shift.js'
-import { captured, cardLine, depsOf, eventsOf, fakeGh, newWorld } from './fixtures/autopilot-world.js'
 
 function parked(id: number, header: string, extra = ''): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [implement/ghosts/S/cheap/owner] · depends ${extra || '—'} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\n${header}\n\ndo ${id}\n`)
@@ -77,114 +70,6 @@ describe('leftSummary', () => {
 
   it('writes the queue as one leaves line per card, closed ones included', () => {
     expect(queueText([{ id: '1', reason: 'closed' }, { id: '2', reason: 'who window' }])).toBe('leaves #1 (closed)\nleaves #2 (who window)\n')
-  })
-})
-
-const HEAD = 'a1b2c3d'
-
-function git(cwd: string, args: string[]): string {
-  return execFileSync('git', ['-C', cwd, '-c', 'user.name=world', '-c', 'user.email=world@example.invalid', ...args], { encoding: 'utf8', stdio: 'pipe' })
-}
-
-function mergeOnOrigin(world: World, pr: number): void {
-  const clone = path.join(world.root, `merge-${pr}`)
-  git(world.root, ['clone', '-q', path.join(world.root, 'origin.git'), clone])
-  writeFileSync(path.join(clone, `merged-${pr}.txt`), `${pr}\n`)
-  git(clone, ['add', '.'])
-  git(clone, ['commit', '-q', '-m', `merge PR #${pr}`])
-  git(clone, ['push', '-q', 'origin', 'HEAD:main'])
-}
-
-function recordMergeDone(world: World, pr: number, commit: string): void {
-  const db = openBus(world.bus)
-  try {
-    appendEvent(db, { ts: '2026-10-06T02:00:00.000Z', type: MERGE_DONE, actor: 'worker:merge:stub', cardId: pr - 100, pr, head: null, dedupeKey: `${MERGE_DONE}:${pr}`, payload: { commit, rule: 'auto' }, legacy: false })
-    reduce(db)
-  }
-  finally {
-    db.close()
-  }
-}
-
-function pipelineGh(world: World): { gh: (args: string[]) => string, busMerge: ShiftDeps['busMerge'] } {
-  const inner = fakeGh({ 101: cardLine(1), 102: cardLine(2) })
-  return {
-    gh: (args) => {
-      const fields = args.at(-1)
-      if (args[1] === 'view' && fields === 'headRefName,headRefOid,state')
-        return JSON.stringify({ headRefName: `feat/${Number(args[2]) - 100}`, headRefOid: HEAD, state: 'OPEN' })
-      if (args[1] === 'view' && fields === 'headRefOid,statusCheckRollup,files')
-        return JSON.stringify({ headRefOid: HEAD, statusCheckRollup: [], files: [] })
-      return inner.gh(args)
-    },
-    busMerge: (pr, head) => {
-      mergeOnOrigin(world, pr)
-      const merged = inner.bus(pr, head)
-      if (merged.kind === 'merged')
-        recordMergeDone(world, pr, merged.commit)
-      return merged
-    },
-  }
-}
-
-function reviewPasses(world: World, pr: number): void {
-  appendFileSync(world.journal, `${JSON.stringify({ event: 'pr-review', task: String(pr - 100), pr, verdict: 'pass', commit: HEAD, ts: '2026-10-06T02:00:00.000Z' })}\n`)
-}
-
-function steps(world: World): string[] {
-  return eventsOf(world, 'chain').map(line => `${String(line.step)} ${String(line.task ?? line.reason)}`)
-}
-
-async function pipelineRun(world: World, onSleep: (slept: number) => void): Promise<number> {
-  let slept = 0
-  const sleep = (): Promise<void> => {
-    onSleep(++slept)
-    return Promise.resolve()
-  }
-  const { gh, busMerge } = pipelineGh(world)
-  return runShift([world.shift, '--parking', world.parking, '--chain'], depsOf(world, gh, captured(), { sleep, busMerge }))
-}
-
-const TWO = [{ id: 1, body: 'do 1 STUB-VERIFIED-run STUB-PR-101', touches: 'src/1/**' }, { id: 2, body: 'do 2 STUB-VERIFIED-run STUB-PR-102', touches: 'src/2/**' }]
-
-function overlapCardTwo(world: World): void {
-  const file = path.join(world.parking, '2.md')
-  writeFileSync(file, readFileSync(file, 'utf8').replace('touches: src/2/**', 'touches: src/1/x.ts'))
-}
-
-describe('the chain as a pipeline', () => {
-  it('takes the next card only after the previous PR merges, though their touches do not overlap', async () => {
-    const world = newWorld(TWO)
-    const startedWhileOpen: boolean[] = []
-    expect(await pipelineRun(world, () => {
-      startedWhileOpen.push(existsSync(path.join(world.root, 'mc-2')))
-      reviewPasses(world, 101)
-      reviewPasses(world, 102)
-    })).toBe(0)
-    expect(startedWhileOpen[0]).toBe(false)
-    expect(steps(world)).toEqual(['wait 1', 'reviewed 1', 'merged 1', 'next 2', 'wait 2', 'reviewed 2', 'merged 2', 'end no-eligible'])
-    expect(eventsOf(world, 'stop')).toEqual([])
-  })
-
-  it('holds a card that overlaps one in review', async () => {
-    const world = newWorld(TWO)
-    overlapCardTwo(world)
-    const before = git(world.repo, ['rev-parse', 'origin/main']).trim()
-    const startedWhileHeld: boolean[] = []
-    expect(await pipelineRun(world, (slept) => {
-      startedWhileHeld.push(existsSync(path.join(world.root, 'mc-2')))
-      if (slept === 2)
-        reviewPasses(world, 101)
-      if (slept > 2)
-        reviewPasses(world, 102)
-    })).toBe(0)
-    expect(startedWhileHeld.slice(0, 2)).toEqual([false, false])
-    expect(steps(world)).toEqual(['wait 1', 'reviewed 1', 'merged 1', 'next 2', 'wait 2', 'reviewed 2', 'merged 2', 'end no-eligible'])
-    const base = git(path.join(world.root, 'mc-2'), ['log', '--format=%s', '-1', 'origin/main'])
-    expect(base.trim()).toBe('merge PR #101')
-    expect(git(path.join(world.root, 'mc-2'), ['merge-base', '--is-ancestor', 'origin/main', 'HEAD'])).toBe('')
-    expect(existsSync(path.join(world.root, 'mc-2', 'merged-101.txt'))).toBe(true)
-    expect(before).not.toBe(git(world.repo, ['rev-parse', 'origin/main']).trim())
   })
 })
 

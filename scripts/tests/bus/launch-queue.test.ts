@@ -36,7 +36,6 @@ import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GH
 import { sessionEnv } from '../../ports/session.js'
 import { taskConflicts } from '../../shift/overlap.js'
 import { renderPrompt } from '../../shift/prompt.js'
-import { OPERATOR_CLAUDE } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -709,7 +708,7 @@ describe('the launch queue', () => {
   })
 
   it('a launch pins the card mode the way relaunch pins the Operator mode', () => {
-    expect(cardCommand('claude')).toBe(OPERATOR_CLAUDE)
+    expect(cardCommand('claude')).toBe('claude --permission-mode dontAsk')
   })
 
   it('a launch worker started from an auto window starts the card session in dontAsk', async () => {

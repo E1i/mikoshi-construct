@@ -1,5 +1,5 @@
 import type { PauseEnd, SessionEnd } from '../../miko/loop.js'
-import type { Status } from '../../shift/relaunch.js'
+import type { Status } from '../../miko/loop.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
