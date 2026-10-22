@@ -4,7 +4,7 @@ import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { CARD_ADMITTED, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OPENED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_WAITING, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OPENED, WITNESS_DOWNGRADE } from '../core/events.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAINS_PROJECTION } from './chain.js'
@@ -216,6 +216,22 @@ function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE id = ?`).run(answer, event.id, id)
 }
 
+export function downgradeWaitId(eventId: number): string {
+  return `W${eventId}`
+}
+
+function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent): void {
+  const payload = payloadOf(event)
+  if (payload.reason !== WITNESS_DOWNGRADE)
+    return
+  const cardId = event.card_id ?? reject('a witness downgrade names no card')
+  const actions = Array.isArray(payload.actions) ? payload.actions.map(filled) : []
+  if (actions.length === 0 || actions.includes(null))
+    reject('a witness downgrade names no action for the owner')
+  db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, 'decision', ?, NULL, ?, NULL, '${OPEN_WAIT}', NULL, ?, ?)`)
+    .run(downgradeWaitId(event.id), actions.join('; '), cardId, event.ts, event.id)
+}
+
 const QUEUE_NAME = /^[\w-]+$/
 
 function commandsTheDecisionAnswers(text: string): string[] {
@@ -241,6 +257,7 @@ function foldDecisionClosingWaits(db: DatabaseSync, event: StoredEvent): void {
 export const OWNER_WAIT_FOLDS: Record<string, Fold> = {
   [OWNER_WAIT_OPENED]: foldOwnerWaitOpened,
   [OWNER_WAIT_CLOSED]: foldOwnerWaitClosed,
+  [CARD_WAITING]: foldWitnessDowngradeWait,
   [DECISION_RECORDED]: foldDecisionClosingWaits,
   [DECISIONS_IMPORTED]: foldDecisionClosingWaits,
 }
