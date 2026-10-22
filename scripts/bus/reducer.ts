@@ -216,9 +216,11 @@ function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE id = ?`).run(answer, event.id, id)
 }
 
+const QUEUE_NAME = /^[\w-]+$/
+
 function commandsTheDecisionAnswers(text: string): string[] {
   const queue = text.trim().split(/\s+/).at(-1) ?? ''
-  return namesQueueLive(text, queue) ? [decisionsAddCommand(text), allowLiveCommand(queue)] : [decisionsAddCommand(text)]
+  return QUEUE_NAME.test(queue) && namesQueueLive(text, queue) ? [decisionsAddCommand(text), allowLiveCommand(queue)] : [decisionsAddCommand(text)]
 }
 
 function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {

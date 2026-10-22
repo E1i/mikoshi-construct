@@ -434,6 +434,17 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 
+  it('a decision whose text ends in regex syntax folds and closes no wait', () => {
+    const db = newBus()
+    const ts = '2026-10-09T12:00:00.000Z'
+    const live = openBusWait(db, ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
+    recordDecision(db, { ts, decisionId: 903, text: '[owner] see (', cards: [] })
+    recordDecision(db, { ts, decisionId: 904, text: '[owner] tags: [a', cards: [] })
+    expect(reduce(db)).toEqual({ applied: 3, rejected: 0 })
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[live, 'open', null]])
+    db.close()
+  })
+
   it('a finding with no owner action is not an owner wait', () => {
     const finding = event(OWNER_WAIT_OPENED, { actor: 'policy', payload: { id: 'Q1', need: 'decision', text: 'main went red after PR #900' } })
     const unnamedMerge = event(OWNER_WAIT_OPENED, { actor: 'policy', payload: { id: 'Q2', need: 'merge', text: 'the owner merges something' } })
