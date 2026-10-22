@@ -53,11 +53,11 @@ function observed(overrides: Partial<BusEvent> = {}): BusEvent {
 }
 
 describe('bus.db', () => {
-  it('opens in WAL mode with the five tables of the contract and the mains and chains the restart queue reads, and the node cursors', () => {
+  it('opens in WAL mode with the five tables of the contract and the mains and chains the restart queue reads, the node cursors and the plan journal', () => {
     const db = newBus()
     expect(db.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
     const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all().map(row => row.name)
-    expect(tables).toEqual(['card_bodies', 'cards', 'chains', 'decisions', 'events', 'mains', 'node_cursors', 'projection_watermarks', 'prs', 'roles', 'tasks'])
+    expect(tables).toEqual(['card_bodies', 'cards', 'chains', 'decisions', 'events', 'mains', 'node_cursors', 'plan_items', 'plans', 'projection_watermarks', 'prs', 'roles', 'tasks'])
     const taskColumns = db.prepare('PRAGMA table_info(tasks)').all().map(row => row.name)
     expect(taskColumns).toContain('lease_gen')
     db.close()

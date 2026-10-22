@@ -19,7 +19,7 @@ import { reduce } from '../../bus/reducer.js'
 import { roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { decisionsInForceAt } from '../../bus/shards.js'
 import { decisionsAdder, worktreesHolding } from '../../bus/window-request-tools.js'
-import { REQUEST_RULE, requestFromWindow, runRequest, WindowRequests } from '../../bus/window-requests.js'
+import { REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../bus/window-requests.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
@@ -297,7 +297,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(runRequest(['merge.now', '--pr', String(PR)], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(0)
     const request = Number(/window\.request (\d+)/.exec(lines[0]!)![1])
 
-    expect(made.requests().run()).toEqual([{ kind: 'owner', request, detail: `the window asked for "merge.now", not one of tree.cut, allow-merge, requeue, mode; refused, the owner decides` }])
+    expect(made.requests().run()).toEqual([{ kind: 'owner', request, detail: `the window asked for "merge.now", not one of tree.cut, allow-merge, requeue, mode, plan; refused, the owner decides` }])
     expect(answerOf(made, request).type).toBe(REQUEST_REFUSED)
     const inbox = ownerInbox(made.bench.db)
     expect(inbox).toHaveLength(1)
@@ -322,6 +322,43 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'the factory mode is parallel' }])
     expect(factoryMode(made.bench.db)).toBe('parallel')
     expect(runRequest(['mode', '--set', 'fast'], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(2)
+  })
+
+  it('a plan request writes the owner\'s plan event, and moves into the plan only an item with a row in the slice table of its plan file', () => {
+    const made = room()
+    const planFile = path.join(made.root, 'plan-0.45.md')
+    writeFileSync(planFile, '# Plan 0.45\n\n| slice | what |\n|---|---|\n| S1 | the journal |\n| S2 | the board line |\n\n| other | table |\n| --- | --- |\n| T1 | aside |\n')
+    expect(sliceItemsOf(planFile)).toEqual(['S1', 'S2', 'T1'])
+    const asked = (...argv: string[]): void => {
+      expect(runRequest(['plan', ...argv], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
+    }
+    asked('--op', 'open', '--plan', 'p-045', '--title', 'Plan 0.45', '--goal', 'explicit journals', '--file', planFile)
+    asked('--op', 'add', '--plan', 'p-045', '--item', 'S1', '--title', 'the journal')
+    asked('--op', 'add', '--plan', 'p-045', '--item', 'S7', '--title', 'from the backlog')
+    asked('--op', 'link', '--plan', 'p-045', '--item', 'S1', '--card', '#901')
+    asked('--op', 'link', '--plan', 'p-045', '--item', 'S1', '--card', '901')
+    asked('--op', 'open', '--plan', 'p-046', '--title', 'Plan 0.46', '--goal', 'g', '--file', 'plans/0.46.md')
+    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([
+      ['done', 'plan.opened p-045'],
+      ['done', 'plan.item.added p-045 item S1'],
+      ['refused', `item S7 has no row in the slice table of ${planFile}`],
+      ['done', 'plan.item.linked p-045 item S1'],
+      ['done', 'plan.item.linked p-045 item S1'],
+      ['refused', 'plan.opened needs a --title, a --goal and an absolute --file that exists'],
+    ])
+    expect(made.bench.db.prepare(`SELECT actor, count(*) AS n FROM events WHERE type LIKE 'plan.%' GROUP BY actor`).all()).toEqual([{ actor: 'owner', n: 4 }])
+    expect(reduce(made.bench.db).rejected).toBe(1)
+    expect(made.bench.db.prepare('SELECT item_id, cards FROM plan_items').all()).toEqual([{ item_id: 'S1', cards: '[901]' }])
+    expect(ownerInbox(made.bench.db)).toEqual([])
+  })
+
+  it('a plan request whose --op names an Object.prototype member is refused with the plan usage and writes no event', () => {
+    const made = room()
+    for (const op of ['constructor', 'toString', '__proto__', 'hasOwnProperty'])
+      expect(runRequest(['plan', '--op', op, '--plan', 'p-045'], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
+    const refusal = 'plan needs --op open|add|link|remove|close and a --plan id'
+    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual(Array.from({ length: 4 }, () => ['refused', refusal]))
+    expect(made.bench.db.prepare(`SELECT count(*) AS n FROM events WHERE type LIKE 'plan.%'`).get()).toEqual({ n: 0 })
   })
 
   it('the worktrees holding a branch are read from git worktree list --porcelain', () => {
