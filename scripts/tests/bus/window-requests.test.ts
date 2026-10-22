@@ -297,13 +297,33 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(runRequest(['merge.now', '--pr', String(PR)], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(0)
     const request = Number(/window\.request (\d+)/.exec(lines[0]!)![1])
 
-    expect(made.requests().run()).toEqual([{ kind: 'owner', request, detail: `the window asked for "merge.now", not one of tree.cut, allow-merge, requeue, mode; refused, the owner decides` }])
+    expect(made.requests().run()).toEqual([{ kind: 'owner', request, detail: `the window asked for "merge.now", not one of tree.cut, allow-merge, requeue, mode, owner.wait, owner.wait.close; refused, the owner decides` }])
     expect(answerOf(made, request).type).toBe(REQUEST_REFUSED)
     const inbox = ownerInbox(made.bench.db)
     expect(inbox).toHaveLength(1)
     expect(JSON.parse(inbox[0]!.payload)).toMatchObject({ kind: 'authority', rule: REQUEST_RULE })
     expect(made.cut).toEqual([])
     expect(made.requests().run()).toEqual([])
+  })
+
+  it('an owner.wait request opens a wait, and closing it twice is refused the second time', () => {
+    const made = room()
+    const opened = ask(made, { kind: 'owner.wait', need: 'decision', text: 'which path?', card: CARD })
+    expect(made.requests().run()).toEqual([{ kind: 'done', request: opened, detail: 'opened Q1' }])
+    reduce(made.bench.db)
+    const first = ask(made, { kind: 'owner.wait.close', id: 'Q1', answer: 'the first' })
+    expect(made.requests().run()).toEqual([{ kind: 'done', request: first, detail: 'closed Q1: the first' }])
+    reduce(made.bench.db)
+    const second = ask(made, { kind: 'owner.wait.close', id: 'Q1', answer: 'again' })
+    expect(made.requests().run()).toEqual([{ kind: 'refused', request: second, detail: 'Q1 is closed already' }])
+  })
+
+  it('an owner.wait for a command that names no command is refused, and a close of an unknown id too', () => {
+    const made = room()
+    const command = ask(made, { kind: 'owner.wait', need: 'command', text: 'run it' })
+    expect(made.requests().run()).toEqual([{ kind: 'refused', request: command, detail: 'owner.wait --need command names no command' }])
+    const unknown = ask(made, { kind: 'owner.wait.close', id: 'Q9', answer: 'yes' })
+    expect(made.requests().run()).toEqual([{ kind: 'refused', request: unknown, detail: 'Q9 is not an owner wait the bus has reduced' }])
   })
 
   it('a request with a known kind and missing fields is not written', () => {

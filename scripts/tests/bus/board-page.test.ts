@@ -652,21 +652,40 @@ describe('board.html', () => {
     expect(style).toContain('.waits:empty { display: none; }')
   })
 
-  it('the waits-for-you strip opens a waiting card and draws the version PR grey and inert', () => {
+  function withOwnerWaits(busPath: string, waits: { id: string, need: string, text: string, command: string | null, card: number | null, pr: number | null }[]): string {
+    const db = new DatabaseSync(busPath)
+    try {
+      db.exec('CREATE TABLE owner_waits (id TEXT PRIMARY KEY, need TEXT NOT NULL, text TEXT NOT NULL, command TEXT, card_id INTEGER, pr INTEGER, state TEXT NOT NULL, answer TEXT, opened_at TEXT NOT NULL, event_id INTEGER NOT NULL)')
+      const insert = db.prepare('INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, opened_at, event_id) VALUES (?, ?, ?, ?, ?, ?, \'open\', ?, 0)')
+      for (const wait of waits)
+        insert.run(wait.id, wait.need, wait.text, wait.command, wait.card, wait.pr, minutesAgo(20))
+    }
+    finally {
+      db.close()
+    }
+    return busPath
+  }
+
+  it('the waits-for-you strip opens a waiting card and draws a wait with no card grey and inert', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-board-waits-'))
     roots.push(root)
-    const busPath = busWithRecords(path.join(root, 'bus.db'), {
+    const busPath = withOwnerWaits(busWithRecords(path.join(root, 'bus.db'), {
       cards: [{ id: 870, state: 'stopped', lane: 'lane-1', line: 'card: #870 asks', since: minutesAgo(30) }],
       prs: [{ pr: 669, card: null, state: 'open' }],
       events: [{ ts: minutesAgo(20), type: 'card.stopped', card: 870, payload: JSON.stringify({ reason: 'question.owner', detail: 'which path?' }) }],
-    })
+    }), [
+      { id: 'Q1', need: 'decision', text: 'which path?', command: null, card: 870, pr: null },
+      { id: 'Q2', need: 'merge', text: 'changes architecture/security-invariants.md', command: null, card: null, pr: 669 },
+      { id: 'Q3', need: 'command', text: 'the merge queue merges with no owner decision in force naming it live', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null },
+    ])
     const html = pageText(busPath)
     expect(html.indexOf('id="slot-goal"')).toBeLessThan(html.indexOf('id="slot-waits"'))
     expect(html.indexOf('id="slot-waits"')).toBeLessThan(html.indexOf('id="slot-services"'))
     expect(slotsOf(html).get('waits')).toBe([
       '<section class="owner-strip" aria-label="Waits for you"><span class="lbl">waits for you</span>',
-      '<button type="button" class="ask" data-open="card-870" tabindex="0" aria-haspopup="dialog"><span class="kind">Q</span><span class="what">#870 — which path?</span><span class="open-hint">open ›</span></button>',
-      '<span class="ask" data-static><span class="kind">R</span><span class="what">version PR #669</span></span>',
+      '<button type="button" class="ask" data-open="card-870" tabindex="0" aria-haspopup="dialog"><span class="kind">D</span><span class="what">Q1 #870 — which path?</span><span class="open-hint">open ›</span></button>',
+      '<span class="ask" data-static><span class="kind">M</span><span class="what">Q2 PR #669 — changes architecture/security-invariants.md</span></span>',
+      '<span class="ask" data-static><span class="kind">C</span><span class="what">Q3 — the merge queue merges with no owner decision in force naming it live: pnpm decisions:add &quot;[owner] allow-live merge&quot;</span></span>',
       '</section>',
     ].join(''))
     expect(templatesOf(html).has('dialog-card-870')).toBe(true)
