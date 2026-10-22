@@ -51,10 +51,9 @@ export function testsVerdict(run: VitestRun, root = REPO_ROOT): Verdict {
   const failed = outcomes.filter(outcome => outcome.state === 'failed').map(outcome => testKey(outcome.file, outcome.name))
   if (failed.length > 0)
     return { kind: 'red', failed }
-  const ran = outcomes.filter(outcome => RAN.has(outcome.state)).length
-  if (run.status !== 0 && ran > 0)
+  if (run.status !== 0)
     return { kind: 'broken', why: `the test command exited ${run.status} with no failed test in its report` }
-  return { kind: 'green', ran }
+  return { kind: 'green', ran: outcomes.filter(outcome => RAN.has(outcome.state)).length }
 }
 
 function brokenGate(why: string): Gate {

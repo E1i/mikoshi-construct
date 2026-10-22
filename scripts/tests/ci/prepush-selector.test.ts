@@ -2,11 +2,11 @@ import type { Graph, Run } from '../../ci/layers.js'
 import type { SandboxFailing } from '../../ci/sandbox-failing.js'
 import type { VitestRun } from '../../ci/test-command.js'
 import type { VitestReport } from '../../ci/vitest-report.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import YAML from 'yaml'
-import { BUS_SHARED, selectRun } from '../../ci/layers.js'
+import { BUS_SERVICE, BUS_SHARED, selectRun } from '../../ci/layers.js'
 import { CI_DIFF, ciArgs, prepushGate, sessionArgs, testsVerdict } from '../../ci/prepush.js'
 import { SANDBOX_FAILING } from '../../ci/sandbox-failing.js'
 import { missingInCi, staleInSandbox } from '../../ci/sandbox-liveness.js'
@@ -66,6 +66,23 @@ const NOTES_GRAPH: Graph = new Map([
 ])
 const SCANNER_TEXT = 'readdirSync(path.join(ROOT, \'scripts\'))'
 
+const BUS_DIR = 'scripts/bus'
+const BUS_IMPORT = /from '\.\/([\w-]+)\.js'/g
+
+function importedByMostNodeKinds(): string[] {
+  const nodes = readdirSync(path.join(REPO_ROOT, BUS_DIR)).map(file => `${BUS_DIR}/${file}`).filter(file => BUS_SERVICE.test(file))
+  const kinds = new Map<string, Set<string>>()
+  for (const node of nodes) {
+    const kind = BUS_SERVICE.exec(node)![1]!
+    const imports = kinds.get(kind) ?? new Set<string>()
+    for (const [, name] of readFileSync(path.join(REPO_ROOT, node), 'utf8').matchAll(BUS_IMPORT))
+      imports.add(`${BUS_DIR}/${name}.ts`)
+    kinds.set(kind, imports)
+  }
+  const modules = [...new Set([...kinds.values()].flatMap(imports => [...imports]))]
+  return modules.filter(module => [...kinds.values()].filter(imports => imports.has(module)).length * 2 > kinds.size).sort()
+}
+
 const LISTED: SandboxFailing[] = [
   { file: 'scripts/tests/notes/print.test.ts', test: 'print > spawns ps', refused: 'spawnSync ps EPERM' },
   { file: 'scripts/tests/notes/spawn.test.ts', test: '', refused: 'listen EPERM on the tsx IPC pipe' },
@@ -94,8 +111,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
   })
 
   it('a diff on a shared bus file selects every test under scripts/tests/bus', () => {
-    for (const file of BUS_SHARED)
-      expect(existsSync(path.join(REPO_ROOT, file)), file).toBe(true)
+    expect(BUS_SHARED).toEqual(importedByMostNodeKinds())
     const graph: Graph = new Map([
       ['scripts/bus/queue.ts', []],
       ['scripts/bus/merge-worker.ts', []],
@@ -119,7 +135,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
   })
 
   it('a broken test command is a block with a finding and a question', () => {
-    for (const broken of [{ status: null, report: null, error: 'spawn node ENOENT' }, { status: 1, report: null, error: null }] satisfies VitestRun[]) {
+    for (const broken of [{ status: null, report: null, error: 'spawn node ENOENT' }, { status: 1, report: null, error: null }, { status: 1, report: { testResults: [] }, error: null }, vitestRun(1, [{ file: 'scripts/tests/notes/print.test.ts', name: 'prints', status: 'skipped' }])] satisfies VitestRun[]) {
       const gate = prepushGate(['scripts/notes/print.ts'], () => testsVerdict(broken), () => [])
       expect(gate.code).toBe(2)
       expect(gate.lines[0]).toBe('prepush: broken — the push does not happen.')

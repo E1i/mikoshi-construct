@@ -8,15 +8,11 @@ export const BUS_CORE = /^scripts\/bus\/(?:db|reducer|sqlite|stored|identifiers)
 export const BUS_SERVICE = /^scripts\/bus\/([a-z]+)-(?:worker|executor|starter)\.ts$/
 export const BUS_SHARED: readonly string[] = [
   'scripts/bus/db.ts',
-  'scripts/bus/heartbeat.ts',
-  'scripts/bus/identifiers.ts',
+  'scripts/bus/errors.ts',
   'scripts/bus/lease.ts',
-  'scripts/bus/meter.ts',
-  'scripts/bus/netwatch.ts',
   'scripts/bus/node.ts',
   'scripts/bus/queue.ts',
-  'scripts/bus/scheduler.ts',
-  'scripts/bus/sqlite.ts',
+  'scripts/bus/stamp.ts',
   'scripts/bus/stored.ts',
 ]
 export const BUS_TESTS = 'scripts/tests/bus/'
