@@ -111,26 +111,10 @@ from the handoff; on `next` it takes the next task. The first
 line of every relaunch prompt says so (`OPERATOR_ROLE` in `scripts/shift/relaunch.ts`), and it opens with the tag the Operator signs every message with: `[operator]`. Mikoshi signs
 its messages `[mikoshi]`.
 
-The Operator starts chains only through `pnpm shift:bg <dir> [shift arguments]`, never with an inline `nohup … &`: it
-spawns `nohup pnpm shift <dir> …` as a detached process, a session of its own, appends its output to
-`<dir>/shift-bg.log`, prints the PID of the running shift on its first line and refuses a `<dir>` whose `shift.jsonl` exists. The auto-mode classifier refused an inline launch on 2026-10-08 and a
-chain waited for the owner.
-
-An answer session starts the same way, never with an inline `nohup claude -p`, which the classifier refuses as an
-unsafe agent: `pnpm shift --answer <task> --prompt <file>` (`scripts/shift/answer.ts`), detached through
-`pnpm shift:bg <dir> --answer <task> --prompt <file>`. It runs only a file `answer-<task>*.md` directly inside `<dir>`,
-whose sha256 is the one the latest `event:answer-brief` line for the task and that file journaled when the brief was
-written, and refuses a task with no `event:path` start line in `ghosts.jsonl`. It runs exactly one session in the start
-line's tree through the shift's claude runner with `SHIFT_CLAUDE`, so `gh` acts as E1i, writes `answer-<task>.pid` (the
-claude process, which a watcher's `kill -0` follows) and `log-<task>-answer.txt` into `<dir>`, and an `event:note` line
-when the session starts and when it ends. It takes no merge, verdict or arm decision. `shift:bg` lets `--answer` past
-its one-shift-per-directory guard (an existing `shift.jsonl`) only to answer a stopped or reviewed card: the card's last
-`ghosts.jsonl` line, skipping only the lines that carry no state (`intake`, `intake-move`, `answer-brief`, `note`, and
-the monitor's observation `review-missing`; `ready-for-owner` is a state) and counting every other line with or without
-a `shift`, must be an `event:stop` at `question` or at `merge`, whatever the merge stop's why, whose `shift` is `<dir>`,
-or an `event:pr-review` with verdict `changes` whose `commit` is the head of its pull request, still open as `gh` reads
-it, on a card whose last line naming a `shift` names `<dir>`. A `changes` verdict at an older head and a `pass` verdict
-are refused like anything else, with what that line is. Every invocation without `--answer` keeps the refusal.
+The Operator starts no chain and no answer session itself, and never with an inline `nohup … &` or `nohup claude -p`,
+which the auto-mode classifier refuses as an unsafe agent (it refused an inline launch on 2026-10-08 and a chain waited
+for the owner): the bus launch node starts the `who: shift` cards, and the bus answer node answers a stopped or reviewed
+card.
 
 The window starts relaunch only through `pnpm relaunch:bg <handoff.md> [relaunch arguments]`: it spawns
 `nohup pnpm relaunch <handoff.md> …` as a detached process, a session of its own, appends its output to
@@ -161,7 +145,7 @@ What stays the same from one session to the next lives here, under version contr
   `construct mutate` only as the global `construct mutate … --dir <mc-N>`. Subagents (brief, implementer) are denied
   pnpm, so the window runs every gate itself.
 - denials: forms the window's `dontAsk` mode refuses, each with the route that is allowed instead —
-  `pnpm ghosts:hash` (`pnpm morse:approve`), `pnpm ghosts:launch` and `pnpm shift` (`pnpm shift:bg`),
+  `pnpm ghosts:hash` (`pnpm morse:approve`), `pnpm ghosts:launch` and `pnpm shift` (the bus launch node),
   an Edit under `.claude/**`, AskUserQuestion (ask as text in the window), `git -C` on the main
   checkout (git in the working directory), `sed -i` and `perl -pi` (Edit or Write), `python3`, `node -e` (Read),
   `cat` and `cp` over `~/.construct` (Read), a shell for-loop, `kill`, `gh api` with a query string (`gh pr` /
@@ -214,10 +198,9 @@ shares with the decisions in force (`scripts/shift/day-archive.ts`).
 
 A pull request of no owner-merged kind: before it, run the gate `pnpm gate:window` prints (#1079). Then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
 then, for a briefed pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
-review when main merged in cleanly and refuses with `review again` otherwise, and for a cheap one `pnpm shift:merge <N> --carry`,
-which carries its journalled `event:pr-review` verdict to the new head as the `review` status `carried from <sha>` when every
-merge on the path is clean and otherwise publishes nothing and names the new review it needs
-([0052](decisions/0052-an-approval-carries-a-regeneration-and-a-review-carries-a-clean-update-branch.md));
+review when main merged in cleanly and refuses with `review again` otherwise
+([0052](decisions/0052-an-approval-carries-a-regeneration-and-a-review-carries-a-clean-update-branch.md)), and a cheap
+one is carried by the bus;
 and `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`. A pull request of an
 owner-merged kind is gated locally the same way, committed, pushed and opened; the owner merges.
 A pull request that changes `src/` or `templates/` ends its description with the code matrix over the alphabet of
@@ -322,10 +305,9 @@ not closed themselves, `p0` first and then by id, leaving a card whose `touches`
 taken. `<dir>/shift.jsonl` is the shift's journal — a `start` line (with `parking` and the cards
 `left` when the tasks came from the parking), then one `task` line per task — and a shift whose
 `shift.jsonl` exists is refused. Each session writes `report-NN.md` there, and once its pull request
-is open runs `pnpm shift:merge <N>`, which arms auto-merge only for decision `auto` with no
-owner-merged path in [architecture/owner-merges.md](owner-merges.md) and otherwise names why it arms
-nothing; a pull request that changes `src/` or `templates/` with no matrix count line is refused with that reason. `pnpm shift:report <dir>` reads it back. The Operator runs `pnpm shift:current` on a merge event, which updates one armed or owner-merge pull request that is BEHIND and carries its review, and journals `ready-for-owner` for a CLEAN owner-merge one. The flags and refusals are in
-[CONTRIBUTING.md](../CONTRIBUTING.md).
+is open the bus merge policy decides it: a pull request on an owner-merged path in
+[architecture/owner-merges.md](owner-merges.md) waits for the owner, and one that changes `src/` or `templates/` with no
+matrix count line is refused with that reason. The flags and refusals are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 The autopilot takes the next ready card, follows a session into a new one at a boundary (`continue: auto`), arms
 auto-merge where the merge rules allow it, and stops only at a gate the owner holds. Where it stops it appends one
@@ -538,8 +520,8 @@ with no verdict line, but only after `riskReading` over the pull request's chang
 too; the deeper of the two decides, so a changed file above R4 sends it to the review wait. An empty
 set of touches or changed files, or files the chain could not read, is a full review, never none.
 R3 gets a short review of the diff only: no Design scan, no mutations, no
-Design walk, and the verdict goes through `ghosts:verdict` or `shift:merge <N> --verdict <verdict> --commit <sha>` as before, and after an update-branch
-through `ghosts:verdict --commit <new head>` or `shift:merge <N> --carry`.
+Design walk, and the verdict goes through `ghosts:verdict` as before, and after an update-branch
+through `ghosts:verdict --commit <new head>`.
 R1 and R2 get the full review: the witnesses, the mutations and the Design walk. The chain records
 the depth as `review` on its `event:chain` wait line. The baseline to compare against is the
 review-minutes-baseline probe (#707): on 2026-10-08 a median of 8.8 minutes from ready to verdict, R3
