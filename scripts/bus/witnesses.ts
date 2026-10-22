@@ -40,6 +40,7 @@ const NEGATION = /^!\s/
 const PIPED_GREP = /^(.*[^|])\|\s*grep(\s.*)$/
 const INVERT_LONG_FLAG = /\s--invert-match(?=\s|$)/g
 const SHORT_FLAGS_WITH_INVERT = /\s-([A-UW-Z]*)v([A-Z]*)(?=\s|$)/gi
+const NO_TEST_MATCHED = /matched no test|No test files found/
 
 interface GrepWitness { witness: Witness, probe: string }
 
@@ -64,11 +65,24 @@ export function grepRefusal(witness: Witness, sides: string): string {
   return `grep witness "${witness.criterion}" matches its pattern on neither ${sides}: nothing it reads prints what it looks for, so its red on the base is not red for a reason; grep where the output is written (a reporter with an outputFile writes there, not to stdout)`
 }
 
+function matchedNoTest(result: ShellResult): boolean {
+  return result.status !== 0 && NO_TEST_MATCHED.test(result.output)
+}
+
 function baseRedRefusal(witness: Witness, result: ShellResult, base: string): string | null {
   if (result.status === null || NOT_RUN_STATUSES.includes(result.status))
     return `witness "${witness.criterion}" did not run on the base ${base} (exit ${result.status ?? 'none'}: ${lastLine(result.output)}); red for a missing command is not red for a reason`
   if (result.status === 0)
     return `witness "${witness.criterion}" exits 0 on the clean base ${base}: it is green before any change, so no implementation can make it red`
+  if (matchedNoTest(result))
+    return `witness "${witness.criterion}" matched no test on the base ${base} (${lastLine(result.output)}): a witness that runs no test on the base catches nothing, so its red is not red for a reason`
+  return null
+}
+
+function baseInvariantRefusal(run: TreeRun, witness: Witness, result: ShellResult, base: string): string | null {
+  if (!matchedNoTest(result))
+    return greenRefusal('invariant', witness, result, `the clean base ${base}`)
+  run.log(`invariant "${witness.criterion}": not applicable on the base ${base}: new test; checked on the head only`)
   return null
 }
 
@@ -166,7 +180,7 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
     time('install', () => refuse('P7', shell(INSTALL, tree).status === 0 ? null : `${INSTALL} failed on the base ${baseShort}`))
   time('P7 base', () => {
     refuse('P7', firstProblem(task.acceptance, witness => baseRedRefusal(witness, shell(witness.command, tree), baseShort)))
-    refuse('P7', firstProblem(invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), `the clean base ${baseShort}`)))
+    refuse('P7', firstProblem(invariants, witness => baseInvariantRefusal(run, witness, shell(witness.command, tree), baseShort)))
     unmatchedOnBase = grepWitnesses(task.acceptance).filter(({ probe }) => shell(probe, tree).status !== 0)
   })
   if (task.sketchSha === null || task.changed === null) {
