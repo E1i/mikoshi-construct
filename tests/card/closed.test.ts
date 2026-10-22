@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closedTasks, JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
+import { closedFromBus, closedTasks, JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 
 describe('closedTasks', () => {
   it('a start line does not close, a closing path line with a verification does, and a line that is not JSON is skipped', () => {
@@ -57,5 +57,24 @@ describe('closedTasks over the journal half of history and the bus', () => {
     expect(writtenBeforeHistoryEnds({ ts: JOURNAL_HISTORY_ENDS })).toBe(false)
     expect(writtenBeforeHistoryEnds({ ts: 'x' })).toBe(true)
     expect(writtenBeforeHistoryEnds({})).toBe(true)
+  })
+})
+
+describe('closedFromBus', () => {
+  it('closed cards from the bus equal the closed cards of the journal over one period', () => {
+    const lines = [
+      { event: 'path', task: '842', path: 'cheap', pr: 791, verification: 'run', ts: '2026-10-12T17:03:59.000Z' },
+      { event: 'path', task: '700', path: 'cheap', pr: 600, verification: 'review' },
+      { event: 'path', task: '930', path: 'cheap', card: { id: 930 }, ts: '2026-10-12T17:05:00.000Z' },
+      { event: 'path', task: '889', path: 'ladder', pr: 786, verification: 'run', ts: '2026-10-12T17:07:15.949Z' },
+      { event: 'path', task: '928', path: 'cheap', pr: 803, verification: 'review', ts: '2026-10-13T13:03:01.409Z' },
+    ]
+    const bus = new Map([['889', 'merged'], ['928', 'closed'], ['930', 'running']])
+    const fromJournal = closedTasks(lines.map(line => JSON.stringify(line)).join('\n'))
+    const fromBus = closedFromBus(lines, bus)
+    expect([...fromBus.keys()].sort()).toEqual([...fromJournal.keys()].sort())
+    expect(fromBus.get('842')).toBe(fromJournal.get('842'))
+    expect(fromBus.get('700')).toBe(fromJournal.get('700'))
+    expect(fromBus.has('930')).toBe(false)
   })
 })

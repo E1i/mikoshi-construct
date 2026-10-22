@@ -23,7 +23,7 @@ import { runTaskClose } from '../../ghosts/task-close.js'
 import { writeLaneJson } from '../../lanes/lane-json.js'
 import { read } from '../core/gh-fake.js'
 import { detectClose } from './close-detection.js'
-import { MAIN_2, MERGER, sha } from './github-fake.js'
+import { MAIN_2, sha } from './github-fake.js'
 import { cardVerified, eventCount, eventsOf, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
 afterEach(() => {
