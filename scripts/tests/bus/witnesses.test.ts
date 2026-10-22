@@ -31,6 +31,7 @@ const OUTCOMES: Record<string, ShellResult> = {
   pass: { status: 0, output: ' Tests  1 passed (1)\n' },
   fail: { status: 1, output: ' Tests  1 failed (1)\n' },
   crash: { status: 1, output: 'Error: listen EPERM: operation not permitted\n' },
+  unloadable: { status: 1, output: ' FAIL  old.test.ts [ old.test.ts ]\nError: Cannot find module \'./gone.js\'\n Test Files  1 failed (1)\n      Tests  no tests\n' },
 }
 
 function fakeVitest(command: string, cwd: string): ShellResult {
@@ -94,6 +95,12 @@ describe('the witnesses on the base and the head', () => {
 
   it('an existing acceptance that fails on the base with an environment error is refused, not red', () => {
     const outcome = witnessOn({ 'old.test.ts': 'the thing=crash\n' }, { 'old.test.ts': 'the thing=pass\n' }, { acceptance: [vitest('the thing; red on main', 'old.test.ts', 'the thing')] })
+
+    expect(outcome.refusals).toEqual([expect.stringMatching(/^P7: witness "the thing; red on main" exits 1 on the base \w{7} with no failing test/)])
+  })
+
+  it('an existing acceptance whose suite cannot load on the base is refused, not red', () => {
+    const outcome = witnessOn({ 'old.test.ts': 'the thing=unloadable\n' }, { 'old.test.ts': 'the thing=pass\n' }, { acceptance: [vitest('the thing; red on main', 'old.test.ts', 'the thing')] })
 
     expect(outcome.refusals).toEqual([expect.stringMatching(/^P7: witness "the thing; red on main" exits 1 on the base \w{7} with no failing test/)])
   })

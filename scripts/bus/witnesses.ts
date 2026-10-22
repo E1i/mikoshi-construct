@@ -42,6 +42,9 @@ const INVERT_LONG_FLAG = /\s--invert-match(?=\s|$)/g
 const SHORT_FLAGS_WITH_INVERT = /\s-([A-UW-Z]*)v([A-Z]*)(?=\s|$)/gi
 const NO_TEST_MATCHED = /matched no test|No test files found/
 const FAILED_TESTS = /\b\d+ failed\b/
+const TESTS_LINE = /^\s*Tests\s/
+// eslint-disable-next-line no-control-regex
+const ANSI = /\u001B\[[0-9;]*m/g
 const VITEST = /\bvitest\b/
 const TEST_FILE = /^[\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?$/
 const TEST_NAME = /\s(?:-t|--testNamePattern)[=\s]+(?:'([^']*)'|"([^"]*)"|(\S+))/
@@ -91,6 +94,10 @@ function absentOnBase(tree: string, witness: Witness): boolean {
   return target.name !== null && !readFileSync(file, 'utf8').includes(target.name)
 }
 
+function reportsFailedTest(output: string): boolean {
+  return output.replace(ANSI, '').split('\n').some(line => TESTS_LINE.test(line) && FAILED_TESTS.test(line))
+}
+
 function baseRedRefusal(witness: Witness, result: ShellResult, base: string): string | null {
   if (result.status === null || NOT_RUN_STATUSES.includes(result.status))
     return `witness "${witness.criterion}" did not run on the base ${base} (exit ${result.status ?? 'none'}: ${lastLine(result.output)}); red for a missing command is not red for a reason`
@@ -98,7 +105,7 @@ function baseRedRefusal(witness: Witness, result: ShellResult, base: string): st
     return `witness "${witness.criterion}" exits 0 on the clean base ${base}: it is green before any change, so no implementation can make it red`
   if (NO_TEST_MATCHED.test(result.output))
     return `witness "${witness.criterion}" matched no test on the base ${base} while its test file and name are there (${lastLine(result.output)}): a witness that runs no test is not red for a reason`
-  if (testTargetOf(witness.command) !== null && !FAILED_TESTS.test(result.output))
+  if (testTargetOf(witness.command) !== null && !reportsFailedTest(result.output))
     return `witness "${witness.criterion}" exits ${result.status} on the base ${base} with no failing test (${lastLine(result.output)}): a crash or an environment error is not red for a reason`
   return null
 }
