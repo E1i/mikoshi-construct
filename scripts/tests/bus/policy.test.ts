@@ -7,7 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decisionsIntake } from '../../bus/decisions-import.js'
 import { ownerInbox } from '../../bus/inbox.js'
-import { mergePolicy, MERGES_UNDER_A_SHARD } from '../../bus/policy.js'
+import { mergePolicy, MERGES_UNDER_A_SHARD, OWNER_MERGES_RULES } from '../../bus/policy.js'
 import { cardBody } from './github-fake.js'
 import { liveBench } from './merge-bench.js'
 
@@ -128,6 +128,10 @@ describe('the merge policy', () => {
       for (const overrides of [{}, { description: cardBody(942, 'owner'), shardActive: true, shardUnder: 216, decisions: [{ decisionId: 216, text: 'Delegation.', cards: [] }] }, { windowShard: 'shard-window' }])
         expect(mergePolicy(facts({ ...overrides, ownerMergesText })), ownerMergesText.slice(0, 40)).toMatchObject({ kind: 'denied', rule: 'owner_merges_unread' })
     }
+  })
+
+  it('a no-shard-merge or unread owner-merges denial opens an owner merge wait', () => {
+    expect([...OWNER_MERGES_RULES]).toEqual(expect.arrayContaining(['no_shard_merge', 'owner_merges_unread']))
   })
 
   it('a decision is never taken by default', () => {
