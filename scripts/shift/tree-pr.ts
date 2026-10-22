@@ -11,7 +11,52 @@ import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../bus/policy.js'
 import { changedFilesFrom } from '../morse/diff.js'
 import { classify, MorseRefusal } from '../morse/rules.js'
 
-export type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'problem', why: string }
+export const REFUSAL_REASONS = {
+  'stale-base': 'a',
+  'no-d76-line': 'a',
+  'no-changeset': 'a',
+  'no-matrix-line': 'a',
+  'outside-touches': 'b',
+  'no-card-body': 'c',
+  'card-unparsed': 'c',
+  'commit-push-failed': 'c',
+  'no-pr-url': 'c',
+} as const
+
+export type RefusalReason = keyof typeof REFUSAL_REASONS
+export type RefusalClass = typeof REFUSAL_REASONS[RefusalReason]
+
+export interface Gap {
+  reason: RefusalReason
+  task: string
+  paths: string[]
+}
+
+export type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'problem', why: string, gaps: Gap[] }
+
+export interface Refusal {
+  code: string
+  class: RefusalClass
+  tasks: string[]
+  paths: string[]
+}
+
+const CLASS_WEIGHT: Record<RefusalClass, number> = { a: 0, b: 1, c: 2 }
+
+export function refusalOf(gaps: readonly Gap[]): Refusal {
+  const worst = gaps.map(gap => REFUSAL_REASONS[gap.reason]).reduce((left, right) => CLASS_WEIGHT[right] > CLASS_WEIGHT[left] ? right : left)
+  const decisive = gaps.filter(gap => REFUSAL_REASONS[gap.reason] === worst)
+  return {
+    code: `${worst}:${[...new Set(decisive.map(gap => gap.reason))].sort().join('+')}`,
+    class: worst,
+    tasks: decisive.map(gap => gap.task).filter(task => task !== ''),
+    paths: decisive.flatMap(gap => gap.paths),
+  }
+}
+
+export function faultGaps(reason: RefusalReason): Gap[] {
+  return [{ reason, task: '', paths: [] }]
+}
 
 export interface TreePrPorts {
   git: (cwd: string, args: string[]) => string
@@ -70,13 +115,20 @@ function removesOnlyImportsOrBlanks(git: TreePrPorts['git'], worktree: string, f
   return [...patch.matchAll(REMOVED_LINE)].every(([, line]) => IMPORT_OR_BLANK.test(line!))
 }
 
-function pathReason(git: TreePrPorts['git'], worktree: string, card: TreeCard, prediction: Prediction): string {
+function reportPathReason(report: string | null): string | null {
+  return report === null ? null : CARD_PATH_REASON.exec(report)?.[1]?.trim() ?? null
+}
+
+function pathReason(git: TreePrPorts['git'], worktree: string, card: TreeCard, prediction: Prediction, report: string | null): string {
   if (prediction.verdict === card.contour)
     return `the card's contour and MORSE agree`
   if (card.contour === 'ladder')
     return 'the card takes the ladder by its contour where MORSE predicts cheap'
   if (card.namedPathReason !== null)
     return `cheap holds by the card's D-76 reason: ${card.namedPathReason}`
+  const reported = reportPathReason(report)
+  if (reported !== null)
+    return `cheap holds by the session report's D-76 reason: ${reported}`
   if (prediction.rule === 'tests-shrunk' && removesOnlyImportsOrBlanks(git, worktree, prediction.why))
     return `cheap holds: the shrunk test files are ${prediction.why.join(', ')}, and every line the diff removes from them is an import or blank`
   return UNNAMED_REASON
@@ -88,11 +140,11 @@ interface ShiftedPath {
   cheapAgainstLadderUnreasoned: boolean
 }
 
-function shiftedPath(git: TreePrPorts['git'], worktree: string, card: TreeCard): ShiftedPath {
+function shiftedPath(git: TreePrPorts['git'], worktree: string, card: TreeCard, report: string | null): ShiftedPath {
   try {
     const files = changedFilesOf(git, worktree)
     const prediction = classify(files)
-    const reason = pathReason(git, worktree, card, prediction)
+    const reason = pathReason(git, worktree, card, prediction, report)
     return {
       line: `Path: ${card.contour} · MORSE predicts ${prediction.verdict} by rule ${prediction.rule} (${prediction.why.join(', ')}) · ${reason}`,
       files,
@@ -135,17 +187,25 @@ function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, paths:
   return outside.filter(file => !covering.has(file))
 }
 
-function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[], outsideTouches: readonly string[]): string[] {
+interface FormatGap extends Gap {
+  lacks: string
+}
+
+function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[], outsideTouches: readonly string[]): FormatGap[] {
   const paths = shifted.files.map(file => file.path)
   const unmatrixed = pathWithoutMatrix(body, paths)
   const published = paths.find(file => PUBLISHED_CODE.touched(file, publishedRoots))
   const changeset = shifted.files.some(file => file.status !== 'D' && CHANGESET_FILE.test(file.path))
-  return [
-    ...(unmatrixed === undefined ? [] : [`the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (architecture/code-matrix.md)`]),
-    ...(shifted.cheapAgainstLadderUnreasoned ? ['the D-76 reason the card holds the cheap path where MORSE predicts the ladder'] : []),
-    ...(published === undefined || changeset ? [] : [`the changeset its change to the published ${published} requires`]),
-    ...(outsideTouches.length === 0 ? [] : [`the card's touches for ${outsideTouches.join(', ')}, which it changes outside them (only a test that covers a touched file, or one of the card's runs, may change outside the touches)`]),
-  ]
+  const gaps: FormatGap[] = []
+  if (unmatrixed !== undefined)
+    gaps.push({ reason: 'no-matrix-line', lacks: `the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (architecture/code-matrix.md)`, task: 'write the code matrix of architecture/code-matrix.md and its count line ■ n □ n · n into the shift report', paths: [] })
+  if (shifted.cheapAgainstLadderUnreasoned)
+    gaps.push({ reason: 'no-d76-line', lacks: 'the D-76 reason the card holds the cheap path where MORSE predicts the ladder', task: 'write a line `Path (D-76): <why the cheap path holds>` into the shift report', paths: [] })
+  if (published !== undefined && !changeset)
+    gaps.push({ reason: 'no-changeset', lacks: `the changeset its change to the published ${published} requires`, task: `add a .changeset/*.md file for the change to ${published}`, paths: [] })
+  if (outsideTouches.length > 0)
+    gaps.push({ reason: 'outside-touches', lacks: `the card's touches for ${outsideTouches.join(', ')}, which it changes outside them (only a test that covers a touched file, or one of the card's runs, may change outside the touches)`, task: '', paths: [...outsideTouches] })
+  return gaps
 }
 
 export function matrixCountLineOf(report: string | null): string | undefined {
@@ -162,48 +222,73 @@ function openPrOf(ports: TreePrPorts, branch: string): string | null {
   return open.length === 0 ? null : String(open[0]!.number)
 }
 
-export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch: string, commitMessage: string): 'pushed' | 'clean' {
+export type Pushed = { kind: 'pushed' } | { kind: 'clean' } | { kind: 'conflict', files: string[] }
+
+function conflictedFiles(git: TreePrPorts['git'], worktree: string): string[] {
+  return git(worktree, ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(file => file !== '')
+}
+
+function mergeFreshBase(git: TreePrPorts['git'], worktree: string): string[] {
+  try {
+    git(worktree, ['merge', '-q', '--no-edit', PR_BASE])
+    return []
+  }
+  catch (error) {
+    const files = conflictedFiles(git, worktree)
+    if (files.length === 0)
+      throw error
+    git(worktree, ['merge', '--abort'])
+    return files
+  }
+}
+
+export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch: string, commitMessage: string): Pushed {
+  git(worktree, ['fetch', '-q', 'origin', 'main'])
   const uncommitted = git(worktree, ['status', '--porcelain']).trim() !== ''
-  const ahead = Number(git(worktree, ['rev-list', '--count', 'origin/main..HEAD']).trim())
+  const ahead = Number(git(worktree, ['rev-list', '--count', `${PR_BASE}..HEAD`]).trim())
   if (!uncommitted && ahead === 0)
-    return 'clean'
+    return { kind: 'clean' }
   if (uncommitted) {
     git(worktree, ['add', '-A'])
     git(worktree, ['commit', '-q', '-m', commitMessage])
   }
+  const conflicts = mergeFreshBase(git, worktree)
+  if (conflicts.length > 0)
+    return { kind: 'conflict', files: conflicts }
   git(worktree, ['push', '-q', '-u', 'origin', `HEAD:refs/heads/${branch}`])
-  return 'pushed'
+  return { kind: 'pushed' }
 }
 
-export function mergeBaseProblem(git: TreePrPorts['git'], worktree: string, branch: string): string | null {
-  git(worktree, ['fetch', '-q', 'origin', 'main'])
-  const base = git(worktree, ['rev-parse', PR_BASE]).trim()
-  const mergeBase = git(worktree, ['merge-base', 'HEAD', PR_BASE]).trim()
-  return mergeBase === base ? null : `the shift opened no pull request for ${branch}: its merge-base ${mergeBase || 'none'} is not the PR base ${PR_BASE} at ${base}; bring the tree onto ${PR_BASE} first`
+export function freshBaseTask(worktree: string, files: readonly string[]): string {
+  return `merge a fresh ${PR_BASE} into the branch (git -C ${worktree} fetch origin main, then git -C ${worktree} merge ${PR_BASE}; merge, not rebase), resolve every conflict in ${files.join(', ')} keeping what the card asks for, and conclude the merge with git -C ${worktree} commit --no-edit`
+}
+
+function staleBase(branch: string, worktree: string, files: string[]): TreePr {
+  return { kind: 'problem', why: `the shift opened no pull request for ${branch}: merging a fresh ${PR_BASE} into it conflicts in ${files.join(', ')}`, gaps: [{ reason: 'stale-base', task: freshBaseTask(worktree, files), paths: files }] }
 }
 
 export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, report: string | null): TreePr {
   try {
-    if (commitAndPush(ports.git, worktree, card.branch, card.commitMessage) === 'clean')
+    const pushed = commitAndPush(ports.git, worktree, card.branch, card.commitMessage)
+    if (pushed.kind === 'clean')
       return { kind: 'clean' }
+    if (pushed.kind === 'conflict')
+      return staleBase(card.branch, worktree, pushed.files)
     const open = openPrOf(ports, card.branch)
     if (open !== null)
       return { kind: 'pr', number: open }
-    const offBase = mergeBaseProblem(ports.git, worktree, card.branch)
-    if (offBase !== null)
-      return { kind: 'problem', why: offBase }
-    const shifted = shiftedPath(ports.git, worktree, card)
+    const shifted = shiftedPath(ports.git, worktree, card, report)
     const body = prBodyOf(card, shifted.line, matrixCountLineOf(report))
     const outside = changedOutsideTouches(ports.git, worktree, shifted.files.map(file => file.path), card.touches, card.runs)
     const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), outside)
     if (gaps.length > 0)
-      return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.join('; ')}` }
+      return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])
     const number = PR_URL_NUMBER.exec(created.trim())?.[1]
-    return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}` } : { kind: 'pr', number }
+    return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}`, gaps: faultGaps('no-pr-url') } : { kind: 'pr', number }
   }
   catch (error) {
-    return { kind: 'problem', why: `the shift could not commit, push or open the pull request of ${card.branch}: ${failureOf(error)}` }
+    return { kind: 'problem', why: `the shift could not commit, push or open the pull request of ${card.branch}: ${failureOf(error)}`, gaps: faultGaps('commit-push-failed') }
   }
 }
 

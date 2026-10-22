@@ -10,7 +10,7 @@ import process from 'node:process'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../miko/eddies-measure.js'
 import { readResultFields } from '../ports/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ports/session.js'
-import { commitAndPush } from '../shift/tree-pr.js'
+import { commitAndPush, freshBaseTask } from '../shift/tree-pr.js'
 import { parkedCardFile } from './card-archive.js'
 import { defaultBusPath } from './db.js'
 import { busSessionPulse } from './heartbeat.js'
@@ -104,8 +104,41 @@ export function answerCommitMessage(lease: Lease): string {
   return `answer for #${lease.cardId}${lease.pr === null ? '' : ` on PR #${lease.pr}`}\n\nCommitted by the bus from the card's worktree after its answer session ended.`
 }
 
+export class FreshBaseConflict extends Error {
+  constructor(readonly files: string[]) {
+    super(`merging a fresh origin/${MAIN_BRANCH} conflicts in ${files.join(', ')}`)
+  }
+}
+
 function publishTree(card: CardSession, commitMessage: string): void {
-  commitAndPush((cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), card.worktree, card.branch, commitMessage)
+  const pushed = commitAndPush((cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), card.worktree, card.branch, commitMessage)
+  if (pushed.kind === 'conflict')
+    throw new FreshBaseConflict(pushed.files)
+}
+
+function conflictsOf(publish: () => void): string[] {
+  try {
+    publish()
+    return []
+  }
+  catch (error) {
+    if (error instanceof FreshBaseConflict)
+      return error.files
+    throw error
+  }
+}
+
+export function mergePrompt(lease: Lease, card: CardSession, files: readonly string[]): string {
+  return [
+    `[answer:${lease.taskKey}]`,
+    `The bus merges a fresh origin/${MAIN_BRANCH} into ${card.branch} before it pushes, and that merge conflicts; nothing was pushed.`,
+    `Do it yourself: ${freshBaseTask(card.worktree, files)}.`,
+    `Then repeat the window gate of D-194 in ${card.worktree} and end the session; the bus merges again and pushes.`,
+  ].join('\n')
+}
+
+export function unmergedQuestion(card: CardSession, files: readonly string[]): string {
+  return `merging a fresh origin/${MAIN_BRANCH} into ${card.branch} conflicts in ${files.join(', ')} and the answer session did not resolve it`
 }
 
 export function resumeArgv(sessionId: string, prompt: string, addDirs: string[] = []): string[] {
@@ -310,18 +343,26 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
         console.error(missedAnswerBeatLine(session, error))
       }
     }
-    const code = await beatingWhileRunning(() => tools.spawn({
+    const run = (argv: string[], step: string): Promise<number> => beatingWhileRunning(() => tools.spawn({
       cwd: card.worktree,
-      argv: resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]),
-      stdoutPath,
-      stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}.err.log`),
+      argv,
+      stdoutPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.out.jsonl`),
+      stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
       env: sessionEnv(process.env, request.lease.cardId),
     }), beat, ANSWER_BEAT_MS)
+    const code = await run(resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]), '')
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)
-    const owner = ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutPath, ownerQuestion)
-    if (owner === null)
-      tools.publish(card, answerCommitMessage(request.lease))
+    const pushTree = (): string[] => conflictsOf(() => tools.publish(card, answerCommitMessage(request.lease)))
+    const publish = async (): Promise<string | null> => {
+      const conflicts = pushTree()
+      if (conflicts.length === 0)
+        return null
+      const merged = await run(resumeArgv(session, mergePrompt(request.lease, card, conflicts), [dir]), '.merge')
+      const left = merged === 0 ? pushTree() : conflicts
+      return left.length === 0 ? null : unmergedQuestion(card, left)
+    }
+    const owner = ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutPath, ownerQuestion) ?? await publish()
     const result = readResultFields(stdoutPath)
     const measured = result.resultLine === 'present' ? { tokens: tokensOf(result.usage) } : {}
     return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody } }
