@@ -4,11 +4,11 @@ import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { CARD_ADMITTED, PR_OPENED } from '../core/events.js'
+import { CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OPENED } from '../core/events.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAINS_PROJECTION } from './chain.js'
-import { defaultBusPath, inTransaction, openBus } from './db.js'
+import { CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
 import { DECISION_FOLDS } from './decisions.js'
 import { isFullSha, prOf } from './identifiers.js'
 import { TASKS_PROJECTION } from './queue.js'
@@ -18,7 +18,7 @@ import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced } from './watermark.js'
 
 export const PREFIX = '[bus:reduce] '
-export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id' }
+export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id', [OWNER_WAITS]: 'id' }
 export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION]
 
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
@@ -137,6 +137,8 @@ function prClosed(db: DatabaseSync, event: StoredEvent): void {
   db.prepare('UPDATE prs SET state = ?, event_id = ? WHERE pr = ?').run(merged ? 'merged' : 'closed', event.id, pr)
   if (merged && known.card_id !== null)
     cardPrMerged(db, known.card_id, event.id)
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND need = 'merge' AND pr = ?`)
+    .run(`PR #${pr} ${merged ? 'merged' : 'closed'}`, event.id, pr)
 }
 
 function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
@@ -165,6 +167,77 @@ function prOpened(db: DatabaseSync, event: StoredEvent): void {
     db.prepare('UPDATE prs SET card_id = ? WHERE pr = ?').run(cardId, pr)
 }
 
+export function decisionsAddCommand(text: string): string {
+  return `pnpm decisions:add "${text}"`
+}
+
+function filled(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
+}
+
+function optional<T>(payload: Record<string, unknown>, field: string, read: (value: unknown) => T | null): T | null {
+  const value = payload[field]
+  return value === undefined || value === null ? null : read(value) ?? reject(`${field} is not valid: ${JSON.stringify(value)}`)
+}
+
+function busNamesTheAction(need: string, command: string | null, pr: number | null): boolean {
+  return need === 'merge' ? pr !== null : command !== null
+}
+
+function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent): void {
+  const payload = payloadOf(event)
+  const id = typeof payload.id === 'string' && WAIT_ID.test(payload.id) ? payload.id : reject('id is not Q<N>')
+  const need = isOwnerWaitNeed(payload.need) ? payload.need : reject(`need is not one of ${OWNER_WAIT_NEEDS.join(' | ')}`)
+  const text = filled(payload.text) ?? reject('text is empty')
+  const command = optional(payload, 'command', filled)
+  const card = optional(payload, 'card', prOf)
+  const pr = optional(payload, 'pr', prOf)
+  if (need === 'command' && command === null)
+    reject('a command wait names no command')
+  if (optional(payload, 'request', prOf) === null && !busNamesTheAction(need, command, pr))
+    reject(`the bus names no owner action for this ${need}: a finding for the backlog, not an owner wait`)
+  if (db.prepare('SELECT 1 FROM owner_waits WHERE id = ?').get(id) !== undefined)
+    reject(`${id} is already opened`)
+  db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, ?, ?, ?, ?, ?, '${OPEN_WAIT}', NULL, ?, ?)`)
+    .run(id, need, text, command, card, pr, event.ts, event.id)
+}
+
+function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
+  const payload = payloadOf(event)
+  const id = typeof payload.id === 'string' && WAIT_ID.test(payload.id) ? payload.id : reject('id is not Q<N>')
+  const answer = filled(payload.answer) ?? reject('answer is empty')
+  const wait = db.prepare('SELECT state FROM owner_waits WHERE id = ?').get(id) as { state: string } | undefined
+  if (wait === undefined)
+    reject(`${id} was never opened`)
+  if (wait.state !== OPEN_WAIT)
+    reject(`${id} is already closed`)
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE id = ?`).run(answer, event.id, id)
+}
+
+function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {
+  const decisions = db.prepare('SELECT decision_id, text, scope FROM decisions WHERE event_id = ?').all(event.id) as { decision_id: number, text: string, scope: string | null }[]
+  for (const decision of decisions) {
+    db.prepare(`
+      UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
+      WHERE state = '${OPEN_WAIT}' AND (command = ? OR (need = 'decision' AND card_id IN (SELECT value FROM json_each(?))))
+    `).run(`D-${decision.decision_id}`, event.id, decisionsAddCommand(decision.text), decision.scope ?? '[]')
+  }
+}
+
+function decisionClosingWaits(type: string): Fold {
+  return (db, event) => {
+    DECISION_FOLDS[type]!(db, event)
+    closeWaitsTheDecisionsAnswer(db, event)
+  }
+}
+
+export const OWNER_WAIT_FOLDS: Record<string, Fold> = {
+  [OWNER_WAIT_OPENED]: foldOwnerWaitOpened,
+  [OWNER_WAIT_CLOSED]: foldOwnerWaitClosed,
+  [DECISION_RECORDED]: decisionClosingWaits(DECISION_RECORDED),
+  [DECISIONS_IMPORTED]: decisionClosingWaits(DECISIONS_IMPORTED),
+}
+
 const REDUCERS: Record<string, Fold> = {
   'pr.observed': prObserved,
   'pr.closed': prClosed,
@@ -175,6 +248,7 @@ const REDUCERS: Record<string, Fold> = {
   ...ROLE_FOLDS,
   ...DECISION_FOLDS,
   ...CARD_FOLDS,
+  ...OWNER_WAIT_FOLDS,
   [CARD_ADMITTED]: foldAdmittedWithBody,
 }
 

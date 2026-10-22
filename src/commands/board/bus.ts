@@ -1,7 +1,7 @@
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
-import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, POLICY_DENIED, PROCESS_HEARTBEAT, QUESTION_OWNER, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
 
@@ -32,7 +32,6 @@ const STAGE_OF_QUEUE: Readonly<Record<string, CardStage>> = { review: 'review', 
 const STAGE_OF_STEP: Readonly<Record<string, CardStage>> = { ...STAGE_OF_QUEUE, launch: 'in work' }
 const SETTLED_STATES = new Set(['merged', 'stopped', 'dropped', 'closed'])
 const OPEN_TASK_STATES = ['queued', 'leased']
-const OPEN_PR = 'open'
 const PATH_LINE = /^Path \(D-76\):.*$/gm
 
 export interface BusCard {
@@ -52,14 +51,16 @@ export interface PlanStage {
   cards: number[]
 }
 
-export type OwnerWaitKind = 'question' | 'decision' | 'version'
+export type OwnerWaitNeed = 'decision' | 'merge' | 'command'
 
 export interface OwnerWait {
-  kind: OwnerWaitKind
+  id: string
+  need: OwnerWaitNeed
+  text: string
+  command: string | null
   card: number | null
   pr: number | null
-  detail: string | null
-  since: string | null
+  since: string
 }
 
 export interface BusService {
@@ -323,41 +324,17 @@ function planOf(db: BusDb, goal: Goal | null, cards: BusCard[]): PlanStage[] | n
   return CARD_STAGES.map(stage => ({ stage, cards: plan.filter(card => card.stage === stage).map(card => card.id) }))
 }
 
-interface WaitRow {
-  card_id: number | null
-  pr: number | null
-  ts: string | null
-  payload: string
-}
+const OWNER_WAITS_TABLE = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'owner_waits'`
 
-const OPEN_OWNER_QUESTIONS = `
-  SELECT stop.card_id, stop.pr, stop.ts, stop.payload FROM events AS stop JOIN cards ON cards.card_id = stop.card_id
-  WHERE stop.type = ? AND stop.legacy = 0 AND cards.state = 'stopped' AND json_extract(stop.payload, '$.reason') = ?
-    AND stop.id = (SELECT max(last.id) FROM events AS last WHERE last.type = stop.type AND last.card_id = stop.card_id)
-    AND NOT EXISTS (SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named WHERE answer.scope IS NOT NULL AND answer.event_id > stop.id AND named.value = stop.card_id)
-  ORDER BY stop.id
+const OPEN_OWNER_WAITS = `
+  SELECT id, need, text, command, card_id AS card, pr, opened_at AS since FROM owner_waits
+  WHERE state = 'open' ORDER BY CAST(substr(id, 2) AS INTEGER)
 `
-
-const OPEN_AUTHORITY_DENIALS = `
-  SELECT denial.card_id, denial.pr, denial.ts, denial.payload FROM events AS denial JOIN prs ON prs.pr = denial.pr
-  WHERE denial.type = ? AND denial.legacy = 0 AND prs.state = ? AND json_extract(denial.payload, '$.kind') = 'authority'
-    AND denial.id = (SELECT max(last.id) FROM events AS last WHERE last.type = denial.type AND last.legacy = 0 AND last.pr = denial.pr)
-  ORDER BY denial.id
-`
-
-function waitOf(kind: OwnerWaitKind, row: WaitRow): OwnerWait {
-  return { kind, card: row.card_id, pr: row.pr, detail: text(payloadOf(row.payload).detail), since: row.ts }
-}
 
 function ownerWaits(db: BusDb): OwnerWait[] {
-  const questions = db.prepare(OPEN_OWNER_QUESTIONS).all(CARD_STOPPED, QUESTION_OWNER) as unknown as WaitRow[]
-  const decisions = db.prepare(OPEN_AUTHORITY_DENIALS).all(POLICY_DENIED, OPEN_PR) as unknown as WaitRow[]
-  const versions = db.prepare('SELECT pr FROM prs WHERE card_id IS NULL AND state = ? ORDER BY pr').all(OPEN_PR) as unknown as { pr: number }[]
-  return [
-    ...questions.map(row => waitOf('question', row)),
-    ...decisions.map(row => waitOf('decision', row)),
-    ...versions.map(row => ({ kind: 'version' as const, card: null, pr: row.pr, detail: null, since: null })),
-  ]
+  if (db.prepare(OWNER_WAITS_TABLE).get() === undefined)
+    return []
+  return (db.prepare(OPEN_OWNER_WAITS).all() as unknown as OwnerWait[]).map(row => ({ ...row }))
 }
 
 function lastPulse(db: BusDb): string | null {

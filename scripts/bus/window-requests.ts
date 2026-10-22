@@ -9,7 +9,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BOARD_ALARM, FACTORY_MODE, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { FACTORY_MODES, isFactoryMode } from './card-bodies.js'
-import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
+import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from './db.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from './identifiers.js'
 import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from './queue.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from './round-limit-decision.js'
@@ -17,12 +17,12 @@ import { decisionsInForceAt } from './shards.js'
 import { storedByKey } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'requeue', 'mode'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'requeue', 'mode', 'owner.wait', 'owner.wait.close'] as const
 export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_UNDER = 186
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')}`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer>`
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -134,8 +134,49 @@ export class WindowRequests {
     const kind = payload.kind
     if (!isRequestKind(kind))
       return { kind: 'owner', request, detail: `the window asked for ${JSON.stringify(kind ?? null)}, not one of ${REQUEST_KINDS.join(', ')}; refused, the owner decides` }
-    const executed = kind === 'tree.cut' ? this.treeCut(payload) : kind === 'allow-merge' ? this.allowMerge(payload) : kind === 'mode' ? this.setMode(request, payload) : this.requeue(request, payload)
+    const executed = this.executorOf(kind)(request, payload)
     return { kind: executed.done ? 'done' : 'refused', request, detail: executed.why }
+  }
+
+  private executorOf(kind: RequestKind): (request: number, payload: Record<string, unknown>) => Executed {
+    const executors: Record<RequestKind, (request: number, payload: Record<string, unknown>) => Executed> = {
+      'tree.cut': (_, payload) => this.treeCut(payload),
+      'allow-merge': (_, payload) => this.allowMerge(payload),
+      'mode': (request, payload) => this.setMode(request, payload),
+      'requeue': (request, payload) => this.requeue(request, payload),
+      'owner.wait': (request, payload) => this.openWait(request, payload),
+      'owner.wait.close': (request, payload) => this.closeWait(request, payload),
+    }
+    return executors[kind]
+  }
+
+  private openWait(request: number, payload: Record<string, unknown>): Executed {
+    const need = payload.need
+    const waitText = text(payload.text)
+    const command = text(payload.command)
+    if (!isOwnerWaitNeed(need))
+      return { done: false, why: `owner.wait names need ${JSON.stringify(need ?? null)}, not one of ${OWNER_WAIT_NEEDS.join(', ')}` }
+    if (waitText === null)
+      return { done: false, why: 'owner.wait names no text of what the owner decides' }
+    if (need === 'command' && command === null)
+      return { done: false, why: 'owner.wait --need command names no command' }
+    const card = cardIdOf(payload.card)
+    const pr = prOf(payload.pr)
+    const id = openOwnerWait(this.db, this.clock().toISOString(), QUEUE_ACTOR, { need, text: waitText, request, ...(command === null ? {} : { command }), ...(card === null ? {} : { card }), ...(pr === null ? {} : { pr }) })
+    return { done: true, why: `opened ${id}` }
+  }
+
+  private closeWait(request: number, payload: Record<string, unknown>): Executed {
+    const id = text(payload.id)
+    const answer = text(payload.answer)
+    if (id === null || answer === null)
+      return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer' }
+    const wait = this.db.prepare(`SELECT state FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as { state: string } | undefined
+    if (wait === undefined)
+      return { done: false, why: `${id} is not an owner wait the bus has reduced` }
+    if (wait.state !== OPEN_WAIT || !closeOwnerWait(this.db, this.clock().toISOString(), QUEUE_ACTOR, id, answer, request))
+      return { done: false, why: `${id} is closed already` }
+    return { done: true, why: `closed ${id}: ${answer}` }
   }
 
   private treeCut(payload: Record<string, unknown>): Executed {
@@ -280,6 +321,17 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   if (kind === 'mode') {
     const mode = flag(argv, '--set')
     return isFactoryMode(mode) ? { kind, mode } : null
+  }
+  if (kind === 'owner.wait') {
+    const need = flag(argv, '--need')
+    const waitText = flag(argv, '--text')
+    const fields = { command: flag(argv, '--command'), card: cardIdOf(flag(argv, '--card')) ?? undefined, pr: prOf(Number(flag(argv, '--pr'))) ?? undefined }
+    return !isOwnerWaitNeed(need) || waitText === undefined ? null : { kind, need, text: waitText, ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) }
+  }
+  if (kind === 'owner.wait.close') {
+    const id = flag(argv, '--id')
+    const answer = flag(argv, '--answer')
+    return id === undefined || answer === undefined ? null : { kind, id, answer }
   }
   return { kind }
 }

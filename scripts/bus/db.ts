@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { parseCard } from '../../src/card/grammar.js'
+import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from '../core/events.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
@@ -94,6 +95,18 @@ CREATE TABLE IF NOT EXISTS decisions (
   text TEXT NOT NULL,
   scope TEXT,
   source TEXT NOT NULL,
+  event_id INTEGER NOT NULL REFERENCES events(id)
+);
+CREATE TABLE IF NOT EXISTS owner_waits (
+  id TEXT PRIMARY KEY,
+  need TEXT NOT NULL,
+  text TEXT NOT NULL,
+  command TEXT,
+  card_id INTEGER,
+  pr INTEGER,
+  state TEXT NOT NULL,
+  answer TEXT,
+  opened_at TEXT NOT NULL,
   event_id INTEGER NOT NULL REFERENCES events(id)
 );
 CREATE TABLE IF NOT EXISTS card_bodies (
@@ -195,6 +208,58 @@ export function appendEvent(db: DatabaseSync, event: BusEvent): boolean {
     valid.legacy ? 1 : 0,
   )
   return Number(result.changes) === 1
+}
+
+export const OWNER_WAITS = 'owner_waits'
+export const OWNER_WAIT_NEEDS = ['decision', 'merge', 'command'] as const
+export const OPEN_WAIT = 'open'
+export const CLOSED_WAIT = 'closed'
+export const WAIT_ID = /^Q(\d+)$/
+
+export type OwnerWaitNeed = typeof OWNER_WAIT_NEEDS[number]
+
+export interface OwnerWaitAsk {
+  need: OwnerWaitNeed
+  text: string
+  command?: string
+  card?: number
+  pr?: number
+  request?: number
+}
+
+export function isOwnerWaitNeed(value: unknown): value is OwnerWaitNeed {
+  return typeof value === 'string' && (OWNER_WAIT_NEEDS as readonly string[]).includes(value)
+}
+
+const UNCLOSED_WAIT_OF = `
+  SELECT json_extract(opened.payload, '$.id') AS id FROM events AS opened
+  WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0
+    AND json_extract(opened.payload, '$.need') = ? AND json_extract(opened.payload, '$.command') IS ? AND json_extract(opened.payload, '$.pr') IS ?
+    AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.id = json_extract(opened.payload, '$.id') AND wait.state = '${CLOSED_WAIT}')
+    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
+  ORDER BY opened.id LIMIT 1
+`
+
+function nextWaitId(db: DatabaseSync): string {
+  const ids = db.prepare(`SELECT json_extract(payload, '$.id') AS id FROM events WHERE type = '${OWNER_WAIT_OPENED}'`).all() as { id: unknown }[]
+  const numbers = ids.map(row => WAIT_ID.exec(typeof row.id === 'string' ? row.id : '')?.[1]).filter(found => found !== undefined).map(Number)
+  return `Q${Math.max(0, ...numbers) + 1}`
+}
+
+export function openOwnerWait(db: DatabaseSync, ts: string, actor: string, ask: OwnerWaitAsk): string {
+  const id = nextWaitId(db)
+  const { need, text, ...named } = ask
+  appendEvent(db, { ts, type: OWNER_WAIT_OPENED, actor, cardId: ask.card ?? null, pr: ask.pr ?? null, head: null, dedupeKey: `${OWNER_WAIT_OPENED}:${id}`, payload: { id, need, text, ...named }, legacy: false })
+  return id
+}
+
+export function openBusWait(db: DatabaseSync, ts: string, actor: string, ask: OwnerWaitAsk): string {
+  const open = db.prepare(UNCLOSED_WAIT_OF).get(ask.need, ask.command ?? null, ask.pr ?? null) as { id: string } | undefined
+  return open?.id ?? openOwnerWait(db, ts, actor, ask)
+}
+
+export function closeOwnerWait(db: DatabaseSync, ts: string, actor: string, id: string, answer: string, request: number): boolean {
+  return appendEvent(db, { ts, type: OWNER_WAIT_CLOSED, actor, cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${id}`, payload: { id, answer, request }, legacy: false })
 }
 
 export function inTransaction<T>(db: DatabaseSync, work: () => T): T {

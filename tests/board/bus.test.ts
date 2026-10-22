@@ -4,6 +4,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { openBus } from '../../scripts/bus/db.js'
+import { reduce } from '../../scripts/bus/reducer.js'
+import { requestFromWindow, WindowRequests } from '../../scripts/bus/window-requests.js'
 import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
 import { busReaderAt, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
 import { GOAL_DECISION } from '../../src/commands/board/goal.js'
@@ -100,39 +103,46 @@ describe('the board bus reader', () => {
     expect(facts({ cards: [plan(1, 'merged')] }).plan).toBeNull()
   })
 
-  it('with no open owner question the waits-for-you fact is empty', () => {
+  it('the board infers no wait from a stopped question, an authority denial or a version PR: it reads only owner_waits', () => {
     expect(facts({}).waits).toEqual([])
-    const answered = facts({
-      cards: [{ id: 1, state: 'stopped', lane: null, line: null }, { id: 2, state: 'running', lane: null, line: null }, { id: 3, state: 'stopped', lane: null, line: null }],
-      prs: [{ pr: 30, card: 3, state: 'merged' }],
-      events: [
-        { ts: ago(3 * HOUR), type: 'card.stopped', card: 1, payload: JSON.stringify({ reason: 'question.owner', detail: 'which path?' }) },
-        { ts: ago(2 * HOUR), type: 'card.stopped', card: 2, payload: JSON.stringify({ reason: 'question.owner', detail: 'answered by its restart' }) },
-        { ts: ago(2 * HOUR), type: 'card.stopped', card: 3, payload: JSON.stringify({ reason: 'fault' }) },
-        { ts: ago(HOUR), type: 'policy.denied', card: 3, pr: 30, payload: JSON.stringify({ kind: 'authority', detail: 'the owner merges' }) },
-      ],
-      decisions: [[900, '[owner] take the first path', [1]]],
-    })
-    expect(answered.waits).toEqual([])
-  })
-
-  it('an open owner question, an owner-kind denial on an open PR and the version PR wait for the owner', () => {
     const read = facts({
       cards: [{ id: 1, state: 'stopped', lane: null, line: null }, { id: 2, state: 'in_review', lane: null, line: null }],
-      prs: [{ pr: 20, card: 2, state: 'open' }, { pr: 669, card: null, state: 'open' }, { pr: 600, card: null, state: 'merged' }],
+      prs: [{ pr: 20, card: 2, state: 'open' }, { pr: 669, card: null, state: 'open' }],
       events: [
         { ts: ago(3 * HOUR), type: 'card.stopped', card: 1, payload: JSON.stringify({ reason: 'question.owner', detail: 'which path?' }) },
-        { ts: ago(2 * HOUR), type: 'policy.denied', card: 2, pr: 20, payload: JSON.stringify({ kind: 'authority', detail: 'first' }) },
         { ts: ago(HOUR), type: 'policy.denied', card: 2, pr: 20, payload: JSON.stringify({ kind: 'authority', detail: 'changes architecture/security-invariants.md' }) },
-        { ts: ago(HOUR), type: 'policy.denied', card: 2, pr: 20, legacy: true, payload: JSON.stringify({ kind: 'authority', detail: 'legacy' }) },
       ],
-      decisions: [[900, '[owner] about another card', [7]]],
     })
-    expect(read.waits).toEqual([
-      { kind: 'question', card: 1, pr: null, detail: 'which path?', since: ago(3 * HOUR) },
-      { kind: 'decision', card: 2, pr: 20, detail: 'changes architecture/security-invariants.md', since: ago(HOUR) },
-      { kind: 'version', card: null, pr: 669, detail: null, since: null },
-    ])
+    expect(read.waits).toEqual([])
+  })
+
+  it('a wait the window opened shows on the board until it is closed', () => {
+    const file = path.join(scratch(), 'bus.db')
+    const db = openBus(file)
+    const clock = (): Date => NOW
+    const refusing = (): never => {
+      throw new Error('not used by an owner wait')
+    }
+    const requests = new WindowRequests(db, clock, { treeOf: refusing, exists: refusing, cutTree: refusing, dryRunOf: refusing, addDecision: refusing, causeHolds: refusing })
+    const board = busReaderAt(file, clock)
+    const waitsOnTheBoard = (): BusFacts['waits'] => {
+      const reading = board()
+      return reading.status === 'read' ? reading.facts.waits : []
+    }
+    try {
+      requestFromWindow(db, ago(HOUR), 'window-1', { kind: 'owner.wait', need: 'decision', text: 'which path for #1213?', card: 1213 })
+      expect(requests.run().map(outcome => outcome.detail)).toEqual(['opened Q1'])
+      reduce(db)
+      expect(waitsOnTheBoard()).toEqual([{ id: 'Q1', need: 'decision', text: 'which path for #1213?', command: null, card: 1213, pr: null, since: NOW.toISOString() }])
+      requestFromWindow(db, NOW.toISOString(), 'window-1', { kind: 'owner.wait.close', id: 'Q1', answer: 'the first path' })
+      expect(requests.run().map(outcome => outcome.detail)).toEqual(['closed Q1: the first path'])
+      expect(waitsOnTheBoard()).toHaveLength(1)
+      reduce(db)
+      expect(waitsOnTheBoard()).toEqual([])
+    }
+    finally {
+      db.close()
+    }
   })
 
   it('a merged or closed card has no session tile, whatever its last pulse', () => {

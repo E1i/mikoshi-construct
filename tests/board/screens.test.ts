@@ -23,12 +23,14 @@ describe('the board screens', () => {
     const goal = { release: '0.44', done: 2, total: 7 }
     const stages: [CardStage, number[]][] = [['planned', [5]], ['in work', [6, 7]], ['review', [8]], ['answer/changes', [9]], ['ready', []], ['merged', [1, 2]], ['stopped', [10]], ['dropped', [11]]]
     const plan: PlanStage[] = stages.map(([stage, cards]) => ({ stage, cards }))
+    const since = '2026-10-02T11:00:00.000Z'
     const waits = [
-      { kind: 'question' as const, card: 10, pr: null, detail: 'which path?', since: null },
-      { kind: 'version' as const, card: null, pr: 669, detail: null, since: null },
+      { id: 'Q1', need: 'decision' as const, text: 'which path?', command: null, card: 10, pr: null, since },
+      { id: 'Q2', need: 'merge' as const, text: 'changes architecture/security-invariants.md', command: null, card: 12, pr: 669, since },
+      { id: 'Q3', need: 'command' as const, text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since },
     ]
     const goalLine = 'goal · release 0.44 · — · merged 2/7 · planned 1 · in work 2 · review 1 · answer 1 · ready 0 · stopped 1'
-    expect(screenLines(noFacts({ goal, plan, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 2 · — · question #10 (which path?) · version PR #669'])
+    expect(screenLines(noFacts({ goal, plan, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path?) · Q2 merge PR #669 (changes architecture/security-invariants.md) · Q3 command (the merge queue runs unswitched: pnpm decisions:add "[owner] allow-live merge")'])
     expect(screenLines(noFacts({ goal, plan }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'planned (0): —'])
     const backlog = [card(8, 'in_review', null, '#8 eight', 'review'), card(9, 'in_review', null, '#9 nine', 'answer/changes'), card(4, 'running', null, '#4 four', 'ready')]
     expect(backlogLines(backlog, PLAIN_LORE)).toEqual(['no lane (3)', '  #8 eight · review', '  #9 nine · answer/changes', '  #4 four · ready'])
