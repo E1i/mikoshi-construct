@@ -94,7 +94,7 @@ describe('owner decisions on the bus', () => {
     expect(rows(db, 'SELECT * FROM decisions')).toEqual([])
     expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
     expect(rows(db, 'SELECT * FROM decisions')).toEqual([{ decision_id: 2, text: '#807 stays owner-merged.', scope: '[807]', source: 'owner', event_id: 1 }])
-    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db)).toEqual({ applied: 0, rejected: 0 })
     expect(rows(db, 'SELECT decision_id FROM decisions')).toEqual([{ decision_id: 2 }])
   })
 
@@ -140,7 +140,9 @@ describe('owner decisions on the bus', () => {
       { decision_id: 77, text: 'Owner-PR мержится шиной по pass ревью воркера и зелёному CI.', scope: '[]', source: 'owner-decisions.md' },
     ])
     const projection = projectionDump(db)
-    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db)).toEqual({ applied: 0, rejected: 0 })
+    expect(projectionDump(db)).toBe(projection)
+    expect(reduce(db, 'rebuild')).toEqual({ applied: 1, rejected: 0 })
     expect(projectionDump(db)).toBe(projection)
   })
 
@@ -184,7 +186,7 @@ describe('owner decisions on the bus', () => {
     const written = statSync(file).mtimeMs
     intake()
     expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 2 }])
-    expect(reduce(db)).toEqual({ applied: 3, rejected: 0 })
+    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
     expect(rows(db, 'SELECT decision_id, scope FROM decisions ORDER BY decision_id')).toEqual([{ decision_id: 77, scope: '[]' }, { decision_id: 78, scope: '[809]' }])
     expect(rows(db, 'SELECT event_id FROM decisions WHERE decision_id = 77')).toEqual([{ event_id: firstImport!.id }])
     expect(rows(db, 'SELECT card_id, state FROM cards')).toEqual([{ card_id: 809, state: 'queued' }])

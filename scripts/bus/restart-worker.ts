@@ -13,6 +13,7 @@ import { REAL_PROCESSES } from './chain-process.js'
 import { defaultBusPath, openBus } from './db.js'
 import { expireLeases, LEASE_MS, leaseNext } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
+import { DATABASE_LOCKED, isDatabaseLocked } from './node.js'
 import { relaunchKey, RestartExecutor } from './restart-executor.js'
 import { SWITCH_FLAG } from './review-worker.js'
 import { returnSilentRole, roleToOwner } from './role.js'
@@ -20,7 +21,7 @@ import { stampLogOutput } from './stamp.js'
 import { switchedOn } from './workers.js'
 
 export const PREFIX = '[bus:restart] '
-export type RestartStep = { kind: 'idle' } | { kind: 'dead_chains', chains: DeadChain[] } | ({ kind: 'returned' } & RoleReturned) | ({ kind: 'to_owner' } & RoleToOwner) | RestartOutcome
+export type RestartStep = { kind: 'idle' } | { kind: 'locked' } | { kind: 'dead_chains', chains: DeadChain[] } | ({ kind: 'returned' } & RoleReturned) | ({ kind: 'to_owner' } & RoleToOwner) | RestartOutcome
 
 export interface RestartWorkerParts {
   db: DatabaseSync
@@ -40,6 +41,17 @@ export class RestartWorker {
   }
 
   step(): RestartStep {
+    try {
+      return this.next()
+    }
+    catch (error) {
+      if (!isDatabaseLocked(error))
+        throw error
+      return { kind: 'locked' }
+    }
+  }
+
+  private next(): RestartStep {
     const ts = this.parts.clock().toISOString()
     expireLeases(this.parts.db, ts)
     const lease = leaseNext(this.parts.db, ts, 'restart', this.actor)
@@ -59,6 +71,8 @@ export class RestartWorker {
 export function restartStepLine(step: RestartStep): string | null {
   if (step.kind === 'idle')
     return null
+  if (step.kind === 'locked')
+    return `${PREFIX}the step hit ${DATABASE_LOCKED}; it is retried in ${CHECK_MS / 1000} s, and the worker stays up`
   if (step.kind === 'dead_chains')
     return step.chains.map(chain => `${PREFIX}#${chain.cardId}: the chain in ${chain.dir} died with no restart task; observed ${chain.state}, nothing started`).join('\n')
   if (step.kind === 'returned')
@@ -96,7 +110,7 @@ export async function runRestartWorker(argv: string[], run: RestartRun): Promise
       const line = restartStepLine(step)
       if (line !== null)
         console.log(line)
-      await run.pause(step.kind === 'idle' ? CHECK_MS : TICK_MS)
+      await run.pause(step.kind === 'idle' || step.kind === 'locked' ? CHECK_MS : TICK_MS)
     }
   }
   finally {

@@ -17,7 +17,7 @@ import { TASKS_PROJECTION } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { ROLE_FOLDS, ROLES_PROJECTION } from './role.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
-import { markReduced } from './watermark.js'
+import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const PREFIX = '[bus:reduce] '
 export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id', plans: 'plan_id', plan_items: 'plan_id, item_id', [OWNER_WAITS]: 'id' }
@@ -355,26 +355,118 @@ export function reducedThrough(db: DatabaseSync): number {
   return Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
 }
 
-export function reduce(db: DatabaseSync): ReduceCount {
+export const REDUCE_BATCH = 500
+export const SNAPSHOT = 'snapshot'
+export const SEQUENCE_SNAPSHOT = 'projection_sequence_snapshot'
+
+export type ReduceScope = 'pending' | 'rebuild'
+
+const NEVER_REDUCED = 0
+const EVERY_EVENT = Number.MAX_SAFE_INTEGER
+const PROJECTION_TABLES = Object.keys(PROJECTION_KEYS)
+const PROJECTION_SEQUENCES = `name IN (${PROJECTION_TABLES.map(table => `'${table}'`).join(', ')})`
+
+export function snapshotOf(table: string): string {
+  return `${table}_${SNAPSHOT}`
+}
+
+function lastEventId(db: DatabaseSync): number {
+  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+}
+
+function columnsOf(db: DatabaseSync, table: string): string {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(column => column.name).join(', ')
+}
+
+function snapshotHolds(db: DatabaseSync, through: number): boolean {
+  return through !== NEVER_REDUCED && watermarkOf(db, SNAPSHOT) === through && columnsOf(db, SEQUENCE_SNAPSHOT) !== '' && PROJECTION_TABLES.every(table => columnsOf(db, snapshotOf(table)) === columnsOf(db, table))
+}
+
+function snapshotTableFor(db: DatabaseSync, table: string): void {
+  if (columnsOf(db, snapshotOf(table)) !== columnsOf(db, table))
+    db.exec(`DROP TABLE IF EXISTS ${snapshotOf(table)}; CREATE TABLE ${snapshotOf(table)} AS SELECT * FROM ${table} WHERE 0;`)
+}
+
+function takeSnapshot(db: DatabaseSync, through: number): void {
+  for (const table of PROJECTION_TABLES) {
+    snapshotTableFor(db, table)
+    db.exec(`DELETE FROM ${snapshotOf(table)}; INSERT INTO ${snapshotOf(table)} SELECT * FROM ${table};`)
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS ${SEQUENCE_SNAPSHOT} (name TEXT, seq INTEGER); DELETE FROM ${SEQUENCE_SNAPSHOT}; INSERT INTO ${SEQUENCE_SNAPSHOT} (name, seq) SELECT name, seq FROM sqlite_sequence WHERE ${PROJECTION_SEQUENCES};`)
+  markReduced(db, SNAPSHOT, through)
+}
+
+function restoreSnapshot(db: DatabaseSync): void {
+  for (const table of PROJECTION_TABLES)
+    db.exec(`DELETE FROM ${table}; INSERT INTO ${table} SELECT * FROM ${snapshotOf(table)};`)
+  db.exec(`DELETE FROM sqlite_sequence WHERE ${PROJECTION_SEQUENCES}; INSERT INTO sqlite_sequence (name, seq) SELECT name, seq FROM ${SEQUENCE_SNAPSHOT};`)
+}
+
+function clearProjections(db: DatabaseSync): void {
+  db.exec(`${PROJECTION_TABLES.map(table => `DELETE FROM ${table};`).join(' ')} DELETE FROM sqlite_sequence WHERE ${PROJECTION_SEQUENCES};`)
+}
+
+function foldInOrder(db: DatabaseSync, events: StoredEvent[], count: ReduceCount): void {
+  for (const event of events) {
+    const apply = REDUCERS[event.type]
+    if (apply === undefined)
+      continue
+    if (appliedOrRejected(db, event, apply))
+      count.applied += 1
+    else
+      count.rejected += 1
+  }
+}
+
+function eventsAfter(db: DatabaseSync, from: number, through: number, limit: number): StoredEvent[] {
+  return db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id > ? AND id <= ? AND legacy = 0 ORDER BY id LIMIT ?`).all(from, through, limit) as unknown as StoredEvent[]
+}
+
+function markInOrderThrough(db: DatabaseSync, through: number): void {
+  db.exec(`PRAGMA user_version = ${through}`)
+  takeSnapshot(db, through)
+  for (const projection of INCREMENTAL_PROJECTIONS) {
+    markReduced(db, projection.table, through)
+    reduceProjection(db, projection)
+  }
+}
+
+function rebuildAll(db: DatabaseSync, count: ReduceCount): void {
+  clearProjections(db)
+  const through = lastEventId(db)
+  foldInOrder(db, eventsAfter(db, NEVER_REDUCED, through, EVERY_EVENT), count)
+  markInOrderThrough(db, through)
+}
+
+function reduceBatch(db: DatabaseSync, target: number, count: ReduceCount): boolean {
   return inTransaction(db, () => {
-    db.exec(`${Object.keys(PROJECTION_KEYS).map(table => `DELETE FROM ${table};`).join(' ')} DELETE FROM sqlite_sequence WHERE name = 'tasks';`)
-    const through = Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
-    db.exec(`PRAGMA user_version = ${through}`)
-    const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE legacy = 0 ORDER BY id`).all() as unknown as StoredEvent[]
-    const count: ReduceCount = { applied: 0, rejected: 0 }
-    for (const event of events) {
-      const apply = REDUCERS[event.type]
-      if (apply === undefined)
-        continue
-      if (appliedOrRejected(db, event, apply))
-        count.applied += 1
-      else
-        count.rejected += 1
+    const from = reducedThrough(db)
+    if (!snapshotHolds(db, from)) {
+      rebuildAll(db, count)
+      return true
     }
-    for (const projection of INCREMENTAL_PROJECTIONS)
-      markReduced(db, projection.table, through)
-    return count
+    if (from >= target)
+      return true
+    const events = eventsAfter(db, from, target, REDUCE_BATCH)
+    const through = events.length < REDUCE_BATCH ? target : events.at(-1)!.id
+    restoreSnapshot(db)
+    foldInOrder(db, events, count)
+    markInOrderThrough(db, through)
+    return through >= target
   })
+}
+
+export function reduce(db: DatabaseSync, scope: ReduceScope = 'pending'): ReduceCount {
+  const count: ReduceCount = { applied: 0, rejected: 0 }
+  if (scope === 'rebuild') {
+    inTransaction(db, () => rebuildAll(db, count))
+    return count
+  }
+  const target = lastEventId(db)
+  let caughtUp = false
+  while (!caughtUp)
+    caughtUp = reduceBatch(db, target, count)
+  return count
 }
 
 export function projectionDump(db: DatabaseSync): string {
@@ -385,7 +477,7 @@ function main(): number {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   try {
-    const count = reduce(db)
+    const count = reduce(db, 'rebuild')
     console.log(`${PREFIX}${busPath}: applied ${count.applied}, rejected ${count.rejected}`)
     return 0
   }

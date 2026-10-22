@@ -16,6 +16,7 @@ import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { decisionsIntake } from './decisions-import.js'
 import { ghApi } from './github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from './netwatch.js'
+import { DATABASE_LOCKED, isDatabaseLocked } from './node.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from './pr-status.js'
 import { deriveQueues } from './queue.js'
 import { reduce } from './reducer.js'
@@ -66,6 +67,18 @@ export function tickLines(tick: Tick): string[] {
   return lines
 }
 
+export function tickOrLocked(busTick: BusTick): string[] {
+  try {
+    const tick = busTick.run()
+    return tick === null ? [] : tickLines(tick)
+  }
+  catch (error) {
+    if (!isDatabaseLocked(error))
+      throw error
+    return [`${PREFIX}the tick hit ${DATABASE_LOCKED}; it is retried in ${CHECK_MS / 1000} s, and bus:run stays up`]
+  }
+}
+
 export interface ComposedTick {
   busTick: BusTick
   boardFile: string
@@ -100,9 +113,9 @@ async function main(): Promise<number> {
   console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues, the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it, and ${boardFile} with ${boardDataFile} every ${TICK_MS / 1000} s; no workers`)
   try {
     for (;;) {
-      const tick = busTick.run()
-      if (tick !== null)
-        console.log(tickLines(tick).join('\n'))
+      const lines = tickOrLocked(busTick)
+      if (lines.length > 0)
+        console.log(lines.join('\n'))
       await sleep(CHECK_MS)
     }
   }

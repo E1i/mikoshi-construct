@@ -8,7 +8,7 @@ import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } fro
 import { recordDecision } from '../../bus/decisions.js'
 import { cardIdOfDescription } from '../../bus/identifiers.js'
 import { allowLiveCommand } from '../../bus/live-decision.js'
-import { reduce } from '../../bus/reducer.js'
+import { projectionDump, reduce, REDUCE_BATCH, reducedThrough } from '../../bus/reducer.js'
 import { CARD_WAITING, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { ghostLines } from '../../ghosts/journal.js'
 import { recordFall } from '../../ghosts/supervise.js'
@@ -148,13 +148,35 @@ describe('the reducer of the prs projection', () => {
     db.close()
   })
 
-  it('reducing again rebuilds the same projections and records no rejection twice', () => {
+  it('reducing again folds nothing new, a rebuild gives the same projections, and no rejection is recorded twice', () => {
     const db = busWith(observed(800, 793), closed(801, true), closed(800, true))
     reduce(db)
     const first = { prs: prs(db), cards: cards(db) }
-    expect(reduce(db)).toEqual({ applied: 2, rejected: 1 })
+    expect(reduce(db)).toEqual({ applied: 0, rejected: 0 })
+    expect({ prs: prs(db), cards: cards(db) }).toEqual(first)
+    expect(reduce(db, 'rebuild')).toEqual({ applied: 2, rejected: 1 })
     expect({ prs: prs(db), cards: cards(db) }).toEqual(first)
     expect(rejections(db)).toHaveLength(1)
+    db.close()
+  })
+
+  it('events past one batch fold in batches to the projections a rebuild gives, and a later reduce folds only the new ones', () => {
+    const pulls = REDUCE_BATCH
+    const db = busWith(observed(800, 793))
+    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    for (let n = 0; n < pulls; n += 1) {
+      appendEvent(db, observed(1000 + n, null))
+      appendEvent(db, closed(1000 + n, n % 2 === 0))
+    }
+    expect(reduce(db)).toEqual({ applied: 2 * pulls, rejected: 0 })
+    expect(reducedThrough(db)).toBe(2 * pulls + 1)
+    const batched = projectionDump(db)
+    appendEvent(db, closed(800, true))
+    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    const incremental = projectionDump(db)
+    expect(incremental).not.toBe(batched)
+    reduce(db, 'rebuild')
+    expect(projectionDump(db)).toBe(incremental)
     db.close()
   })
 

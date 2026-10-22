@@ -279,6 +279,22 @@ describe('a role stopped at a threshold', () => {
     bench.close()
   })
 
+  it('a step that hits database is locked returns locked instead of throwing, and the next step after the lock runs', () => {
+    const bench = restartBench()
+    const holder = new DatabaseSync(bench.busPath)
+    bench.db.exec('PRAGMA busy_timeout = 0')
+    holder.exec('BEGIN IMMEDIATE')
+    const worker = bench.worker()
+
+    const locked = worker.step()
+    expect(locked).toEqual({ kind: 'locked' })
+    expect(restartStepLine(locked)).toBe('[bus:restart] the step hit database is locked; it is retried in 5 s, and the worker stays up')
+    holder.exec('COMMIT')
+    holder.close()
+    expect(worker.step()).toEqual({ kind: 'idle' })
+    bench.close()
+  })
+
   it('a role the owner\'s window left silent comes back from the owner and goes to the owner again on the wait still open', () => {
     const bench = restartBench()
     const worker = bench.worker()

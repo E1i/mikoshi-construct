@@ -1,4 +1,3 @@
-import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../bus/lease.js'
 import type { Reviewer } from '../../bus/reviewer.js'
 import type { HeavyRunParts } from '../../bus/scheduler.js'
@@ -8,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { completeTask, LEASE_MS, leasedCount } from '../../bus/lease.js'
@@ -15,7 +15,7 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { startReviewWorkers } from '../../bus/review-worker.js'
-import { BusTick } from '../../bus/run.js'
+import { BusTick, tickOrLocked } from '../../bus/run.js'
 import { SLOT_POLL_MS, SLOTS, SlotScheduler, slotsOf, slotsVariable } from '../../bus/scheduler.js'
 import { runSlot, slotCall, spawnInherited } from '../../bus/slot.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -172,6 +172,25 @@ describe('heavy run scheduler', () => {
     expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = 'review.recorded'`).get()).toEqual({ n: 3 })
     expectReplayIdentical(db)
     db.close()
+  })
+
+  it('a bus:run tick that hits database is locked prints one line and the next tick runs; any other error still ends bus:run', () => {
+    const file = scratch()
+    const db = openBus(file)
+    const clock = new Clock()
+    const busTick = new BusTick(db, new NetWatch(db, new FakeGitHub().client, clock.now), clock.now)
+    const holder = new DatabaseSync(file)
+    db.exec('PRAGMA busy_timeout = 0')
+    holder.exec('BEGIN IMMEDIATE')
+
+    expect(tickOrLocked(busTick)).toEqual(['[bus:run] the tick hit database is locked; it is retried in 5 s, and bus:run stays up'])
+    holder.exec('COMMIT')
+    holder.close()
+    clock.advance(TICK_MS)
+    expect(tickOrLocked(busTick).at(-1)).toMatch(/^\[bus:run\] reduced: applied \d+, rejected 0$/)
+    db.close()
+    clock.advance(TICK_MS)
+    expect(() => tickOrLocked(busTick)).toThrow(/not open/)
   })
 
   it('the number of slots of a kind is a named constant the environment may override', () => {
