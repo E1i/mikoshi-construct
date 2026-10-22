@@ -124,6 +124,7 @@ describe('roles are a projection the reducer alone writes', () => {
     expect(replayDifferences(db).differences).toEqual([])
     reduce(db)
     expect(watermarkOf(db, 'roles')).toBe(reducedThrough(db))
+    expect(reducedThrough(db)).toBe(db.prepare('SELECT max(id) AS id FROM events').get()!.id)
     expect(replayDifferences(db).differences).toEqual([])
     db.close()
   })
