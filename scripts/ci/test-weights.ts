@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import config from '../../vitest.config.js'
 import { execGh, readGhJson } from '../core/gh.js'
 import { updateWeights, weightsFromVitestReport } from './shard.js'
 
@@ -26,7 +27,9 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 
 const seconds = (from: string, to: string): number => (Date.parse(to) - Date.parse(from)) / 1000
 
-export function shardSpread(jobs: readonly RunJob[]): number | undefined {
+export interface SpreadReading { testSet: string, shards: number, spread: number }
+
+export function shardSpread(jobs: readonly RunJob[]): { shards: number, spread: number } | undefined {
   const shards = jobs.flatMap((job) => {
     const match = SHARD_JOB.exec(job.name)
     return match === null ? [] : [{ job, total: Number(match[2]) }]
@@ -38,7 +41,19 @@ export function shardSpread(jobs: readonly RunJob[]): number | undefined {
     const step = job.steps?.find(candidate => candidate.name.startsWith(TEST_STEP))
     return step === undefined ? seconds(job.startedAt, job.completedAt) : seconds(step.startedAt, step.completedAt)
   })
-  return Math.max(...durations) - Math.min(...durations)
+  return { shards: total, spread: Math.max(...durations) - Math.min(...durations) }
+}
+
+export function testSetOf(files: readonly string[]): string {
+  const included = (file: string): boolean => config.test!.include!.some(glob => path.matchesGlob(file, glob)) && !config.test!.exclude!.some(glob => path.matchesGlob(file, glob))
+  return files.filter(included).sort().join('\n')
+}
+
+export function comparableSpreads(before: readonly SpreadReading[], after: readonly SpreadReading[], testSet: string): { before: number[], after: number[], excluded: number } {
+  const shards = [...after, ...before].find(reading => reading.testSet === testSet)?.shards
+  const comparable = (readings: readonly SpreadReading[]): number[] => readings.filter(reading => reading.testSet === testSet && reading.shards === shards).map(reading => reading.spread).slice(0, RUNS_PER_SIDE)
+  const kept = { before: comparable(before), after: comparable(after) }
+  return { ...kept, excluded: before.length + after.length - kept.before.length - kept.after.length }
 }
 
 export function median(values: readonly number[]): number {
@@ -83,24 +98,28 @@ function spreadOnMain(boundaryArgument: string | undefined): void {
   const commits = (range: string): Set<string> => new Set((git(['rev-list', range]) ?? '').split('\n'))
   const after = commits(`${boundary}^..origin/main`)
   const earlier = commits(`${boundary}^`)
-  const before: number[] = []
-  const afterSpreads: number[] = []
+  const testSet = testSetOf((git(['ls-tree', '-r', '--name-only', boundary]) ?? '').split('\n'))
+  const readings = { before: [] as SpreadReading[], after: [] as SpreadReading[] }
   let unknown = 0
   for (const run of mainRuns()) {
-    if (before.length >= RUNS_PER_SIDE && afterSpreads.length >= RUNS_PER_SIDE)
-      break
-    const side = after.has(run.headSha) ? afterSpreads : earlier.has(run.headSha) ? before : undefined
-    if (side === undefined)
+    const side = after.has(run.headSha) ? readings.after : earlier.has(run.headSha) ? readings.before : undefined
+    if (side === undefined) {
       unknown += 1
-    if (side === undefined || side.length >= RUNS_PER_SIDE)
       continue
+    }
+    if (side.filter(reading => reading.testSet === testSet).length >= RUNS_PER_SIDE)
+      continue
+    const runTestSet = testSetOf((git(['ls-tree', '-r', '--name-only', run.headSha]) ?? '').split('\n'))
     const jobs = readGhJson<{ jobs: RunJob[] }>(execGh, ['run', 'view', String(run.databaseId), '--json', 'jobs'])
-    const spread = jobs.kind === 'read' ? shardSpread(jobs.value.jobs) : undefined
-    if (spread !== undefined)
-      side.push(spread)
+    const reading = jobs.kind === 'read' ? shardSpread(jobs.value.jobs) : undefined
+    if (reading !== undefined)
+      side.push({ testSet: runTestSet, ...reading })
   }
-  const verdict = compareSpreads(before, afterSpreads)
+  const comparable = comparableSpreads(readings.before, readings.after, testSet)
+  const verdict = compareSpreads(comparable.before, comparable.after)
   console.log(spreadLines(verdict, boundary).join('\n'))
+  if (comparable.excluded > 0)
+    console.log(`${comparable.excluded} runs on main ran another test set or shard count than ${boundary.slice(0, 12)} and are not compared`)
   if (unknown > 0)
     console.log(`${unknown} runs on main are on commits this clone does not have and are not counted; git fetch origin main reads them`)
   process.exit(verdict.kind === 'smaller' ? 0 : 1)
@@ -124,11 +143,12 @@ function rewriteFrom(report: string): void {
   const file = path.resolve(REPO_ROOT, report)
   if (!existsSync(file))
     failWith(`test:weights: no report at ${report}; the table is left as it is`)
-  const measured = weightsFromVitestReport(JSON.parse(readFileSync(file, 'utf8')), REPO_ROOT)
+  const onDisk = (test: string): boolean => test !== '' && existsSync(path.join(REPO_ROOT, test))
+  const measured = weightsFromVitestReport(JSON.parse(readFileSync(file, 'utf8')), onDisk)
   if (Object.keys(measured).length === 0)
-    failWith(`test:weights: ${report} measures no test file; the table is left as it is`)
+    failWith(`test:weights: ${report} measures no passed test file of this repository; the table is left as it is`)
   const previous = readWeights()
-  const weights = updateWeights(previous, measured, test => existsSync(path.join(REPO_ROOT, test)))
+  const weights = updateWeights(previous, measured, onDisk)
   writeFileSync(path.join(REPO_ROOT, WEIGHTS_PATH), `${JSON.stringify(weights, null, 2)}\n`)
   const dropped = Object.keys(previous).filter(test => !(test in weights)).length
   console.log(`${WEIGHTS_PATH}: ${Object.keys(weights).length} files, ${Object.keys(measured).length} measured from ${report}, ${dropped} no longer on disk dropped`)

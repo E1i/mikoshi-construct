@@ -28,11 +28,26 @@ export function balanceShards(files: readonly string[], weights: TestWeights, co
   return shards.map(shard => shard.files)
 }
 
-export function weightsFromVitestReport(report: { testResults: { name: string, status: string, startTime: number, endTime: number }[] }, root: string): Record<string, number> {
-  const prefix = root.endsWith('/') ? root : `${root}/`
-  return Object.fromEntries(report.testResults
-    .filter(file => file.status === 'passed')
-    .map(file => [file.name.startsWith(prefix) ? file.name.slice(prefix.length) : file.name, Math.max(MIN_WEIGHT, Math.round((file.endTime - file.startTime) / 100) / 10)] as const)
+export function reportRoot(names: readonly string[], exists: (file: string) => boolean): string | undefined {
+  for (const name of names) {
+    const parts = name.split('/')
+    for (let at = 1; at < parts.length; at += 1) {
+      if (exists(parts.slice(at).join('/')))
+        return parts.slice(0, at).join('/')
+    }
+  }
+  return undefined
+}
+
+export function weightsFromVitestReport(report: { testResults: { name: string, status: string, startTime: number, endTime: number }[] }, exists: (file: string) => boolean): Record<string, number> {
+  const passed = report.testResults.filter(file => file.status === 'passed')
+  const root = reportRoot(passed.map(file => file.name), exists)
+  if (root === undefined)
+    return {}
+  const prefix = `${root}/`
+  return Object.fromEntries(passed
+    .filter(file => file.name.startsWith(prefix))
+    .map(file => [file.name.slice(prefix.length), Math.max(MIN_WEIGHT, Math.round((file.endTime - file.startTime) / 100) / 10)] as const)
     .sort(([a], [b]) => byPath(a, b)))
 }
 

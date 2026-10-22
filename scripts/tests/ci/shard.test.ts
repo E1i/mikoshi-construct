@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import config from '../../../vitest.config.js'
 import { balanceShards, MIN_WEIGHT, NO_DATA_WEIGHT, updateWeights, weightOf, weightsFromVitestReport } from '../../ci/shard.js'
-import { compareSpreads, MIN_RUNS_PER_SIDE, shardSpread, spreadLines } from '../../ci/test-weights.js'
+import { comparableSpreads, compareSpreads, MIN_RUNS_PER_SIDE, shardSpread, spreadLines, testSetOf } from '../../ci/test-weights.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const committed = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/ci/test-weights.json'), 'utf8')) as TestWeights
@@ -83,20 +83,39 @@ describe('balanceShards', () => {
 })
 
 describe('weightsFromVitestReport', () => {
+  const inRepo = (...files: string[]) => (file: string): boolean => files.includes(file)
+  const local = inRepo('tests/a.test.ts', 'tests/b.test.ts', 'tests/fast.test.ts', 'tests/broke.test.ts')
+
+  it('records a CI report whose root differs from this clone relative to the repository', () => {
+    const ciRoot = '/home/runner/work/mikoshi-construct/mikoshi-construct'
+    const report = { testResults: [
+      { name: `${ciRoot}/tests/card/task-file.test.ts`, status: 'passed', startTime: 0, endTime: 9000 },
+      { name: `${ciRoot}/scripts/tests/ci/shard.test.ts`, status: 'passed', startTime: 0, endTime: 1500 },
+    ] }
+    const exists = inRepo('tests/card/task-file.test.ts', 'scripts/tests/ci/shard.test.ts')
+    const measured = weightsFromVitestReport(report, exists)
+    expect(measured).toEqual({ 'scripts/tests/ci/shard.test.ts': 1.5, 'tests/card/task-file.test.ts': 9 })
+    expect(updateWeights({}, measured, exists)).toEqual(measured)
+  })
+
+  it('measures nothing from a report none of whose files is in this repository', () => {
+    expect(weightsFromVitestReport({ testResults: [{ name: '/elsewhere/tests/x.test.ts', status: 'passed', startTime: 0, endTime: 900 }] }, local)).toEqual({})
+  })
+
   it('records each file relative to the root, in seconds to one decimal, sorted by path', () => {
     const report = { testResults: [
       { name: '/repo/tests/b.test.ts', status: 'passed', startTime: 1000, endTime: 3460 },
       { name: '/repo/tests/a.test.ts', status: 'passed', startTime: 0, endTime: 120 },
     ] }
-    expect(Object.entries(weightsFromVitestReport(report, '/repo'))).toEqual([['tests/a.test.ts', 0.1], ['tests/b.test.ts', 2.5]])
+    expect(Object.entries(weightsFromVitestReport(report, local))).toEqual([['tests/a.test.ts', 0.1], ['tests/b.test.ts', 2.5]])
   })
 
   it('records a file faster than the rounding at the minimum weight, never zero', () => {
-    expect(weightsFromVitestReport({ testResults: [{ name: '/repo/tests/fast.test.ts', status: 'passed', startTime: 0, endTime: 20 }] }, '/repo')).toEqual({ 'tests/fast.test.ts': MIN_WEIGHT })
+    expect(weightsFromVitestReport({ testResults: [{ name: '/repo/tests/fast.test.ts', status: 'passed', startTime: 0, endTime: 20 }] }, local)).toEqual({ 'tests/fast.test.ts': MIN_WEIGHT })
   })
 
   it('measures no file whose run failed, so its old weight stands', () => {
-    expect(weightsFromVitestReport({ testResults: [{ name: '/repo/tests/broke.test.ts', status: 'failed', startTime: 0, endTime: 900 }] }, '/repo')).toEqual({})
+    expect(weightsFromVitestReport({ testResults: [{ name: '/repo/tests/broke.test.ts', status: 'failed', startTime: 0, endTime: 900 }] }, local)).toEqual({})
   })
 })
 
@@ -111,13 +130,23 @@ describe('the shard spread on main', () => {
   })
 
   it('is the gap between the slowest and the fastest test step of one run', () => {
-    expect(shardSpread([shardJob(1, 3, 50), shardJob(2, 3, 170), shardJob(3, 3, 80), { name: 'lint', conclusion: 'success', startedAt: at(0), completedAt: at(500) }])).toBe(120)
+    expect(shardSpread([shardJob(1, 3, 50), shardJob(2, 3, 170), shardJob(3, 3, 80), { name: 'lint', conclusion: 'success', startedAt: at(0), completedAt: at(500) }])).toEqual({ shards: 3, spread: 120 })
   })
 
   it('is no reading when a shard failed or is missing', () => {
     expect(shardSpread([shardJob(1, 3, 50), shardJob(2, 3, 170, 'failure'), shardJob(3, 3, 80)])).toBeUndefined()
     expect(shardSpread([shardJob(1, 3, 50), shardJob(3, 3, 80)])).toBeUndefined()
     expect(shardSpread([])).toBeUndefined()
+  })
+
+  it('compares only runs on the boundary\'s test set and shard count, so a grown suite moves no gap', () => {
+    const files = ['tests/a.test.ts', 'scripts/tests/b.test.ts', 'tests/fixtures/c.test.ts', 'src/d.ts']
+    const testSet = testSetOf(files)
+    expect(testSet).toBe('scripts/tests/b.test.ts\ntests/a.test.ts')
+    const grown = testSetOf([...files, 'tests/new.test.ts'])
+    const before = [{ testSet, shards: 4, spread: 100 }, { testSet: grown, shards: 4, spread: 10 }]
+    const after = [{ testSet, shards: 4, spread: 40 }, { testSet, shards: 3, spread: 5 }, { testSet: grown, shards: 4, spread: 300 }]
+    expect(comparableSpreads(before, after, testSet)).toEqual({ before: [100], after: [40], excluded: 3 })
   })
 
   it('with too few comparable runs on either side prints not proven yet, which is not green', () => {
