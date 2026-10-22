@@ -6,6 +6,16 @@ export { isTest }
 
 export const BUS_CORE = /^scripts\/bus\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
 export const BUS_SERVICE = /^scripts\/bus\/([a-z]+)-(?:worker|executor|starter)\.ts$/
+export const BUS_SHARED: readonly string[] = [
+  'scripts/bus/db.ts',
+  'scripts/bus/errors.ts',
+  'scripts/bus/lease.ts',
+  'scripts/bus/node.ts',
+  'scripts/bus/queue.ts',
+  'scripts/bus/stamp.ts',
+  'scripts/bus/stored.ts',
+]
+export const BUS_TESTS = 'scripts/tests/bus/'
 const SCRIPT_DIR = /^scripts\/([^/]+)\//
 const SOURCE_FILE = /\.ts$/
 const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
@@ -82,7 +92,8 @@ export function selectRun(changed: readonly string[], graph: Graph, testText: (t
   const reached = dependents(changed, reverse)
   const readers = [...graph.keys()].filter(underTestRoot)
   const treeScanners = allTests.filter(test => scansATree(testText(test)))
-  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners]
+  const busWide = changed.some(file => BUS_SHARED.includes(file)) ? allTests.filter(test => test.startsWith(BUS_TESTS)) : []
+  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide]
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].map(layerOf).filter(layer => layer !== null))].sort()
   const tests = [...closure].filter(isTest).sort()

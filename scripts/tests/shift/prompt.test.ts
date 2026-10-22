@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseTaskFile } from '../../../src/card/task-file.js'
+import { PREPUSH_COMMAND } from '../../ci/prepush.js'
 import { renderPrompt } from '../../shift/prompt.js'
 
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
@@ -39,5 +40,13 @@ describe('renderPrompt', () => {
 
   it('tells the session to put a question for the owner on a question: line of the report, which the runner reads', () => {
     expect(promptOf('implement', 'Do it.')).toContain('`question: <what the owner decides>`')
+  })
+
+  it('tells a launched session to run the pre-push tests, typecheck and lint before it ends, not pnpm run quality', () => {
+    const prompt = promptOf('implement', 'Do it.')
+    expect(prompt).toContain(PREPUSH_COMMAND)
+    expect(prompt).toContain('`pnpm typecheck`')
+    expect(prompt).toContain('`pnpm lint`')
+    expect(prompt).not.toContain('pnpm run quality')
   })
 })
