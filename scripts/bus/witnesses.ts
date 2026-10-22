@@ -41,6 +41,10 @@ const PIPED_GREP = /^(.*[^|])\|\s*grep(\s.*)$/
 const INVERT_LONG_FLAG = /\s--invert-match(?=\s|$)/g
 const SHORT_FLAGS_WITH_INVERT = /\s-([A-UW-Z]*)v([A-Z]*)(?=\s|$)/gi
 const NO_TEST_MATCHED = /matched no test|No test files found/
+const FAILED_TESTS = /\b\d+ failed\b/
+const VITEST = /\bvitest\b/
+const TEST_FILE = /^[\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?$/
+const TEST_NAME = /\s(?:-t|--testNamePattern)[=\s]+(?:'([^']*)'|"([^"]*)"|(\S+))/
 
 interface GrepWitness { witness: Witness, probe: string }
 
@@ -65,8 +69,26 @@ export function grepRefusal(witness: Witness, sides: string): string {
   return `grep witness "${witness.criterion}" matches its pattern on neither ${sides}: nothing it reads prints what it looks for, so its red on the base is not red for a reason; grep where the output is written (a reporter with an outputFile writes there, not to stdout)`
 }
 
-function matchedNoTest(result: ShellResult): boolean {
-  return result.status !== 0 && NO_TEST_MATCHED.test(result.output)
+export interface TestTarget { file: string, name: string | null }
+
+export function testTargetOf(command: string): TestTarget | null {
+  if (!VITEST.test(command))
+    return null
+  const file = command.split(/\s+/).find(token => TEST_FILE.test(token))
+  if (file === undefined)
+    return null
+  const named = TEST_NAME.exec(command)
+  return { file, name: named === null ? null : named[1] ?? named[2] ?? named[3] }
+}
+
+function absentOnBase(tree: string, witness: Witness): boolean {
+  const target = testTargetOf(witness.command)
+  if (target === null)
+    return false
+  const file = path.join(tree, target.file)
+  if (!existsSync(file))
+    return true
+  return target.name !== null && !readFileSync(file, 'utf8').includes(target.name)
 }
 
 function baseRedRefusal(witness: Witness, result: ShellResult, base: string): string | null {
@@ -74,20 +96,21 @@ function baseRedRefusal(witness: Witness, result: ShellResult, base: string): st
     return `witness "${witness.criterion}" did not run on the base ${base} (exit ${result.status ?? 'none'}: ${lastLine(result.output)}); red for a missing command is not red for a reason`
   if (result.status === 0)
     return `witness "${witness.criterion}" exits 0 on the clean base ${base}: it is green before any change, so no implementation can make it red`
-  if (matchedNoTest(result))
-    return `witness "${witness.criterion}" matched no test on the base ${base} (${lastLine(result.output)}): a witness that runs no test on the base catches nothing, so its red is not red for a reason`
-  return null
-}
-
-function baseInvariantRefusal(run: TreeRun, witness: Witness, result: ShellResult, base: string): string | null {
-  if (!matchedNoTest(result))
-    return greenRefusal('invariant', witness, result, `the clean base ${base}`)
-  run.log(`invariant "${witness.criterion}": not applicable on the base ${base}: new test; checked on the head only`)
+  if (NO_TEST_MATCHED.test(result.output))
+    return `witness "${witness.criterion}" matched no test on the base ${base} while its test file and name are there (${lastLine(result.output)}): a witness that runs no test is not red for a reason`
+  if (testTargetOf(witness.command) !== null && !FAILED_TESTS.test(result.output))
+    return `witness "${witness.criterion}" exits ${result.status} on the base ${base} with no failing test (${lastLine(result.output)}): a crash or an environment error is not red for a reason`
   return null
 }
 
 function greenRefusal(label: string, witness: Witness, result: ShellResult, where: string): string | null {
   return result.status === 0 ? null : `${label} "${witness.criterion}" exits ${result.status ?? 'without a status'} on ${where}: ${lastLine(result.output)}`
+}
+
+function headRefusal(label: string, witness: Witness, result: ShellResult, where: string): string | null {
+  if (NO_TEST_MATCHED.test(result.output))
+    return `${label} "${witness.criterion}" matched no test on ${where} (${lastLine(result.output)}): a witness that runs no test proves nothing`
+  return greenRefusal(label, witness, result, where)
 }
 
 function firstFailingStep(stepsScript: string, output: string): string | null {
@@ -175,12 +198,16 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
   const baseShort = base.slice(0, 7)
   const harnessRuns = task.sketchSha !== null && task.changed !== null
   const invariants = harnessRuns ? invariantsBesideHarness(run, task) : task.invariants
+  const absent = new Set([...task.acceptance, ...invariants].filter(witness => absentOnBase(tree, witness)))
+  const presentOnBase = (witnesses: Witness[]): Witness[] => witnesses.filter(witness => !absent.has(witness))
   let unmatchedOnBase: GrepWitness[] = []
   if (existsSync(path.join(tree, LOCKFILE)))
     time('install', () => refuse('P7', shell(INSTALL, tree).status === 0 ? null : `${INSTALL} failed on the base ${baseShort}`))
   time('P7 base', () => {
-    refuse('P7', firstProblem(task.acceptance, witness => baseRedRefusal(witness, shell(witness.command, tree), baseShort)))
-    refuse('P7', firstProblem(invariants, witness => baseInvariantRefusal(run, witness, shell(witness.command, tree), baseShort)))
+    task.acceptance.filter(witness => absent.has(witness)).forEach(witness => run.log(`witness "${witness.criterion}": red on the base ${baseShort} by absence: its test is not in the base tree; checked on the head`))
+    invariants.filter(witness => absent.has(witness)).forEach(witness => run.log(`invariant "${witness.criterion}": not applicable on the base ${baseShort}: new test; checked on the head only`))
+    refuse('P7', firstProblem(presentOnBase(task.acceptance), witness => baseRedRefusal(witness, shell(witness.command, tree), baseShort)))
+    refuse('P7', firstProblem(presentOnBase(invariants), witness => greenRefusal('invariant', witness, shell(witness.command, tree), `the clean base ${baseShort}`)))
     unmatchedOnBase = grepWitnesses(task.acceptance).filter(({ probe }) => shell(probe, tree).status !== 0)
   })
   if (task.sketchSha === null || task.changed === null) {
@@ -195,8 +222,8 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
     stageSketch(tree, base, sketchSha)
     refuse('P8', reinstallRefusal(run, sketchSha, where))
     refuse('P8', firstProblem(unmatchedOnBase, ({ witness, probe }) => shell(probe, tree).status === 0 ? null : grepRefusal(witness, `the base ${baseShort} nor ${where}`)))
-    refuse('P8', firstProblem(task.acceptance, witness => greenRefusal('positive control', witness, shell(witness.command, tree), where)))
-    refuse('P8', firstProblem(invariants, witness => greenRefusal('invariant', witness, shell(witness.command, tree), where)))
+    refuse('P8', firstProblem(task.acceptance, witness => headRefusal('positive control', witness, shell(witness.command, tree), where)))
+    refuse('P8', firstProblem(invariants, witness => headRefusal('invariant', witness, shell(witness.command, tree), where)))
   })
   time('P8 harness', () => refuse('P8', harnessRefusal(run, task, where)))
   time('P6 lint', () => lint(run, lintTargets(tree, changed, ''), 'lint of the sketch test files, no --fix,', where))
