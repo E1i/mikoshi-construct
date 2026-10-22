@@ -9,7 +9,7 @@ import { BACKFILL_SOURCE } from '../../bus/backfill-source.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { slotsOf } from '../../bus/scheduler.js'
 import { CARD_ADMITTED, CARD_STARTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '../../core/events.js'
-import { readParkedFile, runTaskStart } from '../../ghosts/task-start.js'
+import { runTaskStart } from '../../ghosts/task-start.js'
 import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ports/worktree-home.js'
 import { journalInBus } from './card-started-bus.js'
 
@@ -369,7 +369,7 @@ describe('w1: task:start cuts the tree and writes the start', () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toEqual([
       expect.stringMatching(/^-{4} task:start #8 task-8 -+$/),
-      'CONTRACT | implement · cheap · owner · touches not recorded on the card: no parking file for #8 · law not recorded on the card',
+      'CONTRACT | implement · cheap · owner · touches not recorded on the card: no card body for #8 in the bus · law not recorded on the card',
       'EXPECT   | expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone',
       `ACTION   | task:start feat/t8 #8: cut ${worktree} from origin/main; card.started written to ${world.bus}`,
       'RESULT   | accepted · not started',
@@ -383,7 +383,7 @@ describe('w1: task:start cuts the tree and writes the start', () => {
     const entry = starts(world)[0]!.entry as Record<string, string>
     expect(entry).toEqual({
       schema: 2,
-      CONTRACT: 'implement · cheap · owner · touches not recorded on the card: no parking file for #9 · law not recorded on the card',
+      CONTRACT: 'implement · cheap · owner · touches not recorded on the card: no card body for #9 in the bus · law not recorded on the card',
       EXPECT: 'expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone',
       ACTION: `task:start feat/t9 #9: cut ${worktree} from origin/main; card.started written to ${world.bus}`,
       RESULT: 'accepted · not started',
@@ -491,7 +491,7 @@ describe('w2: task:start refuses a card of the wrong form, and the old call', ()
     const world = newWorld()
     const result = runTaskStart(['t1', 'feat/t1'], depsOf(world))
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual([`[task:start] a task starts from its card now: usage: pnpm task:start <branch> --card "<card>" [--parking <dir>] [--without-intake "<reason>"]; the id is the card's #<id>`])
+    expect(result.stderr).toEqual([`[task:start] a task starts from its card now: usage: pnpm task:start <branch> --card "<card>" [--without-intake "<reason>"]; the id is the card's #<id>`])
     expect(existsSync(path.join(world.root, 'mc-t1'))).toBe(false)
   })
 })
@@ -588,11 +588,18 @@ describe('task:start --adopt takes an existing tree instead of cutting one', () 
 
   it('refuses --adopt with no tree with the usage line that names --adopt <tree>', () => {
     const world = newWorld()
-    expect(runTaskStart(['feat/a5', '--card', card(51), '--adopt'], depsOf(world)).stderr).toEqual([`[task:start] usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--parking <dir>] [--without-intake "<reason>"]`])
+    expect(runTaskStart(['feat/a5', '--card', card(51), '--adopt'], depsOf(world)).stderr).toEqual([`[task:start] usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--without-intake "<reason>"]`])
   })
 })
 
-describe('the card.started carries the card who and risk read from the card file at start', () => {
+function bodiesIn(dir: string): (cardId: number) => string | null {
+  return (cardId) => {
+    const file = path.join(dir, `${cardId}.md`)
+    return existsSync(file) ? readFileSync(file, 'utf8') : null
+  }
+}
+
+describe('the card.started carries the card who and risk read from the card body at start', () => {
   const RISK = 'R2 — high: a contract or a recorded shape that others read changes; a review reads it — the factory mechanism: scripts/ghosts/task-start.ts'
 
   function parked(world: World, line: string, body: string, who = 'shift'): TaskStartDeps {
@@ -600,7 +607,7 @@ describe('the card.started carries the card who and risk read from the card file
     mkdirSync(dir, { recursive: true })
     const id = /^#(\d+)/.exec(line)![1]
     writeFileSync(path.join(dir, `${id}.md`), `card: ${line}\nbranch: feat/p\ntouches: a.ts\ncontinue: stop\nwho: ${who}\n\n${body}\n`)
-    return { ...depsOf(world), parking: { dir, read: file => existsSync(file) ? readFileSync(file, 'utf8') : null } }
+    return { ...depsOf(world), cardBody: bodiesIn(dir) }
   }
 
   it('the card.started carries the card who and risk as written', () => {
@@ -640,19 +647,18 @@ describe('the card.started carries the card who and risk read from the card file
     }
   })
 
-  it('a parking path that exists but cannot be read names the read failure in the CONTRACT and starts', () => {
+  it('a card body that cannot be read names the read failure in the CONTRACT and starts', () => {
     const world = newWorld()
-    const dir = path.join(world.root, 'parking')
-    const unreadable = path.join(dir, '31.md')
-    mkdirSync(unreadable, { recursive: true })
-    const result = runTaskStart(['feat/p6', '--card', card(31)], { ...depsOf(world), parking: { dir, read: readParkedFile } })
+    const result = runTaskStart(['feat/p6', '--card', card(31)], { ...depsOf(world), cardBody: () => {
+      throw new Error('database is locked')
+    } })
     expect(result.exitCode).toBe(0)
-    const reason = `touches not recorded on the card: ${unreadable} could not be read: EISDIR`
+    const reason = `touches not recorded on the card: the card body of #31 in the bus ${world.bus} could not be read: database is locked`
     expect(result.stdout.join('\n')).toContain(reason)
-    expect(result.stdout.join('\n')).not.toContain('no parking file')
+    expect(result.stdout.join('\n')).not.toContain('no card body')
     const entry = starts(world)[0]!.entry as Record<string, string>
     expect(entry.CONTRACT).toContain(reason)
-    expect(entry.CONTRACT).not.toContain('no parking file')
+    expect(entry.CONTRACT).not.toContain('no card body')
   })
 })
 
@@ -670,14 +676,14 @@ describe('task:start checks the card file against the body its card.admitted car
     if (movedAfter)
       appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${id}:moved`, payload: { card: card(id), lane: 'lane-1', depends: [], decision: 'auto', contour: 'cheap', moved: true }, legacy: false })
     db.close()
-    return { ...depsOf(world), parking: { dir, read: file => existsSync(file) ? readFileSync(file, 'utf8') : null } }
+    return { ...depsOf(world), cardBody: bodiesIn(dir) }
   }
 
   it('a card admitted with a body, moved to a lane by an admission without one, then edited is refused', () => {
     const world = newWorld()
     const result = runTaskStart(['feat/b4', '--card', card(94)], parkedWithAdmission(world, 94, 'the admitted body', 'a body edited past intake', { movedAfter: true }))
     expect(result.exitCode).toBe(1)
-    expect(result.stderr.join('\n')).toContain('the parking file of card #94 is not the body card.admitted:94:body admitted')
+    expect(result.stderr.join('\n')).toContain('the card body of #94 is not the body card.admitted:94:body admitted')
     expect(starts(world)).toEqual([])
   })
 
@@ -691,7 +697,7 @@ describe('task:start checks the card file against the body its card.admitted car
     const deps = parkedWithAdmission(world, 91, 'the admitted body', 'a body edited past intake')
     const result = runTaskStart(['feat/b1', '--card', card(91)], deps)
     expect(result.exitCode).toBe(1)
-    expect(result.stderr.join('\n')).toMatch(/^\[task:start\] the parking file of card #91 is not the body card\.admitted:91:body admitted \(bodySha [0-9a-f]{12}, the file [0-9a-f]{12}\): it was edited past intake; admit it again through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written$/)
+    expect(result.stderr.join('\n')).toMatch(/^\[task:start\] the card body of #91 is not the body card\.admitted:91:body admitted \(bodySha [0-9a-f]{12}, the bus holds [0-9a-f]{12}\): it was edited past intake; admit it again through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written$/)
     expect(starts(world)).toEqual([])
     expect(existsSync(path.join(world.root, 'mc-91'))).toBe(false)
     expect(runTaskStart(['feat/b1', '--card', card(91), '--without-intake', 'the owner said so'], deps).exitCode).toBe(0)

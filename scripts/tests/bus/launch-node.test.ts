@@ -731,7 +731,7 @@ describe('the launch node', () => {
       readTranscript: () => null,
       treeFile: () => null,
     }
-    const starter = new ShiftCardStarter({ parking: path.join(root, 'parking'), launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
+    const starter = new ShiftCardStarter({ launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
     const processes: ProcessTable = { commandLine: () => live.size === 0 ? null : `sh -c claude -p --session-id ${[...live].at(-1)}`, signalGroup: () => {} }
     const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, isolation: sandboxed })
     return { node, spawned, live }
@@ -1020,7 +1020,7 @@ function ladderWorld(made: MergeBench, handoffState: { brief: string, approved: 
     treeFile: () => null,
   }
   const steps = handoffLadderSteps(handoff, path.join(root, 'repo'), { [WORKTREE_HOME_VARIABLE]: path.join(root, 'worktrees') }, made.busPath)
-  const starter = new LadderCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: path.join(root, 'repo') }, ports, steps)
+  const starter = new LadderCardStarter({ launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: path.join(root, 'repo') }, ports, steps)
   return { starter, spawned, handoff, tree, briefFile }
 }
 
@@ -1359,7 +1359,7 @@ describe('what a launched session left behind', () => {
       readTranscript: () => null,
       treeFile: () => null,
     }
-    const starter = new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
+    const starter = new ShiftCardStarter({ launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
     const from: StartedCard = { session: 'sess-first', worktree: '/trees/mc-1123', branch: 'feat/a-card', base: 'b'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' }
 
     const begun = starter.continueFrom({ cardId: 1123, lane: 'lane-a' }, from)

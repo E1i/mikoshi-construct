@@ -106,7 +106,7 @@ function launchWorld(claudeExit: number, report = '') {
   const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'shift', 'tree-pr-cli.ts'))}`
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, [BUS_DB_VARIABLE]: busPath }
   const starter = new ShiftCardStarter(
-    { parking, launchDir, claude, treePr },
+    { launchDir, claude, treePr },
     {
       read: busCardBodies(busPath),
       cut: () => worktree,

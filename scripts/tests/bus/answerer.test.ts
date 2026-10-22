@@ -121,7 +121,7 @@ describe('the answer path publishes on a fresh base', () => {
     git(upstream, ['push', '-q', 'origin', 'main'])
     writeFileSync(path.join(worktree, 'a.md'), 'the answer\n')
 
-    realAnswererTools(path.join(root, 'parking'), path.join(root, 'bus.db')).publish({ session: CARD_SESSION, worktree, branch: 'feat/card-1207' }, 'answer for #1207')
+    realAnswererTools(path.join(root, 'bus.db')).publish({ session: CARD_SESSION, worktree, branch: 'feat/card-1207' }, 'answer for #1207')
 
     const fresh = git(upstream, ['rev-parse', 'main']).trim()
     expect({ onFreshBase: git(worktree, ['merge-base', fresh, 'origin/feat/card-1207']).trim() === fresh, merges: git(worktree, ['rev-list', '--merges', '--count', `${fresh}..origin/feat/card-1207`]).trim() }).toEqual({ onFreshBase: true, merges: '1' })

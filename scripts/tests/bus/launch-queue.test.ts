@@ -171,7 +171,7 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
     treeFile: () => null,
     ...overrides,
   }
-  return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: shiftClaude ?? 'claude', treePr: 'true', ...places }, ports)
+  return new ShiftCardStarter({ launchDir: path.join(root, 'launch'), claude: shiftClaude ?? 'claude', treePr: 'true', ...places }, ports)
 }
 
 describe('the launch queue', () => {
@@ -492,7 +492,7 @@ describe('the launch queue', () => {
       readTranscript: () => null,
       treeFile: () => null,
     }
-    return { starter: new ShiftCardStarter({ parking, launchDir, claude: 'claude', treePr: 'true' }, ports), cuts, spawned }
+    return { starter: new ShiftCardStarter({ launchDir, claude: 'claude', treePr: 'true' }, ports), cuts, spawned }
   }
 
   it('a continueIn candidate is started in its named tree, never by task:start', () => {

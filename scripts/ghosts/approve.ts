@@ -1,4 +1,5 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { CardBodyReader } from '../bus/parking-reads.js'
 import type { BuildRunner } from './hash.js'
 import type { Preflight } from './preflight.js'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
@@ -8,6 +9,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { riskReading } from '../../src/card/risk.js'
+import { defaultBusPath } from '../bus/db.js'
+import { busCardBodies } from '../bus/parking-reads.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { approvedHashPath, canonicalImplementText, cardNumberOf, checkApproval, extractApprovedHash, extractApprovedSketch, journalEvents, MORSE, revocationOf, revokeEvent } from './approval.js'
 import { approvalLine, checkAcceptanceBuild, hashBrief, resolveApprover } from './hash.js'
@@ -70,11 +73,11 @@ function isApproved(queued: QueuedBrief): boolean {
   return approval.ok && revocationOf(journalEvents(queued.journalPath), approval.sha256, queued.card.id) === undefined
 }
 
-function riskOf(parkingDir: string, card: number): { risk: string, why: string } {
-  const file = path.join(parkingDir, `${card}.md`)
-  if (!existsSync(file))
-    return { risk: 'not read', why: `no parking file ${file}` }
-  const parsed = parseParkingFile(`${card}.md`, readFileSync(file, 'utf8'))
+function riskOf(cardBody: CardBodyReader, card: number): { risk: string, why: string } {
+  const text = cardBody(card)
+  if (text === null)
+    return { risk: 'not read', why: `no card body for #${card} in the bus` }
+  const parsed = parseParkingFile(`${card}.md`, text)
   if (parsed.kind === 'refused')
     return { risk: 'not read', why: parsed.reason }
   const reading = riskReading(parsed.parked.task.touches, false)
@@ -93,22 +96,22 @@ function redOnBaseOf(content: string): string[] {
   return lines.slice(first, end === -1 ? lines.length : end)
 }
 
-function waitingBrief(queued: QueuedBrief, parkingDir: string): WaitingBrief | undefined {
+function waitingBrief(queued: QueuedBrief, cardBody: CardBodyReader): WaitingBrief | undefined {
   if (!existsSync(queued.brief))
     return undefined
   const content = readFileSync(queued.brief, 'utf8')
   const text = canonicalImplementText(content)
   if (text === undefined || isApproved(queued))
     return undefined
-  const { risk, why } = riskOf(parkingDir, queued.card.id)
+  const { risk, why } = riskOf(cardBody, queued.card.id)
   if (risk !== 'R1' && risk !== 'not read')
     return undefined
   const expect = text.split('\n').find(line => line.startsWith(EXPECT_PREFIX)) ?? `expect not recorded in ${queued.brief}`
   return { ...queued, sha256: hashBrief(queued.brief), risk, why, expect, redOnBase: redOnBaseOf(content) }
 }
 
-export function waitingBriefs(handoffDir: string, parkingDir: string): WaitingBrief[] {
-  return queuedBriefs(handoffDir).flatMap(queued => waitingBrief(queued, parkingDir) ?? [])
+export function waitingBriefs(handoffDir: string, cardBody: CardBodyReader): WaitingBrief[] {
+  return queuedBriefs(handoffDir).flatMap(queued => waitingBrief(queued, cardBody) ?? [])
 }
 
 export function renderWaiting(waiting: WaitingBrief[]): string[] {
@@ -195,7 +198,7 @@ async function main(): Promise<void> {
   try {
     const args = approveArgs(process.argv.slice(2))
     if (args.kind === 'list')
-      console.log(renderWaiting(waitingBriefs(handoffDir, constructDir('parking'))).join('\n'))
+      console.log(renderWaiting(waitingBriefs(handoffDir, busCardBodies(defaultBusPath()))).join('\n'))
     else if (args.kind === 'revoke')
       console.log(await revokeCard(args.card, handoffDir, new Date()))
     else

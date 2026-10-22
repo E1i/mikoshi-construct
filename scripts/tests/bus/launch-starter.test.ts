@@ -98,7 +98,7 @@ function heldTree(changed: string[], overrides: Partial<StarterPorts> = {}): { s
     treeFile: file => TREE_FILES[path.relative(TREE, file)] ?? null,
     ...overrides,
   }
-  const starter = new ShiftCardStarter({ parking: '/parking', launchDir: LAUNCH_DIR, claude: 'claude', treePr: 'true' }, ports)
+  const starter = new ShiftCardStarter({ launchDir: LAUNCH_DIR, claude: 'claude', treePr: 'true' }, ports)
   const from: StartedCard = { session: SESSION, worktree: TREE, branch: `feat/card-${CARD}`, base: 'a'.repeat(40), pid: 1, pgid: 1, contour: 'cheap' }
   return {
     start: () => starter.continueFrom({ cardId: CARD, lane: 'lane-1' }, from),
