@@ -84,6 +84,7 @@ export const WINDOW_REQUEST = 'window.request'
 export const REQUEST_DONE = 'window.request.done'
 export const REQUEST_REFUSED = 'window.request.refused'
 export const WINDOW_SUBAGENT_EVENT = 'window.subagent'
+export const WITNESS_DOWNGRADE = 'witness.downgrade'
 export const WITNESS_RECORDED = 'witness.recorded'
 export const WORKER_DOWN = 'worker.down'
 
