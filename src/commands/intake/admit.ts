@@ -405,7 +405,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
   if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text)) {
     if (!options.dryRun)
-      options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)).event)
+      options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)))
     return { ...base, status: 'alreadyAdmitted' }
   }
   const reparsed = parseParkingFile(file, admitted.text)
@@ -430,7 +430,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
   if (busBody === null && admitted.text !== text)
     writeFileSync(options.file, admitted.text)
-  recordIntake(options.journal, [admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
+  recordIntake([admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
   return { ...base, status: 'admitted' }
 }
 

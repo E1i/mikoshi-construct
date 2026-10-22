@@ -1,6 +1,7 @@
 import type { ArgsDef, CommandDef, CommandMeta } from 'citty'
 import type { BoardReading } from './commands/board/index.js'
 import type { CardAdmissionsPort, CardEventPort, CardStatesPort } from './commands/intake/index.js'
+import type { MutationJudgedPort } from './commands/mutate/journal.js'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -381,7 +382,7 @@ function intakeCommand(bus: BusPorts | undefined) {
         const dir = path.resolve(args.dir)
         const journal = path.resolve(args.journal ?? defaultWindowJournal())
         if (args.move !== undefined || args.to !== undefined) {
-          process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), journal, events }))
+          process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), events }))
           return
         }
         if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
@@ -439,51 +440,55 @@ const mutateApply = withKnownFlags(defineCommand({
   },
 }), MUTATE_META)
 
-const mutateJudge = withKnownFlags(defineCommand({
-  meta: { name: 'judge', description: 'Restore the mutated file from its copy and judge the outcome from a test report, or record a green report as the baseline' },
-  args: {
-    ...commonArgs,
-    id: { type: 'string', description: 'The id of the applied mutation to restore and judge' },
-    baseline: { type: 'boolean', description: 'Record a green report as the baseline apply requires', default: false },
-    report: { type: 'string', description: 'The test report the runner wrote, in the format named by --format' },
-    format: { type: 'enum', options: [...REPORT_FORMATS], description: 'The report format: vitest-json (the runner\'s json reporter) or junit-xml', default: 'vitest-json' },
-    card: { type: 'string', description: 'The card the mutation verifies (#<n> or <n>): after the verdict, append a mutation-judged line for it to --journal' },
-    journal: { type: 'string', description: 'The journal --card appends to (default: ~/.construct/handoff/ghosts.jsonl)' },
-    json: { type: 'boolean', description: 'Machine-readable report', default: false },
-  },
-  run({ args }) {
-    const console = ui(args, args.json ? stderrWriter : stdoutWriter)
-    const failed = reported(console, () => {
-      const journal = args.card === undefined ? undefined : path.resolve(args.journal ?? defaultWindowJournal())
-      const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline, format: args.format, card: args.card, journal, shiftCard: process.env.CONSTRUCT_CARD })
-      if (args.json) {
-        process.stdout.write(`${JSON.stringify(judgeJson(result), null, 2)}\n`)
-        process.exitCode = judgeExit(result)
-        return
-      }
-      process.exitCode = printJudge(console, result)
-    })
-    if (failed !== 0)
-      process.exitCode = failed
-  },
-}), MUTATE_META)
+function mutateJudgeCommand(record: MutationJudgedPort | undefined) {
+  return withKnownFlags(defineCommand({
+    meta: { name: 'judge', description: 'Restore the mutated file from its copy and judge the outcome from a test report, or record a green report as the baseline' },
+    args: {
+      ...commonArgs,
+      id: { type: 'string', description: 'The id of the applied mutation to restore and judge' },
+      baseline: { type: 'boolean', description: 'Record a green report as the baseline apply requires', default: false },
+      report: { type: 'string', description: 'The test report the runner wrote, in the format named by --format' },
+      format: { type: 'enum', options: [...REPORT_FORMATS], description: 'The report format: vitest-json (the runner\'s json reporter) or junit-xml', default: 'vitest-json' },
+      card: { type: 'string', description: 'The card the mutation verifies (#<n> or <n>): after the verdict, record a mutation-judged line for it in the bus; pnpm mutate judge wires the bus in' },
+      json: { type: 'boolean', description: 'Machine-readable report', default: false },
+    },
+    run({ args }) {
+      const console = ui(args, args.json ? stderrWriter : stdoutWriter)
+      const failed = reported(console, () => {
+        const result = runJudge({ dir: args.dir, report: args.report, id: args.id, baseline: args.baseline, format: args.format, card: args.card, record, shiftCard: process.env.CONSTRUCT_CARD })
+        if (args.json) {
+          process.stdout.write(`${JSON.stringify(judgeJson(result), null, 2)}\n`)
+          process.exitCode = judgeExit(result)
+          return
+        }
+        process.exitCode = printJudge(console, result)
+      })
+      if (failed !== 0)
+        process.exitCode = failed
+    },
+  }), MUTATE_META)
+}
 
-const mutate = defineCommand({
-  meta: MUTATE_META,
-  subCommands: {
-    apply: mutateApply,
-    judge: mutateJudge,
-  },
-})
+function mutateCommand(bus: BusPorts | undefined) {
+  return defineCommand({
+    meta: MUTATE_META,
+    subCommands: {
+      apply: mutateApply,
+      judge: mutateJudgeCommand(bus?.mutationJudged),
+    },
+  })
+}
 
 export interface BusPorts {
   cardEvents: CardEventPort
   cardStates: CardStatesPort
   cardAdmissions: CardAdmissionsPort
+  mutationJudged?: MutationJudgedPort
 }
 
 export function createMain(bus?: BusPorts) {
   const intake = intakeCommand(bus)
+  const mutate = mutateCommand(bus)
   return defineCommand({
     meta: ROOT_META,
     subCommands: {

@@ -8,7 +8,7 @@ import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
-import { ghostLinesText } from '../ghosts/journal.js'
+import { GHOST_LINE } from '../core/events.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { openDatabase } from './sqlite.js'
@@ -381,16 +381,22 @@ export function readParking(dir: string): ParkingCard[] {
   })
 }
 
+const GHOST_LINE_PAYLOADS = `SELECT payload FROM events WHERE type = '${GHOST_LINE}' AND legacy = 0 ORDER BY id`
+
+export function ghostJournalOf(db: DatabaseSync): string {
+  return (db.prepare(GHOST_LINE_PAYLOADS).all() as { payload: string }[]).map(row => `${row.payload}\n`).join('')
+}
+
 function main(): void {
   const handoff = process.env.CONSTRUCT_HANDOFF_DIR ?? path.join(os.homedir(), '.construct', 'handoff')
+  const db = openDatabase(defaultBusPath(), { timeout: BUSY_TIMEOUT_MS })
   const catalog = buildCatalog({
     graph: cruise(),
     testText: test => readFileSync(path.join(REPO_ROOT, test), 'utf8'),
     parking: readParking(path.join(os.homedir(), '.construct', 'parking')),
     briefs: readBriefs(handoff),
-    journal: ghostLinesText(defaultBusPath()),
+    journal: ghostJournalOf(db),
   })
-  const db = openDatabase(defaultBusPath(), { timeout: BUSY_TIMEOUT_MS })
   writeCatalog(db, catalog)
   db.close()
   console.log(`[checks:catalog] ${catalog.tests.length} tests, ${catalog.mutations.length} mutations`)

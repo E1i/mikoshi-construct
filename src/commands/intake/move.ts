@@ -2,7 +2,7 @@ import type { Ui } from '../../ui/console.js'
 import type { CardEventPort } from './index.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync } from 'node:fs'
 import path from 'node:path'
-import { CARD_DROPPED, CARD_MOVED, INTAKE_MOVE_EVENT, TERMINAL_LANES } from '../../../scripts/core/events.js'
+import { CARD_DROPPED, CARD_MOVED, TERMINAL_LANES } from '../../../scripts/core/events.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { bodySha } from './confirm.js'
 import { INTAKE_EXIT, recordIntake } from './index.js'
@@ -16,7 +16,6 @@ export interface MoveOptions {
   taken: string | undefined
   admit: string | undefined
   parking: string
-  journal: string
   events?: CardEventPort
 }
 
@@ -76,10 +75,7 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   const lane = path.basename(targetDir)
   const type = TERMINAL_LANES.has(lane) ? CARD_DROPPED : CARD_MOVED
   try {
-    recordIntake(options.journal, [{
-      journalLine: JSON.stringify({ event: INTAKE_MOVE_EVENT, task: String(number), ...moved, ts }),
-      event: { type, cardId: number, ts, dedupeKey: `${type}:${number}:${targetDir}:${ts}`, payload: { ...moved, lane } },
-    }], options.events)
+    recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${targetDir}:${ts}`, payload: { ...moved, lane } }], options.events)
   }
   catch (error) {
     if (!inPlace)

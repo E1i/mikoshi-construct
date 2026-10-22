@@ -14,8 +14,8 @@ import { prClosed } from '../../bus/observations.js'
 import { QUEUE_ACTOR } from '../../bus/queue.js'
 import { REVIEW_ROUNDS_SPENT } from '../../bus/review-executor.js'
 import { recordJudged, recordWorkerDown } from '../../bus/supervisor.js'
-import { CARD_CLOSED, CARD_STOPPED, CARD_WAITING, LADDER_APPROVAL, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
-import { GHOST_LINE, recordGhostLine } from '../../ghosts/journal.js'
+import { CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, LADDER_APPROVAL, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
+import { recordGhostLine } from '../../ghosts/journal.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
 import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../miko/watch.js'
 import { waitFor } from '../wait-for.js'
@@ -475,7 +475,6 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     const file = journal()
     const bus = path.join(path.dirname(file), 'bus.db')
     writeStop(bus, 1)
-    const before = readFileSync(file, 'utf8')
     const watch = startWatch(file, [ONCE], bus)
     const exited = watch.exited
     try {
@@ -490,7 +489,7 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       }
       expect(await exited).toBe(0)
       expect(watch.stdout()).toBe(`bus ${PR_CLOSED} card 937 pr 810 ${typeof closed.payload === 'string' ? closed.payload : JSON.stringify(closed.payload)}\n`)
-      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(existsSync(path.join(path.dirname(file), 'ghosts.jsonl'))).toBe(false)
     }
     finally {
       watch.child.kill()
@@ -650,7 +649,7 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     await paused.exited
     expect(storedCursor(file)).toEqual(before)
     expect(await runOnceToEnd(file)).toMatchObject({ code: 0, stdout: `${ghost(merge)}\n` })
-    expect(storedCursor(file)).toEqual({ journal_offset: 0, bus_id: 1 })
+    expect(storedCursor(file)).toEqual({ journal_offset: 0, bus_id: 2 })
   }, 30_000)
 
   it('a --once whose stdout reader is gone exits non-zero and leaves the cursor where it was', async () => {
@@ -751,7 +750,7 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     finally {
       watch.child.kill()
     }
-    expect(storedCursor(file)).toEqual({ journal_offset: skipped.offset, bus_id: 4 })
+    expect(storedCursor(file)).toEqual({ journal_offset: skipped.offset, bus_id: 5 })
   }, 20_000)
 
   it('miko:watch --once --card N wakes on review.rounds_spent of its own pull request and its line names the round limit and the owner decision it needs', async () => {
@@ -805,11 +804,11 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     writeBusEvent(bus, CARD_CLOSED, 'reducer', 'card.closed:942', JSON.stringify({ verification: 'run' }), 817, null, 942)
     const waiting = startNode(file, [WATCH, ONCE, '--card', '943'], bus)
     await waiting.watching()
-    await waitFor(() => waiting.stderr().includes(skippedLine(2)), () => `"${skippedLine(2)}" on stderr (stderr so far: ${JSON.stringify(waiting.stderr())})`, DEADLINE_MS)
+    await waitFor(() => waiting.stderr().includes(skippedLine(3)), () => `"${skippedLine(3)}" on stderr (stderr so far: ${JSON.stringify(waiting.stderr())})`, DEADLINE_MS)
     waiting.child.kill('SIGKILL')
     await waiting.exited
     expect(waiting.stdout()).toBe('')
-    expect(storedCursor(file)).toEqual({ journal_offset: 0, bus_id: 2 })
+    expect(storedCursor(file)).toEqual({ journal_offset: 0, bus_id: 3 })
   }, 30_000)
 
   it('two --once started together: exactly one takes the file and waits, the other refuses', async () => {
@@ -1020,7 +1019,7 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
     let holding = stall(40)
     let beats = 0
     const deps = {
-      ...fileDeps(file),
+      ...busDeps(file),
       emit: async (line: string) => {
         emitted.push(line)
       },

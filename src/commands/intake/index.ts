@@ -5,18 +5,18 @@ import type { Lore } from '../../ui/lore.js'
 import type { Confirmation } from './confirm.js'
 import type { SlicedCard } from './slice.js'
 import { Buffer } from 'node:buffer'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { CARD_ADMITTED } from '../../../scripts/core/events.js'
-import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
+import { closedTasks, mergedTasks } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { textSha } from '../../card/text-sha.js'
 import { laneOf, layLane } from './admit.js'
 import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
-import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, intakeJournalLine } from './confirm.js'
+import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedNumbers, nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
@@ -90,23 +90,9 @@ export interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, c
 
 export type CardAdmissionsPort = (cardId: number) => RecordedIntake | null
 
-export interface IntakeRecord {
-  journalLine: string
-  event: CardEvent
-}
-
-function journaled(record: IntakeRecord, events: CardEventPort | undefined): boolean {
-  return events === undefined || writtenBeforeHistoryEnds({ ts: record.event.ts })
-}
-
-export function recordIntake(journal: string, records: readonly IntakeRecord[], events: CardEventPort | undefined): void {
+export function recordIntake(records: readonly CardEvent[], events: CardEventPort | undefined): void {
   for (const record of records)
-    events?.(record.event)
-  const lines = records.filter(record => journaled(record, events)).map(record => `${record.journalLine}\n`)
-  if (lines.length > 0) {
-    mkdirSync(path.dirname(journal), { recursive: true })
-    appendFileSync(journal, lines.join(''))
-  }
+    events?.(record)
 }
 
 function admissionOf(line: string): { depends: number[], decision: string | null, contour: string | null } {
@@ -114,27 +100,24 @@ function admissionOf(line: string): { depends: number[], decision: string | null
   return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : { depends: [], decision: null, contour: null }
 }
 
-export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, lane: string | null, source?: string): IntakeRecord {
+export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, lane: string | null, source?: string): CardEvent {
   const ts = at.toISOString()
   const sha = bodySha(card.text)
   return {
-    journalLine: intakeJournalLine(card, confirmation, at, source),
-    event: {
-      type: CARD_ADMITTED,
-      cardId: card.id,
-      ts,
-      dedupeKey: `${CARD_ADMITTED}:${card.id}:${sha}:${ts}`,
-      payload: {
-        card: card.line,
-        lane,
-        ...admissionOf(card.line),
-        confirmation,
-        corrections: card.corrections.map(correctionText),
-        bodySha: sha,
-        text: card.text,
-        textSha: textSha(card.text),
-        ...(source === undefined ? {} : { source }),
-      },
+    type: CARD_ADMITTED,
+    cardId: card.id,
+    ts,
+    dedupeKey: `${CARD_ADMITTED}:${card.id}:${sha}:${ts}`,
+    payload: {
+      card: card.line,
+      lane,
+      ...admissionOf(card.line),
+      confirmation,
+      corrections: card.corrections.map(correctionText),
+      bodySha: sha,
+      text: card.text,
+      textSha: textSha(card.text),
+      ...(source === undefined ? {} : { source }),
     },
   }
 }
@@ -270,7 +253,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const root = options.parkingRoot ?? defaultParking()
   const written = parkedSlice.cards.map(card => parkCard(card, options.parking, root, at))
   const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? 'person' : confirmationOf(card, options.autoConfirm))
-  recordIntake(options.journal, written.map(({ card, lane }) => admittedRecord(card, confirmation(card), at, lane)), options.events)
+  recordIntake(written.map(({ card, lane }) => admittedRecord(card, confirmation(card), at, lane)), options.events)
   return { status: 'written', parking: options.parking, cards: written.map(({ card }) => card), autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
 }
 

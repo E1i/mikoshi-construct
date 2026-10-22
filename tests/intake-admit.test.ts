@@ -64,7 +64,7 @@ function busOf(w: World): string {
 function admit(w: World, file: string, options: Partial<AdmitOptions> = {}, at: Date = NOW): AdmitResult {
   const db = openBus(busOf(w))
   try {
-    return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), ...options }, () => at)
+    return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), ...options }, () => at)
   }
   finally {
     db.close()
@@ -168,7 +168,7 @@ function admittedCardText(result: AdmitResult): string {
 }
 
 describe('construct intake --admit takes a card parked before the intake door', () => {
-  it('writes an intake line for a card with nothing to correct, leaves the file as it was, and task:start takes the card', () => {
+  it('writes a card.admitted for a card with nothing to correct, leaves the file as it was, and task:start takes the card', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
     const before = readFileSync(file, 'utf8')
@@ -177,7 +177,9 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(result.status).toBe('admitted')
     expect(printed(result).exit).toBe(INTAKE_EXIT.admitted)
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(journalLines(w)).toEqual([{ event: 'intake', task: '80', card: CLEAN, confirmation: 'none', corrections: [], bodySha: bodySha(before), source: 'admit', ts: NOW.toISOString() }])
+    expect(admittedPayloads(w)).toEqual([expect.objectContaining({ card: CLEAN, confirmation: 'none', corrections: [], bodySha: bodySha(before), source: 'admit' })])
+    expect(admittedTimes(w)).toEqual([NOW.toISOString()])
+    expect(existsSync(w.journal)).toBe(false)
     expect(taskStart(w, CLEAN)).toBe(0)
   })
 
@@ -284,7 +286,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(journalLines(w).filter(line => line.event === 'intake')).toHaveLength(0)
     const token = held.status === 'awaiting' ? held.token : ''
     expect(admit(w, file, { confirm: token }).status).toBe('admitted')
-    expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '81', confirmation: 'person' })
+    expect(admittedPayloads(w).at(-1)).toMatchObject({ confirmation: 'person' })
   })
 
   it('any other correction still needs a person', () => {
@@ -316,7 +318,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(admit(w, file, { confirm: token }).status).toBe('admitted')
     const after = readFileSync(file, 'utf8')
     expect(after).toBe(before.replace(STALE, STALE_ADMITTED).replace('touches: scripts/', 'touches: src/').replace('Do the thing.\n', `Do the thing.\n\ncorrected: touches — scripts/board/run.ts → src/board/run.ts — 'scripts/board/run.ts' does not exist; 'src/board/run.ts' is the only path named 'run.ts'\ncorrected: depends — #70 → (removed) — already merged\n`))
-    expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '81', card: STALE_ADMITTED, confirmation: 'person', source: 'admit' })
+    expect(admittedPayloads(w).at(-1)).toMatchObject({ card: STALE_ADMITTED, confirmation: 'person', source: 'admit' })
     expect(taskStart(w, STALE_ADMITTED)).toBe(0)
     expect(taskStart(w, STALE)).toBe(1)
   })
@@ -450,17 +452,17 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(journalLines(w)).toHaveLength(2)
   })
 
-  it('a second --admit of an admitted card writes no second intake line', () => {
+  it('a second --admit of an admitted card writes no second card.admitted', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
     admit(w, file)
     const again = admit(w, file)
     expect(again.status).toBe('alreadyAdmitted')
     expect(printed(again).exit).toBe(INTAKE_EXIT.alreadyAdmitted)
-    expect(journalLines(w)).toHaveLength(1)
+    expect(admittedEvents(w)).toBe(1)
   })
 
-  it('an unchanged admitted card writes no file and no intake line', () => {
+  it('an unchanged admitted card writes no file and no card.admitted', () => {
     const w = world()
     const file = park(w, 80, CLEAN, 'src/board/**', 'Do the thing.\n\nWitnesses:\n- `pnpm vitest run` exit 0')
     expect(admit(w, file).status).toBe('admitted')
@@ -469,7 +471,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(again).toMatchObject({ status: 'alreadyAdmitted', source: 'amend' })
     expect(printed(again).lines.join('\n')).toContain('Its card.admitted is in the bus')
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(journalLines(w)).toHaveLength(1)
+    expect(admittedEvents(w)).toBe(1)
   })
 
   it('amends an admitted card whose task text or witnesses changed, and the unchanged amendment is then already admitted', () => {
@@ -483,13 +485,13 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(exit).toBe(INTAKE_EXIT.admitted)
     expect(lines.join('\n')).toContain('80.md: #80 clean-card')
     expect(lines.join('\n')).toContain('source amend')
-    expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '80', card: CLEAN, source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
+    expect(admittedPayloads(w).at(-1)).toMatchObject({ card: CLEAN, source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
 
     park(w, 80, CLEAN, 'src/board/**', 'Do the corrected thing.\n\nWitnesses:\n- `pnpm vitest run` exit 1')
     expect(admit(w, file)).toMatchObject({ status: 'admitted', source: 'amend' })
-    expect(journalLines(w)).toHaveLength(3)
+    expect(admittedEvents(w)).toBe(3)
     expect(admit(w, file).status).toBe('alreadyAdmitted')
-    expect(journalLines(w)).toHaveLength(3)
+    expect(admittedEvents(w)).toBe(3)
     expect(taskStart(w, CLEAN)).toBe(0)
   })
 
@@ -505,11 +507,11 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(printed(amended).lines.join('\n')).toContain('source amend')
     const after = readFileSync(file, 'utf8')
     expect(after).toContain('touches: src/board/**, src/card/grammar.ts\n')
-    expect(journalLines(w)).toHaveLength(2)
-    expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '80', card: CLEAN, source: 'amend', bodySha: bodySha(after) })
-    expect(bodySha(after)).not.toBe(journalLines(w)[0]!.bodySha)
+    expect(admittedEvents(w)).toBe(2)
+    expect(admittedPayloads(w).at(-1)).toMatchObject({ card: CLEAN, source: 'amend', bodySha: bodySha(after) })
+    expect(bodySha(after)).not.toBe(admittedPayloads(w)[0]!.bodySha)
     expect(admit(w, file).status).toBe('alreadyAdmitted')
-    expect(journalLines(w)).toHaveLength(2)
+    expect(admittedEvents(w)).toBe(2)
   })
 
   it('a card admitted when the digest left out its touches line, and unchanged since, writes no intake line', () => {
@@ -532,7 +534,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(admit(w, file).status).toBe('refused')
     park(w, 80, CLEAN, 'scripts/board/run.ts', 'Do the other thing.')
     expect(admit(w, file).status).toBe('awaiting')
-    expect(journalLines(w)).toHaveLength(1)
+    expect(admittedEvents(w)).toBe(1)
   })
 
   it('amends a card whose intake line recorded no body digest, since the text it admitted is unknown', () => {
@@ -540,7 +542,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const file = park(w, 80, CLEAN)
     journal(w, [{ event: 'intake', task: '80', card: CLEAN, confirmation: 'none', corrections: [], source: 'admit', ts: NOW.toISOString() }])
     expect(admit(w, file)).toMatchObject({ status: 'admitted', source: 'amend' })
-    expect(journalLines(w).at(-1)).toMatchObject({ source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
+    expect(admittedPayloads(w).at(-1)).toMatchObject({ source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
   })
 
   it('corrects a touches entry to the only path of that name, and marks one that names no path unclear without changing who', () => {
@@ -553,7 +555,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(text).toContain('who: shift\n')
     expect(text).toContain('corrected: touches — scripts/board/run.ts → src/board/run.ts')
     expect(text).toContain(`unclear: touches — 'src/nowhere.ts' does not exist`)
-    expect(journalLines(w)[0]).toMatchObject({ confirmation: 'auto', source: 'admit' })
+    expect(admittedPayloads(w)[0]).toMatchObject({ confirmation: 'auto', source: 'admit' })
   })
 
   it('--dry-run prints the card it would admit and writes nothing', () => {
@@ -728,14 +730,15 @@ describe('construct intake --admit says whether task:start will take the card', 
     expect(taskStart(w, CLEAN)).toBe(1)
   })
 
-  it('a bus-wired --admit of a card an unwired run admitted writes its card.admitted and no second intake line, and task:start takes the card', () => {
+  it('a bus-wired --admit after an unwired run writes its card.admitted, the unwired run wrote no journal line, and task:start takes the card', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
     admit(w, file, { events: undefined })
+    expect(existsSync(w.journal)).toBe(false)
     const again = admit(w, file)
-    expect(again.status).toBe('alreadyAdmitted')
-    expect(printed(again).lines[0]).toBe(`[ok] Already admitted ${file}: ${CLEAN}. Its card.admitted is in the bus, so task:start and the shift take it.\n`)
-    expect(journalLines(w)).toHaveLength(1)
+    expect(again.status).toBe('admitted')
+    expect(printed(again).lines[0]).toBe(`[ok] Admitted ${file}: ${CLEAN}. Its card.admitted is in the bus, so task:start and the shift take it.\n`)
+    expect(existsSync(w.journal)).toBe(false)
     expect(admittedEvents(w)).toBe(1)
     expect(taskStart(w, CLEAN)).toBe(0)
   })
@@ -749,19 +752,19 @@ describe('construct intake --admit says whether task:start will take the card', 
     expect(admittedEvents(w)).toBe(1)
   })
 
-  it('the card.admitted a bus-wired --admit writes for a journal-admitted card carries the journal line\'s ts, source and confirmation', () => {
+  it('a repeated bus-wired --admit keeps the first card.admitted ts, source and confirmation', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
-    admit(w, file, { events: undefined, autoConfirm: true })
+    admit(w, file, { autoConfirm: true })
     admit(w, file, {}, AN_HOUR_LATER)
     expect(admittedPayloads(w)).toEqual([expect.objectContaining({ source: 'admit', confirmation: 'auto' })])
     expect(admittedTimes(w)).toEqual([NOW.toISOString()])
   })
 
-  it('an unwired --admit of an admitted card says nothing was written', () => {
+  it('an unwired --admit of a card the bus admitted says nothing was written', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
-    admit(w, file, { events: undefined })
+    admit(w, file)
     expect(printed(admit(w, file, { events: undefined })).lines[0]).toBe(`[ok] Already admitted ${file}: ${CLEAN}. The journal holds its intake line; no bus is wired to this run, so nothing was written.\n`)
   })
 
@@ -787,7 +790,7 @@ describe('construct intake --admit and package.json', () => {
     expect(text).toContain('corrected: touches — (absent) → tests/harness-membership.test.ts — every change of this kind carries it')
     expect(text).toContain('corrected: touches — (absent) → CONTRIBUTING.md')
     expect(text).not.toContain('unclear:')
-    expect(journalLines(w).at(-1)).toMatchObject({ confirmation: 'none' })
+    expect(admittedPayloads(w).at(-1)).toMatchObject({ confirmation: 'none' })
     expect(admit(w, file).status).toBe('alreadyAdmitted')
   })
 
@@ -961,7 +964,7 @@ describe('construct intake --admit through the CLI entry', () => {
     const inBus = admittedEvents(w) > 0
     const refusedAndNamed = exit === INTAKE_EXIT.refused && output.includes('pnpm intake --admit')
     expect(inBus || refusedAndNamed).toBe(true)
-    expect(journalLines(w).filter(line => line.event === 'intake')).toHaveLength(inBus ? 1 : 0)
+    expect(existsSync(w.journal)).toBe(false)
   })
 
   it('intake --admit --dry-run through the CLI entry beside a bus is never refused and writes nothing', async () => {
@@ -976,13 +979,14 @@ describe('construct intake --admit through the CLI entry', () => {
     expect(journalLines(w)).toHaveLength(0)
   })
 
-  it('intake --admit through the CLI entry on a machine with no bus admits into the journal as before', async () => {
+  it('intake --admit through the CLI entry on a machine with no bus admits the card and writes no journal file', async () => {
     const w = world()
     const file = park(w, 80, CLEAN)
     vi.stubEnv(BUS_DB_VARIABLE, busOf(w))
     const { exit } = await admitThroughEntry(w, file)
     expect(exit).not.toBe(INTAKE_EXIT.refused)
     expect(existsSync(busOf(w))).toBe(false)
-    expect(journalLines(w).filter(line => line.event === 'intake')).toHaveLength(1)
+    expect(readFileSync(file, 'utf8')).toContain('card: ')
+    expect(existsSync(w.journal)).toBe(false)
   })
 })
