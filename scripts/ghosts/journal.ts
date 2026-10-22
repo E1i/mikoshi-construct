@@ -1,10 +1,13 @@
+import type { JournalEvent } from './approval.js'
 import type { Expect } from './expect.js'
 import type { LadderOutcome } from './ledger.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
-import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db.js'
 import { cardIdOf } from '../bus/identifiers.js'
+import { legacyHistory } from '../bus/legacy-history.js'
+import { openDatabase } from '../bus/sqlite.js'
 
 export type RangeDiffOutcome = 'identical' | 'equal' | 'regenerated'
 
@@ -67,6 +70,18 @@ export function ghostLines(busPath: string = defaultBusPath()): GhostLine[] {
   const db = openBus(busPath)
   try {
     return (db.prepare(GHOST_LINES).all() as { payload: string }[]).map(row => JSON.parse(row.payload) as GhostLine)
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function busHistory(busPath: string = defaultBusPath()): JournalEvent[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    return legacyHistory(db)
   }
   finally {
     db.close()

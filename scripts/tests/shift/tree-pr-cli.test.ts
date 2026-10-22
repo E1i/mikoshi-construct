@@ -1,10 +1,12 @@
 import type { PrOpenedBus, TreePrCliPorts } from '../../shift/tree-pr-cli.js'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { busCardStopped, busPrOpened, PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
+import { CARD_PERMISSION_MODE } from '../../bus/launch-starter.js'
+import { CARD_VARIABLE } from '../../ports/session.js'
+import { busCardStopped, busPrOpened, claudeResume, PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
 
 const roots: string[] = []
 
@@ -99,11 +101,19 @@ function NOT_OPENED(): void {}
 
 function NOT_STOPPED(): void {}
 
+function NOT_RESUMED(): boolean {
+  return false
+}
+
 function shiftedPorts(diff: ShiftedDiff, bodies: string[], cardText: string | null = null): TreePrCliPorts {
   return {
     card: cardId => cardId === 951 ? cardText : null,
     opened: NOT_OPENED,
     stopped: NOT_STOPPED,
+    waited: NOT_STOPPED,
+    lastRefusal: () => null,
+    returned: NOT_STOPPED,
+    resume: NOT_RESUMED,
     git: (_cwd, args) => {
       if (args[0] === 'status')
         return ''
@@ -133,7 +143,7 @@ function busCard(contour: ShiftedDiff['contour'], body = 'Do x.'): { cardText: s
   return { cardText: `card: ${cardLine}\nbranch: feat/x\ntouches: scripts/shift/x.ts, scripts/tests/shift/x.test.ts, scripts/x.sh, src/x.ts, docs/x.md, templates/base/x.eta, .changeset/**\ncontinue: stop\nwho: shift\n\n${body}\n`, cardLine }
 }
 
-const NO_CARD = { git: untouchable, gh: untouchable, opened: untouchable }
+const NO_CARD = { git: untouchable, gh: untouchable, opened: untouchable, waited: untouchable, lastRefusal: untouchable, returned: untouchable, resume: untouchable }
 
 const START_KEY = 'card.started:launch:951:1'
 
@@ -186,17 +196,18 @@ describe('tree-pr for a finished card session', () => {
     expect({ codes, lines: [...new Set(lines)] }).toEqual({ codes: [2, 2, 2], lines: [`${PREFIX}usage: tree-pr <card id> <worktree> [<session report>]`] })
   })
 
-  it('a tree-pr refusal after a launched session gives card.stopped with its reason', () => {
+  it('a class c tree-pr refusal after a launched session gives card.stopped with its reason and code', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
     roots.push(root)
-    const { diff, gaps } = FORMAT_GAPS['tests shrunk on a cheap card with an assertion removed']!
+    const { diff } = PATH_LINES['scripts on a ladder card']!
     const { cardText } = busCard(diff.contour)
     const bus = launchedBus(root, 951)
+    const ports = shiftedPorts(diff, [], cardText)
 
-    const codes = [1, 2].map(() => runTreePr(['951', root], { ...shiftedPorts(diff, [], cardText), opened: untouchable, stopped: busCardStopped(bus) }, () => {}))
+    const codes = [1, 2].map(() => runTreePr(['951', root], { ...ports, gh: args => args[1] === 'list' ? '[]' : 'nothing\n', opened: untouchable, stopped: busCardStopped(bus) }, () => {}))
 
-    const detail = `tree-pr: card #951: the shift opened no pull request for feat/x: it lacks ${gaps.join('; ')}`
-    expect({ codes, events: stopsOn(bus.busPath) }).toEqual({ codes: [1, 1], events: [{ type: 'card.stopped', actor: 'worker:shift:4242', card_id: 951, pr: null, dedupe_key: `card.stopped:tree-pr:${START_KEY}`, payload: JSON.stringify({ reason: 'fault', detail }) }] })
+    const detail = 'tree-pr: card #951: gh pr create printed no pull request URL: nothing'
+    expect({ codes, events: stopsOn(bus.busPath) }).toEqual({ codes: [1, 1], events: [{ type: 'card.stopped', actor: 'worker:shift:4242', card_id: 951, pr: null, dedupe_key: `card.stopped:tree-pr:${START_KEY}`, payload: JSON.stringify({ reason: 'fault', detail, code: 'c:no-pr-url' }) }] })
   })
 
   it('a card body the grammar refuses after a launched session writes card.stopped to the bus', () => {
@@ -276,7 +287,7 @@ describe('tree-pr for a finished card session', () => {
     expect(observed).toEqual(Object.fromEntries(Object.entries(PATH_LINES).map(([name, { line }]) => [name, { code: 0, lines: [`${PREFIX}card #951: PR #901`], bodies: [`<card>\n\n${line}\n\n${OPENED}`] }])))
   })
 
-  it('tree-pr refuses a body without the matrix count line, the D-76 path reason or the changeset its change requires', () => {
+  it('tree-pr returns to its session a body without the matrix count line, the D-76 path reason or the changeset its change requires', () => {
     const observed = Object.fromEntries(Object.entries(FORMAT_GAPS).map(([name, { diff }]) => {
       const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
       roots.push(root)
@@ -285,10 +296,10 @@ describe('tree-pr for a finished card session', () => {
 
       const code = runTreePr(['951', root], shiftedPorts(diff, bodies, busCard(diff.contour).cardText), line => lines.push(line))
 
-      return [name, { code, lines, bodies }]
+      return [name, { code, returned: lines[0]?.replace(/returned to its session for \S+: /, ''), bodies }]
     }))
 
-    expect(observed).toEqual(Object.fromEntries(Object.entries(FORMAT_GAPS).map(([name, { gaps }]) => [name, { code: 1, lines: [`${PREFIX}card #951: the shift opened no pull request for feat/x: it lacks ${gaps.join('; ')}`], bodies: [] }])))
+    expect(observed).toEqual(Object.fromEntries(Object.entries(FORMAT_GAPS).map(([name, { gaps }]) => [name, { code: 1, returned: `${PREFIX}card #951: the shift opened no pull request for feat/x: it lacks ${gaps.join('; ')}`, bodies: [] }])))
   })
 
   it('the PR body carries the matrix count line of the session report', () => {
@@ -342,5 +353,38 @@ describe('tree-pr for a finished card session', () => {
     const code = runTreePr(['951', root], { ...shiftedPorts(diff, [], busCard(diff.contour).cardText), opened: busPrOpened({ busPath: path.join(blocked, 'bus.db'), pid: 4242, now: () => new Date(), err: line => errors.push(line) }) }, line => lines.push(line))
 
     expect({ code, lines, errors }).toEqual({ code: 0, lines: [`${PREFIX}card #951: PR #901`], errors: [expect.stringContaining(`pr.opened of PR #901 not written to ${path.join(blocked, 'bus.db')}`)] })
+  })
+})
+
+describe('the session a refusal returns the card to', () => {
+  const SESSION = 'card-session-951'
+
+  function resumed(script: string, ceilingMs: number) {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-resume-'))
+    roots.push(root)
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    appendEvent(db, { ts: '2026-10-22T04:00:00.000Z', type: 'card.started', actor: 'worker:launch:1', cardId: 951, pr: null, head: null, dedupeKey: START_KEY, payload: { session: SESSION, worktree: root, branch: 'feat/x' }, legacy: false })
+    db.close()
+    const claude = path.join(root, 'claude')
+    const seen = path.join(root, 'seen.txt')
+    writeFileSync(claude, `#!/bin/sh\n${script.replaceAll('SEEN', seen)}\n`)
+    chmodSync(claude, 0o755)
+    const started = Date.now()
+    const ran = claudeResume(busPath, claude, ceilingMs)(951, root, 'merge a fresh origin/main')
+    return { ran, seen, ms: Date.now() - started }
+  }
+
+  it('resumes the card session in its tree with the card environment and the card permission mode', () => {
+    const { ran, seen } = resumed(`printf '%s\\n' "$PWD" "$${CARD_VARIABLE}" "$NO_COLOR" "$@" > SEEN`, 10_000)
+
+    const [cwd, card, noColor, ...argv] = readFileSync(seen, 'utf8').trim().split('\n')
+    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
+  })
+
+  it('a returned session that hangs past its ceiling is ended and reads as not run to its end', () => {
+    const { ran, ms } = resumed('exec sleep 30', 500)
+
+    expect({ ran, endedAtTheCeiling: ms < 10_000 }).toEqual({ ran: false, endedAtTheCeiling: true })
   })
 })

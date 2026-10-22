@@ -36,8 +36,9 @@ export function flowLines(cards: BusCard[], lore: Lore): string[] {
   return lore.boardFlowColumns.map((title, column) => lore.boardColumnLine(title, live.filter(card => FLOW_STATES[column]!.includes(card.state ?? '')).map(flowName)))
 }
 
-function lanesOf(cards: BusCard[]): (string | null)[] {
-  const named = [...new Set(cards.flatMap(card => card.lane === null ? [] : [card.lane]))].sort()
+export function laneColumns(cards: BusCard[], lanes: number | null): (string | null)[] {
+  const chains = Array.from({ length: lanes ?? 0 }, (_, index) => `lane-${index + 1}`)
+  const named = [...new Set([...chains, ...cards.flatMap(card => card.lane === null ? [] : [card.lane])])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   return cards.some(card => card.lane === null) ? [...named, null] : named
 }
 
@@ -45,8 +46,8 @@ export function backlogCards(cards: BusCard[], at: string, all: boolean): BusCar
   return all ? cards : cards.filter(card => isLive(card) || endedRecently(card, at))
 }
 
-export function backlogLines(cards: BusCard[], lore: Lore): string[] {
-  return lanesOf(cards).flatMap((lane) => {
+export function backlogLines(cards: BusCard[], lore: Lore, lanes: number | null = null): string[] {
+  return laneColumns(cards, lanes).flatMap((lane) => {
     const inLane = cards.filter(card => card.lane === lane)
     return [lore.boardLaneLine(lane ?? undefined, inLane.length), ...inLane.map(card => lore.boardBacklogRow(cardName(card), card.stage))]
   })
@@ -85,9 +86,19 @@ export function goalLines(facts: BusFacts): string[] {
   return goal === null ? [] : goal.plans.map(plan => planLine(plan, goal.backlog))
 }
 
+export function waitTarget(wait: OwnerWait): string | null {
+  if (wait.pr !== null)
+    return `PR #${wait.pr}`
+  return wait.card === null ? null : `#${wait.card}`
+}
+
+export function waitAction(wait: OwnerWait): string {
+  return wait.command === null ? wait.text : `${wait.text}: ${wait.command}`
+}
+
 function waitName(wait: OwnerWait): string {
-  const target = wait.pr === null ? `#${wait.card ?? '?'}` : `PR #${wait.pr}`
-  return wait.detail === null ? `${wait.kind} ${target}` : `${wait.kind} ${target} (${wait.detail})`
+  const target = waitTarget(wait)
+  return `${wait.id} ${wait.need}${target === null ? '' : ` ${target}`} (${waitAction(wait)})`
 }
 
 export function waitsLines(facts: BusFacts, lore: Lore): string[] {
@@ -108,7 +119,7 @@ export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens 
   return {
     screens: [
       { title: lore.boardTabFlow, lines: [...goalLines(facts), ...waitsLines(facts, lore), ...flowLines(facts.cards, lore)] },
-      { title: lore.boardTabBacklog, lines: backlogLines(backlogCards(facts.cards, facts.at, all), lore) },
+      { title: lore.boardTabBacklog, lines: backlogLines(backlogCards(facts.cards, facts.at, all), lore, facts.lanes) },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore)] },
     ],
     footer: lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),

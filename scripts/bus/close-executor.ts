@@ -1,16 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { MergeEvent } from '../core/merge-event.js'
 import type { CardFileStep } from './card-archive.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
-import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_CLOSED, CARD_VERIFIED, POLICY_DENIED } from '../core/events.js'
 import { VERIFICATION_WORDS } from '../core/verification.js'
-import { appendToJournal, hasMergeLine, journalLine } from '../ghosts/task-merged.js'
 import { cardSessionOf } from './answer-source.js'
 import { archiveCardFile } from './card-archive.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
@@ -20,15 +17,12 @@ import { closeWitnessDenial, MERGE_RECORD, WITNESS_REASON } from './policy.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof WITNESS_REASON | typeof NOT_MINE
 
-export type MergeLineStep = 'written' | 'present' | 'no-merger' | 'in-bus'
-
 export interface TreeLeft {
   path: string
   left: string
 }
 
 export interface CloseCycle {
-  mergeLine: MergeLineStep
   cardFile: CardFileStep
   treeLeft: TreeLeft | null
 }
@@ -61,7 +55,6 @@ export interface CloseParts {
   db: DatabaseSync
   reported: ReportedVerification
   clock: () => Date
-  journal: string
   parking: string
   trees?: CardTreeRemover
 }
@@ -108,17 +101,6 @@ export function gitTreeRemover(repo: string): CardTreeRemover {
 interface MergeRecord {
   payload: string
 }
-
-interface Merger {
-  by: unknown
-  merged: unknown
-}
-
-const OBSERVED_MERGER = `
-  SELECT json_extract(payload, '$.merged_by') AS by, json_extract(payload, '$.merged_at') AS merged FROM events
-  WHERE pr = ? AND type = 'pr.closed' AND json_extract(payload, '$.merged') = 1
-  ORDER BY id LIMIT 1
-`
 
 class CardAlreadyClosed extends Error {}
 
@@ -183,14 +165,13 @@ export class CloseExecutor {
       if (!isVerificationWord(verification))
         return this.denied(lease, technical('no_verification', `card ${lease.cardId} has ${verification === null ? `no verification: no card.verified for ${lease.pr === null ? 'its report' : `PR #${lease.pr}`}` : `'${verification}'`}, not one of ${VERIFICATION_WORDS.join(', ')}`))
       if (probe !== null)
-        return this.closed(lease, verification, null, probe.report)
-      const commit = this.mergeCommit(lease)
-      if (commit === null)
+        return this.closed(lease, verification, probe.report)
+      if (this.mergeCommit(lease) === null)
         return this.denied(lease, technical('no_merge_commit', `the bus holds no merge commit for PR #${lease.pr}`))
       const unwitnessed = closeWitnessDenial(this.parts.db, lease.cardId, lease.pr, lease.head)
       if (unwitnessed !== null)
         return this.denied(lease, { ...technical(WITNESS_REASON, unwitnessed.detail), ...(unwitnessed.base === null ? {} : { base: unwitnessed.base }) })
-      return this.closed(lease, verification, this.mergeLine(lease, commit))
+      return this.closed(lease, verification)
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -207,27 +188,7 @@ export class CloseExecutor {
     return typeof commit === 'string' ? commit : null
   }
 
-  private mergeLine(lease: Lease, commit: string): MergeEvent | null {
-    const merger = this.parts.db.prepare(OBSERVED_MERGER).get(lease.pr) as Merger | undefined
-    if (typeof merger?.by !== 'string' || typeof merger.merged !== 'string')
-      return null
-    return { event: 'merge', task: String(lease.cardId), pr: lease.pr!, by: merger.by, commit, merged: merger.merged, ts: this.ts() }
-  }
-
-  private appendMergeLine(pr: number, line: MergeEvent | null): MergeLineStep {
-    const { journal } = this.parts
-    if (!writtenBeforeHistoryEnds({ ts: this.ts() }))
-      return 'in-bus'
-    if (hasMergeLine(existsSync(journal) ? readFileSync(journal, 'utf8') : null, pr))
-      return 'present'
-    if (line === null)
-      return 'no-merger'
-    appendToJournal(journal, journalLine(line))
-    return 'written'
-  }
-
-  private closed(lease: Lease, verification: string, merge: MergeEvent | null, report?: string): CloseOutcome {
-    const mergeLine = lease.pr === null ? 'in-bus' : this.appendMergeLine(lease.pr, merge)
+  private closed(lease: Lease, verification: string, report?: string): CloseOutcome {
     const cardFile = archiveCardFile(this.parts.parking, lease.cardId)
     const ts = this.ts()
     const event: BusEvent = { ts, type: CARD_CLOSED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_CLOSED}:${lease.cardId}`, payload: report === undefined ? { verification } : { verification, report }, legacy: false }
@@ -236,7 +197,7 @@ export class CloseExecutor {
         throw new CardAlreadyClosed(`card ${lease.cardId} was closed before this close was recorded`)
     })
     const treeLeft = this.removeCardTree(lease)
-    return { kind: 'closed', taskKey: lease.taskKey, verification, cycle: { mergeLine, cardFile, treeLeft } }
+    return { kind: 'closed', taskKey: lease.taskKey, verification, cycle: { cardFile, treeLeft } }
   }
 
   private removeCardTree(lease: Lease): TreeLeft | null {

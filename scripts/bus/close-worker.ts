@@ -14,7 +14,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../core/events.js'
 import { cardVerifiedClosings, closingVerificationOf, legacyLines } from '../ghosts/task-close.js'
-import { defaultGhostJournal } from '../ghosts/task-merged.js'
 import { worktreeHome } from '../ports/worktree-home.js'
 import { CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
 import { defaultBusPath } from './db.js'
@@ -36,7 +35,6 @@ export interface CloseNodeParts {
   reported: ReportedVerification
   clock: () => Date
   session: string
-  journal: string
   parking: string
   mode: DetectionMode
   env: NodeJS.ProcessEnv
@@ -65,7 +63,7 @@ export class CloseNode extends Node<CloseStep> {
 
   constructor(private readonly closeParts: CloseNodeParts) {
     super('close', { db: closeParts.db, clock: closeParts.clock, session: closeParts.session, mode: closeParts.mode, env: closeParts.env })
-    this.executor = new CloseExecutor({ db: closeParts.db, reported: closeParts.reported, clock: closeParts.clock, journal: closeParts.journal, parking: closeParts.parking, trees: closeParts.trees })
+    this.executor = new CloseExecutor({ db: closeParts.db, reported: closeParts.reported, clock: closeParts.clock, parking: closeParts.parking, trees: closeParts.trees })
     this.subscribe(CLOSE_ON, event => this.detectOn(event, scopeOf(event)))
   }
 
@@ -103,7 +101,7 @@ export class CloseNode extends Node<CloseStep> {
   protected override stepLine(step: CloseStep): string | null {
     if (step.kind !== 'closed')
       return super.stepLine(step)
-    return `${step.taskKey}: closed, verification ${step.verification}; merge line ${step.cycle.mergeLine}, card file ${step.cycle.cardFile}${step.cycle.treeLeft === null ? '' : `; tree left at ${step.cycle.treeLeft.path}: ${step.cycle.treeLeft.left}`}`
+    return `${step.taskKey}: closed, verification ${step.verification}; card file ${step.cycle.cardFile}${step.cycle.treeLeft === null ? '' : `; tree left at ${step.cycle.treeLeft.path}: ${step.cycle.treeLeft.left}`}`
   }
 }
 
@@ -115,26 +113,24 @@ export interface CloseRun {
   busPath: string
   reported: ReportedVerification
   session: string
-  journal: string
   parking: string
   pause: (ms: number) => Promise<unknown>
   endedTrees?: (db: DatabaseSync) => () => EndedTree[]
 }
 
 export async function runCloseWorker(argv: string[], run: CloseRun): Promise<number> {
-  return runNode(argv, 'close', run.busPath, (db, mode) => new CloseNode({ db, reported: run.reported, clock: () => new Date(), session: run.session, journal: run.journal, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db) }), { pause: run.pause })
+  return runNode(argv, 'close', run.busPath, (db, mode) => new CloseNode({ db, reported: run.reported, clock: () => new Date(), session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db) }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {
   const construct = path.join(os.homedir(), '.construct')
-  const journal = defaultGhostJournal()
   const repo = process.cwd()
   const endedTrees = (db: DatabaseSync) => {
     const trees = new EndedCardTrees(db, [worktreeHome(process.env), path.dirname(repo)], gitWorktrees(repo), () => new Date())
     return () => trees.free()
   }
   const busPath = defaultBusPath()
-  return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(busPath), session: randomUUID(), journal, parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
+  return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(busPath), session: randomUUID(), parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

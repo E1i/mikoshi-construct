@@ -23,6 +23,8 @@ const AWAITING: FakeRun[] = [WAITING, WAITING]
 describe('the merge executor', () => {
   it('a pass on a green, clean head is queued for merge and merged with its sha', () => {
     const bench = liveBench()
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 121, text: '[owner] allow-live merge', cards: [] })
+    reduce(bench.db)
     bench.gitHub.open({ number: 960, review: 'success' })
     bench.tick()
 
@@ -401,14 +403,14 @@ describe('the merge executor', () => {
     }
   })
 
-  it('an owner decision does not lift security_invariants', () => {
+  it('an owner decision does not lift no_shard_merge on security-invariants', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 993, review: 'failure', files: ['architecture/security-invariants.md'] })
     spendReviewRounds(bench, 993, sha('a'))
     allowMerge(bench, 993)
     bench.tick()
 
-    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'security_invariants' } })
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'no_shard_merge' } })
     expect(bench.gitHub.published).toEqual([])
     expect(bench.gitHub.puts).toEqual([])
     bench.close()

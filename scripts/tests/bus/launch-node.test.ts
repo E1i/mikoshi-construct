@@ -26,7 +26,7 @@ import { busIntakePorts } from '../../bus/intake.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { gitChangedPaths, ShiftCardStarter } from '../../bus/launch-starter.js'
-import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { NODE_CURSORS } from '../../bus/node.js'
@@ -527,6 +527,53 @@ describe('the launch node', () => {
     expect(launchRows(made, 1077)).toBe(1)
   })
 
+  async function endedAtEddiesWarn(cardId: number, warned: boolean, publish: (made: MergeBench) => void): Promise<{ made: MergeBench, node: ProbedLaunchNode, published: string[] }> {
+    const made = bench()
+    admit(made, cardId, 'lane-a')
+    made.tick()
+    const published: string[] = []
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, warned: () => warned, publish: (card) => {
+      published.push(card.worktree)
+      publish(made)
+    }, isolation: sandboxed })
+    await once(node)
+    made.tick()
+    return { made, node, published }
+  }
+
+  function cardEventTypes(made: MergeBench, cardId: number): string[] {
+    return (made.db.prepare(`SELECT type FROM events WHERE card_id = ? AND type IN ('${PR_OPENED}', '${CARD_SESSION_ENDED}', '${CARD_STOPPED}') ORDER BY id`).all(cardId) as { type: string }[]).map(row => row.type)
+  }
+
+  it('at the Eddies warning a working card commits, pushes and opens its pull request before the stop', async () => {
+    const { made, node, published } = await endedAtEddiesWarn(1234, true, (bus) => {
+      appendEvent(bus.db, { ts: bus.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 1234, pr: 934, head: null, dedupeKey: `${PR_OPENED}:1234:934`, payload: { pr: 934 }, legacy: false })
+    })
+
+    expect(node.stopOverdue()).toEqual([])
+    expect(published).toEqual(['/trees/mc-1234'])
+    expect(cardEventTypes(made, 1234)).toEqual([PR_OPENED, CARD_SESSION_ENDED])
+    expect(eventsOf(made.db, CARD_SESSION_ENDED)).toMatchObject([{ session: 's-1234', stopped: false }])
+  })
+
+  it('at the Eddies warning without a commit and a pull request the card is not done', async () => {
+    const { made, node, published } = await endedAtEddiesWarn(1235, true, () => {})
+
+    expect(node.stopOverdue()).toEqual([1235])
+    expect(published).toEqual(['/trees/mc-1235'])
+    expect(cardEventTypes(made, 1235)).toEqual([CARD_STOPPED])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: noPullRequestDetail(1235, 's-1235', null) }])
+  })
+
+  it('a session that ended without the Eddies warning is not published by the launch node', async () => {
+    const { made, node, published } = await endedAtEddiesWarn(1236, false, () => {})
+
+    expect(node.stopOverdue()).toEqual([1236])
+    expect(published).toEqual([])
+    expect(cardEventTypes(made, 1236)).toEqual([CARD_STOPPED])
+  })
+
   it('a card.started from launch with a dead pid and no pull request gives card.stopped on the next tick and a card with overlapping touches becomes a launch candidate', async () => {
     const made = bench()
     const admitTouching = (cardId: number, lane: string, touches: string[]): void => {
@@ -680,6 +727,9 @@ describe('the launch node', () => {
       envOf: () => ({}),
       changedPaths: () => [],
       readReport: () => null,
+      lastSession: () => null,
+      readTranscript: () => null,
+      treeFile: () => null,
     }
     const starter = new ShiftCardStarter({ parking: path.join(root, 'parking'), launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
     const processes: ProcessTable = { commandLine: () => live.size === 0 ? null : `sh -c claude -p --session-id ${[...live].at(-1)}`, signalGroup: () => {} }
@@ -965,6 +1015,9 @@ function ladderWorld(made: MergeBench, handoffState: { brief: string, approved: 
     prompt: task => task.body,
     changedPaths: () => [],
     readReport: () => null,
+    lastSession: () => null,
+    readTranscript: () => null,
+    treeFile: () => null,
   }
   const steps = handoffLadderSteps(handoff, path.join(root, 'repo'), { [WORKTREE_HOME_VARIABLE]: path.join(root, 'worktrees') }, made.busPath)
   const starter = new LadderCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: path.join(root, 'repo') }, ports, steps)
@@ -1302,6 +1355,9 @@ describe('what a launched session left behind', () => {
       prompt: task => task.body,
       changedPaths: () => [],
       readReport: () => null,
+      lastSession: () => null,
+      readTranscript: () => null,
+      treeFile: () => null,
     }
     const starter = new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
     const from: StartedCard = { session: 'sess-first', worktree: '/trees/mc-1123', branch: 'feat/a-card', base: 'b'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' }
@@ -1327,5 +1383,31 @@ describe('what a launched session left behind', () => {
     expect(endedWith(start)).toBeNull()
     utimesSync(report, new Date('2026-10-19T12:00:01.000Z'), new Date('2026-10-19T12:00:01.000Z'))
     expect(endedWith(start)).toBe('result: stopped before PR — quality red')
+  })
+
+  it('the report a session ended with is the shift report written since the start', () => {
+    const launchDir = scratch()
+    const start = { cardId: 984, ts: '2026-10-19T12:00:00.000Z' }
+    const reportOf = reportSince(launchDir)
+    expect(reportOf(start)).toBeNull()
+
+    const report = path.join(launchDir, 'report-984.md')
+    writeFileSync(report, '#984 a-probe\nno PR\nverification: run\nReport: /probes/r.md\n')
+    utimesSync(report, new Date('2026-10-19T11:00:00.000Z'), new Date('2026-10-19T11:00:00.000Z'))
+    expect(reportOf(start)).toBeNull()
+    utimesSync(report, new Date('2026-10-19T12:00:01.000Z'), new Date('2026-10-19T12:00:01.000Z'))
+    expect(reportOf(start)).toBe('#984 a-probe\nno PR\nverification: run\nReport: /probes/r.md\n')
+  })
+
+  it('a session reached the Eddies warning when its tree\'s Eddies journal holds a budget-warn of that session', () => {
+    const worktree = scratch()
+    const card: StartedCard = { session: 'sess-warned', worktree, branch: 'feat/a-card', base: 'b'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' }
+    expect(eddiesWarned(card)).toBe(false)
+
+    mkdirSync(path.join(worktree, '.construct'))
+    writeFileSync(path.join(worktree, '.construct', 'eddies.jsonl'), `${JSON.stringify({ event: 'budget-warn', session_id: 'sess-other' })}\n`)
+    expect(eddiesWarned(card)).toBe(false)
+    writeFileSync(path.join(worktree, '.construct', 'eddies.jsonl'), `${JSON.stringify({ event: 'budget-warn', session_id: 'sess-warned' })}\n`)
+    expect(eddiesWarned(card)).toBe(true)
   })
 })

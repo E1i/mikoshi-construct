@@ -166,6 +166,9 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
     prompt: (task, at) => renderPrompt('card {{card}} in {{worktree}}, report {{report}}\n\n', task, at),
     changedPaths: () => [],
     readReport: () => null,
+    lastSession: () => null,
+    readTranscript: () => null,
+    treeFile: () => null,
     ...overrides,
   }
   return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: shiftClaude ?? 'claude', treePr: 'true', ...places }, ports)
@@ -485,6 +488,9 @@ describe('the launch queue', () => {
       prompt: task => task.body,
       changedPaths: () => changed,
       readReport: file => file === path.join(launchDir, `report-${cardId}.md`) ? report : null,
+      lastSession: () => null,
+      readTranscript: () => null,
+      treeFile: () => null,
     }
     return { starter: new ShiftCardStarter({ parking, launchDir, claude: 'claude', treePr: 'true' }, ports), cuts, spawned }
   }

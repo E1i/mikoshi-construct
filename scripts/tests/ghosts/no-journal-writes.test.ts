@@ -11,6 +11,7 @@ import { recordFall } from '../../ghosts/supervise.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
 import { recordDisposition } from '../../ghosts/verdict.js'
 import { read } from '../core/gh-fake.js'
+import { journalInBus } from './card-started-bus.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const NOW = new Date('2026-10-21T09:00:00.000Z')
@@ -34,12 +35,12 @@ function eventTypes(busPath: string): string[] {
 
 function closeDeps(handoffDir: string, busPath: string): TaskCloseDeps {
   const start = JSON.stringify({ event: 'path', task: '123', path: 'cheap', started: 'x', worktree: '/mc-123', branch: 'feat/123', card: { id: 123, name: 'n', kind: 'implement', milestone: 'ghosts', size: 'S', contour: 'cheap', decision: 'owner', depends: [], blocks: [], line: 'l' }, ts: 'x' })
+  journalInBus(busPath, [start])
   return {
     cwd: handoffDir,
-    read: file => file === path.join(handoffDir, 'ghosts.jsonl') ? `${start}\n` : null,
+    read: () => null,
     busPath,
     now: () => NOW,
-    handoffDir,
     constructDir: path.join(handoffDir, '.construct'),
     realpath: file => file,
     exists: () => false,

@@ -10,6 +10,7 @@ import type { Lease } from './lease.js'
 import type { DetectionMode, WaitStep } from './node.js'
 import type { CardBodyReader } from './parking-reads.js'
 import type { QueuedTask } from './queue.js'
+import type { TreeFile } from './session-journal.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
@@ -19,32 +20,37 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { commandWords, realIsolationReader } from '../ports/isolation.js'
 import { sessionEnv } from '../ports/session.js'
 import { taskWorktree, worktreeHome } from '../ports/worktree-home.js'
-import { continuationRefusal, CONTINUE_PROMPT, MAX_RESTARTS } from '../shift/continuation.js'
+import { continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, MAX_RESTARTS } from '../shift/continuation.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../shift/ladder.js'
+import { eddiesJournalPath, reportPath } from '../shift/places.js'
 import { renderPrompt } from '../shift/prompt.js'
+import { reportClosingOf } from '../shift/tree-pr.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { DROPPED_CARD, RUNNING_CARD } from './card-automaton.js'
-import { CARD_BODIES } from './card-bodies.js'
+import { CARD_BODIES, cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
-import { appendEvent, defaultBusPath, openBus } from './db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
+import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { bodyNotFoldedYet } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
-import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
+import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
 import { TICK_MS } from './netwatch.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { busCardBodies } from './parking-reads.js'
 import { promptsDirOf, storedInput } from './prompt-store.js'
 import { launchTasks } from './queue.js'
+import { transcriptFile } from './session-journal.js'
+import { openDatabase } from './sqlite.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = prefixOf('launch')
@@ -87,9 +93,13 @@ export interface LaunchNodeParts {
   resulted?: (card: StartedCard, start: SessionStart) => boolean
   endedWith?: (start: SessionStart) => string | null
   handedOff?: (start: SessionStart) => boolean
+  reportOf?: (start: SessionStart) => string | null
+  warned?: (card: StartedCard) => boolean
+  publish?: (card: StartedCard, start: SessionStart) => void
   continuer?: SessionContinuer
   isolation: IsolationReader
   prompts?: string
+  lanes?: () => number
 }
 
 export interface SessionStart {
@@ -134,6 +144,8 @@ const CONTINUATIONS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_CON
 const PR_SINCE = `SELECT 1 FROM events WHERE card_id = ? AND id > ? AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') LIMIT 1`
 
 const GHOST_ROW_SINCE = `SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
+
+const VERIFIED_SINCE = `SELECT 1 FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id = ? AND id > ? LIMIT 1`
 
 export const PULSE_MINUTES = 5
 
@@ -186,12 +198,14 @@ export class LaunchNode extends Node<LaunchStep> {
   private readonly executor: LaunchExecutor
   private readonly starters: Partial<Record<Contour, CardStarter>>
   private readonly processes: ProcessTable
+  private readonly lanes: () => number
 
   constructor(private readonly launchParts: LaunchNodeParts) {
     super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env })
     this.executor = new LaunchExecutor(launchParts)
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
+    this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.subscribe(LAUNCH_ON, event => this.detectOn(event))
   }
 
@@ -275,6 +289,7 @@ export class LaunchNode extends Node<LaunchStep> {
       return false
     return this.db.prepare(GHOST_ROW_SINCE).get(start.card_id, start.id) === undefined
       && this.db.prepare(PR_SINCE).get(start.card_id, start.id) === undefined
+      && this.db.prepare(VERIFIED_SINCE).get(start.card_id, start.id) === undefined
   }
 
   private stopEnded(start: RunningStart, card: StartedCard): boolean {
@@ -289,7 +304,35 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.stopDeadSession(start, card)
     if (card.contour === 'ladder')
       return this.waitForApproval(start, card)
+    if (this.closeProbeByReport(start, card, session) || this.publishAtEddiesWarn(start, card, session))
+      return false
     return this.stopWithoutPullRequest(start, card, session)
+  }
+
+  private kindOf(cardId: number): string | null {
+    const text = cardBodyText(this.db, cardId)
+    const parsed = text === null ? null : parseParkingFile(`${cardId}.md`, text)
+    return parsed?.kind === 'parked' ? parsed.parked.task.card.kind : null
+  }
+
+  private closeProbeByReport(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
+    const closing = this.kindOf(start.card_id) === 'probe' ? reportClosingOf(this.launchParts.reportOf?.(session) ?? null) : null
+    if (closing === null)
+      return false
+    const detail = `card #${start.card_id} probe session ${card.session} ended with its report ${closing.report} and no pull request, which a probe does not open`
+    appendEvent(this.db, { ts: this.ts(), type: CARD_VERIFIED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_VERIFIED}:${start.card_id}:${start.dedupe_key}`, payload: { ...closing, session: card.session, detail }, legacy: false })
+    return true
+  }
+
+  private publishAtEddiesWarn(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
+    if (card.contour !== 'cheap' || this.launchParts.publish === undefined || !(this.launchParts.warned?.(card) ?? false))
+      return false
+    this.launchParts.publish(card, session)
+    if (this.db.prepare(PR_SINCE).get(start.card_id, start.id) === undefined)
+      return this.db.prepare(STOPPED_SINCE).get(start.card_id, start.id) !== undefined
+    const detail = `eddies-warn: card #${start.card_id} session ${card.session} ended at the Eddies warning; the shift committed, pushed and opened its pull request from ${card.worktree} before the stop`
+    appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: false, detail }, legacy: false })
+    return true
   }
 
   private waitForApproval(start: RunningStart, card: StartedCard): boolean {
@@ -363,7 +406,11 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   protected candidates(): QueuedTask[] {
-    return launchTasks(this.db)
+    if (!this.executes())
+      return launchTasks(this.db)
+    const ts = this.ts()
+    layLanes(this.db, this.lanes(), ts, this.actor)
+    return launchTasks(this.db, laneOverlapRecorder(this.db, ts, this.actor))
   }
 
   protected override derivedCandidates(): QueuedTask[] {
@@ -394,6 +441,7 @@ export interface LaunchRun {
   pause: (ms: number) => Promise<unknown>
   isolation: IsolationReader
   launchDir: string
+  treePr?: string
 }
 
 export function runWithdrawLegacy(busPath: string, clock: () => Date): number {
@@ -438,6 +486,27 @@ export function handoffWrittenSince(launchDir: string): (start: SessionStart) =>
   }
 }
 
+export function reportSince(launchDir: string): (start: SessionStart) => string | null {
+  return (start) => {
+    const report = reportPath(launchDir, String(start.cardId))
+    return reportWrittenSince(launchDir, start) && existsSync(report) ? readFileSync(report, 'utf8') : null
+  }
+}
+
+export function eddiesWarned(card: StartedCard): boolean {
+  const journal = eddiesJournalPath(card.worktree)
+  return existsSync(journal) && eddiesEvidence(readFileSync(journal, 'utf8'), card.session).warned
+}
+
+export function treePrPublisher(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): (card: StartedCard, start: SessionStart) => void {
+  return (card, start) => {
+    try {
+      execFileSync('sh', ['-c', `${treePr} ${start.cardId} ${shellWord(card.worktree)} ${shellWord(reportPath(launchDir, String(start.cardId)))}`], { env: { ...env, ...HTTPS_ORIGIN_ENV }, stdio: 'ignore' })
+    }
+    catch {}
+  }
+}
+
 export function reportResultLine(launchDir: string): (start: SessionStart) => string | null {
   return (start) => {
     const report = path.join(launchDir, `report-${start.cardId}.md`)
@@ -452,7 +521,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -474,7 +543,7 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null): StarterPorts {
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, lastSession: (cardId: number) => string | null = () => null): StarterPorts {
   return {
     read: bodyOf,
     cut: (task) => {
@@ -490,11 +559,47 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     prompt: (task, places) => renderPrompt(header, continuedOnCardText(task, bodyOf), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    lastSession,
+    readTranscript: (worktree, session) => {
+      const file = transcriptFile(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), worktree, session)
+      return file !== null && existsSync(file) ? readFileSync(file, 'utf8') : null
+    },
+    treeFile: readTreeFile,
+  }
+}
+
+export function readTreeFile(file: string): TreeFile | null {
+  try {
+    return { content: readFileSync(file, 'utf8'), mtimeMs: statSync(file).mtimeMs }
+  }
+  catch {
+    return null
+  }
+}
+
+const LAST_STARTED_SESSION = `
+  SELECT json_extract(payload, '$.session') AS session FROM events
+  WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
+  ORDER BY id DESC LIMIT 1
+`
+
+export function busLastSession(busPath: string): (cardId: number) => string | null {
+  return (cardId) => {
+    if (!existsSync(busPath))
+      return null
+    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    try {
+      const row = db.prepare(LAST_STARTED_SESSION).get(cardId) as { session: string } | undefined
+      return row?.session ?? null
+    }
+    finally {
+      db.close()
+    }
   }
 }
 
 export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
-  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath))
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busLastSession(busPath))
 }
 
 export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv, busPath: string): LadderSteps {
@@ -537,7 +642,7 @@ async function main(): Promise<number> {
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env, busPath))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -158,6 +158,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeRefusedUnreadable: (why: string) => string
   intakeRefusedInvalid: string
   intakeRefusedInvalidTestPattern: string
+  intakeRefusedSharedCodeMask: string
   intakeWritten: (file: string, card: string) => string
   intakeUnclear: (count: number, who: string) => string
   intakeCorrected: (text: string) => string
@@ -183,6 +184,9 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeAdmitDryRun: (file: string) => string
   intakeAdmitWaiting: (file: string, card: string, depends: string, inBus: boolean) => string
   intakeAdmitWaitingDryRun: (file: string, card: string, depends: string) => string
+  intakeAdmitDowngrade: (file: string, card: string, witnesses: number, inBus: boolean) => string
+  intakeAdmitDowngradeDryRun: (file: string, card: string, witnesses: number) => string
+  intakeAdmitDowngradeAction: (cardId: number, action: string) => string
   notCarried: string
   notCarriedDoesNotHold: (claimId: string, target: string) => string
   notCarriedUnevaluable: (claimId: string, target: string) => string
@@ -512,6 +516,7 @@ export const LORE: Lore = {
   intakeRefusedBothFromStdin: 'INTAKE REFUSED // ONE STDIN: --draft and --taken cannot both read -',
   intakeRefusedUnreadable: (why: string) => `INTAKE REFUSED // NO SIGNAL: ${why}`,
   intakeRefusedInvalidTestPattern: 'INTAKE REFUSED // a witness passes vitest a -t that is not a regular expression and can never exit 0; nothing parked',
+  intakeRefusedSharedCodeMask: 'INTAKE REFUSED // a ** mask over shared factory code would hold every card that touches it; name the files, nothing parked',
   intakeRefusedInvalid: 'INTAKE REFUSED // the draft does not slice into valid cards; nothing parked',
   intakeWritten: (file: string, card: string) => `CARD PARKED // ${file}: ${card}`,
   intakeUnclear: (count: number, who: string) => `${count} UNCLEAR // marked in the card, held for who: ${who} until a person settles them`,
@@ -544,6 +549,11 @@ export const LORE: Lore = {
     ? `WAITING // ${file}: ${card}; depends ${depends} not merged, not admitted; card.waiting is in the bus. Admit again once they merge`
     : `WAITING // ${file}: ${card}; depends ${depends} not merged, not admitted. NO BUS // nothing written. Admit again once they merge`,
   intakeAdmitWaitingDryRun: (file: string, card: string, depends: string) => `DRY RUN // WAITING // ${file}: ${card}; depends ${depends} not merged, so --admit would not admit it and would write card.waiting. Nothing written`,
+  intakeAdmitDowngrade: (file: string, card: string, witnesses: number, inBus: boolean) => inBus
+    ? `OWNER WAIT // ${file}: ${card}; the amend lowers ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, not admitted; an owner wait is in the bus. Admit again once the owner allows it`
+    : `OWNER WAIT // ${file}: ${card}; the amend lowers ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, not admitted. NO BUS // nothing written. Admit again once the owner allows it`,
+  intakeAdmitDowngradeDryRun: (file: string, card: string, witnesses: number) => `DRY RUN // OWNER WAIT // ${file}: ${card}; the amend lowers ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, so --admit would not admit it and would open an owner wait. Nothing written`,
+  intakeAdmitDowngradeAction: (cardId: number, action: string) => `OWNER // ${action} — pnpm decisions:add --card #${cardId} with this text`,
   notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
@@ -890,6 +900,7 @@ export const PLAIN_LORE: Lore = {
   intakeRefusedBothFromStdin: 'Refused: --draft and --taken cannot both read stdin. Nothing was written.',
   intakeRefusedUnreadable: (why: string) => `Refused: ${why}. Nothing was written.`,
   intakeRefusedInvalidTestPattern: 'Refused: a witness passes vitest a -t that does not compile as a regular expression, so it can never exit 0. Nothing was written:',
+  intakeRefusedSharedCodeMask: 'Refused: a ** mask in touches covers shared factory code and would serialize every card that touches it; list the files the change edits. Nothing was written:',
   intakeRefusedInvalid: 'Refused: the draft does not slice into valid cards. Nothing was written:',
   intakeWritten: (file: string, card: string) => `Wrote ${file}: ${card}`,
   intakeUnclear: (count: number, who: string) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; it stays with who: ${who} until a person settles them.`,
@@ -924,6 +935,11 @@ export const PLAIN_LORE: Lore = {
     ? `Not admitted yet ${file}: ${card}. It depends on ${depends}, not merged yet, so it stays parked and a card.waiting naming them is in the bus. Run --admit again once they merge.`
     : `Not admitted yet ${file}: ${card}. It depends on ${depends}, not merged yet, so it stays parked; no bus is wired to this run, so nothing was written. Run --admit again once they merge.`,
   intakeAdmitWaitingDryRun: (file: string, card: string, depends: string) => `Dry run: ${file}: ${card} depends on ${depends}, not merged yet, so --admit would leave it parked and write a card.waiting. Nothing was written.`,
+  intakeAdmitDowngrade: (file: string, card: string, witnesses: number, inBus: boolean) => inBus
+    ? `Not admitted ${file}: ${card}. The amend removes, or drops red on main from, ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, so the admitted body stands and an owner wait for the downgrade is in the bus. Run --admit again once the owner records the decision below.`
+    : `Not admitted ${file}: ${card}. The amend removes, or drops red on main from, ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, so the admitted body stands; no bus is wired to this run, so nothing was written. Run --admit again once the owner records the decision below.`,
+  intakeAdmitDowngradeDryRun: (file: string, card: string, witnesses: number) => `Dry run: ${file}: ${card} lowers ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, so --admit would leave the admitted body standing and open an owner wait. Nothing was written.`,
+  intakeAdmitDowngradeAction: (cardId: number, action: string) => `The owner allows it with pnpm decisions:add --card #${cardId} naming: ${action}`,
   notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,

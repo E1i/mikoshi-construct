@@ -1,7 +1,7 @@
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
-import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, POLICY_DENIED, PROCESS_HEARTBEAT, QUESTION_OWNER, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, LANE_ASSIGNED, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
 
@@ -31,8 +31,9 @@ const STAGE_OF_STATE: Readonly<Record<string, CardStage>> = {
 const STAGE_OF_QUEUE: Readonly<Record<string, CardStage>> = { review: 'review', answer: 'answer/changes', merge: 'ready' }
 const STAGE_OF_STEP: Readonly<Record<string, CardStage>> = { ...STAGE_OF_QUEUE, launch: 'in work' }
 const SETTLED_STATES = new Set(['merged', 'stopped', 'dropped', 'closed'])
+
+const LANELESS_STATES = ['merged', 'dropped', 'closed']
 const OPEN_TASK_STATES = ['queued', 'leased']
-const OPEN_PR = 'open'
 
 export interface BusCard {
   id: number
@@ -51,14 +52,16 @@ export interface CardsAtStage {
   cards: number[]
 }
 
-export type OwnerWaitKind = 'question' | 'decision' | 'version'
+export type OwnerWaitNeed = 'decision' | 'merge' | 'command'
 
 export interface OwnerWait {
-  kind: OwnerWaitKind
+  id: string
+  need: OwnerWaitNeed
+  text: string
+  command: string | null
   card: number | null
   pr: number | null
-  detail: string | null
-  since: string | null
+  since: string
 }
 
 export interface BusService {
@@ -94,6 +97,7 @@ export interface BusFacts {
   matrices: BusMatrix[]
   failure: string | null
   reviewQueue: number
+  lanes: number | null
 }
 
 export type BusReading
@@ -296,52 +300,36 @@ function stageOf(state: string | null, closed: boolean, queue: string | undefine
   return (queue === undefined ? undefined : STAGE_OF_QUEUE[queue]) ?? STAGE_OF_STATE[state ?? ''] ?? 'planned'
 }
 
+function laneCountOf(db: BusDb): number | null {
+  const row = db.prepare(`SELECT json_extract(payload, '$.lanes') AS lanes FROM events WHERE legacy = 0 AND type = ? ORDER BY id DESC LIMIT 1`).get(LANE_ASSIGNED) as { lanes: unknown } | undefined
+  return typeof row?.lanes === 'number' && Number.isSafeInteger(row.lanes) && row.lanes > 0 ? row.lanes : null
+}
+
 function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   const rows = db.prepare(`
-    SELECT c.card_id AS id, c.state, c.pr, b.lane, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body
+    SELECT c.card_id AS id, c.state, c.pr, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body,
+      CASE WHEN c.state IN (${LANELESS_STATES.map(() => '?').join(', ')}) THEN NULL ELSE (
+        SELECT json_extract(a.payload, '$.lane') FROM events a WHERE a.legacy = 0 AND a.type = ? AND a.card_id = c.card_id ORDER BY a.id DESC LIMIT 1
+      ) END AS lane
     FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id LEFT JOIN events e ON e.id = c.event_id
     ORDER BY c.card_id
-  `).all() as unknown as CardRow[]
+  `).all(...LANELESS_STATES, LANE_ASSIGNED) as unknown as CardRow[]
   const closed = new Map(events.of(CARD_VERIFIED).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
   const queues = openQueues(db)
   return rows.map(row => ({ id: row.id, state: row.state, stage: stageOf(row.state, closed.has(row.id), queues.get(row.id)), lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
 }
 
-interface WaitRow {
-  card_id: number | null
-  pr: number | null
-  ts: string | null
-  payload: string
-}
+const OWNER_WAITS_TABLE = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'owner_waits'`
 
-const OPEN_OWNER_QUESTIONS = `
-  SELECT stop.card_id, stop.pr, stop.ts, stop.payload FROM events AS stop JOIN cards ON cards.card_id = stop.card_id
-  WHERE stop.type = ? AND stop.legacy = 0 AND cards.state = 'stopped' AND json_extract(stop.payload, '$.reason') = ?
-    AND stop.id = (SELECT max(last.id) FROM events AS last WHERE last.type = stop.type AND last.card_id = stop.card_id)
-    AND NOT EXISTS (SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named WHERE answer.scope IS NOT NULL AND answer.event_id > stop.id AND named.value = stop.card_id)
-  ORDER BY stop.id
+const OPEN_OWNER_WAITS = `
+  SELECT id, need, text, command, card_id AS card, pr, opened_at AS since FROM owner_waits
+  WHERE state = 'open' ORDER BY CAST(substr(id, 2) AS INTEGER)
 `
-
-const OPEN_AUTHORITY_DENIALS = `
-  SELECT denial.card_id, denial.pr, denial.ts, denial.payload FROM events AS denial JOIN prs ON prs.pr = denial.pr
-  WHERE denial.type = ? AND denial.legacy = 0 AND prs.state = ? AND json_extract(denial.payload, '$.kind') = 'authority'
-    AND denial.id = (SELECT max(last.id) FROM events AS last WHERE last.type = denial.type AND last.legacy = 0 AND last.pr = denial.pr)
-  ORDER BY denial.id
-`
-
-function waitOf(kind: OwnerWaitKind, row: WaitRow): OwnerWait {
-  return { kind, card: row.card_id, pr: row.pr, detail: text(payloadOf(row.payload).detail), since: row.ts }
-}
 
 function ownerWaits(db: BusDb): OwnerWait[] {
-  const questions = db.prepare(OPEN_OWNER_QUESTIONS).all(CARD_STOPPED, QUESTION_OWNER) as unknown as WaitRow[]
-  const decisions = db.prepare(OPEN_AUTHORITY_DENIALS).all(POLICY_DENIED, OPEN_PR) as unknown as WaitRow[]
-  const versions = db.prepare('SELECT pr FROM prs WHERE card_id IS NULL AND state = ? ORDER BY pr').all(OPEN_PR) as unknown as { pr: number }[]
-  return [
-    ...questions.map(row => waitOf('question', row)),
-    ...decisions.map(row => waitOf('decision', row)),
-    ...versions.map(row => ({ kind: 'version' as const, card: null, pr: row.pr, detail: null, since: null })),
-  ]
+  if (db.prepare(OWNER_WAITS_TABLE).get() === undefined)
+    return []
+  return (db.prepare(OPEN_OWNER_WAITS).all() as unknown as OwnerWait[]).map(row => ({ ...row }))
 }
 
 function lastPulse(db: BusDb): string | null {
@@ -383,6 +371,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     matrices: checkMatrices(db),
     failure: lastFailure(events),
     reviewQueue: Number(queue.n),
+    lanes: laneCountOf(db),
   }
 }
 

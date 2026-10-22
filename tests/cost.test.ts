@@ -101,9 +101,9 @@ describe('construct cost', () => {
   it('reports a runtime that does not expose per-run usage as unsupported, not as absence', () => {
     const projectsDir = projectsRoot()
     const shiftRoot = path.join(projectsDir, 'no-shift')
-    const windowJournal = path.join(projectsDir, 'no-window', 'ghosts.jsonl')
-    const report = costReport(workspace(), { projectsDir, shiftRoot, windowJournal, env: CURSOR_ENV })
-    expect(report).toEqual({ status: 'unsupported', runtime: 'cursor', version: VERSION, turns: { status: 'not recorded' }, cheap: { shiftRoot, windowJournal, projectsDir, classes: [] } })
+    const busPath = path.join(projectsDir, 'no-bus', 'bus.db')
+    const report = costReport(workspace(), { projectsDir, shiftRoot, busPath, env: CURSOR_ENV })
+    expect(report).toEqual({ status: 'unsupported', runtime: 'cursor', version: VERSION, turns: { status: 'not recorded' }, cheap: { shiftRoot, bus: busPath, projectsDir, classes: [] } })
     expect(costJson(report, false)).toEqual({ schemaVersion: COST_JSON_SCHEMA_VERSION, status: 'unsupported', runtime: 'cursor', version: VERSION, turns: { status: 'not recorded' } })
     const { exit, text } = printed(report)
     expect(exit).toBe(COST_EXIT.unsupported)
@@ -116,9 +116,9 @@ describe('construct cost', () => {
   it('reports a runtime whose usage store is absent as unsupported', () => {
     const projects = path.join(projectsRoot(), 'never-written')
     const shiftRoot = path.join(projects, 'no-shift')
-    const windowJournal = path.join(projects, 'no-window', 'ghosts.jsonl')
-    const report = costReport(workspace(), { projectsDir: projects, shiftRoot, windowJournal, env: CLAUDE_CODE_ENV })
-    expect(report).toEqual({ status: 'unsupported', runtime: 'claude-code', version: VERSION, turns: { status: 'not recorded' }, cheap: { shiftRoot, windowJournal, projectsDir: projects, classes: [] } })
+    const busPath = path.join(projects, 'no-bus', 'bus.db')
+    const report = costReport(workspace(), { projectsDir: projects, shiftRoot, busPath, env: CLAUDE_CODE_ENV })
+    expect(report).toEqual({ status: 'unsupported', runtime: 'claude-code', version: VERSION, turns: { status: 'not recorded' }, cheap: { shiftRoot, bus: busPath, projectsDir: projects, classes: [] } })
   })
 
   it('names the key it looked up when the runs were recorded under the path the directory resolves to', () => {

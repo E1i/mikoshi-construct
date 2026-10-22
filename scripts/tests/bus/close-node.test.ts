@@ -74,7 +74,7 @@ interface NodeOptions {
 }
 
 function nodeOf(made: CloseBench, options: NodeOptions = {}): ProbedCloseNode {
-  const parts: CloseNodeParts = { db: made.db, reported: options.reported ?? (() => 'run'), clock: made.clock.now, session: 'node-1', journal: path.join(made.root, 'ghosts.jsonl'), parking: path.join(made.root, 'parking'), mode: options.mode ?? 'shadow', env: {}, trees: options.trees ?? { remove: () => null }, endedTrees: options.endedTrees }
+  const parts: CloseNodeParts = { db: made.db, reported: options.reported ?? (() => 'run'), clock: made.clock.now, session: 'node-1', parking: path.join(made.root, 'parking'), mode: options.mode ?? 'shadow', env: {}, trees: options.trees ?? { remove: () => null }, endedTrees: options.endedTrees }
   return new ProbedCloseNode(parts)
 }
 
@@ -422,7 +422,7 @@ describe('the close node', () => {
     const lease = leaseNext(made.db, ts, 'close', 'worker:close:node-1')!
     closedEarlier(made, 1220)
 
-    const outcome = new CloseExecutor({ db: made.db, reported: () => 'run', clock: made.clock.now, journal: path.join(made.root, 'ghosts.jsonl'), parking: path.join(made.root, 'parking'), trees: { remove: () => null } }).close(lease)
+    const outcome = new CloseExecutor({ db: made.db, reported: () => 'run', clock: made.clock.now, parking: path.join(made.root, 'parking'), trees: { remove: () => null } }).close(lease)
 
     expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'card_closed' }, next: 'withdrawn' })
     expect(eventsOf(made.db, CARD_CLOSED)).toHaveLength(1)

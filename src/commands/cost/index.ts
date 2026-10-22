@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { defaultBusPath } from '../../../scripts/core/bus-path.js'
 import { VERSION } from '../../version.js'
-import { defaultShiftRoot, defaultWindowJournal, readCheapClasses } from './cheap.js'
+import { defaultShiftRoot, readCheapClasses } from './cheap.js'
 import { ClaudeCodeCostSource, claudeProjectsDir } from './claude-code.js'
 import { expectFor } from './expect.js'
 import { hasLedgerFindings, LEDGER_FILE, parseLedgerLine, readLedger, reconcile, summarizeLedger, withoutTokenTotals } from './ledger.js'
@@ -45,7 +45,7 @@ export function knownSteps(cwd: string, runs: string[], source: CostSource | nul
   return source != null && source.readable() ? knownRunSteps(cwd, runs, run => source.steps(run)) : readStepCache(cwd)
 }
 
-export function costReport(cwd: string, options: { projectsDir?: string, shiftRoot?: string, windowJournal?: string, busPath?: string, env?: NodeJS.ProcessEnv, version?: string } = {}): CostReport {
+export function costReport(cwd: string, options: { projectsDir?: string, shiftRoot?: string, busPath?: string, env?: NodeJS.ProcessEnv, version?: string } = {}): CostReport {
   const version = options.version ?? VERSION
   const runtime = resolveRuntime(cwd, options.env ?? process.env)
   const reading = readLedger(cwd)
@@ -53,7 +53,7 @@ export function costReport(cwd: string, options: { projectsDir?: string, shiftRo
   const reported = hasLedgerFindings(ledger)
   const turns = readTurnJournal(cwd)
   const projectsDir = options.projectsDir ?? claudeProjectsDir()
-  const cheap = readCheapClasses(options.shiftRoot ?? defaultShiftRoot(), options.windowJournal ?? defaultWindowJournal(), projectsDir, options.busPath ?? defaultBusPath())
+  const cheap = readCheapClasses(options.shiftRoot ?? defaultShiftRoot(), projectsDir, options.busPath ?? defaultBusPath())
   const source: CostSource | null = runtime === 'claude-code' ? new ClaudeCodeCostSource(projectsDir) : null
   if (source == null || !source.readable())
     return { status: 'unsupported', runtime, version, turns, cheap, ...(reported ? { ledger: withoutTokenTotals(ledger) } : {}) }

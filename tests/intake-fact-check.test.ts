@@ -130,16 +130,16 @@ describe('the scratch root removal', () => {
 
 describe('intake fact check', () => {
   it('corrects a wrong path, a taken number and an invalid contour, and a named number is never used', () => {
-    const dir = repository(['src/commands/intake/index.ts'])
+    const dir = repository(['src/commands/intake/index.ts', 'src/commands/sync/index.ts'])
     const { result, parking } = intake(
-      [card({ number: 12, touches: ['src/command/intake/**'], contour: 'fast' }), card({ name: 'second-card', number: 40, touches: ['src/commands/intake/index.ts'] }), card({ name: 'third-card', touches: ['src/commands/intake/index.ts'] })],
+      [card({ number: 12, touches: ['src/command/sync/**'], contour: 'fast' }), card({ name: 'second-card', number: 40, touches: ['src/commands/intake/index.ts'] }), card({ name: 'third-card', touches: ['src/commands/intake/index.ts'] })],
       { dir, taken: '12' },
     )
     const first = written(result, parking, 13)
     const output = printed(result)
     for (const text of [
       'corrected: number — #12 → #13 — #12 is taken by a pull request or issue listed in --taken; numbers are assigned by construct intake',
-      'corrected: touches — src/command/intake/** → src/commands/intake/** — \'src/command/intake\' does not exist; \'src/commands/intake\' is the only path named \'intake\'',
+      'corrected: touches — src/command/sync/** → src/commands/sync/** — \'src/command/sync\' does not exist; \'src/commands/sync\' is the only path named \'sync\'',
       'corrected: contour — fast → ladder — \'fast\' is not one of cheap, ladder; ladder is the path with a brief and witnesses',
     ]) {
       expect(first).toContain(text)
@@ -288,15 +288,15 @@ describe('intake fact check', () => {
   })
 
   it('keeps every original value in the card and never edits the draft file', () => {
-    const dir = repository(['src/commands/intake/index.ts'])
+    const dir = repository(['src/commands/sync/index.ts'])
     const journal = path.join(scratch(), 'ghosts.jsonl')
     writeFileSync(journal, `${JSON.stringify({ event: 'path', task: '77', path: 'cheap', verification: 'run' })}
 ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' })}
 `)
-    const draftBefore = JSON.stringify({ cards: [card({ number: 12, touches: ['src/command/intake/**'], contour: 'fast', depends: ['#77'] })] })
+    const draftBefore = JSON.stringify({ cards: [card({ number: 12, touches: ['src/command/sync/**'], contour: 'fast', depends: ['#77'] })] })
     const { result, parking, draftFile } = intake(JSON.parse(draftBefore).cards, { dir, journal, taken: '12' })
     const text = written(result, parking, 13)
-    for (const was of ['#12', 'src/command/intake/**', 'fast', '#77'])
+    for (const was of ['#12', 'src/command/sync/**', 'fast', '#77'])
       expect(text).toContain(`${was} →`)
     expect(text).toContain(TASK)
     expect(readFileSync(draftFile, 'utf8')).toBe(draftBefore)
@@ -417,10 +417,10 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
   })
 
   it('keeps who: shift on a corrected card with no unclear line', () => {
-    const dir = repository(['src/commands/intake/index.ts'])
-    const { result, parking } = intake([card({ who: 'shift', touches: ['src/command/intake/**'] })], { dir })
+    const dir = repository(['src/commands/sync/index.ts'])
+    const { result, parking } = intake([card({ who: 'shift', touches: ['src/command/sync/**'] })], { dir })
     const text = written(result, parking, 2)
-    expect(text).toContain('corrected: touches — src/command/intake/** → src/commands/intake/**')
+    expect(text).toContain('corrected: touches — src/command/sync/** → src/commands/sync/**')
     expect(text).not.toContain('unclear:')
     expect(text).toMatch(/^who: shift$/m)
   })

@@ -30,7 +30,7 @@ function world(): { parking: string, journal: string } {
 function park(dir: string, id: number, body = 'Do the thing.'): string {
   mkdirSync(dir, { recursive: true })
   const file = path.join(dir, `${id}.md`)
-  writeFileSync(file, `card: #${id} card-${id} [implement/black-ice/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-${id}\ntouches: src/**\ncontinue: stop\nwho: window\n\n${body}\n`)
+  writeFileSync(file, `card: #${id} card-${id} [implement/black-ice/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-${id}\ntouches: src/a.ts\ncontinue: stop\nwho: window\n\n${body}\n`)
   return file
 }
 

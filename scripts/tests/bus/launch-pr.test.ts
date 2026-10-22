@@ -123,6 +123,9 @@ function launchWorld(claudeExit: number, report = '') {
       prompt: (task, at) => renderPrompt('card {{card}} in {{worktree}}, report {{report}}\n\n', task, at),
       changedPaths: () => [],
       readReport: () => null,
+      lastSession: () => null,
+      readTranscript: () => null,
+      treeFile: () => null,
     },
   )
   return { origin, worktree, ghArgs, start: () => starter.start({ cardId: CARD_ID, lane: 'lane-x' }) }

@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { entryOf } from '../../ghosts/entry.js'
 import { runTaskClose } from '../../ghosts/task-close.js'
 import { read } from '../core/gh-fake.js'
+import { journalInBus } from './card-started-bus.js'
 
-const JOURNAL = '/handoff/ghosts.jsonl'
 const V1 = '{"event":"entry","task":"548","CONTRACT":"implement · cheap · owner · touches not recorded on the card · law not recorded on the card","EXPECT":"expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone","ACTION":"task:start fix/shift-left-reason-closed-first #548: cut /Users/eli/projects/mc-548 from origin/main; start line written to /Users/eli/.construct/handoff/ghosts.jsonl","RESULT":"accepted · not started","ts":"2026-10-04T19:04:01.015Z"}'
 const V2 = JSON.stringify({ event: 'entry', schema: 2, task: '549', CONTRACT: 'implement · cheap · auto · touches a.ts, b/** · law not recorded on the card', EXPECT: 'expect none — n=0 for implement/S', ACTION: 'a', RESULT: 'accepted · not started', ts: '2026-10-05T08:00:00.000Z' })
 
@@ -16,12 +16,13 @@ function startLine(id: string): string {
 }
 
 function closeCard(journal: string[], id: string): string[] {
+  const busPath = path.join(mkdtempSync(path.join(tmpdir(), 'entry-versions-')), 'bus.db')
+  journalInBus(busPath, journal)
   const deps: TaskCloseDeps = {
     cwd: '/work',
-    read: file => file === JOURNAL ? `${journal.join('\n')}\n` : null,
-    busPath: path.join(mkdtempSync(path.join(tmpdir(), 'entry-versions-')), 'bus.db'),
+    read: () => null,
+    busPath,
     now: () => new Date('2026-10-05T09:00:00.000Z'),
-    handoffDir: '/handoff',
     constructDir: '/',
     realpath: file => file,
     exists: () => false,

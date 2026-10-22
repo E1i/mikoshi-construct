@@ -154,9 +154,7 @@ describe('the window commands under the sandbox law', () => {
       bus: world.bus,
       now: () => NOW,
       session: undefined,
-      handoffDir: path.join(world.root, 'handoff'),
       worktreeHome,
-      readJournal: () => null,
     })
     expect(result.stderr).toEqual([])
     expect(result.exitCode).toBe(0)

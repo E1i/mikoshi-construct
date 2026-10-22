@@ -6,13 +6,14 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { bodySha, bodyShaWithoutTouches } from '../../../src/commands/intake/confirm.js'
 import { BACKFILL_SOURCE } from '../../bus/backfill-source.js'
-import { BACKFILL_ACTOR } from '../../bus/backfill.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { slotsOf } from '../../bus/scheduler.js'
 import { CARD_ADMITTED, CARD_STARTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '../../core/events.js'
-import { readJournalFile, runTaskStart } from '../../ghosts/task-start.js'
+import { readParkedFile, runTaskStart } from '../../ghosts/task-start.js'
 import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ports/worktree-home.js'
+import { journalInBus } from './card-started-bus.js'
 
+const BACKFILL_ACTOR = 'worker:backfill:window'
 const SESSION = '0d538601-aaaa-bbbb-cccc-1234567890ab'
 const NOW = new Date('2026-10-02T08:00:00.000Z')
 const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
@@ -79,6 +80,7 @@ function newWorld(): World {
   git(repo, ['push', '-q', 'origin', 'main'])
   const bus = path.join(root, 'bus', 'bus.db')
   admit(bus, ADMITTED)
+  journalInBus(bus, [JSON.stringify({ event: 'merge', task: '86', by: 'E1i', commit: 'c0ffee', ts: ADMITTED_TS })])
   return { root, repo, handoff, journal: path.join(handoff, 'ghosts.jsonl'), bus }
 }
 
@@ -93,8 +95,6 @@ function depsOf(world: World, session: string | null = SESSION, installs: [strin
     bus: world.bus,
     now: () => NOW,
     session: session ?? undefined,
-    handoffDir: world.handoff,
-    readJournal: () => `${JSON.stringify({ event: 'merge', task: '86', by: 'E1i', commit: 'c0ffee', ts: ADMITTED_TS })}\n`,
   }
 }
 
@@ -106,8 +106,7 @@ afterEach(() => {
 describe('task:start reads the admission from the bus and writes the start to it', () => {
   it('a card with card.admitted in the bus and no intake line in the journal starts', () => {
     const world = newWorld()
-    const deps = { ...depsOf(world), readJournal: () => null }
-    const result = runTaskStart(['feat/a1', '--card', card(41)], deps)
+    const result = runTaskStart(['feat/a1', '--card', card(41)], depsOf(world))
     expect(result.stderr).toEqual([])
     expect(result.exitCode).toBe(0)
     expect(starts(world)).toMatchObject([{ admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:41`, admitted: ADMITTED_TS } }])
@@ -193,10 +192,10 @@ describe('task:start reads the admission from the bus and writes the start to it
     expect(starts(world)).toMatchObject([{ admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:101` } }])
   })
 
-  it('a card with no card.admitted is refused even when the journal holds an intake line for the same card', () => {
+  it('a card with no card.admitted is refused even when the journal history holds an intake line for the same card', () => {
     const world = newWorld()
-    const journal = `${JSON.stringify({ event: 'intake', task: '77', card: card(77), confirmation: 'c-77', corrections: [], ts: ADMITTED_TS })}\n`
-    const result = runTaskStart(['feat/a7', '--card', card(77)], { ...depsOf(world), readJournal: () => journal })
+    journalInBus(world.bus, [JSON.stringify({ event: 'intake', task: '77', card: card(77), confirmation: 'c-77', corrections: [], ts: ADMITTED_TS })])
+    const result = runTaskStart(['feat/a7', '--card', card(77)], depsOf(world))
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toEqual([`[task:start] card #77 has no ${CARD_ADMITTED} in the bus ${world.bus}: it was not admitted; admit it through pnpm intake --admit, or pass --without-intake "<reason>" to record an exception; nothing written`])
     expect(starts(world)).toEqual([])
@@ -646,7 +645,7 @@ describe('the card.started carries the card who and risk read from the card file
     const dir = path.join(world.root, 'parking')
     const unreadable = path.join(dir, '31.md')
     mkdirSync(unreadable, { recursive: true })
-    const result = runTaskStart(['feat/p6', '--card', card(31)], { ...depsOf(world), parking: { dir, read: readJournalFile } })
+    const result = runTaskStart(['feat/p6', '--card', card(31)], { ...depsOf(world), parking: { dir, read: readParkedFile } })
     expect(result.exitCode).toBe(0)
     const reason = `touches not recorded on the card: ${unreadable} could not be read: EISDIR`
     expect(result.stdout.join('\n')).toContain(reason)

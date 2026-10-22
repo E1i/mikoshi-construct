@@ -9,13 +9,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { writtenBeforeHistoryEnds } from '../../../src/card/closed.js'
+import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../../src/card/closed.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { legacyEventOf } from '../../bus/import.js'
 import { prClosed } from '../../bus/observations.js'
 import { CARD_VERIFIED } from '../../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
-import { runEvidence } from '../../release/evidence.js'
+import { busHistory } from '../../ghosts/journal.js'
+import { busMerges } from '../../ghosts/task-merged.js'
+import { busMergeSet, runEvidence } from '../../release/evidence.js'
 
 const BUS = '/construct/bus.db'
 const JOURNAL = `${BUS} legacy line `
@@ -245,6 +247,43 @@ describe('release:evidence prints the execution profile of every merged card in 
       })
       expect(result.stderr).toBe('')
       expect(result.stdout).toContain(`  result.merge: PR #70 by E1i at 2026-10-13T11:00:00Z — ${bus} event 1`)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('the merge set from the bus equals the merge set from the journal over one period', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'evidence-period-'))
+    try {
+      const commit = (n: number): string => String(n).repeat(40)
+      const before = (minutes: number): string => new Date(Date.parse(JOURNAL_HISTORY_ENDS) - minutes * 60_000).toISOString()
+      const after = (minutes: number): string => new Date(Date.parse(JOURNAL_HISTORY_ENDS) + minutes * 60_000).toISOString()
+      const mergeLine = (task: number, ts: string): Record<string, unknown> => ({ event: 'merge', task: String(task), pr: task * 10, by: 'E1i', commit: commit(task), merged: ts, ts })
+      const journal = [
+        mergeLine(1, before(30)),
+        { event: 'path', task: '2', path: 'cheap', pr: 20, verification: 'run', ts: before(20) },
+        mergeLine(2, before(10)),
+        mergeLine(3, after(10)),
+        mergeLine(4, after(20)),
+        mergeLine(5, after(30)),
+      ]
+      const bus = path.join(root, 'bus.db')
+      const db = openBus(bus)
+      journal.forEach((line, index) => {
+        const event = legacyEventOf(JSON.stringify(line), index + 1)
+        if (event !== null)
+          appendEvent(db, event)
+      })
+      for (const task of [3, 4, 5])
+        appendEvent(db, prClosed(after((task - 2) * 10), { pr: task * 10, cardId: task, merged: true, commit: commit(task), mergedBy: 'E1i', mergedAt: after((task - 2) * 10) }))
+      db.close()
+      const period = new Set([1, 2, 3, 4].map(commit))
+      const fromJournal = journal.filter(line => line.event === 'merge' && period.has(String(line.commit)))
+      const fromBus = busMergeSet({ bus, history: () => busHistory(bus), busMerges: () => busMerges(bus) }, period).map(({ entry }) => entry)
+      const merge = ({ task, pr, by, commit, merged }: Record<string, unknown>): Record<string, unknown> => ({ task, pr, by, commit, merged })
+      expect(fromBus.map(merge)).toEqual(fromJournal.map(merge))
+      expect(fromBus.map(entry => entry.task)).toEqual(['1', '2', '3', '4'])
     }
     finally {
       rmSync(root, { recursive: true, force: true })

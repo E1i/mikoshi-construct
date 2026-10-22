@@ -1,6 +1,7 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { PromptPlaces } from '../shift/prompt.js'
 import type { CardStart, CardStarter, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
+import type { TreeFile } from './session-journal.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync } from 'node:fs'
 import path from 'node:path'
@@ -9,6 +10,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { continuationBody } from '../shift/prompt.js'
 import { messageOf } from './errors.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
+import { journalDoubt, parseSessionJournal } from './session-journal.js'
 
 export interface DetachedSpawn {
   command: string
@@ -31,6 +33,9 @@ export interface StarterPorts {
   prompt: (task: ShiftTask, places: { worktree: string, report: string }) => string
   changedPaths: (worktree: string) => string[]
   readReport: (file: string) => string | null
+  lastSession: (cardId: number) => string | null
+  readTranscript: (worktree: string, session: string) => string | null
+  treeFile: (file: string) => TreeFile | null
 }
 
 export interface StarterPlaces {
@@ -102,28 +107,52 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
   }
 
   continueFrom(card: QueuedCard, from: StartedCard): CardStart {
-    return this.continueIn(card, { worktree: from.worktree, base: from.base })
+    return this.continueIn(card, { worktree: from.worktree, base: from.base }, from.session)
   }
 
-  private continueIn(card: QueuedCard, held: HeldTree): CardStart {
-    const refusal = this.unnamedChanges(card.cardId, held.worktree)
+  private continueIn(card: QueuedCard, held: HeldTree, session?: string): CardStart {
+    const refusal = this.unnamedChanges(card.cardId, held.worktree, session)
     if (refusal !== null)
       return refusal
     return this.session(card, () => ({ worktree: held.worktree, base: held.base ?? this.ports.base(held.worktree), body: continuationBody }))
   }
 
-  private unnamedChanges(cardId: number, worktree: string): CardStart | null {
+  private unnamedChanges(cardId: number, worktree: string, ended: string | undefined): CardStart | null {
     try {
       const named = pathTokens(this.ports.readReport(this.reportOf(cardId)) ?? '')
       const unnamed = this.ports.changedPaths(worktree).filter(changed => !named.has(changed))
       if (unnamed.length === 0)
         return null
-      const detail = `card #${cardId} is not continued in ${worktree}: its handoff or report names none of the changed paths ${unnamed.join(', ')}`
-      return { kind: 'refused', denial: { ...technical(HELD_TREE_CHANGED, detail), paths: unnamed } }
+      const session = ended ?? this.ports.lastSession(cardId)
+      const doubts = this.journalDoubts(worktree, session, unnamed)
+      if (doubts.length === 0)
+        return null
+      const detail = `card #${cardId} is not continued in ${worktree}: neither its report nor the journal of session ${session ?? '-'} owns the changed paths ${doubts.map(doubt => `${doubt.path} (${doubt.reason})`).join(', ')}`
+      return { kind: 'refused', denial: { ...technical(HELD_TREE_CHANGED, detail), paths: doubts.map(doubt => doubt.path) } }
     }
     catch (error) {
       return { kind: 'refused', denial: technical('start_failed', messageOf(error)) }
     }
+  }
+
+  private journalDoubts(worktree: string, session: string | null, unnamed: string[]): { path: string, reason: string }[] {
+    const all = (reason: string): { path: string, reason: string }[] => unnamed.map(each => ({ path: each, reason }))
+    if (session === null)
+      return all('the bus records no session that held the tree')
+    const text = this.ports.readTranscript(worktree, session)
+    if (text === null)
+      return all(`the journal of session ${session} cannot be read`)
+    let journal
+    try {
+      journal = parseSessionJournal(text, worktree)
+    }
+    catch (error) {
+      return all(`the journal of session ${session} cannot be read: ${messageOf(error)}`)
+    }
+    return unnamed.flatMap((each) => {
+      const reason = journalDoubt(journal, each, this.ports.treeFile(path.join(worktree, each)))
+      return reason === null ? [] : [{ path: each, reason }]
+    })
   }
 
   private reportOf(cardId: number): string {

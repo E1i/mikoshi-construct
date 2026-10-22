@@ -10,7 +10,7 @@ function card(id: number, state: string | null, lane: string | null = null, line
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
-  return { at: '2026-10-02T12:00:00.000Z', goal: null, waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
+  return { at: '2026-10-02T12:00:00.000Z', goal: null, waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, lanes: null, ...overrides }
 }
 
 function plan(title: string, delivered: number, total: number): PlanProgress {
@@ -29,12 +29,14 @@ describe('the board screens', () => {
 
   it('the text board prints the plan line and waits for you only when not empty', () => {
     const goal: Goal = { plans: [plan('Plan 0.45', 2, 7)], backlog: 3 }
+    const since = '2026-10-02T11:00:00.000Z'
     const waits = [
-      { kind: 'question' as const, card: 10, pr: null, detail: 'which path?', since: null },
-      { kind: 'version' as const, card: null, pr: 669, detail: null, since: null },
+      { id: 'Q1', need: 'decision' as const, text: 'which path?', command: null, card: 10, pr: null, since },
+      { id: 'Q2', need: 'merge' as const, text: 'changes architecture/security-invariants.md', command: null, card: 12, pr: 669, since },
+      { id: 'Q3', need: 'command' as const, text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since },
     ]
     const goalLine = 'Plan 0.45: delivered 2 of 7 · queued 1 · in progress 0 · review 0 · slices without cards: 4 · +1 in 24 h · backlog: 3'
-    expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 2 · — · question #10 (which path?) · version PR #669'])
+    expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path?) · Q2 merge PR #669 (changes architecture/security-invariants.md) · Q3 command (the merge queue runs unswitched: pnpm decisions:add "[owner] allow-live merge")'])
     expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'planned (0): —'])
     const backlog = [card(8, 'in_review', null, '#8 eight', 'review'), card(9, 'in_review', null, '#9 nine', 'answer/changes'), card(4, 'running', null, '#4 four', 'ready')]
     expect(backlogLines(backlog, PLAIN_LORE)).toEqual(['no lane (3)', '  #8 eight · review', '  #9 nine · answer/changes', '  #4 four · ready'])
@@ -49,6 +51,12 @@ describe('the board screens', () => {
       'ready to merge (1): #5',
     ])
     expect(flowLines([], PLAIN_LORE)).toEqual(['planned (0): —', 'in work (0): —', 'in review (0): —', 'ready to merge (0): —'])
+  })
+
+  it('backlog shows all N chain lanes in number order, the empty ones too', () => {
+    const cards = [card(1, 'queued', 'lane-10', '#1 one'), card(2, 'queued', 'lane-2', '#2 two')]
+    expect(backlogLines(cards, PLAIN_LORE, 3)).toEqual(['lane-1 (0)', 'lane-2 (1)', '  #2 two · planned', 'lane-3 (0)', 'lane-10 (1)', '  #1 one · planned'])
+    expect(screenLines(noFacts({ lanes: 2 }), PLAIN_LORE)).toEqual(expect.arrayContaining(['lane-1 (0)', 'lane-2 (0)']))
   })
 
   it('backlog groups every card by lane, named lanes sorted and the cards with no lane last', () => {

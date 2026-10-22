@@ -1,3 +1,4 @@
+import type { FreshBaseGap } from '../shift/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
 import type { Lease } from './lease.js'
 import type { AnswerInput } from './prompt-store.js'
@@ -10,7 +11,7 @@ import process from 'node:process'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../miko/eddies-measure.js'
 import { readResultFields } from '../ports/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ports/session.js'
-import { commitAndPush } from '../shift/tree-pr.js'
+import { commitAndPush, freshBaseProblem, freshBaseTask } from '../shift/tree-pr.js'
 import { defaultBusPath } from './db.js'
 import { busSessionPulse } from './heartbeat.js'
 import { busCardBodies } from './parking-reads.js'
@@ -97,8 +98,51 @@ export function answerCommitMessage(lease: Lease): string {
   return `answer for #${lease.cardId}${lease.pr === null ? '' : ` on PR #${lease.pr}`}\n\nCommitted by the bus from the card's worktree after its answer session ended.`
 }
 
+export class FreshBaseConflict extends Error {
+  constructor(readonly gap: FreshBaseGap) {
+    super(`merging a fresh origin/${MAIN_BRANCH} ${freshBaseProblem(gap)}`)
+  }
+}
+
 function publishTree(card: CardSession, commitMessage: string): void {
-  commitAndPush((cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), card.worktree, card.branch, commitMessage)
+  const pushed = commitAndPush((cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), card.worktree, card.branch, commitMessage)
+  if (pushed.kind === 'conflict')
+    throw new FreshBaseConflict(pushed)
+}
+
+function freshBaseGapOf(publish: () => void): FreshBaseGap | null {
+  try {
+    publish()
+    return null
+  }
+  catch (error) {
+    if (error instanceof FreshBaseConflict)
+      return error.gap
+    throw error
+  }
+}
+
+export function mergePrompt(lease: Lease, card: CardSession, gap: FreshBaseGap, ownerQuestion: string): string {
+  return [
+    `[answer:${lease.taskKey}]`,
+    `The bus merges a fresh origin/${MAIN_BRANCH} into ${card.branch} before it pushes, and that merge ${freshBaseProblem(gap)}; nothing was pushed.`,
+    `Do it yourself: ${freshBaseTask(card.worktree, gap)}.`,
+    `Then repeat the window gate of D-194 in ${card.worktree} and end the session; the bus merges again and pushes. If the merge cannot be settled without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
+  ].join('\n')
+}
+
+export function unmergedQuestion(card: CardSession, gap: FreshBaseGap): string {
+  return `merging a fresh origin/${MAIN_BRANCH} into ${card.branch} ${freshBaseProblem(gap)} and the answer session did not resolve it`
+}
+
+export const MERGE_STEP = '.merge'
+
+function measuredOf(stdoutPaths: readonly string[]): { tokens?: number | null } {
+  const results = stdoutPaths.map(readResultFields).filter(result => result.resultLine === 'present')
+  if (results.length === 0)
+    return {}
+  const counts = results.map(result => tokensOf(result.usage)).filter((count): count is number => count !== null)
+  return { tokens: counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0) }
 }
 
 export function resumeArgv(sessionId: string, prompt: string, addDirs: string[] = []): string[] {
@@ -294,7 +338,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
-    const stdoutPath = path.join(dir, `${session}.${request.lease.leaseGen}.out.jsonl`)
+    const stdoutOf = (step: string): string => path.join(dir, `${session}.${request.lease.leaseGen}${step}.out.jsonl`)
     const beat = (): void => {
       try {
         tools.pulse?.(request.lease, session)
@@ -303,20 +347,33 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
         console.error(missedAnswerBeatLine(session, error))
       }
     }
-    const code = await beatingWhileRunning(() => tools.spawn({
+    const run = (argv: string[], step: string): Promise<number> => beatingWhileRunning(() => tools.spawn({
       cwd: card.worktree,
-      argv: resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]),
-      stdoutPath,
-      stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}.err.log`),
+      argv,
+      stdoutPath: stdoutOf(step),
+      stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
       env: sessionEnv(process.env, request.lease.cardId),
     }), beat, ANSWER_BEAT_MS)
+    const code = await run(resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]), '')
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)
-    const owner = ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutPath, ownerQuestion)
-    if (owner === null)
-      tools.publish(card, answerCommitMessage(request.lease))
-    const result = readResultFields(stdoutPath)
-    const measured = result.resultLine === 'present' ? { tokens: tokensOf(result.usage) } : {}
+    const steps = ['']
+    const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
+    const pushTree = (): FreshBaseGap | null => freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease)))
+    const publish = async (): Promise<string | null> => {
+      const gap = pushTree()
+      if (gap === null)
+        return null
+      steps.push(MERGE_STEP)
+      const merged = await run(resumeArgv(session, mergePrompt(request.lease, card, gap, ownerQuestion), [dir]), MERGE_STEP)
+      const owner = ownerAfter(MERGE_STEP)
+      if (owner !== null)
+        return owner
+      const left = merged === 0 ? pushTree() : gap
+      return left === null ? null : unmergedQuestion(card, left)
+    }
+    const owner = ownerAfter('') ?? await publish()
+    const measured = measuredOf(steps.map(stdoutOf))
     return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody } }
   }
 }
