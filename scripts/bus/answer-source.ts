@@ -14,7 +14,6 @@ export interface CardEvent {
 
 export interface WideningRequest {
   paths: string[]
-  touches: string[]
 }
 
 export type AnswerSource
@@ -68,7 +67,7 @@ function openQuestion(db: DatabaseSync, cardId: number): Record<string, unknown>
 
 function widenOf(payload: Record<string, unknown>): WideningRequest | null {
   const paths = strings(payload.widen)
-  return paths.length === 0 ? null : { paths, touches: strings(payload.touches) }
+  return paths.length === 0 ? null : { paths }
 }
 
 function changesOn(db: DatabaseSync, lease: Lease): string[] | null {
