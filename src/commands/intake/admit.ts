@@ -2,6 +2,7 @@ import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
 import type { Ui } from '../../ui/console.js'
+import type { Lore } from '../../ui/lore.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
@@ -14,7 +15,7 @@ import process from 'node:process'
 import { CARD_WAITING, INTAKE_EVENT, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
 import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
-import { parseParkingFile } from '../../card/parking.js'
+import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
@@ -23,6 +24,7 @@ import { DirectoryFacts } from './facts.js'
 import { admittedRecord, defaultParking, INTAKE_EXIT, recordIntake } from './index.js'
 import { parkedNumbers } from './numbers.js'
 import { isWithin, parkingTree } from './parking-tree.js'
+import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
 const WITNESS_ITEM = /^- (.+)$/
@@ -134,15 +136,24 @@ export interface AdmitOptions {
   confirm?: string
   autoConfirm: boolean
   parkingRoot?: string
+  contourMap?: string
   events?: CardEventPort
   cardStates?: CardStatesPort
   admissions?: CardAdmissionsPort
   decisions?: string
 }
 
+type RefusedWithReasons = 'invalidTestPattern' | 'sharedCodeMask'
+
+const REFUSED_WITH_REASONS: Record<RefusedWithReasons, (lore: Lore) => string> = {
+  invalidTestPattern: lore => lore.intakeRefusedInvalidTestPattern,
+  sharedCodeMask: lore => lore.intakeRefusedSharedCodeMask,
+}
+
 export type AdmitResult
   = | { status: 'refused', why: string }
     | { status: 'invalidTestPattern', reasons: string[] }
+    | { status: 'sharedCodeMask', reasons: string[] }
     | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
     | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
@@ -372,6 +383,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
   }) as [CheckedCard]
+  const masks = sharedCodeMaskRefusals(checked.touches, createdPaths(checked.creates), readContourMap(options.contourMap ?? defaultContourMap()))
+  if (masks.length > 0)
+    return { status: 'sharedCodeMask', reasons: masks }
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {
     id: card.id,
@@ -425,8 +439,8 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
     ui.flatline(ui.lore.intakeRefusedUnreadable(result.why))
     return INTAKE_EXIT.refused
   }
-  if (result.status === 'invalidTestPattern') {
-    ui.flatline(ui.lore.intakeRefusedInvalidTestPattern)
+  if (result.status === 'invalidTestPattern' || result.status === 'sharedCodeMask') {
+    ui.flatline(REFUSED_WITH_REASONS[result.status](ui.lore))
     for (const reason of result.reasons)
       ui.line(`  - ${reason}`)
     return INTAKE_EXIT.refused
