@@ -423,6 +423,17 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 
+  it('a bare-text allow-live decision closes the wait the merge executor opened', () => {
+    const db = newBus()
+    const ts = '2026-10-09T12:00:00.000Z'
+    const live = openBusWait(db, ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
+    const review = openBusWait(db, ts, 'policy', { need: 'command', text: 'the review queue runs unswitched', command: allowLiveCommand('review') })
+    recordDecision(db, { ts, decisionId: 902, text: '  allow-live merge ', cards: [] })
+    reduce(db)
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[live, 'closed', 'D-902'], [review, 'open', null]])
+    db.close()
+  })
+
   it('a finding with no owner action is not an owner wait', () => {
     const finding = event(OWNER_WAIT_OPENED, { actor: 'policy', payload: { id: 'Q1', need: 'decision', text: 'main went red after PR #900' } })
     const unnamedMerge = event(OWNER_WAIT_OPENED, { actor: 'policy', payload: { id: 'Q2', need: 'merge', text: 'the owner merges something' } })

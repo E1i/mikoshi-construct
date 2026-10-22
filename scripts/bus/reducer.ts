@@ -12,6 +12,7 @@ import { CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT,
 import { DECISION_FOLDS } from './decisions.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
+import { allowLiveCommand, namesQueueLive } from './live-decision.js'
 import { TASKS_PROJECTION } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { ROLE_FOLDS, ROLES_PROJECTION } from './role.js'
@@ -215,13 +216,18 @@ function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE id = ?`).run(answer, event.id, id)
 }
 
+function commandsTheDecisionAnswers(text: string): string[] {
+  const queue = text.trim().split(/\s+/).at(-1) ?? ''
+  return namesQueueLive(text, queue) ? [decisionsAddCommand(text), allowLiveCommand(queue)] : [decisionsAddCommand(text)]
+}
+
 function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {
   const decisions = db.prepare('SELECT decision_id, text, scope FROM decisions WHERE event_id = ?').all(event.id) as { decision_id: number, text: string, scope: string | null }[]
   for (const decision of decisions) {
     db.prepare(`
       UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
-      WHERE state = '${OPEN_WAIT}' AND (command = ? OR (need = 'decision' AND card_id IN (SELECT value FROM json_each(?))))
-    `).run(`D-${decision.decision_id}`, event.id, decisionsAddCommand(decision.text), decision.scope ?? '[]')
+      WHERE state = '${OPEN_WAIT}' AND (command IN (SELECT value FROM json_each(?)) OR (need = 'decision' AND card_id IN (SELECT value FROM json_each(?))))
+    `).run(`D-${decision.decision_id}`, event.id, JSON.stringify(commandsTheDecisionAnswers(decision.text)), decision.scope ?? '[]')
   }
 }
 
