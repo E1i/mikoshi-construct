@@ -469,14 +469,23 @@ export function lstartToIso(line: string): string | null {
   return Number.isNaN(ms) ? null : new Date(ms).toISOString()
 }
 
+function signalledAsGone(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return false
+  }
+  catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ESRCH'
+  }
+}
+
 export function psStartOf(pid: number): HolderProcess {
+  if (signalledAsGone(pid))
+    return { state: 'gone' }
   const read = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
-  if (read.error !== undefined)
+  if (read.error !== undefined || read.status !== 0)
     return { state: 'unreadable' }
-  const line = read.stdout.trim()
-  if (line === '')
-    return read.status === 1 ? { state: 'gone' } : { state: 'unreadable' }
-  const started = lstartToIso(line)
+  const started = lstartToIso(read.stdout)
   return started === null ? { state: 'unreadable' } : { state: 'running', started }
 }
 

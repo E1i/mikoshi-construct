@@ -1,15 +1,18 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { RunningProcess } from '../../bus/bg.js'
 import type { HolderProcess, HolderStart, Lease } from '../../bus/lease.js'
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import process from 'node:process'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { launchName, PREFIX } from '../../bus/bg.js'
 import { openBus } from '../../bus/db.js'
-import { completeTask, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leaseNext, leaseQueued, leaseWhileFree, recordWorkerStarted, releaseTask, renewLease, StaleLease, WORKER_HUNG } from '../../bus/lease.js'
+import { ownStart } from '../../bus/heartbeat.js'
+import { completeTask, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leaseNext, leaseQueued, leaseWhileFree, recordWorkerStarted, releaseTask, renewLease, SAME_START_MS, StaleLease, WORKER_HUNG } from '../../bus/lease.js'
 import { SILENT_MS } from '../../bus/liveness-sites.js'
-import { busDrain, BusSupervisor, freeLeasesOf, LivenessJudge, lstartToIso } from '../../bus/supervisor.js'
+import { busDrain, BusSupervisor, freeLeasesOf, LivenessJudge, lstartToIso, psStartOf } from '../../bus/supervisor.js'
 import { workerLaunches } from '../../bus/workers.js'
 import { BOARD_ALARM, TASK_EXPIRED, WORKER_STARTED } from '../../core/events.js'
 import { sha } from './github-fake.js'
@@ -17,6 +20,7 @@ import { sha } from './github-fake.js'
 const roots: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -57,6 +61,8 @@ function bench(): Bench {
   const judge = new LivenessJudge(db, () => STARTED_AT + clock.now, () => () => false, async () => [], pid => startOf(pid))
   return { db, clock, ts, processes, startOf, start, judge }
 }
+
+const PS_REFUSED_HERE = (spawnSync('ps', ['-p', String(process.pid)]).error as NodeJS.ErrnoException | undefined)?.code === 'EPERM'
 
 const mergeTask = { queue: 'merge' as const, cardId: 1250, pr: 1250, head: sha('a') }
 
@@ -224,6 +230,23 @@ describe('a lease whose holder process is dead is freed at once', () => {
   it('a ps lstart line reads as an instant, and anything else as unreadable', () => {
     expect(lstartToIso('Fri Oct 23 16:54:50 2026')).toMatch(/^2026-10-2\dT\d\d:54:50\.000Z$/)
     expect(lstartToIso('not a time')).toBeNull()
+  })
+
+  it.skipIf(PS_REFUSED_HERE)('ps reads this running process with a start time within SAME_START_MS of its own', () => {
+    const read = psStartOf(process.pid)
+    expect(read.state).toBe('running')
+    const started = read.state === 'running' ? Date.parse(read.started) : Number.NaN
+    expect(Math.abs(started - Date.parse(ownStart().started))).toBeLessThan(SAME_START_MS)
+  })
+
+  it('a pid whose process has exited reads as gone', () => {
+    const exited = spawnSync(process.execPath, ['-e', '']).pid
+    expect(psStartOf(exited)).toEqual({ state: 'gone' })
+  })
+
+  it('a live pid that ps cannot read is unreadable, never gone', () => {
+    vi.stubEnv('PATH', '')
+    expect(psStartOf(process.pid)).toEqual({ state: 'unreadable' })
   })
 })
 
