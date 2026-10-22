@@ -1,3 +1,5 @@
+import type { ProcessTable } from '../../bus/chain-process.js'
+import type { CardStarter } from '../../bus/launch-executor.js'
 import type { PrOpenedBus, TreePrCliPorts } from '../../shift/tree-pr-cli.js'
 import type { TreeCard, TreePrPorts } from '../../shift/tree-pr.js'
 import { execFileSync } from 'node:child_process'
@@ -8,10 +10,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { LaunchNode, noPullRequestDetail } from '../../bus/launch-worker.js'
 import { reduce } from '../../bus/reducer.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CARD_WAITING } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING } from '../../core/events.js'
 import { busCardReturned, busCardStopped, busCardText, busCardWaited, busLastRefusal, busPrOpened, PREFIX, runTreePr } from '../../shift/tree-pr-cli.js'
-import { treePr } from '../../shift/tree-pr.js'
+import { reportClosingOf, treePr } from '../../shift/tree-pr.js'
+import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const roots: string[] = []
 
@@ -128,6 +132,54 @@ describe('tree-pr reads its card from the bus', () => {
     const absent = path.join(root, 'no-bus.db')
 
     expect({ admitted: busCardText(busPath)(951), other: busCardText(busPath)(952), absent: busCardText(absent)(951), created: existsSync(absent) }).toEqual({ admitted: CARD_TEXT, other: null, absent: null, created: false })
+  })
+})
+
+describe('a session that ends without a pull request', () => {
+  const REPORT = '#1232 a-probe [probe/netwatch/M/cheap/none] · depends — · blocks —\nresult: report written\nno PR\nverification: run\nReport: /probes/a-probe/report.md\n'
+  const benches: { close: () => void }[] = []
+
+  afterEach(() => {
+    for (const made of benches.splice(0))
+      made.close()
+  })
+
+  async function endedSession(cardId: number, kind: 'probe' | 'implement'): Promise<{ node: LaunchNode, made: ReturnType<typeof mergeBench> }> {
+    const made = mergeBench()
+    benches.push(made)
+    const line = `#${cardId} card-${cardId} [${kind}/netwatch/M/cheap/${kind === 'probe' ? 'none' : 'auto'}] · depends — · blocks —`
+    const text = parkingFileText({ card: line, branch: `feat/card-${cardId}`, touches: ['docs/x.md'], continue: 'stop', who: 'shift', body: 'Do the card.' })
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: kind === 'probe' ? 'none' : 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}`, text, textSha: textSha(text) }, legacy: false })
+    made.tick()
+    const starter: CardStarter = { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} }
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new LaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, reportOf: () => REPORT, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const controller = new AbortController()
+    await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    made.tick()
+    return { node, made }
+  }
+
+  it('a probe card that ended with a report is card.done with the report and no fault', async () => {
+    const { node, made } = await endedSession(1232, 'probe')
+
+    expect(node.stopOverdue()).toEqual([])
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, CARD_VERIFIED)).toMatchObject([{ report: '/probes/a-probe/report.md', verification: 'run', session: 's-1232' }])
+  })
+
+  it('a working card without a pull request is not done', async () => {
+    const { node, made } = await endedSession(1240, 'implement')
+
+    expect(reportClosingOf(REPORT)).not.toBeNull()
+    expect(node.stopOverdue()).toEqual([1240])
+    expect(eventsOf(made.db, CARD_VERIFIED)).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: noPullRequestDetail(1240, 's-1240', null) }])
+  })
+
+  it('a report closes a card only with a report path and a verification word', () => {
+    expect([REPORT, REPORT.replace('verification: run', 'verification: guess'), REPORT.replace(/^Report:.*$/m, ''), null].map(reportClosingOf)).toEqual([{ report: '/probes/a-probe/report.md', verification: 'run' }, null, null, null])
   })
 })
 
