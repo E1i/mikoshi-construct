@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { SessionGauges } from '../miko/eddies-measure.js'
-import type { Lease } from './lease.js'
+import type { HolderStart, Lease } from './lease.js'
 import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
@@ -51,6 +51,10 @@ export interface ProcessBeat {
 export interface QueueCapacity {
   queue: string
   slots: number
+}
+
+export function ownStart(): HolderStart {
+  return { pid: process.pid, started: new Date(Date.now() - process.uptime() * 1000).toISOString() }
 }
 
 export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string, capacity?: QueueCapacity): boolean {

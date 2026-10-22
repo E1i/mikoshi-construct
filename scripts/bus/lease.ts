@@ -1,13 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
-import { BOARD_ALARM, CARD_STOPPED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_STOPPED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_STARTED } from '../core/events.js'
 import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { SILENT_MS } from './liveness-sites.js'
 import { RateLimited } from './meter.js'
-import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
+import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASE_MS, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
 import { reject } from './stored.js'
 
 export { SESSION_HELD_QUEUES as HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from './queue.js'
@@ -341,6 +341,103 @@ export function leasesHeldBy(db: DatabaseSync, workerKinds: readonly string[]): 
 
 export function expireLeasesHeldBy(db: DatabaseSync, ts: string, workerKinds: readonly string[]): string[] {
   return inTransaction(db, () => expired(db, ts, heldBy(db, workerKinds), 'holder_stopped'))
+}
+
+export const HOLDER_DEAD = 'holder_dead'
+export const WORKER_HUNG = 'worker_hung'
+export const HOLDER_UNPROVEN = 'holder_unproven'
+export const SAME_START_MS = 2_000
+
+export interface HolderStart {
+  pid: number
+  started: string
+}
+
+export type HolderProcess = { state: 'gone' } | { state: 'running', started: string } | { state: 'unreadable' }
+
+export type ProcessStartOf = (pid: number) => HolderProcess
+
+export interface HolderReading {
+  freed: string[]
+  hung: string[]
+  unproven: string[]
+}
+
+type HolderVerdict = 'dead' | 'alive' | 'unproven'
+
+interface HeldWithHolder {
+  task_key: string
+  card_id: number
+  pr: number | null
+  head: string | null
+  lease_gen: number
+  lease_until: string
+  holder: string
+  start: string | null
+}
+
+const LEASES_WITH_THEIR_HOLDER = `
+  SELECT tasks.task_key, tasks.card_id, tasks.pr, tasks.head, tasks.lease_gen, tasks.lease_until, leased.actor AS holder,
+    (SELECT started.payload FROM events AS started WHERE started.type = '${WORKER_STARTED}' AND started.actor = leased.actor ORDER BY started.id DESC LIMIT 1) AS start
+  FROM tasks JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
+  WHERE tasks.state = '${LEASED}' ORDER BY tasks.id
+`
+
+export function recordWorkerStarted(db: DatabaseSync, ts: string, worker: string, start: HolderStart): boolean {
+  return appendEvent(db, { ts, type: WORKER_STARTED, actor: worker, cardId: null, pr: null, head: null, dedupeKey: `${WORKER_STARTED}:${worker}`, payload: { worker, pid: start.pid, started: start.started }, legacy: false })
+}
+
+function recordedStart(payload: string | null): HolderStart | null {
+  if (payload === null)
+    return null
+  const { pid, started } = JSON.parse(payload) as { pid?: unknown, started?: unknown }
+  return typeof pid === 'number' && Number.isSafeInteger(pid) && pid > 0 && typeof started === 'string' && !Number.isNaN(Date.parse(started)) ? { pid, started } : null
+}
+
+function sameStart(recorded: string, running: string): boolean {
+  return Math.abs(Date.parse(recorded) - Date.parse(running)) < SAME_START_MS
+}
+
+function verdictOn(start: HolderStart | null, startOf: ProcessStartOf): HolderVerdict {
+  if (start === null)
+    return 'unproven'
+  const running = startOf(start.pid)
+  if (running.state === 'unreadable')
+    return 'unproven'
+  return running.state === 'running' && sameStart(start.started, running.started) ? 'alive' : 'dead'
+}
+
+function silentSince(row: HeldWithHolder, ts: string): boolean {
+  return Date.parse(row.lease_until) - LEASE_MS + SILENT_MS < Date.parse(ts)
+}
+
+function releasedFromTheDead(db: DatabaseSync, ts: string, row: HeldWithHolder): boolean {
+  return inTransaction(db, () => {
+    const current = rowOf(db, row.task_key)
+    if (current === undefined || current.state !== LEASED || current.lease_gen !== row.lease_gen)
+      return false
+    failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, current, { reason: HOLDER_DEAD, withdraw: false }, [])
+    return true
+  })
+}
+
+function holderAlarm(db: DatabaseSync, ts: string, row: HeldWithHolder, reason: typeof WORKER_HUNG | typeof HOLDER_UNPROVEN, detail: string): boolean {
+  return appendEvent(db, { ts, type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${BOARD_ALARM}:${reason}:${row.task_key}:${row.lease_gen}`, payload: { reason, lease: row.task_key, lease_gen: row.lease_gen, worker: row.holder, detail }, legacy: false })
+}
+
+export function judgeHolders(db: DatabaseSync, ts: string, startOf: ProcessStartOf): HolderReading {
+  const reading: HolderReading = { freed: [], hung: [], unproven: [] }
+  for (const row of db.prepare(LEASES_WITH_THEIR_HOLDER).all() as unknown as HeldWithHolder[]) {
+    const start = recordedStart(row.start)
+    const verdict = verdictOn(start, startOf)
+    if (verdict === 'dead' && releasedFromTheDead(db, ts, row))
+      reading.freed.push(row.task_key)
+    if (verdict === 'alive' && silentSince(row, ts) && holderAlarm(db, ts, row, WORKER_HUNG, `${row.holder} (pid ${start!.pid}) is running and has not renewed ${row.task_key} for ${SILENT_MS / 60_000} min; the lease stays with it`))
+      reading.hung.push(row.task_key)
+    if (verdict === 'unproven' && silentSince(row, ts) && holderAlarm(db, ts, row, HOLDER_UNPROVEN, `${row.holder} holds ${row.task_key} with ${start === null ? 'no worker.started record' : `pid ${start.pid} unreadable`}; whether it is alive cannot be proven, so the lease is not freed`))
+      reading.unproven.push(row.task_key)
+  }
+  return reading
 }
 
 export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string, node: string): void {

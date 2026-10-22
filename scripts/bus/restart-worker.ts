@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from './chain-process.js'
+import type { HolderStart } from './lease.js'
 import type { DeadChain, RestartOutcome } from './restart-executor.js'
 import type { RoleReturned, RoleToOwner } from './role.js'
 import { randomUUID } from 'node:crypto'
@@ -11,7 +12,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { REAL_PROCESSES } from './chain-process.js'
 import { defaultBusPath, openBus } from './db.js'
-import { expireLeases, LEASE_MS, leaseNext } from './lease.js'
+import { ownStart } from './heartbeat.js'
+import { expireLeases, LEASE_MS, leaseNext, recordWorkerStarted } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from './node.js'
 import { relaunchKey, RestartExecutor } from './restart-executor.js'
@@ -29,11 +31,13 @@ export interface RestartWorkerParts {
   launchSwitchedOn: () => boolean
   clock: () => Date
   session: string
+  self?: HolderStart
 }
 
 export class RestartWorker {
   readonly actor: string
   private readonly executor: RestartExecutor
+  private startRecorded = false
 
   constructor(private readonly parts: RestartWorkerParts) {
     this.actor = `worker:restart:${parts.session}`
@@ -53,6 +57,10 @@ export class RestartWorker {
 
   private next(): RestartStep {
     const ts = this.parts.clock().toISOString()
+    if (!this.startRecorded) {
+      recordWorkerStarted(this.parts.db, ts, this.actor, this.parts.self ?? ownStart())
+      this.startRecorded = true
+    }
     expireLeases(this.parts.db, ts)
     const lease = leaseNext(this.parts.db, ts, 'restart', this.actor)
     if (lease !== null)

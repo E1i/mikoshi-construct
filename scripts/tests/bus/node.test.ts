@@ -15,7 +15,7 @@ import { Node, NODE_CURSORS, nodeProcess, SecondSubscription } from '../../bus/n
 import { keyOf } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../bus/scheduler.js'
-import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED, TASK_RELEASED } from '../../core/events.js'
+import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, WORKER_STARTED } from '../../core/events.js'
 import { Clock, sha } from './github-fake.js'
 
 const roots: string[] = []
@@ -164,10 +164,12 @@ describe('a node', () => {
     const before = seen(db, clock, 970)
     node.found = [task(970)]
     await once(node)
+    const started = Number((db.prepare('SELECT id FROM events WHERE type = ?').get(WORKER_STARTED) as { id: number }).id)
 
-    expect(cursorOf(db)).toBe(before)
+    expect(started).toBe(before + 1)
+    expect(cursorOf(db)).toBe(started)
     expect(detections(db, 'event')).toEqual([])
-    expect(detections(db, 'tick')).toEqual([{ key: keyOf(task(970)), via: 'tick', event_id: before }])
+    expect(detections(db, 'tick')).toEqual([{ key: keyOf(task(970)), via: 'tick', event_id: started }])
   })
 
   it('delivers an exact type and a trailing-* prefix, scoped by the event, and moves the cursor past the batch', async () => {
