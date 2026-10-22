@@ -8,8 +8,9 @@ import { openBus } from '../../scripts/bus/db.js'
 import { reduce } from '../../scripts/bus/reducer.js'
 import { requestFromWindow, WindowRequests } from '../../scripts/bus/window-requests.js'
 import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
-import { busReaderAt, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
+import { busReaderAt, latestCardEvents, openTasks, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
 import { flowLines } from '../../src/commands/board/screens.js'
+import { withReadOnlyBus } from '../../src/commands/cost/bus.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { checkMatrix, subagent, writeBus } from './bus-fixture.js'
 
@@ -314,5 +315,27 @@ describe('the board bus reader', () => {
     const empty = writeBus(path.join(dir, 'empty.db'), {})
     writeFileSync(empty, '')
     expect(busReaderAt(empty)()).toMatchObject({ status: 'unreadable', file: empty })
+  })
+
+  it('lists the queued and leased tasks only, and the latest events of each card up to the limit, oldest first', () => {
+    const file = writeBus(path.join(scratch(), 'bus.db'), {
+      tasks: [
+        { queue: 'review', card: 7, pr: 70, head: 'abc', state: 'leased' },
+        { queue: 'answer', card: 8, pr: null, head: null, state: 'queued' },
+        { queue: 'merge', card: 9, pr: 90, head: 'def', state: 'done' },
+      ],
+      events: [
+        { ts: ago(4 * HOUR), type: 'card.admitted', card: 7, payload: '{}' },
+        { ts: ago(3 * HOUR), type: 'card.launched', card: 7, payload: '{}' },
+        { ts: ago(2 * HOUR), type: 'pr.observed', card: 7, payload: '{}' },
+        { ts: ago(HOUR), type: 'card.admitted', card: 8, payload: '{}' },
+        { ts: ago(HOUR), type: 'netwatch.tick', card: null, payload: '{}' },
+      ],
+    })
+    const { tasks, events } = withReadOnlyBus(file, db => ({ tasks: openTasks(db), events: latestCardEvents(db, 2) }))
+    expect(tasks.map(task => [task.queue, task.card, task.state])).toEqual([['review', 7, 'leased'], ['answer', 8, 'queued']])
+    expect([...events.keys()]).toEqual([7, 8])
+    expect(events.get(7)!.map(event => event.type)).toEqual(['card.launched', 'pr.observed'])
+    expect(events.get(8)!.map(event => event.type)).toEqual(['card.admitted'])
   })
 })
