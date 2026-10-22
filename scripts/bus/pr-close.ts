@@ -1,17 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { CommandResult, GitHub, GitHubPut } from './github.js'
-import type { CloseVerdict } from './policy.js'
+import type { CloseRule, CloseVerdict } from './policy.js'
 import { COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED } from '../core/events.js'
 import { DROPPED_CARD } from './card-automaton.js'
 import { appendEvent } from './db.js'
 import { messageOf } from './errors.js'
 import { leasedOn } from './lease.js'
-import { closePolicy } from './policy.js'
+import { CLOSE_RULES, closePolicy, RETRIED_CLOSE_RULES } from './policy.js'
 
 export const CLOSE_COMMAND = 'close'
 export const CLOSE_ACTOR = 'worker:close-pr:bus'
-export const CLOSE_BY = ['window', 'card.dropped', 'reshard'] as const
+export const CLOSE_BY = ['window', 'card.dropped'] as const
 const REPO = 'repos/{owner}/{repo}'
 const MERGE_QUEUE = 'merge'
 
@@ -56,7 +56,7 @@ export class PrCloser {
       return { kind: 'failed', pr: request.pr, detail: read }
     const verdict = closePolicy({ pr: request.pr, state: String(read.state ?? ''), headRef: String(read.head?.ref ?? ''), body: String(read.body ?? ''), cardId: request.cardId, mergeLeased: leasedOn(this.db, MERGE_QUEUE, request.pr) })
     if (verdict.kind === 'denied') {
-      this.append(request, POLICY_DENIED, { command: CLOSE_COMMAND, kind: 'authority', rule: verdict.rule, detail: verdict.detail, reason: request.reason, by: request.by })
+      appendEvent(this.db, this.event(request, POLICY_DENIED, this.deniedKey(request, verdict.rule), { command: CLOSE_COMMAND, kind: 'authority', rule: verdict.rule, detail: verdict.detail, reason: request.reason, by: request.by }))
       return { kind: 'denied', pr: request.pr, detail: verdict.detail }
     }
     this.append(request, POLICY_ALLOWED, { command: CLOSE_COMMAND, rule: verdict.rule, reason: request.reason, by: request.by })
@@ -72,7 +72,12 @@ export class PrCloser {
   }
 
   private decided(request: CloseRequest): boolean {
-    return this.db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?').get(this.keyOf(POLICY_DENIED, request)) !== undefined
+    const lookup = this.db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?')
+    return CLOSE_RULES.some(rule => !RETRIED_CLOSE_RULES.has(rule) && lookup.get(this.deniedKey(request, rule)) !== undefined)
+  }
+
+  private deniedKey(request: CloseRequest, rule: CloseRule): string {
+    return `${this.keyOf(POLICY_DENIED, request)}:${rule}`
   }
 
   private read(pr: number): PullAsRead | string {

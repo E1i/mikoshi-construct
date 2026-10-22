@@ -1,7 +1,7 @@
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../bus/db.js'
-import { leaseNext } from '../../bus/lease.js'
+import { leaseNext, releaseTask } from '../../bus/lease.js'
 import { PrCloser } from '../../bus/pr-close.js'
 import { queueTask } from '../../bus/queue.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../bus/window-requests.js'
@@ -42,6 +42,11 @@ function askClose(bench: MergeBench, card = CARD): number {
   return requestFromWindow(bench.db, bench.clock.now().toISOString(), 'window-1', { kind: 'close-pr', pr: PR, card, reason: 'the card is cut anew' })
 }
 
+function dropCard(bench: MergeBench): void {
+  appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_DROPPED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${CARD}`, payload: { lane: 'dropped' }, legacy: false })
+  bench.tick()
+}
+
 function answerType(bench: MergeBench, request: number): string {
   return (bench.db.prepare('SELECT type FROM events WHERE dedupe_key = ?').get(`${WINDOW_REQUEST}:${request}:answered`) as { type: string }).type
 }
@@ -79,8 +84,7 @@ describe('the bus closes a card pull request without merge, only through the clo
 
   it('card.dropped with an open PR closes that PR without merge', () => {
     const bench = benchWithOpenPr()
-    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_DROPPED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${CARD}`, payload: { lane: 'dropped' }, legacy: false })
-    bench.tick()
+    dropCard(bench)
     expect(requests(bench).run()).toEqual([])
 
     expect(bench.gitHub.closes).toEqual([{ pr: PR, fields: { state: 'closed' } }])
@@ -128,15 +132,42 @@ describe('the bus closes a card pull request without merge, only through the clo
     expect(bench.gitHub.closes).toEqual([])
   })
 
-  it('a dropped card whose close was refused is not asked again on the next tick', () => {
+  it('closing a PR GitHub already reports closed is refused with policy.denied and sends no PATCH', () => {
+    const bench = benchWithOpenPr()
+    bench.gitHub.close(PR, false)
+    const request = askClose(bench)
+    expect(requests(bench).run()).toMatchObject([{ kind: 'refused', request }])
+    expect(deniedRules(bench)).toEqual([['close', 'not_open']])
+    expect(bench.gitHub.closes).toEqual([])
+    expect(eventsOf(bench.db, PR_CLOSED)).toEqual([])
+  })
+
+  it('a dropped card refused under a merge lease is closed on a later tick once the lease ends', () => {
     const bench = benchWithOpenPr()
     queueTask(bench.db, bench.clock.now().toISOString(), { queue: 'merge', cardId: CARD, pr: PR, head: HEAD })
-    leaseNext(bench.db, bench.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')
-    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_DROPPED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${CARD}`, payload: { lane: 'dropped' }, legacy: false })
-    bench.tick()
-    requests(bench).run()
-    requests(bench).run()
+    const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')!
+    dropCard(bench)
+    const closer = new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now)
+    expect(closer.closeDropped()).toMatchObject([{ kind: 'denied', pr: PR }])
+    expect(closer.closeDropped()).toMatchObject([{ kind: 'denied', pr: PR }])
     expect(deniedRules(bench)).toEqual([['close', 'merge_leased']])
+    expect(bench.gitHub.closes).toEqual([])
+
+    releaseTask(bench.db, bench.clock.now().toISOString(), lease, 'the merge gave up')
+    requests(bench).run()
+    expect(bench.gitHub.closes).toEqual([{ pr: PR, fields: { state: 'closed' } }])
+    expect(eventsOf(bench.db, PR_CLOSED)).toEqual([{ merged: false, reason: `card #${CARD} was dropped`, by: 'card.dropped' }])
+  })
+
+  it('a dropped card whose close was refused for good is not asked again on the next tick', () => {
+    const bench = benchWithOpenPr()
+    dropCard(bench)
+    bench.gitHub.close(PR, false)
+    const closer = new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now)
+    expect(closer.closeDropped()).toMatchObject([{ kind: 'denied', pr: PR }])
+    expect(closer.closeDropped()).toEqual([])
+    expect(deniedRules(bench)).toEqual([['close', 'not_open']])
+    expect(bench.gitHub.closes).toEqual([])
   })
 
   it('the window request needs a pr, a card and a reason', () => {

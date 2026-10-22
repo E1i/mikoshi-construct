@@ -194,7 +194,10 @@ export function mergePolicy(facts: MergeFacts): MergeVerdict {
   return { kind: 'allowed', rule: 'owner_by_decision', detail: `${why}; under D-${OWNER_PR_MERGED_BY_THE_BUS} a pass and green CI merge it without a shard` }
 }
 
-export type CloseRule = 'version_pr' | 'not_open' | 'no_card' | 'other_card' | 'merge_leased'
+export const CLOSE_RULES = ['version_pr', 'not_open', 'no_card', 'other_card', 'merge_leased'] as const
+export const RETRIED_CLOSE_RULES: ReadonlySet<CloseRule> = new Set(['merge_leased'])
+
+export type CloseRule = typeof CLOSE_RULES[number]
 
 export type CloseVerdict
   = | { kind: 'allowed', rule: 'card_pr', detail: string }
