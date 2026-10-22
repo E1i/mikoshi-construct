@@ -1,7 +1,7 @@
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
-import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, POLICY_DENIED, QUESTION_OWNER, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, POLICY_DENIED, PROCESS_HEARTBEAT, QUESTION_OWNER, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
 
@@ -81,6 +81,7 @@ export interface BusMatrix {
 export interface BusSlot {
   queue: string
   used: number
+  total: number | null
 }
 
 export interface BusFacts {
@@ -364,8 +365,23 @@ function lastPulse(db: BusDb): string | null {
   return row?.ts ?? null
 }
 
-function slotsInUse(db: BusDb): BusSlot[] {
-  return db.prepare(`SELECT queue, count(*) AS used FROM tasks WHERE state = 'leased' GROUP BY queue ORDER BY queue`).all() as unknown as BusSlot[]
+const LAST_NODE_CAPACITY = `
+  SELECT json_extract(payload, '$.queue') AS queue, json_extract(payload, '$.slots') AS slots FROM events
+  WHERE id IN (
+    SELECT max(id) FROM events WHERE type = ? AND legacy = 0 AND json_valid(payload) AND json_type(payload, '$.queue') = 'text'
+    GROUP BY json_extract(payload, '$.queue')
+  )
+`
+
+function nodeCapacity(db: BusDb): Map<string, number> {
+  const rows = db.prepare(LAST_NODE_CAPACITY).all(PROCESS_HEARTBEAT) as unknown as { queue: string, slots: unknown }[]
+  return new Map(rows.flatMap(row => typeof row.slots === 'number' && Number.isSafeInteger(row.slots) && row.slots > 0 ? [[row.queue, row.slots] as const] : []))
+}
+
+function slotsOf(db: BusDb): BusSlot[] {
+  const used = new Map((db.prepare(`SELECT queue, count(*) AS used FROM tasks WHERE state = 'leased' GROUP BY queue`).all() as unknown as { queue: string, used: number }[]).map(row => [row.queue, Number(row.used)] as const))
+  const capacity = nodeCapacity(db)
+  return [...new Set([...used.keys(), ...capacity.keys()])].sort().map(queue => ({ queue, used: used.get(queue) ?? 0, total: capacity.get(queue) ?? null }))
 }
 
 export function busFacts(db: BusDb, now: Date): BusFacts {
@@ -379,7 +395,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     plan: planOf(db, goal, cards),
     waits: ownerWaits(db),
     pulse: lastPulse(db),
-    slots: slotsInUse(db),
+    slots: slotsOf(db),
     cards,
     services: [...windowRoles(db), ...taskServices(db), ...windowServices(events, now), ...sessionServices(events, cards, now)],
     matrices: checkMatrices(db),

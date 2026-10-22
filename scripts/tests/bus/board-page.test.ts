@@ -18,7 +18,9 @@ import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, prin
 import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
 import { defaultBusPath } from '../../bus/db.js'
 import { TICK_MS } from '../../bus/netwatch.js'
-import { REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { nodeProcess } from '../../bus/node.js'
+import { slotsOf as slotsOfKind, slotsVariable } from '../../bus/scheduler.js'
+import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const roots: string[] = []
 
@@ -544,7 +546,7 @@ describe('board.html', () => {
     expect(header).toContain('<span>refresh <b>—</b></span>')
     expect(header).toMatch(/<span class="live" id="bus-live"( data-stale)?>bus (live|stale)<\/span>/)
     const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
-    expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b> \(bus records no capacity\)<\/span>/)
+    expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b><\/span>/)
     expect(services).toContain(`<span class="meta right edd-note">eddies: warn line <b>${Math.round(limits.warnRatio! * 100)}%</b></span>`)
     const flowNote = sectionOf(html, '<div class="flow-note">', '</div>')
     expect(flowNote).toMatch(/<span class="fail"( data-none)?>last failure <b>[^<]+<\/b><\/span>/)
@@ -709,6 +711,14 @@ describe('board.html', () => {
     expect(pageText(seededBus())).toContain('<span class="fail" data-none>last failure <b>none</b></span>')
     const style = /<style>([\s\S]*?)<\/style>/.exec(failed)![1]!
     expect(style).toMatch(/\n\.fail \{\n {2}--_fg: var\(--signal\);/)
+  })
+
+  it('a node under CONSTRUCT_BUS_SLOTS_ANSWER=5 shows answer used/5 from the heartbeat', () => {
+    const slots = slotsOfKind('answer', { [slotsVariable('answer')]: '5' })
+    const html = pageText(seededBus([{ ts: minutesAgo(1), type: PROCESS_HEARTBEAT, card: null, payload: JSON.stringify({ process: nodeProcess('answer'), queue: 'answer', slots }) }]))
+    expect(html).toContain('slots in use: answer 0/5, review 1')
+    expect(sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')).toContain('slots <b>answer 0/5, review 1</b></span>')
+    expect(html).not.toContain('records no capacity')
   })
 
   it('the page reads liveness from the bus pulse and lists no process', () => {

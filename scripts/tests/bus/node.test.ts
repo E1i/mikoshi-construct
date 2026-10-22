@@ -1,19 +1,20 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../bus/lease.js'
-import type { DetectionMode, NodeStep, Scope } from '../../bus/node.js'
+import type { DetectionMode, NodeKind, NodeStep, Scope } from '../../bus/node.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { QUEUES } from '../../bus/identifiers.js'
 import { completeTask } from '../../bus/lease.js'
 import { RateLimited } from '../../bus/meter.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { Node, NODE_CURSORS, nodeProcess, SecondSubscription } from '../../bus/node.js'
 import { keyOf } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
-import { slotsVariable } from '../../bus/scheduler.js'
+import { SLOTS, slotsOf, slotsVariable } from '../../bus/scheduler.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED, TASK_RELEASED } from '../../core/events.js'
 import { Clock, sha } from './github-fake.js'
 
@@ -69,6 +70,23 @@ class FakeNode extends Node<NodeStep> {
   }
 }
 
+const NODE_KINDS = QUEUES.filter((queue): queue is NodeKind => queue in SLOTS)
+
+class KindNode extends Node<NodeStep> {
+  constructor(kind: NodeKind, db: DatabaseSync, clock: Clock, env: NodeJS.ProcessEnv) {
+    super(kind, { db, clock: clock.now, session: 'kind', mode: 'shadow', env })
+    this.subscribe([PROBE_SEEN], () => {})
+  }
+
+  protected candidates(): QueuedTask[] {
+    return []
+  }
+
+  protected handle(lease: Lease): NodeStep {
+    return { kind: 'done', taskKey: lease.taskKey }
+  }
+}
+
 async function once(node: Node<NodeStep>): Promise<void> {
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })
@@ -119,6 +137,17 @@ describe('a node', () => {
     const beats = db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(PROCESS_HEARTBEAT) as { ts: string, payload: string }[]
     expect(nodeProcess('merge')).toBe('bus:merge')
     expect(beats.map(beat => ({ ts: beat.ts, process: (JSON.parse(beat.payload) as { process: string }).process }))).toEqual(ticks.map(ts => ({ ts, process: 'bus:merge' })))
+  })
+
+  it('every node process.heartbeat carries slots equal to slotsOf for its kind and env', async () => {
+    for (const kind of NODE_KINDS) {
+      for (const env of [{}, { [slotsVariable(kind)]: '5' }]) {
+        const db = newBus()
+        await once(new KindNode(kind, db, new Clock(), env))
+        const beats = (db.prepare('SELECT payload FROM events WHERE type = ?').all(PROCESS_HEARTBEAT) as { payload: string }[]).map(beat => JSON.parse(beat.payload) as unknown)
+        expect(beats).toEqual([{ process: nodeProcess(kind), queue: kind, slots: slotsOf(kind, env) }])
+      }
+    }
   })
 
   it('holds one subscription: a second subscribe throws, and a pattern is event types with at most a trailing *', () => {
