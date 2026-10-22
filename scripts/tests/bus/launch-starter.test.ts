@@ -1,7 +1,12 @@
+import type { CardStart, StartedCard } from '../../bus/launch-executor.js'
+import type { StarterPorts } from '../../bus/launch-starter.js'
+import type { TreeFile } from '../../bus/session-journal.js'
 import { execFileSync } from 'node:child_process'
 import { devNull, tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { HTTPS_ORIGIN_ENV } from '../../bus/launch-starter.js'
+import { parkingFileText } from '../../../src/card/parking.js'
+import { HTTPS_ORIGIN_ENV, ShiftCardStarter } from '../../bus/launch-starter.js'
 
 const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }
 
@@ -18,5 +23,163 @@ describe('the launch env', () => {
 
   it('the launch env rewrites both ssh forms of a github origin to https', () => {
     expect(gitConfig(['--get-all', 'url.https://github.com/.insteadOf']).split('\n')).toEqual(['git@github.com:', 'ssh://git@github.com/'])
+  })
+})
+
+const CARD = 1248
+const TREE = '/trees/mc-1248'
+const SESSION = 'sess-ended'
+const LAUNCH_DIR = '/launch'
+const MINUTE = 60_000
+const T0 = Date.parse('2026-10-22T10:00:00.000Z')
+
+function at(minutes: number): number {
+  return T0 + minutes * MINUTE
+}
+
+function stamp(minutes: number): string {
+  return new Date(at(minutes)).toISOString()
+}
+
+let toolIds = 0
+
+function toolCall(minutes: number, name: string, input: Record<string, unknown>): string[] {
+  const id = `toolu_${++toolIds}`
+  return [
+    JSON.stringify({ type: 'assistant', timestamp: stamp(minutes), message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } }),
+    JSON.stringify({ type: 'user', timestamp: stamp(minutes), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } }),
+  ]
+}
+
+function transcript(...calls: string[][]): string {
+  return [...calls.flat(), JSON.stringify({ type: 'system', timestamp: stamp(30) })].join('\n')
+}
+
+const SESSION_JOURNAL = transcript(
+  toolCall(1, 'Write', { file_path: `${TREE}/src/written.ts`, content: 'one\ntwo\n' }),
+  toolCall(2, 'Edit', { file_path: `${TREE}/src/written.ts`, old_string: 'two', new_string: 'three', replace_all: false }),
+  toolCall(3, 'Edit', { file_path: `${TREE}/src/edited.ts`, old_string: 'old', new_string: 'the session line', replace_all: false }),
+  toolCall(4, 'Edit', { file_path: `${TREE}/src/late.ts`, old_string: 'old', new_string: 'late line', replace_all: false }),
+  toolCall(5, 'Edit', { file_path: `${TREE}/src/shelled.ts`, old_string: 'old', new_string: 'shelled line', replace_all: false }),
+  toolCall(6, 'Bash', { command: 'python3 rewrite.py src/shelled.ts' }),
+)
+
+const TREE_FILES: Record<string, TreeFile> = {
+  'src/written.ts': { content: 'one\nthree\n', mtimeMs: at(2) },
+  'src/edited.ts': { content: 'head\nthe session line\ntail\n', mtimeMs: at(3) },
+  'src/late.ts': { content: 'late line\n', mtimeMs: at(45) },
+  'src/shelled.ts': { content: 'shelled line\nand more\n', mtimeMs: at(6) },
+  'src/foreign.ts': { content: 'nobody here wrote this\n', mtimeMs: at(2) },
+}
+
+const CARD_TEXT = parkingFileText({ card: `#${CARD} card-${CARD} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${CARD}`, touches: ['src/**'], continue: 'auto', who: 'shift', body: 'Do the card.' })
+
+function heldTree(changed: string[], overrides: Partial<StarterPorts> = {}): { start: () => CardStart, startQueued: () => CardStart, spawned: string[] } {
+  const spawned: string[] = []
+  const ports: StarterPorts = {
+    read: cardId => cardId === CARD ? CARD_TEXT : null,
+    cut: () => {
+      throw new Error('a held tree is never cut')
+    },
+    base: () => 'b'.repeat(40),
+    spawnDetached: (run) => {
+      spawned.push(run.cwd)
+      return 4242
+    },
+    pgidOf: pid => pid,
+    kill: () => {},
+    uuid: () => 'sess-next',
+    envOf: () => ({}),
+    prompt: task => task.body,
+    changedPaths: () => changed,
+    readReport: file => file === path.join(LAUNCH_DIR, `report-${CARD}.md`) ? 'result: stopped at a boundary\nnotes.md holds the plan\n' : null,
+    lastSession: () => SESSION,
+    readTranscript: (worktree, session) => worktree === TREE && session === SESSION ? SESSION_JOURNAL : null,
+    treeFile: file => TREE_FILES[path.relative(TREE, file)] ?? null,
+    ...overrides,
+  }
+  const starter = new ShiftCardStarter({ parking: '/parking', launchDir: LAUNCH_DIR, claude: 'claude', treePr: 'true' }, ports)
+  const from: StartedCard = { session: SESSION, worktree: TREE, branch: `feat/card-${CARD}`, base: 'a'.repeat(40), pid: 1, pgid: 1, contour: 'cheap' }
+  return {
+    start: () => starter.continueFrom({ cardId: CARD, lane: 'lane-1' }, from),
+    startQueued: () => starter.start({ cardId: CARD, lane: 'lane-1', continueIn: { worktree: TREE, base: null } }),
+    spawned,
+  }
+}
+
+function refusedPaths(outcome: CardStart): string[] | undefined {
+  return outcome.kind === 'refused' ? outcome.denial.paths : undefined
+}
+
+describe('the held tree guard reads the session journal', () => {
+  it('a file the card session changed by Write or Edit, whose content matches and which the report does not name, continues in the held tree', () => {
+    const held = heldTree(['notes.md', 'src/written.ts', 'src/edited.ts'])
+
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE, session: 'sess-next' } })
+    expect(held.spawned).toEqual([TREE])
+  })
+
+  it('a held tree continued from start() reads the journal of the last session the bus started on it', () => {
+    const asked: number[] = []
+    const held = heldTree(['src/written.ts'], {
+      lastSession: (cardId) => {
+        asked.push(cardId)
+        return SESSION
+      },
+    })
+
+    expect(held.startQueued()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(asked).toEqual([CARD])
+  })
+
+  it('a held tree the report names whole never reads a journal', () => {
+    const held = heldTree(['notes.md'], {
+      lastSession: () => {
+        throw new Error('the journal is read only for an unnamed path')
+      },
+    })
+
+    expect(held.startQueued().kind).toBe('started')
+  })
+
+  it('a foreign file in neither the report nor the journal is refused by name', () => {
+    const held = heldTree(['notes.md', 'src/written.ts', 'src/foreign.ts'])
+
+    const outcome = held.start()
+
+    expect(outcome).toMatchObject({ kind: 'refused', denial: { reason: 'held_tree_changed', paths: ['src/foreign.ts'] } })
+    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('src/foreign.ts (the session journal holds no Write or Edit of it)')
+    expect(held.spawned).toEqual([])
+  })
+
+  it('a file changed after the session ended or by a Bash command is refused by name', () => {
+    const held = heldTree(['src/edited.ts', 'src/late.ts', 'src/shelled.ts'])
+
+    const outcome = held.start()
+
+    expect(refusedPaths(outcome)).toEqual(['src/late.ts', 'src/shelled.ts'])
+    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('src/late.ts (it changed after the session ended)')
+    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('src/shelled.ts (it changed after the session\'s last Edit of it, by a Bash command or another writer)')
+    expect(held.spawned).toEqual([])
+  })
+
+  it('an unreadable transcript is a safe refusal, not an admission', () => {
+    const unreadable: Partial<StarterPorts>[] = [{ readTranscript: () => null }, { readTranscript: () => '{"type":"assistant", truncated' }, { readTranscript: () => '' }]
+    for (const overrides of unreadable) {
+      const held = heldTree(['notes.md', 'src/written.ts', 'src/edited.ts'], overrides)
+
+      expect(held.start()).toMatchObject({ kind: 'refused', denial: { reason: 'held_tree_changed', paths: ['src/written.ts', 'src/edited.ts'] } })
+      expect(held.spawned).toEqual([])
+    }
+  })
+
+  it('a held tree whose last session the bus does not record is refused by name', () => {
+    const held = heldTree(['notes.md', 'src/written.ts'], { lastSession: () => null })
+
+    const outcome = held.startQueued()
+
+    expect(refusedPaths(outcome)).toEqual(['src/written.ts'])
+    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('the bus records no session that held the tree')
+    expect(held.spawned).toEqual([])
   })
 })

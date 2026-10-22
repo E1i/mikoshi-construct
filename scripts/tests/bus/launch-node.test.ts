@@ -680,6 +680,9 @@ describe('the launch node', () => {
       envOf: () => ({}),
       changedPaths: () => [],
       readReport: () => null,
+      lastSession: () => null,
+      readTranscript: () => null,
+      treeFile: () => null,
     }
     const starter = new ShiftCardStarter({ parking: path.join(root, 'parking'), launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
     const processes: ProcessTable = { commandLine: () => live.size === 0 ? null : `sh -c claude -p --session-id ${[...live].at(-1)}`, signalGroup: () => {} }
@@ -965,6 +968,9 @@ function ladderWorld(made: MergeBench, handoffState: { brief: string, approved: 
     prompt: task => task.body,
     changedPaths: () => [],
     readReport: () => null,
+    lastSession: () => null,
+    readTranscript: () => null,
+    treeFile: () => null,
   }
   const steps = handoffLadderSteps(handoff, path.join(root, 'repo'), { [WORKTREE_HOME_VARIABLE]: path.join(root, 'worktrees') }, made.busPath)
   const starter = new LadderCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: path.join(root, 'repo') }, ports, steps)
@@ -1302,6 +1308,9 @@ describe('what a launched session left behind', () => {
       prompt: task => task.body,
       changedPaths: () => [],
       readReport: () => null,
+      lastSession: () => null,
+      readTranscript: () => null,
+      treeFile: () => null,
     }
     const starter = new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
     const from: StartedCard = { session: 'sess-first', worktree: '/trees/mc-1123', branch: 'feat/a-card', base: 'b'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' }
