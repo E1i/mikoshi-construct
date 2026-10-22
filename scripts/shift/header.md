@@ -23,6 +23,12 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - Do not commit and do not push: leave your changes in the tree and end the session; the bus commits,
   pushes and opens the pull request from `{{worktree}}`. A refused git command is not a question: do not
   write a `question:` line for it.
+- Before every push the bus merges a fresh `origin/main` into `{{branch}}` (merge, not rebase: the branch
+  history stays). When that merge does not go through, nothing is pushed and the task returns to you once,
+  with the task to run `git -C {{worktree}} fetch origin main` and `git -C {{worktree}} merge origin/main`
+  yourself, resolve every conflict keeping what the task asks for, conclude the merge with
+  `git -C {{worktree}} commit --no-edit` and repeat your checks; that merge commit is the one commit you
+  make. A conflict you cannot resolve without the owner is a `question:` line, not a fault.
 - Run `pnpm run quality` as its own command and read its result before you end the session.
 - On an Eddies warn: finish the step you are in, write the handoff and the report, exit.
   On an Eddies stop: write the report and exit.

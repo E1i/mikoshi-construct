@@ -68,6 +68,8 @@ function bringToHead(worktree: string, branch: string, head: string): void {
     throw new CardTreeRefused(`the card tree ${worktree} is on ${current || 'a detached head'}, not ${branch}; it is not brought to the task head ${head}`)
   if (git(worktree, ['status', '--porcelain']).trim() !== '')
     throw new CardTreeRefused(`the card tree ${worktree} at ${at} has uncommitted changes; it is not brought to the task head ${head}`)
+  if (isAncestor(worktree, head, at))
+    return
   if (!isAncestor(worktree, at, head))
     throw new CardTreeRefused(`the card tree ${worktree} at ${at} is not behind the task head ${head}, it has commits the head lacks; it is not brought to it`)
   git(worktree, ['merge', '-q', '--ff-only', head])

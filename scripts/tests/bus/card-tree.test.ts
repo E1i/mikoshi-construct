@@ -200,6 +200,18 @@ describe('the card tree', () => {
     round.close()
   })
 
+  it('an existing card tree ahead of the task head by its own unpushed commit is kept as it is and the round starts', async () => {
+    let local = ''
+    const round = await roundInAnExistingTree((tree) => {
+      git(tree, 'fetch', '-q', 'origin', BRANCH)
+      git(tree, 'merge', '-q', '--ff-only', `origin/${BRANCH}`)
+      commit(tree, 'unpushed-answer.txt')
+      local = git(tree, 'rev-parse', 'HEAD')
+    })
+    expect({ headsAtSpawn: round.headsAtSpawn, outcome: round.outcome.kind, denials: round.denials }).toEqual({ headsAtSpawn: [local], outcome: 'answered', denials: [] })
+    round.close()
+  })
+
   it.each([
     { gap: 'commits the task head lacks', prepare: (tree: string) => commit(tree, 'local.txt'), detail: /^the card tree \S+ at [0-9a-f]{40} is not behind the task head [0-9a-f]{40}, it has commits the head lacks; it is not brought to it$/ },
     { gap: 'uncommitted changes', prepare: (tree: string) => writeFileSync(path.join(tree, 'stray.txt'), 'a stray edit\n'), detail: /^the card tree \S+ at [0-9a-f]{40} has uncommitted changes; it is not brought to the task head [0-9a-f]{40}$/ },
