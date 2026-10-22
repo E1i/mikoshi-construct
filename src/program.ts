@@ -366,7 +366,7 @@ function intakeCommand(bus: BusPorts | undefined) {
       johnny: commonArgs.johnny,
       draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
       taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
-      admit: { type: 'string', description: 'A card already parked (<parking>/<id>.md): check it by facts and write its intake line; no new number' },
+      admit: { type: 'string', description: 'A card already parked (<parking>/<id>.md): check it by facts and record it in the bus a caller wires in; no new number' },
       move: { type: 'string', description: 'A parked card (#<id>) to move to the parking directory --to names: found in the parking root or a direct subdirectory, the file unchanged, the bus holds it' },
       to: { type: 'string', description: 'With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root' },
       parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
@@ -374,7 +374,7 @@ function intakeCommand(bus: BusPorts | undefined) {
       journal: { type: 'string', description: 'The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)' },
       dryRun: { type: 'boolean', description: 'Print the cards, write nothing', default: false },
       confirm: { type: 'string', description: 'Park cards whose corrections a person has seen: the token the run that held them printed' },
-      autoConfirm: { type: 'boolean', description: 'Accept corrections in advance: park at once and record each card and its corrections in the journal', default: false },
+      autoConfirm: { type: 'boolean', description: 'Accept corrections in advance: park at once and record each card and its corrections in the bus a caller wires in', default: false },
     },
     run({ args }) {
       const console = ui(args)

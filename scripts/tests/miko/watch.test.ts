@@ -1,5 +1,6 @@
 import type { WindowPr } from '../../bus/window-prs.js'
 import type { BusEvent, CardActivity, WatchDeps } from '../../miko/watch.js'
+import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -692,6 +693,16 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     expect(run).toMatchObject({ code: 0, stdout: `${ghost(merge)}\n` })
     expect(run.stderr).toContain(`the cursor moved into ${storeOf(file)}`)
     expect(existsSync(legacy)).toBe(false)
+  }, 20_000)
+
+  it('a cursor the previous build left at a journal offset delivers from the bus alone, and a line still in ghosts.jsonl wakes nothing', async () => {
+    const file = journal()
+    writeStop(busOf(file), 1)
+    const stale = `${JSON.stringify({ event: 'merge', task: 'only-in-the-old-journal' })}\n`
+    writeFileSync(path.join(path.dirname(file), 'ghosts.jsonl'), stale)
+    seed(file, { offset: Buffer.byteLength(stale) + 4096, busId: 1 })
+    const merge = append(file, { event: 'merge', task: '930' })
+    expect(await runOnceToEnd(file)).toMatchObject({ code: 0, stdout: `${ghost(merge)}\n` })
   }, 20_000)
 
   it('an invalid miko-watch.json makes --once exit non-zero with its path and moves nothing', async () => {
