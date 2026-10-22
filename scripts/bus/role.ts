@@ -2,10 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
-import { CARD_STOPPED, ROLE_LEASED, ROLE_RAISED, ROLE_RETURNED, ROLE_STOPPED, WINDOW_HEARTBEAT } from '../core/events.js'
-import { appendEvent, inTransaction } from './db.js'
+import { ROLE_LEASED, ROLE_RAISED, ROLE_RETURNED, ROLE_STOPPED, WINDOW_HEARTBEAT } from '../core/events.js'
+import { appendEvent, inTransaction, openBusWait } from './db.js'
 import { LEASE_MS, StaleLease } from './lease.js'
-import { FAILURES_TO_STOP } from './queue.js'
 import { payloadOf, reject } from './stored.js'
 import { reduceProjection } from './watermark.js'
 import { WINDOW_ACTOR } from './window-requests.js'
@@ -16,7 +15,6 @@ export const ROLES = ['operator', 'miko'] as const
 export const THRESHOLDS = ['context', 'spend'] as const
 export const RAISED_STATUS = 'CONTINUE'
 export const RAISED_VARIABLE = 'CONSTRUCT_BUS_RAISED'
-export const RAISES_PER_HANDOFF = 3
 export const WINDOW_ENDS = ['eddies', 'miko:exit', 'close'] as const
 
 export type Role = typeof ROLES[number]
@@ -41,6 +39,7 @@ export interface RoleToOwner {
   role: Role
   handoff: string
   detail: string
+  wait: string | null
 }
 
 export interface RoleReturned {
@@ -60,25 +59,16 @@ interface RoleRow {
   state: string
   lease_gen: number
   lease_until: string | null
-  raises: number
-  failures: number
+  reason: string
   event_id: number
 }
 
 const AT_A_THRESHOLD = `status = '${RAISED_STATUS}' AND reason IN (${THRESHOLDS.map(reason => `'${reason}'`).join(', ')})`
-const WITHIN_CEILING = `raises < ${RAISES_PER_HANDOFF} AND failures < ${FAILURES_TO_STOP}`
-const ROLE_COLUMNS = 'role, handoff, state, lease_gen, lease_until, raises, failures, event_id'
+const ROLE_COLUMNS = 'role, handoff, state, lease_gen, lease_until, reason, event_id'
 
-const RAISABLE = `
+const STOPPED_AT_A_THRESHOLD = `
   SELECT ${ROLE_COLUMNS} FROM roles
-  WHERE ${AT_A_THRESHOLD} AND ${WITHIN_CEILING}
-    AND (state = '${STOPPED}' OR (state = '${LEASED}' AND lease_until < ?))
-  ORDER BY role LIMIT 1
-`
-
-const PAST_THE_CEILING = `
-  SELECT ${ROLE_COLUMNS} FROM roles
-  WHERE ${AT_A_THRESHOLD} AND state = '${STOPPED}' AND NOT (${WITHIN_CEILING})
+  WHERE ${AT_A_THRESHOLD} AND state = '${STOPPED}'
   ORDER BY role LIMIT 1
 `
 
@@ -212,32 +202,23 @@ export function observeRoleStop(db: DatabaseSync, ts: string, actor: string, sto
   return inTransaction(db, () => reduced(db, { ts, type: ROLE_STOPPED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_STOPPED}:${stop.role}:${ts}`, payload: { ...stop }, legacy: false }))
 }
 
-export function leaseRole(db: DatabaseSync, ts: string, actor: string): RoleLease | null {
-  return inTransaction(db, () => {
-    const row = db.prepare(RAISABLE).get(ts) as RoleRow | undefined
-    if (row === undefined)
-      return null
-    const leaseGen = row.lease_gen + 1
-    reduced(db, { ts, type: ROLE_LEASED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_LEASED}:${row.role}:${leaseGen}`, payload: { role: row.role, lease_gen: leaseGen }, legacy: false })
-    return { role: row.role, handoff: row.handoff, leaseGen, actor }
-  })
-}
+const ROLE_STARTS: Record<Role, string | null> = { miko: 'pnpm miko', operator: null }
 
-function ceilingDetail(row: RoleRow): string {
-  return row.raises >= RAISES_PER_HANDOFF
-    ? `${row.raises} raises on ${row.handoff} and it stopped at a threshold again; the bus raises it no more until a session the owner started stops`
-    : `${row.failures} raises in a row failed on ${row.handoff}; the bus raises it no more until a session the owner started stops`
+function ownerDetail(row: RoleRow, start: string | null): string {
+  const stopped = `${row.role} stopped at its ${row.reason} threshold on ${row.handoff}; the bus raises no role`
+  return start === null ? `${stopped}, and ${row.role} has no launcher since the shift runner was removed` : `${stopped}: start it in a terminal with ${start}`
 }
 
 export function roleToOwner(db: DatabaseSync, ts: string, actor: string): RoleToOwner | null {
   return inTransaction(db, () => {
-    const row = db.prepare(PAST_THE_CEILING).get() as RoleRow | undefined
+    const row = db.prepare(STOPPED_AT_A_THRESHOLD).get() as RoleRow | undefined
     if (row === undefined)
       return null
-    const detail = ceilingDetail(row)
-    reduced(db, { ts, type: ROLE_TO_OWNER, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_TO_OWNER}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, detail }, legacy: false })
-    appendEvent(db, { ts, type: CARD_STOPPED, actor, cardId: null, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${ROLE_TO_OWNER}:${row.role}:${row.event_id}`, payload: { reason: 'question.owner', role: row.role, handoff: row.handoff, detail }, legacy: false })
-    return { role: row.role, handoff: row.handoff, detail }
+    const start = ROLE_STARTS[row.role]
+    const detail = ownerDetail(row, start)
+    const wait = start === null ? null : openBusWait(db, ts, actor, { need: 'command', text: detail, command: start })
+    reduced(db, { ts, type: ROLE_TO_OWNER, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_TO_OWNER}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, detail, wait }, legacy: false })
+    return { role: row.role, handoff: row.handoff, detail, wait }
   })
 }
 

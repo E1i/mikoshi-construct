@@ -1,7 +1,7 @@
 import type { ProcessTable } from '../../bus/chain-process.js'
 import type { ChainObservation } from '../../bus/chain.js'
 import type { Lease } from '../../bus/lease.js'
-import type { Role, RoleLease, RoleStop } from '../../bus/role.js'
+import type { Role, RoleStop } from '../../bus/role.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -11,11 +11,10 @@ import { observeChain } from '../../bus/chain.js'
 import { appendEvent } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { RestartExecutor } from '../../bus/restart-executor.js'
-import { launchSwitchedOn, MIKO_LAUNCH_OFF, OPERATOR_LAUNCH_GONE, restartStepLine, RestartWorker, roleLauncher, runRestartWorker } from '../../bus/restart-worker.js'
-import { leaseRole, observeRoleStop, RAISES_PER_HANDOFF } from '../../bus/role.js'
+import { launchSwitchedOn, restartStepLine, RestartWorker, runRestartWorker } from '../../bus/restart-worker.js'
+import { observeRoleStop } from '../../bus/role.js'
 import { requestFromWindow } from '../../bus/window-requests.js'
 import { switchWorker } from '../../bus/workers.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
@@ -38,7 +37,6 @@ const restart = (head = MAIN_2, cardId = CARD): string => taskKey({ queue: 'rest
 function restartBench() {
   const bench = mergeBench()
   const signalled: number[] = []
-  const raises: { role: Role, handoff: string }[] = []
   const dead = new Set<number>()
   const reused = new Set<number>()
   let launchOn = () => false
@@ -47,20 +45,15 @@ function restartBench() {
     signalGroup: leader => signalled.push(leader),
   }
   const roles = {
-    raise: (role: Role, handoff: string): number => {
-      raises.push({ role, handoff })
-      return ROLE_PIDS[role]
-    },
+    raise: (role: Role): number => ROLE_PIDS[role],
   }
   const launchSwitchedOn = (): boolean => launchOn()
   const executor = new RestartExecutor({ db: bench.db, roles, processes, launchSwitchedOn, clock: bench.clock.now })
   return {
     ...bench,
     signalled,
-    roles,
-    raises,
     processes,
-    worker: (session = 'worker-1') => new RestartWorker({ db: bench.db, roles, processes, launchSwitchedOn, clock: bench.clock.now, session }),
+    worker: (session = 'worker-1') => new RestartWorker({ db: bench.db, processes, launchSwitchedOn, clock: bench.clock.now, session }),
     die: (pid: number): void => {
       dead.add(pid)
     },
@@ -76,7 +69,6 @@ function restartBench() {
     stopRole: (stop: Omit<RoleStop, 'raised'>, raised = false): void => {
       observeRoleStop(bench.db, bench.clock.now().toISOString(), `worker:${stop.role}:7`, { ...stop, raised })
     },
-    relaunch: (lease: RoleLease) => executor.relaunch(lease),
     advanceMain: (files: string[]): void => {
       bench.gitHub.mainFiles = { [MAIN_2]: files }
       bench.gitHub.main = MAIN_2
@@ -254,148 +246,57 @@ describe('the restart queue', () => {
   })
 })
 
-describe('relaunch(role)', () => {
-  it('the Operator and the Miko window stopped at a threshold with STATUS: CONTINUE are raised by role without the owner', () => {
+describe('a role stopped at a threshold', () => {
+  it('the Operator and the Miko window stopped at a threshold with STATUS: CONTINUE go to the owner, and the bus raises neither', () => {
     const bench = restartBench()
     bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'context' })
     bench.stopRole({ role: 'miko', handoff: MIKO_HANDOFF, status: 'CONTINUE', reason: 'spend' })
     bench.tick()
     const worker = bench.worker()
 
-    expect(worker.step()).toEqual({ kind: 'raised', role: 'miko', handoff: MIKO_HANDOFF, pid: ROLE_PIDS.miko })
-    expect(worker.step()).toEqual({ kind: 'raised', role: 'operator', handoff: OPERATOR_HANDOFF, pid: ROLE_PIDS.operator })
+    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', handoff: MIKO_HANDOFF, wait: 'Q1' })
+    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator', handoff: OPERATOR_HANDOFF, wait: null })
     expect(worker.step()).toEqual({ kind: 'idle' })
-    expect(bench.raises).toEqual([{ role: 'miko', handoff: MIKO_HANDOFF }, { role: 'operator', handoff: OPERATOR_HANDOFF }])
-    expect(eventsOf(bench.db, 'role.raised')).toEqual([
-      { role: 'miko', handoff: MIKO_HANDOFF, lease_gen: 1, pid: ROLE_PIDS.miko },
-      { role: 'operator', handoff: OPERATOR_HANDOFF, lease_gen: 1, pid: ROLE_PIDS.operator },
-    ])
+    expect(eventsOf(bench.db, 'role.raised')).toEqual([])
+    expect(eventsOf(bench.db, 'card.stopped')).toEqual([])
 
     bench.tick()
     expect(bench.db.prepare('SELECT role, state, lease_gen, pid FROM roles ORDER BY role').all()).toEqual([
-      { role: 'miko', state: 'raised', lease_gen: 1, pid: ROLE_PIDS.miko },
-      { role: 'operator', state: 'raised', lease_gen: 1, pid: ROLE_PIDS.operator },
+      { role: 'miko', state: 'owner', lease_gen: 0, pid: null },
+      { role: 'operator', state: 'owner', lease_gen: 0, pid: null },
     ])
     expect(worker.step()).toEqual({ kind: 'idle' })
-    bench.close()
-  })
-
-  it('a role stopped on another STATUS or not at a threshold is not raised', () => {
-    const bench = restartBench()
-    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'OWNER', reason: 'context' })
-    bench.stopRole({ role: 'miko', handoff: MIKO_HANDOFF, status: 'CONTINUE', reason: 'ctrl-c' })
-    bench.tick()
-
-    expect(bench.worker().step()).toEqual({ kind: 'idle' })
-    expect(bench.raises).toEqual([])
-    bench.close()
-  })
-
-  it('a relaunch under a stale lease_gen is fenced and raises nothing', () => {
-    const bench = restartBench()
-    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'spend' })
-    bench.tick()
-    const old = leaseRole(bench.db, bench.clock.now().toISOString(), 'worker:restart:old')!
-    bench.clock.advance(LEASE_MS + 1)
-    const current = leaseRole(bench.db, bench.clock.now().toISOString(), 'worker:restart:new')!
-    expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
-
-    const before = eventCount(bench.db)
-    expect(bench.relaunch(old)).toEqual({ kind: 'fenced', taskKey: 'relaunch:operator' })
-    expect(eventCount(bench.db)).toBe(before)
-    expect(bench.raises).toEqual([])
-    expect(bench.relaunch(current)).toMatchObject({ kind: 'raised', role: 'operator' })
-    bench.close()
-  })
-})
-
-describe('the ceiling on relaunch(role)', () => {
-  function inbox(bench: ReturnType<typeof restartBench>): unknown[] {
-    return eventsOf(bench.db, 'card.stopped').filter(payload => payload.reason === 'question.owner')
-  }
-
-  it(`a role the bus raised ${RAISES_PER_HANDOFF} times on one handoff goes to the owner as question.owner, not to another raise`, () => {
-    const bench = restartBench()
-    const worker = bench.worker()
-    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'spend' })
-    bench.tick()
-    for (let raise = 0; raise < RAISES_PER_HANDOFF; raise += 1) {
-      expect(worker.step()).toMatchObject({ kind: 'raised', role: 'operator' })
-      bench.clock.advance(1000)
-      bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'spend' }, true)
-      bench.tick()
-    }
-
-    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator', handoff: OPERATOR_HANDOFF })
-    expect(worker.step()).toEqual({ kind: 'idle' })
-    expect(bench.raises).toHaveLength(RAISES_PER_HANDOFF)
-    expect(inbox(bench)).toMatchObject([{ reason: 'question.owner', role: 'operator', handoff: OPERATOR_HANDOFF }])
-
-    bench.clock.advance(1000)
-    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'spend' }, false)
-    bench.tick()
-    expect(worker.step()).toMatchObject({ kind: 'raised', role: 'operator' })
-    bench.close()
-  })
-
-  it(`a role whose raise fails ${FAILURES_TO_STOP} times in a row goes to the owner and is not retried`, () => {
-    const bench = restartBench()
-    bench.roles.raise = () => {
-      throw new Error('relaunch did not start')
-    }
-    const worker = bench.worker()
-    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'context' })
-    bench.tick()
-
-    for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)
-      expect(worker.step()).toMatchObject({ kind: 'raise_failed', role: 'operator', detail: 'relaunch did not start' })
-    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator' })
-    expect(worker.step()).toEqual({ kind: 'idle' })
-    expect(eventsOf(bench.db, 'role.raise_failed')).toHaveLength(FAILURES_TO_STOP)
-    expect(inbox(bench)).toHaveLength(1)
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
 
-  it('a role the owner\'s window left silent comes back from the owner and is raised again', () => {
+  it('a role stopped on another STATUS or not at a threshold does not go to the owner', () => {
     const bench = restartBench()
-    bench.roles.raise = () => {
-      throw new Error('relaunch did not start')
-    }
-    const worker = bench.worker()
-    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'context' })
+    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'OWNER', reason: 'context' })
+    bench.stopRole({ role: 'miko', handoff: MIKO_HANDOFF, status: 'CONTINUE', reason: 'ctrl-c' })
     bench.tick()
-    for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)
-      worker.step()
-    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator' })
+
+    expect(bench.worker().step()).toEqual({ kind: 'idle' })
+    expect(eventsOf(bench.db, 'role.to_owner')).toEqual([])
+    bench.close()
+  })
+
+  it('a role the owner\'s window left silent comes back from the owner and goes to the owner again on the wait still open', () => {
+    const bench = restartBench()
+    const worker = bench.worker()
+    bench.stopRole({ role: 'miko', handoff: MIKO_HANDOFF, status: 'CONTINUE', reason: 'context' })
+    bench.tick()
+    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', wait: 'Q1' })
     requestFromWindow(bench.db, bench.clock.now().toISOString(), 'owner-session', { kind: 'status' })
     bench.clock.advance(LEASE_MS + 1)
 
     const returned = worker.step()
-    expect(returned).toMatchObject({ kind: 'returned', role: 'operator', handoff: OPERATOR_HANDOFF })
-    expect(restartStepLine(returned)).toContain('relaunch:operator: back from the owner')
-    bench.roles.raise = () => ROLE_PIDS.operator
-    expect(worker.step()).toMatchObject({ kind: 'raised', role: 'operator', pid: ROLE_PIDS.operator })
-    bench.close()
-  })
-
-  it('the real role launcher keeps the launch of pnpm miko switched off and names why', () => {
-    expect(() => roleLauncher().raise('miko', MIKO_HANDOFF)).toThrow(MIKO_LAUNCH_OFF)
-  })
-
-  it('the real role launcher raises no Operator: with pnpm relaunch removed, a stopped Operator goes to the owner', () => {
-    const bench = restartBench()
-    bench.roles.raise = roleLauncher().raise
-    const worker = bench.worker()
-    bench.stopRole({ role: 'operator', handoff: OPERATOR_HANDOFF, status: 'CONTINUE', reason: 'context' })
-    bench.tick()
-
-    expect(worker.step()).toMatchObject({ kind: 'raise_failed', detail: OPERATOR_LAUNCH_GONE })
-    for (let failure = 1; failure < FAILURES_TO_STOP; failure += 1)
-      worker.step()
-    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator' })
+    expect(returned).toMatchObject({ kind: 'returned', role: 'miko', handoff: MIKO_HANDOFF })
+    expect(restartStepLine(returned)).toContain('relaunch:miko: back from the owner')
+    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', wait: 'Q1' })
+    expect(eventsOf(bench.db, 'role.leased')).toEqual([])
     bench.close()
   })
 })
@@ -416,7 +317,7 @@ describe('the restart worker', () => {
   it('ships switched off: without --on it opens nothing and exits 0', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const bench = restartBench()
-    expect(await runRestartWorker([], { busPath: '/nonexistent/bus.db', roles: bench.roles, processes: bench.processes, launchSwitchedOn: () => false, session: 'worker-1', pause: async () => {} })).toBe(0)
+    expect(await runRestartWorker([], { busPath: '/nonexistent/bus.db', processes: bench.processes, launchSwitchedOn: () => false, session: 'worker-1', pause: async () => {} })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
     bench.close()
   })
