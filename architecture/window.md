@@ -46,7 +46,7 @@ Mikoshi, the interactive window the owner opens, runs under `pnpm miko`: a loop 
 the one built into VS Code included) that starts `claude` (`$MIKO_CLAUDE`, default `claude --permission-mode dontAsk`). At
 the limit Mikoshi writes its own handoff, `~/.construct/handoff/miko.md`, through `pnpm handoff:write`, under the same contract as the
 Operator's handoff (the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), and then ends its own
-process. A session ends at exactly one of three stop reasons, decided by `stopReasonOf` in `scripts/miko/exit.ts`: the context of its last answer is at or above `contextLimit` × `warnRatio`, its spend is at or above the spend warn, `sessionSpend` × `warnRatio` (all three in `.claude/eddies.json`, both readings taken from the session's own transcript the way Eddies takes them), or the last `STATUS:` of `miko.md` is `DONE`. A closed card, a wait for `merge.done`, `review.recorded` or `card.verified`, a wait for an answer, or a last `STATUS:` of `OWNER` is none of them: at `OWNER` the window asks its question in the window, waits for the answer in the same session, then writes `STATUS: CONTINUE` with `pnpm handoff:write`; the window waits with `pnpm miko:watch --once` in the same session and takes the next card in the same session, and `pnpm miko:exit` refuses with `not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card`. `pnpm handoff:write` at every boundary stays as insurance, without `pnpm miko:exit`. At the context warn or the spend warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. A context `miko:exit` cannot read (no session id, no transcript) counts as at the warn, as it does for `operator-boundary`: the session ends with reason `context` and its counters journalled as `unknown`. `pnpm handoff:write` never runs `pnpm miko:exit`, whatever status it writes. Each exit appends one `session-exit` line to `.construct/eddies.jsonl` in the project directory: the session id, the counters of its first and last answer, its spend by the Eddies calculation, the reason, and the cards and bus events since the session started, each `unknown` when it could not be read; a refusal writes none. A session writes one handoff, named by `CONSTRUCT_HANDOFF` (`pnpm relaunch` sets it to the handoff it watches; unset or empty it is `miko.md` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`, an empty variable read as unset): the Eddies warn of a session without `CONSTRUCT_CARD` names that file, and `pnpm handoff:write` refuses a new handoff file that is not it. A session with `CONSTRUCT_CARD` writes its task handoff, whatever `CONSTRUCT_HANDOFF` it inherited, and `pnpm handoff:write` does not hold it to `miko.md`. Each role has its own file: `miko.md` is the window's and is never the one `pnpm relaunch` watches for the Operator, so the window never writes the Operator's handoff. `pnpm miko:exit`
+process. A session ends at exactly one of three stop reasons, decided by `stopReasonOf` in `scripts/miko/exit.ts`: the context of its last answer is at or above `contextLimit` × `warnRatio`, its spend is at or above the spend warn, `sessionSpend` × `warnRatio` (all three in `.claude/eddies.json`, both readings taken from the session's own transcript the way Eddies takes them), or the last `STATUS:` of `miko.md` is `DONE`. A closed card, a wait for `merge.done`, `review.recorded` or `card.verified`, a wait for an answer, or a last `STATUS:` of `OWNER` is none of them: at `OWNER` the window asks its question in the window, waits for the answer in the same session, then writes `STATUS: CONTINUE` with `pnpm handoff:write`; the window waits with `pnpm miko:watch --once` in the same session and takes the next card in the same session, and `pnpm miko:exit` refuses with `not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card`. `pnpm handoff:write` at every boundary stays as insurance, without `pnpm miko:exit`. At the context warn or the spend warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. A context `miko:exit` cannot read (no session id, no transcript) counts as at the warn, as it does for `operator-boundary`: the session ends with reason `context` and its counters journalled as `unknown`. `pnpm handoff:write` never runs `pnpm miko:exit`, whatever status it writes. Each exit appends one `session-exit` line to `.construct/eddies.jsonl` in the project directory: the session id, the counters of its first and last answer, its spend by the Eddies calculation, the reason, and the cards and bus events since the session started, each `unknown` when it could not be read; a refusal writes none. A session writes one handoff, named by `CONSTRUCT_HANDOFF` (unset or empty it is `miko.md` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`, an empty variable read as unset): the Eddies warn of a session without `CONSTRUCT_CARD` names that file, and `pnpm handoff:write` refuses a new handoff file that is not it. A session with `CONSTRUCT_CARD` writes its task handoff, whatever `CONSTRUCT_HANDOFF` it inherited, and `pnpm handoff:write` does not hold it to `miko.md`. `pnpm miko:exit`
 (`scripts/miko/exit.ts`) ends the nearest `claude` among its ancestors at `STATUS: DONE` unconditionally; at
 the context or spend reason, only when a `scripts/miko/loop.ts` process stands above that claude and `miko.md` was
 written in the last two minutes (`FRESH_MS`), which proves the handoff exists for the next session and permits nothing
@@ -60,7 +60,7 @@ for in the same session, then `pnpm handoff:write` with `STATUS: CONTINUE`, with
 
 Mikoshi, as foreman, does not poll: it waits on events, a stall, a repeated refusal and a dead session with `pnpm miko:watch --once` (#1081).
 
-Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default), and every relaunch prompt names that command.
+Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default).
 It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
 [· superseded-by D-M]`, appended; a decision that replaces an earlier one gets its own, later number, and the earlier line
 gains the trailing `· superseded-by D-M` and nothing else. Headings and prose before the first list item are the
@@ -77,52 +77,23 @@ foreman's to the brain) carry only references — a decision `D-N`, a card `#N`,
 substance; whatever a reference cannot carry is written into its record first (a decision into the decisions file, a
 card change through `pnpm intake --admit`), and the message names it.
 
-`pnpm relaunch <handoff.md> [--max N] [--model <id>]` hands that handoff to fresh headless sessions, one after another, in
-the current directory, each with the continuation prompt, which names that handoff's absolute path as the file to read and to replace the STOP section of through `pnpm handoff:write`, and `--model` (the flag, else the model of the newest transcript of
-this directory under `~/.claude/projects/`; with neither it starts nothing). Before every session, the first included, it
-reads the handoff: a handoff that fails `handoff:check` stops it with exit 1 and a `relaunch-stop` event in `bus.db` with reason
-`handoff-invalid` and the refusals, and no session starts; one with no `STATUS:` line stops it with exit 1; the last
-`STATUS: CONTINUE` runs the next session, `STATUS: OWNER` or `STATUS: DONE` stops it, and so does reaching `--max` (default
-the shift's restart ceiling, three). `STATUS: OWNER` stops only at a boundary [owner-merges.md](owner-merges.md) or the owner
+`STATUS: OWNER` stops a session only at a boundary [owner-merges.md](owner-merges.md) or the owner
 decisions define, named on the line as `STATUS: OWNER — boundary: <name>` from the closed list `OWNER_BOUNDARIES` in
 `scripts/shift/handoff-write.ts`: `version-pr` (the version pull request), `owner-merged-kind` (an owner-merged kind no
-delegation decision covers), `missing-right` (a right the Operator lacks under its permission mode), `owner-question` (an
+delegation decision covers), `missing-right` (a right the window lacks under its permission mode), `owner-question` (an
 explicit new question from the owner). Review changes, red CI, a denied form that has an allowed route and `who: window`
 cards are executor work, never OWNER; `pnpm handoff:write` refuses a draft whose last STATUS line is OWNER without a name
-from the list, names the list in the refusal, and writes nothing. A leading `~/` in the handoff path is the home directory; the start leaves an
-`relaunch-start` event with the absolute path it watches, each session a `relaunch-session` event with its `pid` when it spawns and a `relaunch` event with the same `pid`
-when it ends in `bus.db`, each stop one `relaunch-stop` event with its reason; it writes none of them to `ghosts.jsonl`. Whether a relaunch session is alive is
-read by `pnpm relaunch --live` from those pids (`kill -0`), never from the command text: `pgrep -fl "claude -p"` misses a
-session started as `claude --permission-mode auto -p`.
+from the list, names the list in the refusal, and writes nothing.
 
-A window under relaunch never takes a card body, except a `who: window` card: it is the Operator, and its work is the run.
-The bus launch node starts the `who: shift` cards from their admission and the Operator never runs
-`pnpm task:start` for them; the node takes them in their lane's order, once their `depends` are
-merged, not in the order of the handoff's `queue:`. A `who: window` card it does itself, through `pnpm task:start`,
-and journals as `window took body #N`. It reads the journal and the notifications of a failed card; repairs only what
-stopped — restarts the card, corrects it with `pnpm intake --admit`, answers the session; writes the handoff
-through `pnpm handoff:write`; and ends its session by size, not by the Eddies warning: at every task boundary it runs
-`pnpm relaunch --boundary <session>`, the session id its prompt names, which finds `<session>.jsonl` by that id in
-any project directory under `~/.claude/projects/`, whatever directory it runs from, reads the context of the last
-response in it (input, cache-write and cache-read tokens, the reading the Eddies warning takes) and prints `end` at or
-past `OPERATOR_CONTEXT_THRESHOLD` (`scripts/shift/operator-boundary.ts`) or when it found or read no context, `next`
-below it. On `end` the Operator writes its STOP with `STATUS: CONTINUE` and exits, and relaunch starts the next session
-from the handoff; on `next` it takes the next task. The first
-line of every relaunch prompt says so (`OPERATOR_ROLE` in `scripts/shift/relaunch.ts`), and it opens with the tag the Operator signs every message with: `[operator]`. Mikoshi signs
-its messages `[mikoshi]`.
-
-The Operator starts no chain and no answer session itself, and never with an inline `nohup … &` or `nohup claude -p`,
+No session starts a chain or an answer session itself, and never with an inline `nohup … &` or `nohup claude -p`,
 which the auto-mode classifier refuses as an unsafe agent (it refused an inline launch on 2026-10-08 and a chain waited
-for the owner): the bus launch node starts the `who: shift` cards, and the bus answer node answers a stopped or reviewed
-card.
+for the owner): the bus launch node starts the `who: shift` cards from their admission, in their lane's order once
+their `depends` are merged, and the bus answer node answers a stopped or reviewed card.
 
-The window starts relaunch only through `pnpm relaunch:bg <handoff.md> [relaunch arguments]`: it spawns
-`nohup pnpm relaunch <handoff.md> …` as a detached process, a session of its own, appends its output to
-`~/.construct/handoff/relaunch-day.log` and prints its PID. `pnpm doctor:factory`
+`pnpm doctor:factory`
 compares the permissions the factory needs, `contract/factory-permissions.json`, with `.claude/settings.local.json`
 and names each missing rule, the deny of `gh pr merge` on every open version pull request (head `changeset-release/*`)
-included. It names each command quoted in `OPERATOR_ROLE` that no contract allow rule matches, and each command
-quoted in this document that names a contract rule without having its shape: a merge written with an env prefix,
+included. It names each command quoted in this document that names a contract rule without having its shape: a merge written with an env prefix,
 GH_TOKEN=… before gh pr merge, matches no `Bash(gh pr merge:*)`. Global gh flags before the subcommand (`-R`,
 `--repo`) are dropped before matching. `pnpm doctor:factory --apply` asks a person to confirm and only on that yes appends the missing rules to
 `.claude/settings.local.json`; it never reads or writes `.claude/settings.json`.
@@ -145,7 +116,7 @@ What stays the same from one session to the next lives here, under version contr
   `construct mutate` only as the global `construct mutate … --dir <mc-N>`. Subagents (brief, implementer) are denied
   pnpm, so the window runs every gate itself.
 - denials: forms the window's `dontAsk` mode refuses, each with the route that is allowed instead —
-  `pnpm ghosts:hash` (`pnpm morse:approve`), `pnpm ghosts:launch` and `pnpm shift` (the bus launch node),
+  `pnpm ghosts:hash` (`pnpm morse:approve`), `pnpm ghosts:launch` (the bus launch node),
   an Edit under `.claude/**`, AskUserQuestion (ask as text in the window), `git -C` on the main
   checkout (git in the working directory), `sed -i` and `perl -pi` (Edit or Write), `python3`, `node -e` (Read),
   `cat` and `cp` over `~/.construct` (Read), a shell for-loop, `kill`, `gh api` with a query string (`gh pr` /
@@ -297,50 +268,11 @@ and the words are in
 [AGENTS.md § The path line and its verification word](../AGENTS.md#the-path-line-and-its-verification-word).
 A probe is run by `/probe` ([.claude/skills/probe/SKILL.md](../.claude/skills/probe/SKILL.md)).
 
-The shift is the autopilot, and it is on by default. Cheap-path tasks run unattended as a shift: `pnpm shift <dir> [--parking <parking>] [--check] [--manual]`
-starts each task through the same `task:start`, as a fresh headless session in its tree. Without
-`--parking` the tasks are the `NN.md` files in `<dir>`; with it they are the cards in
-`<parking>/<id>.md` marked `who: shift` whose `depends` are closed in `ghosts.jsonl` and which are
-not closed themselves, `p0` first and then by id, leaving a card whose `touches` overlap one already
-taken. `<dir>/shift.jsonl` is the shift's journal — a `start` line (with `parking` and the cards
-`left` when the tasks came from the parking), then one `task` line per task — and a shift whose
-`shift.jsonl` exists is refused. Each session writes `report-NN.md` there, and once its pull request
-is open the bus merge policy decides it: a pull request on an owner-merged path in
-[architecture/owner-merges.md](owner-merges.md) waits for the owner, and one that changes `src/` or `templates/` with no
-matrix count line is refused with that reason. The flags and refusals are in [CONTRIBUTING.md](../CONTRIBUTING.md).
-
-The autopilot takes the next ready card, follows a session into a new one at a boundary (`continue: auto`), arms
-auto-merge where the merge rules allow it, and stops only at a gate the owner holds. Where it stops it appends one
-`{"event":"stop","task","at","why","worktree","shift","session","ts"}` line to `ghosts.jsonl` (`pr` too when `at` is `merge`; `tail`, the last 20 lines of its output, and `log`, the path of all of it, when a mechanism step went red: a failed `ghosts:launch` of a ladder card keeps its stdout and stderr in `<dir>/<card>-launch.log`, and a red P8 harness in `ghosts:hash` keeps its output beside the brief as `<brief>.p8.log` and names the first failing step of `quality:steps` in its refusal, with the same tail and log path):
-`at` is `hash` (the brief of a ladder card that MORSE refused to approve: the stop names the tree, the
-last session and the first refusal line, and the hash is the owner's), `merge` (a pull request the merge rules left to the owner), `question` (a `question:` line in the
-report), `boundary` (a `boundary:` line the card does not follow: `continue: stop`, the restart limit, or a no under
-`--manual`) or `fault` (a session that did not spawn, exited non-zero, was stopped by Eddies or wrote no report or no
-pull request; a card `task:start` refuses leaves no stop, because the door writes nothing). A card that ends in an armed auto-merge or a probe closed by its report leaves no
-stop. A `fault` stop that is not a guard refusal or an Eddies stop is a failed card: it stops neither a chain nor a plain run,
-on its first fault (the shift starts no second attempt), its stop carries `failed: true` and `last`, the last line of its session log, a card that depends on it is left as `depends failed #N`, and a
-macOS notification names the card, the reason and `<dir>/shift-report.md`, the table (`card · result · reason · PR`) every
-real run writes at its end: one row per card it ran and one `skipped` row per card left on a failed dependency. The parking choice reads the latest stop of each card: while its `worktree` exists, or while it is a `hash` stop
-with no worktree, the card is left as `waits <at>` (a closed card stays `closed`), and a second `hash` stop is never
-written for it; the `hash` stop of a ladder card stops standing once the journal holds an `event:approval` for its brief's current hash and no `event:revoke` of it. `--manual` turns the automation off for that run only, never sticky: nothing is taken, and nothing is
-continued into a new session, without a yes from the runner's prompt; with no terminal every answer is no, and a run
-without `--manual` never prompts. It confirms only the take and the continuation, and the merge rules are the same.
-Every real run (not `--check`) writes one `{"event":"autopilot","state":"on"|"off","shift","ts"}` line to
-`<dir>/shift.jsonl`, after its `start` line and before it takes its first card.
-
-A ladder card (`implement`, contour `ladder`) with `who: shift` is taken like a cheap card and walked one step after another, each
-step derived from `ghosts.jsonl` and the brief at `<handoff>/brief-<id>-<name>.md`, never remembered: `brief` (no brief, no
-`event:approval` for its current hash, or an `event:revoke` of it; an `.approved-sha256` file alone never counts) is a headless session in a tree `task:start` cuts, which designs, writes the brief and
-runs `pnpm ghosts:hash <brief>` without `--by`, and after it exits the shift runs `pnpm ghosts:hash <brief> --by morse --card <id>
---parking <parking>` ([0053](decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md), [0058](decisions/0058-morse-approves-a-brief-of-every-risk.md)): approved,
-it goes on; refused (a forecast above its band, a fall), it stops at `hash` and the card waits for the owner;
-`launch` (approved, no launch entry under that hash) writes `<handoff>/tasks-<id>-<name>.json` and runs `pnpm ghosts:launch --tasks
-<file>` with `yes` on stdin and no session, and a non-zero exit is a `fault` stop with its first stderr line; `running` (an entry
-and no Ghost `task` line after it) leaves the card with no stop; `review` (the Ghost's `task` line says `ladder: done`) is a
-headless session in the same tree that scans, reviews, gives the verdict and opens the pull request, and from its report on the
-ordinary close, merge and stop path applies. A Ghost `task` line with any other ladder status is a `fault` stop naming it, and the
-falls stay with `ghosts:launch`. Only the first step cuts a tree; the later steps use the tree on the card's `task:start` line, and
-a missing tree, or a dirty one before the launch, is a `fault` stop. A ladder card with `who: window` is left as `who window`.
+Cheap-path cards run unattended. The bus launch node (`pnpm bus:launch`, [CONTRIBUTING.md](../CONTRIBUTING.md)) starts
+each `who: shift` card from its admission, in its lane's order once its `depends` are merged, as a fresh headless
+session in the tree `task:start` cuts. Once its pull request is open the bus merge policy decides it: a pull request on
+an owner-merged path in [architecture/owner-merges.md](owner-merges.md) waits for the owner, and one that changes `src/`
+or `templates/` with no matrix count line is refused with that reason. A card with `who: window` is the window's.
 
 The risk is read in the same step, before the contour, by the table in `/plan`, which is the only statement
 of the levels and their signs. Here the core part that many others depend on has exactly three parts, each
@@ -448,7 +380,7 @@ sample holds no minutes it says `minutes not recorded` with the reason the comma
 `CONSTRUCT_CLOUD` is one key: `1` sends work to the cloud, and any other value, `0` or unset among them, runs everything locally as before. With `CONSTRUCT_CLOUD=1` card bodies
 and the `brief`, `scan` and `review` roles run as cloud sessions the window launches (routines) over the channel that
 already works, a git branch and the final message; locally only the journal, intake, close and merge stay. `pnpm
-ghosts:role <brief|scan|review> --task <id>` prints which route applies and `pnpm shift` refuses to spawn a
+ghosts:role <brief|scan|review> --task <id>` prints which route applies and the bus launch node spawns no
 local session. A cloud review is accepted with `pnpm ghosts:verdict --from <ref> <path in ref> --commit <sha>`: the
 verdict file and the report it names are read with `git show` and journaled as if given locally (Eli, 2026-10-08).
 

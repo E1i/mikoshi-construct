@@ -1,7 +1,7 @@
 import type { MergeFacts } from '../../bus/policy.js'
 import type { FakePull } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -50,9 +50,14 @@ describe('the merge policy', () => {
     expect(mergePolicy(facts({ shardActive: true }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
   })
 
-  it('an auto card that changes src/ or templates/ with no matrix count line is denied with the shift:merge reason', () => {
+  it('an auto card that changes src/ or templates/ with no matrix count line is denied with the no_matrix_count_line reason', () => {
     for (const file of ['src/cli.ts', 'templates/base/AGENTS.md.eta'])
       expect(mergePolicy(facts({ files: ['scripts/bus/policy.ts', file] }))).toEqual({ kind: 'denied', rule: 'no_matrix_count_line', detail: `changes ${file} and its description has no code matrix count line ■ n □ n · n (architecture/code-matrix.md)` })
+  })
+
+  it('with scripts/shift/merge.ts deleted the bus still denies a src/ change with no matrix count line', () => {
+    expect(existsSync('scripts/shift/merge.ts')).toBe(false)
+    expect(mergePolicy(facts({ files: ['src/cli.ts'] }))).toEqual({ kind: 'denied', rule: 'no_matrix_count_line', detail: 'changes src/cli.ts and its description has no code matrix count line ■ n □ n · n (architecture/code-matrix.md)' })
   })
 
   it('an auto card that changes src/ with a matrix count line is allowed to merge', () => {
