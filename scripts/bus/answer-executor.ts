@@ -6,10 +6,12 @@ import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
 import type { AnswerInput } from './prompt-store.js'
+import { withinTouches } from '../../src/card/covering-tests.js'
+import { createdPaths } from '../../src/card/parking.js'
 import { riskOf } from '../../src/card/risk.js'
-import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SHARD_DECIDED } from '../core/events.js'
+import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED } from '../core/events.js'
 import { matchGlob } from '../shredder/glob.js'
-import { answerSourceOf } from './answer-source.js'
+import { admittedScopeOf, answerSourceOf } from './answer-source.js'
 import { CardTreeGone } from './answerer.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from './card-tree.js'
 import { messageOf } from './errors.js'
@@ -43,6 +45,11 @@ export interface AnswerParts {
   trees?: CardTreeTools
   isolation?: IsolationReader
   prompts?: string
+}
+
+interface Widened {
+  event: BusEvent
+  reason: string
 }
 
 const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
@@ -98,7 +105,20 @@ export class AnswerExecutor {
       const source = answerSourceOf(this.parts.db, lease) ?? this.conflict(lease)
       if (source === null)
         return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
-      const widened = source.kind === 'question' && source.widen !== null ? `${source.widen.paths.join(', ')}, by the window's amend of the card` : null
+      let widened: Widened | null = null
+      if (source.kind === 'question' && source.widen !== null) {
+        const globs = ownerGlobs(this.parts.ownerMerges())
+        const ownerPath = source.widen.paths.find(file => globs.some(glob => matchGlob(glob, file)))
+        if (ownerPath !== undefined)
+          return this.stopped(lease, QUESTION_OWNER, `${ownerPath} is an owner path: ${source.detail}`)
+        const scope = admittedScopeOf(this.parts.db, lease.cardId)
+        const created = createdPaths(scope?.creates ?? [])
+        const uncovered = source.widen.paths.filter(file => scope === null || !(withinTouches(file, scope.touches) || created.includes(file)))
+        if (scope === null || uncovered.length > 0)
+          return this.stopped(lease, QUESTION_AGENT, `${uncovered.join(', ')} not in the touches or creates the card was admitted with: ${source.detail}`, { widen: uncovered })
+        const reason = `${source.widen.paths.join(', ')}, by the window's amend of the card`
+        widened = { reason, event: this.event(lease, SCOPE_WIDENED, { paths: source.widen.paths, admission: scope.admission, detail: source.detail }) }
+      }
       const card = this.tree(lease)
       if (card === null)
         return this.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started, no start line with a worktree and a branch, and no open pull request` })
@@ -109,7 +129,7 @@ export class AnswerExecutor {
       const answered = endedOnContextWarn(first) ? await this.session(lease, source, widened, card, true) : first
       if ('kind' in answered)
         return this.denied(lease, answered)
-      return this.settled(lease, source, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
+      return this.settled(lease, source, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -135,41 +155,42 @@ export class AnswerExecutor {
     }
   }
 
-  private async session(lease: Lease, source: AnswerSource, widened: string | null, card: CardSession, fresh: boolean): Promise<Answered | AnswerDenial> {
+  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean): Promise<Answered | AnswerDenial> {
     try {
-      return await this.parts.answerer({ lease, source, widened, card, fresh })
+      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh })
     }
     catch (error) {
       return { kind: 'technical', reason: error instanceof CardTreeGone ? 'card_tree_gone' : 'answer_failed', detail: messageOf(error) }
     }
   }
 
-  private settled(lease: Lease, source: AnswerSource, card: CardSession, answered: Answered, minutes: number): AnswerOutcome {
+  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): AnswerOutcome {
+    const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
-        return this.asked(lease, answered.owner)
+        return this.asked(lease, answered.owner, scope)
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
-      return this.stopped(lease, 'fault', detail)
+      return this.stopped(lease, 'fault', detail, {}, scope)
     }
     const payload = { session: answered.session, worktree: card.worktree, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...measurementOf(answered, minutes), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
-    completeTask(this.parts.db, this.ts(), lease, [this.event(lease, CARD_ANSWERED, payload)])
+    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }
 
-  private asked(lease: Lease, question: string): AnswerOutcome {
+  private asked(lease: Lease, question: string, scope: BusEvent[]): AnswerOutcome {
     if (!this.ownersQuestion(lease, question))
-      return this.stopped(lease, QUESTION_AGENT, question)
+      return this.stopped(lease, QUESTION_AGENT, question, {}, scope)
     const shard = activeDecisionsShard(this.parts.db, this.parts.clock())
     if (shard === null || reservationOf(lease.cardId, question))
-      return this.stopped(lease, QUESTION_OWNER, question)
+      return this.stopped(lease, QUESTION_OWNER, question, {}, scope)
     const reserved = ownersUnderAnyShard(question)
     if (reserved !== null)
-      return this.stopped(lease, QUESTION_OWNER, `${question} (${reserved} stays the owner's under any shard)`)
+      return this.stopped(lease, QUESTION_OWNER, `${question} (${reserved} stays the owner's under any shard)`, {}, scope)
     const isolation: Isolation = this.parts.isolation?.() ?? { level: 'none', why: 'the answer worker reads no isolation' }
     if (isolation.level === 'none')
-      return this.stopped(lease, QUESTION_OWNER, `${question} (the ${DECISIONS_SCOPE} shard ${shard.id} is refused without isolation: ${isolation.why})`)
+      return this.stopped(lease, QUESTION_OWNER, `${question} (the ${DECISIONS_SCOPE} shard ${shard.id} is refused without isolation: ${isolation.why})`, {}, scope)
     const ground = `window shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until}) under ${isolation.level} isolation`
-    completeTask(this.parts.db, this.ts(), lease, [this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS })])
+    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS })])
     return { kind: 'decided', taskKey: lease.taskKey, shard: shard.id, question }
   }
 
@@ -183,8 +204,8 @@ export class AnswerExecutor {
     return pathsIn(question).some(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION || globs.some(glob => matchGlob(glob, file)))
   }
 
-  private stopped(lease: Lease, reason: string, detail: string): AnswerOutcome {
-    completeTask(this.parts.db, this.ts(), lease, [this.event(lease, CARD_STOPPED, { reason, detail })])
+  private stopped(lease: Lease, reason: string, detail: string, extra: Record<string, unknown> = {}, scope: BusEvent[] = []): AnswerOutcome {
+    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_STOPPED, { reason, detail, ...extra })])
     return { kind: 'stopped', taskKey: lease.taskKey, reason, detail }
   }
 

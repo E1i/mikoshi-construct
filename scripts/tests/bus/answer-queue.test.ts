@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
 import { AnswerExecutor } from '../../bus/answer-executor.js'
 import { answerSourceOf, NO_RECORDED_SESSION } from '../../bus/answer-source.js'
 import { runAnswerWorker } from '../../bus/answer-worker.js'
@@ -22,7 +23,7 @@ import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../..
 import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, queueTask } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { Rejection } from '../../bus/stored.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, REJECTED, REVIEW_RECORDED, SHARD_ISSUED, TASK_ENQUEUED, TASK_REQUEUED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_REQUEUED } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -242,18 +243,57 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  const admitCard = (bench: ReturnType<typeof answerBench>, cardId: number, touches: string[], bodySha: string): number => {
+    const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: ${touches.join(', ')}\ncontinue: stop\nwho: shift\n\nAnswer it.\n`
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${bodySha}`, payload: { card: `#${cardId}`, lane: 'lane-a', text, textSha: textSha(text), bodySha }, legacy: false })
+    return Number((bench.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+  }
+
   it('after the amend the answer of a touches stop continues', async () => {
     const bench = answerBench()
     askToWiden(bench, 911)
     bench.tick()
-    admitBody(bench, 911, 'cccc3333')
+    const admission = admitCard(bench, 911, ['scripts/bus/queue.ts', ...WIDEN], 'cccc3333')
     bench.tick()
 
     const lease = bench.leaseAnswer()!
     expect(lease).toMatchObject({ cardId: 911, taskKey: expect.stringMatching(/:card-body-cccc3333:stop-\d+$/) })
     expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', session: CARD_SESSION })
     expect(bench.tools.runs[0]!.argv.at(-1)).toContain(`The touches are widened: ${WIDEN.join(', ')}, by the window's amend of the card.`)
+    expect(eventsOf(bench.db, SCOPE_WIDENED)).toEqual([{ paths: WIDEN, admission, detail: 'the lease query must admit a card with no pull request' }])
     expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toHaveLength(1)
+    bench.close()
+  })
+
+  it('an admission that does not add the widened paths holds the answer for the window again', async () => {
+    const bench = answerBench()
+    askToWiden(bench, 913)
+    bench.tick()
+    admitCard(bench, 913, ['scripts/bus/queue.ts', 'scripts/bus/lease.ts'], 'eeee5555')
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.agent', detail: expect.stringContaining('scripts/tests/bus/lease.test.ts not in the touches or creates the card was admitted with') })
+    expect(eventsOf(bench.db, CARD_STOPPED).at(-1)).toMatchObject({ widen: ['scripts/tests/bus/lease.test.ts'] })
+    expect(bench.tools.runs).toHaveLength(0)
+    expect(eventsOf(bench.db, SCOPE_WIDENED)).toEqual([])
+    bench.tick()
+
+    expect(bench.leaseAnswer()).toBeNull()
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toHaveLength(2)
+    bench.close()
+  })
+
+  it('a widen onto an owner path stops as question.owner even after the amend', async () => {
+    const bench = answerBench()
+    bench.started(914)
+    bench.stopped(914, { reason: 'question.agent', detail: 'the ladder must know the answer queue', widen: ['scripts/construct/implement.workflow'], touches: ['scripts/bus/queue.ts'] })
+    bench.tick()
+    admitCard(bench, 914, ['scripts/bus/queue.ts', 'scripts/construct/implement.workflow'], 'ffff6666')
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining('scripts/construct/implement.workflow is an owner path') })
+    expect(bench.tools.runs).toHaveLength(0)
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([914])
     bench.close()
   })
 
