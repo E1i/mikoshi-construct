@@ -25,7 +25,8 @@
 #              rule blockingJobs in scripts/ci/required.ts to the needs of this job; once every need
 #              is green it merges the vitest shards' reports and checks that doctor reads this
 #              repository's harness as checked (decision 0033), in the same job so the tail after
-#              the slowest shard is one job, not two.
+#              the slowest shard is one job, not two. On a push to main it keeps the merged report as
+#              the vitest-report artifact, which `pnpm test:weights --from main` reads the shard weights from.
 #
 # The fast path is a pull request whose every changed path is on the allow-list in
 # scripts/ci/fast-path.ts (docs/** and top-level architecture/*.md). Neither the tarball nor a generated
@@ -312,3 +313,10 @@ jobs:
           pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json --reporter=github-actions
           pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
           node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"
+      - if: github.event_name == 'push'
+        uses: actions/upload-artifact@v7
+        with:
+          name: vitest-report
+          path: .construct/reports/vitest.json
+          include-hidden-files: true
+          retention-days: 30
