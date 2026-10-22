@@ -1,4 +1,4 @@
-import type { MergeFacts } from '../../bus/policy.js'
+import type { CloseFacts, MergeFacts } from '../../bus/policy.js'
 import type { FakePull } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -7,7 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decisionsIntake } from '../../bus/decisions-import.js'
 import { ownerInbox } from '../../bus/inbox.js'
-import { mergePolicy, MERGES_UNDER_A_SHARD, OWNER_MERGES_RULES } from '../../bus/policy.js'
+import { closePolicy, mergePolicy, MERGES_UNDER_A_SHARD, OWNER_MERGES_RULES } from '../../bus/policy.js'
 import { cardBody } from './github-fake.js'
 import { liveBench } from './merge-bench.js'
 
@@ -238,5 +238,21 @@ describe('the merge policy', () => {
 
   it('a reservation of another card does not reserve this one', () => {
     expect(mergePolicy(facts({ description: `${cardBody(942)}\n\n#10420 reserved, #104 reserved` }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+})
+
+describe('the close policy', () => {
+  const closeFacts = (over: Partial<CloseFacts> = {}): CloseFacts => ({ pr: 980, state: 'open', headRef: 'feat/card-1080', body: cardBody(980), cardId: 1080, mergeLeased: false, ...over })
+
+  it('allows the open pull request of the named card under no merge lease', () => {
+    expect(closePolicy(closeFacts())).toMatchObject({ kind: 'allowed', rule: 'card_pr' })
+  })
+
+  it('refuses each pull request it must not close, by the rule that holds it', () => {
+    expect(closePolicy(closeFacts({ headRef: 'changeset-release/main' }))).toMatchObject({ kind: 'denied', rule: 'version_pr' })
+    expect(closePolicy(closeFacts({ state: 'closed' }))).toMatchObject({ kind: 'denied', rule: 'not_open', detail: 'PR #980 is closed, not open' })
+    expect(closePolicy(closeFacts({ body: 'no card line' }))).toMatchObject({ kind: 'denied', rule: 'no_card' })
+    expect(closePolicy(closeFacts({ cardId: 1081 }))).toMatchObject({ kind: 'denied', rule: 'other_card' })
+    expect(closePolicy(closeFacts({ mergeLeased: true }))).toMatchObject({ kind: 'denied', rule: 'merge_leased' })
   })
 })

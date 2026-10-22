@@ -1,6 +1,6 @@
 import type { GhSpawned } from '../../core/gh.js'
 import { describe, expect, it } from 'vitest'
-import { BUDGET_SPENT_STATUS, ghApi, ghApiPut, NO_ANSWER_STATUS } from '../../bus/github.js'
+import { BUDGET_SPENT_STATUS, ghApi, ghApiPatch, ghApiPut, NO_ANSWER_STATUS } from '../../bus/github.js'
 import { GhBudgetWindow, ghPort } from '../../core/gh.js'
 
 const included = (code: number, body: string): GhSpawned => ({ status: code === 200 ? 0 : 1, stdout: `HTTP/2.0 ${code} X\r\nX-Ratelimit-Remaining: 9\r\n\r\n${body}\n`, stderr: code === 200 ? '' : `gh: no (HTTP ${code})` })
@@ -11,7 +11,7 @@ function apiOver(runs: GhSpawned[], budget = new GhBudgetWindow({ calls: 100, wi
     calls.push(args)
     return runs.shift() ?? included(200, '{}')
   }, pause: () => {}, budget })
-  return { gitHub: ghApi('.', port), put: ghApiPut('.', port), calls }
+  return { gitHub: ghApi('.', port), put: ghApiPut('.', port), patch: ghApiPatch('.', port), calls }
 }
 
 describe('the bus reads GitHub through the gh port', () => {
@@ -40,5 +40,11 @@ describe('the bus reads GitHub through the gh port', () => {
     expect(put('repos/o/r/pulls/1/merge', { sha: 'abc' }).status).toBe(200)
     expect(gitHub('repos/o/r/pulls')).toMatchObject({ status: BUDGET_SPENT_STATUS, headers: { 'retry-after': '60' } })
     expect(calls).toHaveLength(2)
+  })
+
+  it('a close goes out as a PATCH of the pull request with its fields', () => {
+    const { patch, calls } = apiOver([])
+    expect(patch('repos/o/r/pulls/9', { state: 'closed' }).status).toBe(200)
+    expect(calls).toEqual([['api', '--include', '--method', 'PATCH', 'repos/o/r/pulls/9', '-f', 'state=closed']])
   })
 })

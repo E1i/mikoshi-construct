@@ -131,6 +131,18 @@ export class FakeGitHub {
     return { status: 200, headers: {}, body: { sha: MAIN_2, merged: true } }
   }
 
+  closes: { pr: number, fields: Record<string, string> }[] = []
+
+  readonly patch: GitHubPut = (endpoint, fields) => {
+    const pull = /^repos\/\{owner\}\/\{repo\}\/pulls\/(\d+)$/.exec(endpoint)
+    if (pull === null || !this.pulls.has(Number(pull[1])))
+      throw new Error(`the fake has no answer for PATCH ${endpoint}`)
+    this.closes.push({ pr: Number(pull[1]), fields })
+    if (fields.state === 'closed')
+      this.close(Number(pull[1]), false)
+    return { status: 200, headers: {}, body: this.pullBody(this.pulls.get(Number(pull[1]))!) }
+  }
+
   private updateBranch(pull: FakePull, expected: string | undefined): GhResponse {
     if (this.updateStatus !== 202)
       return { status: this.updateStatus, headers: {}, body: { message: 'merge conflict between base and head' } }
