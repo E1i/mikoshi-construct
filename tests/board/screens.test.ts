@@ -29,12 +29,14 @@ describe('the board screens', () => {
 
   it('the text board prints the plan line and waits for you only when not empty', () => {
     const goal: Goal = { plans: [plan('Plan 0.45', 2, 7)], backlog: 3 }
+    const since = '2026-10-02T11:00:00.000Z'
     const waits = [
-      { kind: 'question' as const, card: 10, pr: null, detail: 'which path?', since: null },
-      { kind: 'version' as const, card: null, pr: 669, detail: null, since: null },
+      { id: 'Q1', need: 'decision' as const, text: 'which path?', command: null, card: 10, pr: null, since },
+      { id: 'Q2', need: 'merge' as const, text: 'changes architecture/security-invariants.md', command: null, card: 12, pr: 669, since },
+      { id: 'Q3', need: 'command' as const, text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since },
     ]
     const goalLine = 'Plan 0.45: delivered 2 of 7 · queued 1 · in progress 0 · review 0 · slices without cards: 4 · +1 in 24 h · backlog: 3'
-    expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 2 · — · question #10 (which path?) · version PR #669'])
+    expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path?) · Q2 merge PR #669 (changes architecture/security-invariants.md) · Q3 command (the merge queue runs unswitched: pnpm decisions:add "[owner] allow-live merge")'])
     expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'planned (0): —'])
     const backlog = [card(8, 'in_review', null, '#8 eight', 'review'), card(9, 'in_review', null, '#9 nine', 'answer/changes'), card(4, 'running', null, '#4 four', 'ready')]
     expect(backlogLines(backlog, PLAIN_LORE)).toEqual(['no lane (3)', '  #8 eight · review', '  #9 nine · answer/changes', '  #4 four · ready'])

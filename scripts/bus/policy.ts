@@ -30,6 +30,8 @@ export type AuthorityRule
     | 'r1'
     | 'no_matrix_count_line'
 
+export const OWNER_MERGES_RULES: ReadonlySet<AuthorityRule> = new Set(['version_pr', 'security_invariants', 'owner_by_risk', 'reserved', 'owner_without_shard', 'r1'])
+
 export type AllowedRule = 'auto' | 'owner_under_shard' | 'owner_by_decision' | 'owner_after_round_limit'
 
 export type MergeVerdict
