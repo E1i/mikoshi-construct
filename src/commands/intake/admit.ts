@@ -2,18 +2,20 @@ import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
 import type { Ui } from '../../ui/console.js'
+import type { Lore } from '../../ui/lore.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { CARD_WAITING, INTAKE_EVENT } from '../../../scripts/core/events.js'
+import { CARD_WAITING, INTAKE_EVENT, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
 import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
-import { parseParkingFile } from '../../card/parking.js'
+import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
@@ -22,6 +24,7 @@ import { DirectoryFacts } from './facts.js'
 import { admittedRecord, defaultParking, INTAKE_EXIT, recordIntake } from './index.js'
 import { parkedNumbers } from './numbers.js'
 import { isWithin, parkingTree } from './parking-tree.js'
+import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
 const WITNESS_ITEM = /^- (.+)$/
@@ -133,17 +136,54 @@ export interface AdmitOptions {
   confirm?: string
   autoConfirm: boolean
   parkingRoot?: string
+  contourMap?: string
   events?: CardEventPort
   cardStates?: CardStatesPort
   admissions?: CardAdmissionsPort
+  decisions?: string
+}
+
+type RefusedWithReasons = 'invalidTestPattern' | 'sharedCodeMask'
+
+const REFUSED_WITH_REASONS: Record<RefusedWithReasons, (lore: Lore) => string> = {
+  invalidTestPattern: lore => lore.intakeRefusedInvalidTestPattern,
+  sharedCodeMask: lore => lore.intakeRefusedSharedCodeMask,
 }
 
 export type AdmitResult
   = | { status: 'refused', why: string }
     | { status: 'invalidTestPattern', reasons: string[] }
+    | { status: 'sharedCodeMask', reasons: string[] }
     | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
     | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
+    | { status: 'ownerWait', file: string, card: SlicedCard, downgrades: string[], inBus: boolean, dryRun: boolean }
+
+const RED_ON_MAIN = /[;,]?\s*red on main/i
+const DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетеля'
+const DECISION_LINE = /^- D-[1-9]\d* · /
+const DECISION_CARDS = / · card (#[1-9]\d*(?: #[1-9]\d*)*)/
+const SUPERSEDED_BY = ' · superseded-by D-'
+
+export function defaultDecisions(): string {
+  return path.join(os.homedir(), '.construct', 'owner-decisions.md')
+}
+
+export function downgradeAction(cardId: number, witness: string): string {
+  return `${DOWNGRADE_ALLOWANCE} ${witness} у #${cardId}`
+}
+
+function witnessCore(witness: string): string {
+  return witness.replace(RED_ON_MAIN, '').trim()
+}
+
+export function witnessDowngrades(previous: readonly string[], next: readonly string[]): string[] {
+  const redByCore = new Map(next.map(witness => [witnessCore(witness), RED_ON_MAIN.test(witness)]))
+  return previous.filter((witness) => {
+    const red = redByCore.get(witnessCore(witness))
+    return red === undefined || (RED_ON_MAIN.test(witness) && !red)
+  })
+}
 
 export function witnessesOf(body: string): string[] {
   const lines = body.split('\n')
@@ -193,6 +233,17 @@ function unmergedKnown(references: readonly string[], parked: ReadonlySet<number
 
 function waitingEvent(cardId: number, waitingOn: readonly number[], at: Date): CardEvent {
   return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${cardId}:${waitingOn.join(',')}`, payload: { depends: waitingOn } }
+}
+
+function downgradeEvent(cardId: number, downgrades: readonly string[], sha: string, at: Date): CardEvent {
+  return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${WITNESS_DOWNGRADE}:${cardId}:${sha}`, payload: { reason: WITNESS_DOWNGRADE, witnesses: downgrades, actions: downgrades.map(witness => downgradeAction(cardId, witness)), bodySha: sha } }
+}
+
+function ownerAllowed(decisionsFile: string, cardId: number, downgrades: readonly string[]): boolean {
+  if (!existsSync(decisionsFile))
+    return false
+  const allowing = readFileSync(decisionsFile, 'utf8').split('\n').filter(line => DECISION_LINE.test(line) && !line.includes(SUPERSEDED_BY) && (DECISION_CARDS.exec(line)?.[1]?.split(' ').includes(`#${cardId}`) ?? false))
+  return downgrades.every(witness => allowing.some(line => line.includes(downgradeAction(cardId, witness))))
 }
 
 function blocksTail(line: string): string {
@@ -332,6 +383,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
   }) as [CheckedCard]
+  const masks = sharedCodeMaskRefusals(checked.touches, createdPaths(checked.creates), readContourMap(options.contourMap ?? defaultContourMap()))
+  if (masks.length > 0)
+    return { status: 'sharedCodeMask', reasons: masks }
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {
     id: card.id,
@@ -363,6 +417,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
       options.events?.(waitingEvent(card.id, waitingOn, now()))
     return { status: 'waiting', file: options.file, card: admitted, waitingOn, inBus: base.inBus, dryRun: options.dryRun }
   }
+  const downgrades = recorded?.text === undefined ? [] : witnessDowngrades(witnessesOf(recorded.text), witnessesOf(admitted.text))
+  if (downgrades.length > 0 && !ownerAllowed(options.decisions ?? defaultDecisions(), card.id, downgrades)) {
+    if (!options.dryRun)
+      options.events?.(downgradeEvent(card.id, downgrades, bodySha(admitted.text), now()))
+    return { status: 'ownerWait', file: options.file, card: admitted, downgrades, inBus: base.inBus, dryRun: options.dryRun }
+  }
   if (options.dryRun)
     return { ...base, status: 'dryRun' }
   const token = confirmationToken([admitted])
@@ -379,8 +439,8 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
     ui.flatline(ui.lore.intakeRefusedUnreadable(result.why))
     return INTAKE_EXIT.refused
   }
-  if (result.status === 'invalidTestPattern') {
-    ui.flatline(ui.lore.intakeRefusedInvalidTestPattern)
+  if (result.status === 'invalidTestPattern' || result.status === 'sharedCodeMask') {
+    ui.flatline(REFUSED_WITH_REASONS[result.status](ui.lore))
     for (const reason of result.reasons)
       ui.line(`  - ${reason}`)
     return INTAKE_EXIT.refused
@@ -389,6 +449,12 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   if (result.status === 'waiting') {
     const depends = result.waitingOn.map(id => `#${id}`).join(', ')
     ui.line(result.dryRun ? ui.lore.intakeAdmitWaitingDryRun(result.file, card.line, depends) : ui.lore.intakeAdmitWaiting(result.file, card.line, depends, result.inBus))
+    return INTAKE_EXIT.waiting
+  }
+  if (result.status === 'ownerWait') {
+    ui.line(result.dryRun ? ui.lore.intakeAdmitDowngradeDryRun(result.file, card.line, result.downgrades.length) : ui.lore.intakeAdmitDowngrade(result.file, card.line, result.downgrades.length, result.inBus))
+    for (const witness of result.downgrades)
+      ui.line(`  - ${ui.lore.intakeAdmitDowngradeAction(card.id, downgradeAction(card.id, witness))}`)
     return INTAKE_EXIT.waiting
   }
   if (result.status === 'alreadyAdmitted') {

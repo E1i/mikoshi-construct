@@ -12,7 +12,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { busFacts, CARD_STAGES } from '../../src/commands/board/bus.js'
 import { planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, isLive, matrixLines, pulseLines, slotsReading } from '../../src/commands/board/screens.js'
+import { backlogCards, isLive, matrixLines, pulseLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
 import { mikoHandoff } from '../miko/loop.js'
@@ -119,7 +119,7 @@ const PUNCH_DIGITS = 16
 const SETTLED_STAGES: readonly CardStage[] = ['merged', 'dropped']
 export const PROGRESS_ORDER: readonly CardStage[] = ['merged', 'ready', 'answer/changes', 'review', 'in work', 'planned', 'stopped', 'dropped']
 export const ITEM_PROGRESS_ORDER: readonly ItemStage[] = ['delivered', 'review', 'in_progress', 'queued', 'not_created']
-const WAIT_KINDS: Record<OwnerWait['kind'], string> = { question: 'Q', decision: 'D', version: 'R' }
+const WAIT_NEEDS: Record<OwnerWait['need'], string> = { decision: 'D', merge: 'M', command: 'C' }
 
 function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
@@ -309,12 +309,12 @@ function goalSlot(facts: BusFacts): string {
 }
 
 function waitText(wait: OwnerWait): string {
-  const target = wait.kind === 'version' ? `version PR #${wait.pr ?? '?'}` : wait.pr === null ? `#${wait.card ?? '?'}` : `PR #${wait.pr}`
-  return wait.detail === null ? target : `${target} — ${wait.detail}`
+  const target = waitTarget(wait)
+  return `${wait.id}${target === null ? '' : ` ${target}`} — ${waitAction(wait)}`
 }
 
 function waitItem(wait: OwnerWait, page: BoardPage): string {
-  const inner = `<span class="kind">${WAIT_KINDS[wait.kind]}</span><span class="what">${escaped(waitText(wait))}</span>`
+  const inner = `<span class="kind">${WAIT_NEEDS[wait.need]}</span><span class="what">${escaped(waitText(wait))}</span>`
   return wait.card !== null && page.details.has(wait.card)
     ? `<button type="button" class="ask"${opener(cardDialog(wait.card))}>${inner}${OPEN_HINT}</button>`
     : `<span class="ask" data-static>${inner}</span>`

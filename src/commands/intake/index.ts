@@ -12,7 +12,7 @@ import process from 'node:process'
 import { CARD_ADMITTED } from '../../../scripts/core/events.js'
 import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
-import { parseParkingFile } from '../../card/parking.js'
+import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { textSha } from '../../card/text-sha.js'
 import { laneOf, layLane } from './admit.js'
 import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
@@ -21,6 +21,7 @@ import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedNumbers, nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
 import { isDirectory, isWithin, parkingTree } from './parking-tree.js'
+import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
 import { cutSlices, sliceCards } from './slice.js'
 
 export const FROM_STDIN = '-'
@@ -144,6 +145,7 @@ export interface IntakeOptions {
   taken: string | undefined
   parking: string
   parkingRoot?: string
+  contourMap?: string
   dir: string
   journal: string
   dryRun: boolean
@@ -154,7 +156,7 @@ export interface IntakeOptions {
   cardStates?: CardStatesPort
 }
 
-type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unreadable' | 'invalid' | 'invalidTestPattern'
+type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unreadable' | 'invalid' | 'invalidTestPattern' | 'sharedCodeMask'
 
 export type IntakeResult
   = | { status: 'refused', refusal: Refusal, detail: string[] }
@@ -170,7 +172,10 @@ const REFUSAL_LINE: Record<Refusal, (lore: Lore, detail: string[]) => string> = 
   unreadable: (lore, detail) => lore.intakeRefusedUnreadable(detail.join('; ')),
   invalid: lore => lore.intakeRefusedInvalid,
   invalidTestPattern: lore => lore.intakeRefusedInvalidTestPattern,
+  sharedCodeMask: lore => lore.intakeRefusedSharedCodeMask,
 }
+
+const LISTED_REFUSALS: readonly Refusal[] = ['invalid', 'invalidTestPattern', 'sharedCodeMask']
 
 function refused(refusal: Refusal, detail: string[] = []): IntakeResult {
   return { status: 'refused', refusal, detail }
@@ -243,6 +248,10 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
   })
+  const contourMap = readContourMap(options.contourMap ?? defaultContourMap())
+  const masks = checked.flatMap(card => sharedCodeMaskRefusals(card.touches, createdPaths(card.creates), contourMap))
+  if (masks.length > 0)
+    return refused('sharedCodeMask', masks)
   const slice = sliceCards(checked, numbers, repository)
   if (slice.kind === 'refused')
     return refused('invalid', slice.reasons)
@@ -276,7 +285,7 @@ function parkCard(card: SlicedCard, parking: string, root: string, at: Date): { 
 export function printIntake(ui: Ui, result: IntakeResult): number {
   if (result.status === 'refused') {
     ui.flatline(REFUSAL_LINE[result.refusal](ui.lore, result.detail))
-    if (result.refusal === 'invalid' || result.refusal === 'invalidTestPattern') {
+    if (LISTED_REFUSALS.includes(result.refusal)) {
       for (const reason of result.detail)
         ui.line(`  - ${reason}`)
     }

@@ -23,6 +23,8 @@ const AWAITING: FakeRun[] = [WAITING, WAITING]
 describe('the merge executor', () => {
   it('a pass on a green, clean head is queued for merge and merged with its sha', () => {
     const bench = liveBench()
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 121, text: '[owner] allow-live merge', cards: [] })
+    reduce(bench.db)
     bench.gitHub.open({ number: 960, review: 'success' })
     bench.tick()
 
