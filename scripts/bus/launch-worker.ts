@@ -39,7 +39,7 @@ import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
-import { DEFAULT_LANE_COUNT, laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
+import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { bodyNotFoldedYet } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
@@ -198,12 +198,14 @@ export class LaunchNode extends Node<LaunchStep> {
   private readonly executor: LaunchExecutor
   private readonly starters: Partial<Record<Contour, CardStarter>>
   private readonly processes: ProcessTable
+  private readonly lanes: () => number
 
   constructor(private readonly launchParts: LaunchNodeParts) {
     super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env })
     this.executor = new LaunchExecutor(launchParts)
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
+    this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.subscribe(LAUNCH_ON, event => this.detectOn(event))
   }
 
@@ -407,7 +409,7 @@ export class LaunchNode extends Node<LaunchStep> {
     if (!this.executes())
       return launchTasks(this.db)
     const ts = this.ts()
-    layLanes(this.db, (this.launchParts.lanes ?? (() => DEFAULT_LANE_COUNT))(), ts, this.actor)
+    layLanes(this.db, this.lanes(), ts, this.actor)
     return launchTasks(this.db, laneOverlapRecorder(this.db, ts, this.actor))
   }
 
@@ -440,7 +442,6 @@ export interface LaunchRun {
   isolation: IsolationReader
   launchDir: string
   treePr?: string
-  lanes?: () => number
 }
 
 export function runWithdrawLegacy(busPath: string, clock: () => Date): number {
@@ -520,7 +521,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath), lanes: run.lanes })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -657,7 +658,7 @@ async function main(): Promise<number> {
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env, busPath))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, lanes: repositoryLanes(process.cwd()), isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

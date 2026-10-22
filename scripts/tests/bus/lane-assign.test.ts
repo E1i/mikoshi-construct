@@ -1,21 +1,27 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CardStarter } from '../../bus/launch-executor.js'
+import type { QueuedTask } from '../../bus/queue.js'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { busCardEvents } from '../../bus/intake.js'
+import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
 import { chainLaneNumber, currentLane, DEFAULT_LANE_COUNT, laneCount, laneOverlapRecorder, layLanes, liveLanes, repositoryLanes } from '../../bus/lane-assign.js'
 import { launchCandidates } from '../../bus/launch-candidates.js'
+import { LaunchNode } from '../../bus/launch-worker.js'
 import { reduce } from '../../bus/reducer.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, LANE_ASSIGNED, LANE_OVERLAP } from '../../core/events.js'
 
 const TS = '2026-10-22T10:00:00.000Z'
 const roots: string[] = []
+const startDir = process.cwd()
 
 afterEach(() => {
+  process.chdir(startDir)
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -84,6 +90,69 @@ class Bench {
     return (this.db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(type) as { n: number }).n
   }
 }
+
+class LayingLaunchNode extends LaunchNode {
+  laid(): QueuedTask[] {
+    return this.candidates()
+  }
+}
+
+function launchNode(db: DatabaseSync, lanes?: () => number): LayingLaunchNode {
+  return new LayingLaunchNode({ db, starter: {} as CardStarter, clock: () => new Date(TS), session: 'w1', mode: 'live', env: {}, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), ...(lanes === undefined ? {} : { lanes }) })
+}
+
+function repositoryWithLanes(lanes: number): string {
+  const repo = tempRoot()
+  execFileSync('git', ['-C', repo, 'init', '-q'])
+  writeFileSync(path.join(repo, 'construct.json'), JSON.stringify({ lanes }))
+  return repo
+}
+
+function admittedWithoutLane(db: DatabaseSync, id: number): void {
+  const text = cardText(id, `src/${id}.ts`)
+  appendEvent(db, { ts: TS, type: CARD_ADMITTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `bare-${id}`, payload: { lane: null, depends: [], text, textSha: textSha(text) }, legacy: false })
+  reduce(db)
+}
+
+function assignedCounts(db: DatabaseSync): number[] {
+  return (db.prepare(`SELECT json_extract(payload, '$.lanes') AS lanes FROM events WHERE type = '${LANE_ASSIGNED}' ORDER BY id`).all() as { lanes: number }[]).map(row => row.lanes)
+}
+
+function admitThroughPort(db: DatabaseSync, events: ReturnType<typeof busCardEvents>, id: number): void {
+  const text = cardText(id, `src/${id}.ts`)
+  events({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `port-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+  reduce(db)
+}
+
+describe('the bus reads N where it assigns', () => {
+  it('a live launch node lays lanes with the N it is given', () => {
+    const bench = new Bench(3)
+    admittedWithoutLane(bench.db, 1)
+    launchNode(bench.db, () => 2).laid()
+    expect(assignedCounts(bench.db)).toEqual([2])
+  })
+
+  it('a launch node given no N reads it from the construct.json of the repository it runs in', () => {
+    process.chdir(repositoryWithLanes(2))
+    const bench = new Bench(3)
+    admittedWithoutLane(bench.db, 1)
+    launchNode(bench.db).laid()
+    expect(assignedCounts(bench.db)).toEqual([2])
+  })
+
+  it('the intake ports lay lanes with the N they are given', () => {
+    const bench = new Bench(3)
+    admitThroughPort(bench.db, busIntakePorts(bench.db, 's1', () => 4).cardEvents, 1)
+    expect(assignedCounts(bench.db)).toEqual([4])
+  })
+
+  it('intake ports given no N read it from the construct.json of the repository they run in', () => {
+    process.chdir(repositoryWithLanes(2))
+    const bench = new Bench(3)
+    admitThroughPort(bench.db, busIntakePorts(bench.db, 's1').cardEvents, 1)
+    expect(assignedCounts(bench.db)).toEqual([2])
+  })
+})
 
 describe('a lane is a chain written by lane.assigned', () => {
   it('two cards with a shared file get one lane and the second waits for the first', () => {
