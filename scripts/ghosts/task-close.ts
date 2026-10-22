@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
+import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { parseCard, readBodyCard } from '../../src/card/grammar.js'
 import { cheapClass, cheapForecastOf, defaultShiftRoot, sessionTokens } from '../../src/commands/cost/cheap.js'
 import { claudeProjectsDir, projectKey } from '../../src/commands/cost/claude-code.js'
@@ -23,14 +23,13 @@ import { closeWitnessDenial } from '../bus/policy.js'
 import { openDatabase } from '../bus/sqlite.js'
 import { CARD_VERIFIED } from '../core/events.js'
 import { execGh, readGhJson } from '../core/gh.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { VERIFICATION_WORDS } from '../core/verification.js'
 import { parseDecisions } from '../decisions/decisions.js'
 import { archiveOf, defaultDecisions } from '../decisions/read.js'
 import { REPO } from '../shift/places.js'
 import { CLOUD_START_EVENT } from './cloud-start.js'
 import { ENTRY_EVENT, entryOf, startedEntryOf } from './entry.js'
-import { withGhostLines } from './journal.js'
+import { ghostLines } from './journal.js'
 import { cardStartedLines, prCardOf } from './tasks.js'
 
 export const PREFIX = '[task:close] '
@@ -77,10 +76,9 @@ export interface TaskCloseDeps {
   cwd: string
   read: (file: string) => string | null
   now: () => Date
-  handoffDir: string
   constructDir: string
   realpath: (file: string) => string
-  busPath?: string
+  busPath: string
   exists: (file: string) => boolean
   session: string | undefined
   projectsDir: string
@@ -211,8 +209,8 @@ export function closingVerificationOf(history: readonly Record<string, unknown>[
   return closing === undefined ? null : closing.verification as string
 }
 
-function witnessRefusal(busPath: string | undefined, id: string, pr: number): string | null {
-  if (busPath === undefined || !existsSync(busPath))
+function witnessRefusal(busPath: string, id: string, pr: number): string | null {
+  if (!existsSync(busPath))
     return null
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
@@ -271,9 +269,9 @@ function admittedCardOf(busPath: string, id: string): Card | undefined {
   }
 }
 
-function launchNodeStartOf(lines: Record<string, unknown>[], busPath: string | undefined, id: string): StartLine | undefined {
+function launchNodeStartOf(lines: Record<string, unknown>[], busPath: string, id: string): StartLine | undefined {
   const start = lines.filter(line => line.event === 'path' && line.task === id && !hasCard(line) && typeof line.session === 'string' && typeof line.worktree === 'string' && typeof line.pid === 'number').at(-1)
-  const card = start === undefined || busPath === undefined ? undefined : admittedCardOf(busPath, id)
+  const card = start === undefined ? undefined : admittedCardOf(busPath, id)
   return start === undefined || card === undefined ? undefined : { ...start, event: 'path', task: id, path: card.contour, started: start.ts, card }
 }
 
@@ -499,14 +497,11 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
     return refuse(`--verification is required: one of ${VERIFICATION_WORDS.join(', ')}; nothing written`)
   if (!(VERIFICATION_WORDS as readonly string[]).includes(verification))
     return refuse(`verification '${verification}' is not one of ${VERIFICATION_WORDS.join(', ')}; nothing written`)
-  const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const file = deps.read(journal)
-  const journalText = deps.busPath === undefined ? file ?? '' : withGhostLines(file, deps.busPath)
-  const lines = [...journalLines(journalText), ...(deps.busPath === undefined ? [] : [...legacyLines(deps.busPath), ...cardStartedLines(deps.busPath)])]
+  const lines = [...legacyLines(deps.busPath), ...ghostLines(deps.busPath), ...cardStartedLines(deps.busPath)]
   const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? cloudStartOf(lines, id) ?? launchNodeStartOf(lines, deps.busPath, id)
   if (start === undefined)
-    return refuse(`${journal} has no task:start line with a card for #${id}, no ghosts:launch entry line with one and no cloud-start line with one${deps.busPath === undefined ? '' : `, and the bus ${deps.busPath} has no card.started with one`}; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)
-  const unproven = verification === 'mutation' ? mutationRefusal(lines, id, journal) : null
+    return refuse(`the journal lines in the bus ${deps.busPath} have no task:start line with a card for #${id}, no ghosts:launch entry line with one and no cloud-start line with one, and the bus ${deps.busPath} has no card.started with one; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)
+  const unproven = verification === 'mutation' ? mutationRefusal(lines, id, `the bus ${deps.busPath}`) : null
   if (unproven !== null)
     return refuse(unproven)
   const override = flags.get('--override-report')
@@ -542,8 +537,8 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const written = writeClosing(deps, id, record, at)
   if (written.kind === 'refused')
     return refuse(written.reason)
-  const entry = startedEntryOf(lines, id) ?? entryOf(journalText, id)
-  const searched = deps.busPath === undefined ? journal : `the bus ${deps.busPath} or ${journal}`
+  const entry = startedEntryOf(lines, id) ?? entryOf(lines.map(line => JSON.stringify(line)).join('\n'), id)
+  const searched = `the bus ${deps.busPath}`
   const closedBy = outcome === '--pr' ? `PR #${value}` : `report ${report}`
   const closed = `closed ${verification} · ${closedBy} · ${written.where} · ${forecastText(deps, start)} · ${actualText(actual)}`
   const card = renderSignal(`task:close #${id} ${start.card.name}`, {
@@ -568,8 +563,6 @@ function recordVerified(busPath: string, event: BusEvent): void {
 }
 
 function writeClosing(deps: TaskCloseDeps, id: string, record: Record<string, unknown> & { pr?: number }, at: string): ClosingWrite {
-  if (deps.busPath === undefined)
-    return { kind: 'refused', reason: `from ${JOURNAL_HISTORY_ENDS} the closing record goes to the bus as ${CARD_VERIFIED}, and no bus is wired; nothing written` }
   const event: BusEvent = { ts: at, type: CARD_VERIFIED, actor: `worker:task-close:${deps.session ?? CLOSER_SESSION_BY_HAND}`, cardId: Number(id), pr: record.pr ?? null, head: null, dedupeKey: `${CARD_VERIFIED}:${id}:${at}`, payload: record, legacy: false }
   try {
     recordVerified(deps.busPath, event)
@@ -590,12 +583,10 @@ export function realpathOrSelf(file: string): string {
 }
 
 function realDeps(): TaskCloseDeps {
-  const handoffDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
   return {
     cwd: process.cwd(),
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     now: () => new Date(),
-    handoffDir,
     constructDir: path.join(os.homedir(), '.construct'),
     realpath: realpathOrSelf,
     busPath: defaultBusPath(),
@@ -603,7 +594,7 @@ function realDeps(): TaskCloseDeps {
     exists: existsSync,
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     projectsDir: claudeProjectsDir(),
-    forecast: taskClass => cheapForecastOf(defaultShiftRoot(), path.join(handoffDir, 'ghosts.jsonl'), taskClass, claudeProjectsDir(), defaultBusPath()),
+    forecast: taskClass => cheapForecastOf(defaultShiftRoot(), taskClass, claudeProjectsDir(), defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     prBody: prBodyOf(execGh),
     decisionsFile: defaultDecisions(os.homedir()),

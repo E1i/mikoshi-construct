@@ -120,7 +120,7 @@ export class AnswerExecutor {
       const answered = endedOnContextWarn(first) ? await this.session(lease, source, widened, card, true) : first
       if ('kind' in answered)
         return this.denied(lease, answered)
-      return this.settled(lease, source, widened, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
+      return this.settled(lease, source, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -155,7 +155,7 @@ export class AnswerExecutor {
     }
   }
 
-  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, answered: Answered, minutes: number): AnswerOutcome {
+  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): AnswerOutcome {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
@@ -163,7 +163,7 @@ export class AnswerExecutor {
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, scope)
     }
-    const payload = { session: answered.session, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...measurementOf(answered, minutes), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
+    const payload = { session: answered.session, worktree: card.worktree, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...measurementOf(answered, minutes), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }

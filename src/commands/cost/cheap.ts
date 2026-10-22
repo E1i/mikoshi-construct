@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
-import { readBusTasks } from './bus.js'
+import { readBusTasks, readLegacyLines } from './bus.js'
 import { projectKey, readAgentRecord } from './claude-code.js'
 import { median, MINIMUM_SAMPLE } from './sample.js'
 import { tokensWithoutCacheReads } from './usage.js'
@@ -56,7 +56,7 @@ export interface CheapClassReading {
 
 export interface CheapReading {
   shiftRoot: string
-  windowJournal: string
+  bus: string
   projectsDir: string
   classes: CheapClassReading[]
 }
@@ -169,8 +169,8 @@ interface IntakeLine {
 
 type JournalCard = NonNullable<WindowLine['card']>
 
-function intakeCards(windowJournal: string): Map<string, JournalCard> {
-  return new Map(journalLines<IntakeLine>(windowJournal).flatMap((line) => {
+function intakeCards(history: readonly IntakeLine[]): Map<string, JournalCard> {
+  return new Map(history.flatMap((line) => {
     if (line.event !== 'intake' || typeof line.task !== 'string' || typeof line.card !== 'string')
       return []
     const parsed = parseCard(line.card)
@@ -182,9 +182,10 @@ function isCheapCard(card: JournalCard | undefined): card is JournalCard & { kin
   return card?.contour === CHEAP_CONTOUR && typeof card.kind === 'string' && typeof card.size === 'string'
 }
 
-function readWindowTasks(windowJournal: string, notes: CheapNote[], onBus: Set<string>): CheapTask[] {
-  const lines = journalLines<WindowLine>(windowJournal).filter(isPathLine)
-  const admitted = intakeCards(windowJournal)
+function readWindowTasks(busPath: string, notes: CheapNote[], onBus: Set<string>): CheapTask[] {
+  const history = readLegacyLines<WindowLine & IntakeLine>(busPath)
+  const lines = history.filter(isPathLine)
+  const admitted = intakeCards(history)
   const starts = new Map(lines.filter(line => line.card != null).map(line => [line.task, line]))
   const closes = new Map(lines.filter(line => line.card == null && (line.pr != null || line.report != null)).map(line => [line.task, line]))
   const unrecorded = new Map<string, number>()
@@ -215,11 +216,11 @@ function readWindowTasks(windowJournal: string, notes: CheapNote[], onBus: Set<s
     const placed = sessions.flatMap(({ id, project }) => project === undefined ? [] : [{ id, project }])
     const unplaced = sessions.filter(session => session.project === undefined).map(session => session.id)
     if (unplaced.length > 0) {
-      notes.push({ taskClass, text: `#${close.task} session ${unplaced.join(', ')} project not recorded in ${windowJournal}` })
+      notes.push({ taskClass, text: `#${close.task} session ${unplaced.join(', ')} project not recorded in the journal history of ${busPath}` })
       return []
     }
     if (sessions.length === 0) {
-      notes.push({ taskClass, text: `#${close.task} sessions not recorded in ${windowJournal}` })
+      notes.push({ taskClass, text: `#${close.task} sessions not recorded in the journal history of ${busPath}` })
       return []
     }
     const minutes = (Date.parse(close.ended) - Date.parse(start.started)) / MS_PER_MINUTE
@@ -228,9 +229,9 @@ function readWindowTasks(windowJournal: string, notes: CheapNote[], onBus: Set<s
     return [{ task: close.task, taskClass, sessions: placed, minutes }]
   })
   for (const [taskClass, count] of unrecorded)
-    notes.push({ taskClass, text: `sessions not recorded on ${count} closing line${count === 1 ? '' : 's'} in ${windowJournal}` })
+    notes.push({ taskClass, text: `sessions not recorded on ${count} closing line${count === 1 ? '' : 's'} in the journal history of ${busPath}` })
   for (const [taskClass, count] of afterHistory)
-    notes.push({ taskClass, text: `${count} cheap task${count === 1 ? '' : 's'} closed in ${windowJournal} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and the bus holds no counted close of it` })
+    notes.push({ taskClass, text: `${count} cheap task${count === 1 ? '' : 's'} closed in the journal history of ${busPath} at or after ${JOURNAL_HISTORY_ENDS} not counted: the journal half of history ends there and the bus holds no counted close of it` })
   return tasks
 }
 
@@ -250,13 +251,13 @@ function withoutSharedSessions(tasks: CheapTask[], notes: CheapNote[]): CheapTas
   })
 }
 
-export function readCheapTasks(shiftRoot: string, windowJournal: string, busPath?: string): CheapSample {
+export function readCheapTasks(shiftRoot: string, busPath: string): CheapSample {
   const notes: CheapNote[] = []
-  const bus = busPath === undefined ? [] : readBusTasks(busPath)
+  const bus = readBusTasks(busPath)
   const busIds = new Set(bus.map(task => task.task))
   const shift = readShiftTasks(shiftRoot).filter(task => !busIds.has(task.task))
   const shiftIds = new Set(shift.map(task => task.task))
-  const window = readWindowTasks(windowJournal, notes, busIds).filter(task => !shiftIds.has(task.task))
+  const window = readWindowTasks(busPath, notes, busIds).filter(task => !shiftIds.has(task.task))
   return { tasks: withoutSharedSessions([...shift, ...bus, ...window], notes), notes }
 }
 
@@ -292,16 +293,16 @@ export function cheapForecast(rows: CheapRow[], taskClass: string): CheapForecas
   return { kind: 'forecast', taskClass, n: rows.length, tokens: median(rows.map(row => row.tokens)), minutes: median(rows.map(row => row.minutes)) }
 }
 
-export function cheapForecastOf(shiftRoot: string, windowJournal: string, taskClass: string, projectsDir: string, busPath?: string): CheapForecast {
-  return cheapForecast(cheapRows(readCheapTasks(shiftRoot, windowJournal, busPath).tasks, taskClass, projectsDir), taskClass)
+export function cheapForecastOf(shiftRoot: string, taskClass: string, projectsDir: string, busPath: string): CheapForecast {
+  return cheapForecast(cheapRows(readCheapTasks(shiftRoot, busPath).tasks, taskClass, projectsDir), taskClass)
 }
 
-export function readCheapClasses(shiftRoot: string, windowJournal: string, projectsDir: string, busPath?: string): CheapReading {
-  const { tasks, notes } = readCheapTasks(shiftRoot, windowJournal, busPath)
+export function readCheapClasses(shiftRoot: string, projectsDir: string, busPath: string): CheapReading {
+  const { tasks, notes } = readCheapTasks(shiftRoot, busPath)
   const classes = [...new Set([...tasks, ...notes].map(entry => entry.taskClass))].sort().map(taskClass => ({
     forecast: cheapForecast(cheapRows(tasks, taskClass, projectsDir), taskClass),
     tasks: tasks.filter(task => task.taskClass === taskClass).length,
     notes: notes.filter(note => note.taskClass === taskClass).map(note => note.text),
   }))
-  return { shiftRoot, windowJournal, projectsDir, classes }
+  return { shiftRoot, bus: busPath, projectsDir, classes }
 }
