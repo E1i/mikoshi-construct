@@ -16,8 +16,5 @@
   { "file": "scripts/miko/loop.ts", "kind": "ps" },
   { "file": "scripts/quality/lock.ts", "kind": "kill" },
   { "file": "scripts/scratch/run-root.ts", "kind": "kill" },
-  { "file": "scripts/scratch/run.ts", "kind": "kill" },
-  { "file": "scripts/shift/answer.ts", "kind": "pid-file" },
-  { "file": "scripts/shift/chain-bus.ts", "kind": "ps" },
-  { "file": "scripts/shift/relaunch.ts", "kind": "kill" }
+  { "file": "scripts/scratch/run.ts", "kind": "kill" }
 ]

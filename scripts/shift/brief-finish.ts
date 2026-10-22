@@ -1,6 +1,6 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
+import type { PnpmResult } from '../ghosts/install.js'
 import type { TaskStartDeps } from '../ghosts/task-start.js'
-import type { PnpmResult } from './shift.js'
 import { writeFileSync } from 'node:fs'
 import { briefEffort, EXPECT_LINE_INDEX, parseExpect } from '../ghosts/expect.js'
 import { parseSketch } from '../ghosts/sketch.js'

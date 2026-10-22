@@ -17,9 +17,10 @@ import { REVIEW_ROUNDS_SPENT } from '../../bus/review-executor.js'
 import { recordJudged, recordWorkerDown } from '../../bus/supervisor.js'
 import { CARD_CLOSED, CARD_STOPPED, CARD_WAITING, LADDER_APPROVAL, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../miko/watch-store.js'
-import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, stuckOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../miko/watch.js'
-import { RELAUNCH_ACTOR, STOP_EVENT } from '../../shift/relaunch.js'
+import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../miko/watch.js'
 import { waitFor } from '../wait-for.js'
+
+const RELAUNCH_ACTOR = 'worker:relaunch:'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const WATCH = path.join(REPO_ROOT, 'scripts', 'miko', 'watch.ts')

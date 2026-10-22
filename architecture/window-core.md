@@ -29,7 +29,7 @@ approve the workflow runs on the release branch yourself: that approval is the h
 ## Messages
 
 Every agent message starts with its role in square brackets on its own first line: `[mikoshi]` for the
-window's messages to the owner, `[operator]` for the window under relaunch; `[review:<task>]`, `[brief:<task>]` or `[scan:<task>]` for a
+window's messages to the owner; `[review:<task>]`, `[brief:<task>]` or `[scan:<task>]` for a
 subagent's final report, `<task>` being the tasks-file id, not the card number, and every subagent prompt says which. A Ghost's report starts
 `[ghost:<task-id>]`, a change to the implement skill pending in its own brief. A pull request
 is written `PR #N` and an issue bare `#N`, everywhere: reports, briefs, commit messages, pull request

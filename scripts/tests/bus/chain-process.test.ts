@@ -7,9 +7,18 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { chainProcess, launchProcess, REAL_PROCESSES, stopChain } from '../../bus/chain-process.js'
-import { pidAlive } from '../../shift/relaunch.js'
 import { waitFor } from '../wait-for.js'
 import { MAIN_1 } from './github-fake.js'
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
 
 const ARRIVAL_GUARD_MS = 25_000
 
