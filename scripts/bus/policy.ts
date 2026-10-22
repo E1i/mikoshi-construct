@@ -14,7 +14,9 @@ import { cardBodyShaOfCard } from './queue.js'
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const VERSION_BRANCH = /^changeset-release\//
 export const RELEASE_KIND = 'release'
-const KINDS_NO_SHARD_MERGES = ['security-invariants']
+export const MERGES_UNDER_A_SHARD = 'merges under a shard'
+const MERGES_UNDER_A_SHARD_VALUES: Readonly<Record<string, boolean>> = { yes: true, no: false }
+const OWNER_KINDS_HEADER = '| kind |'
 export const OWNER_PR_MERGED_BY_THE_BUS = 77
 export const OWNER_EVEN_UNDER_THE_DECISION = 'R1'
 export const MATRIX_COUNT_LINE = /■ \d+ □ \d+ · \d+/
@@ -22,7 +24,8 @@ const MATRIX_REQUIRED_UNDER = ['src/', 'templates/']
 
 export type AuthorityRule
   = | 'version_pr'
-    | 'security_invariants'
+    | 'no_shard_merge'
+    | 'owner_merges_unread'
     | 'owner_by_risk'
     | 'reserved'
     | 'decision_unread'
@@ -30,7 +33,7 @@ export type AuthorityRule
     | 'r1'
     | 'no_matrix_count_line'
 
-export const OWNER_MERGES_RULES: ReadonlySet<AuthorityRule> = new Set(['version_pr', 'security_invariants', 'owner_by_risk', 'reserved', 'owner_without_shard', 'r1'])
+export const OWNER_MERGES_RULES: ReadonlySet<AuthorityRule> = new Set(['version_pr', 'no_shard_merge', 'owner_merges_unread', 'owner_by_risk', 'reserved', 'owner_without_shard', 'r1'])
 
 export type AllowedRule = 'auto' | 'owner_under_shard' | 'owner_by_decision' | 'owner_after_round_limit'
 
@@ -78,19 +81,61 @@ export function reservationOf(cardId: number, description: string): boolean {
   return new RegExp(`#${cardId} reserved(?!\\w)`).test(description)
 }
 
+interface ShardMark {
+  kind: string
+  globs: string[]
+  value: string
+}
+
+type ShardMarks = { kind: 'read', marks: ShardMark[] } | { kind: 'unread', reason: string }
+
+function cellsOf(line: string): string[] {
+  return line.split('|').slice(1, -1).map(cell => cell.trim())
+}
+
+function shardMarksOf(ownerMergesText: string): ShardMarks {
+  const lines = ownerMergesText.split('\n').map(line => line.trim())
+  const header = lines.findIndex(line => line.startsWith(OWNER_KINDS_HEADER))
+  if (header === -1)
+    return { kind: 'unread', reason: `${OWNER_MERGES} has no table of kinds` }
+  const columns = cellsOf(lines[header]!)
+  const column = columns.indexOf(MERGES_UNDER_A_SHARD)
+  if (column === -1)
+    return { kind: 'unread', reason: `the table of kinds in ${OWNER_MERGES} has no column «${MERGES_UNDER_A_SHARD}»` }
+  const body = lines.slice(header + 2)
+  const end = body.findIndex(line => !line.startsWith('|'))
+  const rows = (end === -1 ? body : body.slice(0, end)).map(cellsOf)
+  const ragged = rows.find(cells => cells.length !== columns.length)
+  if (ragged !== undefined)
+    return { kind: 'unread', reason: `the row ${ragged[0] ?? ''} of the table of kinds in ${OWNER_MERGES} has ${ragged.length} cells, its header ${columns.length}` }
+  return { kind: 'read', marks: rows.map(cells => ({ kind: cells[0]!, globs: [...cells[1]!.matchAll(/`([^`]+)`/g)].map(match => match[1]!), value: cells[column]! })) }
+}
+
+function noShardMerge(facts: MergeFacts): MergeVerdict | null {
+  const read = shardMarksOf(facts.ownerMergesText)
+  if (read.kind === 'unread')
+    return denied('owner_merges_unread', `${read.reason}; whether a kind merges under a shard is unknown, so the pull request stays the owner's`)
+  for (const mark of read.marks) {
+    const file = facts.files.find(candidate => meetsAny(candidate, mark.globs))
+    if (file === undefined)
+      continue
+    const merges = MERGES_UNDER_A_SHARD_VALUES[mark.value]
+    if (merges === undefined)
+      return denied('owner_merges_unread', `changes ${file} (${mark.kind}), whose «${MERGES_UNDER_A_SHARD}» is «${mark.value}», neither yes nor no, so it stays the owner's`)
+    if (!merges)
+      return denied('no_shard_merge', `changes ${file} (${mark.kind}), which does not merge under a shard or a decision, and stays the owner's`)
+  }
+  return null
+}
+
 function reserved(facts: MergeFacts): MergeVerdict | null {
   const kinds = readOwnerMergeKinds(facts.ownerMergesText)
   const releaseTitle = kinds.find(kind => kind.kind === RELEASE_KIND)?.title ?? null
   if (VERSION_BRANCH.test(facts.headRef) || (releaseTitle !== null && facts.title === releaseTitle))
     return denied('version_pr', `${facts.headRef} is a version pull request and stays the owner's`)
-  const reservedCard = reservedCardOf(facts)
-  if (reservedCard !== null || delegatedByShard(facts) !== null)
-    return reservedCard
-  for (const kind of kinds.filter(entry => KINDS_NO_SHARD_MERGES.includes(entry.kind))) {
-    const file = facts.files.find(candidate => meetsAny(candidate, kind.globs))
-    if (file !== undefined)
-      return denied('security_invariants', `changes ${file} (${kind.kind}) and stays the owner's`)
-  }
+  const ownersUnderEveryShard = reservedCardOf(facts) ?? noShardMerge(facts)
+  if (ownersUnderEveryShard !== null || delegatedByShard(facts) !== null)
+    return ownersUnderEveryShard
   if (facts.windowShard !== null)
     return null
   for (const row of ownerPathsOf(facts.ownerMergesText).byRisk) {
