@@ -39,14 +39,21 @@ Rule of application (Eli, 2026-09-27, written by window A at Eli's instruction):
 one file it changes matches at least one glob of a kind; an empty cell means the kind is not checked by paths.** (`release`
 is matched by its title.)
 
-| kind | paths (globs) | what it covers | example |
-|---|---|---|---|
-| release | — (matched by title: «chore: version packages») | version pull requests | PR #259, PR #265, PR #277 |
-| own-instructions | `.claude/agents/**`, `.claude/rules/**`, `.claude/settings*.json`, `.claude/skills/**`, `.claude/commands/**`, `.claude/hooks/**`, `.claude/eddies.json`, `AGENTS.md`, `scripts/construct/**`, `templates/ai/claude/**`, `templates/attach/**`, `architecture/owner-merges.md` | the agents' instructions: the agent files, the rules, the settings, the skills, the commands, the hooks and the agent's limits in `.claude/eddies.json`, this repository's `AGENTS.md`, the ladder script, their templates in `templates/ai/claude/`, what `attach` hands the agent from `templates/attach/`, and this file | PR #244, PR #282, PR #366; issues #257, #269, #271 |
-| release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — |
-| security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — |
-| agent-permissions | `contract/factory-permissions.json` | the agents' permissions | — |
-| new-write-path | — (not checked by paths: decided by the owner) | a new path that `init`, `attach`, `sync` or `detach` writes into another repository: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 |
+On 2026-10-22, at Eli's instruction (owner orders s168 item 1 and s178, card #1241), the coordinating window added the kind
+`workflows` and the column «merges under a shard». A pull request that changes a file of a kind marked `no` is Eli's under
+every shard and every decision: the bus reads the mark from this table before it looks at a shard or a decision. A value
+other than `yes` or `no` on a kind the pull request falls under, a missing column, or a table the bus cannot read leaves the
+pull request Eli's.
+
+| kind | paths (globs) | what it covers | example | merges under a shard |
+|---|---|---|---|---|
+| release | — (matched by title: «chore: version packages») | version pull requests | PR #259, PR #265, PR #277 | no |
+| own-instructions | `.claude/agents/**`, `.claude/rules/**`, `.claude/settings*.json`, `.claude/skills/**`, `.claude/commands/**`, `.claude/hooks/**`, `.claude/eddies.json`, `AGENTS.md`, `scripts/construct/**`, `templates/ai/claude/**`, `templates/attach/**`, `architecture/owner-merges.md` | the agents' instructions: the agent files, the rules, the settings, the skills, the commands, the hooks and the agent's limits in `.claude/eddies.json`, this repository's `AGENTS.md`, the ladder script, their templates in `templates/ai/claude/`, what `attach` hands the agent from `templates/attach/`, and this file | PR #244, PR #282, PR #366; issues #257, #269, #271 | yes |
+| release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — | no |
+| workflows | `.github/workflows/**` | every GitHub Actions workflow: what CI runs, with which permissions and secrets | — | no |
+| security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — | no |
+| agent-permissions | `contract/factory-permissions.json` | the agents' permissions | — | yes |
+| new-write-path | — (not checked by paths: decided by the owner) | a new path that `init`, `attach`, `sync` or `detach` writes into another repository: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 | yes |
 
 Everything else is merged through auto-merge by the window that gated it, including `quality`/CI gates and `formats.*`
 bumps. Branch protection is a GitHub setting that Eli applies.
