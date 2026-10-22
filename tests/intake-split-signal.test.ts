@@ -1,14 +1,15 @@
 import type { SignalName } from '../src/card/complexity.js'
 import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { relation, taskConflicts } from '../scripts/shift/overlap.js'
-import { readParking } from '../scripts/shift/parking.js'
+import { choose } from '../scripts/shift/parking.js'
 import { CHARACTERS_PER_TOKEN, SESSION_READING_TOKENS, splitSignal } from '../src/card/complexity.js'
-import { WINDOW_WHO } from '../src/card/parking.js'
+import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
 import { SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
+import { TASK_FILE } from '../src/card/task-file.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -127,11 +128,10 @@ function sliced(result: IntakeResult) {
 }
 
 function parkingCheck(root: string): { errors: string[], chosen: string[] } {
-  const unread = (): never => {
-    throw new Error('a parking check reads no git')
-  }
-  const reads = { cwd: root, handoffDir: path.join(root, 'handoff'), listDir: (dir: string) => readdirSync(dir), read: (file: string) => readFileSync(file, 'utf8'), exists: existsSync, git: unread }
-  const { choice, errors } = readParking(reads, path.join(root, 'parking'))
+  const parking = path.join(root, 'parking')
+  const parsed = readdirSync(parking).filter(file => TASK_FILE.test(file)).map(file => parseParkingFile(file, readFileSync(path.join(parking, file), 'utf8')))
+  const choice = choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), new Set(), new Set())
+  const errors = parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : [])
   return { errors: [...errors, ...taskConflicts(choice.chosen)], chosen: choice.chosen.map(task => task.file) }
 }
 

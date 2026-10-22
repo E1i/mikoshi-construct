@@ -1,9 +1,8 @@
 import { Buffer } from 'node:buffer'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { HANDOFF_FIELDS, HANDOFF_LIMIT, handoffRefusals, missingFields, NEXT_TASK_LIMIT, parkedDepends, reportRefusals, RETIRED_PARKING, runHandoffCheck, STATIC_FIELDS } from '../../ghosts/handoff-check.js'
+import { HANDOFF_FIELDS, HANDOFF_LIMIT, handoffRefusals, missingFields, NEXT_TASK_LIMIT, reportRefusals, runHandoffCheck, STATIC_FIELDS } from '../../ghosts/handoff-check.js'
 
 function completeHandoff(except: string[] = []): string {
   return HANDOFF_FIELDS.filter(field => !except.includes(field.id)).map(field => `${field.label}: ${field.id} value`).join('\n')
@@ -175,20 +174,5 @@ describe('handoff-check', () => {
     expect(doc).toContain('scripts/ghosts/handoff-check.ts')
     for (const field of HANDOFF_FIELDS.filter(field => field.label.includes(' ')))
       expect(doc).not.toContain(`${field.label}:`)
-  })
-})
-
-describe('parkedDepends', () => {
-  it('reads the parking root and its live subdirectories, never the retired ones', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'parked-'))
-    const card = (id: number, depends: string): string => `card: #${id} c${id} [implement/ghosts/S/cheap/auto] · depends ${depends} · blocks —\nbranch: feat/c${id}\ntouches: scripts/x.ts\ncontinue: stop\nwho: window\n\nbody\n`
-    for (const dir of ['autonomy', 'autonomy/deeper', ...RETIRED_PARKING])
-      mkdirSync(path.join(root, dir), { recursive: true })
-    writeFileSync(path.join(root, '1.md'), card(1, '—'))
-    writeFileSync(path.join(root, 'autonomy', '2.md'), card(2, '#1'))
-    writeFileSync(path.join(root, 'autonomy', 'deeper', '3.md'), card(3, '—'))
-    RETIRED_PARKING.forEach((dir, index) => writeFileSync(path.join(root, dir, `${10 + index}.md`), card(10 + index, '—')))
-    expect([...parkedDepends(root)].sort()).toEqual([[1, []], [2, [1]]])
-    rmSync(root, { recursive: true, force: true })
   })
 })

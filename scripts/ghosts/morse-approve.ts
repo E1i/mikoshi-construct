@@ -1,30 +1,26 @@
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { defaultBusPath } from '../bus/db.js'
+import { busCardBodies } from '../bus/parking-reads.js'
 import { cardNumberOf } from './approval.js'
-import { handoffJournalPath, morseApprove, parkingDirOf } from './hash.js'
+import { handoffJournalPath, morseApprove } from './hash.js'
 
-const PARKING_FLAG = '--parking'
-const USAGE = `usage: morse-approve.ts <brief> <card> [${PARKING_FLAG} <dir>]; it writes only an approval by morse, an owner approval is pnpm approve`
+const USAGE = `usage: morse-approve.ts <brief> <card>; it writes only an approval by morse, an owner approval is pnpm approve`
 
 interface MorseApproveArgs {
   briefPath: string
   card: number
-  parking: string | undefined
 }
 
 export function morseApproveArgs(argv: string[]): MorseApproveArgs | string {
-  const at = argv.indexOf(PARKING_FLAG)
-  const parking = at === -1 ? undefined : argv[at + 1]
-  if (at !== -1 && (parking === undefined || parking.startsWith('-')))
-    return `${PARKING_FLAG} needs one value\n${USAGE}`
-  const positional = at === -1 ? argv : argv.filter((_, index) => index !== at && index !== at + 1)
+  const positional = argv
   if (positional.length !== 2 || positional.some(arg => arg.startsWith('-')))
     return USAGE
   const card = cardNumberOf(positional[1]!)
   if (card === undefined)
     return `card: expected a card number, got '${positional[1]}'\n${USAGE}`
-  return { briefPath: positional[0]!, card, parking }
+  return { briefPath: positional[0]!, card }
 }
 
 async function main(): Promise<void> {
@@ -35,7 +31,7 @@ async function main(): Promise<void> {
     return
   }
   try {
-    const approval = await morseApprove(args.briefPath, { card: args.card, parkingDir: parkingDirOf(args.parking), journalPath: handoffJournalPath(), now: new Date() })
+    const approval = await morseApprove(args.briefPath, { card: args.card, cardBody: busCardBodies(defaultBusPath()), journalPath: handoffJournalPath(), now: new Date() })
     console.log(approval.line)
     if (approval.suggestion !== undefined)
       console.log(approval.suggestion)

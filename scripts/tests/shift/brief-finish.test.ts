@@ -31,10 +31,10 @@ function briefText(sketch: string, expect?: string): string {
   return lines.join('\n')
 }
 
-function parkedCard(root: string): string {
-  const file = path.join(root, `${CARD}.md`)
-  writeFileSync(file, parkingFileText({ card: CARD_LINE, branch: `feat/card-${CARD}`, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
-  return file
+const CARD_BODY = parkingFileText({ card: CARD_LINE, branch: `feat/card-${CARD}`, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.' })
+
+function bodies(text: string | null): (cardId: number) => string | null {
+  return cardId => cardId === CARD ? text : null
 }
 
 function depsOf(options: { status?: string, pnpm?: BriefFinishDeps['pnpm'], gitFails?: boolean }): { deps: BriefFinishDeps, git: string[][] } {
@@ -113,18 +113,21 @@ describe('the brief-finish CLI', () => {
     expect(lines[0]).toContain(`${PREFIX}usage:`)
   })
 
-  it('exits 1 when the card file is gone', () => {
+  it('prints usage and exits 2 when the first argument is not a card number', () => {
     const lines: string[] = []
-    expect(runBriefFinish([path.join(workdir(), 'gone.md'), '/tree', '/brief.md'], depsOf({}).deps, line => lines.push(line))).toBe(1)
-    expect(lines[0]).toContain('is gone')
+    expect(runBriefFinish([path.join(workdir(), `${CARD}.md`), '/tree', '/brief.md'], depsOf({}).deps, line => lines.push(line), bodies(CARD_BODY))).toBe(2)
+    expect(lines[0]).toContain(`${PREFIX}usage:`)
   })
 
-  it('exits 1 when the card file does not parse', () => {
-    const root = workdir()
-    const file = path.join(root, `${CARD}.md`)
-    writeFileSync(file, 'not a parking file')
+  it('exits 1 when the bus holds no body of the card', () => {
     const lines: string[] = []
-    expect(runBriefFinish([file, '/tree', '/brief.md'], depsOf({}).deps, line => lines.push(line))).toBe(1)
+    expect(runBriefFinish([String(CARD), '/tree', '/brief.md'], depsOf({}).deps, line => lines.push(line), bodies(null))).toBe(1)
+    expect(lines[0]).toContain('the bus holds no card body')
+  })
+
+  it('exits 1 when the card body does not parse', () => {
+    const lines: string[] = []
+    expect(runBriefFinish([String(CARD), '/tree', '/brief.md'], depsOf({}).deps, line => lines.push(line), bodies('not a parking file'))).toBe(1)
     expect(lines[0]).toContain(PREFIX)
   })
 
@@ -133,7 +136,7 @@ describe('the brief-finish CLI', () => {
     const brief = path.join(root, 'brief.md')
     writeFileSync(brief, briefText('none — nothing to sketch'))
     const lines: string[] = []
-    expect(runBriefFinish([parkedCard(root), '/tree', brief], depsOf({}).deps, line => lines.push(line))).toBe(1)
+    expect(runBriefFinish([String(CARD), '/tree', brief], depsOf({}).deps, line => lines.push(line), bodies(CARD_BODY))).toBe(1)
     expect(lines[0]).toContain(NO_PNPM_RUNNER)
   })
 
@@ -142,7 +145,7 @@ describe('the brief-finish CLI', () => {
     const brief = path.join(root, 'brief.md')
     writeFileSync(brief, briefText('none — nothing to sketch', 'expect: held'))
     const lines: string[] = []
-    expect(runBriefFinish([parkedCard(root), '/tree', brief], depsOf({}).deps, line => lines.push(line))).toBe(0)
+    expect(runBriefFinish([String(CARD), '/tree', brief], depsOf({}).deps, line => lines.push(line), bodies(CARD_BODY))).toBe(0)
     expect(lines).toEqual([])
   })
 

@@ -28,11 +28,10 @@ function commit(repo: string, files: Record<string, string>): string {
 }
 
 describe('git depth sources', () => {
-  it('read the merge base, the changed files, the MORSE prediction into its journal and the card touches from the parking', () => {
+  it('read the merge base, the changed files, the MORSE prediction into its journal and the card touches from its body', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-depth-sources-'))
     roots.push(root)
     const repo = path.join(root, 'repo')
-    const parking = path.join(root, 'parking')
     const journal = path.join(root, 'morse.jsonl')
     mkdirSync(repo)
     git(repo, ['init', '--quiet', '-b', 'main'])
@@ -41,10 +40,9 @@ describe('git depth sources', () => {
     git(repo, ['checkout', '--quiet', '-b', 'feature'])
     const first = commit(repo, { 'docs/guide.md': 'one\ntwo\n' })
     const second = commit(repo, { 'docs/cli.md': 'flags\n' })
-    mkdirSync(path.join(parking, 'lane-x'), { recursive: true })
-    writeFileSync(path.join(parking, 'lane-x', '1971.md'), parkingFileText({ card: '#1971 a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', branch: 'feat/a-card', touches: ['docs/**'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
+    const body = parkingFileText({ card: '#1971 a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', branch: 'feat/a-card', touches: ['docs/**'], continue: 'stop', who: 'shift', body: 'Do the card.' })
 
-    const sources = gitDepthSources(repo, journal, parking)
+    const sources = gitDepthSources(repo, journal, cardId => cardId === 1971 ? body : null)
 
     expect(sources.base(second)).toBe(main)
     expect(sources.changed(first, second)).toEqual(['docs/cli.md'])

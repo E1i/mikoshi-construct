@@ -7,15 +7,15 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { parkingLanes, readBoard } from '../bus/board.js'
+import { readBoard } from '../bus/board.js'
 import { defaultBusPath, openBus } from '../bus/db.js'
-import { busParkingReads } from '../bus/parking-reads.js'
+import { busParkedDepends } from '../bus/parking-reads.js'
 import { activeDecisionsShard, VERSION_PR_RESERVATION } from '../bus/shards.js'
 import { windowOf } from '../bus/window.js'
 import { MERGE_DONE } from '../core/events.js'
 import { execGh, readGhJson } from '../core/gh.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
-import { BLOCKED_LABEL, defaultParking, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, parkedDepends, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
+import { BLOCKED_LABEL, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, PREV_LABEL, STATE_LABELS } from '../ghosts/handoff-check.js'
 import { projectRoot, realExitReadings, UNKNOWN } from '../miko/eddies-measure.js'
 import { stopReasonOf } from '../miko/exit.js'
 import { HANDOFF_VARIABLE, MIKO_HANDOFF_NAME, statusOf } from '../miko/loop.js'
@@ -23,7 +23,7 @@ import { CARD_VARIABLE } from '../ports/session.js'
 import { appended, archiveOfDay, DAY_FILE_LIMIT, dayBytes, dayFileNamedIn, splitDay } from './day-archive.js'
 
 export const PREFIX = '[handoff:write] '
-export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md> [--parking <dir>]'
+export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md>'
 export const ARCHIVE_DIR = 'archive'
 export const OWNER_BOUNDARIES = [VERSION_PR_RESERVATION, 'owner-merged-kind', 'missing-right', 'owner-question'] as const
 
@@ -59,8 +59,8 @@ export interface HandoffWriteDeps {
   write: (file: string, text: string) => void
   writeNew: (file: string, text: string) => void
   rename: (from: string, to: string) => void
-  parked: (parking: string) => ParkedDepends
-  state: (parking: string) => StateReading
+  parked: () => ParkedDepends
+  state: () => StateReading
   merged: (since: string) => MergedReading
   prState: (pr: number) => PrState
   decisionsShard: (now: Date) => WindowShard | null
@@ -273,13 +273,11 @@ export function planDay(draft: string, handoff: string, deps: Pick<HandoffWriteD
   return { kind: 'move', file, kept, archive, archiveText: appended(deps.exists(archive) ? deps.read(archive) : '', moved), moved: dayBytes(moved) }
 }
 
-function parseArgs(args: string[]): { handoff: string, draft: string, parking: string | null } | null {
+function parseArgs(args: string[]): { handoff: string, draft: string } | null {
   const [handoff, draft, ...rest] = args
-  if (handoff === undefined || draft === undefined || handoff.startsWith('--') || draft.startsWith('--'))
+  if (handoff === undefined || draft === undefined || handoff.startsWith('--') || draft.startsWith('--') || rest.length > 0)
     return null
-  if (rest.length === 0)
-    return { handoff, draft, parking: null }
-  return rest.length === 2 && rest[0] === '--parking' ? { handoff, draft, parking: rest[1]! } : null
+  return { handoff, draft }
 }
 
 export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number {
@@ -302,8 +300,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const previous = deps.exists(handoff) ? deps.read(handoff) : null
   const archived = previous === null ? null : path.join(archiveDir, nextArchive(deps.exists(archiveDir) ? deps.listDir(archiveDir) : []))
   const prev = archived === null ? NO_PREV : path.relative(path.dirname(handoff), archived)
-  const parking = parsed.parking ?? defaultParking(deps.home)
-  const reading = deps.state(parking)
+  const reading = deps.state()
   const waits = ownerWaits(deps.read(draft), deps.prState)
   const drafted = waits.draft
   const now = deps.now()
@@ -328,7 +325,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
       file: handoff,
       home: deps.home,
       exists: file => file === archived || deps.exists(file),
-      parked: deps.parked(parking),
+      parked: deps.parked(),
     }),
     ...(ownerRefusal === null ? [] : [ownerRefusal]),
     ...(freeWorkRefusal === null ? [] : [freeWorkRefusal]),
@@ -360,14 +357,22 @@ function errorLine(error: unknown): string {
   return error instanceof Error ? error.message.split('\n')[0]! : String(error)
 }
 
-function busState(busPath: string, parking: string): StateReading {
+function busParked(busPath: string): ParkedDepends {
+  try {
+    return busParkedDepends(busPath)
+  }
+  catch {
+    return new Map()
+  }
+}
+
+function busState(busPath: string): StateReading {
   if (!existsSync(busPath))
     return { kind: 'unread', why: `no bus at ${busPath}` }
-  const reads = busParkingReads(busPath)
   try {
     const db = openBus(busPath)
     try {
-      return { kind: 'read', state: readBoard({ db, now: new Date(), watched: [], parking: parkingLanes(reads, parking), leaseOrders: {} }) }
+      return { kind: 'read', state: readBoard({ db, now: new Date(), watched: [], leaseOrders: {} }) }
     }
     finally {
       db.close()
@@ -431,8 +436,8 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     write: (file, text) => writeFileSync(file, text),
     writeNew: (file, text) => writeFileSync(file, text, { flag: 'wx' }),
     rename: renameSync,
-    parked: parkedDepends,
-    state: parking => busState(defaultBusPath(), parking),
+    parked: () => busParked(defaultBusPath()),
+    state: () => busState(defaultBusPath()),
     merged: since => busMerged(defaultBusPath(), since),
     prState: ghPrState,
     decisionsShard: now => busDecisionsShard(defaultBusPath(), now),

@@ -1,5 +1,5 @@
 import type { BoardData, BoardFiles } from '../../bus/board-page.js'
-import type { Board, LaneParking, LeaseOrders, Watched } from '../../bus/board.js'
+import type { Board, LeaseOrders, Watched } from '../../bus/board.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -7,7 +7,6 @@ import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { busFacts } from '../../../src/commands/board/bus.js'
 import { backlogCards } from '../../../src/commands/board/screens.js'
@@ -30,8 +29,7 @@ import { windowShardEnded } from '../../bus/shards.js'
 import { storedByKey } from '../../bus/stored.js'
 import { recordJudged } from '../../bus/supervisor.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
-import { CARD_ADMITTED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED, RESTARTED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
-import { choose } from '../../shift/parking.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED, RESTARTED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
 
@@ -42,7 +40,6 @@ interface BoardBench {
   gitHub: FakeGitHub
   clock: Clock
   watched: Watched[]
-  parking: LaneParking[]
   leaseOrders: LeaseOrders
   boards: Board[]
   tick: () => Board
@@ -73,8 +70,8 @@ function boardBench(): BoardBench {
   benches.push({ root, db })
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const bench: BoardBench = { db, gitHub, clock, watched: [reviewWorker(REVIEW_PID)], parking: [], leaseOrders: {}, boards: [], tick: () => bench.boards.at(-1)!, ts: () => clock.now().toISOString() }
-  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now, () => {}, now => bench.boards.push(readBoard({ db, now, watched: bench.watched, parking: bench.parking, leaseOrders: bench.leaseOrders })))
+  const bench: BoardBench = { db, gitHub, clock, watched: [reviewWorker(REVIEW_PID)], leaseOrders: {}, boards: [], tick: () => bench.boards.at(-1)!, ts: () => clock.now().toISOString() }
+  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now, () => {}, now => bench.boards.push(readBoard({ db, now, watched: bench.watched, leaseOrders: bench.leaseOrders })))
   bench.tick = () => {
     const before = bench.boards.length
     busTick.run()
@@ -84,16 +81,6 @@ function boardBench(): BoardBench {
     return bench.boards.at(-1)!
   }
   return bench
-}
-
-function laneOf(lane: string, ...ids: number[]): LaneParking {
-  const parked = ids.map((id) => {
-    const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: shift\n\ndo ${id}\n`)
-    if (parsed.kind === 'refused')
-      throw new Error(parsed.reason)
-    return parsed.parked
-  })
-  return { lane, dir: `/parking/${lane}`, choice: choose(parked, new Set(), new Set()) }
 }
 
 function healthOf(board: Board, name: string): string | undefined {
@@ -118,6 +105,16 @@ function bodyRow(bench: BoardBench, cardId: number, columns: BodyColumns): void 
   bench.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, NULL, ?)').run(cardId, columns.state ?? null, eventId)
   if (columns.chain !== undefined)
     bench.db.prepare('INSERT INTO chains (dir, card_id, parking, sha, pid, leader, boundary, state, event_id) VALUES (?, ?, ?, ?, 1, NULL, 0, ?, ?)').run(`/trees/${cardId}`, cardId, '/parking/lane-1', sha('c'), columns.chain, eventId)
+}
+
+function admitCard(bench: BoardBench, cardId: number, lane: string, depends: number[] = []): void {
+  const line = `#${cardId} task-${cardId} [implement/netwatch/S/cheap/auto] · depends ${depends.length === 0 ? '—' : depends.map(id => `#${id}`).join(', ')} · blocks —`
+  const text = `card: ${line}\nbranch: feat/${cardId}\ntouches: scripts/${cardId}/**\nwho: shift\n\ndo ${cardId}\n`
+  appendEvent(bench.db, { ts: bench.ts(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: line, lane, depends, text, textSha: textSha(text) }, legacy: false })
+}
+
+function stopCard(bench: BoardBench, cardId: number): void {
+  appendEvent(bench.db, { ts: bench.ts(), type: CARD_STOPPED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}:${bench.ts()}`, payload: { reason: 'question.agent' }, legacy: false })
 }
 
 function planEvent(bench: BoardBench, type: string, payload: Record<string, unknown>): void {
@@ -366,10 +363,10 @@ describe('the factory board', () => {
 
   it('a card taken into a lane leaves ready and appears in its lane within two ticks', () => {
     const bench = boardBench()
-    bench.parking = [laneOf('lane-1', 850)]
+    admitCard(bench, 850, 'lane-1')
     const before = bench.tick()
     expect(before.ready.map(card => card.card)).toEqual(['850'])
-    expect(before.lanes).toEqual([{ lane: 'lane-1', card: null, state: null, since: null }])
+    expect(before.lanes).toEqual([])
     const takenAt = bench.ts()
     observeChain(bench.db, takenAt, 'worker:shift:s1', { dir: '/trees/mc-850', parking: '/parking/lane-1', cardId: 850, sha: sha('c'), pid: 99, leader: null, boundary: false, state: 'running' })
     const after = [bench.tick(), bench.tick()]
@@ -394,6 +391,8 @@ describe('the factory board', () => {
 
   it('no card advanced for thirty minutes reads no progress with its cause on its own line', () => {
     const bench = boardBench()
+    admitCard(bench, 850, 'lane-1')
+    bench.tick()
     appendEvent(bench.db, { ts: bench.ts(), type: CARD_STARTED, actor: 'policy', cardId: 850, pr: null, head: null, dedupeKey: `${CARD_STARTED}:850`, payload: {}, legacy: false })
     expect(bench.tick().progress.stalled).toBe(false)
     bench.watched = [reviewWorker(null)]
@@ -402,8 +401,8 @@ describe('the factory board', () => {
     const stalled = bench.tick()
     expect(stalled.progress).toMatchObject({ stalled: true, cause: 'down: review' })
     bench.watched = [reviewWorker(REVIEW_PID)]
-    bench.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '850', reason: 'waits question' }] } }]
-    expect(bench.tick().progress.cause).toBe('queue blocked: #850 waits question')
+    stopCard(bench, 850)
+    expect(bench.tick().progress.cause).toBe('queue blocked: #850 waits question.agent')
   })
 
   it('the board shows the active shard, its scope and the time left', () => {
@@ -420,13 +419,17 @@ describe('the factory board', () => {
 
   it('the queue-blocked cause names the silent card in work, never a card queued behind it', () => {
     const working = boardBench()
+    admitCard(working, 850, 'lane-1')
+    admitCard(working, 851, 'lane-1')
+    admitCard(working, 852, 'lane-1', [850])
+    working.tick()
     appendEvent(working.db, { ts: working.ts(), type: CARD_STARTED, actor: 'policy', cardId: 850, pr: null, head: null, dedupeKey: `${CARD_STARTED}:850`, payload: {}, legacy: false })
-    working.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '851', reason: 'waits question' }, { id: '852', reason: 'depends #850 not merged' }] } }]
+    stopCard(working, 851)
     for (let minute = 0; minute < 30; minute++)
       working.tick()
     expect(working.tick().progress).toMatchObject({ stalled: true, cause: 'cause unknown' })
-    working.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '850', reason: 'waits question' }, { id: '851', reason: 'waits question' }, { id: '852', reason: 'depends #850 not merged' }] } }]
-    expect(working.tick().progress.cause).toBe('queue blocked: #850 waits question')
+    stopCard(working, 850)
+    expect(working.tick().progress.cause).toBe('queue blocked: #850 waits question.agent')
   })
 
   it('the projection beside pulse gives the latest context and spent of each card', () => {
@@ -497,15 +500,16 @@ describe('the factory board', () => {
 
   it('with no card in work a blocked queue and a down component still raise their cause', () => {
     const idle = boardBench()
-    appendEvent(idle.db, { ts: idle.ts(), type: CARD_ADMITTED, actor: 'policy', cardId: 851, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:851`, payload: {}, legacy: false })
-    idle.parking = [{ lane: 'lane-1', dir: '/parking/lane-1', choice: { chosen: [], left: [{ id: '851', reason: 'waits question' }] } }]
-    for (let minute = 0; minute < 30; minute++)
+    admitCard(idle, 851, 'lane-1')
+    idle.tick()
+    stopCard(idle, 851)
+    for (let minute = 1; minute < 30; minute++)
       expect(idle.tick().progress.stalled).toBe(false)
-    expect(idle.tick().progress).toMatchObject({ stalled: true, cause: 'queue blocked: #851 waits question' })
+    expect(idle.tick().progress).toMatchObject({ stalled: true, cause: 'queue blocked: #851 waits question.agent' })
     idle.watched = [reviewWorker(null)]
     expect(idle.tick().progress).toMatchObject({ stalled: true, cause: 'down: review' })
     idle.watched = [reviewWorker(REVIEW_PID)]
-    idle.parking = []
+    appendEvent(idle.db, { ts: idle.ts(), type: CARD_DROPPED, actor: 'worker:intake:by-hand', cardId: 851, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:851`, payload: { lane: 'dropped' }, legacy: false })
     expect(idle.tick().progress).toMatchObject({ stalled: false, cause: null })
   })
 
@@ -524,15 +528,15 @@ describe('the factory board', () => {
     expect(working.tick().progress).toMatchObject({ stalled: true, cause: 'cause unknown' })
 
     const blocked = boardBench()
-    blocked.parking = [{ lane: 'lane-2', dir: '/parking/lane-2', choice: { chosen: [], left: [{ id: '852', reason: 'depends #849 not merged' }] } }]
+    admitCard(blocked, 852, 'lane-2', [849])
     observeChain(blocked.db, blocked.ts(), 'worker:chain:2', { dir: '/trees/lane-2', parking: '/parking/lane-2', cardId: 852, sha: sha('d'), pid: 98, leader: null, boundary: true, state: 'waiting', waitingOn: [849] })
     for (let minute = 0; minute < 40; minute++)
       blocked.tick()
     const quiet = blocked.tick()
-    expect(quiet.progress).toEqual({ last: null, stalled: false, cause: null })
+    expect(quiet.progress).toMatchObject({ stalled: false, cause: null })
     expect(quiet.lanes).toEqual([{ lane: 'lane-2', card: 852, state: 'waiting', since: expect.any(String) as unknown }])
     expect(quiet.execution.find(row => row.card === 852)?.stage).toBe('waiting on #849')
-    expect(quiet.waiting).toEqual([{ card: '852', lane: 'lane-2', reason: 'depends #849 not merged' }])
+    expect(quiet.waiting).toEqual([])
   })
 
   it('the bus contract row reads launch, Shard, automaton and writer red on a database with the counts of 2026-10-11', () => {

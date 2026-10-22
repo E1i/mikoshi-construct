@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Graph } from '../ci/layers.js'
 import type { Meter } from './meter.js'
+import type { CardBody } from './parking-reads.js'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,6 +10,7 @@ import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
+import { cardBodies } from './parking-reads.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { openDatabase } from './sqlite.js'
 
@@ -69,12 +71,10 @@ export interface Catalog { tests: CheckTest[], mutations: CheckMutation[] }
 
 export interface Brief { card: number, text: string }
 
-export interface ParkingCard { card: number, text: string }
-
 export interface CatalogSources {
   graph: Graph
   testText: (test: string) => string
-  parking: readonly ParkingCard[]
+  cards: readonly CardBody[]
   briefs: readonly Brief[]
   journal: string
 }
@@ -163,8 +163,8 @@ function namesTitle(witnesses: string, { title, each }: TestTitle): boolean {
   return new RegExp(parts.map(escapeRegExp).join('[^\\n]+?')).test(witnesses)
 }
 
-function witnessCards(test: string, titles: readonly TestTitle[], parking: readonly ParkingCard[]): string {
-  return parking
+function witnessCards(test: string, titles: readonly TestTitle[], cards: readonly CardBody[]): string {
+  return cards
     .filter((card) => {
       const witnesses = witnessLines(card.text).replaceAll(SHELL_QUOTED_APOSTROPHE, '\'')
       return namesPath(witnesses, test) || titles.some(title => namesTitle(witnesses, title))
@@ -184,7 +184,7 @@ export function catalogTests(sources: CatalogSources): CheckTest[] {
       layer: layers.get(test)?.join(',') ?? NO_LAYER,
       kind: kindOf(test),
       what,
-      witness: witnessCards(test, itTitles(testText(test)), sources.parking),
+      witness: witnessCards(test, itTitles(testText(test)), sources.cards),
     }
   })
 }
@@ -368,29 +368,17 @@ export function readBriefs(dir: string): Brief[] {
   })
 }
 
-export function readParking(dir: string): ParkingCard[] {
-  if (!existsSync(dir))
-    return []
-  const files = readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory()
-    ? readdirSync(path.join(dir, entry.name)).map(name => path.join(dir, entry.name, name))
-    : [path.join(dir, entry.name)])
-  return files.flatMap((file) => {
-    const card = /^(\d+)\.md$/.exec(path.basename(file))?.[1]
-    return card === undefined ? [] : [{ card: Number(card), text: readFileSync(file, 'utf8') }]
-  })
-}
-
 function main(): void {
   const handoff = process.env.CONSTRUCT_HANDOFF_DIR ?? path.join(os.homedir(), '.construct', 'handoff')
   const journalFile = path.join(handoff, 'ghosts.jsonl')
+  const db = openDatabase(defaultBusPath(), { timeout: BUSY_TIMEOUT_MS })
   const catalog = buildCatalog({
     graph: cruise(),
     testText: test => readFileSync(path.join(REPO_ROOT, test), 'utf8'),
-    parking: readParking(path.join(os.homedir(), '.construct', 'parking')),
+    cards: cardBodies(db),
     briefs: readBriefs(handoff),
     journal: existsSync(journalFile) ? readFileSync(journalFile, 'utf8') : '',
   })
-  const db = openDatabase(defaultBusPath(), { timeout: BUSY_TIMEOUT_MS })
   writeCatalog(db, catalog)
   db.close()
   console.log(`[checks:catalog] ${catalog.tests.length} tests, ${catalog.mutations.length} mutations`)

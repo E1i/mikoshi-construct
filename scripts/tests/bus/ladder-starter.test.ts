@@ -1,6 +1,6 @@
 import type { LadderStep, LadderSteps } from '../../bus/ladder-starter.js'
 import type { DetachedSpawn, StarterPorts } from '../../bus/launch-starter.js'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -18,16 +18,13 @@ afterEach(() => {
 function starterFor(step: LadderStep, options: { tree?: string | null, parked?: boolean, unreadableGroup?: boolean } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'ladder-starter-'))
   roots.push(root)
-  const parking = path.join(root, 'parking')
-  mkdirSync(path.join(parking, 'lane-x'), { recursive: true })
-  if (options.parked !== false)
-    writeFileSync(path.join(parking, 'lane-x', `${CARD}.md`), parkingFileText({ card: `#${CARD} a-card [implement/netwatch/M/ladder/auto] · depends — · blocks —`, branch: `feat/card-${CARD}`, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
+  const body = parkingFileText({ card: `#${CARD} a-card [implement/netwatch/M/ladder/auto] · depends — · blocks —`, branch: `feat/card-${CARD}`, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.' })
   const spawned: DetachedSpawn[] = []
   const killed: number[] = []
   const cut: string[] = []
   const tree = options.tree === undefined ? '/trees/known' : options.tree
   const ports: StarterPorts = {
-    read: cardId => options.parked === false ? null : readFileSync(path.join(parking, 'lane-x', `${cardId}.md`), 'utf8'),
+    read: cardId => options.parked === false || cardId !== CARD ? null : body,
     cut: () => {
       cut.push('cut')
       return '/trees/cut'
@@ -59,8 +56,8 @@ function starterFor(step: LadderStep, options: { tree?: string | null, parked?: 
     tasksFile: () => '/handoff/tasks.json',
     body: (_task, kind) => `body of the ${kind} step`,
   }
-  const starter = new LadderCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: '/repo' }, ports, steps)
-  return { starter, spawned, killed, cut, parking, launchDir: path.join(root, 'launch') }
+  const starter = new LadderCardStarter({ launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: '/repo' }, ports, steps)
+  return { starter, spawned, killed, cut, launchDir: path.join(root, 'launch') }
 }
 
 describe('the brief chain', () => {
@@ -81,7 +78,7 @@ describe('the brief chain', () => {
 
 describe('the ladder starter chains', () => {
   it('the brief chain cuts the tree, runs the claude session, then MORSE, then ghosts:launch with a yes', () => {
-    const { starter, spawned, cut, parking } = starterFor({ kind: 'brief' }, { tree: null })
+    const { starter, spawned, cut } = starterFor({ kind: 'brief' }, { tree: null })
     const start = starter.start({ cardId: CARD, lane: 'lane-x' })
 
     expect(start).toMatchObject({ kind: 'started', card: { session: 'sess-1', worktree: '/trees/cut', pid: 4242, pgid: 4242, step: 'brief' } })
@@ -90,7 +87,7 @@ describe('the ladder starter chains', () => {
     expect(run.cwd).toBe('/trees/cut')
     expect(run.args.slice(2)).toEqual(['shift', '-p', '--session-id', 'sess-1'])
     const script = run.args[1]!
-    expect(script).toBe(`env claude --permission-mode dontAsk "$@" && pnpm --dir '/repo' --silent exec tsx 'scripts/shift/brief-finish-cli.ts' '${parking}/lane-x/${CARD}.md' '/trees/cut' '/handoff/brief.md' && pnpm --dir '/repo' --silent 'ghosts:hash' '/handoff/brief.md' '--by' 'morse' '--card' '${CARD}' '--parking' '${parking}' && printf 'yes\\n' | pnpm --dir '/repo' --silent 'ghosts:launch' '--tasks' '/handoff/tasks.json'`)
+    expect(script).toBe(`env claude --permission-mode dontAsk "$@" && pnpm --dir '/repo' --silent exec tsx 'scripts/shift/brief-finish-cli.ts' '${CARD}' '/trees/cut' '/handoff/brief.md' && pnpm --dir '/repo' --silent 'ghosts:hash' '/handoff/brief.md' '--by' 'morse' '--card' '${CARD}' && printf 'yes\\n' | pnpm --dir '/repo' --silent 'ghosts:launch' '--tasks' '/handoff/tasks.json'`)
     expect(run.input).toContain('body of the brief step')
     expect(start).toMatchObject({ card: { input: { prompt: run.input } } })
   })

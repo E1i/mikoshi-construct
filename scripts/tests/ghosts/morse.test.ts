@@ -1,13 +1,17 @@
 import type { BuildRunner, MorseApproval } from '../../ghosts/hash.js'
 import type { Preflight } from '../../ghosts/preflight.js'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { BUS_DB_VARIABLE } from '../../bus/db.js'
+import { textSha } from '../../../src/card/text-sha.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
+import { busCardBodies } from '../../bus/parking-reads.js'
+import { reduce } from '../../bus/reducer.js'
+import { CARD_ADMITTED } from '../../core/events.js'
 import { approverOf, revokeEvent } from '../../ghosts/approval.js'
 import { hashBrief, morseApprove } from '../../ghosts/hash.js'
 import { ghostLines, recordGhostLine } from '../../ghosts/journal.js'
@@ -42,7 +46,18 @@ interface Scenario {
   parked?: boolean
 }
 
-interface World { brief: string, parkingDir: string, journalPath: string, busPath: string, runBuild: ReturnType<typeof vi.fn<BuildRunner>>, preflight: ReturnType<typeof vi.fn<Preflight>>, approvedPath: string }
+function admitBody(busPath: string, text: string): void {
+  const db = openBus(busPath)
+  try {
+    appendEvent(db, { ts: NOW.toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${CARD}`, payload: { card: CARD_LINE, lane: 'lane-1', depends: [], text, textSha: textSha(text) }, legacy: false })
+    reduce(db)
+  }
+  finally {
+    db.close()
+  }
+}
+
+interface World { brief: string, journalPath: string, busPath: string, runBuild: ReturnType<typeof vi.fn<BuildRunner>>, preflight: ReturnType<typeof vi.fn<Preflight>>, approvedPath: string }
 
 ownBusPerTest()
 
@@ -54,16 +69,14 @@ function scenario(options: Scenario = {}): World {
   const root = directory()
   const brief = path.join(root, 'brief-t.md')
   writeFileSync(brief, `# head\n\n---\n\n${briefText(options.expectLine ?? IN_BAND, options.steps ?? 'Print the name.')}\n`)
-  const parkingDir = path.join(root, 'parking')
-  mkdirSync(parkingDir)
   if (options.parked !== false)
-    writeFileSync(path.join(parkingDir, `${CARD}.md`), parkingFileText({ card: options.cardLine ?? CARD_LINE, branch: `feat/${CARD}`, touches: [options.touches ?? 'src/thing/**'], continue: 'stop', who: 'shift', body: options.body ?? 'Do the thing.' }))
+    admitBody(busPath, parkingFileText({ card: options.cardLine ?? CARD_LINE, branch: `feat/${CARD}`, touches: [options.touches ?? 'src/thing/**'], continue: 'stop', who: 'shift', body: options.body ?? 'Do the thing.' }))
   const journalPath = path.join(root, 'ghosts.jsonl')
-  return { brief, parkingDir, journalPath, busPath, runBuild: vi.fn<BuildRunner>(() => ({ status: 0, stderr: '' })), preflight: vi.fn<Preflight>(), approvedPath: `${brief.replace(/\.md$/, '')}.approved-sha256` }
+  return { brief, journalPath, busPath, runBuild: vi.fn<BuildRunner>(() => ({ status: 0, stderr: '' })), preflight: vi.fn<Preflight>(), approvedPath: `${brief.replace(/\.md$/, '')}.approved-sha256` }
 }
 
 function approveWithSuggestion(world: World): Promise<MorseApproval> {
-  return morseApprove(world.brief, { card: CARD, parkingDir: world.parkingDir, journalPath: world.journalPath, now: NOW, runBuild: world.runBuild, preflight: world.preflight })
+  return morseApprove(world.brief, { card: CARD, cardBody: busCardBodies(world.busPath), journalPath: world.journalPath, now: NOW, runBuild: world.runBuild, preflight: world.preflight })
 }
 
 async function approve(world: World): Promise<string> {
@@ -191,8 +204,8 @@ describe('the MORSE gate in process', () => {
     await expectApproved(scenario({ events: [revokeEvent(HEX, CARD, NOW.toISOString())] }), 'R3')
   })
 
-  it('morse refuses a card with no parking file', async () => {
-    await expectRefusal(scenario({ parked: false }), new RegExp(`no parking file .*${CARD}\\.md for card #${CARD}`))
+  it('morse refuses a card the bus holds no body of', async () => {
+    await expectRefusal(scenario({ parked: false }), new RegExp(`the bus holds no card body of card #${CARD}`))
   })
 
   it('refuses a brief that restates its card, naming the line it copied', async () => {
@@ -254,11 +267,10 @@ describe('mORSE suggests a cheaper contour', () => {
 
   it('leaves the contour unchanged', async () => {
     const world = scenario({ cardLine: ladderCard('S'), expectLine: forecastOf(17) })
-    const parkingFile = path.join(world.parkingDir, `${CARD}.md`)
-    const parkedBefore = readFileSync(parkingFile, 'utf8')
+    const parkedBefore = busCardBodies(world.busPath)(CARD)
     const approval = await approveWithSuggestion(world)
     expect(approval.suggestion).toBeDefined()
-    expect(readFileSync(parkingFile, 'utf8')).toBe(parkedBefore)
+    expect(busCardBodies(world.busPath)(CARD)).toBe(parkedBefore)
     expect(readFileSync(world.approvedPath, 'utf8')).toBe(`${approval.line}\n`)
     expect(journalOf(world).filter(event => event.event === 'approval')).toHaveLength(1)
     expect(approval.suggestion).toContain('the contour stays as the card says')
@@ -296,7 +308,7 @@ describe('ghosts:hash for MORSE from the command line', () => {
 
   it('the flag --card needs --by morse', () => {
     const brief = scenario().brief
-    for (const args of [['--card', String(CARD)], ['--by', 'Someone', '--card', String(CARD)], ['--parking', '/tmp/parking'], ['--by', 'morse', '--card', 'abc']]) {
+    for (const args of [['--card', String(CARD)], ['--by', 'Someone', '--card', String(CARD)], ['--by', 'morse', '--card', 'abc']]) {
       const result = runHash([brief, ...args])
       expect(result.status).toBe(1)
       expect(result.stdout).toBe('')
@@ -305,25 +317,13 @@ describe('ghosts:hash for MORSE from the command line', () => {
     }
   })
 
-  it('morse reads the card from the --parking directory', () => {
+  it('morse reads the card body from the bus', () => {
     const world = scenario({ touches: 'templates/base/x.md', body: 'unclear: contour — not stated\n\nDo the thing.' })
-    const result = runHash([world.brief, '--by', 'morse', '--card', String(CARD), '--parking', world.parkingDir])
+    const result = runHash([world.brief, '--by', 'morse', '--card', String(CARD)])
     expect(result.status).toBe(1)
     expect(result.stdout).toBe('')
     expect(result.stderr).toMatch(/unclear field/)
     expect(existsSync(world.approvedPath)).toBe(false)
-  })
-
-  it('morse reads the card from ~/.construct/parking by default', () => {
-    const world = scenario({ touches: 'templates/base/x.md', body: 'unclear: contour — not stated\n\nDo the thing.' })
-    const home = directory()
-    const parking = path.join(home, '.construct', 'parking')
-    mkdirSync(parking, { recursive: true })
-    writeFileSync(path.join(parking, `${CARD}.md`), readFileSync(path.join(world.parkingDir, `${CARD}.md`), 'utf8'))
-    const result = runHash([world.brief, '--by', 'morse', '--card', String(CARD)], home)
-    expect(result.status).toBe(1)
-    expect(result.stdout).toBe('')
-    expect(result.stderr).toMatch(/unclear field/)
   })
 })
 

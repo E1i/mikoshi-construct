@@ -862,6 +862,64 @@ describe('board.html', () => {
     return window.BOARD!
   }
 
+  function busGoneDown(waits: Parameters<typeof withOwnerWaits>[1], handoff: string): string {
+    const busPath = withOwnerWaits(seededBus(), waits)
+    writeFileSync(handoffBeside(busPath), handoff)
+    projected(busPath, NOW)
+    writeFileSync(busPath, 'database disk image is malformed: not a database')
+    return busPath
+  }
+
+  function downPage(busPath: string, at: Date, format: 'html' | 'json' = 'html'): string {
+    let text = ''
+    expect(printBoard(busPath, at, (chunk) => {
+      text += chunk
+    }, handoffBeside(busPath), format)).toBe(1)
+    return text
+  }
+
+  const DOWN_WAITS = [{ id: 'Q9', need: 'decision', text: 'restore the bus from the backup?', command: null, card: null, pr: null }]
+
+  it('with the bus unreachable the board shows the bus status and the open owner waits', () => {
+    const busPath = busGoneDown(DOWN_WAITS, 'STATUS: OWNER — boundary: bus corruption\n')
+    const pulse = minutesAgo(1)
+    const stale = downPage(busPath, new Date(NOW.getTime() + 2 * TICK_MS + 60_000))
+    const text = visibleText(stale)
+    expect(text).toMatch(new RegExp(`the bus stopped at ${pulse}: \\S`))
+    expect(text).toContain('Q9 — restore the bus from the backup?')
+    expect(text).toContain('handoff STATUS: OWNER — boundary: bus corruption')
+    expect(stale).toMatch(/<span class="live" data-snapshot data-stale>snapshot written 2026-10-20T08:00:00.000Z · age 3 min<\/span>/)
+    const fresh = downPage(busPath, new Date(NOW.getTime() + 2 * TICK_MS))
+    expect(fresh).toContain('<span class="live" data-snapshot>snapshot written')
+    const json = JSON.parse(downPage(busPath, NOW, 'json')) as { status: string, stoppedAt: string, waits: { id: string }[], snapshot: { stale: boolean } }
+    expect(json).toMatchObject({ status: 'stopped', stoppedAt: pulse, snapshot: { stale: false } })
+    expect(json.waits.map(wait => wait.id)).toEqual(['Q9'])
+  })
+
+  it('with the bus unreachable and no snapshot the board still names the error and marks the age red', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-down-'))
+    roots.push(root)
+    const busPath = path.join(root, 'bus.db')
+    writeFileSync(busPath, 'not a database')
+    const page = downPage(busPath, NOW)
+    expect(visibleText(page)).toMatch(/the bus stopped at an unknown time: \S/)
+    expect(page).toContain('<span class="live" data-snapshot data-stale>no board snapshot to read</span>')
+    expect(visibleText(page)).toContain('No open owner wait in the last snapshot or the handoff.')
+  })
+
+  it('board --json parses as JSON and holds the stage of a card', () => {
+    let text = ''
+    expect(printBoard(seededBus(), NOW, (chunk) => {
+      text += chunk
+    }, undefined, 'json')).toBe(0)
+    const board = JSON.parse(text) as { status: string, cards: { id: number, stage: string, pr: number | null, events: { type: string }[] }[], tasks: { queue: string, card: number, state: string }[] }
+    expect(board.status).toBe('live')
+    expect(board.cards.find(card => card.id === 861)).toMatchObject({ stage: 'in work' })
+    expect(board.cards.find(card => card.id === 862)).toMatchObject({ stage: 'review', pr: 12 })
+    expect(board.cards.find(card => card.id === 861)!.events.map(event => event.type)).toContain(REVIEW_RECORDED)
+    expect(board.tasks).toEqual([expect.objectContaining({ queue: 'review', card: 862, state: 'leased' })])
+  })
+
   const LATER = new Date(NOW.getTime() + 60_000)
   const STOPPED = [{ ts: minutesAgo(4), type: 'card.stopped', card: 861, payload: JSON.stringify({ reason: 'fault', detail: 'no pull request' }) }]
 

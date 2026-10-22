@@ -25,9 +25,10 @@ import { launchableCard, launchCandidates } from '../../bus/launch-candidates.js
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
-import { busCardBodies, busStarterPorts, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
+import { busStarterPorts, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { SILENT_MS } from '../../bus/liveness-sites.js'
+import { busCardBodies } from '../../bus/parking-reads.js'
 import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
@@ -170,7 +171,7 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
     treeFile: () => null,
     ...overrides,
   }
-  return new ShiftCardStarter({ parking, launchDir: path.join(root, 'launch'), claude: shiftClaude ?? 'claude', treePr: 'true', ...places }, ports)
+  return new ShiftCardStarter({ launchDir: path.join(root, 'launch'), claude: shiftClaude ?? 'claude', treePr: 'true', ...places }, ports)
 }
 
 describe('the launch queue', () => {
@@ -464,7 +465,6 @@ describe('the launch queue', () => {
 
   function heldTreeStarter(cardId: number, changed: string[], report: string | null) {
     const root = tempRoot()
-    const parking = path.join(root, 'parking')
     const cardText = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: ['scripts/bus/**'], continue: 'auto', who: 'shift', body: 'Do the card.' })
     const launchDir = path.join(root, 'launch')
     const cuts: string[] = []
@@ -491,7 +491,7 @@ describe('the launch queue', () => {
       readTranscript: () => null,
       treeFile: () => null,
     }
-    return { starter: new ShiftCardStarter({ parking, launchDir, claude: 'claude', treePr: 'true' }, ports), cuts, spawned }
+    return { starter: new ShiftCardStarter({ launchDir, claude: 'claude', treePr: 'true' }, ports), cuts, spawned }
   }
 
   it('a continueIn candidate is started in its named tree, never by task:start', () => {

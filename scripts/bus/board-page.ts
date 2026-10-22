@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { busFacts, CARD_STAGES } from '../../src/commands/board/bus.js'
+import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { planLine } from '../../src/commands/board/goal.js'
 import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
@@ -96,6 +96,11 @@ const THOUSAND = 1_000
 const MILLION = 1_000_000
 const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
+const BOARD_DATA_PREFIX = 'window.BOARD = '
+const JSON_FLAG = '--json'
+const EVENTS_PER_CARD = 5
+const STALE_TICKS = 2
+const OWNER_STATUS = 'OWNER'
 export const SLOT_PREFIX = 'slot-'
 const BUS_LIVE = 'bus-live'
 const PULSE_ELEMENT_ID = 'bus-pulse'
@@ -965,6 +970,7 @@ header.panel {
   &[data-stage="not_created"] { --_paint: repeating-linear-gradient(135deg, var(--_c) 0 2px, transparent 2px 5px); }
 }
 .waits:empty { display: none; }
+.down { display: grid; gap: var(--space-xs); padding: var(--space-s) var(--space-m); }
 .owner-strip {
   display: flex;
   flex-wrap: wrap;
@@ -1215,6 +1221,8 @@ export interface BoardSlots {
 export interface BoardData {
   written: string
   tickMs: number | null
+  pulse: string | null
+  waits: OwnerWait[]
   slots: BoardSlots
   filters: string[]
 }
@@ -1223,6 +1231,8 @@ export function boardData(page: BoardPage): BoardData {
   return {
     written: page.facts.at,
     tickMs: page.tickMs,
+    pulse: page.facts.pulse,
+    waits: page.facts.waits,
     slots: {
       kv: headerReadings(page),
       goal: goalSlot(page.facts),
@@ -1239,7 +1249,111 @@ export function boardData(page: BoardPage): BoardData {
 }
 
 export function boardDataScript(data: BoardData): string {
-  return `window.BOARD = ${JSON.stringify(data)}\n`
+  return `${BOARD_DATA_PREFIX}${JSON.stringify(data)}\n`
+}
+
+export interface BoardSnapshot {
+  written: string
+  tickMs: number | null
+  pulse: string | null
+  waits: OwnerWait[]
+}
+
+export function readSnapshot(file: string): BoardSnapshot | null {
+  try {
+    const text = readFileSync(file, 'utf8')
+    if (!text.startsWith(BOARD_DATA_PREFIX))
+      return null
+    const data = JSON.parse(text.slice(BOARD_DATA_PREFIX.length)) as Partial<BoardData> | null
+    if (typeof data?.written !== 'string')
+      return null
+    return { written: data.written, tickMs: positive(data.tickMs), pulse: typeof data.pulse === 'string' ? data.pulse : null, waits: Array.isArray(data.waits) ? data.waits : [] }
+  }
+  catch {
+    return null
+  }
+}
+
+export interface BusDown {
+  at: string
+  stoppedAt: string | null
+  error: string
+  snapshot: BoardSnapshot | null
+  handoffStatus: string | null
+}
+
+function snapshotAgeMs(down: BusDown): number | null {
+  return down.snapshot === null ? null : Math.max(0, Date.parse(down.at) - Date.parse(down.snapshot.written))
+}
+
+function snapshotStale(down: BusDown): boolean {
+  const age = snapshotAgeMs(down)
+  const tick = down.snapshot?.tickMs ?? null
+  return age === null || tick === null || age > STALE_TICKS * tick
+}
+
+function ownerStatus(handoff: Handoff): string | null {
+  if (handoff.text === null)
+    return null
+  const status = handoffParts(handoff.text).fields.find(([label]) => label === HANDOFF_STATUS)?.[1][0]
+  return status !== undefined && status.startsWith(OWNER_STATUS) ? status : null
+}
+
+export function busDownOf(now: Date, error: string, snapshotFile: string, handoff: Handoff): BusDown {
+  const snapshot = readSnapshot(snapshotFile)
+  return { at: now.toISOString(), stoppedAt: snapshot?.pulse ?? snapshot?.written ?? null, error, snapshot, handoffStatus: ownerStatus(handoff) }
+}
+
+export function busDownLine(down: BusDown): string {
+  return `the bus stopped at ${down.stoppedAt ?? 'an unknown time'}: ${down.error}`
+}
+
+function snapshotLine(down: BusDown): string {
+  const age = snapshotAgeMs(down)
+  return down.snapshot === null || age === null ? 'no board snapshot to read' : `snapshot written ${down.snapshot.written} · age ${Math.round(age / MINUTE_MS)} min`
+}
+
+function busDownWaits(down: BusDown): string {
+  const items = [
+    ...(down.snapshot?.waits ?? []).map(wait => `<span class="ask" data-static><span class="kind">${WAIT_NEEDS[wait.need] ?? '?'}</span><span class="what">${escaped(waitText(wait))}</span></span>`),
+    ...(down.handoffStatus === null ? [] : [`<span class="ask" data-static><span class="kind">H</span><span class="what">${escaped(`handoff STATUS: ${down.handoffStatus}`)}</span></span>`]),
+  ]
+  return items.length === 0
+    ? note('No open owner wait in the last snapshot or the handoff.')
+    : `<section class="owner-strip" aria-label="Waits for you"><span class="lbl">waits for you</span>${items.join('')}</section>`
+}
+
+export function renderBusDown(down: BusDown): string {
+  return [
+    '<!doctype html>',
+    '<html lang="en"><head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>${TITLE_PREFIX}bus stopped</title>`,
+    `<style>${STYLE}</style></head><body>`,
+    `<section class="panel" role="alert" aria-labelledby="h-bus-down"><div class="panel-head"><h2 id="h-bus-down">bus stopped</h2></div>`,
+    `<div class="down"><p class="fail">${escaped(busDownLine(down))}</p><p><span class="live" data-snapshot${snapshotStale(down) ? ' data-stale' : ''}>${escaped(snapshotLine(down))}</span></p></div></section>`,
+    busDownWaits(down),
+    '</body></html>',
+    '',
+  ].join('\n')
+}
+
+export function busDownJson(down: BusDown): string {
+  return `${JSON.stringify({ status: 'stopped', at: down.at, line: busDownLine(down), stoppedAt: down.stoppedAt, error: down.error, snapshot: down.snapshot === null ? null : { written: down.snapshot.written, ageMs: snapshotAgeMs(down), stale: snapshotStale(down) }, waits: down.snapshot?.waits ?? [], handoffStatus: down.handoffStatus }, null, 2)}\n`
+}
+
+export function busJson(db: DatabaseSync, now: Date): string {
+  const facts = busFacts(db, now)
+  const prs = cardPrs(db)
+  const events = latestCardEvents(db, EVENTS_PER_CARD)
+  return `${JSON.stringify({
+    status: 'live',
+    at: facts.at,
+    pulse: facts.pulse,
+    waits: facts.waits,
+    cards: facts.cards.map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, events: events.get(card.id) ?? [] })),
+    tasks: openTasks(db),
+  }, null, 2)}\n`
 }
 
 export function renderBoard(page: BoardPage): string {
@@ -1286,23 +1400,38 @@ export function writeBoardPage(file: string, html: string, files: BoardFiles = D
   files.rename(temporary, file)
 }
 
-export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE): number {
+export type BoardFormat = 'html' | 'json'
+
+function boardText(busPath: string, now: Date, handoffFile: string, format: BoardFormat): string {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    write(renderBoard(boardPageOf(db, now, handoffFile, null)))
-    return 0
+    return format === 'json' ? busJson(db, now) : renderBoard(boardPageOf(db, now, handoffFile, null))
   }
   finally {
     db.close()
   }
 }
 
-export function runBoardCli(busPath: string = defaultBusPath()): number {
+export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE, format: BoardFormat = 'html'): number {
+  let text: string
+  try {
+    text = boardText(busPath, now, handoffFile, format)
+  }
+  catch (error) {
+    const down = busDownOf(now, error instanceof Error ? error.message.split('\n')[0]! : String(error), path.join(path.dirname(busPath), BOARD_DATA_FILE), readHandoff(handoffFile))
+    write(format === 'json' ? busDownJson(down) : renderBusDown(down))
+    return 1
+  }
+  write(text)
+  return 0
+}
+
+export function runBoardCli(busPath: string = defaultBusPath(), args: readonly string[] = process.argv.slice(2)): number {
   if (!existsSync(busPath)) {
     console.error(`${PREFIX}no bus database at ${busPath}`)
     return 1
   }
-  return printBoard(busPath, new Date(), text => process.stdout.write(text))
+  return printBoard(busPath, new Date(), text => process.stdout.write(text), HANDOFF_FILE, args.includes(JSON_FLAG) ? 'json' : 'html')
 }
 
 export interface BoardProjection {
