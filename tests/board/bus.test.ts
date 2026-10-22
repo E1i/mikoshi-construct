@@ -6,7 +6,6 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
 import { busReaderAt, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
-import { GOAL_DECISION } from '../../src/commands/board/goal.js'
 import { flowLines } from '../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { checkMatrix, subagent, writeBus } from './bus-fixture.js'
@@ -34,12 +33,9 @@ function facts(seed: BusSeed): BusFacts {
 }
 
 describe('the board bus reader', () => {
-  it('the goal is the D-193 release over the cards whose Path line names it, merged of all but the dropped', () => {
-    const path = (state: string, line: string): { state: string, text: string } => ({ state, text: `do it\n\nPath (D-76): ${line}\n` })
-    const cards = [path('merged', 'cheap — 0.44, slice S'), path('queued', 'cheap — 0.44 night order'), path('dropped', 'cheap — 0.44'), path('merged', 'cheap — 0.45')]
-      .map((card, index) => ({ id: 10 + index, lane: null, line: null, ...card }))
-    expect(facts({ cards }).goal).toBeNull()
-    expect(facts({ cards, decisions: [[GOAL_DECISION, '[owner] 0.44 scope is the list']] }).goal).toEqual({ release: '0.44', done: 1, total: 2 })
+  it('no decision and no Path line makes a goal: a bus without an open plan has none', () => {
+    const cards = [{ id: 10, state: 'merged', lane: null, line: null, text: 'do it\n\nPath (D-76): cheap — 0.44\n' }]
+    expect(facts({ cards, decisions: [[193, '[owner] 0.44 scope is the list']] }).goal).toBeNull()
   })
 
   it('reads every card with its state, lane and card line, in card order', () => {
@@ -75,29 +71,6 @@ describe('the board bus reader', () => {
       [9, 'dropped'],
       [10, 'merged'],
     ])
-  })
-
-  it('the goal bar counts sum to the number of plan cards', () => {
-    const plan = (id: number, state: string, release = '0.44'): SeedCard => ({ id, state, lane: null, line: null, text: `do it\n\nPath (D-76): cheap — ${release}\n` })
-    const read = facts({
-      cards: [plan(1, 'merged'), plan(2, 'running'), plan(3, 'running'), plan(4, 'queued'), plan(5, 'dropped'), plan(6, 'stopped'), plan(7, 'merged', '0.45'), { id: 8, state: 'running', lane: null, line: null }],
-      tasks: [{ queue: 'review', card: 3, pr: null, head: null, state: 'leased' }],
-      decisions: [[GOAL_DECISION, '[owner] 0.44 scope is the list']],
-    })
-    expect(read.plan).toEqual([
-      { stage: 'planned', cards: [4] },
-      { stage: 'in work', cards: [2] },
-      { stage: 'review', cards: [3] },
-      { stage: 'answer/changes', cards: [] },
-      { stage: 'ready', cards: [] },
-      { stage: 'merged', cards: [1] },
-      { stage: 'stopped', cards: [6] },
-      { stage: 'dropped', cards: [5] },
-    ])
-    const counted = read.plan!.reduce((sum, stage) => sum + stage.cards.length, 0)
-    expect(counted).toBe(6)
-    expect(counted - read.plan!.find(stage => stage.stage === 'dropped')!.cards.length).toBe(read.goal!.total)
-    expect(facts({ cards: [plan(1, 'merged')] }).plan).toBeNull()
   })
 
   it('with no open owner question the waits-for-you fact is empty', () => {

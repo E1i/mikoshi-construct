@@ -4,25 +4,32 @@ import type { DryRunRecord } from './dry-run-record.js'
 import type { Queue } from './identifiers.js'
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { BOARD_ALARM, FACTORY_MODE, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
+import { BOARD_ALARM, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { FACTORY_MODES, isFactoryMode } from './card-bodies.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from './identifiers.js'
+import { OWNER } from './inbox.js'
 import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from './queue.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt } from './shards.js'
 import { storedByKey } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'requeue', 'mode'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'requeue', 'mode', 'plan'] as const
+export const PLAN_OPS: Readonly<Record<string, string>> = { open: PLAN_OPENED, add: PLAN_ITEM_ADDED, link: PLAN_ITEM_LINKED, remove: PLAN_ITEM_REMOVED, close: PLAN_CLOSED }
+const PLAN_FLAGS = ['op', 'plan', 'item', 'title', 'goal', 'file', 'card'] as const
+const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM events WHERE type = '${PLAN_OPENED}' AND legacy = 0 AND actor = 'owner' AND json_extract(payload, '$.id') = ? ORDER BY id LIMIT 1`
+const TABLE_ROW = /^\s*\|/
+const TABLE_RULE = /^\s*\|[\s:|-]+\|\s*$/
 export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_UNDER = 186
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')}`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${Object.keys(PLAN_OPS).join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>]`
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -134,7 +141,7 @@ export class WindowRequests {
     const kind = payload.kind
     if (!isRequestKind(kind))
       return { kind: 'owner', request, detail: `the window asked for ${JSON.stringify(kind ?? null)}, not one of ${REQUEST_KINDS.join(', ')}; refused, the owner decides` }
-    const executed = kind === 'tree.cut' ? this.treeCut(payload) : kind === 'allow-merge' ? this.allowMerge(payload) : kind === 'mode' ? this.setMode(request, payload) : this.requeue(request, payload)
+    const executed = kind === 'tree.cut' ? this.treeCut(payload) : kind === 'allow-merge' ? this.allowMerge(payload) : kind === 'mode' ? this.setMode(request, payload) : kind === 'plan' ? this.plan(request, payload) : this.requeue(request, payload)
     return { kind: executed.done ? 'done' : 'refused', request, detail: executed.why }
   }
 
@@ -241,6 +248,46 @@ export class WindowRequests {
     return { done: true, why: `the factory mode is ${mode}` }
   }
 
+  private plan(request: number, payload: Record<string, unknown>): Executed {
+    const type = PLAN_OPS[String(payload.op)]
+    const plan = text(payload.plan)
+    if (type === undefined || plan === null)
+      return { done: false, why: `plan needs --op ${Object.keys(PLAN_OPS).join('|')} and a --plan id` }
+    const event = this.planEventPayload(type, plan, payload)
+    if (typeof event === 'string')
+      return { done: false, why: event }
+    appendEvent(this.db, { ts: this.clock().toISOString(), type, actor: OWNER, cardId: cardIdOf(event.card), pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { ...event, request }, legacy: false })
+    return { done: true, why: `${type} ${plan}${event.item === undefined ? '' : ` item ${String(event.item)}`}` }
+  }
+
+  private planEventPayload(type: string, plan: string, payload: Record<string, unknown>): Record<string, unknown> | string {
+    const item = text(payload.item)
+    const title = text(payload.title)
+    if (type === PLAN_OPENED) {
+      const file = text(payload.file)
+      const goal = text(payload.goal)
+      if (title === null || goal === null || file === null || !path.isAbsolute(file) || !existsSync(file))
+        return `${type} needs a --title, a --goal and an absolute --file that exists`
+      return { id: plan, title, goal, plan_file: file }
+    }
+    if (type === PLAN_CLOSED)
+      return { plan }
+    if (item === null)
+      return `${type} needs an --item`
+    if (type === PLAN_ITEM_REMOVED)
+      return { plan, item }
+    if (type === PLAN_ITEM_LINKED) {
+      const card = cardIdOf(payload.card)
+      return card === null ? `${type} needs a --card` : { plan, item, card }
+    }
+    const file = (this.db.prepare(PLAN_FILE).get(plan) as { plan_file: string } | undefined)?.plan_file
+    if (file === undefined)
+      return `plan ${plan} was never opened`
+    if (title === null)
+      return `${type} needs a --title`
+    return sliceItemsOf(file).includes(item) ? { plan, item, title } : `item ${item} has no row in the slice table of ${file}`
+  }
+
   private appendRequeue(ts: string, request: number, task: TaskRow): void {
     const plain = { queue: task.queue, cardId: task.card_id, pr: task.pr ?? undefined, head: task.head ?? undefined }
     const generation = generationOfKey(task.task_key, plain)
@@ -252,6 +299,18 @@ export class WindowRequests {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+export function sliceItemsOf(file: string): string[] {
+  if (!existsSync(file))
+    return []
+  const lines = readFileSync(file, 'utf8').split('\n')
+  return lines.flatMap((line, at) => {
+    if (!TABLE_ROW.test(line) || TABLE_RULE.test(line) || TABLE_RULE.test(lines[at + 1] ?? ''))
+      return []
+    const first = line.split('|')[1]?.trim() ?? ''
+    return first === '' ? [] : [first]
+  })
 }
 
 function flag(argv: readonly string[], name: string): string | undefined {
@@ -280,6 +339,10 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   if (kind === 'mode') {
     const mode = flag(argv, '--set')
     return isFactoryMode(mode) ? { kind, mode } : null
+  }
+  if (kind === 'plan') {
+    const given = PLAN_FLAGS.flatMap(name => flag(argv, `--${name}`) === undefined ? [] : [[name, flag(argv, `--${name}`)] as const])
+    return { kind, ...Object.fromEntries(given) }
   }
   return { kind }
 }

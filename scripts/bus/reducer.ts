@@ -4,13 +4,14 @@ import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { CARD_ADMITTED, PR_OPENED } from '../core/events.js'
+import { CARD_ADMITTED, CLOSED_PLAN, OPEN_PLAN, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OPENED } from '../core/events.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAINS_PROJECTION } from './chain.js'
 import { defaultBusPath, inTransaction, openBus } from './db.js'
 import { DECISION_FOLDS } from './decisions.js'
-import { isFullSha, prOf } from './identifiers.js'
+import { cardIdOf, isFullSha, prOf } from './identifiers.js'
+import { OWNER } from './inbox.js'
 import { TASKS_PROJECTION } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { ROLE_FOLDS, ROLES_PROJECTION } from './role.js'
@@ -18,7 +19,7 @@ import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced } from './watermark.js'
 
 export const PREFIX = '[bus:reduce] '
-export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id' }
+export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id', plans: 'plan_id', plan_items: 'plan_id, item_id' }
 export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION]
 
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
@@ -165,6 +166,80 @@ function prOpened(db: DatabaseSync, event: StoredEvent): void {
     db.prepare('UPDATE prs SET card_id = ? WHERE pr = ?').run(cardId, pr)
 }
 
+function planText(payload: Record<string, unknown>, field: string): string {
+  const value = payload[field]
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : reject(`${field} is empty`)
+}
+
+function ownersPlanPayload(db: DatabaseSync, event: StoredEvent): Record<string, unknown> {
+  const actor = (db.prepare('SELECT actor FROM events WHERE id = ?').get(event.id) as { actor: string | null }).actor
+  return actor === OWNER ? payloadOf(event) : reject(`${event.type} is the owner's, not ${actor}'s`)
+}
+
+function openPlanId(db: DatabaseSync, payload: Record<string, unknown>): string {
+  const planId = planText(payload, 'plan')
+  const plan = db.prepare('SELECT state FROM plans WHERE plan_id = ?').get(planId) as { state: string } | undefined
+  if (plan?.state !== OPEN_PLAN)
+    reject(`plan ${planId} is not open`)
+  return planId
+}
+
+function itemCards(db: DatabaseSync, planId: string, itemId: string): number[] {
+  const item = db.prepare('SELECT cards FROM plan_items WHERE plan_id = ? AND item_id = ?').get(planId, itemId) as { cards: string } | undefined
+  return item === undefined ? reject(`plan ${planId} has no item ${itemId}`) : JSON.parse(item.cards) as number[]
+}
+
+function planOpened(db: DatabaseSync, event: StoredEvent): void {
+  const payload = ownersPlanPayload(db, event)
+  const planId = planText(payload, 'id')
+  if (db.prepare('SELECT 1 FROM plans WHERE plan_id = ?').get(planId) !== undefined)
+    reject(`plan ${planId} was opened before`)
+  db.prepare('INSERT INTO plans (plan_id, title, goal, plan_file, state, event_id) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(planId, planText(payload, 'title'), planText(payload, 'goal'), planText(payload, 'plan_file'), OPEN_PLAN, event.id)
+}
+
+function planItemAdded(db: DatabaseSync, event: StoredEvent): void {
+  const payload = ownersPlanPayload(db, event)
+  const planId = openPlanId(db, payload)
+  const itemId = planText(payload, 'item')
+  if (db.prepare('SELECT 1 FROM plan_items WHERE plan_id = ? AND item_id = ?').get(planId, itemId) !== undefined)
+    reject(`plan ${planId} already has item ${itemId}`)
+  db.prepare('INSERT INTO plan_items (plan_id, item_id, title, cards, event_id) VALUES (?, ?, ?, ?, ?)')
+    .run(planId, itemId, planText(payload, 'title'), '[]', event.id)
+}
+
+function planItemLinked(db: DatabaseSync, event: StoredEvent): void {
+  const payload = ownersPlanPayload(db, event)
+  const planId = openPlanId(db, payload)
+  const itemId = planText(payload, 'item')
+  const cardId = cardIdOf(payload.card) ?? reject('card is not a card number')
+  const cards = itemCards(db, planId, itemId)
+  if (cards.includes(cardId))
+    reject(`card ${cardId} is already linked to item ${itemId}`)
+  db.prepare('UPDATE plan_items SET cards = ?, event_id = ? WHERE plan_id = ? AND item_id = ?').run(JSON.stringify([...cards, cardId]), event.id, planId, itemId)
+}
+
+function planItemRemoved(db: DatabaseSync, event: StoredEvent): void {
+  const payload = ownersPlanPayload(db, event)
+  const planId = openPlanId(db, payload)
+  const itemId = planText(payload, 'item')
+  itemCards(db, planId, itemId)
+  db.prepare('DELETE FROM plan_items WHERE plan_id = ? AND item_id = ?').run(planId, itemId)
+}
+
+function planClosed(db: DatabaseSync, event: StoredEvent): void {
+  const planId = openPlanId(db, ownersPlanPayload(db, event))
+  db.prepare('UPDATE plans SET state = ?, event_id = ? WHERE plan_id = ?').run(CLOSED_PLAN, event.id, planId)
+}
+
+export const PLAN_FOLDS: Record<string, Fold> = {
+  [PLAN_OPENED]: planOpened,
+  [PLAN_ITEM_ADDED]: planItemAdded,
+  [PLAN_ITEM_LINKED]: planItemLinked,
+  [PLAN_ITEM_REMOVED]: planItemRemoved,
+  [PLAN_CLOSED]: planClosed,
+}
+
 const REDUCERS: Record<string, Fold> = {
   'pr.observed': prObserved,
   'pr.closed': prClosed,
@@ -175,6 +250,7 @@ const REDUCERS: Record<string, Fold> = {
   ...ROLE_FOLDS,
   ...DECISION_FOLDS,
   ...CARD_FOLDS,
+  ...PLAN_FOLDS,
   [CARD_ADMITTED]: foldAdmittedWithBody,
 }
 
