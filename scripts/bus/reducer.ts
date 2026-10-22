@@ -357,27 +357,42 @@ export function reducedThrough(db: DatabaseSync): number {
 
 export const REDUCE_BATCH = 500
 export const SNAPSHOT = 'snapshot'
-export const ASIDE = 'aside'
-export const SEQUENCE_SNAPSHOT = sequencesOf(SNAPSHOT)
+export const DIRTY_ROWS = 'projection_dirty'
 
 export type ReduceScope = 'pending' | 'rebuild'
 
-const NEVER_REDUCED = 0
-const EVERY_EVENT = Number.MAX_SAFE_INTEGER
+const NO_SECOND_KEY = `''`
 const PROJECTION_TABLES = Object.keys(PROJECTION_KEYS)
 const PROJECTION_SEQUENCES = `name IN (${PROJECTION_TABLES.map(table => `'${table}'`).join(', ')})`
+const SEQUENCE_SNAPSHOT = 'projection_sequence_snapshot'
 const REDUCED_TYPES = Object.keys(REDUCERS)
+const ROW_WRITES = { insert: ['NEW'], update: ['OLD', 'NEW'], delete: ['OLD'] } as const
+const FOREIGN_REFERENCE = /\s+REFERENCES\s+\w+\s*\(\w+\)/g
 
-function sequencesOf(copy: string): string {
-  return `projection_sequence_${copy}`
+function snapshotOf(table: string): string {
+  return `${table}_${SNAPSHOT}`
 }
 
-function copyOf(table: string, copy: string): string {
-  return `${table}_${copy}`
+function keysOf(table: string): string {
+  return PROJECTION_KEYS[table]!
 }
 
-export function snapshotOf(table: string): string {
-  return copyOf(table, SNAPSHOT)
+function dirtyKeysOf(table: string): string {
+  const second = keysOf(table).includes(',') ? 'k1, k2' : 'k1'
+  return `(${keysOf(table)}) IN (SELECT ${second} FROM ${DIRTY_ROWS} WHERE tbl = '${table}')`
+}
+
+function triggerOf(table: string, write: keyof typeof ROW_WRITES): string {
+  return `${DIRTY_ROWS}_${table}_${write}`
+}
+
+function triggerNames(): string[] {
+  return PROJECTION_TABLES.flatMap(table => Object.keys(ROW_WRITES).map(write => triggerOf(table, write as keyof typeof ROW_WRITES)))
+}
+
+function markRowDirty(table: string, row: string): string {
+  const [k1, k2] = [...keysOf(table).split(', ').map(key => `${row}.${key}`), NO_SECOND_KEY]
+  return `INSERT INTO ${DIRTY_ROWS} (tbl, k1, k2) SELECT '${table}', ${k1}, ${k2} WHERE NOT EXISTS (SELECT 1 FROM ${DIRTY_ROWS} WHERE tbl = '${table}' AND k1 IS ${k1} AND k2 IS ${k2});`
 }
 
 function lastEventId(db: DatabaseSync): number {
@@ -385,56 +400,51 @@ function lastEventId(db: DatabaseSync): number {
 }
 
 function columnsOf(db: DatabaseSync, table: string): string {
-  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(column => column.name).join(', ')
+  return (db.prepare(`PRAGMA main.table_info(${table})`).all() as { name: string }[]).map(column => column.name).join(', ')
 }
 
-function copyHolds(db: DatabaseSync, copy: string): boolean {
-  return columnsOf(db, sequencesOf(copy)) !== '' && PROJECTION_TABLES.every(table => columnsOf(db, copyOf(table, copy)) === columnsOf(db, table))
+function snapshotHolds(db: DatabaseSync): boolean {
+  const triggers = Number((db.prepare(`SELECT count(*) AS n FROM main.sqlite_master WHERE type = 'trigger' AND name IN (SELECT value FROM json_each(?))`).get(JSON.stringify(triggerNames())) as { n: number }).n)
+  return watermarkOf(db, SNAPSHOT) === reducedThrough(db)
+    && triggers === triggerNames().length
+    && columnsOf(db, SEQUENCE_SNAPSHOT) !== ''
+    && PROJECTION_TABLES.every(table => columnsOf(db, snapshotOf(table)) === columnsOf(db, table))
 }
 
-function copyTableFor(db: DatabaseSync, table: string, copy: string): void {
-  if (columnsOf(db, copyOf(table, copy)) !== columnsOf(db, table))
-    db.exec(`DROP TABLE IF EXISTS ${copyOf(table, copy)}; CREATE TABLE ${copyOf(table, copy)} AS SELECT * FROM ${table} WHERE 0;`)
-}
-
-function saveProjections(db: DatabaseSync, copy: string): void {
+function trackDirtyRows(db: DatabaseSync): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS ${DIRTY_ROWS} (tbl TEXT, k1, k2, PRIMARY KEY (tbl, k1, k2)); DELETE FROM ${DIRTY_ROWS};`)
   for (const table of PROJECTION_TABLES) {
-    copyTableFor(db, table, copy)
-    db.exec(`DELETE FROM ${copyOf(table, copy)}; INSERT INTO ${copyOf(table, copy)} SELECT * FROM ${table};`)
+    for (const [write, rows] of Object.entries(ROW_WRITES)) {
+      const trigger = triggerOf(table, write as keyof typeof ROW_WRITES)
+      db.exec(`DROP TRIGGER IF EXISTS main.${trigger}; CREATE TRIGGER main.${trigger} AFTER ${write.toUpperCase()} ON ${table} BEGIN ${rows.map(row => markRowDirty(table, row)).join(' ')} END;`)
+    }
   }
-  db.exec(`CREATE TABLE IF NOT EXISTS ${sequencesOf(copy)} (name TEXT, seq INTEGER); DELETE FROM ${sequencesOf(copy)}; INSERT INTO ${sequencesOf(copy)} (name, seq) SELECT name, seq FROM sqlite_sequence WHERE ${PROJECTION_SEQUENCES};`)
 }
 
-function loadProjections(db: DatabaseSync, copy: string): void {
+function takeWholeSnapshot(db: DatabaseSync): void {
+  for (const table of PROJECTION_TABLES) {
+    db.exec(`DROP TABLE IF EXISTS main.${snapshotOf(table)}; CREATE TABLE main.${snapshotOf(table)} AS SELECT * FROM main.${table};`)
+    db.exec(`CREATE UNIQUE INDEX main.${snapshotOf(table)}_key ON ${snapshotOf(table)} (${keysOf(table)});`)
+  }
+  db.exec(`DROP TABLE IF EXISTS main.${SEQUENCE_SNAPSHOT}; CREATE TABLE main.${SEQUENCE_SNAPSHOT} AS SELECT name, seq FROM main.sqlite_sequence WHERE ${PROJECTION_SEQUENCES};`)
+}
+
+function copySequences(db: DatabaseSync, from: string, to: string): void {
+  db.exec(`DELETE FROM ${to} WHERE ${PROJECTION_SEQUENCES}; INSERT INTO ${to} (name, seq) SELECT name, seq FROM ${from} WHERE ${PROJECTION_SEQUENCES};`)
+}
+
+function restoreDirtyRows(db: DatabaseSync): void {
   for (const table of PROJECTION_TABLES)
-    db.exec(`DELETE FROM ${table}; INSERT INTO ${table} SELECT * FROM ${copyOf(table, copy)};`)
-  db.exec(`DELETE FROM sqlite_sequence WHERE ${PROJECTION_SEQUENCES}; INSERT INTO sqlite_sequence (name, seq) SELECT name, seq FROM ${sequencesOf(copy)};`)
+    db.exec(`DELETE FROM main.${table} WHERE ${dirtyKeysOf(table)}; INSERT INTO main.${table} SELECT * FROM main.${snapshotOf(table)} WHERE ${dirtyKeysOf(table)};`)
+  copySequences(db, `main.${SEQUENCE_SNAPSHOT}`, 'main.sqlite_sequence')
+  db.exec(`DELETE FROM ${DIRTY_ROWS};`)
 }
 
-function takeSnapshot(db: DatabaseSync, through: number): void {
-  saveProjections(db, SNAPSHOT)
-  markReduced(db, SNAPSHOT, through)
-}
-
-function emptySnapshot(db: DatabaseSync): void {
-  for (const table of PROJECTION_TABLES) {
-    copyTableFor(db, table, SNAPSHOT)
-    db.exec(`DELETE FROM ${snapshotOf(table)};`)
-  }
-  db.exec(`CREATE TABLE IF NOT EXISTS ${SEQUENCE_SNAPSHOT} (name TEXT, seq INTEGER); DELETE FROM ${SEQUENCE_SNAPSHOT};`)
-  markReduced(db, SNAPSHOT, NEVER_REDUCED)
-}
-
-function snapshotThrough(db: DatabaseSync): number {
-  const through = watermarkOf(db, SNAPSHOT)
-  if (through !== NEVER_REDUCED && copyHolds(db, SNAPSHOT))
-    return through
-  emptySnapshot(db)
-  return NEVER_REDUCED
-}
-
-function clearProjections(db: DatabaseSync): void {
-  db.exec(`${PROJECTION_TABLES.map(table => `DELETE FROM ${table};`).join(' ')} DELETE FROM sqlite_sequence WHERE ${PROJECTION_SEQUENCES};`)
+function snapshotDirtyRows(db: DatabaseSync): void {
+  for (const table of PROJECTION_TABLES)
+    db.exec(`DELETE FROM main.${snapshotOf(table)} WHERE ${dirtyKeysOf(table)}; INSERT INTO main.${snapshotOf(table)} SELECT * FROM main.${table} WHERE ${dirtyKeysOf(table)};`)
+  copySequences(db, 'main.sqlite_sequence', `main.${SEQUENCE_SNAPSHOT}`)
+  db.exec(`DELETE FROM ${DIRTY_ROWS};`)
 }
 
 function foldInOrder(db: DatabaseSync, events: StoredEvent[], count: ReduceCount): void {
@@ -446,49 +456,76 @@ function foldInOrder(db: DatabaseSync, events: StoredEvent[], count: ReduceCount
   }
 }
 
-function eventsAfter(db: DatabaseSync, from: number, through: number, limit: number): StoredEvent[] {
+function eventsAfter(db: DatabaseSync, from: number, through: number): StoredEvent[] {
   return db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id > ? AND id <= ? AND legacy = 0 AND type IN (${REDUCED_TYPES.map(() => '?').join(', ')}) ORDER BY id LIMIT ?`)
-    .all(from, through, ...REDUCED_TYPES, limit) as unknown as StoredEvent[]
+    .all(from, through, ...REDUCED_TYPES, REDUCE_BATCH) as unknown as StoredEvent[]
+}
+
+function batchThrough(events: StoredEvent[], from: number, target: number): number {
+  return events.length < REDUCE_BATCH ? Math.max(from, target) : events.at(-1)!.id
 }
 
 function markInOrderThrough(db: DatabaseSync, through: number): void {
   db.exec(`PRAGMA user_version = ${through}`)
-  takeSnapshot(db, through)
+  markReduced(db, SNAPSHOT, through)
   for (const projection of INCREMENTAL_PROJECTIONS) {
     markReduced(db, projection.table, through)
     reduceProjection(db, projection)
   }
 }
 
-function rebuildAll(db: DatabaseSync, count: ReduceCount): void {
-  clearProjections(db)
-  const through = lastEventId(db)
-  foldInOrder(db, eventsAfter(db, NEVER_REDUCED, through, EVERY_EVENT), count)
+function dropShadows(db: DatabaseSync): void {
+  for (const table of PROJECTION_TABLES)
+    db.exec(`DROP TABLE IF EXISTS temp.${table};`)
+}
+
+function shadowTheProjections(db: DatabaseSync): void {
+  dropShadows(db)
+  for (const table of PROJECTION_TABLES) {
+    const { sql } = db.prepare(`SELECT sql FROM main.sqlite_master WHERE type = 'table' AND name = ?`).get(table) as { sql: string }
+    db.exec(sql.replace(/^CREATE TABLE/, 'CREATE TEMP TABLE').replace(FOREIGN_REFERENCE, ''))
+  }
+  db.exec(`DELETE FROM temp.sqlite_sequence WHERE ${PROJECTION_SEQUENCES};`)
+}
+
+function publishTheShadows(db: DatabaseSync, through: number): void {
+  for (const table of PROJECTION_TABLES)
+    db.exec(`DELETE FROM main.${table}; INSERT INTO main.${table} SELECT * FROM temp.${table};`)
+  copySequences(db, 'temp.sqlite_sequence', 'main.sqlite_sequence')
+  dropShadows(db)
+  takeWholeSnapshot(db)
+  trackDirtyRows(db)
   markInOrderThrough(db, through)
 }
 
-function foldBesideTheLiveProjections(db: DatabaseSync, events: StoredEvent[], through: number, count: ReduceCount): void {
-  saveProjections(db, ASIDE)
-  loadProjections(db, SNAPSHOT)
-  foldInOrder(db, events, count)
-  takeSnapshot(db, through)
-  loadProjections(db, ASIDE)
+function buildBesideTheLiveProjections(db: DatabaseSync, target: number, count: ReduceCount): void {
+  shadowTheProjections(db)
+  try {
+    let from = 0
+    while (from < target) {
+      from = inTransaction(db, () => {
+        const events = eventsAfter(db, from, target)
+        foldInOrder(db, events, count)
+        return batchThrough(events, from, target)
+      })
+    }
+    inTransaction(db, () => publishTheShadows(db, target))
+  }
+  finally {
+    dropShadows(db)
+  }
 }
 
 function reduceBatch(db: DatabaseSync, target: number, count: ReduceCount): boolean {
   return inTransaction(db, () => {
-    const from = snapshotThrough(db)
-    const live = reducedThrough(db)
-    if (from >= target && live === from)
+    const from = reducedThrough(db)
+    if (from >= target)
       return false
-    const events = eventsAfter(db, from, target, REDUCE_BATCH)
-    const through = events.length < REDUCE_BATCH ? Math.max(from, target) : events.at(-1)!.id
-    if (live !== from && through < target) {
-      foldBesideTheLiveProjections(db, events, through, count)
-      return false
-    }
-    loadProjections(db, SNAPSHOT)
+    const events = eventsAfter(db, from, target)
+    const through = batchThrough(events, from, target)
+    restoreDirtyRows(db)
     foldInOrder(db, events, count)
+    snapshotDirtyRows(db)
     markInOrderThrough(db, through)
     return through < target
   })
@@ -496,11 +533,9 @@ function reduceBatch(db: DatabaseSync, target: number, count: ReduceCount): bool
 
 export function reduce(db: DatabaseSync, scope: ReduceScope = 'pending'): ReduceCount {
   const count: ReduceCount = { applied: 0, rejected: 0 }
-  if (scope === 'rebuild') {
-    inTransaction(db, () => rebuildAll(db, count))
-    return count
-  }
   const target = lastEventId(db)
+  if (scope === 'rebuild' || !snapshotHolds(db))
+    buildBesideTheLiveProjections(db, target, count)
   let another = true
   while (another)
     another = reduceBatch(db, target, count)

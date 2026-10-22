@@ -1,4 +1,5 @@
 import type { DatabaseSync as Bus } from 'node:sqlite'
+import type { Poll } from '../../bus/netwatch.js'
 import { once } from 'node:events'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,7 +30,6 @@ const USUAL_TICKS = 3
 const NODE_WRITE_EVERY_MS = 20
 const LOCK_HELD_AT_MOST_MS = 4 * BUSY_TIMEOUT_MS
 const SHORT_WAIT_MS = 1000
-const BUILD_TICKS_AT_MOST = 100
 const LOCKED_AT = '2026-10-22T12:00:00.000Z'
 const HOLDS_THE_WRITE_LOCK = `
 const { DatabaseSync } = require('node:sqlite')
@@ -116,19 +116,21 @@ function nodeWritesWhileDown(db: Bus, round: number): void {
     appendEvent(db, { ts: LOCKED_AT, type: 'node.wrote', actor: 'worker:launch:restart', cardId: null, pr: null, head: null, dedupeKey: `node.wrote:pending:${round}:${n}`, payload: {}, legacy: false })
 }
 
+class NetWatchWithNothingNew extends NetWatch {
+  override poll(): Poll {
+    return { kind: 'ticked', reason: 'interval', calls: 0, remaining: null, written: 0, unsettled: [] }
+  }
+}
+
 function busTickOn(db: Bus, clock: Clock): BusTick {
-  return new BusTick(db, new NetWatch(db, new FakeGitHub().client, clock.now), clock.now)
+  return new BusTick(db, new NetWatchWithNothingNew(db, new FakeGitHub().client, clock.now), clock.now)
 }
 
 function timedTick(busTick: BusTick, clock: Clock): number {
   clock.advance(TICK_MS)
   const started = performance.now()
-  expect(busTick.run()).not.toBeNull()
+  expect(busTick.run()?.reduced).not.toBeNull()
   return performance.now() - started
-}
-
-function closedPrs(db: Bus): unknown[] {
-  return db.prepare('SELECT * FROM prs ORDER BY pr').all()
 }
 
 function nodeWriting(file: string, busyMs: number): { stop: () => Promise<{ writes: number, errors: string[] }> } {
@@ -144,6 +146,20 @@ function nodeWriting(file: string, busyMs: number): { stop: () => Promise<{ writ
       return written
     },
   }
+}
+
+function writeHolds(db: Bus): number[] {
+  const holds: number[] = []
+  const exec = db.exec.bind(db)
+  let began = 0
+  vi.spyOn(db, 'exec').mockImplementation((sql) => {
+    exec(sql)
+    if (sql === 'BEGIN IMMEDIATE')
+      began = performance.now()
+    if (sql === 'COMMIT' || sql === 'ROLLBACK')
+      holds.push(performance.now() - began)
+  })
+  return holds
 }
 
 function median(values: number[]): number {
@@ -194,37 +210,27 @@ describe('a bus:run restart holds no write longer than a node waits', () => {
     restarted.close()
   }, 10 * 60_000)
 
-  it('a bus:run restart on a bus reduced before the snapshot existed folds one batch per tick beside the live projections, each tick under half a full rebuild, and no node log has database is locked', async () => {
+  it('a bus:run restart on a bus reduced before the snapshot existed builds it in the first tick beside the live projections, each write transaction ends within a second, and no node log has database is locked', async () => {
     const file = scratch('bus-restart-no-snapshot-')
-    generatedHistory(file)
+    await copyOfTheLiveBus(file)
     const old = openBus(file)
-    const rebuildStarted = performance.now()
     reduce(old, 'rebuild')
-    const rebuildMs = performance.now() - rebuildStarted
     old.prepare(`DELETE FROM ${WATERMARKS} WHERE projection = ?`).run(SNAPSHOT)
     nodeWritesWhileDown(old, 0)
-    const live = closedPrs(old)
     const through = reducedThrough(old)
     old.close()
-    const node = nodeWriting(file, SHORT_WAIT_MS)
+    const node = nodeWriting(file, BUSY_TIMEOUT_MS)
 
     const clock = new Clock(Date.now())
     const restarted = openBus(file)
-    const busTick = busTickOn(restarted, clock)
-    const first = timedTick(busTick, clock)
-    expect(reducedThrough(restarted)).toBe(through)
-    expect(closedPrs(restarted)).toEqual(live)
-    let ticks = 1
-    while (reducedThrough(restarted) === through && ticks < BUILD_TICKS_AT_MOST) {
-      timedTick(busTick, clock)
-      ticks += 1
-    }
+    const holds = writeHolds(restarted)
+    timedTick(busTickOn(restarted, clock), clock)
     const written = await node.stop()
 
     expect(reducedThrough(restarted)).toBeGreaterThan(through)
-    expect(ticks).toBeGreaterThan(1)
+    expect(holds.length).toBeGreaterThan(1)
+    expect(Math.max(...holds)).toBeLessThan(SHORT_WAIT_MS)
     expect(written.errors.filter(error => error.includes(DATABASE_LOCKED))).toEqual([])
-    expect(first).toBeLessThan(rebuildMs / 2)
     restarted.close()
   }, 10 * 60_000)
 

@@ -3,12 +3,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { appendedOnCard } from '../../bus/card-automaton.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { cardIdOfDescription } from '../../bus/identifiers.js'
 import { allowLiveCommand } from '../../bus/live-decision.js'
-import { projectionDump, reduce, REDUCE_BATCH, reducedThrough, SNAPSHOT } from '../../bus/reducer.js'
+import { DIRTY_ROWS, projectionDump, reduce, REDUCE_BATCH, reducedThrough, SNAPSHOT } from '../../bus/reducer.js'
 import { WATERMARKS } from '../../bus/watermark.js'
 import { CARD_WAITING, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { ghostLines } from '../../ghosts/journal.js'
@@ -181,7 +182,7 @@ describe('the reducer of the prs projection', () => {
     db.close()
   })
 
-  it('a bus reduced before the snapshot existed builds it one batch per reduce beside the live projections, which stay as they were until it catches up', () => {
+  it('a bus reduced before the snapshot existed builds it within one reduce, one batch per write transaction beside the live projections, to what a rebuild gives', () => {
     const pulls = REDUCE_BATCH
     const db = busWith(observed(800, 793))
     for (let n = 0; n < pulls; n += 1) {
@@ -191,21 +192,36 @@ describe('the reducer of the prs projection', () => {
     reduce(db, 'rebuild')
     db.prepare(`DELETE FROM ${WATERMARKS} WHERE projection = ?`).run(SNAPSHOT)
     appendEvent(db, closed(800, true))
-    const live = prs(db)
-    const through = reducedThrough(db)
+    const exec = vi.spyOn(db, 'exec')
 
-    expect(reduce(db)).toEqual({ applied: REDUCE_BATCH, rejected: 0 })
-    expect(reducedThrough(db)).toBe(through)
-    expect(prs(db)).toEqual(live)
-    expect(reduce(db)).toEqual({ applied: REDUCE_BATCH, rejected: 0 })
-    expect(reducedThrough(db)).toBe(through)
-    expect(prs(db)).toEqual(live)
-    expect(reduce(db)).toEqual({ applied: 2, rejected: 0 })
+    expect(reduce(db)).toEqual({ applied: 2 * pulls + 2, rejected: 0 })
+    const writes = exec.mock.calls.filter(([sql]) => sql === 'BEGIN IMMEDIATE').length
+    exec.mockRestore()
+    expect(writes).toBeGreaterThan(Math.ceil((2 * pulls + 2) / REDUCE_BATCH))
     expect(reducedThrough(db)).toBe(2 * pulls + 2)
     expect(prs(db).find(row => row.pr === 800)).toMatchObject({ state: 'merged' })
+    expect(db.prepare(`SELECT name FROM sqlite_temp_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).all()).toEqual([])
     const built = projectionDump(db)
     reduce(db, 'rebuild')
     expect(projectionDump(db)).toBe(built)
+    db.close()
+  })
+
+  it('a row another writer folded on append before the reduce is restored from the snapshot and folded again in event order, as a rebuild folds it', () => {
+    const db = busWith(admitted(793))
+    reduce(db)
+    appendEvent(db, started(793))
+    expect(appendedOnCard(db, event('card.stopped', { actor: 'worker:answer:a1', cardId: 793, payload: { reason: 'review', detail: 'x' } }))).toBe(true)
+    appendEvent(db, admitted(794))
+    expect(db.prepare(`SELECT tbl, k1 FROM ${DIRTY_ROWS}`).all()).toEqual([{ tbl: 'cards', k1: 793 }])
+
+    reduce(db)
+    expect(db.prepare(`SELECT count(*) AS n FROM ${DIRTY_ROWS}`).get()).toEqual({ n: 0 })
+    const incremental = projectionDump(db)
+    expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[793, 'stopped'], [794, 'queued']])
+    expect(rejections(db)).toEqual([])
+    reduce(db, 'rebuild')
+    expect(projectionDump(db)).toBe(incremental)
     db.close()
   })
 
