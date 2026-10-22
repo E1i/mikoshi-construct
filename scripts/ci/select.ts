@@ -4,6 +4,7 @@ import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { selectRun, windowGate } from './layers.js'
+import { livenessApplies } from './sandbox-liveness.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const DEPCRUISE = path.join(REPO_ROOT, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruiser.mjs')
@@ -70,7 +71,7 @@ function treeChanges(): string[] {
   return changedPathsOf(git(['diff', '--name-only', base]), git(['ls-files', '--others', '--exclude-standard']))
 }
 
-function readTest(test: string): string {
+export function readTest(test: string): string {
   return readFileSync(path.join(REPO_ROOT, test), 'utf8')
 }
 
@@ -86,7 +87,7 @@ function main(): void {
   const run = reportedRun(changed.length === 0 ? selectRun([], new Map(), () => '') : selectRun(changed, cruise(), readTest))
   console.log(runSummary(run))
   if (process.env.GITHUB_OUTPUT)
-    appendFileSync(process.env.GITHUB_OUTPUT, outputLines(run))
+    appendFileSync(process.env.GITHUB_OUTPUT, `${outputLines(run)}liveness=${livenessApplies(changed)}\n`)
   if (process.env.GITHUB_STEP_SUMMARY)
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${runSummary(run)}\n`)
 }

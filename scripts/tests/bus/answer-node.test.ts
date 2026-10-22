@@ -25,6 +25,7 @@ import { failTask, leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../bus/queue.js'
 import { DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_PR_RESERVATION } from '../../bus/shards.js'
+import { PREPUSH_COMMAND } from '../../ci/prepush.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_DENIED, SHARD_DECIDED, SHARD_ISSUED, TASK_ENQUEUED } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -483,7 +484,7 @@ describe('the answer node', () => {
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', worktree: path.join(trees, 'mc-905'), resumed: true, source: 'question', from: sha('a'), to: sha('e') }])
   })
 
-  it('the answer round prompt names the window gate of D-194, not pnpm run quality', () => {
+  it('the answer round prompt names the window gate of D-194 with the pre-push tests, not pnpm run quality', () => {
     const prompt = answerPrompt({
       lease: { taskKey: 'answer:1079:925:head', queue: 'answer', cardId: 1079, pr: 925, head: sha('a'), leaseGen: 1, actor: 'worker:answer:s' },
       source: { kind: 'changes', findings: ['a.ts:1 a finding'], events: [] },
@@ -492,7 +493,8 @@ describe('the answer node', () => {
     }, '/answers/s.1.owner.txt', null)
 
     expect(prompt).toContain('D-194')
-    expect(prompt).toContain('pnpm gate:window')
+    expect(prompt).toContain(PREPUSH_COMMAND)
+    expect(prompt).not.toContain('pnpm gate:window')
     expect(prompt).toContain('pnpm typecheck')
     expect(prompt).toContain('pnpm lint')
     expect(prompt).not.toContain('pnpm run quality')
