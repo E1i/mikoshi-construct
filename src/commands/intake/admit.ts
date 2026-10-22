@@ -9,9 +9,10 @@ import type { DraftCard } from './draft.js'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { CARD_WAITING, INTAKE_EVENT } from '../../../scripts/core/events.js'
+import { CARD_WAITING, INTAKE_EVENT, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
 import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
@@ -139,6 +140,7 @@ export interface AdmitOptions {
   events?: CardEventPort
   cardStates?: CardStatesPort
   admissions?: CardAdmissionsPort
+  decisions?: string
 }
 
 type RefusedWithReasons = 'invalidTestPattern' | 'sharedCodeMask'
@@ -155,6 +157,33 @@ export type AdmitResult
     | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
     | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
+    | { status: 'ownerWait', file: string, card: SlicedCard, downgrades: string[], inBus: boolean, dryRun: boolean }
+
+const RED_ON_MAIN = /[;,]?\s*red on main/i
+const DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетеля'
+const DECISION_LINE = /^- D-[1-9]\d* · /
+const DECISION_CARDS = / · card (#[1-9]\d*(?: #[1-9]\d*)*)/
+const SUPERSEDED_BY = ' · superseded-by D-'
+
+export function defaultDecisions(): string {
+  return path.join(os.homedir(), '.construct', 'owner-decisions.md')
+}
+
+export function downgradeAction(cardId: number, witness: string): string {
+  return `${DOWNGRADE_ALLOWANCE} ${witness} у #${cardId}`
+}
+
+function witnessCore(witness: string): string {
+  return witness.replace(RED_ON_MAIN, '').trim()
+}
+
+export function witnessDowngrades(previous: readonly string[], next: readonly string[]): string[] {
+  const redByCore = new Map(next.map(witness => [witnessCore(witness), RED_ON_MAIN.test(witness)]))
+  return previous.filter((witness) => {
+    const red = redByCore.get(witnessCore(witness))
+    return red === undefined || (RED_ON_MAIN.test(witness) && !red)
+  })
+}
 
 export function witnessesOf(body: string): string[] {
   const lines = body.split('\n')
@@ -204,6 +233,17 @@ function unmergedKnown(references: readonly string[], parked: ReadonlySet<number
 
 function waitingEvent(cardId: number, waitingOn: readonly number[], at: Date): CardEvent {
   return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${cardId}:${waitingOn.join(',')}`, payload: { depends: waitingOn } }
+}
+
+function downgradeEvent(cardId: number, downgrades: readonly string[], sha: string, at: Date): CardEvent {
+  return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${WITNESS_DOWNGRADE}:${cardId}:${sha}`, payload: { reason: WITNESS_DOWNGRADE, witnesses: downgrades, actions: downgrades.map(witness => downgradeAction(cardId, witness)), bodySha: sha } }
+}
+
+function ownerAllowed(decisionsFile: string, cardId: number, downgrades: readonly string[]): boolean {
+  if (!existsSync(decisionsFile))
+    return false
+  const allowing = readFileSync(decisionsFile, 'utf8').split('\n').filter(line => DECISION_LINE.test(line) && !line.includes(SUPERSEDED_BY) && (DECISION_CARDS.exec(line)?.[1]?.split(' ').includes(`#${cardId}`) ?? false))
+  return downgrades.every(witness => allowing.some(line => line.includes(downgradeAction(cardId, witness))))
 }
 
 function blocksTail(line: string): string {
@@ -377,6 +417,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
       options.events?.(waitingEvent(card.id, waitingOn, now()))
     return { status: 'waiting', file: options.file, card: admitted, waitingOn, inBus: base.inBus, dryRun: options.dryRun }
   }
+  const downgrades = recorded?.text === undefined ? [] : witnessDowngrades(witnessesOf(recorded.text), witnessesOf(admitted.text))
+  if (downgrades.length > 0 && !ownerAllowed(options.decisions ?? defaultDecisions(), card.id, downgrades)) {
+    if (!options.dryRun)
+      options.events?.(downgradeEvent(card.id, downgrades, bodySha(admitted.text), now()))
+    return { status: 'ownerWait', file: options.file, card: admitted, downgrades, inBus: base.inBus, dryRun: options.dryRun }
+  }
   if (options.dryRun)
     return { ...base, status: 'dryRun' }
   const token = confirmationToken([admitted])
@@ -403,6 +449,12 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   if (result.status === 'waiting') {
     const depends = result.waitingOn.map(id => `#${id}`).join(', ')
     ui.line(result.dryRun ? ui.lore.intakeAdmitWaitingDryRun(result.file, card.line, depends) : ui.lore.intakeAdmitWaiting(result.file, card.line, depends, result.inBus))
+    return INTAKE_EXIT.waiting
+  }
+  if (result.status === 'ownerWait') {
+    ui.line(result.dryRun ? ui.lore.intakeAdmitDowngradeDryRun(result.file, card.line, result.downgrades.length) : ui.lore.intakeAdmitDowngrade(result.file, card.line, result.downgrades.length, result.inBus))
+    for (const witness of result.downgrades)
+      ui.line(`  - ${ui.lore.intakeAdmitDowngradeAction(card.id, downgradeAction(card.id, witness))}`)
     return INTAKE_EXIT.waiting
   }
   if (result.status === 'alreadyAdmitted') {
