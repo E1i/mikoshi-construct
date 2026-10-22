@@ -1888,8 +1888,9 @@ carries its test — `tests/<module>.test.ts` when that file exists, else `tests
 already touches a test. A row applies only in a repository that keeps the file the row names
 (`tests/harness-membership.test.ts`, `tests/readme-commands.test.ts`, `.changeset/config.json`,
 `tests/`), and a companion is added only where it exists. These corrections need no confirmation. A path with no single
-candidate, a `#<id>` that is neither parked, done nor merged, and a witness with no backticked command or a
-command that is not on `PATH` are marked `unclear:` and kept. A kind outside the grammar is still
+candidate, a `#<id>` that is neither parked, done nor merged, and a witness with no backticked command, a
+command that is not on `PATH`, or a command `bash -n -c` rejects (the line names the witness and the
+shell's message) are marked `unclear:` and kept. A kind outside the grammar is still
 refused.
 
 **Corrected is confirmed.** When any card carries a correction, nothing is parked by default: the
