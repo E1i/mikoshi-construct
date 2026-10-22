@@ -8,6 +8,7 @@ trustPolicyExclude:
 shellEmulator: true
 
 overrides:
+  dompurify: '>=3.4.17'
   launch-editor: '>=2.14.2'
   shell-quote: '>=1.11.0'
   source-map-js: 1.2.2
