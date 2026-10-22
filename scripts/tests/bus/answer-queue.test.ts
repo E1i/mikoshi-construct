@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
 import { AnswerExecutor } from '../../bus/answer-executor.js'
 import { answerSourceOf, NO_RECORDED_SESSION } from '../../bus/answer-source.js'
 import { runAnswerWorker } from '../../bus/answer-worker.js'
@@ -19,11 +20,10 @@ import { taskKey } from '../../bus/identifiers.js'
 import { importJournal } from '../../bus/import.js'
 import { inboxText, ownerInbox } from '../../bus/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, queueTask } from '../../bus/queue.js'
+import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, queueTask } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { Rejection } from '../../bus/stored.js'
-import { moduleOf, wideningOf } from '../../bus/widening.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, POLICY_DENIED, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_REQUEUED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_REQUEUED } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -218,34 +218,117 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  it('a widening onto the same module is answered with scope-widened and one onto an owner path becomes question.owner', async () => {
+  const admitBody = (bench: ReturnType<typeof answerBench>, cardId: number, bodySha: string): void => {
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${bodySha}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}-${bodySha}`, bodySha }, legacy: false })
+  }
+  const WIDEN = ['scripts/bus/lease.ts', 'scripts/tests/bus/lease.test.ts']
+  const askToWiden = (bench: ReturnType<typeof answerBench>, cardId: number): void => {
+    bench.started(cardId)
+    bench.stopped(cardId, { reason: 'question.agent', detail: 'the lease query must admit a card with no pull request', widen: WIDEN, touches: ['scripts/bus/queue.ts'] })
+  }
+  const answerTaskCount = (bench: ReturnType<typeof answerBench>): number => Number((bench.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'answer'`).get() as { n: number }).n)
+
+  it('a stop asking for a file in touches enqueues no answer and opens a window wait', () => {
     const bench = answerBench()
-    const touches = ['scripts/bus/queue.ts', 'scripts/tests/bus/update-queue.test.ts']
-    bench.started(910)
-    bench.stopped(910, { reason: 'question.agent', detail: 'the lease query must admit a card with no pull request', widen: ['scripts/bus/lease.ts', 'scripts/tests/bus/lease.test.ts'], touches })
-    bench.started(911)
-    bench.stopped(911, { reason: 'question.agent', detail: 'the ladder must know the answer queue', widen: ['scripts/construct/implement.workflow'], touches })
-    bench.started(912)
-    bench.stopped(912, { reason: 'question.agent', detail: 'detect must report the bus', widen: ['src/detect/git.ts'], touches })
+    askToWiden(bench, 910)
+    bench.tick()
     bench.tick()
 
-    const same = await bench.answer(bench.leaseAnswer()!)
-    expect(same).toMatchObject({ kind: 'answered', taskKey: bench.question(910), session: CARD_SESSION })
-    const [widened] = eventsOf(bench.db, SCOPE_WIDENED)
-    expect(widened).toMatchObject({ paths: ['scripts/bus/lease.ts', 'scripts/tests/bus/lease.test.ts'], detail: 'the lease query must admit a card with no pull request' })
-    expect(widened!.reason).toContain('scripts/bus')
-    expect(bench.tools.runs[0]!.argv.at(-1)).toContain('The touches are widened')
-
-    const owner = bench.question(911)
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: owner, reason: 'question.owner', detail: expect.stringContaining('scripts/construct/implement.workflow is an owner path') })
-    const outside = bench.question(912)
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: outside, reason: 'question.owner', detail: expect.stringContaining('outside the module') })
-    expect(bench.tools.runs).toHaveLength(1)
-    expect(eventsOf(bench.db, SCOPE_WIDENED)).toHaveLength(1)
-    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([911, 912])
-
-    bench.tick()
+    expect(answerTaskCount(bench)).toBe(0)
     expect(bench.leaseAnswer()).toBeNull()
+    expect(admitCommandOf(910, 'lane-a')).toBe('pnpm intake --admit <parking>/lane-a/910.md')
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toEqual([{ id: 'Q1', need: 'command', text: expect.stringContaining('card #910 asks to widen its touches: the lease query must admit a card with no pull request'), command: 'pnpm intake --admit <parking>/lane-a/910.md', card: 910 }])
+    reduce(bench.db)
+    expect(bench.db.prepare('SELECT id, need, command, card_id, state FROM owner_waits').all().map(row => ({ ...row }))).toEqual([{ id: 'Q1', need: 'command', command: 'pnpm intake --admit <parking>/lane-a/910.md', card_id: 910, state: 'open' }])
+    bench.close()
+  })
+
+  const admitCard = (bench: ReturnType<typeof answerBench>, cardId: number, touches: string[], bodySha: string): number => {
+    const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: ${touches.join(', ')}\ncontinue: stop\nwho: shift\n\nAnswer it.\n`
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${bodySha}`, payload: { card: `#${cardId}`, lane: 'lane-a', text, textSha: textSha(text), bodySha }, legacy: false })
+    return Number((bench.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+  }
+
+  it('after the amend the answer of a touches stop continues', async () => {
+    const bench = answerBench()
+    askToWiden(bench, 911)
+    bench.tick()
+    const admission = admitCard(bench, 911, ['scripts/bus/queue.ts', ...WIDEN], 'cccc3333')
+    bench.tick()
+
+    const lease = bench.leaseAnswer()!
+    expect(lease).toMatchObject({ cardId: 911, taskKey: expect.stringMatching(/:card-body-cccc3333:stop-\d+$/) })
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', session: CARD_SESSION })
+    expect(bench.tools.runs[0]!.argv.at(-1)).toContain(`The touches are widened: ${WIDEN.join(', ')}, by the window's amend of the card.`)
+    expect(eventsOf(bench.db, SCOPE_WIDENED)).toEqual([{ paths: WIDEN, admission, detail: 'the lease query must admit a card with no pull request' }])
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toHaveLength(1)
+    bench.close()
+  })
+
+  it('an admission that does not add the widened paths holds the answer for the window again', async () => {
+    const bench = answerBench()
+    askToWiden(bench, 913)
+    bench.tick()
+    admitCard(bench, 913, ['scripts/bus/queue.ts', 'scripts/bus/lease.ts'], 'eeee5555')
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.agent', detail: expect.stringContaining('scripts/tests/bus/lease.test.ts not in the touches or creates the card was admitted with') })
+    expect(eventsOf(bench.db, CARD_STOPPED).at(-1)).toMatchObject({ widen: ['scripts/tests/bus/lease.test.ts'] })
+    expect(bench.tools.runs).toHaveLength(0)
+    expect(eventsOf(bench.db, SCOPE_WIDENED)).toEqual([])
+    bench.tick()
+
+    expect(bench.leaseAnswer()).toBeNull()
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toHaveLength(2)
+    bench.close()
+  })
+
+  it('a widen onto an owner path stops as question.owner even after the amend', async () => {
+    const bench = answerBench()
+    bench.started(914)
+    bench.stopped(914, { reason: 'question.agent', detail: 'the ladder must know the answer queue', widen: ['scripts/construct/implement.workflow'], touches: ['scripts/bus/queue.ts'] })
+    bench.tick()
+    admitCard(bench, 914, ['scripts/bus/queue.ts', 'scripts/construct/implement.workflow'], 'ffff6666')
+    bench.tick()
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining('scripts/construct/implement.workflow is an owner path') })
+    expect(bench.tools.runs).toHaveLength(0)
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([914])
+    bench.close()
+  })
+
+  it('the same question twice in a row enqueues no second answer', async () => {
+    const bench = answerBench()
+    const repeated = 'which reader owns the session id?'
+    bench.tools.heads = [sha('a'), sha('a')]
+    bench.started(921)
+    bench.stopped(921, { reason: 'question.agent', detail: repeated })
+    bench.tick()
+    const lease = bench.leaseAnswer()!
+    bench.tools.during = () => writeFileSync(ownerQuestionPath(bench.answers, CARD_SESSION, lease.leaseGen), `${repeated}\n`)
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'stopped', reason: 'question.agent', detail: repeated })
+    bench.tick()
+    bench.tick()
+
+    expect(answerTaskCount(bench)).toBe(1)
+    expect(bench.leaseAnswer()).toBeNull()
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ need: 'command', text: expect.stringContaining('card #921 asked the same question twice in a row'), command: admitCommandOf(921, 'lane-a'), card: 921 })])
+
+    admitBody(bench, 921, 'dddd4444')
+    bench.tick()
+    expect(bench.leaseAnswer()).toMatchObject({ cardId: 921, taskKey: expect.stringMatching(/:card-body-dddd4444:stop-\d+$/) })
+    bench.close()
+  })
+
+  it('a different question after a held touches stop is answered without a second wait', () => {
+    const bench = answerBench()
+    askToWiden(bench, 922)
+    bench.tick()
+    bench.stopped(922, { reason: 'question.agent', detail: 'a question of its own' })
+    bench.tick()
+
+    expect(taskState(bench.db, bench.question(922)).state).toBe('queued')
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toHaveLength(1)
     bench.close()
   })
 
@@ -345,9 +428,6 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  const admitBody = (bench: ReturnType<typeof answerBench>, cardId: number, bodySha: string): void => {
-    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${bodySha}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}-${bodySha}`, bodySha }, legacy: false })
-  }
   const liveAnswerTasks = (bench: ReturnType<typeof answerBench>): { task_key: string, state: string }[] =>
     bench.db.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'answer' AND state IN ('queued', 'leased') ORDER BY task_key`).all() as { task_key: string, state: string }[]
 
@@ -1058,23 +1138,6 @@ describe('the card tree of every start path', () => {
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     bench.close()
-  })
-})
-
-describe('the widening rule', () => {
-  it('reads a test under tests/ as the module of its src/ directory and a by-risk path as an owner path', () => {
-    expect(wideningOf(['src/detect/git.ts', 'tests/detect/git.test.ts'], ['src/detect/layout.ts'], OWNER_MERGES).kind).toBe('module')
-    expect(wideningOf(['scripts/ghosts/hash.ts'], ['scripts/ghosts/launch.ts'], OWNER_MERGES)).toMatchObject({ kind: 'owner', reason: 'scripts/ghosts/hash.ts is an owner path' })
-    expect(wideningOf(['README.md'], ['scripts/bus/queue.ts'], OWNER_MERGES).kind).toBe('owner')
-  })
-
-  it('reads a directory or glob touch as its own directory, not its parent', () => {
-    for (const touch of ['scripts/bus', 'scripts/bus/', 'scripts/bus/**', 'scripts/bus/*.ts', 'scripts/tests/bus/']) {
-      expect(moduleOf(touch)).toBe('scripts/bus')
-      expect(wideningOf(['scripts/bus/lease.ts'], [touch], OWNER_MERGES).kind).toBe('module')
-      expect(wideningOf(['scripts/board/x.ts'], [touch], OWNER_MERGES)).toMatchObject({ kind: 'owner', reason: expect.stringContaining('outside the module') })
-      expect(wideningOf(['scripts/x.ts'], [touch], OWNER_MERGES)).toMatchObject({ kind: 'owner', reason: expect.stringContaining('outside the module') })
-    }
   })
 })
 
