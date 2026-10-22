@@ -8,6 +8,7 @@ import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.
 import type { SessionContinuer, StarterPlaces, StarterPorts } from './launch-starter.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode, WaitStep } from './node.js'
+import type { CardBodyReader } from './parking-reads.js'
 import type { QueuedTask } from './queue.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -19,7 +20,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
-import { defaultParking } from '../ghosts/handoff-check.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { commandWords, realIsolationReader } from '../ports/isolation.js'
@@ -30,9 +30,9 @@ import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksF
 import { renderPrompt } from '../shift/prompt.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { DROPPED_CARD, RUNNING_CARD } from './card-automaton.js'
-import { CARD_BODIES, cardBodyText } from './card-bodies.js'
+import { CARD_BODIES } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
-import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
+import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
@@ -42,9 +42,9 @@ import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, Sh
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
 import { TICK_MS } from './netwatch.js'
 import { Node, prefixOf, runNode } from './node.js'
+import { busCardBodies } from './parking-reads.js'
 import { promptsDirOf, storedInput } from './prompt-store.js'
 import { launchTasks } from './queue.js'
-import { openDatabase } from './sqlite.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = prefixOf('launch')
@@ -52,7 +52,6 @@ export const LAUNCH_DIR = 'launch'
 
 export function launchPlaces(home: string, repo: string): StarterPlaces {
   return {
-    parking: defaultParking(home),
     launchDir: path.join(home, '.construct', 'shift', LAUNCH_DIR),
     claude: 'claude',
     treePr: treePrCommand(repo),
@@ -463,22 +462,6 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
   return runNode(argv, 'launch', run.busPath, build, { pause })
 }
 
-export type CardBodyReader = (cardId: number) => string | null
-
-export function busCardBodies(busPath: string): CardBodyReader {
-  return (cardId) => {
-    if (!existsSync(busPath))
-      return null
-    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-    try {
-      return cardBodyText(db, cardId)
-    }
-    finally {
-      db.close()
-    }
-  }
-}
-
 export const CARD_TEXT_HEADING = 'The card text this session runs on:'
 
 export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): ShiftTask {
@@ -494,8 +477,8 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
 export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null): StarterPorts {
   return {
     read: bodyOf,
-    cut: (task, laneDir) => {
-      execFileSync('pnpm', ['--silent', 'task:start', task.branch, '--card', task.card.line, '--parking', laneDir], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    cut: (task) => {
+      execFileSync('pnpm', ['--silent', 'task:start', task.branch, '--card', task.card.line], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
       return taskWorktree(worktreeHome(env), String(task.card.id))
     },
     base: worktree => execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),

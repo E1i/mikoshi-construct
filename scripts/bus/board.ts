@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Goal } from '../../src/commands/board/goal.js'
-import type { Choice, ParkingReads } from '../shift/parking.js'
 import type { Queue } from './identifiers.js'
 import type { LeaseOrder } from './lease.js'
 import type { WindowShard } from './shards.js'
@@ -8,7 +7,6 @@ import path from 'node:path'
 import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_LEASED, WINDOW_HEARTBEAT } from '../core/events.js'
-import { DEPENDS_FAILED, readParking } from '../shift/parking.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from './card-automaton.js'
 import { cardContract } from './card-contract.js'
 import { WAITING } from './chain.js'
@@ -38,17 +36,10 @@ export interface Watched {
   wanted: boolean
 }
 
-export interface LaneParking {
-  lane: string
-  dir: string
-  choice: Choice
-}
-
 export interface BoardSources {
   db: DatabaseSync
   now: Date
   watched: readonly Watched[]
-  parking?: readonly LaneParking[]
   leaseOrders: LeaseOrders
 }
 
@@ -145,9 +136,6 @@ export interface Board {
   windowGauges: WindowGauges | null
 }
 
-const BLOCKING = ['waits question', 'waits boundary', 'waits fault', DEPENDS_FAILED.trim(), 'classify']
-const CLOSED = 'closed'
-
 const STAGE_WORKER: Record<string, string> = { 'review': 'review', 'awaiting merge': 'merge', 'fixes': 'answer' }
 
 interface ChainLane {
@@ -240,22 +228,6 @@ function ageMs(now: Date, ts: string | null): number {
   return ts === null ? Number.POSITIVE_INFINITY : now.getTime() - Date.parse(ts)
 }
 
-function isBlocking(reason: string): boolean {
-  return BLOCKING.some(prefix => reason.startsWith(prefix))
-}
-
-function queueBlock(parking: readonly LaneParking[], inLanes: ReadonlySet<number>): Pick<Board, 'ready' | 'waiting' | 'blocked'> {
-  const ready: QueueCard[] = []
-  const waiting: QueueCard[] = []
-  const blocked: QueueCard[] = []
-  for (const { lane, choice } of parking) {
-    ready.push(...choice.chosen.filter(task => !inLanes.has(Number(task.id))).map(task => ({ card: task.id, lane, reason: null })))
-    for (const left of choice.left.filter(card => card.reason !== CLOSED))
-      (isBlocking(left.reason) ? blocked : waiting).push({ card: left.id, lane, reason: left.reason })
-  }
-  return { ready, waiting, blocked }
-}
-
 function projectedQueue(db: DatabaseSync): Pick<Board, 'ready' | 'waiting' | 'blocked'> {
   const rows = (db.prepare(PROJECTED_QUEUE).all() as { card_id: number, lane: string | null, state: string | null, unmet: string | null, stop_reason: string | null }[])
     .filter(row => row.lane !== null && isLaneName(row.lane))
@@ -273,8 +245,8 @@ function projectedQueue(db: DatabaseSync): Pick<Board, 'ready' | 'waiting' | 'bl
   return queue
 }
 
-function laneBlock(chains: readonly ChainLane[], parking: readonly LaneParking[]): LaneRow[] {
-  const names = [...new Set([...parking.map(lane => lane.lane), ...chains.map(chain => path.basename(chain.parking))])].sort()
+function laneBlock(chains: readonly ChainLane[]): LaneRow[] {
+  const names = [...new Set(chains.map(chain => path.basename(chain.parking)))].sort()
   return names.map((lane) => {
     const active = chains.find(chain => path.basename(chain.parking) === lane && chain.state !== 'stopped')
     return active === undefined ? { lane, card: null, state: null, since: null } : { lane, card: active.card_id, state: active.state, since: active.since }
@@ -479,7 +451,6 @@ export function windowGauges(db: DatabaseSync): WindowGauges | null {
 export function readBoard(sources: BoardSources): Board {
   const { db, now } = sources
   const chains = db.prepare(CHAINS).all() as unknown as ChainLane[]
-  const inLanes = new Set(chains.filter(chain => chain.state !== 'stopped').map(chain => chain.card_id))
   const signs = lastSigns(db)
   const health = [
     ...sources.watched.map(watched => componentHealth(db, signs, now, watched)),
@@ -487,13 +458,12 @@ export function readBoard(sources: BoardSources): Board {
     roleHealth(db, now, 'miko', 'Miko'),
   ]
   const down = new Set(health.filter(component => component.health === 'down').map(component => component.name))
-  const parking = sources.parking ?? []
-  const queue = sources.parking === undefined ? projectedQueue(db) : queueBlock(parking, inLanes)
+  const queue = projectedQueue(db)
   return {
     at: now.toISOString(),
     goal: goalOf(db),
     ...queue,
-    lanes: laneBlock(chains, parking),
+    lanes: laneBlock(chains),
     window: health.find(component => component.name === 'Operator')!,
     shard: activeShard(db, now),
     execution: executionBlock(db, chains, down),
@@ -504,13 +474,4 @@ export function readBoard(sources: BoardSources): Board {
     gauges: cardGauges(db),
     windowGauges: windowGauges(db),
   }
-}
-
-export function parkingLanes(reads: ParkingReads, root: string): LaneParking[] {
-  if (!reads.exists(root))
-    return []
-  return reads.listDir(root).filter(isLaneName).sort().map((lane) => {
-    const dir = path.join(root, lane)
-    return { lane, dir, choice: readParking(reads, dir).choice }
-  })
 }

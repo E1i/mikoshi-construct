@@ -1,10 +1,11 @@
 import { Buffer } from 'node:buffer'
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { parseParkingFile } from '../../src/card/parking.js'
+import { defaultBusPath } from '../bus/db.js'
+import { busParkedDepends } from '../bus/parking-reads.js'
 
 export const PREFIX = '[handoff:check] '
 
@@ -100,7 +101,6 @@ const STOP_HEADING = /^#{1,6} +STOP\b/
 const ANY_LABEL = /^\s*(?:[-*+]\s+)?[a-z][\w -]{0,30}:/i
 const SINGLE_LABELS = ['queue', IN_FLIGHT_LABEL, PREV_LABEL] as const
 const ARCHIVED_PREV = /^archive\/\d{4,}\.md$/
-export const RETIRED_PARKING = ['archive', 'dropped', 'sliced'] as const
 const STATUS_LABEL = 'status'
 const BLOCK_LABELS = new Set([...HANDOFF_FIELDS.map(field => field.label), PREV_LABEL, IN_FLIGHT_LABEL, STATUS_LABEL, OWNER_DECISIONS_LABEL])
 const QUEUE_CARD = /#(\d+)/g
@@ -265,29 +265,6 @@ export function handoffRefusals(text: string, context: HandoffContext): string[]
   ]
 }
 
-const PARKED_CARD = /^\d+\.md$/
-
-export function parkedDepends(parking: string): Map<number, number[]> {
-  const parked = new Map<number, number[]>()
-  const visit = (dir: string, nested: boolean): void => {
-    for (const entry of existsSync(dir) ? readdirSync(dir, { withFileTypes: true }) : []) {
-      const file = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        if (!nested && !(RETIRED_PARKING as readonly string[]).includes(entry.name))
-          visit(file, true)
-        continue
-      }
-      if (!PARKED_CARD.test(entry.name))
-        continue
-      const card = parseParkingFile(entry.name, readFileSync(file, 'utf8'))
-      if (card.kind === 'parked' && !parked.has(Number(card.parked.task.id)))
-        parked.set(Number(card.parked.task.id), card.parked.task.card.depends)
-    }
-  }
-  visit(parking, false)
-  return parked
-}
-
 export function defaultParking(home: string): string {
   return path.join(home, '.construct', 'parking')
 }
@@ -295,18 +272,17 @@ export function defaultParking(home: string): string {
 export interface HandoffCheckDeps {
   exists: (file: string) => boolean
   read: (file: string) => string
-  parked: (parking: string) => ParkedDepends
+  parked: () => ParkedDepends
   home: string
   out: (line: string) => void
   err: (line: string) => void
 }
 
-export const USAGE = 'usage: handoff-check.ts <handoff file> [--parking <dir>]'
+export const USAGE = 'usage: handoff-check.ts <handoff file>'
 
 export function runHandoffCheck(args: string[], deps: HandoffCheckDeps): number {
   const [file, ...rest] = args
-  const parking = rest.length === 2 && rest[0] === '--parking' ? rest[1] : rest.length === 0 ? defaultParking(deps.home) : undefined
-  if (file === undefined || file.startsWith('--') || parking === undefined) {
+  if (file === undefined || file.startsWith('--') || rest.length > 0) {
     deps.err(`${PREFIX}${USAGE}`)
     return 2
   }
@@ -314,7 +290,7 @@ export function runHandoffCheck(args: string[], deps: HandoffCheckDeps): number 
     deps.err(`${PREFIX}no handoff at ${file}`)
     return 1
   }
-  const refusals = handoffRefusals(deps.read(file), { file, home: deps.home, exists: deps.exists, parked: deps.parked(parking) })
+  const refusals = handoffRefusals(deps.read(file), { file, home: deps.home, exists: deps.exists, parked: deps.parked() })
   if (refusals.length > 0) {
     for (const line of refusals)
       deps.err(line)
@@ -330,7 +306,7 @@ if (isEntry) {
   process.exitCode = runHandoffCheck(process.argv.slice(2), {
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
-    parked: parkedDepends,
+    parked: () => busParkedDepends(defaultBusPath()),
     home: os.homedir(),
     out: line => process.stdout.write(`${line}\n`),
     err: line => process.stderr.write(`${line}\n`),

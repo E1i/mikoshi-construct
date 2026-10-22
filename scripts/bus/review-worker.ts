@@ -22,7 +22,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { GhFailed, PROCESS_GH_PORT } from '../core/gh.js'
-import { defaultParking } from '../ghosts/handoff-check.js'
 import { ghStatusPublisher } from '../ports/github-status.js'
 import { realIsolationReader } from '../ports/isolation.js'
 import { HEADLESS_FLAGS, spawnSession } from '../ports/session.js'
@@ -36,6 +35,7 @@ import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey
 import { expireLeases, leaseNext, leaseQueued } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { Node, runNode, SWITCH_FLAG } from './node.js'
+import { busCardBodies } from './parking-reads.js'
 import { promptsDirOf } from './prompt-store.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from './queue.js'
 import { shadowReading } from './report.js'
@@ -410,7 +410,7 @@ async function main(): Promise<number> {
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
     reviewer: claudeReviewer(trees, spawnSession, busReviewPulse(busPath, () => new Date())),
-    plan: gitReviewPlanner(cwd, MORSE_JOURNAL, defaultParking(os.homedir())),
+    plan: gitReviewPlanner(cwd, MORSE_JOURNAL, busCardBodies(busPath)),
     session: randomUUID(),
     slots: slotsOf('review', process.env),
     pause: sleep,

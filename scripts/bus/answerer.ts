@@ -11,9 +11,9 @@ import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../miko/e
 import { readResultFields } from '../ports/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../ports/session.js'
 import { commitAndPush } from '../shift/tree-pr.js'
-import { parkedCardFile } from './card-archive.js'
 import { defaultBusPath } from './db.js'
 import { busSessionPulse } from './heartbeat.js'
+import { busCardBodies } from './parking-reads.js'
 import { MAIN_BRANCH } from './snapshot.js'
 
 export const PREFIX = '[bus:answer] '
@@ -62,13 +62,6 @@ export interface AnswerRun {
 }
 
 export type CardText = (cardId: number) => string | null
-
-export function parkedCardText(parking: string): CardText {
-  return (cardId) => {
-    const file = parkedCardFile(parking, cardId)
-    return file === undefined ? null : readFileSync(file, 'utf8')
-  }
-}
 
 export interface AnswererTools {
   cardText: CardText
@@ -179,8 +172,8 @@ export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string
 
 function cardLines(cardId: number, cardText: string | null): string[] {
   if (cardText === null)
-    return [`Card #${cardId} has no file in parking; read the card from the pull request.`]
-  return [`The card as it stands in parking now, witnesses admitted after the verdict included:`, cardText.trim()]
+    return [`Card #${cardId} has no admitted body in the bus; read the card from the pull request.`]
+  return [`The card as the bus holds it now, witnesses admitted after the verdict included:`, cardText.trim()]
 }
 
 function diffLines(card: CardSession, diff: string | null | undefined): string[] {
@@ -267,10 +260,10 @@ export class CardTreeGone extends Error {
   }
 }
 
-export function realAnswererTools(parking: string, busPath: string = defaultBusPath()): AnswererTools {
+export function realAnswererTools(busPath: string = defaultBusPath()): AnswererTools {
   return {
     pulse: busSessionPulse(busPath, () => new Date()),
-    cardText: parkedCardText(parking),
+    cardText: busCardBodies(busPath),
     available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
     remoteHead,
     spawn: spawnClaude,

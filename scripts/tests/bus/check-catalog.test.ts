@@ -1,9 +1,9 @@
 import type { Graph } from '../../ci/layers.js'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildCatalog, kindOf, overlapWithMain, readBriefs, readParking, RERUN_VARIABLE, rerunModeOf, writeCatalog } from '../../bus/check-catalog.js'
+import { buildCatalog, kindOf, overlapWithMain, readBriefs, RERUN_VARIABLE, rerunModeOf, writeCatalog } from '../../bus/check-catalog.js'
 import { openDatabase } from '../../bus/sqlite.js'
 
 const roots: string[] = []
@@ -38,7 +38,7 @@ function sources() {
   return {
     graph: GRAPH,
     testText: (test: string) => test.endsWith('.e2e.test.ts') ? 'describe(\'end to end\', () => {})' : 'describe(\'merges a pr\', () => {})',
-    parking: [{ card: 7, text: 'Witnesses: scripts/tests/bus/merge-worker.test.ts' }],
+    cards: [{ card: 7, text: 'Witnesses: scripts/tests/bus/merge-worker.test.ts' }],
     briefs: [{ card: 7, text: BRIEF }],
     journal: JOURNAL,
   }
@@ -66,13 +66,13 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
       ['scripts/tests/ghosts/watch.test.ts', ['scripts/tests/ghosts/helper.ts']],
     ])
     const text = (test: string) => test === 'scripts/tests/morse/cli.test.ts' ? 'execFileSync(tsx, [\'scripts/morse/cli.ts\'])' : test === 'scripts/tests/ghosts/helper.ts' ? 'spawn(\'scripts/ghosts/launch.ts\')' : ''
-    const layers = Object.fromEntries(buildCatalog({ ...sources(), graph, testText: text, parking: [] }).tests.map(row => [row.test, row.layer]))
+    const layers = Object.fromEntries(buildCatalog({ ...sources(), graph, testText: text, cards: [] }).tests.map(row => [row.test, row.layer]))
     expect(layers).toEqual({ 'scripts/tests/morse/cli.test.ts': 'morse', 'scripts/tests/ghosts/watch.test.ts': 'ghosts' })
   })
 
   it('credits a card that names a test by its path, and not one that names a longer path ending in the same path', () => {
     const graph: Graph = new Map([['tests/x.test.ts', []]])
-    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText: () => '', parking: [{ card: 3, text }] }).tests[0]!.witness
+    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText: () => '', cards: [{ card: 3, text }] }).tests[0]!.witness
     expect(witnessOf('Witnesses: scripts/tests/x.test.ts')).toBe('')
     expect(witnessOf('Witnesses: tests/x.test.ts passes')).toBe('3')
   })
@@ -80,7 +80,7 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
   it('credits a card whose witness is an it title, not one that lists the test only on touches', () => {
     const graph: Graph = new Map([['tests/x.test.ts', []]])
     const testText = () => 'describe(\'the x suite\', () => {\n  it(\'keeps the x\\\'s order\', () => {})\n})'
-    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText, parking: [{ card: 3, text }] }).tests[0]!.witness
+    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText, cards: [{ card: 3, text }] }).tests[0]!.witness
     expect(witnessOf('card: #3\n\nWitnesses:\n- `pnpm exec vitest run -t \'keeps the x\'s order\'` exits 0\n')).toBe('3')
     expect(witnessOf('card: #3\ntouches: tests/x.test.ts\n\nNames the x suite.\n\nWitnesses:\n- `pnpm exec vitest run tests/y.test.ts` exits 0\n\nrisk: keeps the x\'s order')).toBe('')
   })
@@ -93,7 +93,7 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
       '  test(\'keeps the y\\\'s order\', () => {})',
       '})',
     ].join('\n')
-    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText, parking: [{ card: 3, text }] }).tests[0]!.witness
+    const witnessOf = (text: string) => buildCatalog({ ...sources(), graph, testText, cards: [{ card: 3, text }] }).tests[0]!.witness
     expect(witnessOf('Witnesses:\n- `pnpm exec vitest run -t \'orders a before 1\'` exits 0\n')).toBe('3')
     expect(witnessOf('Witnesses:\n- `pnpm exec vitest run -t \'keeps the y\'\\\'\'s order\'` exits 0\n')).toBe('3')
     expect(witnessOf('Witnesses:\n- `pnpm exec vitest run -t \'orders the rest\'` exits 0\n')).toBe('')
@@ -101,7 +101,7 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
 
   it('a member .test call, a literal $ or %% and a bare placeholder title credit no witness', () => {
     const graph: Graph = new Map([['tests/x.test.ts', []]])
-    const witnessOf = (body: string, text: string) => buildCatalog({ ...sources(), graph, testText: () => `describe('the x suite', () => {\n${body}\n})`, parking: [{ card: 3, text }] }).tests[0]!.witness
+    const witnessOf = (body: string, text: string) => buildCatalog({ ...sources(), graph, testText: () => `describe('the x suite', () => {\n${body}\n})`, cards: [{ card: 3, text }] }).tests[0]!.witness
     expect(witnessOf('  it(\'reads\', () => { expect(/a/.test(\'abc\')).toBe(true) })', 'Witnesses:\n- `pnpm exec vitest run -t \'abc\'` exits 0\n')).toBe('')
     expect(witnessOf('  it(\'costs $5 at 100%% of x\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'costs 7 at 100 of x\'` exits 0\n')).toBe('')
     expect(witnessOf('  it(\'costs $5 at 100%% of x\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'costs $5 at 100%% of x\'` exits 0\n')).toBe('3')
@@ -113,7 +113,7 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
 
   it('a placeholder in a plain it title stays literal', () => {
     const graph: Graph = new Map([['tests/x.test.ts', []]])
-    const witnessOf = (body: string, text: string) => buildCatalog({ ...sources(), graph, testText: () => `describe('the x suite', () => {\n${body}\n})`, parking: [{ card: 3, text }] }).tests[0]!.witness
+    const witnessOf = (body: string, text: string) => buildCatalog({ ...sources(), graph, testText: () => `describe('the x suite', () => {\n${body}\n})`, cards: [{ card: 3, text }] }).tests[0]!.witness
     expect(witnessOf('  it(\'reads $HOME and %s\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'reads x and y\'` exits 0\n')).toBe('')
     expect(witnessOf('  it(\'reads $HOME and %s\', () => {})', 'Witnesses:\n- `pnpm exec vitest run -t \'reads $HOME and %s\'` exits 0\n')).toBe('3')
   })
@@ -133,7 +133,7 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
       '  it(\'stands alone\', () => {})',
       '})',
     ].join('\n')
-    const witnessOf = (title: string) => buildCatalog({ ...sources(), graph, testText, parking: [{ card: 3, text: `Witnesses:\n- \`pnpm exec vitest run -t '${title}'\` exits 0\n` }] }).tests[0]!.witness
+    const witnessOf = (title: string) => buildCatalog({ ...sources(), graph, testText, cards: [{ card: 3, text: `Witnesses:\n- \`pnpm exec vitest run -t '${title}'\` exits 0\n` }] }).tests[0]!.witness
     expect(witnessOf('adds 1 to 2')).toBe('3')
     expect(witnessOf('keeps the tail')).toBe('3')
     expect(witnessOf('wraps 1')).toBe('3')
@@ -173,14 +173,11 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     db.close()
   })
 
-  it('reads briefs and parked cards from files, ignoring other names', () => {
+  it('reads briefs from files, ignoring other names', () => {
     const root = scratch()
-    mkdirSync(path.join(root, 'lane-1'))
     writeFileSync(path.join(root, 'brief-12.md'), 'b')
     writeFileSync(path.join(root, 'notes.md'), 'n')
-    writeFileSync(path.join(root, 'lane-1', '5.md'), 'card')
     expect(readBriefs(root)).toEqual([{ card: 12, text: 'b' }])
-    expect(readParking(root)).toEqual([{ card: 5, text: 'card' }])
     expect(readBriefs(path.join(root, 'missing'))).toEqual([])
   })
 })
