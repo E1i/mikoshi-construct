@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from './lease.js'
 import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, REVIEW_RECORDED } from '../core/events.js'
+import { CARD_BODIES } from './card-bodies.js'
 import { latestTurnOf } from './queue.js'
 
 export const LATEST_EVENTS = 20
@@ -14,7 +15,6 @@ export interface CardEvent {
 
 export interface WideningRequest {
   paths: string[]
-  touches: string[]
 }
 
 export type AnswerSource
@@ -68,7 +68,7 @@ function openQuestion(db: DatabaseSync, cardId: number): Record<string, unknown>
 
 function widenOf(payload: Record<string, unknown>): WideningRequest | null {
   const paths = strings(payload.widen)
-  return paths.length === 0 ? null : { paths, touches: strings(payload.touches) }
+  return paths.length === 0 ? null : { paths }
 }
 
 function changesOn(db: DatabaseSync, lease: Lease): string[] | null {
@@ -101,6 +101,21 @@ export function answerSourceOf(db: DatabaseSync, lease: Lease): AnswerSource | n
     return { kind: 'changes', findings, events }
   const failedChecks = failedChecksOn(db, lease)
   return failedChecks === null ? null : { kind: 'ci', failedChecks, events }
+}
+
+export interface AdmittedScope {
+  admission: number
+  touches: string[]
+  creates: string[]
+}
+
+function listOf(column: string | null): string[] {
+  return column === null ? [] : strings(JSON.parse(column))
+}
+
+export function admittedScopeOf(db: DatabaseSync, cardId: number): AdmittedScope | null {
+  const row = db.prepare(`SELECT admission_event_id, touches, creates FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { admission_event_id: number, touches: string | null, creates: string | null } | undefined
+  return row === undefined ? null : { admission: Number(row.admission_event_id), touches: listOf(row.touches), creates: listOf(row.creates) }
 }
 
 export const NO_RECORDED_SESSION = ''

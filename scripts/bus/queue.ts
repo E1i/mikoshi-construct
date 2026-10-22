@@ -6,10 +6,10 @@ import type { OverlapCatch } from './launch-candidates.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { PRIORITIES } from '../../src/card/parking.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_RECORDED } from '../core/events.js'
 import { BACKFILL_SOURCE } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
-import { appendEvent, inTransaction } from './db.js'
+import { appendEvent, inTransaction, openOwnerWait } from './db.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
 import { launchCandidates } from './launch-candidates.js'
@@ -241,16 +241,76 @@ export function latestTurnOf(card: string): string {
   return `(SELECT id FROM events AS turn WHERE turn.card_id = ${card} AND turn.legacy = 0 AND turn.type IN (${CARD_TURNS}) ORDER BY turn.id DESC LIMIT 1)`
 }
 
-const QUESTION_CANDIDATES = `
-  SELECT stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body FROM events AS stop
+const ASKS_TO_WIDEN_THE_TOUCHES = `EXISTS (
+  SELECT 1 FROM json_each(stop.payload, '$.widen') AS widen WHERE widen.type = 'text' AND widen.value != ''
+)`
+
+const THE_TURN_BEFORE_THE_STOP = `(
+  SELECT id FROM events AS turn WHERE turn.card_id = stop.card_id AND turn.legacy = 0 AND turn.type IN (${CARD_TURNS}) AND turn.id < stop.id
+  ORDER BY turn.id DESC LIMIT 1
+)`
+
+const ASKED_THE_SAME_QUESTION_JUST_BEFORE = `EXISTS (
+  SELECT 1 FROM events AS before WHERE before.id = ${THE_TURN_BEFORE_THE_STOP} AND before.type = '${CARD_STOPPED}'
+    AND json_extract(before.payload, '$.reason') = '${QUESTION_AGENT}'
+    AND json_extract(before.payload, '$.detail') IS json_extract(stop.payload, '$.detail')
+)`
+
+const ADMITTED_AFTER_THE_STOP = `EXISTS (
+  SELECT 1 FROM events AS admitted WHERE admitted.type = '${CARD_ADMITTED}' AND admitted.legacy = 0 AND admitted.card_id = stop.card_id AND admitted.id > stop.id
+)`
+
+const THE_WINDOW_AMENDS_THE_CARD_FIRST = `((${ASKS_TO_WIDEN_THE_TOUCHES} OR ${ASKED_THE_SAME_QUESTION_JUST_BEFORE}) AND NOT ${ADMITTED_AFTER_THE_STOP})`
+
+function latestQuestionStops(columns: string, condition: string): string {
+  return `
+  SELECT ${columns} FROM events AS stop
   LEFT JOIN cards ON cards.card_id = stop.card_id
   LEFT JOIN prs ON prs.pr = coalesce(stop.pr, cards.pr)
   WHERE stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 AND stop.card_id IS NOT NULL
     AND json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}'
     AND stop.id = ${latestTurnOf('stop.card_id')}
     AND (prs.pr IS NULL OR prs.state = 'open')
+    AND ${condition}
   ORDER BY stop.card_id
 `
+}
+
+const QUESTION_CANDIDATES = latestQuestionStops(
+  `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body`,
+  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST}`,
+)
+
+const QUESTIONS_WITH_NO_WINDOW_WAIT_YET = latestQuestionStops(
+  `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, ${ASKS_TO_WIDEN_THE_TOUCHES} AS widen, json_extract(stop.payload, '$.detail') AS detail,
+    (SELECT json_extract(admitted.payload, '$.lane') FROM events AS admitted WHERE admitted.type = '${CARD_ADMITTED}' AND admitted.legacy = 0 AND admitted.card_id = stop.card_id ORDER BY admitted.id DESC LIMIT 1) AS lane`,
+  `${THE_WINDOW_AMENDS_THE_CARD_FIRST}
+    AND NOT EXISTS (SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.card_id = stop.card_id AND opened.id > stop.id)`,
+)
+
+interface WindowQuestionRow {
+  card_id: number
+  pr: number | null
+  widen: number
+  detail: unknown
+  lane: unknown
+}
+
+export function admitCommandOf(cardId: number, lane: unknown): string {
+  const dir = typeof lane === 'string' && lane !== '' ? `<parking>/${lane}` : '<parking>'
+  return `pnpm intake --admit ${dir}/${cardId}.md`
+}
+
+function windowWaitText(row: WindowQuestionRow): string {
+  const question = typeof row.detail === 'string' && row.detail !== '' ? row.detail : 'no detail'
+  const why = row.widen === 1 ? 'asks to widen its touches' : 'asked the same question twice in a row'
+  return `card #${row.card_id} ${why}: ${question}; the window amends the card, and the answer goes on after its card.admitted`
+}
+
+function openWindowWaits(db: DatabaseSync, ts: string): void {
+  for (const row of db.prepare(QUESTIONS_WITH_NO_WINDOW_WAIT_YET).all() as unknown as WindowQuestionRow[])
+    inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'command', text: windowWaitText(row), command: admitCommandOf(row.card_id, row.lane), card: row.card_id, ...(row.pr === null ? {} : { pr: row.pr }) }))
+}
 
 const AN_OPEN_QUESTION = `(
   json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}'
@@ -885,6 +945,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (setAgainAfterItsStop(db, ts, row))
       derived.queued.push(row.task_key)
   }
+  openWindowWaits(db, ts)
   for (const tasksOf of candidates(db, ts)) {
     for (const task of tasksOf()) {
       if (queueTask(db, ts, task))
