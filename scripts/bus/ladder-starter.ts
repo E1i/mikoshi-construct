@@ -31,7 +31,6 @@ export interface LadderPlaces extends StarterPlaces {
 interface ChainContext {
   places: LadderPlaces
   task: ShiftTask
-  cardFile: string
   worktree: string
   report: string
   brief: string
@@ -52,12 +51,12 @@ function pnpmScript(places: LadderPlaces, args: string[]): string {
 }
 
 function finishScript(context: ChainContext): string {
-  const args = [BRIEF_FINISH_CLI, context.cardFile, context.worktree, context.brief]
+  const args = [BRIEF_FINISH_CLI, String(context.task.card.id), context.worktree, context.brief]
   return ['pnpm', '--dir', shellWord(context.places.repo), '--silent', 'exec', 'tsx', ...args.map(shellWord)].join(' ')
 }
 
 function hashScript(context: ChainContext): string {
-  return pnpmScript(context.places, ['ghosts:hash', context.brief, '--by', 'morse', '--card', String(context.task.card.id), '--parking', context.places.parking])
+  return pnpmScript(context.places, ['ghosts:hash', context.brief, '--by', 'morse', '--card', String(context.task.card.id)])
 }
 
 function launchScript(context: ChainContext): string {
@@ -86,12 +85,10 @@ export class LadderCardStarter implements CardStarter {
   constructor(private readonly places: LadderPlaces, private readonly ports: StarterPorts, private readonly steps: LadderSteps) {}
 
   start(card: QueuedCard): CardStart {
-    const laneDir = path.join(this.places.parking, card.lane)
-    const file = `${card.cardId}.md`
     const text = this.ports.read(card.cardId)
     if (text === null)
       return refused('card_unreadable', unreadableCard(card.cardId))
-    const parsed = parseParkingFile(file, text)
+    const parsed = parseParkingFile(`${card.cardId}.md`, text)
     if (parsed.kind === 'refused')
       return refused('card_unreadable', parsed.reason)
     const { task } = parsed.parked
@@ -101,22 +98,22 @@ export class LadderCardStarter implements CardStarter {
         return refused('ladder_running', `card #${card.cardId} has a Ghost running; nothing to start`)
       if (step.kind === 'fault')
         return refused('ladder_fault', step.why)
-      return this.run(card, task, step.kind, laneDir, path.join(laneDir, file))
+      return this.run(card, task, step.kind)
     }
     catch (error) {
       return refused('start_failed', messageOf(error))
     }
   }
 
-  private run(card: QueuedCard, task: ShiftTask, step: ChainStep, laneDir: string, cardFile: string): CardStart {
-    const worktree = this.steps.tree(task) ?? (step === 'brief' ? this.ports.cut(task, laneDir) : null)
+  private run(card: QueuedCard, task: ShiftTask, step: ChainStep): CardStart {
+    const worktree = this.steps.tree(task) ?? (step === 'brief' ? this.ports.cut(task) : null)
     if (worktree === null)
       return refused('start_failed', `card #${card.cardId} has no tree for its ${step} step`)
     const base = this.ports.base(worktree)
     const session = this.ports.uuid()
     const report = path.join(this.places.launchDir, step === 'brief' ? `report-${card.cardId}-brief.md` : `report-${card.cardId}.md`)
     const prompt = step === 'launch' ? '' : this.ports.prompt({ ...task, body: `${this.steps.body(task, step)}\n\n${task.body}` }, { worktree, report })
-    const chain = CHAINS[step]({ places: this.places, task, cardFile, worktree, report, brief: this.steps.brief(task), tasksFile: step === 'review' ? '' : this.steps.tasksFile(task), prompt })
+    const chain = CHAINS[step]({ places: this.places, task, worktree, report, brief: this.steps.brief(task), tasksFile: step === 'review' ? '' : this.steps.tasksFile(task), prompt })
     const pid = this.ports.spawnDetached({
       command: 'sh',
       args: ['-c', chain.script, 'shift', '-p', '--session-id', session],

@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mergedTasks } from '../../../src/card/closed.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { choose, dependencyWaits, leftSummary, nextInPipeline, queueText, readParking, waitingLine } from '../../shift/parking.js'
+import { busCardStates } from '../../ghosts/tasks.js'
+import { choose, dependencyWaits, leftSummary, nextInPipeline, queueText, waitingLine } from '../../shift/parking.js'
 
 function parked(id: number, header: string, extra = ''): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [implement/ghosts/S/cheap/owner] · depends ${extra || '—'} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\n${header}\n\ndo ${id}\n`)
@@ -108,8 +110,8 @@ describe('dependencyWaits', () => {
   })
 })
 
-describe('readParking', () => {
-  it('reads a depends as merged when the bus it is given holds the card closed', () => {
+describe('the choice over the bus card states', () => {
+  it('reads a depends as merged when the bus holds the card closed', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'read-parking-bus-'))
     try {
       const bus = path.join(root, 'bus.db')
@@ -121,10 +123,9 @@ describe('readParking', () => {
       finally {
         db.close()
       }
-      const card = 'card: #7 task-7 [implement/ghosts/S/cheap/owner] · depends #5 · blocks —\nbranch: feat/7\ntouches: scripts/7/**\nwho: shift\n\ndo 7\n'
-      const reads = { cwd: root, handoffDir: root, listDir: () => ['7.md'], read: () => card, exists: (target: string) => target === bus, git: () => '' }
-      expect(readParking(reads, root).choice.left).toEqual([{ id: '7', reason: 'depends #5 not merged' }])
-      expect(readParking({ ...reads, bus }, root).choice.chosen.map(task => task.id)).toEqual(['7'])
+      const card = parked(7, 'who: shift', '#5')
+      expect(choose([card], new Set(), mergedTasks(null, undefined)).left).toEqual([{ id: '7', reason: 'depends #5 not merged' }])
+      expect(choose([card], new Set(), mergedTasks(null, busCardStates(bus))).chosen.map(task => task.id)).toEqual(['7'])
     }
     finally {
       rmSync(root, { recursive: true, force: true })

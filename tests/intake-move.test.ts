@@ -86,7 +86,7 @@ describe('intake --move', () => {
       type: CARD_MOVED,
       cardId: 704,
       ts: NOW.toISOString(),
-      dedupeKey: `${CARD_MOVED}:704:${to}:${NOW.toISOString()}`,
+      dedupeKey: `${CARD_MOVED}:704:lane-2:${NOW.toISOString()}`,
       payload: { from: w.parking, to, bodySha: bodySha(text), lane: 'lane-2' },
     }])
     expect(journalLines(w.journal)).toEqual([{ event: 'intake-move', task: '704', from: w.parking, to, bodySha: bodySha(text), ts: NOW.toISOString() }])
@@ -132,7 +132,7 @@ describe('intake --move', () => {
     expect(printed(recorded).lines.join('\n')).toContain('The bus holds the move as card.dropped; the file was not moved.')
     const to = path.join(w.parking, 'dropped')
     expect(bus).toMatchObject([
-      { type: CARD_DROPPED, cardId: 710, dedupeKey: `${CARD_DROPPED}:710:${to}:${NOW.toISOString()}`, payload: { from: w.parking, to, lane: 'dropped' } },
+      { type: CARD_DROPPED, cardId: 710, dedupeKey: `${CARD_DROPPED}:710:dropped:${NOW.toISOString()}`, payload: { from: w.parking, to, lane: 'dropped' } },
       { type: CARD_DROPPED, cardId: 711, payload: { from: to, to, lane: 'dropped' } },
     ])
   })

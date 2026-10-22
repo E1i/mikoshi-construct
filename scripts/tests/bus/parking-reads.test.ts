@@ -1,10 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { parkingLanes } from '../../bus/board.js'
+import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { busParkingReads } from '../../bus/parking-reads.js'
+import { busCardBodies, busParkedDepends, cardBodies } from '../../bus/parking-reads.js'
+import { reduce } from '../../bus/reducer.js'
+import { CARD_ADMITTED, CARD_DROPPED } from '../../core/events.js'
 
 const roots: string[] = []
 
@@ -13,22 +15,48 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-describe('busParkingReads, the parking reads the board page and handoff:write build over a bus', () => {
-  it('reads a depends as merged when the bus holds the card closed, so the parking lane takes the card', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'bus-parking-reads-'))
-    roots.push(root)
-    const bus = path.join(root, 'bus.db')
+function cardText(id: number, depends: number[]): string {
+  return `card: #${id} task-${id} [implement/ghosts/S/cheap/owner] · depends ${depends.length === 0 ? '—' : depends.map(each => `#${each}`).join(', ')} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: shift\n\ndo ${id}\n`
+}
+
+function busWith(cards: { id: number, depends: number[] }[], dropped: number[]): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'bus-parking-reads-'))
+  roots.push(root)
+  const bus = path.join(root, 'bus.db')
+  const db = openBus(bus)
+  try {
+    for (const { id, depends } of cards) {
+      const text = cardText(id, depends)
+      appendEvent(db, { ts: '2026-10-13T00:00:00.000Z', type: CARD_ADMITTED, actor: 'worker:intake:test', cardId: id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${id}`, payload: { lane: 'lane-1', depends, text, textSha: textSha(text) }, legacy: false })
+    }
+    for (const id of dropped)
+      appendEvent(db, { ts: '2026-10-13T00:01:00.000Z', type: CARD_DROPPED, actor: 'worker:intake:test', cardId: id, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${id}`, payload: { lane: 'dropped' }, legacy: false })
+    reduce(db)
+  }
+  finally {
+    db.close()
+  }
+  return bus
+}
+
+describe('the parking reads over the bus projection card_bodies', () => {
+  it('reads every admitted body and the depends of the cards neither closed nor dropped', () => {
+    const bus = busWith([{ id: 5, depends: [] }, { id: 7, depends: [5] }, { id: 9, depends: [] }], [9])
     const db = openBus(bus)
     try {
-      appendEvent(db, { ts: '2026-10-13T00:00:00.000Z', type: 'card.admitted', actor: 'worker:intake:test', cardId: 5, pr: null, head: null, dedupeKey: 'card.admitted:5', payload: {}, legacy: false })
-      db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (5, \'closed\', NULL, 1)').run()
+      expect(cardBodies(db).map(body => body.card)).toEqual([5, 7, 9])
     }
     finally {
       db.close()
     }
-    const parking = path.join(root, 'parking')
-    mkdirSync(path.join(parking, 'lane-1'), { recursive: true })
-    writeFileSync(path.join(parking, 'lane-1', '7.md'), 'card: #7 task-7 [implement/ghosts/S/cheap/owner] · depends #5 · blocks —\nbranch: feat/7\ntouches: scripts/7/**\nwho: shift\n\ndo 7\n')
-    expect(parkingLanes(busParkingReads(bus), parking).map(lane => lane.choice.chosen.map(task => task.id))).toEqual([['7']])
+    expect(busCardBodies(bus)(7)).toBe(cardText(7, [5]))
+    expect([...busParkedDepends(bus)]).toEqual([[5, []], [7, [5]]])
+  })
+
+  it('reads nothing and creates no file when there is no bus', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-parking-reads-'))
+    roots.push(root)
+    expect(busCardBodies(path.join(root, 'bus.db'))(7)).toBeNull()
+    expect(busParkedDepends(path.join(root, 'bus.db')).size).toBe(0)
   })
 })

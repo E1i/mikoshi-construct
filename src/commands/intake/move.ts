@@ -78,7 +78,7 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   try {
     recordIntake(options.journal, [{
       journalLine: JSON.stringify({ event: INTAKE_MOVE_EVENT, task: String(number), ...moved, ts }),
-      event: { type, cardId: number, ts, dedupeKey: `${type}:${number}:${targetDir}:${ts}`, payload: { ...moved, lane } },
+      event: { type, cardId: number, ts, dedupeKey: `${type}:${number}:${lane}:${ts}`, payload: { ...moved, lane } },
     }], options.events)
   }
   catch (error) {

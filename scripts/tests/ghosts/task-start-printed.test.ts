@@ -16,10 +16,10 @@ function parkingText(card: string, touches: string): string {
   return `card: ${card}\nbranch: feat/entry\ntouches: ${touches}\ncontinue: stop\nwho: window\n\ndo it\n`
 }
 
-function world(parking?: Record<string, string>, parkingDir = '/parking'): { deps: TaskStartDeps, starts: () => Record<string, unknown>[], read: string[] } {
+function world(bodies?: Record<number, string>): { deps: TaskStartDeps, starts: () => Record<string, unknown>[], read: number[] } {
   const bus = path.join(mkdtempSync(path.join(tmpdir(), 'task-start-')), 'bus.db')
   admitCards(bus, [CARD])
-  const read: string[] = []
+  const read: number[] = []
   return {
     starts: () => cardStartedLines(bus),
     read,
@@ -35,12 +35,12 @@ function world(parking?: Record<string, string>, parkingDir = '/parking'): { dep
       bus,
       now: () => NOW,
       session: 's1',
-      ...(parking === undefined
+      ...(bodies === undefined
         ? {}
-        : { parking: { dir: parkingDir, read: (file: string) => {
-            read.push(file)
-            return parking[file] ?? null
-          } } }),
+        : { cardBody: (cardId: number) => {
+            read.push(cardId)
+            return bodies[cardId] ?? null
+          } }),
     },
   }
 }
@@ -73,50 +73,50 @@ describe('task:start writes the CONTRACT and the EXPECT its caller printed', () 
   })
 })
 
-describe('task:start without a caller reads the contract from the parking card', () => {
-  it('writes and prints the touches of /parking/41.md, named by the number in --card', () => {
-    const { deps, starts, read } = world({ '/parking/41.md': parkingText(CARD, 'a.ts, b/**') })
+describe('task:start without a caller reads the contract from the card body in the bus', () => {
+  it('writes and prints the touches of the body of #41, named by the number in --card', () => {
+    const { deps, starts, read } = world({ 41: parkingText(CARD, 'a.ts, b/**') })
     const result = runTaskStart(['feat/entry', '--card', CARD], deps)
     expect(result.exitCode).toBe(0)
-    expect(read).toEqual(['/parking/41.md'])
+    expect(read).toEqual([41])
     const contract = 'implement · cheap · owner · touches a.ts, b/** · law not recorded on the card'
     expect(entryOf(starts).CONTRACT).toBe(contract)
     expect(printed(result.stdout).CONTRACT).toBe(contract)
   })
 
-  it('names the missing file when the card has none, in the entry and on stdout', () => {
+  it('names the missing body when the card has none, in the entry and on stdout', () => {
     const { deps, starts } = world({})
     const result = runTaskStart(['feat/entry', '--card', CARD], deps)
-    const contract = 'implement · cheap · owner · touches not recorded on the card: no parking file for #41 · law not recorded on the card'
+    const contract = 'implement · cheap · owner · touches not recorded on the card: no card body for #41 in the bus · law not recorded on the card'
     expect(entryOf(starts).CONTRACT).toBe(contract)
     expect(printed(result.stdout).CONTRACT).toBe(contract)
   })
 
-  it('names the missing file when it is given no parking source at all', () => {
+  it('names the missing body when it is given no card body source at all', () => {
     const { deps, starts } = world()
     runTaskStart(['feat/entry', '--card', CARD], deps)
-    expect(entryOf(starts).CONTRACT).toContain('touches not recorded on the card: no parking file for #41')
+    expect(entryOf(starts).CONTRACT).toContain('touches not recorded on the card: no card body for #41 in the bus')
   })
 
-  it('reads the directory --parking names instead of the default one', () => {
-    const { deps, starts, read } = world({ '/other/41.md': parkingText(CARD, 'c.ts') }, '/parking')
+  it('refuses a --parking directory and reads nothing, the body comes from the bus alone', () => {
+    const { deps, starts, read } = world({ 41: parkingText(CARD, 'c.ts') })
     const result = runTaskStart(['feat/entry', '--card', CARD, '--parking', '/other'], deps)
-    expect(result.exitCode).toBe(0)
-    expect(read).toEqual(['/other/41.md'])
-    expect(entryOf(starts).CONTRACT).toContain('touches c.ts')
+    expect(result.exitCode).not.toBe(0)
+    expect(read).toEqual([])
+    expect(starts()).toEqual([])
   })
 
-  it('refuses before writing anything when the parking file carries another card line', () => {
-    const { deps, starts } = world({ '/parking/41.md': parkingText(OTHER_CARD, 'a.ts') })
+  it('refuses before writing anything when the card body carries another card line', () => {
+    const { deps, starts } = world({ 41: parkingText(OTHER_CARD, 'a.ts') })
     const result = runTaskStart(['feat/entry', '--card', CARD], deps)
     expect(result.exitCode).toBe(1)
-    expect(result.stderr.join('\n')).toContain('/parking/41.md carries card')
+    expect(result.stderr.join('\n')).toContain('the card body of #41 in the bus')
     expect(result.stderr.join('\n')).toContain('nothing written')
     expect(starts()).toEqual([])
   })
 
-  it('names the reason when the parking file cannot be read as a card', () => {
-    const { deps, starts } = world({ '/parking/41.md': 'not a parking file' })
+  it('names the reason when the card body cannot be read as a card', () => {
+    const { deps, starts } = world({ 41: 'not a parking file' })
     runTaskStart(['feat/entry', '--card', CARD], deps)
     expect(entryOf(starts).CONTRACT).toMatch(/touches not recorded on the card: .*41\.md/)
   })

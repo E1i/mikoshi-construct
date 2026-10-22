@@ -1,3 +1,4 @@
+import type { CardBodyReader } from '../../bus/parking-reads.js'
 import type { BuildRunner } from '../../ghosts/hash.js'
 import type { Preflight } from '../../ghosts/preflight.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
@@ -36,22 +37,22 @@ function briefContent(brief: Brief): string {
   return [`# brief ${brief.card}`, '', ...red, '---', '', ...implement, ''].join('\n')
 }
 
-function world(briefs: Brief[]): { handoff: string, parking: string, journal: string, briefPath: (card: number) => string } {
+function world(briefs: Brief[]): { handoff: string, cards: CardBodyReader, journal: string, briefPath: (card: number) => string } {
   const root = mkdtempSync(path.join(tmpdir(), 'ghosts-approve-'))
   const handoff = path.join(root, 'handoff')
-  const parking = path.join(root, 'parking')
+  const bodies = new Map<number, string>()
+  const cards: CardBodyReader = card => bodies.get(card) ?? null
   mkdirSync(handoff)
-  mkdirSync(parking)
   const briefPath = (card: number): string => path.join(handoff, `brief-${card}.md`)
   for (const brief of briefs) {
     writeFileSync(briefPath(brief.card), briefContent(brief))
-    writeFileSync(path.join(parking, `${brief.card}.md`), parkingFileText({ card: cardLine(brief.card), branch: `feat/${brief.card}`, touches: [brief.touches ?? R1_TOUCH], continue: 'stop', who: 'shift', body: 'Do the thing.' }))
+    bodies.set(brief.card, parkingFileText({ card: cardLine(brief.card), branch: `feat/${brief.card}`, touches: [brief.touches ?? R1_TOUCH], continue: 'stop', who: 'shift', body: 'Do the thing.' }))
     if (brief.approvedBy !== undefined)
       writeFileSync(briefPath(brief.card).replace(/\.md$/, '.approved-sha256'), `approved /implement text sha256: ${hashBrief(briefPath(brief.card))} sketch: none (2026-10-05, ${brief.approvedBy})\n`)
   }
   const tasks = briefs.map(brief => ({ id: `t-${brief.card}`, brief: briefPath(brief.card), card: cardLine(brief.card) }))
   writeFileSync(path.join(handoff, 'tasks-batch.json'), JSON.stringify({ repo: root, status: path.join(handoff, 'status.md'), out: handoff, tasks }))
-  return { handoff, parking, journal: path.join(handoff, 'ghosts.jsonl'), briefPath }
+  return { handoff, cards, journal: path.join(handoff, 'ghosts.jsonl'), briefPath }
 }
 
 function green(): { runBuild: ReturnType<typeof vi.fn<BuildRunner>>, preflight: ReturnType<typeof vi.fn<Preflight>> } {
@@ -63,7 +64,7 @@ describe('pnpm approve', () => {
 
   it('lists briefs waiting for the owner: card, risk and why R1, hash, forecast, brief and red-on-base table', () => {
     const w = world([{ card: 701 }])
-    const waiting = waitingBriefs(w.handoff, w.parking)
+    const waiting = waitingBriefs(w.handoff, w.cards)
     expect(waiting.map(entry => entry.card.id)).toEqual([701])
     const lines = renderWaiting(waiting)
     expect(lines[0]).toBe(cardLine(701))
@@ -76,28 +77,26 @@ describe('pnpm approve', () => {
 
   it('lists briefs waiting for the owner without those MORSE may approve or the owner already approved', () => {
     const w = world([{ card: 701 }, { card: 702, touches: R3_TOUCH }, { card: 703, approvedBy: OWNER }])
-    expect(waitingBriefs(w.handoff, w.parking).map(entry => entry.card.id)).toEqual([701])
+    expect(waitingBriefs(w.handoff, w.cards).map(entry => entry.card.id)).toEqual([701])
   })
 
   it('lists briefs waiting for the owner whose card cannot be read or whose approval was revoked', () => {
     const w = world([{ card: 701, approvedBy: OWNER }, { card: 702, touches: R3_TOUCH }])
     recordGhostLine('test', revokeEvent(hashBrief(w.briefPath(701)), 701, NOW.toISOString()), busOf())
-    const unparked = path.join(w.parking, 'none')
-    mkdirSync(unparked)
-    const waiting = waitingBriefs(w.handoff, unparked)
+    const waiting = waitingBriefs(w.handoff, () => null)
     expect(waiting.map(entry => [entry.card.id, entry.risk])).toEqual([[701, 'not read'], [702, 'not read']])
   })
 
   it('lists briefs waiting for the owner and names a missing forecast and red-on-base table', () => {
     const w = world([{ card: 701, expectLine: null, redOnBase: false }])
-    const lines = renderWaiting(waitingBriefs(w.handoff, w.parking))
+    const lines = renderWaiting(waitingBriefs(w.handoff, w.cards))
     expect(lines).toContain(`  expect not recorded in ${w.briefPath(701)}`)
     expect(lines).toContain(`  red on base: not in ${w.briefPath(701)}`)
   })
 
   it('lists briefs waiting for the owner as none when the queue is empty', () => {
     const w = world([{ card: 701, approvedBy: OWNER }])
-    expect(renderWaiting(waitingBriefs(w.handoff, w.parking))).toEqual(['no brief waits for the owner'])
+    expect(renderWaiting(waitingBriefs(w.handoff, w.cards))).toEqual(['no brief waits for the owner'])
   })
 
   it('approves by card number: the approval line in .approved-sha256 and an approval event by the owner', async () => {
@@ -110,7 +109,7 @@ describe('pnpm approve', () => {
     expect(existsSync(w.journal)).toBe(false)
     expect(ghostLines(busOf())).toEqual([{ event: 'approval', by: OWNER, card: 701, brief: w.briefPath(701), sha256, sketch: 'none', ts: NOW.toISOString() }])
     expect(preflight).toHaveBeenCalledOnce()
-    expect(waitingBriefs(w.handoff, w.parking)).toEqual([])
+    expect(waitingBriefs(w.handoff, w.cards)).toEqual([])
   })
 
   it('approves by card number with or without the # and refuses anything else', () => {
@@ -147,7 +146,7 @@ describe('pnpm approve', () => {
     const sha256 = hashBrief(w.briefPath(701))
     expect(await revokeCard(701, w.handoff, NOW)).toBe(`card #701: approval ${sha256.slice(0, 7)} revoked on the bus`)
     expect(ghostLines(busOf())).toEqual([{ event: 'revoke', sha256, card: 701, ts: NOW.toISOString() }])
-    expect(waitingBriefs(w.handoff, w.parking).map(entry => entry.card.id)).toEqual([701])
+    expect(waitingBriefs(w.handoff, w.cards).map(entry => entry.card.id)).toEqual([701])
     expect(approveArgs(['--revoke', '#701'])).toEqual({ kind: 'revoke', card: 701 })
   })
 

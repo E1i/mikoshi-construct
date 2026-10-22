@@ -8,7 +8,7 @@ import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
-import { busCardBodies } from '../../bus/launch-worker.js'
+import { busCardBodies } from '../../bus/parking-reads.js'
 import { reduce } from '../../bus/reducer.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { sessionEnv } from '../../ports/session.js'
@@ -83,7 +83,6 @@ function launchWorld(claudeExit: number, report = '') {
   git(worktree, ['config', 'commit.gpgsign', 'false'])
   git(worktree, ['checkout', '-q', '-b', BRANCH])
 
-  const parking = path.join(root, 'parking')
   const cardText = parkingFileText({ card: CARD_LINE, branch: BRANCH, touches: ['scripts/bus/**', 'x.txt'], continue: 'stop', who: 'shift', body: 'Do the card.\nPath (D-76): cheap, a fixture card the stub closes in one run' })
   const busPath = path.join(root, 'bus.db')
   const db = openBus(busPath)
@@ -106,7 +105,7 @@ function launchWorld(claudeExit: number, report = '') {
   const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'shift', 'tree-pr-cli.ts'))}`
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, [BUS_DB_VARIABLE]: busPath }
   const starter = new ShiftCardStarter(
-    { parking, launchDir, claude, treePr },
+    { launchDir, claude, treePr },
     {
       read: busCardBodies(busPath),
       cut: () => worktree,

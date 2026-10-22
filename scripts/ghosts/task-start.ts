@@ -4,11 +4,10 @@ import type { ParkedTask } from '../../src/card/parking.js'
 import type { CheapForecast } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { BusEvent } from '../bus/db.js'
+import type { CardBodyReader } from '../bus/parking-reads.js'
 import type { BodyAdmission } from '../bus/queue.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
+import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { mergedFromBus } from '../../src/card/closed.js'
@@ -20,6 +19,7 @@ import { readMilestones } from '../../src/manifest.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { NOT_A_BACKFILL } from '../bus/backfill-source.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
+import { busCardBodies } from '../bus/parking-reads.js'
 import { cardBodyAdmissionOf, LEASED } from '../bus/queue.js'
 import { slotsOf, slotsVariable } from '../bus/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../bus/window-prs.js'
@@ -31,11 +31,10 @@ import { busHistory } from './journal.js'
 import { busCardStates } from './tasks.js'
 
 export const PREFIX = '[task:start] '
-export const USAGE = 'usage: pnpm task:start <branch> --card "<card>" [--parking <dir>] [--without-intake "<reason>"]'
+export const USAGE = 'usage: pnpm task:start <branch> --card "<card>" [--without-intake "<reason>"]'
 const CARD_FLAG = '--card'
-const PARKING_FLAG = '--parking'
 const ADOPT_FLAG = '--adopt'
-export const ADOPT_USAGE = 'usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--parking <dir>] [--without-intake "<reason>"]'
+export const ADOPT_USAGE = 'usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--without-intake "<reason>"]'
 const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SAFE_BRANCH = /^[^\s-]\S*$/
@@ -51,15 +50,11 @@ export interface TaskStartDeps {
   shift?: string
   worktreeHome?: string
   style?: SignalStyle
-  parking?: { dir: string, read: (file: string) => string | null }
+  cardBody?: CardBodyReader
   windowLimit?: () => number
 }
 
 const WINDOW_LIMIT_SLOTS = 'review'
-
-export function readParkedFile(file: string): string | null {
-  return existsSync(file) ? readFileSync(file, 'utf8') : null
-}
 
 export interface TaskStartResult {
   stdout: string[]
@@ -202,18 +197,17 @@ function pathFlagMissing(flag: { at: number, value: string | undefined }): boole
   return flag.at !== -1 && (flag.value === undefined || flag.value.startsWith('-'))
 }
 
-function cardArgs(argv: string[]): { branch: string, card: string, waiver: string | undefined, parking: string | undefined, adopt: string | undefined } | null {
+function cardArgs(argv: string[]): { branch: string, card: string, waiver: string | undefined, adopt: string | undefined } | null {
   const card = flagValue(argv, CARD_FLAG)
   const waiver = flagValue(argv, WITHOUT_INTAKE_FLAG)
-  const parking = flagValue(argv, PARKING_FLAG)
   const adopt = flagValue(argv, ADOPT_FLAG)
   if (card.value === undefined || (waiver.at !== -1 && (waiver.value === undefined || waiver.value.trim() === '')))
     return null
-  if (pathFlagMissing(parking) || pathFlagMissing(adopt))
+  if (pathFlagMissing(adopt))
     return null
-  const taken = new Set([card, waiver, parking, adopt].flatMap(flag => flag.at === -1 ? [] : [flag.at, flag.at + 1]))
+  const taken = new Set([card, waiver, adopt].flatMap(flag => flag.at === -1 ? [] : [flag.at, flag.at + 1]))
   const positional = argv.filter((_, index) => !taken.has(index))
-  return positional.length === 1 ? { branch: positional[0]!, card: card.value, waiver: waiver.value?.trim(), parking: parking.value, adopt: adopt.value } : null
+  return positional.length === 1 ? { branch: positional[0]!, card: card.value, waiver: waiver.value?.trim(), adopt: adopt.value } : null
 }
 
 type Contract = Pick<Signal, 'CONTRACT' | 'EXPECT'>
@@ -238,24 +232,23 @@ type CardFile
     | { kind: 'other', message: string }
     | { kind: 'parked', parked: ParkedTask, text: string }
 
-function readCardFile(deps: TaskStartDeps, card: Card, parkingDir: string | undefined): CardFile {
-  if (deps.parking === undefined)
+function readCardBody(deps: TaskStartDeps, card: Card): CardFile {
+  if (deps.cardBody === undefined)
     return { kind: 'missing' }
-  const file = path.join(parkingDir === undefined ? deps.parking.dir : path.resolve(deps.cwd, parkingDir), `${card.id}.md`)
   let text: string | null
   try {
-    text = deps.parking.read(file)
+    text = deps.cardBody(card.id)
   }
   catch (error) {
-    return { kind: 'refused', reason: `${file} could not be read: ${firstLine(error)}` }
+    return { kind: 'refused', reason: `the card body of #${card.id} in the bus ${deps.bus} could not be read: ${firstLine(error)}` }
   }
   if (text === null)
     return { kind: 'missing' }
-  const parsed = parseParkingFile(path.basename(file), text)
+  const parsed = parseParkingFile(`${card.id}.md`, text)
   if (parsed.kind === 'refused')
     return parsed
   if (cardLine(parsed.parked.task.card) !== cardLine(card))
-    return { kind: 'other', message: `${file} carries card ${cardLine(parsed.parked.task.card)}, not the card given; nothing written` }
+    return { kind: 'other', message: `the card body of #${card.id} in the bus ${deps.bus} carries card ${cardLine(parsed.parked.task.card)}, not the card given; nothing written` }
   return { ...parsed, text }
 }
 
@@ -266,7 +259,7 @@ function admittedBody(recorded: string, text: string): boolean {
 function editedPastAdmission(admitted: Exclude<Admission, { kind: 'refused' }>, cardFile: CardFile, card: Card): string | null {
   if (admitted.by !== 'bus' || admitted.body === undefined || cardFile.kind !== 'parked' || admittedBody(admitted.body.bodySha, cardFile.text))
     return null
-  return `the parking file of card #${card.id} is not the body ${admitted.body.event} admitted (bodySha ${admitted.body.bodySha}, the file ${bodySha(cardFile.text)}): it was edited past intake; admit it again through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception; nothing written`
+  return `the card body of #${card.id} is not the body ${admitted.body.event} admitted (bodySha ${admitted.body.bodySha}, the bus holds ${bodySha(cardFile.text)}): it was edited past intake; admit it again through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception; nothing written`
 }
 
 function manualContract(card: Card, cardFile: CardFile): Contract | string {
@@ -274,7 +267,7 @@ function manualContract(card: Card, cardFile: CardFile): Contract | string {
   const contractOf = (touches: string) => ({ CONTRACT: `${cardTerms(card)} · touches ${touches} · law not recorded on the card`, EXPECT: expect })
   switch (cardFile.kind) {
     case 'missing':
-      return contractOf(`not recorded on the card: no parking file for #${card.id}`)
+      return contractOf(`not recorded on the card: no card body for #${card.id} in the bus`)
     case 'refused':
       return contractOf(`not recorded on the card: ${cardFile.reason}`)
     case 'other':
@@ -335,7 +328,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const atLimit = windowAtLimit(deps, id)
   if (atLimit !== null)
     return refuse(atLimit)
-  const cardFile = readCardFile(deps, card, args.parking)
+  const cardFile = readCardBody(deps, card)
   const edited = editedPastAdmission(admitted, cardFile, card)
   if (edited !== null)
     return refuse(edited)
@@ -385,7 +378,7 @@ function realDeps(): TaskStartDeps {
     now: () => new Date(),
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
     worktreeHome: worktreeHome(process.env),
-    parking: { dir: path.join(os.homedir(), '.construct', 'parking'), read: readParkedFile },
+    cardBody: busCardBodies(defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     windowLimit: () => slotsOf(WINDOW_LIMIT_SLOTS, process.env),
   }

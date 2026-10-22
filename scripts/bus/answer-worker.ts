@@ -18,16 +18,16 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../core/events.js'
-import { defaultParking } from '../ghosts/handoff-check.js'
 import { realIsolationReader } from '../ports/isolation.js'
 import { HEADLESS_FLAGS } from '../ports/session.js'
 import { AnswerExecutor } from './answer-executor.js'
-import { claudeAnswerer, parkedCardText, PREFIX, realAnswererTools } from './answerer.js'
+import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { defaultBusPath } from './db.js'
 import { messageOf } from './errors.js'
 import { assertHeld, failTask, queuedCards, StaleLease } from './lease.js'
 import { Node, runNode } from './node.js'
+import { busCardBodies } from './parking-reads.js'
 import { OWNER_MERGES } from './policy.js'
 import { promptsDirOf } from './prompt-store.js'
 import { answerCandidates } from './queue.js'
@@ -176,12 +176,12 @@ export function answerIsolationCommand(): string[] {
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
-  const parking = defaultParking(os.homedir())
+  const busPath = defaultBusPath()
   return runAnswerWorker(process.argv.slice(2), {
-    busPath: defaultBusPath(),
-    answerer: claudeAnswerer(ANSWERS_DIR, realAnswererTools(parking)),
+    busPath,
+    answerer: claudeAnswerer(ANSWERS_DIR, realAnswererTools(busPath)),
     ownerMerges: () => readFileSync(path.join(cwd, OWNER_MERGES), 'utf8'),
-    cardText: parkedCardText(parking),
+    cardText: busCardBodies(busPath),
     session: randomUUID(),
     pause: sleep,
     isolation: realIsolationReader(process.env, cwd, answerIsolationCommand()),

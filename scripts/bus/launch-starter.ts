@@ -23,7 +23,7 @@ export interface DetachedSpawn {
 
 export interface StarterPorts {
   read: (cardId: number) => string | null
-  cut: (task: ShiftTask, laneDir: string) => string
+  cut: (task: ShiftTask) => string
   base: (worktree: string) => string
   spawnDetached: (spawn: DetachedSpawn) => number
   pgidOf: (pid: number) => number
@@ -39,7 +39,6 @@ export interface StarterPorts {
 }
 
 export interface StarterPlaces {
-  parking: string
   launchDir: string
   claude: string
   treePr: string
@@ -101,8 +100,8 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
   start(card: QueuedCard): CardStart {
     if (card.continueIn !== undefined)
       return this.continueIn(card, card.continueIn)
-    return this.session(card, (task, laneDir) => {
-      const worktree = this.ports.cut(task, laneDir)
+    return this.session(card, (task) => {
+      const worktree = this.ports.cut(task)
       return { worktree, base: this.ports.base(worktree), body: each => each.body }
     })
   }
@@ -160,18 +159,16 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     return path.join(this.places.launchDir, `report-${cardId}.md`)
   }
 
-  private session(card: QueuedCard, treeOf: (task: ShiftTask, laneDir: string) => SessionTree): CardStart {
-    const laneDir = path.join(this.places.parking, card.lane)
-    const file = `${card.cardId}.md`
+  private session(card: QueuedCard, treeOf: (task: ShiftTask) => SessionTree): CardStart {
     const text = this.ports.read(card.cardId)
     if (text === null)
       return { kind: 'refused', denial: technical('card_unreadable', unreadableCard(card.cardId)) }
-    const parsed = parseParkingFile(file, text)
+    const parsed = parseParkingFile(`${card.cardId}.md`, text)
     if (parsed.kind === 'refused')
       return { kind: 'refused', denial: technical('card_unreadable', parsed.reason) }
     const { task } = parsed.parked
     try {
-      const { worktree, base, body } = treeOf(task, laneDir)
+      const { worktree, base, body } = treeOf(task)
       const session = this.ports.uuid()
       const report = this.reportOf(card.cardId)
       const prompt = this.ports.prompt({ ...task, body: body(task, { worktree, report }) }, { worktree, report })

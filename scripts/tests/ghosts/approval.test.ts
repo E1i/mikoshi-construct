@@ -1,5 +1,5 @@
 import type { Preflight } from '../../ghosts/preflight.js'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -243,12 +243,11 @@ function carryWorld(): { brief: string, approvedPath: string, journalPath: strin
   const dir = worldDir()
   const brief = path.join(dir, 'brief-t.md')
   writeFileSync(brief, `# head\n\n---\n\n${sketchedText(APPROVED_SKETCH)}\n`)
-  const parkingDir = path.join(dir, 'parking')
-  mkdirSync(parkingDir)
-  writeFileSync(path.join(parkingDir, `${CARRY_CARD}.md`), parkingFileText({ card: `#${CARRY_CARD} task-${CARRY_CARD} [implement/ghosts/S/cheap/owner] · depends — · blocks —`, branch: `feat/${CARRY_CARD}`, touches: ['src/thing/**'], continue: 'stop', who: 'shift', body: 'Do the thing.' }))
+  const body = parkingFileText({ card: `#${CARRY_CARD} task-${CARRY_CARD} [implement/ghosts/S/cheap/owner] · depends — · blocks —`, branch: `feat/${CARRY_CARD}`, touches: ['src/thing/**'], continue: 'stop', who: 'shift', body: 'Do the thing.' })
+  const cardBody = (card: number): string | null => card === CARRY_CARD ? body : null
   const journalPath = path.join(dir, 'ghosts.jsonl')
   writeFileSync(journalPath, '')
-  const approve = async (preflight: Preflight = () => {}): Promise<string> => (await morseApprove(brief, { card: CARRY_CARD, parkingDir, journalPath, now: new Date(2026, 9, 9, 12), runBuild: () => ({ status: 0, stderr: '' }), preflight })).line
+  const approve = async (preflight: Preflight = () => {}): Promise<string> => (await morseApprove(brief, { card: CARRY_CARD, cardBody, journalPath, now: new Date(2026, 9, 9, 12), runBuild: () => ({ status: 0, stderr: '' }), preflight })).line
   return { brief, approvedPath: approvedHashPath(brief), journalPath, approve }
 }
 

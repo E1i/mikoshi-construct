@@ -1,4 +1,5 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { CardBodyReader } from '../bus/parking-reads.js'
 import type { JournalEvent } from './approval.js'
 import type { Expect } from './expect.js'
 import type { Preflight } from './preflight.js'
@@ -13,6 +14,8 @@ import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { riskReading } from '../../src/card/risk.js'
 import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
+import { defaultBusPath } from '../bus/db.js'
+import { busCardBodies } from '../bus/parking-reads.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { approvalEvent, approvalSha256, approvedHashPath, canonicalImplementText, cardNumberOf, carriedReason, contourSuggestion, fallsOf, journalEvents, MORSE, morseCarryOf, revocationOf, suggestionEvent } from './approval.js'
 import { parseExpect } from './expect.js'
@@ -24,8 +27,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const CHECK_ACCEPTANCE = path.join(REPO_ROOT, 'scripts/construct/check-acceptance.mjs')
 const BY_FLAG = '--by'
 const CARD_FLAG = '--card'
-const PARKING_FLAG = '--parking'
-const USAGE = `usage: hash.ts <brief> [${BY_FLAG} <name>] | hash.ts <brief> ${BY_FLAG} ${MORSE} ${CARD_FLAG} <card> [${PARKING_FLAG} <dir>]`
+const USAGE = `usage: hash.ts <brief> [${BY_FLAG} <name>] | hash.ts <brief> ${BY_FLAG} ${MORSE} ${CARD_FLAG} <card>`
 const APPROVER_NOT_RECORDED = `approver not recorded: pass ${BY_FLAG} or set git config user.name`
 
 export interface BuildResult { status: number | null, stderr: string, stdout?: string }
@@ -158,7 +160,7 @@ type Forecast = Extract<Expect, { kind: 'forecast' }>
 
 export interface MorseOptions {
   card: number
-  parkingDir: string
+  cardBody: CardBodyReader
   journalPath: string
   now: Date
   runBuild?: BuildRunner
@@ -170,11 +172,11 @@ export interface MorseApproval {
   suggestion?: string
 }
 
-function parkedCard(parkingDir: string, card: number): { card: Card, touches: string[], body: string } {
-  const file = path.join(parkingDir, `${card}.md`)
-  if (!existsSync(file))
-    throw new Error(`no parking file ${file} for card #${card}; the card is read from there before anything is built`)
-  const parsed = parseParkingFile(`${card}.md`, readFileSync(file, 'utf8'))
+function admittedCard(cardBody: CardBodyReader, card: number): { card: Card, touches: string[], body: string } {
+  const text = cardBody(card)
+  if (text === null)
+    throw new Error(`the bus holds no card body of card #${card}; the card is read from there before anything is built`)
+  const parsed = parseParkingFile(`${card}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(`card #${card}: ${parsed.reason}`)
   return parsed.parked.task
@@ -221,10 +223,10 @@ function carriedSketch(briefPath: string, sha256: string, sketch: string, events
 }
 
 export async function morseApprove(briefPath: string, options: MorseOptions): Promise<MorseApproval> {
-  const { card, parkingDir, journalPath, now, runBuild = checkAcceptanceBuild, preflight = runPreflight } = options
+  const { card, cardBody, journalPath, now, runBuild = checkAcceptanceBuild, preflight = runPreflight } = options
   const text = implementTextOf(briefPath)
   const sha256 = approvalSha256(text)
-  const parked = parkedCard(parkingDir, card)
+  const parked = admittedCard(cardBody, card)
 
   const reading = riskReading(parked.touches, false)
   if (parked.body.split('\n').some(line => line.startsWith(UNCLEAR_PREFIX.trimEnd())))
@@ -269,7 +271,6 @@ interface HashArgs {
   briefPath: string
   by: string | undefined
   card: string | undefined
-  parking: string | undefined
 }
 
 function flagValue(argv: string[], flag: string): { at: number, value: string | undefined } {
@@ -277,12 +278,12 @@ function flagValue(argv: string[], flag: string): { at: number, value: string | 
 }
 
 function hashArgs(argv: string[]): HashArgs | string {
-  const flags = [BY_FLAG, CARD_FLAG, PARKING_FLAG].map(flag => ({ flag, ...flagValue(argv, flag) }))
+  const flags = [BY_FLAG, CARD_FLAG].map(flag => ({ flag, ...flagValue(argv, flag) }))
   const taken = new Set<number>()
   for (const { flag, at, value } of flags) {
     if (at === -1)
       continue
-    if (value === undefined || (flag === PARKING_FLAG && value.startsWith('-')) || argv.includes(flag, at + 1))
+    if (value === undefined || argv.includes(flag, at + 1))
       return `${flag} needs one value\n${USAGE}`
     taken.add(at)
     taken.add(at + 1)
@@ -290,25 +291,19 @@ function hashArgs(argv: string[]): HashArgs | string {
   const positional = argv.filter((_, index) => !taken.has(index))
   if (positional.length !== 1)
     return USAGE
-  const [by, card, parking] = flags.map(({ value, at }) => at === -1 ? undefined : value)
+  const [by, card] = flags.map(({ value, at }) => at === -1 ? undefined : value)
   const morse = by !== undefined && by.trim().toLowerCase() === MORSE
   if (morse && card === undefined)
     return `${BY_FLAG} ${MORSE} needs ${CARD_FLAG}\n${USAGE}`
   if (!morse && card !== undefined)
     return `${CARD_FLAG} needs ${BY_FLAG} ${MORSE}\n${USAGE}`
-  if (!morse && parking !== undefined)
-    return `${PARKING_FLAG} needs ${BY_FLAG} ${MORSE}\n${USAGE}`
   if (card !== undefined && cardNumberOf(card) === undefined)
     return `${CARD_FLAG}: expected a card number, got '${card}'\n${USAGE}`
-  return { briefPath: positional[0]!, by, card, parking }
+  return { briefPath: positional[0]!, by, card }
 }
 
 export function handoffJournalPath(): string {
   return path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), 'ghosts.jsonl')
-}
-
-export function parkingDirOf(parking: string | undefined): string {
-  return parking === undefined ? path.join(os.homedir(), '.construct', 'parking') : path.resolve(parking)
 }
 
 async function main(): Promise<void> {
@@ -322,7 +317,7 @@ async function main(): Promise<void> {
   const remembered = journalPreflight()
   try {
     if (args.card !== undefined) {
-      const approval = await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, parkingDir: parkingDirOf(args.parking), journalPath: handoffJournalPath(), now: new Date(), preflight: remembered.preflight })
+      const approval = await morseApprove(args.briefPath, { card: cardNumberOf(args.card)!, cardBody: busCardBodies(defaultBusPath()), journalPath: handoffJournalPath(), now: new Date(), preflight: remembered.preflight })
       console.log(approval.line)
       if (approval.suggestion !== undefined)
         console.log(approval.suggestion)

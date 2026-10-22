@@ -7,6 +7,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
+import { textSha } from '../../../src/card/text-sha.js'
+import { appendEvent, openBus } from '../../bus/db.js'
+import { reduce } from '../../bus/reducer.js'
+import { CARD_ADMITTED } from '../../core/events.js'
 import { approvalSha256, approvedHashPath, checkApproval } from '../../ghosts/approval.js'
 import { approvalLine, checkAcceptanceBuild, hashBrief, NO_WITNESS_FILES, PREFLIGHT_EVENT, rememberedPreflight, resolveApprover, witnessFilesDigest } from '../../ghosts/hash.js'
 import { ghostLines, recordGhostLine } from '../../ghosts/journal.js'
@@ -281,11 +285,19 @@ describe('ghosts:hash from the command line', () => {
   it('morse:approve writes only a morse approval and refuses an owner one', () => {
     const card = 903
     const brief = briefWith(RED_ON_BASE_TEXT.replace(/^(Sketch: .*)$/m, '$1\nexpect: tokens ≈ 166k, minutes ≈ 12 — effort medium, n=61, median, p25–p75 100k–200k'))
-    const parking = worldDir()
-    writeFileSync(path.join(parking, `${card}.md`), parkingFileText({ card: `#${card} task-${card} [implement/ghosts/S/cheap/owner] · depends — · blocks —`, branch: `feat/${card}`, touches: ['src/thing/**'], continue: 'stop', who: 'shift', body: 'Do the thing.' }))
+    const cardLine = `#${card} task-${card} [implement/ghosts/S/cheap/owner] · depends — · blocks —`
+    const text = parkingFileText({ card: cardLine, branch: `feat/${card}`, touches: ['src/thing/**'], continue: 'stop', who: 'shift', body: 'Do the thing.' })
+    const db = openBus(busOf())
+    try {
+      appendEvent(db, { ts: new Date().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: card, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${card}`, payload: { card: cardLine, lane: 'lane-1', depends: [], text, textSha: textSha(text) }, legacy: false })
+      reduce(db)
+    }
+    finally {
+      db.close()
+    }
     const handoff = worldDir()
     const morseApprove = (args: string[]): ReturnType<typeof runHash> => {
-      const result = spawnSync(process.execPath, [TSX_CLI, MORSE_APPROVE, brief, String(card), '--parking', parking, ...args], { encoding: 'utf8', cwd: cliRepository(), env: { ...gitHome('Git Name'), CONSTRUCT_HANDOFF_DIR: handoff } })
+      const result = spawnSync(process.execPath, [TSX_CLI, MORSE_APPROVE, brief, String(card), ...args], { encoding: 'utf8', cwd: cliRepository(), env: { ...gitHome('Git Name'), CONSTRUCT_HANDOFF_DIR: handoff } })
       return { status: result.status, stdout: result.stdout, stderr: result.stderr }
     }
 

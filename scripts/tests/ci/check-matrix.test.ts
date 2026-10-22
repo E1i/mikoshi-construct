@@ -31,7 +31,7 @@ const BRIEF = [
 
 function catalogDb(briefText: string) {
   const db = openDatabase(':memory:')
-  writeCatalog(db, buildCatalog({ graph: GRAPH, testText: () => '', parking: [], briefs: [{ card: 1, text: briefText }], journal: '' }))
+  writeCatalog(db, buildCatalog({ graph: GRAPH, testText: () => '', cards: [], briefs: [{ card: 1, text: briefText }], journal: '' }))
   return db
 }
 
