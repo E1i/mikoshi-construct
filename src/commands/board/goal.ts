@@ -2,7 +2,7 @@ import type { BusDb } from '../cost/bus.js'
 import { OPEN_PLAN, TERMINAL_LANES } from '../../../scripts/core/events.js'
 
 export const ITEM_STAGES = ['not_created', 'queued', 'in_progress', 'review', 'delivered'] as const
-export const RECENT_HOURS = 24
+const RECENT_HOURS = 24
 const HOUR_MS = 3_600_000
 const BY_STAGE: readonly ItemStage[] = ['queued', 'in_progress', 'review']
 const MERGED = 'merged'
@@ -129,7 +129,7 @@ export function goalOf(db: BusDb, now: Date = new Date()): Goal | null {
   }
 }
 
-export function itemStageWord(stage: ItemStage): string {
+function itemStageWord(stage: ItemStage): string {
   return stage.replace('_', ' ')
 }
 
