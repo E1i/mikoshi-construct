@@ -349,7 +349,7 @@ describe('the launch queue', () => {
       throw new Error('a mode request uses no tool')
     }
     requestFromWindow(bench.db, new Date().toISOString(), 'test', { kind: 'mode', mode: 'parallel' })
-    new WindowRequests(bench.db, () => new Date(), { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse }).run()
+    new WindowRequests(bench.db, () => new Date(), { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }).run()
     const result = runIntake({ draft, taken: '-', readStdin: () => '1075', parking, parkingRoot: parking, dir: process.cwd(), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, events: busCardEvents(bench.db) })
     expect(result.status).toBe('written')
     const cards = result.status === 'written' ? result.cards : []
@@ -791,7 +791,7 @@ describe('the launch queue', () => {
       throw new Error('a requeue of a launch uses no tree tool')
     }
     requestFromWindow(bench.db, ts(), 'test', { kind: 'requeue', task_key: launch(cardId) })
-    expect(new WindowRequests(bench.db, bench.clock.now, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null }).run()).toMatchObject([{ kind: 'done' }])
+    expect(new WindowRequests(bench.db, bench.clock.now, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }).run()).toMatchObject([{ kind: 'done' }])
     bench.tick()
   }
 

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { DryRunRecord } from './dry-run-record.js'
 import type { Queue } from './identifiers.js'
+import type { CloseOutcome, CloseRequest } from './pr-close.js'
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -19,7 +20,7 @@ import { decisionsInForceAt } from './shards.js'
 import { storedByKey } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close'] as const
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', PLAN_ITEM_ADDED], ['link', PLAN_ITEM_LINKED], ['remove', PLAN_ITEM_REMOVED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'item', 'title', 'goal', 'file', 'card'] as const
 const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM events WHERE type = '${PLAN_OPENED}' AND legacy = 0 AND actor = 'owner' AND json_extract(payload, '$.id') = ? ORDER BY id LIMIT 1`
@@ -29,7 +30,7 @@ export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_UNDER = 186
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer>`
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -48,6 +49,8 @@ export interface RequestTools {
   dryRunOf: (session: string) => DryRunRecord | null
   addDecision: (args: string[]) => { code: number, lines: string[] }
   causeHolds: (task: CardTask) => string | null
+  closePr: (request: CloseRequest) => CloseOutcome
+  closeDropped: () => CloseOutcome[]
 }
 
 export type RequestOutcome
@@ -121,7 +124,9 @@ export class WindowRequests {
   constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly tools: RequestTools) {}
 
   run(): RequestOutcome[] {
-    return pendingRequests(this.db).map(request => this.answer(request))
+    const answered = pendingRequests(this.db).map(request => this.answer(request))
+    this.tools.closeDropped()
+    return answered
   }
 
   private answer(request: StoredEvent): RequestOutcome {
@@ -149,6 +154,7 @@ export class WindowRequests {
     const executors: Record<RequestKind, (request: number, payload: Record<string, unknown>) => Executed> = {
       'tree.cut': (_, payload) => this.treeCut(payload),
       'allow-merge': (_, payload) => this.allowMerge(payload),
+      'close-pr': (request, payload) => this.closePr(request, payload),
       'mode': (request, payload) => this.setMode(request, payload),
       'requeue': (request, payload) => this.requeue(request, payload),
       'plan': (request, payload) => this.plan(request, payload),
@@ -237,6 +243,16 @@ export class WindowRequests {
       return { done: false, why: `D-${decided} already allows the merge of PR #${pr} at ${head}` }
     const written = this.tools.addDecision(['--card', `#${row.card_id}`, `[owner] allow-merge PR #${pr} at ${head} · by D-${ALLOW_MERGE_UNDER}`])
     return { done: written.code === 0, why: written.lines.join('; ') }
+  }
+
+  private closePr(request: number, payload: Record<string, unknown>): Executed {
+    const pr = prOf(payload.pr)
+    const cardId = cardIdOf(payload.card)
+    const reason = text(payload.reason)
+    if (pr === null || cardId === null || reason === null)
+      return { done: false, why: 'close-pr needs a pr, a card and a reason' }
+    const outcome = this.tools.closePr({ attempt: `request-${request}`, pr, cardId, reason, by: 'window' })
+    return { done: outcome.kind === 'closed', why: outcome.detail }
   }
 
   private observed(pr: number): PrAsObserved | undefined {
@@ -373,6 +389,12 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const head = flag(argv, '--head')
     const dryRun = flag(argv, '--dry-run')
     return pr === null || !isFullSha(head) || dryRun === undefined ? null : { kind, pr, head, dry_run: dryRun }
+  }
+  if (kind === 'close-pr') {
+    const pr = prOf(Number(flag(argv, '--pr')))
+    const card = cardIdOf(flag(argv, '--card'))
+    const reason = flag(argv, '--reason')
+    return pr === null || card === null || reason === undefined ? null : { kind, pr, card, reason }
   }
   if (kind === 'requeue') {
     const task = flag(argv, '--task')
