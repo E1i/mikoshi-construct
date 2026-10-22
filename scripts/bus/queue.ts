@@ -307,6 +307,27 @@ function windowWaitText(row: WindowQuestionRow): string {
   return `card #${row.card_id} ${why}: ${question}; the window amends the card, and the answer goes on after its card.admitted`
 }
 
+export const REPEATED_RED = 2
+
+const HEADS_RED_AGAIN_WITH_NO_WAIT = `
+  SELECT red.card_id, red.pr, red.head FROM events AS red
+  WHERE red.type = '${WITNESS_RECORDED}' AND red.legacy = 0 AND red.pr IS NOT NULL AND red.head IS NOT NULL AND json_extract(red.payload, '$.verdict') = 'red'
+    AND NOT EXISTS (
+      SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.pr = red.pr AND instr(json_extract(opened.payload, '$.text'), red.head) > 0
+    )
+  GROUP BY red.card_id, red.pr, red.head HAVING count(*) >= ${REPEATED_RED}
+  ORDER BY red.pr
+`
+
+export function proofMechanismWaitText(cardId: number, pr: number, head: string): string {
+  return `card #${cardId}: the witness was red again on PR #${pr} at ${head}; a red witness spends no review round and starts no re-cut, so check the proof mechanism`
+}
+
+function openProofMechanismWaits(db: DatabaseSync, ts: string): void {
+  for (const row of db.prepare(HEADS_RED_AGAIN_WITH_NO_WAIT).all() as { card_id: number, pr: number, head: string }[])
+    inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: proofMechanismWaitText(row.card_id, row.pr, row.head), card: row.card_id, pr: row.pr }))
+}
+
 function openWindowWaits(db: DatabaseSync, ts: string): void {
   for (const row of db.prepare(QUESTIONS_WITH_NO_WINDOW_WAIT_YET).all() as unknown as WindowQuestionRow[])
     inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'command', text: windowWaitText(row), command: admitCommandOf(row.card_id, row.lane), card: row.card_id, ...(row.pr === null ? {} : { pr: row.pr }) }))
@@ -346,18 +367,37 @@ interface Candidate {
   witness_base?: string | null
 }
 
-const CHANGES_OF_A_PR = `type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.verdict') = 'changes'`
+const REVIEWS_OF_A_PR = `
+  SELECT head, json_extract(payload, '$.verdict') AS verdict, json_extract(payload, '$.card_body') AS card_body FROM events
+  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? ORDER BY id
+`
 
-const CHANGES_ROUNDS_OF_A_PR = `SELECT count(DISTINCT coalesce(head, '')) AS rounds FROM events WHERE ${CHANGES_OF_A_PR}`
-
-const CHANGES_ON_THE_HEAD = `SELECT 1 FROM events WHERE ${CHANGES_OF_A_PR} AND head IS ? LIMIT 1`
-
-export function changesRoundsOf(db: DatabaseSync, pr: number): number {
-  return Number((db.prepare(CHANGES_ROUNDS_OF_A_PR).get(pr) as { rounds: number }).rounds)
+export interface RoundReview {
+  head: string | null
+  verdict: unknown
+  card_body: unknown
 }
 
-export function reviewSpendsARound(db: DatabaseSync, pr: number, head: string | null, verdict: string): boolean {
-  return verdict === 'changes' && db.prepare(CHANGES_ON_THE_HEAD).get(pr, head) === undefined
+function amendedSinceThePreviousReview(reviews: readonly RoundReview[], at: number): boolean {
+  return at > 0 && reviews[at - 1]!.card_body !== reviews[at]!.card_body
+}
+
+export function roundsOf(reviews: readonly RoundReview[]): number {
+  const heads = new Set<string | null>()
+  let rounds = 0
+  for (const [at, review] of reviews.entries()) {
+    if (review.verdict !== 'changes' || heads.has(review.head))
+      continue
+    heads.add(review.head)
+    if (!amendedSinceThePreviousReview(reviews, at))
+      rounds += 1
+  }
+  return rounds
+}
+
+export function changesRoundsOf(db: DatabaseSync, pr: number, next?: RoundReview): number {
+  const reviews = db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[]
+  return roundsOf(next === undefined ? reviews : [...reviews, next])
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']
@@ -947,6 +987,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
       derived.queued.push(row.task_key)
   }
   openWindowWaits(db, ts)
+  openProofMechanismWaits(db, ts)
   for (const tasksOf of candidates(db, ts)) {
     for (const task of tasksOf()) {
       if (queueTask(db, ts, task))

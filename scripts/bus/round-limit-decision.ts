@@ -1,10 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { ShiftTask } from '../../src/card/task-file.js'
+import type { Card } from '../../src/card/grammar.js'
+import type { ParkedTask } from '../../src/card/parking.js'
 import type { InForceDecision } from './decisions.js'
 import type { CleanUpdate } from './update-done.js'
-import { parseParkingFile } from '../../src/card/parking.js'
+import { cardLine } from '../../src/card/grammar.js'
+import { createdPaths, parkingFileText, parseParkingFile } from '../../src/card/parking.js'
 import { RISK_PREFIX, riskReading, SEAM_PREFIX, SLICE_DEPENDS, SLICE_PREFIX } from '../../src/card/risk.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
+import { WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { PR_OBSERVED, PR_OPENED } from '../core/events.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { isFullSha } from './identifiers.js'
@@ -48,6 +51,11 @@ export function dryRunHoldsAt(dryRunHead: string, head: string, observedHeads: r
 
 export const NARROWED_FINDINGS_AT_MOST = 2
 export const NARROWED_PREFIX = 'narrowed: '
+export const SLICED_PREFIX = 'sliced: '
+const CARD_HEADER = 'card: '
+const FINDINGS_SUFFIX = '-findings'
+const FINDINGS_SIZE = 'S'
+const ROUND_LIMIT = 'the review round limit (D-104)'
 const PLACE = /([\w./-]+\.[a-z]+):([\w$]+)/g
 const COMPLEXITY_SEAMS = ['complexity', 'volume']
 const SLICE_LINE = new RegExp(`^${SLICE_PREFIX}(\\d+) [^—]* — (.+?)(?: ${SLICE_DEPENDS}([\\d, ]+))?$`)
@@ -66,8 +74,20 @@ export interface ProposedSlice {
 
 export type RecutPlan
   = | { kind: 'owner_wait', why: string }
-    | { kind: 'narrow', task: ShiftTask, places: Place[] }
-    | { kind: 'slice', task: ShiftTask, slices: ProposedSlice[] }
+    | { kind: 'narrow', parked: ParkedTask, places: Place[] }
+    | { kind: 'slice', parked: ParkedTask, slices: ProposedSlice[] }
+
+export interface RecutCard {
+  id: number
+  text: string
+}
+
+export interface Recut {
+  admitted: RecutCard[]
+  added: number[]
+  carrier: RecutCard
+  dropsTheCard: boolean
+}
 
 export function placeOf(finding: string): Place | null {
   const places = [...new Map([...finding.matchAll(PLACE)].map(match => [`${match[1]}:${match[2]}`, { finding, file: match[1]!, anchor: match[2]! }])).values()]
@@ -120,7 +140,8 @@ export function recutPlanOf(cardId: number, text: string, findings: readonly str
   const parsed = parseParkingFile(`${cardId}.md`, text)
   if (parsed.kind === 'refused')
     return { kind: 'owner_wait', why: `the body of card #${cardId} does not parse: ${parsed.reason}` }
-  const { task } = parsed.parked
+  const { parked } = parsed
+  const { task } = parked
   if (task.card.decision === OWNER_DECISION)
     return { kind: 'owner_wait', why: `card #${cardId} is an owner card, so the owner decides past the round limit` }
   const risk = riskReading(task.touches, false)
@@ -128,11 +149,67 @@ export function recutPlanOf(cardId: number, text: string, findings: readonly str
     return { kind: 'owner_wait', why: `card #${cardId} is ${risk.level} (${risk.why}), so the owner decides past the round limit` }
   const places = narrowPlaces(findings, text)
   if (places !== null)
-    return { kind: 'narrow', task, places }
+    return { kind: 'narrow', parked, places }
   const slices = sliceOrder(complexitySlicesOf(text))
   if (slices === null || slices.length < 2)
     return { kind: 'owner_wait', why: `card #${cardId} has open findings that do not narrow it and Shredder proposed no complexity slices of it` }
-  return { kind: 'slice', task, slices }
+  return { kind: 'slice', parked, slices }
+}
+
+export function recutCardCount(plan: Exclude<RecutPlan, { kind: 'owner_wait' }>): number {
+  return plan.kind === 'narrow' ? 1 : plan.slices.length
+}
+
+function withCard(text: string, card: Omit<Card, 'line'>): string {
+  return text.split('\n').map(line => line.startsWith(CARD_HEADER) ? `${CARD_HEADER}${cardLine(card)}` : line).join('\n')
+}
+
+function beforeTheWitnesses(text: string, added: readonly string[]): string {
+  const lines = text.trimEnd().split('\n')
+  const at = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
+  return `${(at === -1 ? [...lines, '', ...added] : [...lines.slice(0, at), ...added, '', ...lines.slice(at)]).join('\n')}\n`
+}
+
+function narrowed(plan: Extract<RecutPlan, { kind: 'narrow' }>, text: string, pr: number, findingsId: number): Recut {
+  const { task, who } = plan.parked
+  const { card } = task
+  const carrier = { id: card.id, text: beforeTheWitnesses(withCard(text, { ...card, blocks: [...card.blocks, findingsId] }), plan.places.map(place => `${NARROWED_PREFIX}${place.file}:${place.anchor} moved to card #${findingsId} at ${ROUND_LIMIT} on PR #${pr}: ${place.finding}`)) }
+  const findings = {
+    id: findingsId,
+    text: parkingFileText({
+      card: cardLine({ ...card, id: findingsId, name: `${card.name}${FINDINGS_SUFFIX}`, size: FINDINGS_SIZE, depends: [card.id], blocks: [] }),
+      branch: `${task.branch}${FINDINGS_SUFFIX}`,
+      touches: [...new Set(plan.places.map(place => place.file))],
+      continue: task.continue,
+      who,
+      body: [`Findings cut from card #${card.id} at ${ROUND_LIMIT} on PR #${pr}:`, ...plan.places.map(place => `- ${place.finding}`)].join('\n'),
+    }),
+  }
+  return { admitted: [carrier, findings], added: [findingsId], carrier, dropsTheCard: false }
+}
+
+function sliced(plan: Extract<RecutPlan, { kind: 'slice' }>, pr: number, firstId: number): Recut {
+  const { task, who, creates } = plan.parked
+  const { card } = task
+  const idOf = (index: number): number => firstId + plan.slices.findIndex(slice => slice.index === index)
+  const body = task.body.split('\n').filter(line => !line.trim().startsWith(SLICE_PREFIX)).join('\n')
+  const cards = plan.slices.map((slice, at) => ({
+    id: firstId + at,
+    text: parkingFileText({
+      card: cardLine({ ...card, id: firstId + at, name: `${card.name}-${slice.index}`, depends: [...card.depends, ...slice.depends.map(idOf)], blocks: [] }),
+      branch: at === 0 ? task.branch : `${task.branch}-${slice.index}`,
+      touches: slice.touches,
+      creates: createdPaths(creates).filter(created => slice.touches.includes(created)),
+      continue: task.continue,
+      who,
+      body: `${SLICED_PREFIX}slice ${slice.index} of card #${card.id}, cut at ${ROUND_LIMIT} on PR #${pr}\n\n${body}`,
+    }),
+  }))
+  return { admitted: cards, added: cards.map(each => each.id), carrier: cards[0]!, dropsTheCard: true }
+}
+
+export function recutOf(plan: Exclude<RecutPlan, { kind: 'owner_wait' }>, text: string, pr: number, firstId: number): Recut {
+  return plan.kind === 'narrow' ? narrowed(plan, text, pr, firstId) : sliced(plan, pr, firstId)
 }
 
 export function roundLimitDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {

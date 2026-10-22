@@ -16,7 +16,7 @@ import { appendEvent } from './db.js'
 import { reviewInputOfKey } from './identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from './lease.js'
 import { storedInput } from './prompt-store.js'
-import { changesRoundsOf, REVIEW_ROUNDS, reviewSpendsARound } from './queue.js'
+import { changesRoundsOf, REVIEW_ROUNDS } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
 import { PREFIX, ReviewFailed } from './reviewer.js'
@@ -209,10 +209,11 @@ export class ReviewExecutor {
   }
 
   private roundsSpent(lease: Lease, review: Review): BusEvent | null {
-    if (lease.pr === null || !reviewSpendsARound(this.parts.db, lease.pr, lease.head, review.verdict))
+    if (lease.pr === null)
       return null
-    const rounds = changesRoundsOf(this.parts.db, lease.pr) + 1
-    if (rounds !== REVIEW_ROUNDS)
+    const before = changesRoundsOf(this.parts.db, lease.pr)
+    const rounds = changesRoundsOf(this.parts.db, lease.pr, { head: lease.head, verdict: review.verdict, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null })
+    if (before >= REVIEW_ROUNDS || rounds < REVIEW_ROUNDS)
       return null
     return {
       ts: this.ts(),

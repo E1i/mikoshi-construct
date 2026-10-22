@@ -1,10 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
+import type { CardEvent } from '../../src/commands/intake/index.js'
 import type { StoredEvent } from './stored.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { isLaneName, laneName, laneNumber } from '../../src/commands/intake/admit.js'
 import { CARD_ADMITTED, FACTORY_MODE } from '../core/events.js'
+import { appendEvent } from './db.js'
 
 export const CARD_BODIES = 'card_bodies'
 export const FACTORY_MODES = ['window', 'parallel'] as const
@@ -16,6 +18,8 @@ export type FactoryMode = typeof FACTORY_MODES[number]
 const MODE_IN_FORCE = `SELECT json_extract(payload, '$.mode') AS mode FROM events WHERE legacy = 0 AND type = '${FACTORY_MODE}' ORDER BY id DESC LIMIT 1`
 
 const LANE_OF_CARD = `SELECT json_extract(payload, '$.lane') AS lane FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
+
+const PREVIOUS_ADMISSION = `SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
 const ADMITTED_LANES = `SELECT DISTINCT json_extract(payload, '$.lane') AS lane FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}'`
 
@@ -84,6 +88,32 @@ export function admittedLane(db: DatabaseSync, cardId: number, depends: unknown)
     return WINDOW_LANE
   const parents = Array.isArray(depends) ? depends : []
   return laneOfCard(db, cardId) ?? parents.map(parent => laneOfCard(db, parent)).find(lane => lane !== null) ?? newLane(db)
+}
+
+function recordedTextSha(payload: string): string | null {
+  try {
+    const parsed = JSON.parse(payload) as Record<string, unknown> | null
+    return typeof parsed?.textSha === 'string' ? parsed.textSha : null
+  }
+  catch {
+    return null
+  }
+}
+
+function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
+  if (event.type !== CARD_ADMITTED || typeof event.payload.text !== 'string')
+    return event
+  const previous = db.prepare(PREVIOUS_ADMISSION).get(event.cardId) as { id: number, payload: string } | undefined
+  return { ...event, payload: { ...event.payload, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
+}
+
+export function laid(db: DatabaseSync, event: CardEvent): CardEvent {
+  return event.type === CARD_ADMITTED ? { ...event, payload: { ...event.payload, lane: admittedLane(db, event.cardId, event.payload.depends) } } : event
+}
+
+export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: CardEvent): boolean {
+  const event = versioned(db, unversioned)
+  return appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
 }
 
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
