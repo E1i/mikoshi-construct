@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Status } from '../shift/relaunch.js'
 import type { ProcessRow } from './exit.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
@@ -13,11 +12,11 @@ import { recordProcessHeartbeat } from '../bus/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../bus/liveness-sites.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
 import { WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
-import { statusOf } from '../shift/relaunch.js'
 import { ancestors, parsePs } from './exit.js'
 import { windowEndObserver } from './role-end.js'
 
 export const PREFIX = '[miko] '
+export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
 export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
 export const DEFAULT_CLAUDE = 'claude --permission-mode dontAsk'
 export const MIKO_HANDOFF_NAME = 'miko.md'
@@ -43,6 +42,15 @@ const LAST_LOOP_BEATS = `
   )
   ORDER BY beats.ts DESC
 `
+
+export type Status = 'CONTINUE' | 'OWNER' | 'DONE' | 'STOP'
+
+const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
+
+export function statusOf(text: string): Status | null {
+  const found = text.split(/\r?\n/).flatMap(line => STATUS_LINE.exec(line)?.[1] ?? [])
+  return (found.at(-1) as Status | undefined) ?? null
+}
 
 const SHELL_COULD_NOT_RUN_THE_COMMAND = new Set([126, 127])
 

@@ -445,3 +445,56 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 })
+
+describe('the plan journal', () => {
+  const plan = (type: string, payload: Record<string, unknown>, actor = 'owner'): BusEvent => event(type, { actor, payload })
+  const opening = plan('plan.opened', { id: 'p-045', title: 'Plan 0.45', goal: 'explicit journals', plan_file: '/plans/0.45.md' })
+
+  it('plan events build the plans and plan_items projections, and a replay rebuilds the same rows', () => {
+    const db = busWith(
+      opening,
+      plan('plan.item.added', { plan: 'p-045', item: 'S1', title: 'slice one' }),
+      plan('plan.item.added', { plan: 'p-045', item: 'S2', title: 'slice two' }),
+      plan('plan.item.added', { plan: 'p-045', item: 'S3', title: 'slice three' }),
+      plan('plan.item.linked', { plan: 'p-045', item: 'S1', card: 901 }),
+      plan('plan.item.linked', { plan: 'p-045', item: 'S1', card: 902 }),
+      plan('plan.item.removed', { plan: 'p-045', item: 'S3' }),
+    )
+    expect(reduce(db)).toEqual({ applied: 7, rejected: 0 })
+    const rows = (): unknown => [db.prepare('SELECT plan_id, title, goal, plan_file, state FROM plans').all(), db.prepare('SELECT plan_id, item_id, title, cards FROM plan_items ORDER BY item_id').all()]
+    expect(rows()).toEqual([
+      [{ plan_id: 'p-045', title: 'Plan 0.45', goal: 'explicit journals', plan_file: '/plans/0.45.md', state: 'open' }],
+      [{ plan_id: 'p-045', item_id: 'S1', title: 'slice one', cards: '[901,902]' }, { plan_id: 'p-045', item_id: 'S2', title: 'slice two', cards: '[]' }],
+    ])
+    const first = rows()
+    reduce(db)
+    expect(rows()).toEqual(first)
+    db.close()
+  })
+
+  it('a plan event from anyone but the owner, on a closed plan, on an unknown item or linking a card twice is rejected', () => {
+    const db = busWith(
+      plan('plan.opened', { id: 'p-x', title: 'X', goal: 'g', plan_file: '/plans/x.md' }, 'netwatch'),
+      opening,
+      plan('plan.opened', { id: 'p-045', title: 'again', goal: 'g', plan_file: '/plans/0.45.md' }),
+      plan('plan.item.linked', { plan: 'p-045', item: 'S9', card: 901 }),
+      plan('plan.item.added', { plan: 'p-045', item: 'S1', title: 'slice one' }),
+      plan('plan.item.linked', { plan: 'p-045', item: 'S1', card: 901 }),
+      plan('plan.item.linked', { plan: 'p-045', item: 'S1', card: 901 }),
+      plan('plan.closed', { plan: 'p-045' }),
+      plan('plan.item.added', { plan: 'p-045', item: 'S2', title: 'late' }),
+      plan('plan.closed', { plan: 'p-045' }),
+    )
+    expect(reduce(db)).toEqual({ applied: 4, rejected: 6 })
+    expect(rejections(db).map(row => (row.payload as { reason: string }).reason)).toEqual([
+      'plan.opened is the owner\'s, not netwatch\'s',
+      'plan p-045 was opened before',
+      'plan p-045 has no item S9',
+      'card 901 is already linked to item S1',
+      'plan p-045 is not open',
+      'plan p-045 is not open',
+    ])
+    expect(db.prepare('SELECT state FROM plans').all()).toEqual([{ state: 'closed' }])
+    db.close()
+  })
+})

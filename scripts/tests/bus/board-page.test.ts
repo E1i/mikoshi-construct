@@ -8,13 +8,14 @@ import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busFacts, busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
+import { ITEM_STAGES, planLine } from '../../../src/commands/board/goal.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
 import { isLive } from '../../../src/commands/board/screens.js'
 import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, ITEM_PROGRESS_ORDER, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
 import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
 import { defaultBusPath } from '../../bus/db.js'
 import { TICK_MS } from '../../bus/netwatch.js'
@@ -573,14 +574,6 @@ describe('board.html', () => {
     return [...visibleText(html).matchAll(/\d+/g)].map(match => Number(match[0]))
   }
 
-  function planSize(facts: BusFacts, stage: string): number {
-    return facts.plan?.find(entry => entry.stage === stage)?.cards.length ?? 0
-  }
-
-  function planTotal(facts: BusFacts): number {
-    return (facts.plan ?? []).reduce((sum, entry) => sum + entry.cards.length, 0)
-  }
-
   it('a page rendered from a copy of the live bus draws the goal bar and the Flow legend from the board facts and no number outside the bus', () => {
     const busPath = liveBusCopy()
     const facts = liveFacts(busPath)
@@ -588,7 +581,7 @@ describe('board.html', () => {
     const slots = slotsOf(html)
     const flow = slots.get('flow')!
     const goal = slots.get('goal')!
-    const byStage = facts.plan ?? CARD_STAGES.map(stage => ({ stage, cards: facts.cards.filter(card => isLive(card) && card.stage === stage).map(card => card.id) }))
+    const byStage = CARD_STAGES.map(stage => ({ stage, cards: facts.cards.filter(card => isLive(card) && card.stage === stage).map(card => card.id) }))
     const stages = PROGRESS_ORDER.map(stage => byStage.find(entry => entry.stage === stage)!)
     expect(new Set(PROGRESS_ORDER)).toEqual(new Set(CARD_STAGES))
     const legend = [...flow.matchAll(/<div class="stage"( data-empty)?><i class="sw" data-stage="([^"]+)"><\/i><span class="name">([^<]+)<\/span><span class="n">(\d+)<\/span>(?:<span class="ids">(.*?)<\/span>)?<\/div>/g)]
@@ -597,18 +590,17 @@ describe('board.html', () => {
       const shown = [...(row[5] ?? '').matchAll(/#(\d+)/g)].map(match => Number(match[1]))
       expect(shown, row[2]).toEqual(['merged', 'dropped'].includes(row[2]!) ? [] : stages[at]!.cards)
     }
-    if (facts.goal === null || facts.plan === null) {
+    if (facts.goal === null) {
       expect(goal).toBe('')
     }
     else {
-      const segments = [...goal.matchAll(/<i class="sw" data-stage="([^"]+)" style="--_n: (\d+)"/g)].map(match => ({ stage: match[1], n: Number(match[2]) }))
-      expect(segments).toEqual(stages.filter(entry => entry.cards.length > 0).map(entry => ({ stage: entry.stage, n: entry.cards.length })))
-      expect(segments.reduce((sum, segment) => sum + segment.n, 0)).toBe(planTotal(facts))
-      expect(goal).toContain(`<span class="goal-name">release ${facts.goal.release}</span>`)
-      expect(goal).toContain(`<span class="goal-n">${planSize(facts, 'merged')}<small> / ${planTotal(facts) - planSize(facts, 'dropped')} merged · ${planSize(facts, 'dropped')} dropped</small></span>`)
+      const segments = [...goal.matchAll(/<i class="sw" data-stage="([^"]+)" style="--_n: (\d+)"/g)].map(match => Number(match[2]))
+      expect(segments.reduce((sum, n) => sum + n, 0)).toBe(facts.goal.plans.reduce((sum, plan) => sum + plan.total, 0))
+      for (const plan of facts.goal.plans)
+        expect(goal).toContain(`<span class="goal-name">${escaped(planLine(plan, facts.goal.backlog))}</span>`)
     }
-    const allowed = new Set([...busNumbers(busPath), ...stages.map(entry => entry.cards.length), planTotal(facts), planTotal(facts) - planSize(facts, 'dropped')])
-    for (const number of [...numbersIn(goal), ...numbersIn(flow.slice(0, flow.indexOf('<div class="flow-note">')))])
+    const allowed = new Set([...busNumbers(busPath), ...stages.map(entry => entry.cards.length)])
+    for (const number of numbersIn(flow.slice(0, flow.indexOf('<div class="flow-note">'))))
       expect(allowed.has(number), String(number)).toBe(true)
     for (const drawn of [goal, flow, slots.get('waits')!]) {
       expect(drawn).not.toContain('sample')
@@ -616,29 +608,17 @@ describe('board.html', () => {
     }
   })
 
-  it('the goal bar paints each stage of the plan in its colour, and stopped hatched', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-goal-'))
-    roots.push(root)
-    const body = (id: number): string => `card: #${id} c${id} [implement/netwatch/S/cheap/owner] · depends — · blocks —\n\nPath (D-76): cheap — 0.44.`
-    const busPath = busWithRecords(path.join(root, 'bus.db'), {
-      cards: [
-        { id: 860, state: 'merged', lane: 'lane-1', line: 'card: #860 a', since: minutesAgo(30), text: body(860) },
-        { id: 861, state: 'running', lane: 'lane-1', line: 'card: #861 b', since: minutesAgo(20), text: body(861) },
-        { id: 862, state: 'stopped', lane: 'lane-1', line: 'card: #862 c', since: minutesAgo(10), text: body(862) },
-        { id: 863, state: 'dropped', lane: 'lane-1', line: 'card: #863 d', since: minutesAgo(5), text: body(863) },
-      ],
-      decisions: [[193, 'The goal is release 0.44.']],
-    })
-    const html = pageText(busPath)
-    const goal = slotsOf(html).get('goal')!
-    expect(goal).toContain('<span class="goal-n">1<small> / 3 merged · 1 dropped</small></span>')
-    expect(goal).toContain('<i class="sw" data-stage="merged" style="--_n: 1" title="merged: 1"></i><i class="sw" data-stage="in work" style="--_n: 1" title="in work: 1"></i><i class="sw" data-stage="stopped" style="--_n: 1" title="stopped: 1"></i><i class="sw" data-stage="dropped" style="--_n: 1" title="dropped: 1"></i>')
-    expect(slotsOf(html).get('flow')).toContain('<span class="meta">legend of the goal bar</span>')
+  it('every card stage and every slice stage has its swatch colour, stopped and slices without cards hatched, and a bus with no open plan draws no goal', () => {
+    const html = pageText(seededBus())
+    expect(slotsOf(html).get('goal')).toBe('')
+    expect(slotsOf(html).get('flow')).toContain('<span class="meta">live cards by stage</span>')
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     const sw = /\n\.sw \{([\s\S]*?)\n\}/.exec(style)![1]!
-    for (const stage of CARD_STAGES)
+    for (const stage of [...CARD_STAGES, ...ITEM_STAGES])
       expect(sw, stage).toContain(`&[data-stage="${stage}"]`)
+    expect(new Set(ITEM_PROGRESS_ORDER)).toEqual(new Set(ITEM_STAGES))
     expect(sw).toMatch(/&\[data-stage="stopped"\] \{[^}]*--_paint: repeating-linear-gradient\(135deg/)
+    expect(sw).toMatch(/&\[data-stage="not_created"\] \{[^}]*--_paint: repeating-linear-gradient\(135deg/)
   })
 
   it('the waits-for-you strip is absent when the fact is empty', () => {

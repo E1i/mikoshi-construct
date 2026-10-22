@@ -9,7 +9,6 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { runRelaunchBg } from '../shift/relaunch-bg.js'
 import { REAL_PROCESSES } from './chain-process.js'
 import { defaultBusPath, openBus } from './db.js'
 import { expireLeases, LEASE_MS, leaseNext } from './lease.js'
@@ -17,12 +16,13 @@ import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { FAILURES_TO_STOP } from './queue.js'
 import { relaunchKey, RestartExecutor } from './restart-executor.js'
 import { SWITCH_FLAG } from './review-worker.js'
-import { leaseRole, RAISED_VARIABLE, returnSilentRole, roleToOwner } from './role.js'
+import { leaseRole, returnSilentRole, roleToOwner } from './role.js'
 import { stampLogOutput } from './stamp.js'
 import { switchedOn } from './workers.js'
 
 export const PREFIX = '[bus:restart] '
 export const MIKO_LAUNCH_OFF = 'the launch of pnpm miko is switched off: whether nohup pnpm miko can start a claude window without a terminal is not settled; start pnpm miko in a terminal'
+export const OPERATOR_LAUNCH_GONE = 'the Operator has no launcher: its relaunch loop was removed with the shift runner, and the bus launch node starts the who: shift cards'
 
 export type RestartStep = { kind: 'idle' } | { kind: 'dead_chains', chains: DeadChain[] } | ({ kind: 'returned' } & RoleReturned) | RestartOutcome | RelaunchOutcome
 
@@ -86,24 +86,10 @@ export function restartStepLine(step: RestartStep): string | null {
   return `${PREFIX}${step.taskKey}: denied (${step.reason}): ${step.detail}; the task is ${step.next}`
 }
 
-function linesOf(name: string, lines: string[]): string {
-  return lines.length === 0 ? `no ${name}` : `${name}: ${lines.join('; ')}`
-}
-
-function raiseOperator(handoff: string, env: NodeJS.ProcessEnv): number {
-  const started = runRelaunchBg([handoff], { ...env, [RAISED_VARIABLE]: '1' })
-  const pid = Number(started.stdout[0])
-  if (started.exitCode !== 0 || !Number.isSafeInteger(pid) || pid <= 0)
-    throw new Error(`pnpm relaunch ${handoff} exited ${started.exitCode}${started.exitCode === 0 ? ' with no PID on its first line' : ''} (${linesOf('stderr', started.stderr)}, ${linesOf('stdout', started.stdout)})`)
-  return pid
-}
-
-export function roleLauncher(env: NodeJS.ProcessEnv = process.env): RoleLauncher {
+export function roleLauncher(): RoleLauncher {
   return {
-    raise: (role, handoff) => {
-      if (role === 'miko')
-        throw new Error(MIKO_LAUNCH_OFF)
-      return raiseOperator(handoff, env)
+    raise: (role) => {
+      throw new Error(role === 'miko' ? MIKO_LAUNCH_OFF : OPERATOR_LAUNCH_GONE)
     },
   }
 }

@@ -32,7 +32,6 @@ const STAGE_OF_QUEUE: Readonly<Record<string, CardStage>> = { review: 'review', 
 const STAGE_OF_STEP: Readonly<Record<string, CardStage>> = { ...STAGE_OF_QUEUE, launch: 'in work' }
 const SETTLED_STATES = new Set(['merged', 'stopped', 'dropped', 'closed'])
 const OPEN_TASK_STATES = ['queued', 'leased']
-const PATH_LINE = /^Path \(D-76\):.*$/gm
 
 export interface BusCard {
   id: number
@@ -46,7 +45,7 @@ export interface BusCard {
   closedAt: string | null
 }
 
-export interface PlanStage {
+export interface CardsAtStage {
   stage: CardStage
   cards: number[]
 }
@@ -88,7 +87,6 @@ export interface BusSlot {
 export interface BusFacts {
   at: string
   goal: Goal | null
-  plan: PlanStage[] | null
   waits: OwnerWait[]
   pulse: string | null
   slots: BusSlot[]
@@ -310,20 +308,6 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   return rows.map(row => ({ id: row.id, state: row.state, stage: stageOf(row.state, closed.has(row.id), queues.get(row.id)), lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
 }
 
-function namesRelease(text: string, release: string): boolean {
-  const named = new RegExp(`(?<![\\d.])${release.replace('.', '\\.')}(?!\\.?\\d)`)
-  return (text.match(PATH_LINE) ?? []).some(line => named.test(line))
-}
-
-function planOf(db: BusDb, goal: Goal | null, cards: BusCard[]): PlanStage[] | null {
-  if (goal === null)
-    return null
-  const bodies = db.prepare('SELECT card_id AS id, text FROM card_bodies ORDER BY card_id').all() as unknown as { id: number, text: string }[]
-  const stages = new Map(cards.map(card => [card.id, card.stage] as const))
-  const plan = bodies.filter(body => namesRelease(body.text, goal.release)).map(body => ({ id: body.id, stage: stages.get(body.id) ?? 'planned' }))
-  return CARD_STAGES.map(stage => ({ stage, cards: plan.filter(card => card.stage === stage).map(card => card.id) }))
-}
-
 const OWNER_WAITS_TABLE = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'owner_waits'`
 
 const OPEN_OWNER_WAITS = `
@@ -364,12 +348,10 @@ function slotsOf(db: BusDb): BusSlot[] {
 export function busFacts(db: BusDb, now: Date): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
-  const goal = goalOf(db)
   const cards = cardsOf(db, events)
   return {
     at: now.toISOString(),
-    goal,
-    plan: planOf(db, goal, cards),
+    goal: goalOf(db, now),
     waits: ownerWaits(db),
     pulse: lastPulse(db),
     slots: slotsOf(db),

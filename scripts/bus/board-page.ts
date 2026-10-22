@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BusCard, BusFacts, BusMatrix, BusService, CardStage, OwnerWait, PlanStage } from '../../src/commands/board/bus.js'
+import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait } from '../../src/commands/board/bus.js'
+import type { ItemStage, PlanProgress } from '../../src/commands/board/goal.js'
 import type { CardChain } from './card-chain.js'
 import type { CardFields } from './card-contract.js'
 import type { InForceDecision } from './decisions.js'
@@ -10,6 +11,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { busFacts, CARD_STAGES } from '../../src/commands/board/bus.js'
+import { planLine } from '../../src/commands/board/goal.js'
 import { backlogCards, isLive, matrixLines, pulseLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
@@ -116,6 +118,7 @@ const LIST_ITEM = /^\s*[-*]\s+/
 const PUNCH_DIGITS = 16
 const SETTLED_STAGES: readonly CardStage[] = ['merged', 'dropped']
 export const PROGRESS_ORDER: readonly CardStage[] = ['merged', 'ready', 'answer/changes', 'review', 'in work', 'planned', 'stopped', 'dropped']
+export const ITEM_PROGRESS_ORDER: readonly ItemStage[] = ['delivered', 'review', 'in_progress', 'queued', 'not_created']
 const WAIT_NEEDS: Record<OwnerWait['need'], string> = { decision: 'D', merge: 'M', command: 'C' }
 
 function positive(value: unknown): number | null {
@@ -271,39 +274,38 @@ function failureSpan(facts: BusFacts): string {
   return `<span class="fail"${facts.failure === null ? ' data-none' : ''}>last failure <b>${escaped(facts.failure ?? 'none')}</b></span>`
 }
 
-function liveStages(cards: BusCard[]): PlanStage[] {
+function liveStages(cards: BusCard[]): CardsAtStage[] {
   const live = cards.filter(isLive)
   return CARD_STAGES.map(stage => ({ stage, cards: live.filter(card => card.stage === stage).map(card => card.id) }))
 }
 
-function inProgressOrder(stages: PlanStage[]): PlanStage[] {
+function inProgressOrder(stages: CardsAtStage[]): CardsAtStage[] {
   return PROGRESS_ORDER.flatMap(stage => stages.filter(entry => entry.stage === stage))
 }
 
-function flowStages(facts: BusFacts): PlanStage[] {
-  return inProgressOrder(facts.plan ?? liveStages(facts.cards))
+function flowStages(facts: BusFacts): CardsAtStage[] {
+  return inProgressOrder(liveStages(facts.cards))
 }
 
-function swatch(stage: CardStage, count?: number): string {
+function swatch(stage: CardStage | ItemStage, count?: number): string {
   return `<i class="sw" data-stage="${escaped(stage)}"${count === undefined ? '' : ` style="--_n: ${count}" title="${escaped(stage)}: ${count}"`}></i>`
 }
 
-function legendRow(entry: PlanStage, page: BoardPage): string {
+function legendRow(entry: CardsAtStage, page: BoardPage): string {
   const ids = SETTLED_STAGES.includes(entry.stage) || entry.cards.length === 0 ? '' : `<span class="ids">${entry.cards.map(card => cardReference(card, page)).join('')}</span>`
   return `<div class="stage"${entry.cards.length === 0 ? ' data-empty' : ''}>${swatch(entry.stage)}<span class="name">${escaped(entry.stage)}</span><span class="n">${entry.cards.length}</span>${ids}</div>`
 }
 
-function goalSlot(facts: BusFacts): string {
-  if (facts.goal === null || facts.plan === null)
-    return ''
-  const counted = (stage: CardStage): number => facts.plan!.find(entry => entry.stage === stage)?.cards.length ?? 0
-  const planned = facts.plan.reduce((sum, entry) => sum + entry.cards.length, 0)
-  const dropped = counted('dropped')
+function planBlock(plan: PlanProgress, backlog: number): string {
   return [
-    `<div class="goal-top"><span class="goal-k">goal</span><span class="goal-name">release ${escaped(facts.goal.release)}</span>`,
-    `<span class="goal-n">${counted('merged')}<small> / ${planned - dropped} merged · ${dropped} dropped</small></span></div>`,
-    `<div class="bar" role="img" aria-label="Plan progress by stage">${inProgressOrder(facts.plan).filter(entry => entry.cards.length > 0).map(entry => swatch(entry.stage, entry.cards.length)).join('')}</div>`,
+    `<div class="goal-top"><span class="goal-k">plan</span><span class="goal-name">${escaped(planLine(plan, backlog))}</span></div>`,
+    `<div class="bar" role="img" aria-label="Plan slices by stage">${ITEM_PROGRESS_ORDER.filter(stage => plan.stages[stage] > 0).map(stage => swatch(stage, plan.stages[stage])).join('')}</div>`,
   ].join('')
+}
+
+function goalSlot(facts: BusFacts): string {
+  const { goal } = facts
+  return goal === null ? '' : goal.plans.map(plan => planBlock(plan, goal.backlog)).join('')
 }
 
 function waitText(wait: OwnerWait): string {
@@ -326,7 +328,7 @@ function waitsSlot(page: BoardPage): string {
 function flowSlot(page: BoardPage): string {
   const { facts } = page
   return [
-    `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2><span class="meta">${facts.plan === null ? 'live cards by stage' : 'legend of the goal bar'}</span></div>`,
+    `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2><span class="meta">live cards by stage</span></div>`,
     '<div class="flow">',
     ...flowStages(facts).map(entry => legendRow(entry, page)),
     `<div class="flow-note"><span>review queue <b>${facts.reviewQueue}</b></span>${failureSpan(facts)}</div>`,
@@ -962,6 +964,10 @@ header.panel {
   &[data-stage="planned"] { --_c: oklch(from var(--wire) calc(l - 0.3) calc(c * 0.5) h); }
   &[data-stage="stopped"] { --_c: var(--signal); --_paint: repeating-linear-gradient(135deg, var(--_c) 0 3px, transparent 3px 6px); }
   &[data-stage="dropped"] { --_paint: repeating-linear-gradient(135deg, var(--_c) 0 2px, transparent 2px 5px); }
+  &[data-stage="delivered"] { --_c: var(--ok); }
+  &[data-stage="in_progress"] { --_c: var(--amber); }
+  &[data-stage="queued"] { --_c: oklch(from var(--wire) calc(l - 0.3) calc(c * 0.5) h); }
+  &[data-stage="not_created"] { --_paint: repeating-linear-gradient(135deg, var(--_c) 0 2px, transparent 2px 5px); }
 }
 .waits:empty { display: none; }
 .owner-strip {

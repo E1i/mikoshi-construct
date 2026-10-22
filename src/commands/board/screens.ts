@@ -1,14 +1,12 @@
 import type { Lore } from '../../ui/lore.js'
-import type { BusCard, BusFacts, BusMatrix, CardStage, OwnerWait, PlanStage } from './bus.js'
+import type { BusCard, BusFacts, BusMatrix, OwnerWait } from './bus.js'
 import { FLOW_STATES, LIVE_STATES, SHORT_SHA } from './bus.js'
+import { planLine } from './goal.js'
 
 const CARD_PREFIX = /^card:\s*/
 const MATRIX_ROLE = 'matrix'
 const BUS_ROLE = 'bus'
-const GOAL_ROLE = 'goal'
 const WAITS_ROLE = 'waits for you'
-const GOAL_LINE_STAGES: readonly CardStage[] = ['planned', 'in work', 'review', 'answer/changes', 'ready', 'stopped']
-const STAGE_WORD: Partial<Record<CardStage, string>> = { 'answer/changes': 'answer' }
 const MINUTE_MS = 60_000
 export const ENDED_SHOWN_HOURS = 12
 const HOUR_MS = 3_600_000
@@ -82,13 +80,9 @@ export function pulseLines(facts: BusFacts, lore: Lore): string[] {
   return [lore.boardServiceLine(BUS_ROLE, 'pulse', undefined, `${pulse} \u00B7 slots in use: ${slotsReading(facts)}`)]
 }
 
-function stageCounts(plan: PlanStage[] | null): string[] {
-  return (plan ?? []).filter(stage => GOAL_LINE_STAGES.includes(stage.stage)).map(stage => `${STAGE_WORD[stage.stage] ?? stage.stage} ${stage.cards.length}`)
-}
-
-export function goalLines(facts: BusFacts, lore: Lore): string[] {
+export function goalLines(facts: BusFacts): string[] {
   const { goal } = facts
-  return goal === null ? [] : [lore.boardServiceLine(GOAL_ROLE, `release ${goal.release}`, undefined, [`merged ${goal.done}/${goal.total}`, ...stageCounts(facts.plan)].join(' \u00B7 '))]
+  return goal === null ? [] : goal.plans.map(plan => planLine(plan, goal.backlog))
 }
 
 export function waitTarget(wait: OwnerWait): string | null {
@@ -123,7 +117,7 @@ export interface Screens {
 export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
   return {
     screens: [
-      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...flowLines(facts.cards, lore)] },
+      { title: lore.boardTabFlow, lines: [...goalLines(facts), ...waitsLines(facts, lore), ...flowLines(facts.cards, lore)] },
       { title: lore.boardTabBacklog, lines: backlogLines(backlogCards(facts.cards, facts.at, all), lore) },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore)] },
     ],

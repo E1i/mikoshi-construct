@@ -1,6 +1,6 @@
 # Shift task {{task}}
 
-You run unattended in a headless session started by `pnpm shift`. Nobody answers questions until the
+You run unattended in a headless session started by the bus launch node. Nobody answers questions until the
 shift is over; where a decision is the owner's, stop, write it into the report as a
 `question: <what the owner decides>` line and exit.
 
@@ -15,12 +15,12 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - A change to `src/` or `templates/` writes the code matrix over the alphabet of
   `architecture/code-matrix.md` (the common rules and those the brief declares) into the shift report: the
   upper triangle and the count line `■ n □ n · n`. The shift copies that count line into the pull request's
-  description; without it `pnpm shift:merge` hands nothing to the bus. A change to `scripts/` only needs no
+  description; without it the bus denies the merge. A change to `scripts/` only needs no
   matrix.
 - Run no background command, no monitor and no wait for a notification: nobody wakes a headless
   session, and a session that waits ends there. Run everything in the foreground and read its result
   in the same call.
-- Do not commit and do not push: leave your changes in the tree and end the session; the shift commits,
+- Do not commit and do not push: leave your changes in the tree and end the session; the bus commits,
   pushes and opens the pull request from `{{worktree}}`. A refused git command is not a question: do not
   write a `question:` line for it.
 - Run `pnpm run quality` as its own command and read its result before you end the session.
@@ -43,7 +43,7 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   `verification: <word>` on a line of its own, the word one of `measurement`, `code-reading`, `run`,
   `review`, `mutation`, `browser`, `human-gate`, then what was verified and how, and what waits for the
   owner. A probe also writes `Report: <path>` on a line of its own, the path of the report it produced.
-  The shift closes the task from the `PR #N` (a probe: `Report:`) and `verification:` lines; do not run
+  The bus closes the task from the `PR #N` (a probe: `Report:`) and `verification:` lines; do not run
   `pnpm task:close` yourself.
 
 The task follows.

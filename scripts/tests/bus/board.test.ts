@@ -10,7 +10,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { busFacts } from '../../../src/commands/board/bus.js'
-import { GOAL_DECISION } from '../../../src/commands/board/goal.js'
 import { backlogCards } from '../../../src/commands/board/screens.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
 import { BOARD_DATA_FILE, boardProjection, DISK_FILES, printBoard, runBoardCli } from '../../bus/board-page.js'
@@ -20,16 +19,18 @@ import { observeChain } from '../../bus/chain.js'
 import { appendEvent, defaultBusPath, openBus } from '../../bus/db.js'
 import { busSessionPulse, recordHeartbeat, recordProcessHeartbeat } from '../../bus/heartbeat.js'
 import { importJournal } from '../../bus/import.js'
-import { RESTART_MISSED } from '../../bus/inbox.js'
+import { OWNER, RESTART_MISSED } from '../../bus/inbox.js'
 import { completeTask, leaseNext, leaseWhileFree } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { queueTask } from '../../bus/queue.js'
+import { PLAN_FOLDS } from '../../bus/reducer.js'
 import { busReviewPulse } from '../../bus/review-worker.js'
 import { BusTick } from '../../bus/run.js'
 import { windowShardEnded } from '../../bus/shards.js'
+import { storedByKey } from '../../bus/stored.js'
 import { recordJudged } from '../../bus/supervisor.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
-import { CARD_ADMITTED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, RESTARTED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED, RESTARTED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
 import { choose } from '../../shift/parking.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -119,9 +120,19 @@ function bodyRow(bench: BoardBench, cardId: number, columns: BodyColumns): void 
     bench.db.prepare('INSERT INTO chains (dir, card_id, parking, sha, pid, leader, boundary, state, event_id) VALUES (?, ?, ?, ?, 1, NULL, 0, ?, ?)').run(`/trees/${cardId}`, cardId, '/parking/lane-1', sha('c'), columns.chain, eventId)
 }
 
-function decisionRow(bench: BoardBench, decisionId: number, text: string): void {
-  const eventId = (bench.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id
-  bench.db.prepare('INSERT INTO decisions (decision_id, text, scope, source, event_id) VALUES (?, ?, \'[]\', \'owner\', ?)').run(decisionId, text, eventId)
+function planEvent(bench: BoardBench, type: string, payload: Record<string, unknown>): void {
+  const dedupeKey = `${type}:${JSON.stringify(payload)}`
+  appendEvent(bench.db, { ts: bench.ts(), type, actor: OWNER, cardId: null, pr: null, head: null, dedupeKey, payload, legacy: false })
+  PLAN_FOLDS[type]!(bench.db, storedByKey(bench.db, dedupeKey))
+}
+
+function openPlan(bench: BoardBench, items: Record<string, number[]>): void {
+  planEvent(bench, PLAN_OPENED, { id: 'p-045', title: 'Plan 0.45', goal: 'explicit journals', plan_file: '/plans/0.45.md' })
+  for (const [item, cards] of Object.entries(items)) {
+    planEvent(bench, PLAN_ITEM_ADDED, { plan: 'p-045', item, title: `slice ${item}` })
+    for (const card of cards)
+      planEvent(bench, PLAN_ITEM_LINKED, { plan: 'p-045', item, card })
+  }
 }
 
 function conflictingSources(): void {
@@ -612,38 +623,33 @@ describe('the factory board', () => {
     }
   })
 
-  it('the header goal is the D-193 release with done of total over the cards whose Path line names it', () => {
+  it('the header goal comes from the open plan journal, never from a decision or a Path line', () => {
     const bench = boardBench()
     const read = (): Board => readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} })
-    const path = (line: string): string => `do it\n\nPath (D-76): ${line}\n`
-    bodyRow(bench, 920, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.44, slice S, the ladder after the release') })
-    bodyRow(bench, 921, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.44 night order, slice M') })
-    bodyRow(bench, 922, { lane: 'lane-1', state: 'queued', text: path('cheap — 0.44 blocker, slice S') })
-    bodyRow(bench, 923, { lane: 'lane-1', state: 'dropped', text: path('cheap — 0.44, slice S') })
-    bodyRow(bench, 924, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.45, slice S') })
-    bodyRow(bench, 925, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.441, slice S') })
-    bodyRow(bench, 926, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.44.1, slice S') })
-    bodyRow(bench, 927, { lane: 'lane-1', state: MERGED_CARD, text: 'the cards whose «Path (D-76): …» line names 0.44\n\nPath (D-76): cheap, slice S\n' })
-    bodyRow(bench, 928, { lane: 'lane-1', state: MERGED_CARD, text: 'release 0.44 is the goal\n\nPath (D-76): cheap, slice S\n' })
+    bodyRow(bench, 920, { lane: 'lane-1', state: MERGED_CARD, text: 'do it\n\nPath (D-76): cheap — 0.44, slice S\n' })
+    bodyRow(bench, 921, { lane: 'lane-1', state: 'queued' })
+    bodyRow(bench, 922, { lane: 'lane-1', state: 'queued' })
+    bench.db.prepare('INSERT INTO decisions (decision_id, text, scope, source, event_id) VALUES (193, ?, \'[]\', \'owner\', 1)').run('[owner] 0.44 scope is the list')
     expect(read().goal).toBeNull()
-    decisionRow(bench, GOAL_DECISION - 1, '[owner] 0.45 scope is another list')
-    expect(read().goal).toBeNull()
-    decisionRow(bench, GOAL_DECISION, '[owner] 0.44 scope is the list \'Release 0.44 — full list\', items 1–16.')
-    expect(read().goal).toEqual({ release: '0.44', done: 2, total: 3 })
+    openPlan(bench, { S1: [920], S2: [921], S3: [] })
+    expect(read().goal).toMatchObject({ plans: [{ id: 'p-045', delivered: 1, total: 3, stages: { not_created: 1, queued: 1, delivered: 1 } }], backlog: 1 })
   })
 
-  it('the board page opens with the goal line, and a dropped card leaves the total because it left the plan', () => {
+  it('the board page opens with the plan line and a bar of its slices by stage', () => {
     const bench = boardBench()
-    const path = (line: string): string => `do it\n\nPath (D-76): ${line}\n`
-    bodyRow(bench, 930, { lane: 'lane-1', state: MERGED_CARD, text: path('cheap — 0.44, slice S') })
-    bodyRow(bench, 931, { lane: 'lane-1', state: 'queued', text: path('cheap — 0.44, slice S') })
-    bodyRow(bench, 932, { lane: 'lane-1', state: 'dropped', text: path('cheap — 0.44, slice S') })
-    decisionRow(bench, GOAL_DECISION, '[owner] 0.44 scope is the list')
+    bodyRow(bench, 930, { lane: 'lane-1', state: MERGED_CARD })
+    bodyRow(bench, 931, { lane: 'lane-1', state: 'queued' })
+    bodyRow(bench, 932, { lane: 'lane-1', state: 'dropped' })
+    openPlan(bench, { S1: [930], S2: [931], S3: [932] })
     const written: string[] = []
     expect(printBoard(bench.db.location()!, bench.clock.now(), text => written.push(text))).toBe(0)
     const page = written.join('')
-    expect(page).toContain('<div class="goal" id="slot-goal"><div class="goal-top"><span class="goal-k">goal</span><span class="goal-name">release 0.44</span><span class="goal-n">1<small> / 2 merged · 1 dropped</small></span></div>')
-    expect(page).toContain('<div class="bar" role="img" aria-label="Plan progress by stage"><i class="sw" data-stage="merged" style="--_n: 1" title="merged: 1"></i><i class="sw" data-stage="planned" style="--_n: 1" title="planned: 1"></i><i class="sw" data-stage="dropped" style="--_n: 1" title="dropped: 1"></i></div>')
-    expect(page).toContain('<h2 id="h-flow">Flow</h2><span class="meta">legend of the goal bar</span></div>\n<div class="flow">\n<div class="stage"><i class="sw" data-stage="merged"></i><span class="name">merged</span><span class="n">1</span></div>')
+    expect(page).toContain('<div class="goal" id="slot-goal"><div class="goal-top"><span class="goal-k">plan</span><span class="goal-name">Plan 0.45: delivered 1 of 3 · queued 1 · in progress 0 · review 0 · slices without cards: 1 · +1 in 24 h · backlog: 0</span></div>')
+    expect(page).toContain('<div class="bar" role="img" aria-label="Plan slices by stage"><i class="sw" data-stage="delivered" style="--_n: 1" title="delivered: 1"></i><i class="sw" data-stage="queued" style="--_n: 1" title="queued: 1"></i><i class="sw" data-stage="not_created" style="--_n: 1" title="not_created: 1"></i></div>')
+    expect(page).toContain('<h2 id="h-flow">Flow</h2><span class="meta">live cards by stage</span></div>')
+    planEvent(bench, PLAN_CLOSED, { plan: 'p-045' })
+    const closed: string[] = []
+    expect(printBoard(bench.db.location()!, bench.clock.now(), text => closed.push(text))).toBe(0)
+    expect(closed.join('')).toContain('<div class="goal" id="slot-goal"></div>')
   })
 })

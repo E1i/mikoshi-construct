@@ -2,7 +2,7 @@
 
 Every file under `scripts/ghosts/**` has one row here, and its kind is `ghosts` or `plain`. `ghosts` is the Ghost
 launcher and every file whose output the ladder, an approval, a merge or a security decision trusts; `plain` is a
-file that only reads or prints. `scripts/shift/merge.ts`, `scripts/shift/parking.ts` and the preflight's P4
+file that only reads or prints. `scripts/shift/parking.ts` and the preflight's P4
 (`scripts/ghosts/preflight-static.ts`) read this table, and no other file holds a copy. A card that creates a file
 under `scripts/ghosts/` declares it in `creates:` with its kind, as `scripts/ghosts/<name>.ts (plain)`, and its pull
 request adds the row. `scripts/tests/shredder/owner-merges.test.ts` is red while a file has no row or a row names no
@@ -14,7 +14,6 @@ file. This file is not owner-merged: who merges is decided in [owner-merges.md](
 | `scripts/ghosts/approval.ts` | ghosts |
 | `scripts/ghosts/approve.ts` | ghosts |
 | `scripts/ghosts/args-chain.ts` | ghosts |
-| `scripts/ghosts/cheap-expect.ts` | plain |
 | `scripts/ghosts/cleanup.ts` | ghosts |
 | `scripts/ghosts/cloud-key.ts` | ghosts |
 | `scripts/ghosts/cloud-start.ts` | ghosts |

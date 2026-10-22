@@ -4,12 +4,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { runPnpmCommand } from '../ghosts/install.js'
 import { finishBrief } from './brief-finish.js'
-import { runPnpmCommand } from './shift.js'
 
 export const PREFIX = '[shift:brief-finish] '
 
-const REAL_DEPS = {
+export const REAL_DEPS = {
   cwd: process.cwd(),
   git: (cwd: string, args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' as const, stdio: ['ignore', 'pipe', 'pipe'] as ['ignore', 'pipe', 'pipe'] }),
   read: (file: string) => readFileSync(file, 'utf8'),

@@ -6,11 +6,16 @@ import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
 import { TASK_FILE } from '../../src/card/task-file.js'
 import { busCardStates } from '../ghosts/tasks.js'
-import { declaredGhostsFile, GHOSTS_FILES } from '../shredder/reader.js'
+import { declaredGhostsFile, GHOSTS_FILES, readGhostsFiles } from '../shredder/reader.js'
 import { approvedSha256Of, briefPathOf, isLadder } from './ladder.js'
-import { GHOSTS_FILES_ON_MAIN, isListed } from './merge.js'
 import { taskConflicts } from './overlap.js'
 import { GHOST_JOURNAL } from './places.js'
+
+const GHOSTS_FILES_ON_MAIN = `origin/main:${GHOSTS_FILES}`
+
+function isListed(file: string, ghostsFilesText: string): boolean {
+  return readGhostsFiles(ghostsFilesText).some(row => row.file === file)
+}
 
 export interface LeftCard {
   id: string

@@ -125,6 +125,22 @@ CREATE TABLE IF NOT EXISTS card_bodies (
   decision TEXT,
   depends TEXT
 );
+CREATE TABLE IF NOT EXISTS plans (
+  plan_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  goal TEXT NOT NULL,
+  plan_file TEXT NOT NULL,
+  state TEXT NOT NULL,
+  event_id INTEGER NOT NULL REFERENCES events(id)
+);
+CREATE TABLE IF NOT EXISTS plan_items (
+  plan_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  cards TEXT NOT NULL,
+  event_id INTEGER NOT NULL REFERENCES events(id),
+  PRIMARY KEY (plan_id, item_id)
+);
 CREATE TABLE IF NOT EXISTS projection_watermarks (
   projection TEXT PRIMARY KEY,
   through_event_id INTEGER NOT NULL

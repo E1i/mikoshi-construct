@@ -1,5 +1,7 @@
-import type { BusCard, BusFacts, CardStage, PlanStage } from '../../src/commands/board/bus.js'
+import type { BusCard, BusFacts, CardStage } from '../../src/commands/board/bus.js'
+import type { Goal, PlanProgress } from '../../src/commands/board/goal.js'
 import { describe, expect, it } from 'vitest'
+import { planLine } from '../../src/commands/board/goal.js'
 import { backlogCards, backlogLines, boardScreens, flowLines, goalLines, matrixLines, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
@@ -8,30 +10,34 @@ function card(id: number, state: string | null, lane: string | null = null, line
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
-  return { at: '2026-10-02T12:00:00.000Z', goal: null, plan: null, waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
+  return { at: '2026-10-02T12:00:00.000Z', goal: null, waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
+}
+
+function plan(title: string, delivered: number, total: number): PlanProgress {
+  const withoutCards = total - delivered - 1
+  return { id: title, title, goal: 'a goal', delivered, total, stages: { not_created: withoutCards, queued: 1, in_progress: 0, review: 0, delivered }, deliveredRecently: 1 }
 }
 
 describe('the board screens', () => {
-  it('the board opens with the goal line, release and merged of total, and has none when the bus holds no goal', () => {
-    const goal = { release: '0.44', done: 2, total: 3 }
-    expect(goalLines(noFacts({ goal }), PLAIN_LORE)).toEqual(['goal · release 0.44 · — · merged 2/3'])
-    expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', 'goal · release 0.44 · — · merged 2/3', 'planned (0): —'])
+  it('the board opens with one plan line per open plan, and has none when the bus holds no open plan', () => {
+    const goal: Goal = { plans: [plan('Plan 0.45', 2, 3), plan('Plan 0.46', 0, 1)], backlog: 4 }
+    const lines = goal.plans.map(each => planLine(each, goal.backlog))
+    expect(goalLines(noFacts({ goal }))).toEqual(lines)
+    expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 4)).toEqual(['Flow', ...lines, 'planned (0): —'])
     expect(screenLines(noFacts(), PLAIN_LORE).slice(0, 2)).toEqual(['Flow', 'planned (0): —'])
   })
 
-  it('the text board prints the goal line, the stages and waits for you only when not empty', () => {
-    const goal = { release: '0.44', done: 2, total: 7 }
-    const stages: [CardStage, number[]][] = [['planned', [5]], ['in work', [6, 7]], ['review', [8]], ['answer/changes', [9]], ['ready', []], ['merged', [1, 2]], ['stopped', [10]], ['dropped', [11]]]
-    const plan: PlanStage[] = stages.map(([stage, cards]) => ({ stage, cards }))
+  it('the text board prints the plan line and waits for you only when not empty', () => {
+    const goal: Goal = { plans: [plan('Plan 0.45', 2, 7)], backlog: 3 }
     const since = '2026-10-02T11:00:00.000Z'
     const waits = [
       { id: 'Q1', need: 'decision' as const, text: 'which path?', command: null, card: 10, pr: null, since },
       { id: 'Q2', need: 'merge' as const, text: 'changes architecture/security-invariants.md', command: null, card: 12, pr: 669, since },
       { id: 'Q3', need: 'command' as const, text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since },
     ]
-    const goalLine = 'goal · release 0.44 · — · merged 2/7 · planned 1 · in work 2 · review 1 · answer 1 · ready 0 · stopped 1'
-    expect(screenLines(noFacts({ goal, plan, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path?) · Q2 merge PR #669 (changes architecture/security-invariants.md) · Q3 command (the merge queue runs unswitched: pnpm decisions:add "[owner] allow-live merge")'])
-    expect(screenLines(noFacts({ goal, plan }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'planned (0): —'])
+    const goalLine = 'Plan 0.45: delivered 2 of 7 · queued 1 · in progress 0 · review 0 · slices without cards: 4 · +1 in 24 h · backlog: 3'
+    expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path?) · Q2 merge PR #669 (changes architecture/security-invariants.md) · Q3 command (the merge queue runs unswitched: pnpm decisions:add "[owner] allow-live merge")'])
+    expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'planned (0): —'])
     const backlog = [card(8, 'in_review', null, '#8 eight', 'review'), card(9, 'in_review', null, '#9 nine', 'answer/changes'), card(4, 'running', null, '#4 four', 'ready')]
     expect(backlogLines(backlog, PLAIN_LORE)).toEqual(['no lane (3)', '  #8 eight · review', '  #9 nine · answer/changes', '  #4 four · ready'])
   })
