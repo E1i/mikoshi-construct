@@ -3,6 +3,7 @@ export const REFUSALS = {
   'spawnSync ps EPERM': /spawnSync ps EPERM/,
   'exec /bin/ps from a shell: Operation not permitted': /\/bin\/ps: Operation not permitted/,
   'mkdtemp under /tmp EPERM': /EPERM: operation not permitted, mkdtemp '\/tmp\//,
+  'fs.watch EMFILE': /EMFILE: too many open files, watch/,
   'open under ~/.npm/_cacache EPERM': /npm error code EPERM\s+npm error syscall open\s+npm error path \S*\/\.npm\/_cacache\//,
 } as const satisfies Record<string, RegExp>
 

@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import type { TraceLine } from './sandbox-refusals.js'
 import childProcess from 'node:child_process'
-import { appendFileSync } from 'node:fs'
+import fs, { appendFileSync } from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 import path from 'node:path'
 import process from 'node:process'
@@ -11,7 +11,7 @@ import { SANDBOX_TRACE_VARIABLE } from './sandbox-refusals.js'
 const TRACE_FILE_VARIABLE = 'SANDBOX_TRACE_FILE'
 const TRACE_TEST_VARIABLE = 'SANDBOX_TRACE_TEST'
 const CHILD_PRELOAD = path.join(import.meta.dirname, 'sandbox-trace-child.mjs')
-const REFUSED_LINE = /^.*(?:EPERM|operation not permitted).*$/gim
+const REFUSED_LINE = /^.*(?:EPERM|operation not permitted|EMFILE: too many open files, watch).*$/gim
 
 function current(): { file: string, test: string } {
   const { testPath, currentTestName } = expect.getState()
@@ -35,7 +35,7 @@ function tagged(args: unknown[], takesArgv: boolean): unknown[] {
   const at = current()
   const index = args.findIndex((arg, position) => position > 0 && isOptions(arg))
   const options = index === -1 ? {} : args[index] as { env?: NodeJS.ProcessEnv }
-  const env = { ...(options.env ?? process.env), [TRACE_FILE_VARIABLE]: at.file, [TRACE_TEST_VARIABLE]: at.test }
+  const env: NodeJS.ProcessEnv = { ...(options.env ?? process.env), [TRACE_FILE_VARIABLE]: at.file, [TRACE_TEST_VARIABLE]: at.test }
   env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --import ${CHILD_PRELOAD}`.trim()
   const next = [...args]
   if (index !== -1) {
@@ -83,4 +83,11 @@ for (const name of ['execFileSync', 'execSync']) {
     }
   }
 }
+const originalWatch = fs.watch
+fs.watch = ((...args: Parameters<typeof fs.watch>) => {
+  const at = current()
+  const watcher = originalWatch(...args)
+  watcher.on('error', error => record(error, at))
+  return watcher
+}) as typeof fs.watch
 syncBuiltinESMExports()

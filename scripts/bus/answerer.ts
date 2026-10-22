@@ -241,7 +241,7 @@ export function answerPrompt(request: AnswerRequest, ownerQuestion: string, card
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
     `The card's latest events, oldest first:`,
     ...source.events.map(event => JSON.stringify(event)),
-    `Run the window gate of D-194 in ${card.worktree}, each as its own command: the card's witnesses, the tests pnpm gate:window prints for the tree, pnpm typecheck and pnpm lint; the full quality is CI. End the session when they are green. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
+    `Run the window gate of D-194 in ${card.worktree}, each as its own command: the card's witnesses, pnpm typecheck, pnpm lint and the pre-push tests, pnpm exec node --import tsx scripts/ci/prepush.ts, which runs the tests the CI selector picks for this tree less the sandbox list; the full quality is CI. End the session when they are green. A red pre-push run is fixed in this session; a broken one prints its finding and question, and that question goes to the owner as below. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
   ].join('\n')
 }
 

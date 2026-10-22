@@ -29,7 +29,11 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   yourself, resolve every conflict keeping what the task asks for, conclude the merge with
   `git -C {{worktree}} commit --no-edit` and repeat your checks; that merge commit is the one commit you
   make. A conflict you cannot resolve without the owner is a `question:` line, not a fault.
-- Run `pnpm run quality` as its own command and read its result before you end the session.
+- Before you end the session, run each as its own command and read its result: the task's witnesses,
+  `pnpm typecheck`, `pnpm lint` and the pre-push tests, `pnpm exec node --import tsx scripts/ci/prepush.ts`,
+  which runs the tests the CI selector picks for this tree less the sandbox list; the full quality is CI.
+  A red pre-push run is fixed in this session before you end it. A broken one prints a `finding:` and a
+  `question:` line: copy both into the report and exit; the bus pushes nothing.
 - On an Eddies warn: finish the step you are in, write the handoff and the report, exit; the bus then
   commits, pushes and opens the pull request from the tree before it records the stop.
   On an Eddies stop: write the report and exit.

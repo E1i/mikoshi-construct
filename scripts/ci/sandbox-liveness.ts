@@ -63,7 +63,7 @@ function templateOf(name: string): RegExp {
 
 export function missingInCi(list: readonly SandboxFailing[], collected: readonly Collected[]): Stale[] {
   return list
-    .filter(entry => !collected.some(test => test.file === entry.file && templateOf(test.name).test(entry.test)))
+    .filter(entry => !collected.some(test => test.file === entry.file && (entry.test === '' || templateOf(test.name).test(entry.test))))
     .map(entry => ({ entry, why: 'is no longer collected by vitest, so CI no longer runs it' }))
 }
 
@@ -97,10 +97,17 @@ export function runTraced(files: readonly string[]): { outcomes: TestOutcome[], 
 }
 
 function collectedInCi(files: readonly string[]): Collected[] | null {
-  const run = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/vitest/vitest.mjs'), 'list', '--json', ...files], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-  if (run.status !== 0)
-    return null
-  return (JSON.parse(run.stdout) as Collected[]).map(test => ({ file: path.relative(REPO_ROOT, test.file), name: test.name }))
+  const dir = mkdtempSync(path.join(tmpdir(), 'sandbox-list-'))
+  try {
+    const listed = path.join(dir, 'list.json')
+    const run = spawnSync(process.execPath, [path.join(REPO_ROOT, 'node_modules/vitest/vitest.mjs'), 'list', '--staticParse=false', `--json=${listed}`, ...files], { cwd: REPO_ROOT, stdio: ['ignore', 'ignore', 'inherit'] })
+    if (run.status !== 0 || !existsSync(listed))
+      return null
+    return (JSON.parse(readFileSync(listed, 'utf8')) as Collected[]).map(test => ({ file: path.relative(REPO_ROOT, test.file), name: test.name }))
+  }
+  finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 function probeLines(outcomes: readonly TestOutcome[], traced: readonly TraceLine[]): string[] {
