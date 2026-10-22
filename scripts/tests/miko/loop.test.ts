@@ -8,9 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { lastProcessBeats, recordProcessHeartbeat } from '../../bus/heartbeat.js'
 import { SILENT_MS } from '../../bus/liveness-sites.js'
-import { FAILURES_TO_STOP } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
-import { failRaise, leaseRole, observeRoleStop, roleToOwner } from '../../bus/role.js'
+import { observeRoleStop, roleToOwner } from '../../bus/role.js'
 import { PROCESS_ENDED, PROCESS_REFUSED, ROLE_RETURNED } from '../../core/events.js'
 import { HANDOFF_FIELDS, STATE_LABELS } from '../../ghosts/handoff-check.js'
 import { parsePs } from '../../miko/exit.js'
@@ -483,8 +482,6 @@ function roleWithTheOwner(file: string): void {
   const at = (ms: number): string => new Date(Date.parse('2026-10-20T10:00:00.000Z') + ms).toISOString()
   observeRoleStop(db, at(0), 'worker:miko:7', { role: 'miko', handoff: '/handoff/miko.md', status: 'CONTINUE', reason: 'context', raised: false })
   reduce(db)
-  for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-    failRaise(db, at(failure), leaseRole(db, at(failure), 'worker:restart:w')!, 'relaunch did not start')
   roleToOwner(db, at(10), 'worker:restart:w')
   db.close()
 }

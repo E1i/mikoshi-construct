@@ -9,7 +9,7 @@ import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, releaseTask,
 import { FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
 import { reduce, reducedThrough } from '../../bus/reducer.js'
 import { FOLDED_ON_APPEND, replayDifferences } from '../../bus/report.js'
-import { failRaise, leaseRole, observeRoleStop, raiseRole, returnEndedRole, returnSilentRole, ROLE_FOLDS, roleToOwner } from '../../bus/role.js'
+import { observeRoleStop, returnEndedRole, returnSilentRole, ROLE_FOLDS, roleToOwner } from '../../bus/role.js'
 import { watermarkOf } from '../../bus/watermark.js'
 import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { requestFromWindow } from '../../bus/window-requests.js'
@@ -28,14 +28,12 @@ function liveRoles(): DatabaseSync {
   const db = openBus(':memory:')
   stop(db, 0, 'miko', '/handoff/miko.md')
   reduce(db)
-  for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-    failRaise(db, at(failure), leaseRole(db, at(failure), ACTOR)!, 'relaunch did not start')
   roleToOwner(db, at(10), ACTOR)
   requestFromWindow(db, at(20), 'owner-session', { kind: 'status' })
   recordWindowHeartbeat(db, at(30), 'owner-session')
   returnSilentRole(db, at(40 + LEASE_MS), ACTOR)
   stop(db, 50 + LEASE_MS, 'operator', '/handoff/operator.md')
-  raiseRole(db, at(60 + LEASE_MS), leaseRole(db, at(60 + LEASE_MS), ACTOR)!, 4242)
+  roleToOwner(db, at(60 + LEASE_MS), ACTOR)
   return db
 }
 
@@ -110,7 +108,7 @@ describe('roles are a projection the reducer alone writes', () => {
     const clean = rebuiltThrough(live, watermark)
     expect(clean.prepare(`SELECT count(*) AS n FROM events WHERE type = 'reducer.rejected' AND json_extract(payload, '$.type') LIKE 'role.%'`).get()).toEqual({ n: 0 })
     expect(rolesOf(clean)).toEqual(rolesOf(live))
-    expect(rolesOf(live).map(row => (row as { state: string }).state)).toEqual(['raised', 'stopped'])
+    expect(rolesOf(live).map(row => (row as { state: string }).state)).toEqual(['owner', 'stopped'])
     clean.close()
     live.close()
   })
