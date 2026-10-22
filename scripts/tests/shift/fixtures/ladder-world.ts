@@ -1,4 +1,4 @@
-import type { PnpmResult } from '../../../ghosts/pnpm-runner.js'
+import type { PnpmResult } from '../../../ghosts/install.js'
 import type { ShiftDeps } from '../../../shift/shift.js'
 import type { Captured, FakeGh, World } from './autopilot-world.js'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'

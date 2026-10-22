@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runPnpmCommand } from '../../ghosts/pnpm-runner.js'
+import { runPnpmCommand } from '../../ghosts/install.js'
 
 const HERE = import.meta.dirname
 

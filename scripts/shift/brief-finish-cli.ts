@@ -4,7 +4,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { runPnpmCommand } from '../ghosts/pnpm-runner.js'
+import { runPnpmCommand } from '../ghosts/install.js'
 import { finishBrief } from './brief-finish.js'
 
 export const PREFIX = '[shift:brief-finish] '

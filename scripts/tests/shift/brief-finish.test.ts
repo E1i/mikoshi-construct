@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { EXPECT_LINE_INDEX } from '../../ghosts/expect.js'
-import { runPnpmCommand } from '../../ghosts/pnpm-runner.js'
+import { runPnpmCommand } from '../../ghosts/install.js'
 import { PREFIX, REAL_DEPS, runBriefFinish } from '../../shift/brief-finish-cli.js'
 import { finishBrief, NO_PNPM_RUNNER } from '../../shift/brief-finish.js'
 
