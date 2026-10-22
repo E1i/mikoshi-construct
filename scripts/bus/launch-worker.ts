@@ -9,6 +9,7 @@ import type { SessionContinuer, StarterPlaces, StarterPorts } from './launch-sta
 import type { Lease } from './lease.js'
 import type { DetectionMode, WaitStep } from './node.js'
 import type { QueuedTask } from './queue.js'
+import type { TreeFile } from './session-journal.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
@@ -44,6 +45,7 @@ import { TICK_MS } from './netwatch.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { promptsDirOf, storedInput } from './prompt-store.js'
 import { launchTasks } from './queue.js'
+import { transcriptFile } from './session-journal.js'
 import { openDatabase } from './sqlite.js'
 import { stampLogOutput } from './stamp.js'
 
@@ -491,7 +493,7 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null): StarterPorts {
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, lastSession: (cardId: number) => string | null = () => null): StarterPorts {
   return {
     read: bodyOf,
     cut: (task, laneDir) => {
@@ -507,11 +509,47 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     prompt: (task, places) => renderPrompt(header, continuedOnCardText(task, bodyOf), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    lastSession,
+    readTranscript: (worktree, session) => {
+      const file = transcriptFile(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), worktree, session)
+      return file !== null && existsSync(file) ? readFileSync(file, 'utf8') : null
+    },
+    treeFile: readTreeFile,
+  }
+}
+
+export function readTreeFile(file: string): TreeFile | null {
+  try {
+    return { content: readFileSync(file, 'utf8'), mtimeMs: statSync(file).mtimeMs }
+  }
+  catch {
+    return null
+  }
+}
+
+const LAST_STARTED_SESSION = `
+  SELECT json_extract(payload, '$.session') AS session FROM events
+  WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
+  ORDER BY id DESC LIMIT 1
+`
+
+export function busLastSession(busPath: string): (cardId: number) => string | null {
+  return (cardId) => {
+    if (!existsSync(busPath))
+      return null
+    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    try {
+      const row = db.prepare(LAST_STARTED_SESSION).get(cardId) as { session: string } | undefined
+      return row?.session ?? null
+    }
+    finally {
+      db.close()
+    }
   }
 }
 
 export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
-  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath))
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busLastSession(busPath))
 }
 
 export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv, busPath: string): LadderSteps {
