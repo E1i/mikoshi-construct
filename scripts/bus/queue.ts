@@ -346,17 +346,18 @@ interface Candidate {
   witness_base?: string | null
 }
 
-const HEADS_WITH_CHANGES_OF_A_PR = `
-  SELECT DISTINCT head FROM events
-  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.verdict') = 'changes'
-`
+const CHANGES_OF_A_PR = `type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.verdict') = 'changes'`
 
-export function headsWithChangesOf(db: DatabaseSync, pr: number): Set<string | null> {
-  return new Set((db.prepare(HEADS_WITH_CHANGES_OF_A_PR).all(pr) as { head: string | null }[]).map(row => row.head))
-}
+const CHANGES_ROUNDS_OF_A_PR = `SELECT count(DISTINCT coalesce(head, '')) AS rounds FROM events WHERE ${CHANGES_OF_A_PR}`
+
+const CHANGES_ON_THE_HEAD = `SELECT 1 FROM events WHERE ${CHANGES_OF_A_PR} AND head IS ? LIMIT 1`
 
 export function changesRoundsOf(db: DatabaseSync, pr: number): number {
-  return headsWithChangesOf(db, pr).size
+  return Number((db.prepare(CHANGES_ROUNDS_OF_A_PR).get(pr) as { rounds: number }).rounds)
+}
+
+export function reviewSpendsARound(db: DatabaseSync, pr: number, head: string | null, verdict: string): boolean {
+  return verdict === 'changes' && db.prepare(CHANGES_ON_THE_HEAD).get(pr, head) === undefined
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']

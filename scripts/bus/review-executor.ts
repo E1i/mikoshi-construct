@@ -4,6 +4,7 @@ import type { Isolation, IsolationReader } from '../ports/isolation.js'
 import type { BusEvent } from './db.js'
 import type { GitHub } from './github.js'
 import type { AfterFailure, Lease, SUPERSEDED_LEASE } from './lease.js'
+import type { RoundLimitRecut } from './pr-close.js'
 import type { SessionInput } from './prompt-store.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
@@ -15,7 +16,7 @@ import { appendEvent } from './db.js'
 import { reviewInputOfKey } from './identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from './lease.js'
 import { storedInput } from './prompt-store.js'
-import { headsWithChangesOf, REVIEW_ROUNDS } from './queue.js'
+import { changesRoundsOf, REVIEW_ROUNDS, reviewSpendsARound } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
 import { PREFIX, ReviewFailed } from './reviewer.js'
@@ -45,6 +46,7 @@ export interface ExecutorParts {
   clearLeftovers?: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
   isolation: IsolationReader | typeof SPAWNS_NO_SESSION
+  recut?: RoundLimitRecut
 }
 
 interface Reviewed {
@@ -199,16 +201,18 @@ export class ReviewExecutor {
       return this.denied(lease, outcome.denial)
     const spent = this.roundsSpent(lease, review)
     completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }), ...(spent === null ? [] : [spent])])
-    if (spent !== null && lease.pr !== null)
+    if (spent !== null && lease.pr !== null) {
       this.noted(lease.pr, roundLimitLine(lease.pr, REVIEW_ROUNDS))
+      this.parts.recut?.recut({ cardId: lease.cardId, pr: lease.pr, head: lease.head, findings: review.findings })
+    }
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
   }
 
   private roundsSpent(lease: Lease, review: Review): BusEvent | null {
-    if (review.verdict !== 'changes' || lease.pr === null)
+    if (lease.pr === null || !reviewSpendsARound(this.parts.db, lease.pr, lease.head, review.verdict))
       return null
-    const rounds = headsWithChangesOf(this.parts.db, lease.pr).add(lease.head).size
-    if (rounds < REVIEW_ROUNDS)
+    const rounds = changesRoundsOf(this.parts.db, lease.pr) + 1
+    if (rounds !== REVIEW_ROUNDS)
       return null
     return {
       ts: this.ts(),

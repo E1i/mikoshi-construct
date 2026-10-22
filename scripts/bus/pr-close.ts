@@ -30,6 +30,17 @@ export type CloseOutcome
     | { kind: 'denied', pr: number, detail: string }
     | { kind: 'failed', pr: number, detail: string }
 
+export interface RoundLimitAt {
+  cardId: number
+  pr: number
+  head: string | null
+  findings: readonly string[]
+}
+
+export interface RoundLimitRecut {
+  recut: (at: RoundLimitAt) => void
+}
+
 interface PullAsRead {
   state?: unknown
   body?: unknown
