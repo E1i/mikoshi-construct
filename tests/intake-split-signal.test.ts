@@ -38,7 +38,7 @@ const WITNESS_CARDS: Record<string, { touches: string[], split: boolean, signals
   },
   '#543 intake-fact-check': {
     touches: [
-      'src/commands/**',
+      'src/commands/intake/index.ts',
       'src/model/**',
       'src/card/grammar.ts',
       'src/card/closed.ts',

@@ -158,6 +158,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeRefusedUnreadable: (why: string) => string
   intakeRefusedInvalid: string
   intakeRefusedInvalidTestPattern: string
+  intakeRefusedSharedCodeMask: string
   intakeWritten: (file: string, card: string) => string
   intakeUnclear: (count: number, who: string) => string
   intakeCorrected: (text: string) => string
@@ -512,6 +513,7 @@ export const LORE: Lore = {
   intakeRefusedBothFromStdin: 'INTAKE REFUSED // ONE STDIN: --draft and --taken cannot both read -',
   intakeRefusedUnreadable: (why: string) => `INTAKE REFUSED // NO SIGNAL: ${why}`,
   intakeRefusedInvalidTestPattern: 'INTAKE REFUSED // a witness passes vitest a -t that is not a regular expression and can never exit 0; nothing parked',
+  intakeRefusedSharedCodeMask: 'INTAKE REFUSED // a ** mask over shared factory code would hold every card that touches it; name the files, nothing parked',
   intakeRefusedInvalid: 'INTAKE REFUSED // the draft does not slice into valid cards; nothing parked',
   intakeWritten: (file: string, card: string) => `CARD PARKED // ${file}: ${card}`,
   intakeUnclear: (count: number, who: string) => `${count} UNCLEAR // marked in the card, held for who: ${who} until a person settles them`,
@@ -890,6 +892,7 @@ export const PLAIN_LORE: Lore = {
   intakeRefusedBothFromStdin: 'Refused: --draft and --taken cannot both read stdin. Nothing was written.',
   intakeRefusedUnreadable: (why: string) => `Refused: ${why}. Nothing was written.`,
   intakeRefusedInvalidTestPattern: 'Refused: a witness passes vitest a -t that does not compile as a regular expression, so it can never exit 0. Nothing was written:',
+  intakeRefusedSharedCodeMask: 'Refused: a ** mask in touches covers shared factory code and would serialize every card that touches it; list the files the change edits. Nothing was written:',
   intakeRefusedInvalid: 'Refused: the draft does not slice into valid cards. Nothing was written:',
   intakeWritten: (file: string, card: string) => `Wrote ${file}: ${card}`,
   intakeUnclear: (count: number, who: string) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; it stays with who: ${who} until a person settles them.`,
