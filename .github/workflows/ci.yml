@@ -9,6 +9,9 @@
 #              scripts/ci/select.ts reaches: the touched layers and every layer that depends on them,
 #              by the dependency-cruiser graph. A path in no layer, push, merge_group and
 #              changeset-release/* run them all.
+# sandbox-list — on a pull request that changes the selector or scripts/ci/sandbox-failing.jsonl, red when
+#              a test on that list is no longer collected, so the session would leave out a test CI no
+#              longer runs (scripts/ci/sandbox-liveness.ts --ci). On any other change it runs no check.
 # package    — builds and packs the publishable tarball the acceptance legs install. It runs on every
 #              change and waits on nothing, so the preset matrix starts once both it and changes are done.
 # acceptance — what the CLI promises its users: an empty directory → `construct init` →
@@ -57,6 +60,7 @@ jobs:
       fast-path: ${{ steps.classify.outputs.fast-path }}
       full: ${{ steps.select.outputs.full || 'true' }}
       tests: ${{ steps.select.outputs.tests }}
+      liveness: ${{ steps.select.outputs.liveness || 'false' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -156,6 +160,20 @@ jobs:
           path: .vitest/blob/
           include-hidden-files: true
           retention-days: 1
+
+  sandbox-list:
+    needs: changes
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - if: needs.changes.outputs.liveness == 'true'
+        run: pnpm exec tsx scripts/ci/sandbox-liveness.ts --ci
 
   docs:
     runs-on: ubuntu-24.04
@@ -289,7 +307,7 @@ jobs:
           "$CONSTRUCT_BIN" doctor --plain
 
   required:
-    needs: [changes, checks, lint, typecheck, vitest, docs, package, contract-bump, acceptance]
+    needs: [changes, checks, lint, typecheck, vitest, sandbox-list, docs, package, contract-bump, acceptance]
     if: always()
     runs-on: ubuntu-24.04
     steps:
