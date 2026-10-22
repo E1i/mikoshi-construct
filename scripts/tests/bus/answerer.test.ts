@@ -1,9 +1,10 @@
 import type { AnswerRequest, AnswerRun } from '../../bus/answerer.js'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { claudeAnswerer } from '../../bus/answerer.js'
+import { claudeAnswerer, FreshBaseConflict, realAnswererTools } from '../../bus/answerer.js'
 
 const CARD_SESSION = 'card-session-1207'
 const NEW_SESSION = 'new-session-1'
@@ -83,5 +84,80 @@ describe('the answerer', () => {
     expect(answered).toMatchObject({ session: CARD_SESSION, resumed: true, atContextWarn: false })
     expect(runs[0]!.argv).toEqual(expect.arrayContaining(['--resume', CARD_SESSION]))
     expect(prompt).not.toContain(DIFF)
+  })
+})
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function committer(repo: string): void {
+  git(repo, ['config', 'user.email', 'answer@example.com'])
+  git(repo, ['config', 'user.name', 'answer'])
+  git(repo, ['config', 'commit.gpgsign', 'false'])
+}
+
+describe('the answer path publishes on a fresh base', () => {
+  it('the answer path merges main before a push as launch does', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-answerer-'))
+    roots.push(root)
+    const origin = path.join(root, 'origin.git')
+    const worktree = path.join(root, 'mc-1207')
+    const upstream = path.join(root, 'upstream')
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin])
+    execFileSync('git', ['init', '-q', '-b', 'main', worktree])
+    committer(worktree)
+    writeFileSync(path.join(worktree, 'a.md'), 'base\n')
+    git(worktree, ['add', '-A'])
+    git(worktree, ['commit', '-q', '-m', 'base'])
+    git(worktree, ['remote', 'add', 'origin', origin])
+    git(worktree, ['push', '-q', 'origin', 'main'])
+    git(worktree, ['checkout', '-q', '-b', 'feat/card-1207'])
+    execFileSync('git', ['clone', '-q', origin, upstream])
+    committer(upstream)
+    writeFileSync(path.join(upstream, 'b.md'), 'main moved\n')
+    git(upstream, ['add', '-A'])
+    git(upstream, ['commit', '-q', '-m', 'main moved'])
+    git(upstream, ['push', '-q', 'origin', 'main'])
+    writeFileSync(path.join(worktree, 'a.md'), 'the answer\n')
+
+    realAnswererTools(path.join(root, 'parking'), path.join(root, 'bus.db')).publish({ session: CARD_SESSION, worktree, branch: 'feat/card-1207' }, 'answer for #1207')
+
+    const fresh = git(upstream, ['rev-parse', 'main']).trim()
+    expect({ onFreshBase: git(worktree, ['merge-base', fresh, 'origin/feat/card-1207']).trim() === fresh, merges: git(worktree, ['rev-list', '--merges', '--count', `${fresh}..origin/feat/card-1207`]).trim() }).toEqual({ onFreshBase: true, merges: '1' })
+  })
+
+  it('a conflict on the fresh base resumes the session to merge, then publishes; one it leaves is a question', async () => {
+    const outcomes = await Promise.all([[], ['a.md']].map(async (left) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'bus-answerer-'))
+      roots.push(root)
+      const runs: AnswerRun[] = []
+      const conflicts = [['a.md'], left]
+      const answerer = claudeAnswerer(path.join(root, 'answers'), {
+        cardText: () => CARD_BODY,
+        available: () => true,
+        remoteHead: () => 'a'.repeat(40),
+        spawn: async (run) => {
+          runs.push(run)
+          writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
+          return 0
+        },
+        newSession: () => NEW_SESSION,
+        publish: () => {
+          const files = conflicts.shift() ?? []
+          if (files.length > 0)
+            throw new FreshBaseConflict(files)
+        },
+        context: () => 30_000,
+        contextWarn: () => CONTEXT_WARN,
+      })
+      const answered = await answerer(requestIn(root))
+      return { owner: answered.owner, runs: runs.length, merge: runs[1]?.argv.at(-1)?.includes('resolve every conflict in a.md') }
+    }))
+
+    expect(outcomes).toEqual([
+      { owner: null, runs: 2, merge: true },
+      { owner: 'merging a fresh origin/main into feat/card-1207 conflicts in a.md and the answer session did not resolve it', runs: 2, merge: true },
+    ])
   })
 })
