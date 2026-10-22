@@ -12,7 +12,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { busFacts, CARD_STAGES } from '../../src/commands/board/bus.js'
 import { planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, isLive, matrixLines, pulseLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
+import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
 import { mikoHandoff } from '../miko/loop.js'
@@ -355,11 +355,6 @@ function cardRow(card: BusCard): string {
   return `<tr data-card="${card.id}" data-stage="${stage}"${isLive(card) ? ' data-live' : ''}${opener(cardDialog(card.id))}><td class="id">#${card.id}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span></td><td>${OPEN_HINT}</td></tr>`
 }
 
-function lanesOf(cards: BusCard[]): (string | null)[] {
-  const named = [...new Set(cards.flatMap(card => card.lane === null ? [] : [card.lane]))].sort()
-  return cards.some(card => card.lane === null) ? [...named, null] : named
-}
-
 function laneBody(lane: string | null, cards: BusCard[]): string {
   const inLane = cards.filter(card => card.lane === lane)
   return `<tbody><tr class="lane"><th colspan="11" scope="rowgroup">${escaped(PLAIN_LORE.boardLaneLine(lane ?? undefined, inLane.length))}</th></tr>${inLane.map(cardRow).join('')}</tbody>`
@@ -405,7 +400,7 @@ function rowsSlot(facts: BusFacts): string {
   const cards = backlogCards(facts.cards, facts.at, true)
   return [
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
-    ...lanesOf(cards).map(lane => laneBody(lane, cards)),
+    ...laneColumns(cards, facts.lanes).map(lane => laneBody(lane, cards)),
   ].join('\n')
 }
 

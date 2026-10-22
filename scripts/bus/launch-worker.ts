@@ -39,6 +39,7 @@ import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
+import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { bodyNotFoldedYet } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
@@ -98,6 +99,7 @@ export interface LaunchNodeParts {
   continuer?: SessionContinuer
   isolation: IsolationReader
   prompts?: string
+  lanes?: () => number
 }
 
 export interface SessionStart {
@@ -196,12 +198,14 @@ export class LaunchNode extends Node<LaunchStep> {
   private readonly executor: LaunchExecutor
   private readonly starters: Partial<Record<Contour, CardStarter>>
   private readonly processes: ProcessTable
+  private readonly lanes: () => number
 
   constructor(private readonly launchParts: LaunchNodeParts) {
     super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env })
     this.executor = new LaunchExecutor(launchParts)
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
+    this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.subscribe(LAUNCH_ON, event => this.detectOn(event))
   }
 
@@ -402,7 +406,11 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   protected candidates(): QueuedTask[] {
-    return launchTasks(this.db)
+    if (!this.executes())
+      return launchTasks(this.db)
+    const ts = this.ts()
+    layLanes(this.db, this.lanes(), ts, this.actor)
+    return launchTasks(this.db, laneOverlapRecorder(this.db, ts, this.actor))
   }
 
   protected override derivedCandidates(): QueuedTask[] {

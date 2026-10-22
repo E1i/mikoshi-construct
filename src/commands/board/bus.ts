@@ -1,7 +1,7 @@
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
-import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, LANE_ASSIGNED, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
 
@@ -31,6 +31,8 @@ const STAGE_OF_STATE: Readonly<Record<string, CardStage>> = {
 const STAGE_OF_QUEUE: Readonly<Record<string, CardStage>> = { review: 'review', answer: 'answer/changes', merge: 'ready' }
 const STAGE_OF_STEP: Readonly<Record<string, CardStage>> = { ...STAGE_OF_QUEUE, launch: 'in work' }
 const SETTLED_STATES = new Set(['merged', 'stopped', 'dropped', 'closed'])
+
+const LANELESS_STATES = ['merged', 'dropped', 'closed']
 const OPEN_TASK_STATES = ['queued', 'leased']
 
 export interface BusCard {
@@ -95,6 +97,7 @@ export interface BusFacts {
   matrices: BusMatrix[]
   failure: string | null
   reviewQueue: number
+  lanes: number | null
 }
 
 export type BusReading
@@ -297,12 +300,20 @@ function stageOf(state: string | null, closed: boolean, queue: string | undefine
   return (queue === undefined ? undefined : STAGE_OF_QUEUE[queue]) ?? STAGE_OF_STATE[state ?? ''] ?? 'planned'
 }
 
+function laneCountOf(db: BusDb): number | null {
+  const row = db.prepare(`SELECT json_extract(payload, '$.lanes') AS lanes FROM events WHERE legacy = 0 AND type = ? ORDER BY id DESC LIMIT 1`).get(LANE_ASSIGNED) as { lanes: unknown } | undefined
+  return typeof row?.lanes === 'number' && Number.isSafeInteger(row.lanes) && row.lanes > 0 ? row.lanes : null
+}
+
 function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   const rows = db.prepare(`
-    SELECT c.card_id AS id, c.state, c.pr, b.lane, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body
+    SELECT c.card_id AS id, c.state, c.pr, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body,
+      CASE WHEN c.state IN (${LANELESS_STATES.map(() => '?').join(', ')}) THEN NULL ELSE (
+        SELECT json_extract(a.payload, '$.lane') FROM events a WHERE a.legacy = 0 AND a.type = ? AND a.card_id = c.card_id ORDER BY a.id DESC LIMIT 1
+      ) END AS lane
     FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id LEFT JOIN events e ON e.id = c.event_id
     ORDER BY c.card_id
-  `).all() as unknown as CardRow[]
+  `).all(...LANELESS_STATES, LANE_ASSIGNED) as unknown as CardRow[]
   const closed = new Map(events.of(CARD_VERIFIED).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
   const queues = openQueues(db)
   return rows.map(row => ({ id: row.id, state: row.state, stage: stageOf(row.state, closed.has(row.id), queues.get(row.id)), lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
@@ -360,6 +371,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     matrices: checkMatrices(db),
     failure: lastFailure(events),
     reviewQueue: Number(queue.n),
+    lanes: laneCountOf(db),
   }
 }
 

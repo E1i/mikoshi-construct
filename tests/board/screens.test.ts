@@ -10,7 +10,7 @@ function card(id: number, state: string | null, lane: string | null = null, line
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
-  return { at: '2026-10-02T12:00:00.000Z', goal: null, waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, ...overrides }
+  return { at: '2026-10-02T12:00:00.000Z', goal: null, waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, lanes: null, ...overrides }
 }
 
 function plan(title: string, delivered: number, total: number): PlanProgress {
@@ -51,6 +51,12 @@ describe('the board screens', () => {
       'ready to merge (1): #5',
     ])
     expect(flowLines([], PLAIN_LORE)).toEqual(['planned (0): —', 'in work (0): —', 'in review (0): —', 'ready to merge (0): —'])
+  })
+
+  it('backlog shows all N chain lanes in number order, the empty ones too', () => {
+    const cards = [card(1, 'queued', 'lane-10', '#1 one'), card(2, 'queued', 'lane-2', '#2 two')]
+    expect(backlogLines(cards, PLAIN_LORE, 3)).toEqual(['lane-1 (0)', 'lane-2 (1)', '  #2 two · planned', 'lane-3 (0)', 'lane-10 (1)', '  #1 one · planned'])
+    expect(screenLines(noFacts({ lanes: 2 }), PLAIN_LORE)).toEqual(expect.arrayContaining(['lane-1 (0)', 'lane-2 (0)']))
   })
 
   it('backlog groups every card by lane, named lanes sorted and the cards with no lane last', () => {

@@ -123,7 +123,7 @@ describe('the plan journal on the board', () => {
     expect(bench.goal().plans).toHaveLength(1)
     bench.plan(PLAN_CLOSED, { plan: PLAN })
     expect(goalOf(bench.db, NOW)).toBeNull()
-    expect(goalLines({ at: NOW.toISOString(), goal: goalOf(bench.db, NOW), waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0 })).toEqual([])
+    expect(goalLines({ at: NOW.toISOString(), goal: goalOf(bench.db, NOW), waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, lanes: null })).toEqual([])
     expect(bench.db.prepare('SELECT plan_id, state FROM plans').all()).toEqual([{ plan_id: PLAN, state: 'closed' }])
   })
 

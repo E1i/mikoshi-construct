@@ -8,6 +8,7 @@ import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { prOf } from './identifiers.js'
+import { currentLane } from './lane-assign.js'
 import { namesQueueLive } from './live-decision.js'
 import { beatsLive } from './liveness-sites.js'
 
@@ -263,8 +264,16 @@ function continuedTree(life: CardLife, trees: Map<number, string>): { continueIn
   return tree === undefined ? {} : { continueIn: tree }
 }
 
-export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now): LaunchCandidate[] {
-  const lives = cardLives(db)
+export type OverlapCatch = (cardId: number, generation: string) => void
+
+function withAssignedLanes(db: DatabaseSync, lives: Map<number, CardLife>): Map<number, CardLife> {
+  for (const life of lives.values())
+    life.lane = currentLane(db, life.cardId) ?? life.lane
+  return lives
+}
+
+export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, onOverlap: OverlapCatch = () => {}): LaunchCandidate[] {
+  const lives = withAssignedLanes(db, cardLives(db))
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
   const launching = cardSet(db, OPEN_LAUNCHES)
@@ -292,10 +301,14 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || overlapsAny(life.task, taken) || heldOutside(life, openPrs, trees, beating))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || heldOutside(life, openPrs, trees, beating))
       continue
     if (bodyNotFoldedYet(db, life.cardId))
       continue
+    if (overlapsAny(life.task, taken)) {
+      onOverlap(life.cardId, life.generation)
+      continue
+    }
     busy.add(life.lane)
     if (life.task !== null)
       taken.push(life.task)

@@ -118,6 +118,20 @@ describe('the board bus reader', () => {
     }
   })
 
+  it('a card lane is its latest lane.assigned, not its parking folder, and a merged, closed or dropped card has none', () => {
+    const assigned = (card: number, lane: string, lanes: number): SeedEvent => ({ ts: ago(60_000), type: 'lane.assigned', card, payload: JSON.stringify({ lane, lanes }) })
+    const read = facts({
+      cards: [{ id: 1, state: 'queued', lane: 'lane-3', line: null }, { id: 2, state: 'merged', lane: 'lane-1', line: null }, { id: 3, state: 'closed', lane: 'lane-2', line: null }, { id: 4, state: 'dropped', lane: 'lane-2', line: null }],
+      events: [assigned(1, 'lane-1', 2)],
+    })
+    expect(read.cards.map(card => [card.id, card.lane])).toEqual([[1, 'lane-1'], [2, null], [3, null], [4, null]])
+    expect(read.lanes).toBe(2)
+  })
+
+  it('a bus with no lane.assigned reads no lane count', () => {
+    expect(facts({ cards: [{ id: 1, state: 'queued', lane: null, line: null }] }).lanes).toBeNull()
+  })
+
   it('a merged or closed card has no session tile, whatever its last pulse', () => {
     const beat = (card: number): SeedEvent => ({ ts: ago(60_000), type: 'session.heartbeat', card, payload: JSON.stringify({ session: `s${card}`, step: 'launch' }) })
     const services = facts({
