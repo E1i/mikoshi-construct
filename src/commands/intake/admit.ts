@@ -428,7 +428,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const token = confirmationToken([admitted])
   if (!options.autoConfirm && admitCorrectionsNeedPerson(admitted) && options.confirm !== token)
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
-  if (busBody === null && admitted.text !== text)
+  if (busBody === null && options.events === undefined && admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   recordIntake(options.journal, [admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
   return { ...base, status: 'admitted' }

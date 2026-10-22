@@ -353,15 +353,17 @@ describe('the launch queue', () => {
     const result = runIntake({ draft, taken: '-', readStdin: () => '1075', parking, parkingRoot: parking, dir: process.cwd(), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, events: busCardEvents(bench.db) })
     expect(result.status).toBe('written')
     const cards = result.status === 'written' ? result.cards : []
-    const tasks = cards.map((card) => {
-      const parsed = parseParkingFile(path.basename(card.file), readFileSync(path.join(parking, card.file), 'utf8'))
+    expect(existsSync(parking)).toBe(false)
+    bench.tick()
+    const bodies = cards.map(card => bench.db.prepare('SELECT text, lane FROM card_bodies WHERE card_id = ?').get(card.id) as { text: string, lane: string })
+    const tasks = bodies.map(({ text }, index) => {
+      const parsed = parseParkingFile(cards[index]!.file, text)
       return parsed.kind === 'parked' ? parsed.parked.task : null
     })
-    const lanes = cards.map(card => path.dirname(card.file))
+    const lanes = bodies.map(body => body.lane)
     expect(lanes.every(lane => /^lane-\d{2}$/.test(lane))).toBe(true)
     expect(new Set(lanes).size).toBeGreaterThan(1)
     expect(tasks.every(task => task !== null)).toBe(true)
-    bench.tick()
 
     const queued = new Set((bench.db.prepare(`SELECT card_id FROM tasks WHERE queue = 'launch'`).all() as { card_id: number }[]).map(row => row.card_id))
     const launched = tasks.flatMap(task => task !== null && queued.has(task.card.id) ? [task] : [])

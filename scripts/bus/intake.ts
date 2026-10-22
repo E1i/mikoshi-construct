@@ -9,7 +9,10 @@ import { runMain } from 'citty'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
+import { printExport, runExport } from '../../src/commands/intake/export.js'
 import { createMain } from '../../src/program.js'
+import { createUi } from '../../src/ui/console.js'
+import { resolveTheme } from '../../src/ui/theme.js'
 import { CARD_ADMITTED, CARD_MOVED } from '../core/events.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
@@ -21,6 +24,9 @@ import { openDatabase } from './sqlite.js'
 const INTAKE_SUBCOMMAND = 'intake'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SESSION_BY_HAND = 'by-hand'
+const EXPORT_FLAG = '--export'
+const PLAIN_FLAG = '--plain'
+const JOHNNY_FLAG = '--johnny'
 
 const INTAKE_ADMISSIONS = `
   SELECT id, ts, card_id, payload FROM events
@@ -29,6 +35,8 @@ const INTAKE_ADMISSIONS = `
 `
 
 const ANY_ADMISSION = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? LIMIT 1`
+
+const LATEST_ADMITTED_TEXT = `SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS sha FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_type(payload, '$.text') = 'text' ORDER BY id DESC`
 
 const PREVIOUS_ADMISSION = `SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
@@ -68,12 +76,21 @@ export function busIntakeAdmissions(busPath: string): IntakeAdmission[] {
   }
 }
 
+function unfoldedText(db: DatabaseSync, cardId: number): string | null {
+  const rows = db.prepare(LATEST_ADMITTED_TEXT).all(cardId) as { text: string, sha: unknown }[]
+  return rows.find(row => row.sha === textSha(row.text))?.text ?? null
+}
+
+function admittedText(db: DatabaseSync, cardId: number): string | null {
+  return cardBodyText(db, cardId) ?? unfoldedText(db, cardId)
+}
+
 export function busCardAdmissions(db: DatabaseSync): CardAdmissionsPort {
   return (cardId) => {
     const admission = intakeAdmissions(db).filter(entry => entry.task === String(cardId)).at(-1)
     if (admission === undefined)
       return null
-    const text = cardBodyText(db, cardId)
+    const text = admittedText(db, cardId)
     return text === null ? admission : { ...admission, text }
   }
 }
@@ -104,15 +121,19 @@ function append(db: DatabaseSync, actor: string, unversioned: CardEvent): void {
   appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
 }
 
-function admissionOfMove(move: CardEvent): CardEvent | null {
+function parkedText(to: string, cardId: number): string | null {
+  const file = path.join(to, `${cardId}.md`)
+  return existsSync(file) ? readFileSync(file, 'utf8') : null
+}
+
+function admissionOfMove(db: DatabaseSync, move: CardEvent): CardEvent | null {
   const { lane, to } = move.payload
   if (typeof lane !== 'string' || !isLaneName(lane) || typeof to !== 'string')
     return null
-  const file = path.join(to, `${move.cardId}.md`)
-  if (!existsSync(file))
+  const text = admittedText(db, move.cardId) ?? parkedText(to, move.cardId)
+  if (text === null)
     return null
-  const text = readFileSync(file, 'utf8')
-  const parsed = parseParkingFile(path.basename(file), text)
+  const parsed = parseParkingFile(`${move.cardId}.md`, text)
   if (parsed.kind === 'refused')
     return null
   const { card } = parsed.parked.task
@@ -135,7 +156,7 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
     if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
     append(db, actor, laid(db, event))
-    const admitted = event.type === CARD_MOVED ? admissionOfMove(event) : null
+    const admitted = event.type === CARD_MOVED ? admissionOfMove(db, event) : null
     if (admitted !== null)
       append(db, actor, admitted)
     if (event.type === CARD_ADMITTED || admitted !== null)
@@ -147,10 +168,20 @@ export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () =>
   return { cardEvents: busCardEvents(db, session, lanes), cardStates: () => busCardStates(defaultBusPath()), cardAdmissions: busCardAdmissions(db) }
 }
 
+export async function runBusIntake(db: DatabaseSync, argv: readonly string[], session?: string): Promise<void> {
+  const exportAt = argv.indexOf(EXPORT_FLAG)
+  if (exportAt !== -1) {
+    const ui = createUi(resolveTheme({ plain: argv.includes(PLAIN_FLAG), johnny: argv.includes(JOHNNY_FLAG) }))
+    process.exitCode = printExport(ui, runExport({ card: argv[exportAt + 1] ?? '', admissions: busCardAdmissions(db) }), text => process.stdout.write(text))
+    return
+  }
+  await runMain(createMain(busIntakePorts(db, session)), { rawArgs: [INTAKE_SUBCOMMAND, ...argv] })
+}
+
 async function main(): Promise<void> {
   const db = openBus(defaultBusPath())
   try {
-    await runMain(createMain(busIntakePorts(db, process.env[SESSION_VARIABLE] || undefined)), { rawArgs: [INTAKE_SUBCOMMAND, ...process.argv.slice(2)] })
+    await runBusIntake(db, process.argv.slice(2), process.env[SESSION_VARIABLE] || undefined)
   }
   finally {
     db.close()

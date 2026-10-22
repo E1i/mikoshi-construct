@@ -265,13 +265,17 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const parkedSlice = cutBySlices ? sliceCards(cut, nextFreeNumbers(used, cut.length), repository) : slice
   if (parkedSlice.kind === 'refused')
     return refused('invalid', parkedSlice.reasons)
-  mkdirSync(options.parking, { recursive: true })
   const at = new Date()
   const root = options.parkingRoot ?? defaultParking()
-  const written = parkedSlice.cards.map(card => parkCard(card, options.parking, root, at))
+  const written = options.events === undefined ? parkCards(parkedSlice.cards, options.parking, root, at) : parkedSlice.cards.map(card => ({ card, lane: laneOf(root, options.parking) }))
   const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? 'person' : confirmationOf(card, options.autoConfirm))
   recordIntake(options.journal, written.map(({ card, lane }) => admittedRecord(card, confirmation(card), at, lane)), options.events)
   return { status: 'written', parking: options.parking, cards: written.map(({ card }) => card), autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
+}
+
+function parkCards(cards: readonly SlicedCard[], parking: string, root: string, at: Date): { card: SlicedCard, lane: string | null }[] {
+  mkdirSync(parking, { recursive: true })
+  return cards.map(card => parkCard(card, parking, root, at))
 }
 
 function parkCard(card: SlicedCard, parking: string, root: string, at: Date): { card: SlicedCard, lane: string | null } {
@@ -298,6 +302,8 @@ export function printIntake(ui: Ui, result: IntakeResult): number {
       ui.line(card.text)
     else if (result.status === 'awaiting')
       ui.line(ui.lore.intakeAwaitingCard(card.line))
+    else if (result.inBus)
+      ui.ok(ui.lore.intakeAdmitted(`#${card.id}`, card.line, true))
     else
       ui.ok(ui.lore.intakeWritten(path.join(result.parking, card.file), card.line))
     if (result.status !== 'dryRun') {

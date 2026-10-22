@@ -381,7 +381,7 @@ function intakeCommand(bus: BusPorts | undefined) {
         const dir = path.resolve(args.dir)
         const journal = path.resolve(args.journal ?? defaultWindowJournal())
         if (args.move !== undefined || args.to !== undefined) {
-          process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), journal, events }))
+          process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), journal, events, admissions }))
           return
         }
         if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
