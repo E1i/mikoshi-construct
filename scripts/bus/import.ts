@@ -8,7 +8,6 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
-import { defaultParking } from '../ghosts/handoff-check.js'
 import { admitFromJournal, parkingLane } from './admissions.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from './db.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
@@ -81,7 +80,7 @@ function main(): number {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   try {
-    const count = importJournalFile(db, journal, parkingLane(defaultParking(os.homedir())))
+    const count = importJournalFile(db, journal, parkingLane(path.join(os.homedir(), '.construct', 'parking')))
     if (count === null) {
       console.error(`${PREFIX}no journal at ${journal}`)
       return 1

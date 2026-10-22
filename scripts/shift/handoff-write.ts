@@ -357,6 +357,15 @@ function errorLine(error: unknown): string {
   return error instanceof Error ? error.message.split('\n')[0]! : String(error)
 }
 
+function busParked(busPath: string): ParkedDepends {
+  try {
+    return busParkedDepends(busPath)
+  }
+  catch {
+    return new Map()
+  }
+}
+
 function busState(busPath: string): StateReading {
   if (!existsSync(busPath))
     return { kind: 'unread', why: `no bus at ${busPath}` }
@@ -427,7 +436,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     write: (file, text) => writeFileSync(file, text),
     writeNew: (file, text) => writeFileSync(file, text, { flag: 'wx' }),
     rename: renameSync,
-    parked: () => busParkedDepends(defaultBusPath()),
+    parked: () => busParked(defaultBusPath()),
     state: () => busState(defaultBusPath()),
     merged: since => busMerged(defaultBusPath(), since),
     prState: ghPrState,

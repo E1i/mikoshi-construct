@@ -265,10 +265,6 @@ export function handoffRefusals(text: string, context: HandoffContext): string[]
   ]
 }
 
-export function defaultParking(home: string): string {
-  return path.join(home, '.construct', 'parking')
-}
-
 export interface HandoffCheckDeps {
   exists: (file: string) => boolean
   read: (file: string) => string

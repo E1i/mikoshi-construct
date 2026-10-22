@@ -116,7 +116,7 @@ describe('handoff:write', () => {
     expect(refused.code).toBe(1)
     expect(refused.err.join('\n')).toContain('bytes over the limit of 6000')
     const checked: string[] = []
-    const code = runHandoffCheck([file, '--parking', '/p'], { exists: existsSync, read: f => readFileSync(f, 'utf8'), parked: () => PARKED, home: '/home/x', out: () => {}, err: line => checked.push(line) })
+    const code = runHandoffCheck([file], { exists: existsSync, read: f => readFileSync(f, 'utf8'), parked: () => PARKED, home: '/home/x', out: () => {}, err: line => checked.push(line) })
     expect(code).toBe(1)
     expect(checked.join('\n')).toContain('bytes over the limit of 6000')
     writeFileSync(file, draft())
@@ -360,12 +360,12 @@ describe('handoff:write', () => {
     ['an empty bus', (bus: string) => openBus(bus).close(), 'from the bus state'],
     ['no bus', () => {}, 'no bus at'],
     ['a bus path that is a directory', (bus: string) => mkdirSync(bus), 'unreadable'],
-  ])('the command reads the bus and the parking it is given, and writes the handoff from %s', (_, make, source) => {
+  ])('the command reads the bus it is given, and writes the handoff from %s', (_, make, source) => {
     const { dir, handoff, draft: file } = world()
     const bus = path.join(dir, 'bus.db')
     make(bus)
     writeFileSync(file, source === 'from the bus state' ? withoutStateFields(draft()) : draft().replace(/queue: .*/, 'queue: none'))
-    const run = spawnSync(process.execPath, ['--import', 'tsx', HANDOFF_WRITE, handoff, file, '--parking', path.join(dir, 'parking')], { encoding: 'utf8', env: { ...process.env, HOME: dir, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '843', CONSTRUCT_HANDOFF_DIR: dir, NODE_NO_WARNINGS: '1' } })
+    const run = spawnSync(process.execPath, ['--import', 'tsx', HANDOFF_WRITE, handoff, file], { encoding: 'utf8', env: { ...process.env, HOME: dir, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '843', CONSTRUCT_HANDOFF_DIR: dir, NODE_NO_WARNINGS: '1' } })
     expect(run.stderr).toBe('')
     expect(run.status).toBe(0)
     expect(run.stdout).toContain(source)
@@ -394,7 +394,7 @@ describe('handoff:write', () => {
     const handoff = path.join(dir, 'miko.md')
     const stub = path.join(dir, 'claude')
     writeFileSync(file, draft().replace(/queue: .*/, 'queue: none'))
-    writeFileSync(stub, '#!/bin/sh\n"$NODE" --import tsx "$HANDOFF_WRITE" "$HANDOFF" "$DRAFT" --parking "$STUB_DIR/parking" >"$STUB_DIR/write.log" 2>&1\nsleep 2\necho survived > "$STUB_DIR/survived"\n', { mode: 0o755 })
+    writeFileSync(stub, '#!/bin/sh\n"$NODE" --import tsx "$HANDOFF_WRITE" "$HANDOFF" "$DRAFT" >"$STUB_DIR/write.log" 2>&1\nsleep 2\necho survived > "$STUB_DIR/survived"\n', { mode: 0o755 })
     const { CLAUDE_CODE_SESSION_ID: _session, CONSTRUCT_HANDOFF: _handoff, CONSTRUCT_CARD: _card, ...env } = process.env
     const run = spawnSync(stub, [], { encoding: 'utf8', env: { ...env, HOME: dir, STUB_DIR: dir, NODE: process.execPath, HANDOFF_WRITE, HANDOFF: handoff, DRAFT: file, CONSTRUCT_HANDOFF_DIR: dir, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CLAUDE_PROJECT_DIR: dir, NODE_NO_WARNINGS: '1' } })
     expect({ status: run.status, signal: run.signal }).toEqual({ status: 0, signal: null })
@@ -529,5 +529,6 @@ describe('handoff:write', () => {
     expect(write([]).code).toBe(2)
     expect(write(['a.md']).code).toBe(2)
     expect(write(['a.md', 'b.md', '--parking']).code).toBe(2)
+    expect(write(['a.md', 'b.md', '--parking', '/p']).code).toBe(2)
   })
 })

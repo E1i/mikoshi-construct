@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { taskConflicts } from '../scripts/shift/overlap.js'
-import { readParking } from '../scripts/shift/parking.js'
+import { choose } from '../scripts/shift/parking.js'
 import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
+import { TASK_FILE } from '../src/card/task-file.js'
 import { INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -72,11 +73,10 @@ function detail(result: IntakeResult): string[] {
 }
 
 function parkingCheck(root: string): { errors: string[], chosen: string[] } {
-  const unread = (): never => {
-    throw new Error('a parking check reads no git')
-  }
-  const reads = { cwd: root, handoffDir: path.join(root, 'handoff'), listDir: (dir: string) => readdirSync(dir), read: (file: string) => readFileSync(file, 'utf8'), exists: existsSync, git: unread }
-  const { choice, errors } = readParking(reads, path.join(root, 'parking'))
+  const parking = path.join(root, 'parking')
+  const parsed = readdirSync(parking).filter(file => TASK_FILE.test(file)).map(file => parseParkingFile(file, readFileSync(path.join(parking, file), 'utf8')))
+  const choice = choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), new Set(), new Set())
+  const errors = parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : [])
   return { errors: [...errors, ...taskConflicts(choice.chosen)], chosen: choice.chosen.map(task => task.file) }
 }
 
