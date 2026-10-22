@@ -289,6 +289,34 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  it('a card started, dropped and admitted again is a launch candidate and its old run holds neither lane nor touches', () => {
+    const bench = launchBench()
+    const touches = ['scripts/bus/launch-candidates.ts']
+    const readmit = (cardId: number, lane: string, cardTouches: string[], depends: number[]): void => {
+      const text = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: cardTouches, continue: 'stop', who: 'shift', body: 'Do the card.' })
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:again`, payload: { lane, decision: 'auto', contour: 'cheap', depends, admission: `${admission(cardId)}-again`, text }, legacy: false })
+    }
+    const drop = (cardId: number): void => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_DROPPED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${cardId}`, payload: { lane: 'dropped' }, legacy: false })
+    }
+    bench.gitHub.open({ number: 1312 })
+    bench.admitTouching(1213, 'lane-a', touches)
+    bench.started(1213)
+    drop(1213)
+    readmit(1213, 'lane-a', touches, [1312])
+    bench.admitTouching(1219, 'lane-a', touches)
+    bench.tick()
+    expect(taskState(bench.db, launch(1219))).toMatchObject({ state: 'queued' })
+
+    bench.admitTouching(1214, 'lane-b', ['scripts/miko/watch.ts'])
+    bench.started(1214)
+    drop(1214)
+    readmit(1214, 'lane-b', ['scripts/miko/watch.ts'], [])
+    bench.tick()
+    expect(taskState(bench.db, launch(1214, `${admission(1214)}-again`))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
   it('a dropped card whose dependency just merged is no launch candidate', () => {
     const bench = launchBench()
     bench.gitHub.open({ number: 1026 })

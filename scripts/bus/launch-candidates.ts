@@ -3,7 +3,7 @@ import type { ShiftTask } from '../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, SESSION_HEARTBEAT, TASK_REQUEUED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, SESSION_HEARTBEAT, TASK_REQUEUED } from '../core/events.js'
 import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
@@ -23,7 +23,7 @@ const REQUEUED_BY_REQUEST = `(type = '${TASK_REQUEUED}' AND json_extract(payload
 
 const CARD_LIFE = `
   SELECT id, type, card_id, dedupe_key, payload FROM events
-  WHERE legacy = 0 AND card_id IS NOT NULL AND (type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${GHOST_ROW}') OR ${REQUEUED_BY_REQUEST})
+  WHERE legacy = 0 AND card_id IS NOT NULL AND (type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${CARD_DROPPED}', '${GHOST_ROW}') OR ${REQUEUED_BY_REQUEST})
     AND ${NOT_A_BACKFILL}
   ORDER BY id
 `
@@ -200,7 +200,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
     }
     if (life !== undefined && row.type === GHOST_ROW && life.startedAt !== null && life.freeRow === null && payloadOf(row).state === FREE_ROW)
       life.freeRow = row.id
-    if (life !== undefined && (row.type === CARD_CLOSED || row.type === CARD_STOPPED)) {
+    if (life !== undefined && (row.type === CARD_CLOSED || row.type === CARD_STOPPED || row.type === CARD_DROPPED)) {
       life.closed = true
       life.stoppedByFault = row.type === CARD_STOPPED && payloadOf(row).reason === FAULT
     }
