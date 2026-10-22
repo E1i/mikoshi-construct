@@ -3,7 +3,7 @@ import type { ProcessTable } from './chain-process.js'
 import type { ChainRow, ChainState } from './chain.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
-import type { Role, RoleLease } from './role.js'
+import type { Role } from './role.js'
 import { CARD_STOPPED, POLICY_DENIED } from '../core/events.js'
 import { CLOSED_CARD, DROPPED_CARD, RUNNING_CARD } from './card-automaton.js'
 import { chainProcess, stopChain } from './chain-process.js'
@@ -11,7 +11,6 @@ import { chainOfCard, chainOfDir, observeChain } from './chain.js'
 import { inTransaction } from './db.js'
 import { messageOf } from './errors.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
-import { assertRoleHeld, failRaise, raiseRole } from './role.js'
 
 export type RestartReason = 'no_chain' | 'chain_current' | 'chain_dead' | 'launch_off' | 'stop_failed'
 export type RestartWait = 'not_at_boundary'
@@ -28,19 +27,8 @@ export interface DeadChain {
   state: 'stopped' | 'fault'
 }
 
-export interface RoleLauncher {
-  raise: (role: Role, handoff: string) => number
-}
-
-export type RelaunchOutcome
-  = | { kind: 'raised', role: Role, handoff: string, pid: number }
-    | { kind: 'raise_failed', role: Role, handoff: string, detail: string }
-    | { kind: 'to_owner', role: Role, handoff: string, detail: string }
-    | { kind: 'fenced', taskKey: string }
-
 export interface RestartParts {
   db: DatabaseSync
-  roles: RoleLauncher
   processes: ProcessTable
   launchSwitchedOn: () => boolean
   clock: () => Date
@@ -99,28 +87,6 @@ export class RestartExecutor {
       found.push({ dir: chain.dir, cardId: chain.card_id, state })
     }
     return found
-  }
-
-  relaunch(lease: RoleLease): RelaunchOutcome {
-    try {
-      assertRoleHeld(this.parts.db, lease)
-      let pid: number
-      try {
-        pid = this.parts.roles.raise(lease.role, lease.handoff)
-      }
-      catch (error) {
-        const detail = messageOf(error)
-        failRaise(this.parts.db, this.ts(), lease, detail)
-        return { kind: 'raise_failed', role: lease.role, handoff: lease.handoff, detail }
-      }
-      raiseRole(this.parts.db, this.ts(), lease, pid)
-      return { kind: 'raised', role: lease.role, handoff: lease.handoff, pid }
-    }
-    catch (error) {
-      if (error instanceof StaleLease)
-        return { kind: 'fenced', taskKey: relaunchKey(lease.role) }
-      throw error
-    }
   }
 
   private processGone(chain: ChainRow): boolean {

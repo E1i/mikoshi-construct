@@ -20,7 +20,7 @@ const RETELLING = [
 const SLICED = {
   cards: [
     { name: 'board-parking', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'auto', who: 'shift', touches: ['scripts/board/**', 'tests/board/**'], task: RETELLING[0], witnesses: ['`pnpm test` shows a parked card on the board with its who'] },
-    { name: 'shift-skips-open-pr', kind: 'implement', milestone: 'runner', size: 'M', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['scripts/shift/**'], depends: ['board-parking'], task: RETELLING[1], witnesses: ['`pnpm test` leaves a card overlapping an open pull request with that pull request named'] },
+    { name: 'shift-skips-open-pr', kind: 'implement', milestone: 'runner', size: 'M', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['scripts/shift/shift.ts'], depends: ['board-parking'], task: RETELLING[1], witnesses: ['`pnpm test` leaves a card overlapping an open pull request with that pull request named'] },
     { name: 'release-version-probe', kind: 'probe', milestone: 'infra', size: 'S', contour: 'cheap', who: 'window', touches: ['.github/workflows/**'], task: RETELLING[2], witnesses: ['`pnpm test` reads the report naming the file and line the version is read from'] },
   ],
 }
