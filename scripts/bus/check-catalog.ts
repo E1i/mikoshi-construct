@@ -8,6 +8,7 @@ import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
+import { ghostLinesText } from '../ghosts/journal.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { openDatabase } from './sqlite.js'
@@ -382,13 +383,12 @@ export function readParking(dir: string): ParkingCard[] {
 
 function main(): void {
   const handoff = process.env.CONSTRUCT_HANDOFF_DIR ?? path.join(os.homedir(), '.construct', 'handoff')
-  const journalFile = path.join(handoff, 'ghosts.jsonl')
   const catalog = buildCatalog({
     graph: cruise(),
     testText: test => readFileSync(path.join(REPO_ROOT, test), 'utf8'),
     parking: readParking(path.join(os.homedir(), '.construct', 'parking')),
     briefs: readBriefs(handoff),
-    journal: existsSync(journalFile) ? readFileSync(journalFile, 'utf8') : '',
+    journal: ghostLinesText(defaultBusPath()),
   })
   const db = openDatabase(defaultBusPath(), { timeout: BUSY_TIMEOUT_MS })
   writeCatalog(db, catalog)

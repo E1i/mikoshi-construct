@@ -75,7 +75,7 @@ function parkingCheck(root: string): { errors: string[], chosen: string[] } {
   const unread = (): never => {
     throw new Error('a parking check reads no git')
   }
-  const reads = { cwd: root, handoffDir: path.join(root, 'handoff'), listDir: (dir: string) => readdirSync(dir), read: (file: string) => readFileSync(file, 'utf8'), exists: existsSync, git: unread }
+  const reads = { cwd: root, handoffDir: path.join(root, 'handoff'), listDir: (dir: string) => readdirSync(dir), read: (file: string) => readFileSync(file, 'utf8'), exists: existsSync, git: unread, bus: path.join(root, 'bus.db') }
   const { choice, errors } = readParking(reads, path.join(root, 'parking'))
   return { errors: [...errors, ...taskConflicts(choice.chosen)], chosen: choice.chosen.map(task => task.file) }
 }

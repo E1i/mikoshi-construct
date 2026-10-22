@@ -1,3 +1,4 @@
+import type { JournalEntry } from '../../../src/card/closed.js'
 import { describe, expect, it } from 'vitest'
 import { planAdd } from '../../decisions/add.js'
 import { DECISION_FORMAT, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForce, parseDecisions, spendDecisions } from '../../decisions/decisions.js'
@@ -9,20 +10,19 @@ function file(...lines: string[]): string {
   return `${HEADER}${lines.join('\n')}\n`
 }
 
-const JOURNAL = '/h/ghosts.jsonl'
 const ARCHIVE = '/d/owner-decisions.archive.md'
 
-function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: string | null = null, archive: string | null = null, bus: ReadonlyMap<string, string> = new Map()): { code: number, out: string[], err: string[], findings: string[], written: Record<string, string> } {
+function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: JournalEntry[] = [], archive: string | null = null, bus: ReadonlyMap<string, string> = new Map()): { code: number, out: string[], err: string[], findings: string[], written: Record<string, string> } {
   const out: string[] = []
   const err: string[] = []
   const findings: string[] = []
   const written: Record<string, string> = {}
   const code = runDecisionsRead(args, {
     home: '/home/x',
-    journal: JOURNAL,
+    history: journal,
     bus,
-    exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === JOURNAL && journal !== null) || (candidate === ARCHIVE && archive !== null),
-    read: candidate => candidate === JOURNAL ? journal! : candidate === ARCHIVE ? archive! : text,
+    exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === ARCHIVE && archive !== null),
+    read: candidate => candidate === ARCHIVE ? archive! : text,
     write: (candidate, content) => {
       written[candidate] = content
     },
@@ -33,8 +33,8 @@ function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal:
   return { code, out, err, findings, written }
 }
 
-function journal(...entries: object[]): string {
-  return entries.map(entry => `${JSON.stringify(entry)}\n`).join('')
+function journal(...entries: object[]): JournalEntry[] {
+  return entries as JournalEntry[]
 }
 
 function upToSpending(...lines: string[]): string {
@@ -222,7 +222,7 @@ describe('owner decisions are a numbered record', () => {
 
     const unread = planAdd(before, '', replace, now) as { file: string, archive: string, archived: number[] }
     expect(unread.archived).toEqual([2])
-    const settled = read(unread.file, undefined, null, unread.archive)
+    const settled = read(unread.file, undefined, [], unread.archive)
     expect(settled.code).toBe(0)
     expect(settled.out.map(line => line.slice(0, 5))).toEqual(['- D-3', '- D-4'])
     expect(settled.written['/d/owner-decisions.md']).toContain('night order holds. · decisions:add · superseded-by D-2')
@@ -348,7 +348,7 @@ describe('a decision bound to a card is spent once the card is merged or closed'
 
   it('spends a decision whose card the bus holds merged or closed, with no journal line for it', () => {
     const text = upToSpending('- D-55 · 2026-10-13 — one. · card #855', '- D-56 · 2026-10-13 — two. · card #928')
-    const result = read(text, undefined, null, null, new Map([['855', 'closed'], ['928', 'merged']]))
+    const result = read(text, undefined, [], null, new Map([['855', 'closed'], ['928', 'merged']]))
     expect(result.written['/d/owner-decisions.md']).toContain('one. · card #855 · superseded-by D-54')
     expect(result.written['/d/owner-decisions.md']).toContain('two. · card #928 · superseded-by D-54')
   })

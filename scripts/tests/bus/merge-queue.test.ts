@@ -51,8 +51,6 @@ function delegatedBench(decisions = D82): MergeBench & { file: string } {
 
 function shardDeps(bench: MergeBench, id: string, out: string[] = []): ShardDeps {
   return {
-    handoffDir: path.dirname(bench.busPath),
-    append: (file, text) => writeFileSync(file, text, { flag: 'a' }),
     record: event => appendEvent(bench.db, event),
     activeWindows: now => activeWindowShards(bench.db, now),
     inForce: (decisionId, now) => decisionsInForceAt(bench.db, now).some(decision => decision.decisionId === decisionId),

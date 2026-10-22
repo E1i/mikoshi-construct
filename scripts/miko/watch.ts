@@ -1,7 +1,6 @@
 import type { WindowPr } from '../bus/window-prs.js'
 import type { WatchCursor } from './watch-store.js'
-import { Buffer } from 'node:buffer'
-import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -16,13 +15,13 @@ import { windowBeat, windowSessionOf } from '../bus/window-heartbeat.js'
 import { windowOpenPrs } from '../bus/window-prs.js'
 import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
-import { GHOST_JOURNAL } from '../shift/places.js'
+import { GHOST_LINE } from '../ghosts/journal.js'
 import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore } from './watch-store.js'
 
 export const STOP_EVENT = 'relaunch-stop'
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED]
+export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED]
 export const HEAD_BOUND_EVENTS = [STOP_EVENT, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, CARD_STOPPED]
 export const FAILED_CI = 'red'
 export const DENIALS_IN_A_ROW = 2
@@ -49,8 +48,6 @@ export interface DenialRun {
 }
 
 export interface WatchState {
-  offset: number
-  rest: string
   busId: number
   ciByPr: Map<number | null, { head: string | null, ci: unknown }>
   deniedByTask: Map<string, DenialRun>
@@ -83,10 +80,7 @@ export interface BusEvent {
 }
 
 export interface WatchDeps {
-  journal: string
   bus: string
-  size: () => number
-  readFrom: (offset: number, end: number) => string
   lastBusId: () => number
   busEventsAfter: (id: number) => BusEvent[]
   observedUpTo: (id: number) => BusEvent[]
@@ -136,10 +130,10 @@ export function parseWatchArgs(args: string[]): WatchArgs | undefined {
   return card === undefined ? { once } : { once, card }
 }
 
-function journalCard(line: string): number | undefined {
-  const task = (JSON.parse(line) as { task?: unknown }).task
+function ghostLineCard(payload: string): number | null {
+  const task = payloadOf(payload).task
   const id = typeof task === 'string' ? task : ''
-  return /^[1-9]\d*$/.test(id) ? Number(id) : undefined
+  return /^[1-9]\d*$/.test(id) ? Number(id) : null
 }
 
 export const ROUND_LIMIT_NEEDS_OWNER = 'round limit reached, the bus queues no further review; owner decision needed: allow-merge'
@@ -232,22 +226,7 @@ export function wakingEvent(line: string): string | undefined {
 
 export function watchState(deps: WatchDeps): WatchState {
   const busId = deps.lastBusId()
-  return { offset: deps.size(), rest: '', busId, ciByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
-}
-
-function journalLines(state: WatchState, deps: WatchDeps): string[] {
-  const size = deps.size()
-  if (size < state.offset) {
-    state.offset = size
-    state.rest = ''
-  }
-  if (size === state.offset)
-    return []
-  const text = state.rest + deps.readFrom(state.offset, size)
-  state.offset = size
-  const lines = text.split('\n')
-  state.rest = lines.pop() ?? ''
-  return lines.filter(line => wakingEvent(line) !== undefined).map(line => `journal ${line}`)
+  return { busId, ciByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
 }
 
 function ciOf(payload: string): unknown {
@@ -293,6 +272,8 @@ export function wakesTheWindow(state: BusMemory, event: BusEvent): boolean {
     return deniedAgainInARow(state, event)
   if (event.type === TASK_EXPIRED)
     return sessionLeaseLapsed(payloadOf(event.payload))
+  if (event.type === GHOST_LINE)
+    return wakingEvent(event.payload) !== undefined
   return true
 }
 
@@ -333,29 +314,12 @@ function newStuck(known: Set<string>, deps: WatchDeps): StuckPr[] {
 export function tick(state: WatchState, deps: WatchDeps, now = Date.now()): string[] {
   const stuck = newStuck(state.stuck, deps).map(stuckLine)
   const stalls = newStalls(state.stalls, deps).map(stall => stallLine(stall, now))
-  return [...journalLines(state, deps), ...busLines(state, deps), ...stuck, ...stalls]
-}
-
-function journalDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefined): Delivery | undefined {
-  const end = deps.size()
-  if (end < cursor.offset)
-    throw new WatchRefusal(`miko:watch: the journal ${deps.journal} is ${end} bytes, shorter than the cursor's offset ${cursor.offset}; it was cut or replaced`)
-  const lines = deps.readFrom(cursor.offset, end).split('\n')
-  lines.pop()
-  let offset = cursor.offset
-  let skipped: Delivery | undefined
-  for (const line of lines) {
-    offset += Buffer.byteLength(line) + 1
-    if (wakingEvent(line) === undefined)
-      continue
-    if (card === undefined || journalCard(line) === card)
-      return { line: `journal ${line}`, cursor: { ...cursor, offset } }
-    skipped = { line: null, cursor: { ...cursor, offset } }
-  }
-  return skipped
+  return [...busLines(state, deps), ...stuck, ...stalls]
 }
 
 export function cardOfEvent(event: BusEvent): number | null {
+  if (event.cardId === null && event.type === GHOST_LINE)
+    return ghostLineCard(event.payload)
   if (event.cardId !== null || event.type !== PROCESS_JUDGED)
     return event.cardId
   const name = textOf(payloadOf(event.payload), 'process') ?? ''
@@ -363,7 +327,7 @@ export function cardOfEvent(event: BusEvent): number | null {
   return /^[1-9]\d*$/.test(id) ? Number(id) : null
 }
 
-function busDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefined): Delivery | undefined {
+export function selectOnce(cursor: WatchCursor, deps: WatchDeps, card?: number): Delivery | undefined {
   const end = deps.lastBusId()
   if (end < cursor.busId)
     throw new WatchRefusal(`miko:watch: the bus ${deps.bus} ends at event ${end}, before the cursor's event ${cursor.busId}; it was replaced or cut`)
@@ -381,18 +345,6 @@ function busDelivery(cursor: WatchCursor, deps: WatchDeps, card: number | undefi
     skipped = { line: null, cursor: { ...cursor, busId: event.id } }
   }
   return skipped
-}
-
-export function selectOnce(cursor: WatchCursor, deps: WatchDeps, card?: number): Delivery | undefined {
-  const journal = journalDelivery(cursor, deps, card)
-  if (journal?.line != null)
-    return journal
-  const afterJournal = journal?.cursor ?? cursor
-  const bus = busDelivery(afterJournal, deps, card)
-  if (bus?.line != null)
-    return bus
-  const afterSkips = bus?.cursor ?? afterJournal
-  return afterSkips === cursor ? undefined : { line: null, cursor: afterSkips }
 }
 
 function wokenBefore(woken: ReadonlyMap<number, number>, stall: CardActivity): boolean {
@@ -457,30 +409,6 @@ function emitLine(line: string): Promise<void> {
         resolve()
     })
   })
-}
-
-function sizeOf(file: string): number {
-  try {
-    return statSync(file).size
-  }
-  catch {
-    return 0
-  }
-}
-
-function readFrom(file: string, offset: number, end: number): string {
-  const length = end - offset
-  if (length <= 0)
-    return ''
-  const buffer = Buffer.alloc(length)
-  const fd = openSync(file, 'r')
-  try {
-    const read = readSync(fd, buffer, 0, length, offset)
-    return buffer.subarray(0, read).toString('utf8')
-  }
-  finally {
-    closeSync(fd)
-  }
 }
 
 interface BusRow {
@@ -633,13 +561,9 @@ function rememberStalls(file: string, stalls: readonly CardActivity[]): void {
 }
 
 export function productionDeps(handoff: string, bus: string): WatchDeps {
-  const journal = path.join(handoff, GHOST_JOURNAL)
   const woken = path.join(handoff, WOKEN_STALLS)
   return {
-    journal,
     bus,
-    size: () => sizeOf(journal),
-    readFrom: (offset, end) => readFrom(journal, offset, end),
     lastBusId: () => lastBusId(bus),
     busEventsAfter: id => busEventsAfter(bus, id),
     observedUpTo: id => observedUpTo(bus, id),
@@ -657,7 +581,7 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
 
 export async function runOnce(handoff: string, deps: WatchDeps, card?: number): Promise<void> {
   const legacy = path.join(handoff, LEGACY_CURSOR)
-  const store = OnceStore.open(path.join(handoff, ONCE_STORE), { file: legacy, text: legacyCursor(legacy) }, () => ({ offset: deps.size(), busId: deps.lastBusId() }))
+  const store = OnceStore.open(path.join(handoff, ONCE_STORE), { file: legacy, text: legacyCursor(legacy) }, () => ({ offset: 0, busId: deps.lastBusId() }))
   try {
     if (store.opened.kind === 'migrated')
       rmSync(legacy, { force: true })

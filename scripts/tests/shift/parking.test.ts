@@ -109,7 +109,7 @@ describe('dependencyWaits', () => {
 })
 
 describe('readParking', () => {
-  it('reads a depends as merged when the bus it is given holds the card closed', () => {
+  it('reads a depends as merged when the bus it is given holds the card closed, and as open when that bus holds nothing', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'read-parking-bus-'))
     try {
       const bus = path.join(root, 'bus.db')
@@ -122,7 +122,7 @@ describe('readParking', () => {
         db.close()
       }
       const card = 'card: #7 task-7 [implement/ghosts/S/cheap/owner] · depends #5 · blocks —\nbranch: feat/7\ntouches: scripts/7/**\nwho: shift\n\ndo 7\n'
-      const reads = { cwd: root, handoffDir: root, listDir: () => ['7.md'], read: () => card, exists: (target: string) => target === bus, git: () => '' }
+      const reads = { cwd: root, handoffDir: root, listDir: () => ['7.md'], read: () => card, exists: (target: string) => target === bus, git: () => '', bus: path.join(root, 'no-bus.db') }
       expect(readParking(reads, root).choice.left).toEqual([{ id: '7', reason: 'depends #5 not merged' }])
       expect(readParking({ ...reads, bus }, root).choice.chosen.map(task => task.id)).toEqual(['7'])
     }

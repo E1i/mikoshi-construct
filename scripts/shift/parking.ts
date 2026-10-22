@@ -5,11 +5,11 @@ import path from 'node:path'
 import { closedTasks, mergedTasks } from '../../src/card/closed.js'
 import { parseParkingFile, SHIFT_WHO } from '../../src/card/parking.js'
 import { TASK_FILE } from '../../src/card/task-file.js'
+import { busHistory, ghostLines } from '../ghosts/journal.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { declaredGhostsFile, GHOSTS_FILES, readGhostsFiles } from '../shredder/reader.js'
 import { approvedSha256Of, briefPathOf, isLadder } from './ladder.js'
 import { taskConflicts } from './overlap.js'
-import { GHOST_JOURNAL } from './places.js'
 
 const GHOSTS_FILES_ON_MAIN = `origin/main:${GHOSTS_FILES}`
 
@@ -125,7 +125,7 @@ export interface ParkingReads {
   read: (file: string) => string
   exists: (target: string) => boolean
   git: (cwd: string, args: string[]) => string
-  bus?: string
+  bus: string
 }
 
 export function taskFiles(reads: Pick<ParkingReads, 'listDir'>, dir: string): string[] {
@@ -136,8 +136,12 @@ function readIfThere(reads: ParkingReads, file: string): string | null {
   return reads.exists(file) ? reads.read(file) : null
 }
 
-function approvedBrief(reads: ParkingReads, task: ShiftTask): boolean {
-  const facts = { journal: readIfThere(reads, path.join(reads.handoffDir, GHOST_JOURNAL)), brief: readIfThere(reads, briefPathOf(reads.handoffDir, task.card)) }
+function busJournal(bus: string): string {
+  return [...busHistory(bus), ...ghostLines(bus)].map(line => JSON.stringify(line)).join('\n')
+}
+
+function approvedBrief(reads: ParkingReads, journal: string, task: ShiftTask): boolean {
+  const facts = { journal, brief: readIfThere(reads, briefPathOf(reads.handoffDir, task.card)) }
   return approvedSha256Of(facts, task.card) !== null
 }
 
@@ -155,12 +159,12 @@ function createdFile(reads: ParkingReads): Created {
 
 export function readParking(reads: ParkingReads, parking: string): { choice: Choice, errors: string[] } {
   const parsed = taskFiles(reads, parking).map(file => parseParkingFile(file, reads.read(path.join(parking, file))))
-  const text = readIfThere(reads, path.join(reads.handoffDir, GHOST_JOURNAL))
-  const busCards = reads.bus === undefined ? undefined : busCardStates(reads.bus)
+  const text = busJournal(reads.bus)
+  const busCards = busCardStates(reads.bus)
   const done = new Set(closedTasks(text, busCards).keys())
   const cards = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : [])
   const ladder = new Map(cards.filter(parked => isLadder(parked.task.card)).map(parked => [parked.task.id, parked.task]))
-  const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(reads, ladder.get(stop.task)!)
+  const released = (stop: Stop): boolean => stop.at === 'hash' && ladder.has(stop.task) && approvedBrief(reads, text, ladder.get(stop.task)!)
   const stops = latestStops(text)
   const standing = standingStops(stops, reads.exists, released)
   return {
