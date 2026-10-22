@@ -5,7 +5,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { EXPECT_LINE_INDEX } from '../../ghosts/expect.js'
-import { PREFIX, runBriefFinish } from '../../shift/brief-finish-cli.js'
+import { runPnpmCommand } from '../../ghosts/pnpm-runner.js'
+import { PREFIX, REAL_DEPS, runBriefFinish } from '../../shift/brief-finish-cli.js'
 import { finishBrief, NO_PNPM_RUNNER } from '../../shift/brief-finish.js'
 
 const CARD = 9402
@@ -143,5 +144,9 @@ describe('the brief-finish CLI', () => {
     const lines: string[] = []
     expect(runBriefFinish([parkedCard(root), '/tree', brief], depsOf({}).deps, line => lines.push(line))).toBe(0)
     expect(lines).toEqual([])
+  })
+
+  it('the brief-finish CLI takes its pnpm runner from the ladder', () => {
+    expect(REAL_DEPS.pnpm).toBe(runPnpmCommand)
   })
 })

@@ -5,6 +5,7 @@ import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { ChainState } from '../bus/chain.js'
 import type { BusEvent } from '../bus/db.js'
 import type { GhCaller } from '../core/gh.js'
+import type { PnpmResult } from '../ghosts/pnpm-runner.js'
 import type { HandedContract, TaskStartDeps, TaskStartJournalReader, TaskStartResult } from '../ghosts/task-start.js'
 import type { ChainMoment } from './chain-bus.js'
 import type { ClaudeExit, ClaudeRun } from './claude.js'
@@ -18,7 +19,7 @@ import type { Choice, DependencyWait, InReview, LeftCard, Stop } from './parking
 import type { TaskLine } from './places.js'
 import type { PromptPlaces } from './prompt.js'
 import type { TreePr } from './tree-pr.js'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -43,6 +44,7 @@ import { formatCheapExpect } from '../ghosts/cheap-expect.js'
 import { CLOUD_VARIABLE, cloudOn } from '../ghosts/cloud-key.js'
 import { missingFields } from '../ghosts/handoff-check.js'
 import { recordGhostLine, withGhostLines } from '../ghosts/journal.js'
+import { runPnpmCommand } from '../ghosts/pnpm-runner.js'
 import { PREFIX as CLOSE_PREFIX, closingHistoryLines, prBodyOf, realpathOrSelf, runTaskClose } from '../ghosts/task-close.js'
 import { MERGED_FILE, mergedDetails, mergedSummary, recordMerges } from '../ghosts/task-merged.js'
 import { readJournalFile, runTaskStart } from '../ghosts/task-start.js'
@@ -129,11 +131,7 @@ export const USAGE = [
   'an event:note line when the session starts and when it ends, and takes no merge, verdict or arm decision. Started detached through pnpm shift:bg <dir> --answer <task> --prompt <file>.',
 ].join('\n')
 
-export interface PnpmResult {
-  code: number
-  stdout: string
-  stderr: string
-}
+export type { PnpmResult }
 
 export interface ShiftDeps {
   cwd: string
@@ -630,7 +628,6 @@ async function runTask(deps: ShiftDeps, dir: string, task: ShiftTask, claude: st
 }
 
 const LADDER_TURNS = 4
-const PNPM_OUTPUT_LIMIT = 64 * 1024 * 1024
 
 function readIfThere(deps: ShiftDeps, file: string): string | null {
   return deps.exists(file) ? deps.read(file) : null
@@ -1230,11 +1227,6 @@ async function askOnTerminal(question: string): Promise<boolean> {
   finally {
     terminal.close()
   }
-}
-
-export function runPnpmCommand(cwd: string, args: string[], input?: string): PnpmResult {
-  const result = spawnSync('pnpm', args, { cwd, input, encoding: 'utf8', maxBuffer: PNPM_OUTPUT_LIMIT })
-  return { code: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.error === undefined ? result.stderr ?? '' : result.error.message }
 }
 
 type Stream = Pick<NodeJS.WriteStream, 'on' | 'off'>
