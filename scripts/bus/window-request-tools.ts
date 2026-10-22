@@ -8,6 +8,8 @@ import { taskWorktree, worktreeHome } from '../ports/worktree-home.js'
 import { cardSessionOf } from './answer-source.js'
 import { recordDecision } from './decisions.js'
 import { dryRunIn } from './dry-run-record.js'
+import { ghApi, ghApiPatch } from './github.js'
+import { PrCloser } from './pr-close.js'
 
 const WORKTREE_LINE = /^worktree (.+)$/
 const BRANCH_LINE = /^branch refs\/heads\/(.+)$/
@@ -41,6 +43,7 @@ function causeHoldsIn(db: DatabaseSync, repo: string): (task: CardTask) => strin
 }
 
 export function realRequestTools(db: DatabaseSync, repo: string, env: NodeJS.ProcessEnv, home: string): RequestTools {
+  const closer = new PrCloser(db, ghApi(repo), ghApiPatch(repo), () => new Date())
   return {
     treeOf: cardId => taskWorktree(worktreeHome(env), String(cardId)),
     exists: existsSync,
@@ -50,6 +53,8 @@ export function realRequestTools(db: DatabaseSync, repo: string, env: NodeJS.Pro
     dryRunOf: dryRunIn(path.join(home, '.construct', 'bus', 'dry-run-reviews')),
     addDecision: decisionsAdder(db, home, () => new Date()),
     causeHolds: causeHoldsIn(db, repo),
+    closePr: request => closer.close(request),
+    closeDropped: () => closer.closeDropped(),
   }
 }
 

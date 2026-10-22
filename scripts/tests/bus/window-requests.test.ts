@@ -14,12 +14,13 @@ import { ownerInbox } from '../../bus/inbox.js'
 import { launchableCard } from '../../bus/launch-candidates.js'
 import { LaunchExecutor, technical } from '../../bus/launch-executor.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
+import { PrCloser } from '../../bus/pr-close.js'
 import { FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
 import { roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { decisionsInForceAt } from '../../bus/shards.js'
 import { decisionsAdder, worktreesHolding } from '../../bus/window-request-tools.js'
-import { REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../bus/window-requests.js'
+import { REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../bus/window-requests.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
@@ -65,6 +66,8 @@ function room(bench: MergeBench = mergeBench()): Room {
       dryRunOf: dryRunIn(path.join(root, 'dry-run-reviews')),
       addDecision: decisionsAdder(bench.db, root, bench.clock.now),
       causeHolds: () => made.causes.shift() ?? null,
+      closePr: request => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).close(request),
+      closeDropped: () => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).closeDropped(),
       ...tools,
     }),
   }
@@ -297,7 +300,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(runRequest(['merge.now', '--pr', String(PR)], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(0)
     const request = Number(/window\.request (\d+)/.exec(lines[0]!)![1])
 
-    expect(made.requests().run()).toEqual([{ kind: 'owner', request, detail: `the window asked for "merge.now", not one of tree.cut, allow-merge, requeue, mode, plan, owner.wait, owner.wait.close; refused, the owner decides` }])
+    expect(made.requests().run()).toEqual([{ kind: 'owner', request, detail: `the window asked for "merge.now", not one of ${REQUEST_KINDS.join(', ')}; refused, the owner decides` }])
     expect(answerOf(made, request).type).toBe(REQUEST_REFUSED)
     const inbox = ownerInbox(made.bench.db)
     expect(inbox).toHaveLength(1)

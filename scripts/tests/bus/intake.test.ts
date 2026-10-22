@@ -103,7 +103,7 @@ function setMode(w: World, mode: string): void {
   }
   try {
     requestFromWindow(db, NOW.toISOString(), 's1', { kind: 'mode', mode })
-    new WindowRequests(db, () => NOW, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse }).run()
+    new WindowRequests(db, () => NOW, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }).run()
   }
   finally {
     db.close()
