@@ -161,6 +161,18 @@ function mergedSeventy(w: World): void {
   journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
 }
 
+function latestText(w: World, file: string): string {
+  const id = Number(path.basename(file, '.md'))
+  const db = openBus(busOf(w))
+  try {
+    const row = db.prepare(`SELECT json_extract(payload, '$.text') AS text FROM events WHERE type = 'card.admitted' AND card_id = ? AND json_type(payload, '$.text') = 'text' ORDER BY id DESC LIMIT 1`).get(id) as { text: string } | undefined
+    return row?.text ?? readFileSync(file, 'utf8')
+  }
+  finally {
+    db.close()
+  }
+}
+
 function admittedCardText(result: AdmitResult): string {
   if (!('card' in result))
     throw new Error(`no card in a ${result.status} result`)
@@ -213,15 +225,17 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(admittedPayloads(w).at(-1)?.text).toBe(edited)
   })
 
-  it('a corrected admission of a card whose parking file is there is written back to the file, with a bus body present', () => {
+  it('a corrected admission of a card whose parking file is there leaves the file as it was, the bus carrying the corrected text', () => {
     const w = world()
     const file = stalePark(w)
+    const written = readFileSync(file, 'utf8')
     expect(admitThroughBus(w, file, { autoConfirm: true }).status).toBe('admitted')
     mergedSeventy(w)
 
     const amended = admitThroughBus(w, file, { autoConfirm: true })
     expect(amended).toMatchObject({ status: 'admitted', source: 'amend', card: { line: STALE_ADMITTED } })
-    expect(readFileSync(file, 'utf8')).toBe(admittedCardText(amended))
+    expect(readFileSync(file, 'utf8')).toBe(written)
+    expect(admittedPayloads(w).at(-1)?.text).toBe(admittedCardText(amended))
   })
 
   it('a corrected admission from the bus body writes no parking file and is carried by its card.admitted event and card_bodies alone', () => {
@@ -314,7 +328,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
 
     const token = held.status === 'awaiting' ? held.token : ''
     expect(admit(w, file, { confirm: token }).status).toBe('admitted')
-    const after = readFileSync(file, 'utf8')
+    const after = latestText(w, file)
     expect(after).toBe(before.replace(STALE, STALE_ADMITTED).replace('touches: scripts/', 'touches: src/').replace('Do the thing.\n', `Do the thing.\n\ncorrected: touches — scripts/board/run.ts → src/board/run.ts — 'scripts/board/run.ts' does not exist; 'src/board/run.ts' is the only path named 'run.ts'\ncorrected: depends — #70 → (removed) — already merged\n`))
     expect(journalLines(w).at(-1)).toMatchObject({ event: 'intake', task: '81', card: STALE_ADMITTED, confirmation: 'person', source: 'admit' })
     expect(taskStart(w, STALE_ADMITTED)).toBe(0)
@@ -383,7 +397,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const w = world()
     const file = park(w, 82, WAITING.replace('depends #80', 'depends #79'))
     expect(admit(w, file)).toMatchObject({ status: 'admitted', card: { unclear: [{ field: 'depends' }] } })
-    expect(readFileSync(file, 'utf8')).toContain('unclear: depends')
+    expect(latestText(w, file)).toContain('unclear: depends')
     expect(payloadsOf(w, 'card.waiting')).toEqual([])
   })
 
@@ -548,7 +562,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const file = park(w, 80, CLEAN, 'scripts/board/run.ts, src/nowhere.ts')
     const result = admit(w, file, { autoConfirm: true })
     expect(result.status).toBe('admitted')
-    const text = readFileSync(file, 'utf8')
+    const text = latestText(w, file)
     expect(text).toContain('touches: src/board/run.ts, src/nowhere.ts\n')
     expect(text).toContain('who: shift\n')
     expect(text).toContain('corrected: touches — scripts/board/run.ts → src/board/run.ts')
@@ -782,7 +796,7 @@ describe('construct intake --admit and package.json', () => {
       writeFileSync(path.join(w.repo, existing), '')
     const file = park(w, 80, CLEAN, 'package.json, src/board/**')
     expect(admit(w, file).status).toBe('admitted')
-    const text = readFileSync(file, 'utf8')
+    const text = latestText(w, file)
     expect(text).toContain('touches: package.json, src/board/**, CONTRIBUTING.md, tests/harness-membership.test.ts\n')
     expect(text).toContain('corrected: touches — (absent) → tests/harness-membership.test.ts — every change of this kind carries it')
     expect(text).toContain('corrected: touches — (absent) → CONTRIBUTING.md')
@@ -798,14 +812,14 @@ describe('construct intake --admit and package.json', () => {
       writeFileSync(path.join(w.repo, existing), '')
     const file = park(w, 80, CLEAN, 'package.json, CONTRIBUTING.md')
     expect(admit(w, file).status).toBe('admitted')
-    expect(readFileSync(file, 'utf8')).toContain('touches: package.json, CONTRIBUTING.md, tests/harness-membership.test.ts\n')
+    expect(latestText(w, file)).toContain('touches: package.json, CONTRIBUTING.md, tests/harness-membership.test.ts\n')
   })
 
   it('adds no companion to a card that does not touch package.json', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
     admit(w, file)
-    expect(readFileSync(file, 'utf8')).not.toContain('CONTRIBUTING.md')
+    expect(latestText(w, file)).not.toContain('CONTRIBUTING.md')
   })
 })
 
@@ -817,8 +831,8 @@ describe('construct intake --admit and the creates line', () => {
     writeFileSync(file, `card: ${CLEAN}\nbranch: feat/card-80\ntouches: src/board/fresh.ts\ncreates: src/board/fresh.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
     const result = admit(w, file)
     expect(result.status).toBe('admitted')
-    expect(readFileSync(file, 'utf8')).not.toContain('unclear: touches')
-    expect(readFileSync(file, 'utf8')).toContain('creates: src/board/fresh.ts')
+    expect(latestText(w, file)).not.toContain('unclear: touches')
+    expect(latestText(w, file)).toContain('creates: src/board/fresh.ts')
   })
 
   it('admit reads a creates entry with its kind as the path it creates', () => {
@@ -827,8 +841,8 @@ describe('construct intake --admit and the creates line', () => {
     const file = path.join(w.parking, '80.md')
     writeFileSync(file, `card: ${CLEAN}\nbranch: feat/card-80\ntouches: src/board/fresh.ts\ncreates: src/board/fresh.ts (plain)\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
     expect(admit(w, file).status).toBe('admitted')
-    expect(readFileSync(file, 'utf8')).not.toContain('unclear:')
-    expect(readFileSync(file, 'utf8')).toContain('creates: src/board/fresh.ts (plain)')
+    expect(latestText(w, file)).not.toContain('unclear:')
+    expect(latestText(w, file)).toContain('creates: src/board/fresh.ts (plain)')
   })
 
   it('admit marks a creates entry with a kind outside the list unclear', () => {
@@ -837,14 +851,14 @@ describe('construct intake --admit and the creates line', () => {
     const file = path.join(w.parking, '80.md')
     writeFileSync(file, `card: ${CLEAN}\nbranch: feat/card-80\ntouches: src/board/fresh.ts\ncreates: src/board/fresh.ts (bogus)\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
     admit(w, file)
-    expect(readFileSync(file, 'utf8')).toContain(`unclear: creates — creates entry 'src/board/fresh.ts (bogus)' names kind 'bogus', not one of ghosts, plain`)
+    expect(latestText(w, file)).toContain(`unclear: creates — creates entry 'src/board/fresh.ts (bogus)' names kind 'bogus', not one of ghosts, plain`)
   })
 
   it('a parked card without a creates line parses as before', () => {
     const w = world()
     const file = park(w, 80, CLEAN, 'src/board/fresh.ts')
     expect(admit(w, file).status).toBe('admitted')
-    expect(readFileSync(file, 'utf8')).toContain('unclear: touches')
+    expect(latestText(w, file)).toContain('unclear: touches')
   })
 })
 
@@ -868,7 +882,7 @@ describe('construct intake --admit across the lanes of the parking', () => {
     journal(w, [{ event: 'merge', task: '53', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
     expect(admit(w, file)).toMatchObject({ status: 'awaiting', card: { unclear: [] } })
     expect(admit(w, file, { autoConfirm: true })).toMatchObject({ status: 'admitted', card: { unclear: [] } })
-    expect(readFileSync(file, 'utf8')).not.toContain('unclear:')
+    expect(latestText(w, file)).not.toContain('unclear:')
   })
 
   it('a depends on a card parked under another parking root stays unclear', () => {
@@ -877,10 +891,10 @@ describe('construct intake --admit across the lanes of the parking', () => {
     const file = parkIn(w, 'lane-2', 58, '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks —')
     const result = admit(w, file, { parkingRoot: path.join(w.root, 'elsewhere') })
     expect(result).toMatchObject({ status: 'admitted', card: { unclear: [{ field: 'depends' }] } })
-    expect(readFileSync(file, 'utf8')).toContain('unclear: depends')
+    expect(latestText(w, file)).toContain('unclear: depends')
   })
 
-  it('a card gets its lane from intake without a --parking chosen by a person', () => {
+  it('a card sliced through the bus gets its lane from the bus and lays no lane directory in the parking', () => {
     const w = world()
     mkdirSync(path.join(w.repo, 'src', 'atlas'), { recursive: true })
     writeFileSync(path.join(w.repo, 'src', 'atlas', 'map.ts'), '')
@@ -896,10 +910,9 @@ describe('construct intake --admit across the lanes of the parking', () => {
         db.close()
       }
     })()
-    expect(result).toMatchObject({ status: 'written', cards: [{ file: path.join('lane-01', '2.md') }, { file: path.join('lane-02', '3.md') }, { file: path.join('lane-01', '4.md') }] })
+    expect(result).toMatchObject({ status: 'written', cards: [{ file: '2.md' }, { file: '3.md' }, { file: '4.md' }] })
     expect(admittedPayloads(w).map(payload => payload.lane)).toEqual([WINDOW_LANE, WINDOW_LANE, WINDOW_LANE])
-    expect(existsSync(path.join(w.parking, '2.md'))).toBe(false)
-    expect(JSON.parse(readFileSync(path.join(w.parking, 'lane-02', 'lane.json'), 'utf8'))).toMatchObject({ touches: ['src/atlas/map.ts', '.changeset/**'], createdBy: 'intake', status: 'open' })
+    expect(existsSync(w.parking)).toBe(false)
   })
 })
 

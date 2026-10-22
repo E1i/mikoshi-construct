@@ -1902,7 +1902,7 @@ corrections in advance: the cards are parked at once. Every parked card gets an 
 `--journal` — `{"event":"intake","task","card","confirmation","corrections","bodySha","ts"}`, with
 `confirmation` `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is
 recorded with the corrections it accepted; `bodySha` is the digest of the card's `touches` line and
-its text below its header, the task and its witnesses. When a caller wires a bus in, as this repository's `pnpm intake` does, a card parked after `2026-10-12T17:04Z` gets its `card.admitted` in the bus and no `intake` line: past that time the bus is the record, and numbers, admissions and amendments read it, counting only the `intake` lines written before. The published CLI has no bus and writes the journal line as before. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
+its text below its header, the task and its witnesses. When a caller wires a bus in, as this repository's `pnpm intake` does, a card parked after `2026-10-12T17:04Z` gets its `card.admitted` in the bus and no `intake` line: past that time the bus is the record, and numbers, admissions and amendments read it, counting only the `intake` lines written before. The published CLI has no bus and writes the journal line as before. A bus-wired run writes no parking file and lays no lane directory: the card's text travels in its `card.admitted` alone, the bus lays its lane, and `pnpm intake --export` below is how that text reaches a file. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
 
 **Too big to take whole.** Before a card is parked, intake counts four signals of complexity from its
 `touches` and its `unclear:` lines: more than 6 `touches` entries or more than 2 areas (mechanism,
@@ -1935,7 +1935,9 @@ before intake confirmed cards: no `--draft`, no `--taken` (with either it refuse
 The card is checked like a sliced one under its own number; with a correction it is held behind a
 token (exit `2`) until `--confirm <token>` or `--auto-confirm`. Admitting rewrites only the card line
 and the `touches` line a correction changed, appends the `corrected:` and `unclear:` lines, leaves
-`who` as it is, and writes the card's `intake` line with `"source":"admit"`. The command prints
+`who` as it is, and writes the card's `intake` line with `"source":"admit"`. A bus-wired run writes
+none of that back to the file: the file stays as the person wrote it, the corrected text is the one its
+`card.admitted` carries, and a card with no file is admitted from the text the bus holds. The command prints
 whether a bus was wired to the run: only a bus-wired run, such as this repository's `pnpm intake`, also
 appends `card.admitted`, the event this repository's `task:start` and shift read; the published CLI has
 no bus and writes the journal line alone. When a bus database exists on the machine (`~/.construct/bus.db`, or the
@@ -1965,7 +1967,14 @@ written to the bus with no journal line; a card the bus holds no `card.admitted`
 goes back. A move into `archive`, `dropped` or `superseded` is a drop: it writes `card.dropped` instead,
 which ends the card as `dropped` unless it is already merged, closed or dropped, and it is taken for a card
 the bus never admitted too. A move to the directory the card already sits in leaves the file where it is
-and writes the same event all the same. The printed line names the event the bus holds. With `--draft`, `--taken` or `--admit` the move refuses.
+and writes the same event all the same. A card with no file under the root that the bus holds admitted
+text for is moved in the bus alone: the event is written and no file appears. A move to a lane admits the
+card again with the text the bus holds, and the file's text only when the bus holds none. The printed line names the event the bus holds. With `--draft`, `--taken` or `--admit` the move refuses.
+
+**Exporting an admitted card.** `pnpm intake --export <#N>`, this repository's bus-wired entry, prints
+the text of the latest `card.admitted` for card `N` that the bus holds, byte for byte, and writes
+nothing; redirect it to get a parking file. A card the bus holds no admitted text for, or a value that is
+not a card number, is refused with exit `1`. The published CLI has no bus and so no `--export`.
 
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under

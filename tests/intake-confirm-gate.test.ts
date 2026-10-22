@@ -164,12 +164,13 @@ describe('intake confirmation gate', () => {
     expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', confirmation: 'none', corrections: [] }])
   })
 
-  it.each([['the parking root', '', 'lane-01'], ['a lane', 'lane-4', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted beside the journal line', (_where, lane, expected) => {
+  it.each([['the parking root', '', null], ['a lane', 'lane-4', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted beside the journal line, and writes no parking file', (_where, lane, expected) => {
     const w = world([card()])
     const bus: CardEvent[] = []
     expect(intake(w, { parking: path.join(w.parking, lane), parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('written')
     expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 13, payload: { card: expect.stringMatching(/^#13 gate-card /), lane: expected, confirmation: 'none' } }])
     expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', ts: bus[0]!.ts }])
+    expect(existsSync(w.parking)).toBe(false)
   })
 
   it('a bus-wired draft intake with an accepted correction says it is recorded in the bus', () => {

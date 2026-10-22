@@ -149,10 +149,31 @@ describe('the admitted body intake and launch read back from card_bodies', () =>
     })
   })
 
-  it('an intake admission with no card_bodies row is returned as it was recorded, with no text', () => {
+  it('an intake admission the reducer has not folded yet carries the text of its card.admitted, so a card intake just wrote reads back at once', () => {
     const w = world()
     admit(w)
     withBus(w, (db) => {
+      expect(cardBodyText(db, 90)).toBeNull()
+      expect(busCardAdmissions(db)(90)).toEqual({ ...intakeAdmissions(db).at(-1), text: readFileSync(w.file, 'utf8') })
+    })
+  })
+
+  it('an unfolded admission whose text does not match its textSha is passed over, as the fold passes it over', () => {
+    const w = world()
+    admit(w)
+    withBus(w, (db) => {
+      appendEvent(db, { ts: '2026-10-13T10:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: 90, pr: null, head: null, dedupeKey: 'policy-forged', payload: { card: CARD, lane: 'lane-7', text: 'forged', textSha: sha256('other') }, legacy: false })
+      const unfolded = busCardAdmissions(db)(90)
+      reduce(db)
+      expect(unfolded?.text).toBe(readFileSync(w.file, 'utf8'))
+      expect(busCardAdmissions(db)(90)).toEqual(unfolded)
+    })
+  })
+
+  it('an admission that never carried text is returned as it was recorded, with no text', () => {
+    const w = world()
+    withBus(w, (db) => {
+      appendEvent(db, { ts: '2026-10-13T10:00:00.000Z', type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, pr: null, head: null, dedupeKey: 'textless', payload: { card: CARD, lane: 'lane-7', bodySha: 'b', confirmation: 'none', source: 'admit' }, legacy: false })
       const admission = busCardAdmissions(db)(90)
       expect(admission).toEqual(intakeAdmissions(db).at(-1))
       expect(admission).not.toHaveProperty('text')
