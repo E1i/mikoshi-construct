@@ -352,6 +352,15 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(ownerInbox(made.bench.db)).toEqual([])
   })
 
+  it('a plan request whose --op names an Object.prototype member is refused with the plan usage and writes no event', () => {
+    const made = room()
+    for (const op of ['constructor', 'toString', '__proto__', 'hasOwnProperty'])
+      expect(runRequest(['plan', '--op', op, '--plan', 'p-045'], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
+    const refusal = 'plan needs --op open|add|link|remove|close and a --plan id'
+    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual(Array.from({ length: 4 }, () => ['refused', refusal]))
+    expect(made.bench.db.prepare(`SELECT count(*) AS n FROM events WHERE type LIKE 'plan.%'`).get()).toEqual({ n: 0 })
+  })
+
   it('the worktrees holding a branch are read from git worktree list --porcelain', () => {
     const porcelain = [`worktree /repo\nHEAD ${sha('1')}\nbranch refs/heads/main`, `worktree /trees/mc-${CARD}\nHEAD ${HEAD}\nbranch refs/heads/feat/card-${CARD}`, `worktree /trees/review\nHEAD ${HEAD}\ndetached`].join('\n\n')
     expect(worktreesHolding(porcelain, `feat/card-${CARD}`)).toEqual([`/trees/mc-${CARD}`])

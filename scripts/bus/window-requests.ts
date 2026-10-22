@@ -20,7 +20,7 @@ import { storedByKey } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
 
 export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'requeue', 'mode', 'plan'] as const
-export const PLAN_OPS: Readonly<Record<string, string>> = { open: PLAN_OPENED, add: PLAN_ITEM_ADDED, link: PLAN_ITEM_LINKED, remove: PLAN_ITEM_REMOVED, close: PLAN_CLOSED }
+export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', PLAN_ITEM_ADDED], ['link', PLAN_ITEM_LINKED], ['remove', PLAN_ITEM_REMOVED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'item', 'title', 'goal', 'file', 'card'] as const
 const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM events WHERE type = '${PLAN_OPENED}' AND legacy = 0 AND actor = 'owner' AND json_extract(payload, '$.id') = ? ORDER BY id LIMIT 1`
 const TABLE_ROW = /^\s*\|/
@@ -29,7 +29,7 @@ export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_UNDER = 186
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${Object.keys(PLAN_OPS).join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>]`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>]`
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -249,10 +249,10 @@ export class WindowRequests {
   }
 
   private plan(request: number, payload: Record<string, unknown>): Executed {
-    const type = PLAN_OPS[String(payload.op)]
+    const type = PLAN_OPS.get(String(payload.op))
     const plan = text(payload.plan)
     if (type === undefined || plan === null)
-      return { done: false, why: `plan needs --op ${Object.keys(PLAN_OPS).join('|')} and a --plan id` }
+      return { done: false, why: `plan needs --op ${[...PLAN_OPS.keys()].join('|')} and a --plan id` }
     const event = this.planEventPayload(type, plan, payload)
     if (typeof event === 'string')
       return { done: false, why: event }
