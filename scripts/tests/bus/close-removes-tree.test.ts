@@ -66,7 +66,7 @@ async function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardT
     detectClose(bench.db, bench.clock.now)
     if (closedEarlier)
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
-    const worker = closeNode({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, journal: path.join(root, 'ghosts.jsonl'), parking: path.join(root, 'parking'), trees, endedTrees })
+    const worker = closeNode({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, parking: path.join(root, 'parking'), trees, endedTrees })
     const outcome = await step(worker)
     if (outcome === null || outcome.kind === 'idle' || outcome.taskKey === undefined)
       throw new Error('the close queue held no task')

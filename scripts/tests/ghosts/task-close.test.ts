@@ -11,14 +11,12 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { cardVerifiedClosings, closingHistoryLines, runTaskClose } from '../../ghosts/task-close.js'
 import { prCardOf } from '../../ghosts/tasks.js'
 import { failed, ran, read, unread } from '../core/gh-fake.js'
-import { busWithCardStarted } from './card-started-bus.js'
+import { busWithCardStarted, journalInBus } from './card-started-bus.js'
 
 const LAUNCH_SESSION = 'ghost-session'
 
-const HANDOFF = '/handoff'
 const CONSTRUCT = '/home/.construct'
 const REPORTS = path.join(CONSTRUCT, 'reports')
-const JOURNAL = path.join(HANDOFF, 'ghosts.jsonl')
 const NOW = new Date('2026-10-03T09:00:00.000Z')
 const PROJECTS = '/projects'
 const WINDOW_SESSION = 'window-session'
@@ -61,14 +59,14 @@ function liveClosings(busPath: string): string[] {
 function world(journal: string[], sessionFiles: string[] = [], files: Record<string, string> = {}): { deps: TaskCloseDeps, written: string[] } {
   worldBuses += 1
   const busPath = path.join(WORLD_BUSES, `bus-${worldBuses}.db`)
+  journalInBus(busPath, journal)
   return {
     written: liveClosings(busPath),
     deps: {
       cwd: '/work',
-      read: file => file === JOURNAL ? `${journal.join('\n')}\n` : files[file] ?? null,
+      read: file => files[file] ?? null,
       busPath,
       now: () => NOW,
-      handoffDir: HANDOFF,
       constructDir: CONSTRUCT,
       realpath: file => file,
       exists: file => sessionFiles.includes(file),
@@ -188,8 +186,8 @@ describe('the exit card repeats the entry card', () => {
   it('names the contract and the forecast as not recorded when no entry line holds them', () => {
     const { deps } = world([startLine('123', 'implement')])
     const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps)
-    expect(result.stdout[1]).toBe(`CONTRACT | contract not recorded in the bus ${deps.busPath} or ${JOURNAL}: no entry line for #123`)
-    expect(result.stdout[2]).toBe(`EXPECT   | expect not recorded in the bus ${deps.busPath} or ${JOURNAL}: no entry line for #123`)
+    expect(result.stdout[1]).toBe(`CONTRACT | contract not recorded in the bus ${deps.busPath}: no entry line for #123`)
+    expect(result.stdout[2]).toBe(`EXPECT   | expect not recorded in the bus ${deps.busPath}: no entry line for #123`)
   })
 
   it('takes the entry line of its own task and the last of two', () => {
@@ -314,7 +312,7 @@ describe('task:close closes a ghosts:launch run by the lines the launcher wrote,
 
   it('refuses an entry line without a card, as before the launcher carried one', () => {
     const { deps, written } = world([entryLine('160'), launchTaskLine('160')])
-    expect(runTaskClose(['160', '--pr', '518', '--verification', 'run'], deps).stderr[0]).toContain('has no task:start line with a card for #160')
+    expect(runTaskClose(['160', '--pr', '518', '--verification', 'run'], deps).stderr[0]).toContain('have no task:start line with a card for #160')
     expect(written).toEqual([])
   })
 })
@@ -328,14 +326,14 @@ describe('task:close confirms mutation only on judged lines where no mutant surv
     const { deps, written } = world([startLine('123', 'implement'), judgedLine('9', 'M1', 'named-red', true)])
     const result = runTaskClose(['123', '--pr', '460', '--verification', 'mutation'], deps)
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toEqual([`[task:close] --verification mutation needs a mutation-judged line for #123 in ${JOURNAL}, and there is none; nothing written`])
+    expect(result.stderr).toEqual([`[task:close] --verification mutation needs a mutation-judged line for #123 in the bus ${deps.busPath}, and there is none; nothing written`])
     expect(written).toEqual([])
   })
 
   it('refuses mutation on a nothing-red line, even when its prediction matched', () => {
     const { deps, written } = world([startLine('123', 'implement'), judgedLine('123', 'M1', 'named-red', true), judgedLine('123', 'M2', 'nothing-red', true), judgedLine('123', 'M3', 'other-red', false)])
     const result = runTaskClose(['123', '--pr', '460', '--verification', 'mutation'], deps)
-    expect(result.stderr).toEqual([`[task:close] --verification mutation refused: M2 of #123 survived (outcome nothing-red) in ${JOURNAL}; nothing written`])
+    expect(result.stderr).toEqual([`[task:close] --verification mutation refused: M2 of #123 survived (outcome nothing-red) in the bus ${deps.busPath}; nothing written`])
     expect(written).toEqual([])
   })
 
@@ -354,7 +352,7 @@ describe('task:close confirms mutation only on judged lines where no mutant surv
   it('refuses when the latest verdict of a mutation survived, even after an earlier red one', () => {
     const { deps, written } = world([startLine('665', 'implement'), judgedLine('665', 'M4', 'named-red', true), judgedLine('665', 'M4b', 'nothing-red', true)])
     const result = runTaskClose(['665', '--pr', '618', '--verification', 'mutation'], deps)
-    expect(result.stderr).toEqual([`[task:close] --verification mutation refused: M4b of #665 survived (outcome nothing-red) in ${JOURNAL}; nothing written`])
+    expect(result.stderr).toEqual([`[task:close] --verification mutation refused: M4b of #665 survived (outcome nothing-red) in the bus ${deps.busPath}; nothing written`])
     expect(written).toEqual([])
   })
 
@@ -436,7 +434,7 @@ describe('w3: task:close refuses and writes nothing', () => {
     ['implement closed with a report', ['123', '--report', 'r.md', '--verification', 'run'], '#123 is kind implement, which closes with --pr only'],
     ['implement with both', ['123', '--pr', '460', '--report', 'r.md', '--verification', 'run'], '#123 is kind implement, which closes with --pr only'],
     ['a PR that is not a number', ['123', '--pr', 'PR#460', '--verification', 'run'], `--pr 'PR#460' is not a pull request number`],
-    ['no start line with a card', ['55', '--pr', '460', '--verification', 'run'], 'has no task:start line with a card for #55'],
+    ['no start line with a card', ['55', '--pr', '460', '--verification', 'run'], 'have no task:start line with a card for #55'],
     ['an unknown flag', ['123', '--sha', 'abc', '--verification', 'run'], 'unknown flag --sha'],
     ['an override without a reason', ['123', '--pr', '460', '--verification', 'run', '--override-report'], '--override-report needs a value'],
   ])('refuses %s', (_, argv, reason) => {
@@ -453,9 +451,9 @@ describe('w3: task:close refuses and writes nothing', () => {
     expect(written).toEqual([])
   })
 
-  it('refuses when the journal does not exist', () => {
+  it('refuses when the bus holds no journal line and no card.started', () => {
     const { deps } = world([])
-    expect(runTaskClose(['1', '--pr', '2', '--verification', 'run'], { ...deps, read: () => null }).exitCode).toBe(1)
+    expect(runTaskClose(['1', '--pr', '2', '--verification', 'run'], deps).exitCode).toBe(1)
   })
 })
 
@@ -826,14 +824,14 @@ describe('task:close reads the start of a task from card.started in the bus', ()
     }
   })
 
-  it('names the bus and the journal as not holding the contract when card.started carries no entry', () => {
+  it('names the bus as not holding the contract when card.started carries no entry', () => {
     const bus = busWithCardStarted([{ cardId: 891, ts: started.started, payload: started }])
     try {
       const { deps } = world([])
       const result = runTaskClose(['891', '--pr', '790', '--verification', 'run'], { ...deps, busPath: bus.file })
       expect(result.stdout.slice(1, 3)).toEqual([
-        `CONTRACT | contract not recorded in the bus ${bus.file} or ${JOURNAL}: no entry line for #891`,
-        `EXPECT   | expect not recorded in the bus ${bus.file} or ${JOURNAL}: no entry line for #891`,
+        `CONTRACT | contract not recorded in the bus ${bus.file}: no entry line for #891`,
+        `EXPECT   | expect not recorded in the bus ${bus.file}: no entry line for #891`,
       ])
     }
     finally {
@@ -935,7 +933,8 @@ describe('task:close after the cutoff records the closing in the bus', () => {
   it('task:close after the cutoff writes card.verified and no path line', () => {
     const bus = busWithCardStarted([])
     try {
-      const { deps, written } = world([startLine('123', 'implement')])
+      journalInBus(bus.file, [startLine('123', 'implement')])
+      const { deps, written } = world([])
       const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath: bus.file, session: WINDOW_SESSION })
       expect(result.exitCode).toBe(0)
       expect(written).toEqual([])
@@ -958,9 +957,10 @@ describe('task:close after the cutoff records the closing in the bus', () => {
 
   it('task:close refuses and writes nothing when card.verified cannot be written', () => {
     const bus = busWithCardStarted([])
+    journalInBus(bus.file, [startLine('123', 'implement')])
     chmodSync(bus.file, 0o444)
     try {
-      const { deps, written } = world([startLine('123', 'implement')])
+      const { deps, written } = world([])
       const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath: bus.file })
       expect(result.exitCode).toBe(1)
       expect(result.stderr.join('\n')).toContain(`${CARD_VERIFIED} could not be written to the bus ${bus.file}`)
@@ -972,18 +972,11 @@ describe('task:close after the cutoff records the closing in the bus', () => {
     }
   })
 
-  it('task:close after the cutoff with no bus wired refuses and writes nothing', () => {
-    const { deps, written } = world([startLine('123', 'implement')])
-    const result = runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath: undefined })
-    expect(result.exitCode).toBe(1)
-    expect(result.stderr.join('\n')).toContain(`the closing record goes to the bus as ${CARD_VERIFIED}, and no bus is wired; nothing written`)
-    expect(written).toEqual([])
-  })
-
   it('the closing history reads as path lines only the card.verified rows written before the cutoff', () => {
     const bus = busWithCardStarted([])
     try {
-      const { deps } = world([startLine('123', 'implement')])
+      journalInBus(bus.file, [startLine('123', 'implement')])
+      const { deps } = world([])
       expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], { ...deps, now: () => AFTER, busPath: bus.file, session: WINDOW_SESSION }).exitCode).toBe(0)
       const before = '2026-10-11T09:00:00.000Z'
       const db = openBus(bus.file)

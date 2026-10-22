@@ -12,5 +12,5 @@ class DetectingCloseNode extends CloseNode {
 }
 
 export function detectClose(db: DatabaseSync, clock: () => Date, scope?: Scope): void {
-  new DetectingCloseNode({ db, reported: () => null, clock, session: 'detect', journal: '/nonexistent/ghosts.jsonl', parking: '/nonexistent/parking', mode: 'live', env: {} }).detect(scope)
+  new DetectingCloseNode({ db, reported: () => null, clock, session: 'detect', parking: '/nonexistent/parking', mode: 'live', env: {} }).detect(scope)
 }

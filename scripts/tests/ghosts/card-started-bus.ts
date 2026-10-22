@@ -2,7 +2,22 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { legacyEventOf } from '../../bus/import.js'
 import { CARD_STARTED } from '../../core/events.js'
+
+export function journalInBus(busPath: string, journal: readonly string[]): void {
+  const db = openBus(busPath)
+  try {
+    journal.forEach((line, index) => {
+      const event = legacyEventOf(line, index + 1)
+      if (event !== null)
+        appendEvent(db, event)
+    })
+  }
+  finally {
+    db.close()
+  }
+}
 
 export interface StartedBus {
   file: string
