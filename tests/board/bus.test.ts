@@ -97,7 +97,7 @@ describe('the board bus reader', () => {
     const refusing = (): never => {
       throw new Error('not used by an owner wait')
     }
-    const requests = new WindowRequests(db, clock, { treeOf: refusing, exists: refusing, cutTree: refusing, dryRunOf: refusing, addDecision: refusing, causeHolds: refusing })
+    const requests = new WindowRequests(db, clock, { treeOf: refusing, exists: refusing, cutTree: refusing, dryRunOf: refusing, addDecision: refusing, causeHolds: refusing, closePr: refusing, closeDropped: () => [] })
     const board = busReaderAt(file, clock)
     const waitsOnTheBoard = (): BusFacts['waits'] => {
       const reading = board()

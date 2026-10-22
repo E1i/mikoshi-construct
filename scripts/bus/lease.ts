@@ -205,6 +205,10 @@ export function leasedCount(db: DatabaseSync, queue: Queue): number {
   return Number((db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = ? AND state = '${LEASED}'`).get(queue) as { n: number }).n)
 }
 
+export function leasedOn(db: DatabaseSync, queue: Queue, pr: number): boolean {
+  return db.prepare(`SELECT 1 FROM tasks WHERE queue = ? AND pr = ? AND state = '${LEASED}' LIMIT 1`).get(queue, pr) !== undefined
+}
+
 export function leaseWhileFree(db: DatabaseSync, ts: string, task: TaskIdentity, actor: string, slots: number): Lease | null {
   return inTransaction(db, () => {
     if (leasedCount(db, task.queue) >= slots)

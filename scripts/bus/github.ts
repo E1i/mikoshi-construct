@@ -64,7 +64,7 @@ export function ghApi(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHub {
   return endpoint => included(port, cwd, ['--method', 'GET', endpoint], endpoint)
 }
 
-function withFields(method: 'PUT' | 'POST', cwd: string, port: GhPort): GitHubPut {
+function withFields(method: 'PUT' | 'POST' | 'PATCH', cwd: string, port: GhPort): GitHubPut {
   return (endpoint, fields) => included(port, cwd, ['--method', method, endpoint, ...Object.entries(fields).flatMap(([key, value]) => ['-f', `${key}=${value}`])], endpoint)
 }
 
@@ -74,4 +74,8 @@ export function ghApiPut(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut
 
 export function ghApiPost(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut {
   return withFields('POST', cwd, port)
+}
+
+export function ghApiPatch(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut {
+  return withFields('PATCH', cwd, port)
 }

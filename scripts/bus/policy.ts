@@ -194,6 +194,39 @@ export function mergePolicy(facts: MergeFacts): MergeVerdict {
   return { kind: 'allowed', rule: 'owner_by_decision', detail: `${why}; under D-${OWNER_PR_MERGED_BY_THE_BUS} a pass and green CI merge it without a shard` }
 }
 
+export const CLOSE_RULES = ['version_pr', 'not_open', 'no_card', 'other_card', 'merge_leased'] as const
+export const RETRIED_CLOSE_RULES: ReadonlySet<CloseRule> = new Set(['merge_leased'])
+
+export type CloseRule = typeof CLOSE_RULES[number]
+
+export type CloseVerdict
+  = | { kind: 'allowed', rule: 'card_pr', detail: string }
+    | { kind: 'denied', rule: CloseRule, detail: string }
+
+export interface CloseFacts {
+  pr: number
+  state: string
+  headRef: string
+  body: string
+  cardId: number
+  mergeLeased: boolean
+}
+
+export function closePolicy(facts: CloseFacts): CloseVerdict {
+  if (VERSION_BRANCH.test(facts.headRef))
+    return { kind: 'denied', rule: 'version_pr', detail: `PR #${facts.pr} on ${facts.headRef} is the version pull request and stays the owner's` }
+  if (facts.state !== 'open')
+    return { kind: 'denied', rule: 'not_open', detail: `PR #${facts.pr} is ${facts.state}, not open` }
+  const card = readBodyCard(facts.body)
+  if (card.kind === 'refused')
+    return { kind: 'denied', rule: 'no_card', detail: `PR #${facts.pr} names no card on the first line of its description (${card.reason}) and stays the owner's` }
+  if (card.card.id !== facts.cardId)
+    return { kind: 'denied', rule: 'other_card', detail: `PR #${facts.pr} is the pull request of card #${card.card.id}, not #${facts.cardId}` }
+  if (facts.mergeLeased)
+    return { kind: 'denied', rule: 'merge_leased', detail: `PR #${facts.pr} is under a live merge lease` }
+  return { kind: 'allowed', rule: 'card_pr', detail: `PR #${facts.pr} is the pull request of card #${card.card.id}, open and under no merge lease` }
+}
+
 export function pastRoundLimit(detail: string, decisionId: number, pr: number, head: string): MergeVerdict & { kind: 'allowed' } {
   return { kind: 'allowed', rule: 'owner_after_round_limit', detail: `${detail}; past the review round limit D-${decisionId} names PR #${pr} at ${head}` }
 }
