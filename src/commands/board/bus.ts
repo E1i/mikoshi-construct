@@ -356,6 +356,41 @@ function slotsOf(db: BusDb): BusSlot[] {
   return [...new Set([...used.keys(), ...capacity.keys()])].sort().map(queue => ({ queue, used: used.get(queue) ?? 0, total: capacity.get(queue) ?? null }))
 }
 
+export interface BusTask {
+  id: number
+  queue: string
+  card: number
+  pr: number | null
+  head: string | null
+  state: string
+}
+
+export interface BusCardEvent {
+  id: number
+  ts: string | null
+  type: string
+  pr: number | null
+}
+
+const OPEN_TASKS = `SELECT id, queue, card_id AS card, pr, head, state FROM tasks WHERE state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY id`
+
+const LATEST_CARD_EVENTS = `
+  SELECT id, ts, type, card_id AS card, pr FROM (
+    SELECT id, ts, type, card_id, pr, row_number() OVER (PARTITION BY card_id ORDER BY id DESC) AS rank FROM events WHERE card_id IS NOT NULL
+  ) WHERE rank <= ? ORDER BY card_id, id
+`
+
+export function openTasks(db: BusDb): BusTask[] {
+  return (db.prepare(OPEN_TASKS).all(...OPEN_TASK_STATES) as unknown as BusTask[]).map(task => ({ ...task }))
+}
+
+export function latestCardEvents(db: BusDb, perCard: number): Map<number, BusCardEvent[]> {
+  const events = new Map<number, BusCardEvent[]>()
+  for (const { card, ...event } of db.prepare(LATEST_CARD_EVENTS).all(perCard) as unknown as (BusCardEvent & { card: number })[])
+    events.set(card, [...events.get(card) ?? [], event])
+  return events
+}
+
 export function busFacts(db: BusDb, now: Date): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
