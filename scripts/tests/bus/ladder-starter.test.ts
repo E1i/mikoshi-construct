@@ -48,7 +48,7 @@ function starterFor(step: LadderStep, options: { tree?: string | null, parked?: 
     prompt: task => task.body,
     changedPaths: () => [],
     readReport: () => null,
-    lastSession: () => null,
+    cardSessions: () => [],
     readTranscript: () => null,
     treeFile: () => null,
   }

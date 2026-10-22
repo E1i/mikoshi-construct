@@ -1,7 +1,7 @@
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { PromptPlaces } from '../shift/prompt.js'
 import type { CardStart, CardStarter, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
-import type { TreeFile } from './session-journal.js'
+import type { SessionJournal, TreeFile } from './session-journal.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync } from 'node:fs'
 import path from 'node:path'
@@ -33,7 +33,7 @@ export interface StarterPorts {
   prompt: (task: ShiftTask, places: { worktree: string, report: string }) => string
   changedPaths: (worktree: string) => string[]
   readReport: (file: string) => string | null
-  lastSession: (cardId: number) => string | null
+  cardSessions: (cardId: number) => string[]
   readTranscript: (worktree: string, session: string) => string | null
   treeFile: (file: string) => TreeFile | null
 }
@@ -124,11 +124,11 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       const unnamed = this.ports.changedPaths(worktree).filter(changed => !named.has(changed))
       if (unnamed.length === 0)
         return null
-      const session = ended ?? this.ports.lastSession(cardId)
-      const doubts = this.journalDoubts(worktree, session, unnamed)
+      const sessions = [...new Set([...this.ports.cardSessions(cardId), ...(ended === undefined ? [] : [ended])])]
+      const doubts = this.journalDoubts(worktree, sessions, unnamed)
       if (doubts.length === 0)
         return null
-      const detail = `card #${cardId} is not continued in ${worktree}: neither its report nor the journal of session ${session ?? '-'} owns the changed paths ${doubts.map(doubt => `${doubt.path} (${doubt.reason})`).join(', ')}`
+      const detail = `card #${cardId} is not continued in ${worktree}: neither its report nor the journal of any of its sessions ${sessions.join(', ') || '-'} owns the changed paths ${doubts.map(doubt => `${doubt.path} (${doubt.reason})`).join(', ')}`
       return { kind: 'refused', denial: { ...technical(HELD_TREE_CHANGED, detail), paths: doubts.map(doubt => doubt.path) } }
     }
     catch (error) {
@@ -136,24 +136,37 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     }
   }
 
-  private journalDoubts(worktree: string, session: string | null, unnamed: string[]): { path: string, reason: string }[] {
+  private journalDoubts(worktree: string, sessions: string[], unnamed: string[]): { path: string, reason: string }[] {
     const all = (reason: string): { path: string, reason: string }[] => unnamed.map(each => ({ path: each, reason }))
-    if (session === null)
+    if (sessions.length === 0)
       return all('the bus records no session that held the tree')
-    const text = this.ports.readTranscript(worktree, session)
-    if (text === null)
-      return all(`the journal of session ${session} cannot be read`)
-    let journal
-    try {
-      journal = parseSessionJournal(text, worktree)
-    }
-    catch (error) {
-      return all(`the journal of session ${session} cannot be read: ${messageOf(error)}`)
+    const journals: { session: string, journal: SessionJournal }[] = []
+    for (const session of sessions) {
+      const read = this.journalOf(worktree, session)
+      if (typeof read === 'string')
+        return all(read)
+      journals.push({ session, journal: read })
     }
     return unnamed.flatMap((each) => {
-      const reason = journalDoubt(journal, each, this.ports.treeFile(path.join(worktree, each)))
-      return reason === null ? [] : [{ path: each, reason }]
+      const file = this.ports.treeFile(path.join(worktree, each))
+      const reasons = journals.map(({ session, journal }) => ({ session, reason: journalDoubt(journal, each, file) }))
+      if (reasons.some(({ reason }) => reason === null))
+        return []
+      const reason = reasons.length === 1 ? reasons[0]!.reason! : reasons.map(({ session, reason }) => `session ${session}: ${reason}`).join('; ')
+      return [{ path: each, reason }]
     })
+  }
+
+  private journalOf(worktree: string, session: string): SessionJournal | string {
+    const text = this.ports.readTranscript(worktree, session)
+    if (text === null)
+      return `the journal of session ${session} cannot be read`
+    try {
+      return parseSessionJournal(text, worktree)
+    }
+    catch (error) {
+      return `the journal of session ${session} cannot be read: ${messageOf(error)}`
+    }
   }
 
   private reportOf(cardId: number): string {

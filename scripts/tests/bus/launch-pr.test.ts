@@ -123,7 +123,7 @@ function launchWorld(claudeExit: number, report = '') {
       prompt: (task, at) => renderPrompt('card {{card}} in {{worktree}}, report {{report}}\n\n', task, at),
       changedPaths: () => [],
       readReport: () => null,
-      lastSession: () => null,
+      cardSessions: () => [],
       readTranscript: () => null,
       treeFile: () => null,
     },
