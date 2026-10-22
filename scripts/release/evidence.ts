@@ -10,11 +10,10 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { parseCard } from '../../src/card/grammar.js'
-import { BUSY_TIMEOUT_MS, defaultBusPath } from '../bus/db.js'
+import { defaultBusPath } from '../bus/db.js'
 import { busIntakeAdmissions } from '../bus/intake.js'
-import { legacyHistory } from '../bus/legacy-history.js'
-import { openDatabase } from '../bus/sqlite.js'
 import { INTAKE_EVENT } from '../core/events.js'
+import { busHistory } from '../ghosts/journal.js'
 import { cardVerifiedClosings } from '../ghosts/task-close.js'
 import { busMerges } from '../ghosts/task-merged.js'
 import { SHIFT_JOURNAL } from '../shift/places.js'
@@ -26,7 +25,7 @@ export const GAP = 'gap'
 const BUDGET_SOURCE = 'no budget is recorded apart from the forecast'
 const SHIFT_MERGE_LINE_PREFIX = '[shift:merge] '
 
-interface Line {
+export interface Line {
   entry: Record<string, unknown>
   source: string
 }
@@ -65,7 +64,7 @@ function linesOf(text: string | null, file: string): Line[] {
   })
 }
 
-function historyLines(deps: EvidenceDeps): Line[] {
+function historyLines(deps: Pick<EvidenceDeps, 'bus' | 'history'>): Line[] {
   return deps.history().map((entry, index) => ({ entry: entry as Record<string, unknown>, source: `${deps.bus} legacy line ${index + 1}` }))
 }
 
@@ -168,11 +167,15 @@ function journalMerges(lines: Line[], commits: Set<string>): Line[] {
   return lines.filter(({ entry }) => entry.event === 'merge' && writtenBeforeHistoryEnds(entry) && typeof entry.commit === 'string' && commits.has(entry.commit))
 }
 
-function mergesInBus(deps: EvidenceDeps, commits: Set<string>): Line[] {
+function mergesInBus(deps: Pick<EvidenceDeps, 'bus' | 'busMerges'>, commits: Set<string>): Line[] {
   return deps.busMerges().filter(merge => merge.commit !== null && commits.has(merge.commit)).map(merge => ({
     entry: { event: 'merge', task: merge.task, pr: merge.pr, by: merge.by, commit: merge.commit, merged: merge.merged },
     source: `${deps.bus} event ${merge.event}`,
   }))
+}
+
+export function busMergeSet(deps: Pick<EvidenceDeps, 'bus' | 'history' | 'busMerges'>, commits: Set<string>): Line[] {
+  return [...journalMerges(historyLines(deps), commits), ...mergesInBus(deps, commits)]
 }
 
 function header({ entry }: Line): string {
@@ -191,7 +194,7 @@ export function runEvidence(argv: string[], deps: EvidenceDeps): EvidenceResult 
     return { stdout: [], stderr: [`${PREFIX}${from}..${to} not read: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}`], exitCode: 1 }
   }
   const lines = historyLines(deps)
-  const merges = [...journalMerges(lines, commits), ...mergesInBus(deps, commits)]
+  const merges = busMergeSet(deps, commits)
   const verified = deps.verified()
   const admissions = deps.admissions()
   const stdout = merges.flatMap(merge => [header(merge), ...profile(deps, lines, verified, admissions, merge).map(field => `  ${field.name}: ${field.value} — ${field.source}`)])
@@ -202,17 +205,7 @@ function realDeps(): EvidenceDeps {
   const bus = defaultBusPath()
   return {
     bus,
-    history: () => {
-      if (!existsSync(bus))
-        return []
-      const db = openDatabase(bus, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-      try {
-        return legacyHistory(db)
-      }
-      finally {
-        db.close()
-      }
-    },
+    history: () => busHistory(bus),
     busMerges: () => busMerges(bus),
     verified: () => cardVerifiedClosings(bus),
     admissions: () => busIntakeAdmissions(bus),

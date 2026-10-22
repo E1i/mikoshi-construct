@@ -27,8 +27,6 @@ function world(session: string | undefined): { deps: TaskStartDeps, starts: () =
       bus,
       now: () => NOW,
       session,
-      handoffDir: '/handoff',
-      readJournal: () => null,
     },
   }
 }

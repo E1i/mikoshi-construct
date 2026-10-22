@@ -59,7 +59,7 @@ function bench(): Bench {
 }
 
 function liveNode(made: Bench): ProbedCloseNode {
-  return new ProbedCloseNode({ db: made.db, reported: () => 'run', clock: made.clock.now, session: 'node-1', journal: path.join(made.root, 'ghosts.jsonl'), parking: path.join(made.root, 'parking'), mode: 'live', env: {}, trees: { remove: () => null } })
+  return new ProbedCloseNode({ db: made.db, reported: () => 'run', clock: made.clock.now, session: 'node-1', parking: path.join(made.root, 'parking'), mode: 'live', env: {}, trees: { remove: () => null } })
 }
 
 async function once(node: CloseNode): Promise<void> {

@@ -82,7 +82,7 @@ function tenths(value: number): number {
 
 function cheapSignal(ui: Ui, cheap: CheapReading, { forecast, tasks, notes }: CheapClassReading): Signal {
   return {
-    CONTRACT: ui.lore.costCheapContract(forecast.taskClass, cheap.shiftRoot, cheap.windowJournal),
+    CONTRACT: ui.lore.costCheapContract(forecast.taskClass, cheap.shiftRoot, cheap.bus),
     EXPECT: forecast.kind === 'forecast'
       ? ui.lore.costCheapForecast(fmt(forecast.tokens), tenths(forecast.minutes), forecast.taskClass, forecast.n)
       : ui.lore.costCheapNone(forecast.taskClass, forecast.n, MINIMUM_SAMPLE),
@@ -97,9 +97,9 @@ function printCheap(ui: Ui, cheap: CheapReading | undefined): void {
   const style: SignalStyle = { ascii: ui.theme.name === 'plain', paint: themePainter(ui.theme) }
   const blocks = cheap.classes.length === 0
     ? [renderSignal(ui.lore.costCheapNoTasksTitle, {
-        CONTRACT: ui.lore.costCheapNoTasksContract(cheap.shiftRoot, cheap.windowJournal),
-        EXPECT: ui.lore.costCheapNoTasksExpect(cheap.shiftRoot, cheap.windowJournal),
-        ACTION: ui.lore.costCheapNoTasksAction(cheap.shiftRoot, cheap.windowJournal),
+        CONTRACT: ui.lore.costCheapNoTasksContract(cheap.shiftRoot, cheap.bus),
+        EXPECT: ui.lore.costCheapNoTasksExpect(cheap.shiftRoot, cheap.bus),
+        ACTION: ui.lore.costCheapNoTasksAction(cheap.shiftRoot, cheap.bus),
         RESULT: ui.lore.costCheapResultNone,
       }, style, 'grey')]
     : cheap.classes.map(reading => renderSignal(ui.lore.costCheapTitle(reading.forecast.taskClass), cheapSignal(ui, cheap, reading), style, reading.forecast.kind === 'forecast' ? undefined : 'grey'))

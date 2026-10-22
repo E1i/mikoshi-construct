@@ -10,7 +10,7 @@ import { BUS_DB_VARIABLE, openBus } from '../scripts/bus/db.js'
 import { recordDecision } from '../scripts/bus/decisions.js'
 import { busCardAdmissions, busCardEvents } from '../scripts/bus/intake.js'
 import { reduce } from '../scripts/bus/reducer.js'
-import { readJournalFile, runTaskStart } from '../scripts/ghosts/task-start.js'
+import { runTaskStart } from '../scripts/ghosts/task-start.js'
 import { downgradeAction, printAdmit, runAdmit, witnessDowngrades } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
@@ -140,8 +140,6 @@ function taskStart(w: World, card: string): number {
     bus: busOf(w),
     now: () => NOW,
     session: 's1',
-    handoffDir: path.dirname(w.journal),
-    readJournal: readJournalFile,
   }
   return runTaskStart(['feat/admitted', '--card', card], deps).exitCode
 }

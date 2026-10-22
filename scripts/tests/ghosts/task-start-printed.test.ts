@@ -35,8 +35,6 @@ function world(parking?: Record<string, string>, parkingDir = '/parking'): { dep
       bus,
       now: () => NOW,
       session: 's1',
-      handoffDir: '/handoff',
-      readJournal: () => null,
       ...(parking === undefined
         ? {}
         : { parking: { dir: parkingDir, read: (file: string) => {

@@ -386,7 +386,7 @@ describe('the answer node', () => {
     }
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
-    expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', resumed: true, source: 'question', from: sha('a'), to: sha('e'), minutes: 7.5, tokens: 48_200 }])
+    expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', worktree: path.join(trees, 'mc-905'), resumed: true, source: 'question', from: sha('a'), to: sha('e'), minutes: 7.5, tokens: 48_200 }])
   })
 
   it('a session that exits on the context threshold with no new head is retried once in a new session', async () => {
@@ -480,7 +480,7 @@ describe('the answer node', () => {
     const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null })
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
-    expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', resumed: true, source: 'question', from: sha('a'), to: sha('e') }])
+    expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', worktree: path.join(trees, 'mc-905'), resumed: true, source: 'question', from: sha('a'), to: sha('e') }])
   })
 
   it('the answer round prompt names the window gate of D-194, not pnpm run quality', () => {

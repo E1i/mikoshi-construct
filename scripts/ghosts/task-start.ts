@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { mergedTasks } from '../../src/card/closed.js'
+import { mergedFromBus } from '../../src/card/closed.js'
 import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
@@ -24,11 +24,10 @@ import { cardBodyAdmissionOf, LEASED } from '../bus/queue.js'
 import { slotsOf, slotsVariable } from '../bus/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../bus/window-prs.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../core/events.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { worktreeHome } from '../ports/worktree-home.js'
 import { adoptTree, cutTree, pnpmInstall } from '../ports/worktree.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from './entry.js'
-import { withGhostLines } from './journal.js'
+import { busHistory } from './journal.js'
 import { busCardStates } from './tasks.js'
 
 export const PREFIX = '[task:start] '
@@ -50,9 +49,7 @@ export interface TaskStartDeps {
   now: () => Date
   session: string | undefined
   shift?: string
-  handoffDir: string
   worktreeHome?: string
-  readJournal: TaskStartJournalReader
   style?: SignalStyle
   parking?: { dir: string, read: (file: string) => string | null }
   windowLimit?: () => number
@@ -60,9 +57,7 @@ export interface TaskStartDeps {
 
 const WINDOW_LIMIT_SLOTS = 'review'
 
-export type TaskStartJournalReader = (file: string) => string | null
-
-export function readJournalFile(file: string): string | null {
+export function readParkedFile(file: string): string | null {
   return existsSync(file) ? readFileSync(file, 'utf8') : null
 }
 
@@ -324,9 +319,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const id = String(card.id)
   if (!SAFE_BRANCH.test(branch))
     return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
-  const journal = path.join(deps.handoffDir, 'ghosts.jsonl')
-  const journalText = withGhostLines(deps.readJournal(journal), deps.bus)
-  const merged = mergedTasks(journalText, busCardStates(deps.bus))
+  const merged = mergedFromBus(busHistory(deps.bus), busCardStates(deps.bus))
   const unmerged = card.depends.filter(dependency => !merged.has(String(dependency)))
   if (unmerged.length > 0)
     return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; nothing written`)
@@ -391,10 +384,8 @@ function realDeps(): TaskStartDeps {
     bus: defaultBusPath(),
     now: () => new Date(),
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
-    handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
     worktreeHome: worktreeHome(process.env),
-    readJournal: readJournalFile,
-    parking: { dir: path.join(os.homedir(), '.construct', 'parking'), read: readJournalFile },
+    parking: { dir: path.join(os.homedir(), '.construct', 'parking'), read: readParkedFile },
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     windowLimit: () => slotsOf(WINDOW_LIMIT_SLOTS, process.env),
   }
