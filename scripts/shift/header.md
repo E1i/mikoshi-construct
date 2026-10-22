@@ -24,7 +24,8 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   pushes and opens the pull request from `{{worktree}}`. A refused git command is not a question: do not
   write a `question:` line for it.
 - Run `pnpm run quality` as its own command and read its result before you end the session.
-- On an Eddies warn: finish the step you are in, write the handoff and the report, exit.
+- On an Eddies warn: finish the step you are in, write the handoff and the report, exit; the bus then
+  commits, pushes and opens the pull request from the tree before it records the stop.
   On an Eddies stop: write the report and exit.
 - At a boundary — the session's context reached `contextLimit`, or an owner-merged pull request just
   merged — finish the step you are in, write the handoff and the report with a

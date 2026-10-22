@@ -8,6 +8,7 @@ import path from 'node:path'
 import { runsCover, runsOf, TestCoverage, withinTouches } from '../../src/card/covering-tests.js'
 import { COMPANION_TABLE, PACKAGE_MANIFEST, publishedRootsOf } from '../../src/commands/intake/check.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../bus/policy.js'
+import { VERIFICATION_WORDS } from '../core/verification.js'
 import { changedFilesFrom } from '../morse/diff.js'
 import { classify, MorseRefusal } from '../morse/rules.js'
 
@@ -150,6 +151,22 @@ function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly
 
 export function matrixCountLineOf(report: string | null): string | undefined {
   return report === null ? undefined : MATRIX_COUNT_LINE.exec(report)?.[0]
+}
+
+export interface ReportClosing {
+  report: string
+  verification: string
+}
+
+const REPORT_PATH_LINE = /^Report:\s*(\S+)\s*$/m
+const VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
+
+export function reportClosingOf(report: string | null): ReportClosing | null {
+  const written = report === null ? undefined : REPORT_PATH_LINE.exec(report)?.[1]
+  const verification = report === null ? undefined : VERIFICATION_LINE.exec(report)?.[1]
+  if (written === undefined || verification === undefined || !(VERIFICATION_WORDS as readonly string[]).includes(verification))
+    return null
+  return { report: written, verification }
 }
 
 function prBodyOf(card: TreeCard, path: string, countLine: string | undefined): string {
