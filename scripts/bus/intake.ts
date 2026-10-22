@@ -15,7 +15,7 @@ import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 import { admittedLane, cardBodyText } from './card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from './db.js'
-import { laneCount, layLanes } from './lane-assign.js'
+import { DEFAULT_LANE_COUNT, layLanes, repositoryLanes } from './lane-assign.js'
 import { openDatabase } from './sqlite.js'
 
 const INTAKE_SUBCOMMAND = 'intake'
@@ -129,7 +129,7 @@ function needsAnAdmission(event: CardEvent): boolean {
   return event.type === CARD_MOVED
 }
 
-export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND, lanes: () => number = () => laneCount(process.cwd())): CardEventPort {
+export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND, lanes: () => number = () => DEFAULT_LANE_COUNT): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}${session}`
   return event => inTransaction(db, () => {
     if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
@@ -150,7 +150,7 @@ export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () =>
 async function main(): Promise<void> {
   const db = openBus(defaultBusPath())
   try {
-    await runMain(createMain(busIntakePorts(db, process.env[SESSION_VARIABLE] || undefined)), { rawArgs: [INTAKE_SUBCOMMAND, ...process.argv.slice(2)] })
+    await runMain(createMain(busIntakePorts(db, process.env[SESSION_VARIABLE] || undefined, repositoryLanes(process.cwd()))), { rawArgs: [INTAKE_SUBCOMMAND, ...process.argv.slice(2)] })
   }
   finally {
     db.close()

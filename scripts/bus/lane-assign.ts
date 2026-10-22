@@ -1,10 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ShiftTask } from '../../src/card/task-file.js'
+import type { OverlapCatch } from './launch-candidates.js'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { MANIFEST_FILE } from '../../src/manifest.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, MERGE_DONE } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, MERGE_DONE } from '../core/events.js'
 import { taskConflicts } from '../shift/overlap.js'
 import { appendEvent } from './db.js'
 import { prOf } from './identifiers.js'
@@ -74,16 +76,35 @@ export function laneCount(root: string): number {
   }
 }
 
+export function mainCheckoutOf(cwd: string): string {
+  try {
+    return path.dirname(execFileSync('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim())
+  }
+  catch {
+    return cwd
+  }
+}
+
+export function repositoryLanes(cwd: string): () => number {
+  const root = mainCheckoutOf(cwd)
+  return () => laneCount(root)
+}
+
 function overlaps(a: ShiftTask | null, b: ShiftTask | null): boolean {
   return a !== null && b !== null && taskConflicts([a, b]).length > 0
 }
 
 function chainedTo(card: LaneCard, other: LaneCard): boolean {
-  return card.depends.includes(other.cardId) || overlaps(card.task, other.task)
+  return card.depends.includes(other.cardId) || other.depends.includes(card.cardId) || overlaps(card.task, other.task)
 }
 
 function byNumber(a: string, b: string): number {
   return (chainLaneNumber(a) ?? Number.MAX_SAFE_INTEGER) - (chainLaneNumber(b) ?? Number.MAX_SAFE_INTEGER)
+}
+
+function withinCount(lane: string, count: number): boolean {
+  const number = chainLaneNumber(lane)
+  return number !== null && number <= count
 }
 
 function laneNumbers(count: number): number[] {
@@ -92,14 +113,13 @@ function laneNumbers(count: number): number[] {
 
 export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: number, current: string | null = null): LaneChoice {
   const others = live.filter(other => other.cardId !== card.cardId)
-  const chained = others.filter(other => chainedTo(card, other))
+  const chained = others.filter(other => withinCount(other.lane, count) && chainedTo(card, other))
   if (chained.length > 0) {
     const lanes = [...new Set(chained.map(other => other.lane))].sort(byNumber)
     const lane = current !== null && lanes.includes(current) ? current : lanes[0]!
     return { lane, reason: 'chain', after: chained.filter(other => other.lane === lane).map(other => other.cardId) }
   }
-  const currentNumber = current === null ? null : chainLaneNumber(current)
-  if (current !== null && currentNumber !== null && currentNumber <= count)
+  if (current !== null && withinCount(current, count))
     return { lane: current, reason: 'kept', after: [] }
   const load = new Map(laneNumbers(count).map(number => [number, others.filter(other => other.lane === chainLaneName(number)).length]))
   const free = laneNumbers(count).find(number => load.get(number) === 0)
@@ -142,8 +162,14 @@ function laneCardOf(db: DatabaseSync, cardId: number): LaneCard {
   return { cardId, depends: dependsOf(payload), task: taskOf(cardId, payload) }
 }
 
+interface Assignment { id: number, lane: unknown }
+
+function latestAssignment(db: DatabaseSync, cardId: number): Assignment | undefined {
+  return db.prepare(LATEST_ASSIGNMENT).get(cardId) as Assignment | undefined
+}
+
 export function currentLane(db: DatabaseSync, cardId: number): string | null {
-  const assigned = db.prepare(LATEST_ASSIGNMENT).get(cardId) as { id: number, lane: unknown } | undefined
+  const assigned = latestAssignment(db, cardId)
   if (assigned === undefined || typeof assigned.lane !== 'string')
     return null
   const ended = (db.prepare(LATEST_END).get(cardId) as { id: number | null }).id
@@ -164,18 +190,26 @@ export function liveLanes(db: DatabaseSync): LiveLane[] {
 }
 
 function assign(db: DatabaseSync, cardId: number, admission: number, choice: LaneChoice, count: number, ts: string, actor: string): boolean {
-  return appendEvent(db, { ts, type: LANE_ASSIGNED, actor, cardId, pr: null, head: null, dedupeKey: `${LANE_ASSIGNED}:${admission}`, payload: { ...choice, lanes: count, admission }, legacy: false })
+  const previous = latestAssignment(db, cardId)?.id ?? 0
+  return appendEvent(db, { ts, type: LANE_ASSIGNED, actor, cardId, pr: null, head: null, dedupeKey: `${LANE_ASSIGNED}:${admission}:${previous}`, payload: { ...choice, lanes: count, admission }, legacy: false })
 }
 
 export function layOutLanes(db: DatabaseSync, count: number, ts: string, actor: string): number {
   let assigned = 0
   for (const row of liveRows(db)) {
-    if (currentLane(db, row.card_id) !== null)
+    const current = currentLane(db, row.card_id)
+    if (current !== null && withinCount(current, count))
       continue
     if (assign(db, row.card_id, Number(row.admission), chooseLane(laneCardOf(db, row.card_id), liveLanes(db), count), count, ts, actor))
       assigned += 1
   }
   return assigned
+}
+
+export function laneOverlapRecorder(db: DatabaseSync, ts: string, actor: string): OverlapCatch {
+  return (cardId, generation) => {
+    appendEvent(db, { ts, type: LANE_OVERLAP, actor, cardId, pr: null, head: null, dedupeKey: `${LANE_OVERLAP}:${generation}`, payload: { lane: currentLane(db, cardId), generation }, legacy: false })
+  }
 }
 
 function touchesOf(row: AdmissionRow | undefined, cardId: number): string[] | null {

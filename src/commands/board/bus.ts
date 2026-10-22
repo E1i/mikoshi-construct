@@ -97,6 +97,7 @@ export interface BusFacts {
   matrices: BusMatrix[]
   failure: string | null
   reviewQueue: number
+  lanes: number | null
 }
 
 export type BusReading
@@ -299,6 +300,11 @@ function stageOf(state: string | null, closed: boolean, queue: string | undefine
   return (queue === undefined ? undefined : STAGE_OF_QUEUE[queue]) ?? STAGE_OF_STATE[state ?? ''] ?? 'planned'
 }
 
+function laneCountOf(db: BusDb): number | null {
+  const row = db.prepare(`SELECT json_extract(payload, '$.lanes') AS lanes FROM events WHERE legacy = 0 AND type = ? ORDER BY id DESC LIMIT 1`).get(LANE_ASSIGNED) as { lanes: unknown } | undefined
+  return typeof row?.lanes === 'number' && Number.isSafeInteger(row.lanes) && row.lanes > 0 ? row.lanes : null
+}
+
 function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   const rows = db.prepare(`
     SELECT c.card_id AS id, c.state, c.pr, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body,
@@ -365,6 +371,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     matrices: checkMatrices(db),
     failure: lastFailure(events),
     reviewQueue: Number(queue.n),
+    lanes: laneCountOf(db),
   }
 }
 

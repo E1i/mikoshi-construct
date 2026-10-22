@@ -19,7 +19,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, LANE_OVERLAP, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { defaultParking } from '../ghosts/handoff-check.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
@@ -39,7 +39,7 @@ import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { journalPath } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
-import { currentLane, laneCount, layLanes } from './lane-assign.js'
+import { DEFAULT_LANE_COUNT, laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { bodyNotFoldedYet } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
@@ -407,10 +407,8 @@ export class LaunchNode extends Node<LaunchStep> {
     if (!this.executes())
       return launchTasks(this.db)
     const ts = this.ts()
-    layLanes(this.db, (this.launchParts.lanes ?? (() => laneCount(process.cwd())))(), ts, this.actor)
-    return launchTasks(this.db, (cardId, generation) => {
-      appendEvent(this.db, { ts, type: LANE_OVERLAP, actor: this.actor, cardId, pr: null, head: null, dedupeKey: `${LANE_OVERLAP}:${generation}`, payload: { lane: currentLane(this.db, cardId), generation }, legacy: false })
-    })
+    layLanes(this.db, (this.launchParts.lanes ?? (() => DEFAULT_LANE_COUNT))(), ts, this.actor)
+    return launchTasks(this.db, laneOverlapRecorder(this.db, ts, this.actor))
   }
 
   protected override derivedCandidates(): QueuedTask[] {
@@ -442,6 +440,7 @@ export interface LaunchRun {
   isolation: IsolationReader
   launchDir: string
   treePr?: string
+  lanes?: () => number
 }
 
 export function runWithdrawLegacy(busPath: string, clock: () => Date): number {
@@ -521,7 +520,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath), lanes: run.lanes })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -658,7 +657,7 @@ async function main(): Promise<number> {
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(path.dirname(journalPath()), process.cwd(), env, busPath))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, lanes: repositoryLanes(process.cwd()), isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
