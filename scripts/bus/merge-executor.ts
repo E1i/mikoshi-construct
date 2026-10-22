@@ -11,17 +11,19 @@ import { COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED
 import { REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { changedFiles, rerunOf, upToDateRequired } from './check-catalog.js'
-import { appendEvent } from './db.js'
+import { appendEvent, openBusWait } from './db.js'
 import { messageOf } from './errors.js'
 import { isFullSha } from './identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
+import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
 import { Meter } from './meter.js'
-import { mergePolicy, OWNER_MERGES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from './policy.js'
-import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE } from './queue.js'
+import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from './policy.js'
+import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, QUEUE_ACTOR } from './queue.js'
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActive, unspentShard } from './shards.js'
 import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from './snapshot.js'
 
 export const MERGE_METHOD = 'squash'
+export const MERGE_QUEUE = 'merge'
 export const STALE_HEAD_STATUS = 409
 const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE])
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
@@ -97,6 +99,7 @@ export class MergeExecutor {
       const foreign = notMine(cardContract(this.parts.db, lease.cardId), 'merge')
       if (foreign !== null)
         return this.denied(lease, { kind: 'technical', reason: NOT_MINE, detail: foreign })
+      this.askForAllowLive()
       for (const expired of expiredWindowShards(this.parts.db, this.parts.clock(), lease.actor))
         appendEvent(this.parts.db, expired)
       const checked = this.fresh(lease)
@@ -136,6 +139,18 @@ export class MergeExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private askForAllowLive(): void {
+    if (liveDecisionOf(decisionsInForceAt(this.parts.db, this.parts.clock()), MERGE_QUEUE) !== null)
+      return
+    openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
+  }
+
+  private askTheOwnerToMerge(lease: Lease, denial: MergeDenial): void {
+    if (denial.kind !== 'authority' || !OWNER_MERGES_RULES.has(denial.rule) || lease.pr === null)
+      return
+    openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
   }
 
   private noLongerACandidate(lease: Lease): MergeDenial | null {
@@ -315,6 +330,7 @@ export class MergeExecutor {
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
     const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON }, [event])
+    this.askTheOwnerToMerge(lease, denial)
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

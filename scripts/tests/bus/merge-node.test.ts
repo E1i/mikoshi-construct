@@ -9,12 +9,13 @@ import { RERUN_VARIABLE, writeCatalog } from '../../bus/check-catalog.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { completeTask, leaseNext } from '../../bus/lease.js'
-import { MergeExecutor } from '../../bus/merge-executor.js'
+import { allowLiveCommand } from '../../bus/live-decision.js'
+import { MERGE_QUEUE, MergeExecutor } from '../../bus/merge-executor.js'
 import { MergeNode } from '../../bus/merge-worker.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../bus/queue.js'
 import { UpdateNode } from '../../bus/update-worker.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
 import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -385,6 +386,31 @@ describe('the merge node', () => {
     expect(eventsOf(made.db, POLICY_DENIED)).toEqual([])
     expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto' })])
     expect(made.gitHub.puts.map(each => each.endpoint)).toEqual(['repos/{owner}/{repo}/pulls/970/merge'])
+  })
+
+  it('a merge without allow-live opens an owner wait naming the decisions:add command', async () => {
+    const made = bench()
+    made.gitHub.open({ number: 970, review: 'success' })
+    made.tick()
+    const node = nodeOf(made, 'live')
+    await once(node)
+    await once(node)
+    await once(node)
+
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ id: 'Q1', need: 'command', command: allowLiveCommand(MERGE_QUEUE) })])
+    expect(allowLiveCommand(MERGE_QUEUE)).toBe('pnpm decisions:add "[owner] allow-live merge"')
+  })
+
+  it('a merge under an allow-live decision opens no owner wait', async () => {
+    const made = bench()
+    recordDecision(made.db, { ts: made.clock.now().toISOString(), decisionId: 121, text: '[owner] allow-live merge', cards: [] })
+    made.gitHub.open({ number: 970, review: 'success' })
+    made.tick()
+    const node = nodeOf(made, 'live')
+    await once(node)
+    await once(node)
+
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
   })
 
   it('merge.done follows a policy.allowed with the same task_key and lease_gen', async () => {

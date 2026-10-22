@@ -85,9 +85,19 @@ export function goalLines(facts: BusFacts): string[] {
   return goal === null ? [] : goal.plans.map(plan => planLine(plan, goal.backlog))
 }
 
+export function waitTarget(wait: OwnerWait): string | null {
+  if (wait.pr !== null)
+    return `PR #${wait.pr}`
+  return wait.card === null ? null : `#${wait.card}`
+}
+
+export function waitAction(wait: OwnerWait): string {
+  return wait.command === null ? wait.text : `${wait.text}: ${wait.command}`
+}
+
 function waitName(wait: OwnerWait): string {
-  const target = wait.pr === null ? `#${wait.card ?? '?'}` : `PR #${wait.pr}`
-  return wait.detail === null ? `${wait.kind} ${target}` : `${wait.kind} ${target} (${wait.detail})`
+  const target = waitTarget(wait)
+  return `${wait.id} ${wait.need}${target === null ? '' : ` ${target}`} (${waitAction(wait)})`
 }
 
 export function waitsLines(facts: BusFacts, lore: Lore): string[] {
