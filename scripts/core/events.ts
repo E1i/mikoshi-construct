@@ -89,6 +89,7 @@ export const WINDOW_SUBAGENT_EVENT = 'window.subagent'
 export const WITNESS_DOWNGRADE = 'witness.downgrade'
 export const WITNESS_RECORDED = 'witness.recorded'
 export const WORKER_DOWN = 'worker.down'
+export const WORKER_STARTED = 'worker.started'
 
 export const DROPPED_LANE = 'dropped'
 export const TERMINAL_LANES: ReadonlySet<string> = new Set(['archive', DROPPED_LANE, 'superseded'])

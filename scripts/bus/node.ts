@@ -1,15 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
-import type { Lease, LeaseOrder } from './lease.js'
+import type { HolderStart, Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { SlotKind } from './scheduler.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from '../core/events.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
-import { recordProcessHeartbeat } from './heartbeat.js'
-import { drainOpen, expireLeases, leaseNext, RENEW_MS, renewLease, StaleLease, waitTask } from './lease.js'
+import { ownStart, recordProcessHeartbeat } from './heartbeat.js'
+import { drainOpen, expireLeases, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask } from './lease.js'
 import { RateLimited } from './meter.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { lastEventId } from './operator-work.js'
@@ -79,6 +79,7 @@ export interface NodeParts {
   session: string
   mode: DetectionMode
   env: NodeJS.ProcessEnv
+  self?: HolderStart
 }
 
 export interface Equivalence {
@@ -174,6 +175,7 @@ export abstract class Node<S extends NodeStep> {
   private subscription: Subscription | null = null
   private lastStep: S | WaitStep | IdleStep | null = null
   private startedAt: string | null = null
+  private startRecorded = false
 
   constructor(readonly kind: NodeKind, protected readonly parts: NodeParts) {
     this.actor = `worker:${kind}:${parts.session}`
@@ -216,6 +218,7 @@ export abstract class Node<S extends NodeStep> {
   async run(ctx: NodeContext): Promise<void> {
     this.before()
     this.startedAt = this.ts()
+    this.recordStart()
     this.openCursor()
     this.log(`the ${this.kind} node ${this.actor} takes the ${this.kind} queue, detection ${this.parts.mode}, ${this.slots} slot(s)`)
     const inFlight = new Map<string, Promise<S | WaitStep>>()
@@ -227,6 +230,7 @@ export abstract class Node<S extends NodeStep> {
       return null
     }
     while (ctx.signal?.aborted !== true) {
+      this.recordStart()
       this.retryWhenLocked('deliver', () => this.deliver())
       const now = this.parts.clock().getTime()
       if ((lastTick === null || now - lastTick >= TICK_MS) && this.retryWhenLocked('tick', () => this.tick()))
@@ -243,6 +247,11 @@ export abstract class Node<S extends NodeStep> {
         await Promise.race([ctx.pause(this.pauseAfter(step)), ...inFlight.values(), checkWake ??= nextCheckWake()])
     }
     await Promise.all(inFlight.values())
+  }
+
+  private recordStart(): void {
+    if (!this.startRecorded)
+      this.startRecorded = this.retryWhenLocked('start record', () => recordWorkerStarted(this.db, this.ts(), this.actor, this.parts.self ?? ownStart()))
   }
 
   protected before(): void {}
@@ -330,7 +339,7 @@ export abstract class Node<S extends NodeStep> {
   }
 
   private take(): Lease | null {
-    if (!this.executes())
+    if (!this.executes() || !this.startRecorded)
       return null
     const ts = this.ts()
     expireLeases(this.db, ts)

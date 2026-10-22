@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import type { InForceDecision } from './decisions.js'
 import type { ProcessBeat } from './heartbeat.js'
+import type { HolderProcess, HolderReading, ProcessStartOf } from './lease.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
@@ -16,7 +17,7 @@ import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { RESTART_MISSED } from './inbox.js'
-import { closeDrain, expireLeasesHeldBy, LEASE_MS, leasesHeldBy, openDrain } from './lease.js'
+import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, WORKER_HUNG } from './lease.js'
 import { allowLiveCommand, liveDecisionOf } from './live-decision.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { CHECK_MS } from './netwatch.js'
@@ -463,9 +464,37 @@ function workerKindsOf(launches: DetachedLaunch[]): string[] {
   return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
 }
 
-export function busDrain(db: DatabaseSync, ts: () => string): Drain {
+export function lstartToIso(line: string): string | null {
+  const ms = Date.parse(line.trim())
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString()
+}
+
+export function psStartOf(pid: number): HolderProcess {
+  const read = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
+  if (read.error !== undefined)
+    return { state: 'unreadable' }
+  const line = read.stdout.trim()
+  if (line === '')
+    return read.status === 1 ? { state: 'gone' } : { state: 'unreadable' }
+  const started = lstartToIso(line)
+  return started === null ? { state: 'unreadable' } : { state: 'running', started }
+}
+
+export function holderLines(reading: HolderReading): string[] {
+  return [
+    ...reading.freed.length === 0 ? [] : [`${PREFIX}the holder process of these leases is gone or its pid now runs another process; freed as ${TASK_EXPIRED} (${HOLDER_DEAD}) and queued again: ${reading.freed.join(', ')}`],
+    ...reading.hung.length === 0 ? [] : [`${PREFIX}the holder of these leases is running and has stopped renewing them; the leases stay, ${WORKER_HUNG} is on the board: ${reading.hung.join(', ')}`],
+    ...reading.unproven.length === 0 ? [] : [`${PREFIX}the holder of these leases has no readable worker.started record, so whether it is alive cannot be proven; the leases stay, ${HOLDER_UNPROVEN} is on the board: ${reading.unproven.join(', ')}`],
+  ]
+}
+
+export function busDrain(db: DatabaseSync, ts: () => string, startOf?: ProcessStartOf): Drain {
   return {
-    held: running => leasesHeldBy(db, workerKindsOf(running)),
+    held: (running) => {
+      if (startOf !== undefined)
+        judgeHolders(db, ts(), startOf)
+      return leasesHeldBy(db, workerKindsOf(running))
+    },
     open: (sha, untilMs, draining) => {
       const at = ts()
       for (const node of workerKindsOf(draining))
@@ -681,7 +710,7 @@ export class LivenessJudge {
   private lastBeat = Number.NEGATIVE_INFINITY
   private readonly restartedAt = new Map<string, number>()
 
-  constructor(private readonly db: DatabaseSync, private readonly now: () => number, private readonly expected: () => ExpectedRunning, private readonly restart: (process: string) => Promise<string[]> = async () => []) {}
+  constructor(private readonly db: DatabaseSync, private readonly now: () => number, private readonly expected: () => ExpectedRunning, private readonly restart: (process: string) => Promise<string[]> = async () => [], private readonly startOf?: ProcessStartOf) {}
 
   async step(): Promise<string[]> {
     try {
@@ -702,6 +731,8 @@ export class LivenessJudge {
           lines.push(`${PREFIX}${judgement.process} has not beaten for ${Math.round(judgement.silentMs / 60_000)} min (limit ${SILENT_MS / 60_000} min); judged silent as ${PROCESS_JUDGED}`)
         lines.push(...await this.restartDue(judgement.process, nowMs))
       }
+      if (this.startOf !== undefined)
+        lines.push(...holderLines(judgeHolders(this.db, ts, this.startOf)))
       return lines
     }
     catch (error) {
@@ -888,7 +919,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     start: launch => startReviewWorker(launch, busDir, process.env, processes),
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
     freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
-    drain: busDrain(db, () => new Date().toISOString()),
+    drain: busDrain(db, () => new Date().toISOString(), psStartOf),
     processes,
     mainSince: afterId => mainAdvancedSince(db, afterId),
     code,
@@ -914,7 +945,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
         processes,
         start: launch => startReviewWorker(launch, busDir, process.env, processes),
         stop: (running, launch) => stopInstance(running, launch.markers, processes),
-      })),
+      }), psStartOf),
       relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, psOutsideOwnGroup()),
       print: line => console.log(line),
       pause: () => sleep(CHECK_MS),
