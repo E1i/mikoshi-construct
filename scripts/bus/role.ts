@@ -4,7 +4,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { ROLE_LEASED, ROLE_RAISED, ROLE_RETURNED, ROLE_STOPPED, WINDOW_HEARTBEAT } from '../core/events.js'
 import { appendEvent, inTransaction, openBusWait } from './db.js'
-import { LEASE_MS, StaleLease } from './lease.js'
+import { LEASE_MS } from './lease.js'
 import { payloadOf, reject } from './stored.js'
 import { reduceProjection } from './watermark.js'
 import { WINDOW_ACTOR } from './window-requests.js'
@@ -26,13 +26,6 @@ export interface RoleStop {
   status: string
   reason: string
   raised: boolean
-}
-
-export interface RoleLease {
-  role: Role
-  handoff: string
-  leaseGen: number
-  actor: string
 }
 
 export interface RoleToOwner {
@@ -240,25 +233,5 @@ export function returnEndedRole(db: DatabaseSync, ts: string, actor: string, rol
       return null
     reduced(db, { ts, type: ROLE_RETURNED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RETURNED}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, last_sign: ts, ended: end }, legacy: false })
     return { role: row.role, handoff: row.handoff, lastSign: ts }
-  })
-}
-
-export function assertRoleHeld(db: DatabaseSync, lease: RoleLease): void {
-  const row = rowOf(db, lease.role)
-  if (row === undefined || row.state !== LEASED || row.lease_gen !== lease.leaseGen)
-    throw new StaleLease(`role ${lease.role} is no longer leased under lease_gen ${lease.leaseGen}`)
-}
-
-export function raiseRole(db: DatabaseSync, ts: string, lease: RoleLease, pid: number): void {
-  inTransaction(db, () => {
-    assertRoleHeld(db, lease)
-    reduced(db, { ts, type: ROLE_RAISED, actor: lease.actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RAISED}:${lease.role}:${lease.leaseGen}`, payload: { role: lease.role, handoff: lease.handoff, lease_gen: lease.leaseGen, pid }, legacy: false })
-  })
-}
-
-export function failRaise(db: DatabaseSync, ts: string, lease: RoleLease, detail: string): void {
-  inTransaction(db, () => {
-    assertRoleHeld(db, lease)
-    reduced(db, { ts, type: ROLE_RAISE_FAILED, actor: lease.actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RAISE_FAILED}:${lease.role}:${lease.leaseGen}`, payload: { role: lease.role, handoff: lease.handoff, lease_gen: lease.leaseGen, detail }, legacy: false })
   })
 }

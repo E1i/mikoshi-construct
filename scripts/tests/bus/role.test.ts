@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { LEASE_MS } from '../../bus/lease.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
+import * as restartExecutor from '../../bus/restart-executor.js'
 import * as restartWorker from '../../bus/restart-worker.js'
 import * as role from '../../bus/role.js'
 import { requestFromWindow } from '../../bus/window-requests.js'
@@ -71,9 +72,10 @@ describe('a role stopped at a threshold', () => {
   })
 
   it('no raise into handoff/miko.md is left in the bus', () => {
-    expect(Object.keys(role)).not.toContain('leaseRole')
-    expect(Object.keys(role)).not.toContain('RAISES_PER_HANDOFF')
+    for (const raise of ['leaseRole', 'raiseRole', 'failRaise', 'assertRoleHeld', 'RAISES_PER_HANDOFF'])
+      expect(Object.keys(role)).not.toContain(raise)
     expect(Object.keys(restartWorker)).not.toContain('roleLauncher')
+    expect(Object.getOwnPropertyNames(restartExecutor.RestartExecutor.prototype)).not.toContain('relaunch')
 
     const bus = roleBus()
     bus.stopMiko()

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from './chain-process.js'
-import type { DeadChain, RestartOutcome, RoleLauncher } from './restart-executor.js'
+import type { DeadChain, RestartOutcome } from './restart-executor.js'
 import type { RoleReturned, RoleToOwner } from './role.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
@@ -22,12 +22,6 @@ import { switchedOn } from './workers.js'
 export const PREFIX = '[bus:restart] '
 export type RestartStep = { kind: 'idle' } | { kind: 'dead_chains', chains: DeadChain[] } | ({ kind: 'returned' } & RoleReturned) | ({ kind: 'to_owner' } & RoleToOwner) | RestartOutcome
 
-const NO_ROLE_RAISE: RoleLauncher = {
-  raise: (role) => {
-    throw new Error(`the bus raises no ${role}: a role stopped at a threshold is an owner wait`)
-  },
-}
-
 export interface RestartWorkerParts {
   db: DatabaseSync
   processes: ProcessTable
@@ -42,7 +36,7 @@ export class RestartWorker {
 
   constructor(private readonly parts: RestartWorkerParts) {
     this.actor = `worker:restart:${parts.session}`
-    this.executor = new RestartExecutor({ ...parts, roles: NO_ROLE_RAISE })
+    this.executor = new RestartExecutor(parts)
   }
 
   step(): RestartStep {

@@ -1,7 +1,7 @@
 import type { ProcessTable } from '../../bus/chain-process.js'
 import type { ChainObservation } from '../../bus/chain.js'
 import type { Lease } from '../../bus/lease.js'
-import type { Role, RoleStop } from '../../bus/role.js'
+import type { RoleStop } from '../../bus/role.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -29,7 +29,6 @@ afterEach(() => {
 const CARD = 809
 const DIR = '/shift/lane-1'
 const LEADER = 4242
-const ROLE_PIDS: Record<Role, number> = { operator: 6161, miko: 7171 }
 const OPERATOR_HANDOFF = '/handoff/operator.md'
 const MIKO_HANDOFF = `/handoff/${MIKO_HANDOFF_NAME}`
 const restart = (head = MAIN_2, cardId = CARD): string => taskKey({ queue: 'restart', cardId, head })
@@ -44,11 +43,8 @@ function restartBench() {
     commandLine: pid => dead.has(pid) ? null : reused.has(pid) ? 'vim notes.txt' : `node /opt/runner.js ${DIR} ${pid}`,
     signalGroup: leader => signalled.push(leader),
   }
-  const roles = {
-    raise: (role: Role): number => ROLE_PIDS[role],
-  }
   const launchSwitchedOn = (): boolean => launchOn()
-  const executor = new RestartExecutor({ db: bench.db, roles, processes, launchSwitchedOn, clock: bench.clock.now })
+  const executor = new RestartExecutor({ db: bench.db, processes, launchSwitchedOn, clock: bench.clock.now })
   return {
     ...bench,
     signalled,
