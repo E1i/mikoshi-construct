@@ -13,10 +13,11 @@ import { appendEvent, BUSY_TIMEOUT_MS, openBus } from '../../bus/db.js'
 import { leaseWhileFree } from '../../bus/lease.js'
 import { CHECK_MS, NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { DATABASE_LOCKED, SWITCH_FLAG } from '../../bus/node.js'
-import { reducedThrough } from '../../bus/reducer.js'
+import { reduce, reducedThrough, SNAPSHOT } from '../../bus/reducer.js'
 import { runRestartWorker } from '../../bus/restart-worker.js'
 import { BusTick, tickOrLocked } from '../../bus/run.js'
 import { recordWorkerDown, WorkerKeeper } from '../../bus/supervisor.js'
+import { WATERMARKS } from '../../bus/watermark.js'
 import { workerLaunches } from '../../bus/workers.js'
 import { WORKER_DOWN } from '../../core/events.js'
 import { Clock, FakeGitHub } from './github-fake.js'
@@ -28,6 +29,7 @@ const USUAL_TICKS = 3
 const NODE_WRITE_EVERY_MS = 20
 const LOCK_HELD_AT_MOST_MS = 4 * BUSY_TIMEOUT_MS
 const SHORT_WAIT_MS = 1000
+const BUILD_TICKS_AT_MOST = 100
 const LOCKED_AT = '2026-10-22T12:00:00.000Z'
 const HOLDS_THE_WRITE_LOCK = `
 const { DatabaseSync } = require('node:sqlite')
@@ -125,6 +127,25 @@ function timedTick(busTick: BusTick, clock: Clock): number {
   return performance.now() - started
 }
 
+function closedPrs(db: Bus): unknown[] {
+  return db.prepare('SELECT * FROM prs ORDER BY pr').all()
+}
+
+function nodeWriting(file: string, busyMs: number): { stop: () => Promise<{ writes: number, errors: string[] }> } {
+  const signal = new Int32Array(new SharedArrayBuffer(8))
+  const node = new Worker(WRITES_LIKE_A_NODE, { eval: true, workerData: { file, signal, busyMs, everyMs: NODE_WRITE_EVERY_MS } })
+  const nodeLog = once(node, 'message')
+  expect(Atomics.wait(signal, 0, 0, 10_000)).not.toBe('timed-out')
+  return {
+    stop: async () => {
+      Atomics.store(signal, 1, 1)
+      Atomics.notify(signal, 1)
+      const [written] = await nodeLog as [{ writes: number, errors: string[] }]
+      return written
+    },
+  }
+}
+
 function median(values: number[]): number {
   return [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!
 }
@@ -170,6 +191,40 @@ describe('a bus:run restart holds no write longer than a node waits', () => {
     expect(reducedThrough(restarted)).toBeGreaterThan(0)
     expect(written.errors.filter(error => error.includes(DATABASE_LOCKED))).toEqual([])
     expect(first).toBeLessThanOrEqual(2 * median(usual))
+    restarted.close()
+  }, 10 * 60_000)
+
+  it('a bus:run restart on a bus reduced before the snapshot existed folds one batch per tick beside the live projections, each tick under half a full rebuild, and no node log has database is locked', async () => {
+    const file = scratch('bus-restart-no-snapshot-')
+    generatedHistory(file)
+    const old = openBus(file)
+    const rebuildStarted = performance.now()
+    reduce(old, 'rebuild')
+    const rebuildMs = performance.now() - rebuildStarted
+    old.prepare(`DELETE FROM ${WATERMARKS} WHERE projection = ?`).run(SNAPSHOT)
+    nodeWritesWhileDown(old, 0)
+    const live = closedPrs(old)
+    const through = reducedThrough(old)
+    old.close()
+    const node = nodeWriting(file, SHORT_WAIT_MS)
+
+    const clock = new Clock(Date.now())
+    const restarted = openBus(file)
+    const busTick = busTickOn(restarted, clock)
+    const first = timedTick(busTick, clock)
+    expect(reducedThrough(restarted)).toBe(through)
+    expect(closedPrs(restarted)).toEqual(live)
+    let ticks = 1
+    while (reducedThrough(restarted) === through && ticks < BUILD_TICKS_AT_MOST) {
+      timedTick(busTick, clock)
+      ticks += 1
+    }
+    const written = await node.stop()
+
+    expect(reducedThrough(restarted)).toBeGreaterThan(through)
+    expect(ticks).toBeGreaterThan(1)
+    expect(written.errors.filter(error => error.includes(DATABASE_LOCKED))).toEqual([])
+    expect(first).toBeLessThan(rebuildMs / 2)
     restarted.close()
   }, 10 * 60_000)
 

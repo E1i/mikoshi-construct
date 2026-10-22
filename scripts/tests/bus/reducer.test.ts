@@ -8,7 +8,8 @@ import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } fro
 import { recordDecision } from '../../bus/decisions.js'
 import { cardIdOfDescription } from '../../bus/identifiers.js'
 import { allowLiveCommand } from '../../bus/live-decision.js'
-import { projectionDump, reduce, REDUCE_BATCH, reducedThrough } from '../../bus/reducer.js'
+import { projectionDump, reduce, REDUCE_BATCH, reducedThrough, SNAPSHOT } from '../../bus/reducer.js'
+import { WATERMARKS } from '../../bus/watermark.js'
 import { CARD_WAITING, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { ghostLines } from '../../ghosts/journal.js'
 import { recordFall } from '../../ghosts/supervise.js'
@@ -177,6 +178,34 @@ describe('the reducer of the prs projection', () => {
     expect(incremental).not.toBe(batched)
     reduce(db, 'rebuild')
     expect(projectionDump(db)).toBe(incremental)
+    db.close()
+  })
+
+  it('a bus reduced before the snapshot existed builds it one batch per reduce beside the live projections, which stay as they were until it catches up', () => {
+    const pulls = REDUCE_BATCH
+    const db = busWith(observed(800, 793))
+    for (let n = 0; n < pulls; n += 1) {
+      appendEvent(db, observed(1000 + n, null))
+      appendEvent(db, closed(1000 + n, true))
+    }
+    reduce(db, 'rebuild')
+    db.prepare(`DELETE FROM ${WATERMARKS} WHERE projection = ?`).run(SNAPSHOT)
+    appendEvent(db, closed(800, true))
+    const live = prs(db)
+    const through = reducedThrough(db)
+
+    expect(reduce(db)).toEqual({ applied: REDUCE_BATCH, rejected: 0 })
+    expect(reducedThrough(db)).toBe(through)
+    expect(prs(db)).toEqual(live)
+    expect(reduce(db)).toEqual({ applied: REDUCE_BATCH, rejected: 0 })
+    expect(reducedThrough(db)).toBe(through)
+    expect(prs(db)).toEqual(live)
+    expect(reduce(db)).toEqual({ applied: 2, rejected: 0 })
+    expect(reducedThrough(db)).toBe(2 * pulls + 2)
+    expect(prs(db).find(row => row.pr === 800)).toMatchObject({ state: 'merged' })
+    const built = projectionDump(db)
+    reduce(db, 'rebuild')
+    expect(projectionDump(db)).toBe(built)
     db.close()
   })
 
