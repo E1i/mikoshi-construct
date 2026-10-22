@@ -48,8 +48,13 @@ export interface ProcessBeat {
   ts: string
 }
 
-export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string): boolean {
-  return appendEvent(db, { ts, type: PROCESS_HEARTBEAT, actor: `worker:process:${name.replaceAll(':', '-')}`, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_HEARTBEAT}:${name}:${ts}`, payload: { process: name }, legacy: false })
+export interface QueueCapacity {
+  queue: string
+  slots: number
+}
+
+export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string, capacity?: QueueCapacity): boolean {
+  return appendEvent(db, { ts, type: PROCESS_HEARTBEAT, actor: `worker:process:${name.replaceAll(':', '-')}`, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_HEARTBEAT}:${name}:${ts}`, payload: { process: name, ...capacity }, legacy: false })
 }
 
 export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {

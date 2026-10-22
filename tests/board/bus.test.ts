@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
 import { busReaderAt, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
 import { GOAL_DECISION } from '../../src/commands/board/goal.js'
 import { flowLines } from '../../src/commands/board/screens.js'
@@ -279,7 +280,29 @@ describe('the board bus reader', () => {
       ],
     })
     expect(seen.pulse).toBe(ago(2 * 60_000))
-    expect(seen.slots).toEqual([{ queue: 'merge', used: 1 }, { queue: 'review', used: 2 }])
+    expect(seen.slots).toEqual([{ queue: 'merge', used: 1, total: null }, { queue: 'review', used: 2, total: null }])
+  })
+
+  it('a queue whose node has no heartbeat has no denominator', () => {
+    const beat = (ts: string, payload: Record<string, unknown>): SeedEvent => ({ ts, type: PROCESS_HEARTBEAT, card: null, payload: JSON.stringify(payload) })
+    const seen = facts({
+      tasks: [
+        { queue: 'review', card: 1, pr: null, head: null, state: 'leased' },
+        { queue: 'merge', card: 2, pr: null, head: null, state: 'leased' },
+      ],
+      events: [
+        beat(ago(3 * 60_000), { process: 'bus:answer', queue: 'answer', slots: 3 }),
+        beat(ago(2 * 60_000), { process: 'bus:answer', queue: 'answer', slots: 5 }),
+        beat(ago(2 * 60_000), { process: 'bus:merge', queue: 'merge', slots: 1 }),
+        beat(ago(2 * 60_000), { process: 'netwatch' }),
+        beat(ago(2 * 60_000), { process: 'bus:review', queue: 'review', slots: 'two' }),
+      ],
+    })
+    expect(seen.slots).toEqual([
+      { queue: 'answer', used: 0, total: 5 },
+      { queue: 'merge', used: 1, total: 1 },
+      { queue: 'review', used: 1, total: null },
+    ])
   })
 
   it('reports a missing file as absent and a file it cannot query as unreadable, with the reason', () => {
