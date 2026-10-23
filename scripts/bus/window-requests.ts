@@ -6,12 +6,14 @@ import type { CloseOutcome, CloseRequest } from './pr-close.js'
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BOARD_ALARM, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { settledCards } from '../decisions/read.js'
+import { consumeOwnerWord, OWNER_WORD_NOT_FOUND, ownerChannelOf, USED_WORD } from '../owner/channel.js'
 import { FACTORY_MODES, isFactoryMode } from './card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from './db.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from './identifiers.js'
@@ -29,15 +31,13 @@ const PLAN_FLAGS = ['op', 'plan', 'item', 'title', 'goal', 'file', 'card'] as co
 const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM events WHERE type = '${PLAN_OPENED}' AND legacy = 0 AND actor = 'owner' AND json_extract(payload, '$.id') = ? ORDER BY id LIMIT 1`
 const TABLE_ROW = /^\s*\|/
 const TABLE_RULE = /^\s*\|[\s:|-]+\|\s*$/
-const OWNER_ORDER = /^owner-order-[^/]+\.md$/
-const QUOTE_MARK = /^\s*>\s?/
 export const ANSWER_SOURCE = 'answer'
 const DECISION_FLAGS: ReadonlyMap<string, string> = new Map([['--card', 'cards'], ['--supersedes', 'supersedes'], ['--until', 'until'], ['--from', 'from']])
 export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_UNDER = 186
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE}|<absolute handoff/owner-order-*.md> [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"`
 
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -128,7 +128,7 @@ function text(value: unknown): string | null {
 }
 
 export class WindowRequests {
-  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly tools: RequestTools) {}
+  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly tools: RequestTools, private readonly ownerChannel: string = ownerChannelOf(os.homedir())) {}
 
   run(): RequestOutcome[] {
     const answered = pendingRequests(this.db).map(request => this.answer(request))
@@ -176,13 +176,29 @@ export class WindowRequests {
     const decision = text(payload.text)
     const from = text(payload.from)
     if (decision === null || from === null)
-      return { done: false, why: 'decisions:add needs the owner\'s text and --from answer or an owner order file' }
-    const unsourced = ownerWordsRefusal(decision, from)
-    if (unsourced !== null)
-      return { done: false, why: unsourced }
+      return { done: false, why: `decisions:add needs the owner's text and --from ${ANSWER_SOURCE}` }
+    if (from !== ANSWER_SOURCE)
+      return { done: false, why: `decisions:add --from ${from} is not ${ANSWER_SOURCE}; a decision comes only from the owner's word that pnpm owner:say put into the owner channel, never from an owner order file` }
+    const words = decision.startsWith(OWNER_SOURCE) ? decision.slice(OWNER_SOURCE.length).trim() : decision
+    if (words === '')
+      return { done: false, why: `decisions:add: an empty decision; the bus writes only the owner's own words` }
+    const word = consumeOwnerWord(this.ownerChannel, words)
+    if (word === null)
+      return { done: false, why: OWNER_WORD_NOT_FOUND }
     const settled = [...settledCards(legacyHistory(this.db), cardStatesOf(this.db))].map(card => `#${card}`)
-    const written = this.tools.addDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), decision])
-    return { done: written.code === 0, why: written.lines.join('; ') }
+    const written = this.writtenDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), decision])
+    const done = written.code === 0
+    const fate = done ? 'used' : word.release() ? 'left unused' : `stays used though nothing was written; the owner renames ${word.file}${USED_WORD} back to ${path.basename(word.file)}`
+    return { done, why: [...written.lines, `owner word ${word.file} ${fate}`].join('; ') }
+  }
+
+  private writtenDecision(args: string[]): { code: number, lines: string[] } {
+    try {
+      return this.tools.addDecision(args)
+    }
+    catch (error) {
+      return { code: 1, lines: [`decisions:add failed: ${messageOf(error)}`] }
+    }
   }
 
   private openWait(request: number, payload: Record<string, unknown>): Executed {
@@ -383,17 +399,6 @@ function cardStatesOf(db: DatabaseSync): Map<string, string> {
 
 function flagsOf(name: string, values: unknown): string[] {
   return (Array.isArray(values) ? values : values === undefined ? [] : [values]).flatMap(value => [name, String(value)])
-}
-
-function ownerWordsRefusal(decision: string, from: string): string | null {
-  if (from === ANSWER_SOURCE)
-    return null
-  if (!path.isAbsolute(from) || !OWNER_ORDER.test(path.basename(from)) || path.basename(path.dirname(from)) !== 'handoff' || !existsSync(from))
-    return `decisions:add --from ${from} is neither ${ANSWER_SOURCE} nor an absolute handoff/owner-order-*.md that exists`
-  const words = decision.startsWith(OWNER_SOURCE) ? decision.slice(OWNER_SOURCE.length).trim() : decision
-  if (words === '')
-    return `decisions:add: an empty decision; the bus writes only the owner's own words`
-  return readFileSync(from, 'utf8').split('\n').some(line => line.replace(QUOTE_MARK, '').trim() === words) ? null : `decisions:add: the text is no whole line of ${from}; the bus writes only the owner's own words, verbatim`
 }
 
 function decisionRequestOf(argv: readonly string[]): Record<string, unknown> | null {

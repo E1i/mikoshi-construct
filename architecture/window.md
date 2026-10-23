@@ -178,8 +178,13 @@ open owner questions and the owner texts of the current session, at most `DAY_FI
 shares with the decisions in force (`scripts/shift/day-archive.ts`).
 
 - Owner texts, verbatim, each under an `## Owner …` heading naming its session (`session <N>`); the window never edits
-  one after writing it. An owner order that holds longer than a day goes into the decisions through
-  `pnpm decisions:add`, not into the day file.
+  one after writing it. An owner order that holds longer than a day goes into the decisions, not into the day file,
+  and an order file, the day file or a handoff is no source for one: the window writes them itself. The source is the
+  owner channel, `~/.construct-owner/answers/`, outside every sandbox's `allowWrite`: the owner runs
+  `pnpm owner:say "<words>"`, which puts the words and the time there as one file, and the window asks
+  `pnpm bus:request decisions:add --from answer "[owner] <words>"`. `bus:run` writes the decision only when the words
+  are a whole line of a file of the channel not used yet, and marks that file used in the same step; with none it
+  answers `window.request.refused` «слово владельца не найдено в канале владельца».
 - Owner questions, one list under `## Owner questions`, one item each, `- Q<N> open — …` or `- Q<N> answered — …`; the
   handoff's owner-waits field names them as `Q<N> open|answered [PR #M]`.
 - Everything else — answered questions, an earlier session's owner texts, progress lines, any other section — is moved
