@@ -361,7 +361,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     const file = park(w, '')
     const db = openBus(w.bus)
     try {
-      await runMain(createMain(busIntakePorts(db)), { rawArgs: ['intake', '--admit', file, '--dir', w.repo, '--journal', w.journal, '--plain'] })
+      await runMain(createMain(busIntakePorts(db)), { rawArgs: ['intake', '--admit', file, '--dir', w.repo, '--plain'] })
     }
     finally {
       db.close()
@@ -377,7 +377,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     const db = openBus(w.bus)
     try {
       for (let run = 0; run < 2; run++)
-        await runMain(createMain(busIntakePorts(db)), { rawArgs: ['intake', '--admit', file, '--dir', w.repo, '--journal', w.journal, '--plain'] })
+        await runMain(createMain(busIntakePorts(db)), { rawArgs: ['intake', '--admit', file, '--dir', w.repo, '--plain'] })
     }
     finally {
       db.close()
@@ -385,7 +385,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED)).toHaveLength(1)
   })
 
-  it('the ports pnpm intake builds read the bus\'s card states, so --admit drops a depends the bus ended and waits on one merged in the journal only after its half of history while the bus runs it', async () => {
+  it('the ports pnpm intake builds read the bus\'s card states, so --admit drops a depends the bus ended and waits on one the bus runs, though a journal names it merged', async () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     const lane = path.join(w.parking, '')
@@ -405,8 +405,8 @@ describe('pnpm intake writes card events to bus.db', () => {
       const ended = parkAs(91, '#80')
       const late = parkAs(92, '#81')
       const main = createMain(busIntakePorts(db))
-      await runMain(main, { rawArgs: ['intake', '--admit', ended, '--dir', w.repo, '--journal', w.journal, '--plain', '--auto-confirm'] })
-      await runMain(main, { rawArgs: ['intake', '--admit', late, '--dir', w.repo, '--journal', w.journal, '--plain'] })
+      await runMain(main, { rawArgs: ['intake', '--admit', ended, '--dir', w.repo, '--plain', '--auto-confirm'] })
+      await runMain(main, { rawArgs: ['intake', '--admit', late, '--dir', w.repo, '--plain'] })
     }
     finally {
       db.close()
