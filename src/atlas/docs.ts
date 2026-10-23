@@ -1,14 +1,15 @@
-import type { MapComponent, MapContour } from './components.js'
+import type { ComponentMap, MapComponent, MapContour } from './components.js'
 import type { SourceLinks } from './source-link.js'
 import type { AtlasMode } from './switch.js'
 import type { AtlasInput, AtlasLink, AtlasNode, AtlasStage } from './view.js'
 import { escaped } from '../model/page.js'
 import { STATE_LEGEND } from '../model/svg.js'
-import { componentMap } from './components.js'
+import { heroHtml, statusHtml, topbarHtml } from './chrome.js'
 import { DOCS_STYLE } from './docs-style.js'
-import { sourceHref } from './page.js'
-import { RELATIVE_LINKS } from './source-link.js'
-import { switchHtml } from './switch.js'
+import { contentPolicy, mapOf } from './map.js'
+import { RELATIVE_LINKS, staticSourceHref } from './source-link.js'
+import { tallyOf } from './tally.js'
+import { THEME_SCRIPT } from './theme.js'
 import { folderTree } from './tree.js'
 import { atlasOf } from './view.js'
 import { abilityWords } from './words.js'
@@ -16,7 +17,7 @@ import { abilityWords } from './words.js'
 const DISCOVER_COMMAND = '/construct-discover'
 
 const WORDS = {
-  title: (project: string) => `${project}, read in order`,
+  title: (project: string) => `Atlas Docs · ${project}`,
   prose: 'The same Engram as the map, read from the first stage to the last. Each part says what it does, what holds it up and where its code lies; the explanation is this page’s, the facts are the document’s.',
   summary: (parts: number, bound: number, total: number) => `${parts} ${parts === 1 ? 'part' : 'parts'} · ${total === 0 ? 'no file scanned yet, so none is counted as bound; construct atlas scans the tracked files' : `${bound} of ${total} files bound to a part (${Math.round(bound * 100 / total)}%) · ${total - bound} not bound`}`,
   fromMechanics: `No part is named in the Engram yet, so these parts are the packages and directories the code itself declares. ${DISCOVER_COMMAND} splits the code into parts in its interpretation step; its parts replace these.`,
@@ -35,7 +36,6 @@ const WORDS = {
   source: 'Source',
   unclaimed: 'Code no part claims',
   bind: `How to bind it: run ${DISCOVER_COMMAND}; its interpretation step names the parts and the code under each.`,
-  footer: (name: string) => `Every state is derived on read, never stored. Rendered from ${name}; nothing here is fetched when you open it.`,
 }
 
 interface DocsPart {
@@ -92,7 +92,7 @@ function nodeSection(node: AtlasNode, input: AtlasInput, rootFromPage: string, l
     evidence,
     linkList(WORDS.leadsFrom, node.leadsFrom),
     linkList(WORDS.leadsTo, node.leadsTo),
-    `<p><a href="${sourceHref(node.sourcePath, rootFromPage, links)}" data-source>${escaped(WORDS.source)}: ${escaped(node.sourcePath)}</a></p>`,
+    `<p><a href="${escaped(staticSourceHref(node.sourcePath, rootFromPage, links))}" data-source>${escaped(WORDS.source)}: ${escaped(node.sourcePath)}</a></p>`,
     codeOf(node.components),
     `</article>`,
   ].filter(part => part !== '').join('\n')
@@ -100,8 +100,8 @@ function nodeSection(node: AtlasNode, input: AtlasInput, rootFromPage: string, l
 
 function stageSection(stage: AtlasStage, index: number, input: AtlasInput, rootFromPage: string, links: SourceLinks): string {
   return [
-    `<section id="${stageAnchor(index)}" data-stage="${escaped(stage.id)}">`,
-    `<h2>${escaped(stage.label)}</h2>`,
+    `<section class="panelbox chapter" id="${stageAnchor(index)}" data-stage="${escaped(stage.id)}">`,
+    `<div class="ph"><h2>${escaped(stage.label)}</h2></div>`,
     stage.nodes.length === 0 ? `<p class="empty">${escaped(WORDS.emptyStage)}</p>` : stage.nodes.map(node => nodeSection(node, input, rootFromPage, links)).join('\n'),
     `</section>`,
   ].join('\n')
@@ -112,7 +112,7 @@ function engramBody(input: AtlasInput, rootFromPage: string, links: SourceLinks)
   const total = input.mechanics?.components.length ?? 0
   const unclaimed = atlas.unclaimed.length === 0
     ? ''
-    : `<section id="unclaimed" data-layer="mechanics"><h2>${escaped(WORDS.unclaimed)} (${atlas.unclaimed.length})</h2><p>${escaped(WORDS.bind)}</p>${folderTree(atlas.unclaimed)}</section>`
+    : `<section class="panelbox chapter" id="unclaimed" data-layer="mechanics"><div class="ph"><h2>${escaped(WORDS.unclaimed)} (${atlas.unclaimed.length})</h2></div><p class="notice">${escaped(WORDS.bind)}</p>${folderTree(atlas.unclaimed)}</section>`
   return {
     sections: [
       ...atlas.stages.map((stage, index) => ({ anchor: stageAnchor(index), label: stage.label, parts: stage.nodes })),
@@ -141,15 +141,14 @@ function partSection(component: MapComponent, reaches: AtlasLink[]): string {
 
 function contourSection(contour: MapContour, reachesOf: (id: string) => AtlasLink[]): string {
   return [
-    `<section id="${escaped(partAnchor(contour.id))}" data-contour="${escaped(contour.id)}">`,
-    `<h2>${escaped(contour.name)}</h2>`,
+    `<section class="panelbox chapter" id="${escaped(partAnchor(contour.id))}" data-contour="${escaped(contour.id)}">`,
+    `<div class="ph"><h2>${escaped(contour.name)}</h2></div>`,
     contour.components.map(component => partSection(component, reachesOf(component.id))).join('\n'),
     `</section>`,
   ].join('\n')
 }
 
-function mechanicsBody(input: AtlasInput, mechanics: NonNullable<AtlasInput['mechanics']>): DocsBody {
-  const map = componentMap({ contours: [], ...mechanics }, input.model.interpretation?.components ?? [], input.projectName)
+function mechanicsBody(map: ComponentMap, mechanics: NonNullable<AtlasInput['mechanics']>): DocsBody {
   const contours = map.contours.filter(contour => contour.components.length > 0)
   const components = contours.flatMap(contour => contour.components)
   const nameOf = new Map(components.map(component => [component.id, component.name]))
@@ -160,45 +159,51 @@ function mechanicsBody(input: AtlasInput, mechanics: NonNullable<AtlasInput['mec
   return {
     sections: contours.map(contour => ({ anchor: partAnchor(contour.id), label: contour.name, parts: contour.components.map(component => ({ anchor: partAnchor(component.id), label: component.name })) })),
     summary: WORDS.summary(components.length, bound.size, mechanics.components.length),
-    html: [`<p class="prose">${escaped(WORDS.fromMechanics)}</p>`, ...contours.map(contour => contourSection(contour, reachesOf))].join('\n'),
+    html: [`<p class="notice">${escaped(WORDS.fromMechanics)}</p>`, ...contours.map(contour => contourSection(contour, reachesOf))].join('\n'),
   }
 }
 
-function docsBody(input: AtlasInput, generatedFrom: string, rootFromPage: string): DocsBody {
+function docsBody(input: AtlasInput, map: ComponentMap | null, generatedFrom: string, rootFromPage: string): DocsBody {
   const links = input.links ?? RELATIVE_LINKS
   if (input.model.nodes.length > 0)
     return engramBody(input, rootFromPage, links)
-  if (input.mechanics != null && input.mechanics.components.length > 0)
-    return mechanicsBody(input, input.mechanics)
-  return { sections: [], summary: '', html: `<p class="empty" data-no-model>${escaped(WORDS.noModel(generatedFrom))}</p>` }
+  if (map != null && input.mechanics != null && input.mechanics.components.length > 0)
+    return mechanicsBody(map, input.mechanics)
+  return { sections: [], summary: '', html: `<p class="notice" data-no-model>${escaped(WORDS.noModel(generatedFrom))}</p>` }
 }
 
 function contents(sections: DocsSection[]): string {
-  return `<nav class="toc"><b>${escaped(WORDS.contents)}</b>${sections.map(section => `<ul><li><b><a href="#${escaped(section.anchor)}">${escaped(section.label)}</a></b></li>${section.parts.map(part => `<li><a href="#${escaped(part.anchor)}">${escaped(part.label)}</a></li>`).join('')}</ul>`).join('')}</nav>`
+  return `<nav class="panelbox toc" aria-labelledby="atlas-toc-heading"><div class="ph"><h2 id="atlas-toc-heading">${escaped(WORDS.contents)}</h2></div>${sections.map(section => `<ul><li><b><a href="#${escaped(section.anchor)}">${escaped(section.label)}</a></b></li>${section.parts.map(part => `<li><a href="#${escaped(part.anchor)}">${escaped(part.label)}</a></li>`).join('')}</ul>`).join('')}</nav>`
 }
 
 export function renderAtlasDocs(input: AtlasInput, generatedFrom: string, rootFromPage: string, modeFiles: Record<AtlasMode, string>): string {
-  const body = docsBody(input, generatedFrom, rootFromPage)
+  const map = mapOf(input)
+  const body = docsBody(input, map, generatedFrom, rootFromPage)
+  const tally = map == null || input.mechanics == null ? null : tallyOf(map, input.mechanics)
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="${contentPolicy(THEME_SCRIPT, DOCS_STYLE)}">
 <title>${escaped(WORDS.title(input.projectName))}</title>
 <style>${DOCS_STYLE}</style>
 </head>
 <body>
-<div class="layout">
+${topbarHtml('docs', modeFiles)}
+<main class="page">
+${heroHtml('docs', input.projectName, tally)}
+<div class="cols">
 ${contents(body.sections)}
-<main>
-${switchHtml('docs', modeFiles)}
-<h1>${escaped(WORDS.title(input.projectName))}</h1>
+<div class="reading">
 ${body.summary === '' ? '' : `<p class="summary">${escaped(body.summary)}</p>`}
 <p class="prose">${escaped(WORDS.prose)}</p>
 ${body.html}
-<footer>${escaped(WORDS.footer(generatedFrom))}</footer>
-</main>
 </div>
+</div>
+${statusHtml(generatedFrom)}
+</main>
+<script>${THEME_SCRIPT}</script>
 </body>
 </html>
 `
