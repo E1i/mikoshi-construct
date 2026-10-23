@@ -51,6 +51,20 @@ export function sessionModelOf(streamJson: string): string | undefined {
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
 export const WINDOW_VARIABLE = 'MIKO_WINDOW'
 export const WINDOW_MARK = '1'
+export const LOOP_PID_VARIABLE = 'MIKO_LOOP_PID'
+export const EXIT_REQUEST_VARIABLE = 'MIKO_EXIT_REQUEST'
+
+export type WindowMode = 'loop' | 'tab'
+
+function underTheLoop(env: NodeJS.ProcessEnv): boolean {
+  return env[WINDOW_VARIABLE] === WINDOW_MARK || Boolean(env[LOOP_PID_VARIABLE]) || Boolean(env[EXIT_REQUEST_VARIABLE])
+}
+
+export function windowModeOf(env: NodeJS.ProcessEnv): WindowMode | null {
+  if (env[CARD_VARIABLE])
+    return null
+  return underTheLoop(env) ? 'loop' : 'tab'
+}
 
 export function witnessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const { FORCE_COLOR: _forced, CLICOLOR_FORCE: _clicolorForced, ...rest } = base
