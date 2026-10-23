@@ -3,7 +3,7 @@ import type { Strategy } from '../materialize/strategies.js'
 import type { TemplateVariant } from '../materialize/templates.js'
 import type { OwnedKey } from './ownership.js'
 import type { EstablishedVariant } from './variant.js'
-import { strategyFor } from '../materialize/strategies.js'
+import { carriesHookSettings, strategyFor } from '../materialize/strategies.js'
 import { SUCCESSORS } from '../presets/index.js'
 import { blockSpansDocument, carriesConstructBlock, matchesRecordedSha, ownedKeys, ownedSha, ownedText } from './ownership.js'
 
@@ -115,6 +115,9 @@ export function classifyPath(state: PathState): PathClassification | null {
     return classified(recordedSha == null ? 'conflict' : classFromKeys(keys), keys)
   }
 
+  if (strategy === 'merge-hooks')
+    return classified(carriesHookSettings(present, produced) ? 'keep' : 'conflict')
+
   if (recordedSha == null)
     return classified('conflict')
 
@@ -131,7 +134,7 @@ const WRITABLE_CLASSES = new Set<PathClass>(['add', 'update', 'template-moved-on
 const WRITABLE_STRATEGIES = new Set<Strategy>(['create', 'append-block'])
 
 function willBeWritten(strategy: Strategy, value: PathClass): boolean {
-  return WRITABLE_CLASSES.has(value) && WRITABLE_STRATEGIES.has(strategy)
+  return WRITABLE_CLASSES.has(value) && (WRITABLE_STRATEGIES.has(strategy) || (strategy === 'merge-hooks' && value === 'add'))
 }
 
 function writeEffectFor(strategy: Strategy, value: PathClass): WriteEffect | null {

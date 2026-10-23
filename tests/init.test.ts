@@ -1,8 +1,10 @@
 import type { AiTarget, PresetId } from '../src/presets/index.js'
 import type { Prompter } from '../src/ui/prompts.js'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
@@ -383,5 +385,104 @@ describe('construct init on a repository that already documents itself', () => {
     expect(manifest?.discovery.markers.composition.file).toBe('docs/architecture/composition')
     expect(existsSync(path.join(dir, 'architecture/composition'))).toBe(false)
     expect(manifestResult(runDoctor(dir))?.missingDiscovery).not.toContain('composition')
+  })
+})
+
+const WINDOW_HOOK = 'scripts/construct/window-hooks.mjs'
+const SETTINGS = '.claude/settings.json'
+
+interface HookSettings { hooks: Record<string, { matcher?: string, hooks: { type: string, command: string, timeout?: number }[] }[]> }
+
+function readSettingsOf(dir: string): HookSettings {
+  return JSON.parse(readFileSync(path.join(dir, SETTINGS), 'utf8')) as HookSettings
+}
+
+function windowCommand(event: string): string {
+  return `node "$CLAUDE_PROJECT_DIR"/${WINDOW_HOOK} ${event} --needs-construct`
+}
+
+function commandsOf(settings: HookSettings, event: string): string[] {
+  return (settings.hooks[event] ?? []).flatMap(entry => entry.hooks.map(hook => hook.command))
+}
+
+function runWindowHook(dir: string, event: string, pathDirs: string[], handoff: string): { status: number | null, stdout: string, stderr: string } {
+  const result = spawnSync(process.execPath, [path.join(dir, WINDOW_HOOK), event, '--needs-construct'], {
+    input: '{}',
+    encoding: 'utf8',
+    env: { PATH: pathDirs.join(path.delimiter), HOME: dir, CONSTRUCT_HANDOFF: handoff },
+  })
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+}
+
+describe('construct init and the tab-window hooks', () => {
+  it('init writes the Stop, PreCompact and SessionStart compact window hooks into a tracked .claude/settings.json', async () => {
+    const dir = scratch()
+    const result = await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(result.written).toEqual(expect.arrayContaining([SETTINGS, WINDOW_HOOK]))
+    const settings = readSettingsOf(dir)
+    expect(commandsOf(settings, 'Stop')).toEqual([windowCommand('stop')])
+    expect(commandsOf(settings, 'PreCompact')).toEqual([windowCommand('pre-compact')])
+    expect(commandsOf(settings, 'SessionStart')).toEqual([windowCommand('session-start')])
+    expect(settings.hooks.SessionStart?.[0]?.matcher).toBe('compact')
+    expect(readManifest(dir)?.files[SETTINGS]).toMatch(/^[0-9a-f]{8,}$/)
+    expect(readManifest(dir)?.files[WINDOW_HOOK]).toMatch(/^[0-9a-f]{8,}$/)
+    const ignored = readFileSync(path.join(dir, '.gitignore'), 'utf8').split('\n')
+    for (const pattern of ['.claude', '.claude/', SETTINGS, 'scripts', 'scripts/', 'scripts/construct/'])
+      expect(ignored, pattern).not.toContain(pattern)
+  })
+
+  it('init into a repository with its own .claude/settings.json keeps its hooks and adds the window hooks', async () => {
+    const dir = scratch()
+    const own = { permissions: { allow: ['Bash(ls)'] }, hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo own-stop' }] }], PostToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'echo own-post' }] }] } }
+    mkdirSync(path.join(dir, '.claude'))
+    writeFileSync(path.join(dir, SETTINGS), `${JSON.stringify(own, null, 2)}\n`)
+    const result = await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(result.written).toContain(SETTINGS)
+    expect(result.skipped).not.toContain(SETTINGS)
+    const settings = readSettingsOf(dir) as HookSettings & { permissions: unknown }
+    expect(settings.permissions).toEqual(own.permissions)
+    expect(commandsOf(settings, 'Stop')).toEqual(['echo own-stop', windowCommand('stop')])
+    expect(commandsOf(settings, 'PostToolUse')).toEqual(['echo own-post'])
+    expect(commandsOf(settings, 'PreCompact')).toEqual([windowCommand('pre-compact')])
+    expect(commandsOf(settings, 'SessionStart')).toEqual([windowCommand('session-start')])
+
+    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(commandsOf(readSettingsOf(dir), 'Stop')).toEqual(['echo own-stop', windowCommand('stop')])
+  })
+
+  it('init leaves a .claude/settings.json it cannot read as hook settings untouched', async () => {
+    const dir = scratch()
+    mkdirSync(path.join(dir, '.claude'))
+    writeFileSync(path.join(dir, SETTINGS), '{ "hooks": [] }\n')
+    const result = await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(result.skipped).toContain(SETTINGS)
+    expect(readFileSync(path.join(dir, SETTINGS), 'utf8')).toBe('{ "hooks": [] }\n')
+  })
+
+  it('the tracked window hook with no construct on PATH prints one stderr line and does nothing', async () => {
+    const dir = scratch()
+    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    const handoff = path.join(dir, 'miko.md')
+    writeFileSync(handoff, 'STATUS: CONTINUE\n')
+    const empty = mkdtempSync(path.join(tmpdir(), 'construct-no-bin-'))
+
+    const without = runWindowHook(dir, 'stop', [empty], handoff)
+    expect(without.status).toBe(0)
+    expect(without.stdout).toBe('')
+    expect(without.stderr.trimEnd().split('\n')).toHaveLength(1)
+    expect(without.stderr).toContain('construct is not on PATH')
+
+    const bin = mkdtempSync(path.join(tmpdir(), 'construct-bin-'))
+    writeFileSync(path.join(bin, 'construct'), '#!/bin/sh\nexit 0\n')
+    chmodSync(path.join(bin, 'construct'), 0o755)
+    const withConstruct = runWindowHook(dir, 'stop', [empty, bin], handoff)
+    expect(withConstruct.status).toBe(0)
+    expect(withConstruct.stderr).toBe('')
+    expect(JSON.parse(withConstruct.stdout)).toMatchObject({ decision: 'block' })
+  })
+
+  it('ships the init window hook as the byte twin of the attach window hook', () => {
+    const templates = path.join(import.meta.dirname, '../templates')
+    expect(readFileSync(path.join(templates, 'ai/claude', WINDOW_HOOK), 'utf8')).toBe(readFileSync(path.join(templates, 'attach/_construct/window-hooks.mjs'), 'utf8'))
   })
 })

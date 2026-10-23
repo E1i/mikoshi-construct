@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -10,6 +10,28 @@ const HEADLESS_ENTRYPOINT = 'sdk-cli'
 const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
 const COMPACT_SOURCE = 'compact'
 const FRESH_MS = 2 * 60 * 1000
+const NEEDS_CONSTRUCT = '--needs-construct'
+const CONSTRUCT_BIN = 'construct'
+
+function executable(file) {
+  try {
+    accessSync(file, constants.X_OK)
+    return statSync(file).isFile()
+  }
+  catch {
+    return false
+  }
+}
+
+export function constructOnPath(env) {
+  return (env.PATH ?? '').split(path.delimiter).filter(Boolean).some(dir => executable(path.join(dir, CONSTRUCT_BIN)))
+}
+
+export function missingConstructLine(event, requirement, env) {
+  if (requirement !== NEEDS_CONSTRUCT || constructOnPath(env))
+    return null
+  return `window-hooks: ${CONSTRUCT_BIN} is not on PATH; the ${event ?? 'no event'} hook did nothing`
+}
 
 export function tabWindow(env) {
   return !env.CONSTRUCT_CARD && env.CLAUDE_CODE_ENTRYPOINT !== HEADLESS_ENTRYPOINT && env.CONSTRUCT_BUS_RAISED !== '1'
@@ -99,7 +121,14 @@ async function readStdin() {
 }
 
 async function main() {
-  const output = windowHookOutput(process.argv[2], parsed(await readStdin()), process.env, os.homedir(), Date.now())
+  const [event, requirement] = process.argv.slice(2)
+  const input = parsed(await readStdin())
+  const missing = missingConstructLine(event, requirement, process.env)
+  if (missing !== null) {
+    process.stderr.write(`${missing}\n`)
+    return
+  }
+  const output = windowHookOutput(event, input, process.env, os.homedir(), Date.now())
   if (output.stdout != null)
     process.stdout.write(`${JSON.stringify(output.stdout)}\n`)
   if (output.stderr != null)
