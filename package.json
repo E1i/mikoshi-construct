@@ -80,6 +80,7 @@
     "task:close": "node --import tsx scripts/ghosts/task-close.ts",
     "decisions": "node --import tsx scripts/decisions/read.ts",
     "decisions:add": "node --import tsx scripts/decisions/add.ts",
+    "owner:say": "node --import tsx scripts/owner/say.ts",
     "handoff:check": "node --import tsx scripts/ghosts/handoff-check.ts",
     "handoff:write": "node --import tsx scripts/shift/handoff-write.ts",
     "task:start": "node --import tsx scripts/ghosts/task-start.ts",

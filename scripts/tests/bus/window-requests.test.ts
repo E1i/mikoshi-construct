@@ -1,9 +1,12 @@
 import type { CardStarter, LaunchOutcome } from '../../bus/launch-executor.js'
 import type { RequestTools } from '../../bus/window-requests.js'
 import type { MergeBench } from './merge-bench.js'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFile } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
+import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { factoryMode } from '../../bus/card-bodies.js'
 import { appendEvent } from '../../bus/db.js'
@@ -23,6 +26,7 @@ import { decisionsAdder, worktreesHolding } from '../../bus/window-request-tools
 import { ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../bus/window-requests.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
 import { stampOf } from '../../decisions/add.js'
+import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -70,10 +74,18 @@ function room(bench: MergeBench = mergeBench()): Room {
       closePr: request => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).close(request),
       closeDropped: () => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).closeDropped(),
       ...tools,
-    }),
+    }, channelOf(made)),
   }
   rooms.push(made)
   return made
+}
+
+function channelOf(made: Room): string {
+  return path.join(made.root, 'owner-answers')
+}
+
+function ownerSays(made: Room, words: string): string {
+  return sayToOwnerChannel(channelOf(made), words, made.bench.clock.now())
 }
 
 function ask(made: Room, request: Record<string, unknown>): number {
@@ -415,21 +427,18 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
   it('a window decisions:add request is written by the bus node into owner-decisions and bus decisions', () => {
     const made = room()
     const file = withDecisionsFile(made, '- D-1 · 2026-10-08 — first. · decisions:add')
-    const order = path.join(made.root, '.construct', 'handoff', 'owner-order-s157-q13.md')
-    writeFileSync(order, '# Owner order (Eli), verbatim\n\nallow-live witness for Q13 on card #1214.\n')
+    ownerSays(made, 'allow-live witness for Q13 on card #1214.')
+    ownerSays(made, 'Q14: the second path.')
     const before = readFileSync(file, 'utf8')
 
-    const fromOrder = windowAsks(made, '--from', order, '--card', '#1214', '[owner] allow-live witness for Q13 on card #1214.')
-    const notInOrder = windowAsks(made, '--from', order, '[owner] merge everything.')
-    const notAnOrder = windowAsks(made, '--from', file, '[owner] first.')
-    const fromAnswer = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] Q14: the second path.')
+    const first = windowAsks(made, '--from', ANSWER_SOURCE, '--card', '#1214', '[owner] allow-live witness for Q13 on card #1214.')
+    const second = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] Q14: the second path.')
     expect(readFileSync(file, 'utf8')).toBe(before)
 
     const outcomes = made.requests().run()
-    expect(outcomes.map(outcome => [outcome.request, outcome.kind])).toEqual([[fromOrder, 'done'], [notInOrder, 'refused'], [notAnOrder, 'refused'], [fromAnswer, 'done']])
-    expect(outcomes[1]!.detail).toBe(`decisions:add: the text is no whole line of ${order}; the bus writes only the owner's own words, verbatim`)
+    expect(outcomes.map(outcome => [outcome.request, outcome.kind])).toEqual([[first, 'done'], [second, 'done']])
     expect(readFileSync(file, 'utf8')).toContain(`- D-2 · ${stampOf(made.bench.clock.now())} — [owner] allow-live witness for Q13 on card #1214. · card #1214 · decisions:add\n- D-3 · `)
-    expect(answerOf(made, fromOrder).type).toBe(REQUEST_DONE)
+    expect(answerOf(made, first).type).toBe(REQUEST_DONE)
     reduce(made.bench.db)
     expect(inForceDecisions(made.bench.db)).toEqual([
       { decisionId: 2, text: 'allow-live witness for Q13 on card #1214.', cards: [1214] },
@@ -437,34 +446,99 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     ])
   })
 
+  it('decisions:add --from answer with no owner file is refused as the owner word not found in the owner channel', () => {
+    const made = room()
+    const file = withDecisionsFile(made, '- D-1 · 2026-10-08 — first. · decisions:add')
+    const before = readFileSync(file, 'utf8')
+    const request = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] Q14: the second path.')
+
+    expect(made.requests().run()).toEqual([{ kind: 'refused', request, detail: OWNER_WORD_NOT_FOUND }])
+    expect(answerOf(made, request)).toEqual({ type: REQUEST_REFUSED, detail: 'слово владельца не найдено в канале владельца' })
+    expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+
+  it('decisions:add --from answer with a file from owner:say is written and the file is marked used', () => {
+    const made = room()
+    const file = withDecisionsFile(made, '- D-1 · 2026-10-08 — first. · decisions:add')
+    const said = ownerSays(made, 'Q14: the second path.')
+    const request = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] Q14: the second path.')
+
+    expect(made.requests().run()).toMatchObject([{ kind: 'done', request }])
+    expect(answerOf(made, request).type).toBe(REQUEST_DONE)
+    expect(readFileSync(file, 'utf8')).toContain(`- D-2 · ${stampOf(made.bench.clock.now())} — [owner] Q14: the second path. · decisions:add\n`)
+    expect(readdirSync(channelOf(made))).toEqual([`${path.basename(said)}${USED_WORD}`])
+  })
+
+  it('an owner file already used is refused the second time', () => {
+    const made = room()
+    withDecisionsFile(made, '- D-1 · 2026-10-08 — first. · decisions:add')
+    ownerSays(made, 'Q14: the second path.')
+    const first = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] Q14: the second path.')
+    const again = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] Q14: the second path.')
+
+    expect(made.requests().run().map(outcome => [outcome.request, outcome.kind, outcome.kind === 'refused' ? outcome.detail : ''])).toEqual([
+      [first, 'done', ''],
+      [again, 'refused', OWNER_WORD_NOT_FOUND],
+    ])
+  })
+
+  it('two concurrent decisions:add requests on one owner file accept exactly one', async () => {
+    const made = room()
+    ownerSays(made, 'Q14: the second path.')
+    const fixture = path.join(import.meta.dirname, '..', 'owner', 'request-on-channel.ts')
+    const startAt = String(Date.now() + 3000)
+    const race = (bus: string): Promise<{ stdout: string }> => promisify(execFile)(process.execPath, ['--import', 'tsx', fixture, path.join(made.root, bus), channelOf(made), 'Q14: the second path.', startAt])
+    const kinds = (await Promise.all([race('a.db'), race('b.db')])).map(run => run.stdout.trim()).sort()
+
+    expect(kinds).toEqual(['done', 'refused'])
+    expect(readdirSync(channelOf(made)).filter(name => name.endsWith(USED_WORD))).toHaveLength(1)
+  }, 30_000)
+
+  it('decisions:add --from an owner-order file is refused for a decision', () => {
+    const made = room()
+    const file = withDecisionsFile(made, '- D-1 · 2026-10-08 — first. · decisions:add')
+    const order = path.join(made.root, '.construct', 'handoff', 'owner-order-s157-q13.md')
+    writeFileSync(order, '# Owner order (Eli), verbatim\n\nallow-live witness for Q13 on card #1214.\n')
+    ownerSays(made, 'allow-live witness for Q13 on card #1214.')
+    const before = readFileSync(file, 'utf8')
+    const request = windowAsks(made, '--from', order, '[owner] allow-live witness for Q13 on card #1214.')
+
+    const [outcome] = made.requests().run()
+    expect(outcome).toMatchObject({ kind: 'refused', request })
+    expect(outcome!.detail).toBe(`decisions:add --from ${order} is not ${ANSWER_SOURCE}; a decision comes only from the owner's word that pnpm owner:say put into the owner channel, never from an owner order file`)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(readdirSync(channelOf(made)).some(name => name.endsWith(USED_WORD))).toBe(false)
+  })
+
   it('a decisions:add request over the byte limit is refused with its reason and leaves the file untouched', () => {
     const made = room()
     const file = withDecisionsFile(made, ...Array.from({ length: 7 }, (_, at) => `- D-${at + 1} · 2026-10-08 — ${`decision ${at + 1} `.repeat(100).trim()} · decisions:add`))
     const before = readFileSync(file, 'utf8')
+    ownerSays(made, 'over '.repeat(300).trim())
     const request = windowAsks(made, '--from', ANSWER_SOURCE, `[owner] ${'over '.repeat(300).trim()}`)
 
     const [outcome] = made.requests().run()
     expect(outcome).toMatchObject({ kind: 'refused', request })
-    expect(outcome!.detail).toMatch(/^\[decisions\] decisions in force would be \d+ bytes, over the limit of 8000 .*nothing written$/)
+    expect(outcome!.detail).toMatch(/^\[decisions\] decisions in force would be \d+ bytes, over the limit of 8000 .*nothing written; owner word .* left unused$/)
     expect(answerOf(made, request)).toEqual({ type: REQUEST_REFUSED, detail: outcome!.detail })
     expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(readdirSync(channelOf(made)).some(name => name.endsWith(USED_WORD))).toBe(false)
     reduce(made.bench.db)
     expect(inForceDecisions(made.bench.db)).toEqual([])
   })
 
-  it('a decisions:add request from an order is refused for an empty body and for a part of a line', () => {
+  it('a decisions:add request is refused for an empty body and for a part of an owner line', () => {
     const made = room()
     const file = withDecisionsFile(made, '- D-1 · 2026-10-08 — first. · decisions:add')
-    const order = path.join(made.root, '.construct', 'handoff', 'owner-order-s157-q13.md')
-    writeFileSync(order, '# Owner order (Eli), verbatim\n\n> allow-live witness for Q13.\nanother line.\n')
+    sayToOwnerChannel(channelOf(made), 'allow-live witness for Q13.\nanother line.', made.bench.clock.now())
     const before = readFileSync(file, 'utf8')
-    const empty = windowAsks(made, '--from', order, '[owner]')
-    const part = windowAsks(made, '--from', order, '[owner] allow')
-    const quoted = windowAsks(made, '--from', order, '[owner] allow-live witness for Q13.')
+    const empty = windowAsks(made, '--from', ANSWER_SOURCE, '[owner]')
+    const part = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] allow')
+    const whole = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] allow-live witness for Q13.')
     expect(made.requests().run().map(outcome => [outcome.request, outcome.kind, outcome.detail.slice(0, 30)])).toEqual([
       [empty, 'refused', 'decisions:add: an empty decisi'],
-      [part, 'refused', 'decisions:add: the text is no '],
-      [quoted, 'done', `- D-2 · ${stampOf(made.bench.clock.now())} — [owner]`.slice(0, 30)],
+      [part, 'refused', OWNER_WORD_NOT_FOUND.slice(0, 30)],
+      [whole, 'done', `- D-2 · ${stampOf(made.bench.clock.now())} — [owner]`.slice(0, 30)],
     ])
     expect(readFileSync(file, 'utf8')).toBe(`${before}- D-2 · ${stampOf(made.bench.clock.now())} — [owner] allow-live witness for Q13. · decisions:add\n`)
   })
@@ -478,6 +552,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     const event = (made.bench.db.prepare('SELECT id FROM events WHERE dedupe_key = ?').get(`fixture.merged:${CARD}`) as { id: number }).id
     made.bench.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, \'merged\', NULL, ?)').run(CARD, event)
 
+    ownerSays(made, 'kept '.repeat(300).trim())
     const request = windowAsks(made, '--from', ANSWER_SOURCE, `[owner] ${'kept '.repeat(300).trim()}`)
     expect(made.requests().run()).toMatchObject([{ kind: 'done', request }])
     expect(readFileSync(file, 'utf8')).not.toContain(spent)
