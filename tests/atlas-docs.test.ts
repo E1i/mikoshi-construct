@@ -31,7 +31,7 @@ function input(label: string): Parameters<typeof renderAtlas>[0] {
   mkdirSync(path.join(root, 'press'))
   writeFileSync(path.join(root, 'press/main.ts'), 'x\n')
   const model = parseModel(document(label), 'M')
-  return { projectName: 'orchard', model, states: deriveModelState(model, root) }
+  return { repo: { name: { text: 'orchard', from: 'package.json' } }, model, states: deriveModelState(model, root) }
 }
 
 describe('the docs view', () => {
@@ -79,7 +79,7 @@ const MANY: AtlasMechanics = {
 
 function docsOf(document: unknown, mechanics?: AtlasMechanics): string {
   const model = parseModel(JSON.stringify(document), 'M')
-  return renderAtlasDocs({ projectName: 'orchard', model, states: deriveModelState(model, tmpdir()), mechanics }, 'construct.model.json', '', FILES)
+  return renderAtlasDocs({ repo: { name: { text: 'orchard', from: 'package.json' } }, model, states: deriveModelState(model, tmpdir()), mechanics }, 'construct.model.json', '', FILES)
 }
 
 function longestList(html: string): number {

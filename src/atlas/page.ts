@@ -22,13 +22,13 @@ export function renderAtlas(input: AtlasInput, generatedFrom: string, rootFromPa
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="${contentPolicy(script, ATLAS_STYLE)}">
-<title>${escaped(WORDS.title(input.projectName))}</title>
+<title>${escaped(WORDS.title(input.repo.name.text))}</title>
 <style>${ATLAS_STYLE}</style>
 </head>
 <body>
 ${topbarHtml('map', modeFiles)}
 <main class="page">
-${heroHtml('map', input.projectName, tally)}
+${heroHtml('map', input.repo, tally)}
 ${mapSection(mapScript, generatedFrom)}
 ${statusHtml(generatedFrom)}
 </main>

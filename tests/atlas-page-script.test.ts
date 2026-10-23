@@ -144,7 +144,7 @@ const MECHANICS: AtlasMechanics = {
 
 function pageOf(interpretation?: unknown, mechanics: AtlasMechanics = MECHANICS): string {
   const model = parseModel(JSON.stringify(interpretation == null ? DOCUMENT : { ...DOCUMENT, interpretation }), 'M')
-  return renderAtlas({ projectName: 'shop', model, states: deriveModelState(model, tmpdir()), mechanics }, 'construct.model.json')
+  return renderAtlas({ repo: { name: { text: 'shop', from: 'package.json' } }, model, states: deriveModelState(model, tmpdir()), mechanics }, 'construct.model.json')
 }
 
 function scriptOf(html: string): string {
@@ -362,7 +362,7 @@ describe('a source link opens where the manifest and the remote say', () => {
 
   function linkedPage(links: SourceLinks): string {
     const model = parseModel(JSON.stringify(DOCUMENT), 'M')
-    return renderAtlas({ projectName: 'shop', model, states: deriveModelState(model, tmpdir()), mechanics: LINKED, links }, 'construct.model.json', '..')
+    return renderAtlas({ repo: { name: { text: 'shop', from: 'package.json' } }, model, states: deriveModelState(model, tmpdir()), mechanics: LINKED, links }, 'construct.model.json', '..')
   }
 
   it('with the vscode template a source link is vscode://file/<root from location>/src/x.ts:N', () => {

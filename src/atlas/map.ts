@@ -92,7 +92,7 @@ function lineOf(at: string): number {
 export function mapOf(input: AtlasInput): ComponentMap | null {
   if (input.mechanics == null)
     return null
-  return componentMap({ contours: [], ...input.mechanics }, input.model.interpretation?.components ?? [], input.projectName)
+  return componentMap({ contours: [], ...input.mechanics }, input.model.interpretation?.components ?? [], input.repo.name.text)
 }
 
 export function atlasScript(input: AtlasInput, rootFromPage: string, map = mapOf(input)): string | null {
