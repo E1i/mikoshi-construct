@@ -1,4 +1,7 @@
 import type { JournalEntry } from '../../../src/card/closed.js'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { planAdd } from '../../decisions/add.js'
 import { DECISION_FORMAT, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForce, parseDecisions, spendDecisions } from '../../decisions/decisions.js'
@@ -12,25 +15,21 @@ function file(...lines: string[]): string {
 
 const ARCHIVE = '/d/owner-decisions.archive.md'
 
-function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: JournalEntry[] = [], archive: string | null = null, bus: ReadonlyMap<string, string> = new Map()): { code: number, out: string[], err: string[], findings: string[], written: Record<string, string> } {
+function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal: JournalEntry[] = [], archive: string | null = null, bus: ReadonlyMap<string, string> = new Map()): { code: number, out: string[], err: string[], findings: string[] } {
   const out: string[] = []
   const err: string[] = []
   const findings: string[] = []
-  const written: Record<string, string> = {}
   const code = runDecisionsRead(args, {
     home: '/home/x',
     history: journal,
     bus,
     exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === ARCHIVE && archive !== null),
     read: candidate => candidate === ARCHIVE ? archive! : text,
-    write: (candidate, content) => {
-      written[candidate] = content
-    },
     out: line => out.push(line),
     err: line => err.push(line),
     finding: line => findings.push(line),
   })
-  return { code, out, err, findings, written }
+  return { code, out, err, findings }
 }
 
 function journal(...entries: object[]): JournalEntry[] {
@@ -66,7 +65,7 @@ describe('owner decisions are a numbered record', () => {
     )
     expect(inForce(parseDecisions(text).decisions).map(decision => decision.number)).toEqual([2, 3])
     const result = read(text)
-    expect(result).toEqual({ code: 0, written: {}, out: ['- D-2 · 2026-10-08 — #686 stays whole.', '- D-3 · 2026-10-08 — #705 runs first, before #697.'], err: [], findings: [
+    expect(result).toEqual({ code: 0, out: ['- D-2 · 2026-10-08 — #686 stays whole.', '- D-3 · 2026-10-08 — #705 runs first, before #697.'], err: [], findings: [
       expect.stringContaining('D-2 on line 6: names #686'),
       expect.stringContaining('D-3 on line 7: names #705'),
     ] })
@@ -201,7 +200,7 @@ describe('owner decisions are a numbered record', () => {
     expect(decisionsRefusals(text)).toEqual([])
     expect(parseDecisions(text).decisions.map(decision => decision.supersedes)).toEqual([[], [], [1]])
     expect(inForce(parseDecisions(text).decisions).map(decision => decision.number)).toEqual([2, 3])
-    expect(read(text)).toEqual({ code: 0, written: { '/d/owner-decisions.md': text.replace('night order holds. · decisions:add', 'night order holds. · decisions:add · superseded-by D-3') }, err: [], findings: [], out: [
+    expect(read(text)).toEqual({ code: 0, err: [], findings: [], out: [
       '- D-2 · 2026-10-08 — An unrelated decision. · decisions:add',
       '- D-3 · 2026-10-11 — D-1 closed; the day order holds. · supersedes D-1 · decisions:add',
     ] })
@@ -221,17 +220,13 @@ describe('owner decisions are a numbered record', () => {
     const replace = { file: null, supersedes: [2], cards: [], until: null, text: '[owner] D-2 replaced.' }
 
     const unread = planAdd(before, '', replace, now) as { file: string, archive: string, archived: number[] }
-    expect(unread.archived).toEqual([2])
+    expect(unread.archived).toEqual([1, 2])
     const settled = read(unread.file, undefined, [], unread.archive)
     expect(settled.code).toBe(0)
     expect(settled.out.map(line => line.slice(0, 5))).toEqual(['- D-3', '- D-4'])
-    expect(settled.written['/d/owner-decisions.md']).toContain('night order holds. · decisions:add · superseded-by D-2')
-
-    const marked = read(before).written['/d/owner-decisions.md']!
-    const afterRead = planAdd(marked, '', replace, now) as { file: string, archive: string, archived: number[] }
-    expect(afterRead.archived).toEqual([1, 2])
-    expect(inForce(parseDecisions(afterRead.file).decisions).map(decision => decision.number)).toEqual([3, 4])
-    expect(decisionsRefusals(afterRead.file, afterRead.archive)).toEqual([])
+    expect(unread.archive).toContain('night order holds. · decisions:add · superseded-by D-2')
+    expect(inForce(parseDecisions(unread.file).decisions).map(decision => decision.number)).toEqual([3, 4])
+    expect(decisionsRefusals(unread.file, unread.archive)).toEqual([])
   })
 
   it('counts no decision another one supersedes toward the size limit', () => {
@@ -305,13 +300,38 @@ describe('a decision bound to a card is spent once the card is merged or closed'
     expect(parseDecisions(text).decisions.map(decision => [decision.body, decision.cards, decision.supersededBy])).toEqual([['one.', [686, 687], null], ['two.', [5], 3], ['three.', [], null]])
   })
 
-  it('marks a decision whose card has a merge line superseded-by D-54, and writes the file', () => {
+  it('marks a decision whose card has a merge line superseded-by D-54, and reads it out of force', () => {
     const text = upToSpending('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730')
     const result = read(text, undefined, journal({ event: 'merge', task: '730', pr: 674, by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' }))
     expect(result.code).toBe(0)
     expect(result.out).not.toContain('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730')
-    expect(result.written['/d/owner-decisions.md']).toBe(text.replace('· card #730', '· card #730 · superseded-by D-54'))
-    expect(decisionsRefusals(result.written['/d/owner-decisions.md']!)).toEqual([])
+    expect(spendDecisions(text, card => card === 730)).toBe(text.replace('· card #730', '· card #730 · superseded-by D-54'))
+    expect(decisionsRefusals(spendDecisions(text, card => card === 730))).toEqual([])
+  })
+
+  it('reading decisions does not change the file mtime', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'decisions-read-'))
+    try {
+      const decisions = path.join(root, 'owner-decisions.md')
+      writeFileSync(decisions, upToSpending('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730'))
+      const before = statSync(decisions).mtimeMs
+      const out: string[] = []
+      const code = runDecisionsRead([decisions], {
+        home: root,
+        history: journal({ event: 'merge', task: '730', pr: 674, by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' }),
+        bus: new Map(),
+        exists: existsSync,
+        read: candidate => readFileSync(candidate, 'utf8'),
+        out: line => out.push(line),
+        err: () => {},
+      })
+      expect(code).toBe(0)
+      expect(out.some(line => line.startsWith('- D-55'))).toBe(false)
+      expect(statSync(decisions).mtimeMs).toBe(before)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('marks a decision whose card is closed by a path line with a report or a verification', () => {
@@ -320,8 +340,7 @@ describe('a decision bound to a card is spent once the card is merged or closed'
       { event: 'path', task: '728', path: 'cheap', report: '/r/report.md', verification: 'run', ts: '2026-10-09T06:00:00Z' },
       { event: 'path', task: '729', path: 'ladder', pr: 1, verification: 'review', ts: '2026-10-09T06:00:00Z' },
     ))
-    expect(result.written['/d/owner-decisions.md']).toContain('probe one. · card #728 · superseded-by D-54')
-    expect(result.written['/d/owner-decisions.md']).toContain('fix two. · card #729 · superseded-by D-54')
+    expect(result.out.some(line => line.includes('probe one.') || line.includes('fix two.'))).toBe(false)
   })
 
   it('keeps in force a line with no card tail that names a merged card, and one whose tail holds an unmerged card', () => {
@@ -331,7 +350,6 @@ describe('a decision bound to a card is spent once the card is merged or closed'
       { event: 'path', task: '731', path: 'cheap', started: '2026-10-09T05:00:00Z', ts: '2026-10-09T05:00:00Z' },
     ))
     expect(result.code).toBe(0)
-    expect(result.written).toEqual({})
     expect(result.out).toContain('- D-55 · 2026-10-09 — #730 runs on lane-1.')
     expect(result.out).toContain('- D-56 · 2026-10-09 — two cards. · card #730 #731')
   })
@@ -342,15 +360,14 @@ describe('a decision bound to a card is spent once the card is merged or closed'
       { event: 'path', task: '889', path: 'ladder', pr: 786, verification: 'run', ts: '2026-10-12T17:07:15.949Z' },
     ), null, new Map([['889', 'running']]))
     expect(result.code).toBe(0)
-    expect(result.written).toEqual({})
     expect(result.out).toContain('- D-55 · 2026-10-13 — #889 stays a witness. · card #889')
   })
 
   it('spends a decision whose card the bus holds merged or closed, with no journal line for it', () => {
     const text = upToSpending('- D-55 · 2026-10-13 — one. · card #855', '- D-56 · 2026-10-13 — two. · card #928')
     const result = read(text, undefined, [], null, new Map([['855', 'closed'], ['928', 'merged']]))
-    expect(result.written['/d/owner-decisions.md']).toContain('one. · card #855 · superseded-by D-54')
-    expect(result.written['/d/owner-decisions.md']).toContain('two. · card #928 · superseded-by D-54')
+    expect(result.code).toBe(0)
+    expect(result.out.filter(line => line.startsWith('- D-55') || line.startsWith('- D-56'))).toEqual([])
   })
 
   it('spends before the size check, so a file over the limit only by spent decisions is read', () => {
@@ -363,7 +380,7 @@ describe('a decision bound to a card is spent once the card is merged or closed'
   })
 
   it('touches nothing without a journal or without D-54 in the file', () => {
-    expect(read(upToSpending('- D-55 · 2026-10-09 — x. · card #730')).written).toEqual({})
+    expect(read(upToSpending('- D-55 · 2026-10-09 — x. · card #730')).out).toContain('- D-55 · 2026-10-09 — x. · card #730')
     expect(spendDecisions(file('- D-1 · 2026-10-08 — x. · card #730'), () => true)).toBe(file('- D-1 · 2026-10-08 — x. · card #730'))
   })
 })

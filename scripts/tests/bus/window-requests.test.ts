@@ -7,7 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { factoryMode } from '../../bus/card-bodies.js'
 import { appendEvent } from '../../bus/db.js'
-import { recordDecision } from '../../bus/decisions.js'
+import { inForceDecisions, recordDecision } from '../../bus/decisions.js'
 import { dryRunIn, keepDryRun } from '../../bus/dry-run-record.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { ownerInbox } from '../../bus/inbox.js'
@@ -20,8 +20,9 @@ import { reduce } from '../../bus/reducer.js'
 import { roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { decisionsInForceAt } from '../../bus/shards.js'
 import { decisionsAdder, worktreesHolding } from '../../bus/window-request-tools.js'
-import { REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../bus/window-requests.js'
+import { ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../bus/window-requests.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
+import { stampOf } from '../../decisions/add.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -103,6 +104,19 @@ function roundLimitedWithD186(): Room {
   mkdirSync(path.join(made.root, 'dry-run-reviews'), { recursive: true })
   made.bench.tick()
   return made
+}
+
+function withDecisionsFile(made: Room, ...lines: string[]): string {
+  const file = path.join(made.root, '.construct', 'owner-decisions.md')
+  mkdirSync(path.join(made.root, '.construct', 'handoff'), { recursive: true })
+  writeFileSync(file, `# Owner decisions\n\n${lines.join('\n')}\n`)
+  return file
+}
+
+function windowAsks(made: Room, ...argv: string[]): number {
+  const lines: string[] = []
+  expect(runRequest(['decisions:add', ...argv], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(0)
+  return Number(/window\.request (\d+)/.exec(lines[0]!)![1])
 }
 
 function queuedFor(bench: MergeBench, pr: number): string[] {
@@ -396,5 +410,87 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(dryRunIn(made.root)(DRY_RUN)).toEqual({ pr: PR, head: HEAD })
     expect(dryRunIn(made.root)('../reviewer-dry')).toBeNull()
     expect(dryRunIn(made.root)('another')).toBeNull()
+  })
+
+  it('a window decisions:add request is written by the bus node into owner-decisions and bus decisions', () => {
+    const made = room()
+    const file = withDecisionsFile(made, '- D-1 · 2026-10-08 — first. · decisions:add')
+    const order = path.join(made.root, '.construct', 'handoff', 'owner-order-s157-q13.md')
+    writeFileSync(order, '# Owner order (Eli), verbatim\n\nallow-live witness for Q13 on card #1214.\n')
+    const before = readFileSync(file, 'utf8')
+
+    const fromOrder = windowAsks(made, '--from', order, '--card', '#1214', '[owner] allow-live witness for Q13 on card #1214.')
+    const notInOrder = windowAsks(made, '--from', order, '[owner] merge everything.')
+    const notAnOrder = windowAsks(made, '--from', file, '[owner] first.')
+    const fromAnswer = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] Q14: the second path.')
+    expect(readFileSync(file, 'utf8')).toBe(before)
+
+    const outcomes = made.requests().run()
+    expect(outcomes.map(outcome => [outcome.request, outcome.kind])).toEqual([[fromOrder, 'done'], [notInOrder, 'refused'], [notAnOrder, 'refused'], [fromAnswer, 'done']])
+    expect(outcomes[1]!.detail).toBe(`decisions:add: the text is no whole line of ${order}; the bus writes only the owner's own words, verbatim`)
+    expect(readFileSync(file, 'utf8')).toContain(`- D-2 · ${stampOf(made.bench.clock.now())} — [owner] allow-live witness for Q13 on card #1214. · card #1214 · decisions:add\n- D-3 · `)
+    expect(answerOf(made, fromOrder).type).toBe(REQUEST_DONE)
+    reduce(made.bench.db)
+    expect(inForceDecisions(made.bench.db)).toEqual([
+      { decisionId: 2, text: 'allow-live witness for Q13 on card #1214.', cards: [1214] },
+      { decisionId: 3, text: 'Q14: the second path.', cards: [] },
+    ])
+  })
+
+  it('a decisions:add request over the byte limit is refused with its reason and leaves the file untouched', () => {
+    const made = room()
+    const file = withDecisionsFile(made, ...Array.from({ length: 7 }, (_, at) => `- D-${at + 1} · 2026-10-08 — ${`decision ${at + 1} `.repeat(100).trim()} · decisions:add`))
+    const before = readFileSync(file, 'utf8')
+    const request = windowAsks(made, '--from', ANSWER_SOURCE, `[owner] ${'over '.repeat(300).trim()}`)
+
+    const [outcome] = made.requests().run()
+    expect(outcome).toMatchObject({ kind: 'refused', request })
+    expect(outcome!.detail).toMatch(/^\[decisions\] decisions in force would be \d+ bytes, over the limit of 8000 .*nothing written$/)
+    expect(answerOf(made, request)).toEqual({ type: REQUEST_REFUSED, detail: outcome!.detail })
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    reduce(made.bench.db)
+    expect(inForceDecisions(made.bench.db)).toEqual([])
+  })
+
+  it('a decisions:add request from an order is refused for an empty body and for a part of a line', () => {
+    const made = room()
+    const file = withDecisionsFile(made, '- D-1 · 2026-10-08 — first. · decisions:add')
+    const order = path.join(made.root, '.construct', 'handoff', 'owner-order-s157-q13.md')
+    writeFileSync(order, '# Owner order (Eli), verbatim\n\n> allow-live witness for Q13.\nanother line.\n')
+    const before = readFileSync(file, 'utf8')
+    const empty = windowAsks(made, '--from', order, '[owner]')
+    const part = windowAsks(made, '--from', order, '[owner] allow')
+    const quoted = windowAsks(made, '--from', order, '[owner] allow-live witness for Q13.')
+    expect(made.requests().run().map(outcome => [outcome.request, outcome.kind, outcome.detail.slice(0, 30)])).toEqual([
+      [empty, 'refused', 'decisions:add: an empty decisi'],
+      [part, 'refused', 'decisions:add: the text is no '],
+      [quoted, 'done', `- D-2 · ${stampOf(made.bench.clock.now())} — [owner]`.slice(0, 30)],
+    ])
+    expect(readFileSync(file, 'utf8')).toBe(`${before}- D-2 · ${stampOf(made.bench.clock.now())} — [owner] allow-live witness for Q13. · decisions:add\n`)
+  })
+
+  it('a decisions:add request archives the decisions whose card the bus holds merged, so spent ones never fill the limit', () => {
+    const made = room()
+    const filler = Array.from({ length: 53 }, (_, at) => `- D-${at + 1} · 2026-10-08 — decision ${at + 1}.`)
+    const spent = `- D-55 · 2026-10-09 — ${'spent '.repeat(1200).trim()} · card #${CARD}`
+    const file = withDecisionsFile(made, ...filler, '- D-54 · 2026-10-09 — A decision bound to a card is spent once that card is merged or closed.', spent)
+    appendEvent(made.bench.db, { ts: made.bench.clock.now().toISOString(), type: 'fixture.merged', actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `fixture.merged:${CARD}`, payload: {}, legacy: false })
+    const event = (made.bench.db.prepare('SELECT id FROM events WHERE dedupe_key = ?').get(`fixture.merged:${CARD}`) as { id: number }).id
+    made.bench.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, \'merged\', NULL, ?)').run(CARD, event)
+
+    const request = windowAsks(made, '--from', ANSWER_SOURCE, `[owner] ${'kept '.repeat(300).trim()}`)
+    expect(made.requests().run()).toMatchObject([{ kind: 'done', request }])
+    expect(readFileSync(file, 'utf8')).not.toContain(spent)
+    expect(readFileSync(file, 'utf8')).toContain('- D-56 · ')
+    expect(readFileSync(path.join(made.root, '.construct', 'owner-decisions.archive.md'), 'utf8')).toContain(`${spent}\n`)
+  })
+
+  it('a decisions:add request needs one text and one --from, and takes no --file', () => {
+    const made = room()
+    const asked = (...argv: string[]): number => runRequest(['decisions:add', ...argv], made.bench.db, made.bench.clock.now(), SESSION, () => {})
+    expect(asked('[owner] x.')).toBe(2)
+    expect(asked('--from', ANSWER_SOURCE, '--file', '/tmp/d.md', '[owner] x.')).toBe(2)
+    expect(asked('--from', ANSWER_SOURCE, '[owner] x.', '[owner] y.')).toBe(2)
+    expect(made.requests().run()).toEqual([])
   })
 })

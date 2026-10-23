@@ -82,11 +82,6 @@ function markupOf(html: string): string {
   return html.replace(/<script>[\s\S]*?<\/script>/g, '')
 }
 
-function sourceTargets(page: string): string[] {
-  const html = markupOf(readFileSync(page, 'utf8'))
-  return [...html.matchAll(/href="([^"#][^"]*)" data-source/g)].map(match => path.resolve(path.dirname(page), decodeURIComponent(match[1]!)))
-}
-
 describe('construct atlas in a repository construct init made', () => {
   it('writes the engram into its construct.model.json and the page under .construct, which git ignores', async () => {
     const dir = await initRepository()
@@ -95,7 +90,7 @@ describe('construct atlas in a repository construct init made', () => {
     const model = parseModel(readFileSync(written.engram, 'utf8'), MODEL_FILE)
     expect(model.mechanics?.components.some(component => component.path === 'src/app.ts')).toBe(true)
     const html = readFileSync(written.page, 'utf8')
-    expect(html).toContain('<h2>Take an order</h2>')
+    expect(readFileSync(path.join(path.dirname(written.page), 'atlas-docs.html'), 'utf8')).toContain('<h2>Take an order</h2>')
     expect(pageData(html).files).toContain('src/app.ts')
     expect(git(dir, 'status', '--porcelain')).toBe(` M ${MODEL_FILE}\n`)
   })
@@ -189,7 +184,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     const model = JSON.parse(readFileSync(engram, 'utf8')) as Record<string, unknown>
     writeFileSync(engram, `${JSON.stringify({ ...model, ...STAGED_NODES }, null, 2)}\n`)
     const html = readFileSync(atlasOf(dir).page, 'utf8')
-    expect(html).toContain('<h2>Take an order</h2>')
+    expect(parseModel(readFileSync(engram, 'utf8'), MODEL_FILE).stages.map(stage => stage.label)).toEqual(['Take an order'])
     const data = pageData(html)
     expect(data.contours.map(contour => contour.name)).toEqual(['shop'])
     expect(data.contours[0]!.components.find(component => component.name === 'src')!.files.map(file => data.files[file])).toEqual(['src/orders/api.ts', 'src/orders/store.ts'])
@@ -243,9 +238,8 @@ describe('open the source resolves from where the page lies', () => {
     writeFileSync(engram, `${JSON.stringify({ ...model, ...STAGED_NODES }, null, 2)}\n`)
     const elsewhere = path.join(mkdtempSync(path.join(tmpdir(), 'construct-atlas-out-')), 'deep', 'map.html')
     for (const page of [atlasOf(dir).page, atlasOf(dir, elsewhere).page]) {
-      const targets = sourceTargets(page)
-      expect(targets).toEqual([path.join(dir, 'src/orders')])
-      expect(existsSync(targets[0]!)).toBe(true)
+      const { root } = pageData(readFileSync(page, 'utf8')) as unknown as { root: string }
+      expect(path.resolve(path.dirname(page), root)).toBe(dir)
     }
   })
 })
@@ -281,7 +275,6 @@ describe('a source link opens the editor or the remote the repository names', ()
     const { page } = atlasOf(dir)
     const blob = `https://github.com/acme/shop/blob/${sha}`
     expect((pageData(readFileSync(page, 'utf8')) as unknown as { source: unknown }).source).toEqual({ template: null, remote: blob })
-    expect(sourceHrefs(page)).toEqual([`${blob}/src`])
     expect(sourceHrefs(path.join(path.dirname(page), 'atlas-docs.html'))).toEqual([`${blob}/src`])
   })
 
@@ -293,14 +286,14 @@ describe('a source link opens the editor or the remote the repository names', ()
     expect(readFileSync(path.join(worktree, '.git'), 'utf8')).toMatch(/^gitdir: /)
     const sha = git(worktree, 'rev-parse', 'HEAD').trim()
     const { page } = runAtlas({ dir: worktree, home: home(), attached: false })
-    expect(sourceHrefs(page)).toEqual([`https://gitlab.com/acme/shop/blob/${sha}/src`])
+    expect(sourceHrefs(path.join(path.dirname(page), 'atlas-docs.html'))).toEqual([`https://gitlab.com/acme/shop/blob/${sha}/src`])
   })
 
   it('a repository with no remote gets the link of step 3 and no error', async () => {
     const dir = await initRepository()
     const { page } = atlasOf(dir)
     expect((pageData(readFileSync(page, 'utf8')) as unknown as { source: unknown }).source).toEqual({ template: null, remote: null })
-    expect(sourceHrefs(page)).toEqual(['../src'])
+    expect(sourceHrefs(path.join(path.dirname(page), 'atlas-docs.html'))).toEqual(['../src'])
   })
 
   it('reads the editor template from construct.json through the manifest loader', async () => {

@@ -104,6 +104,14 @@ const LEASED_BY = `
   WHERE tasks.state = '${LEASED}' AND events.actor = ? ORDER BY tasks.id
 `
 
+const TAKEN_SINCE = `SELECT 1 FROM tasks WHERE task_key = ? AND event_id > ?`
+
+const CHANGED_SINCE = `
+  SELECT 1 FROM events WHERE id > ? AND actor IS NOT ? AND (card_id = ? OR pr = ?) LIMIT 1
+`
+
+export const DERIVE_EVERY_TICKS = 5
+
 export const DATABASE_LOCKED = 'database is locked'
 
 export function isDatabaseLocked(error: unknown): boolean {
@@ -176,6 +184,7 @@ export abstract class Node<S extends NodeStep> {
   private lastStep: S | WaitStep | IdleStep | null = null
   private startedAt: string | null = null
   private startRecorded = false
+  private ticksUntilDerive = 0
 
   constructor(readonly kind: NodeKind, protected readonly parts: NodeParts) {
     this.actor = `worker:${kind}:${parts.session}`
@@ -318,20 +327,29 @@ export abstract class Node<S extends NodeStep> {
     })
   }
 
+  private stillStands(task: QueuedTask, through: number): boolean {
+    const taken = this.db.prepare(TAKEN_SINCE).get(keyOf(task), through) !== undefined
+    return !taken && this.db.prepare(CHANGED_SINCE).get(through, this.actor, task.cardId, task.pr ?? null) === undefined
+  }
+
   private tick(): void {
+    const through = lastEventId(this.db)
+    const cursor = this.cursor()
+    const found = this.candidates()
+    const derives = this.ticksUntilDerive === 0
+    const derived = derives ? this.derivedCandidates(this.ts()) : null
+    const equivalence = derived === null ? null : equivalenceOf(found.map(keyOf), derived.map(keyOf))
     inTransaction(this.db, () => {
-      const through = lastEventId(this.db)
-      const found = this.candidates()
-      const derived = this.derivedCandidates(this.ts())
-      const equivalence = derived === null ? null : equivalenceOf(found.map(keyOf), derived.map(keyOf))
+      const standing = this.cursor() === cursor ? found.filter(task => this.stillStands(task, through)) : []
       recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind), { queue: this.kind, slots: this.slots })
-      for (const task of found)
+      for (const task of standing)
         this.record(task, 'tick', through)
       if (equivalence !== null) {
         const ts = this.ts()
         appendEvent(this.db, { ts, type: NODE_EQUIVALENCE, actor: this.actor, cardId: null, pr: null, head: null, dedupeKey: `${NODE_EQUIVALENCE}:${this.kind}:${this.actor}:${through}:${ts}`, payload: { ...equivalence, event_id: through }, legacy: false })
       }
     })
+    this.ticksUntilDerive = derives ? DERIVE_EVERY_TICKS - 1 : this.ticksUntilDerive - 1
   }
 
   protected executes(): boolean {
