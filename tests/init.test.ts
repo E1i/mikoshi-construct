@@ -94,6 +94,7 @@ interface Script {
   ai?: AiTarget
   name?: string
   review?: boolean
+  lanes?: number
   confirm?: boolean
 }
 
@@ -110,6 +111,7 @@ function scripted(script: Script): { prompter: Prompter, asked: string[] } {
       aiTarget: () => answer('ai'),
       projectName: () => answer('name'),
       review: () => answer('review'),
+      lanes: () => answer('lanes'),
       confirm: () => answer('confirm'),
       harnessCommand: () => Promise.resolve(null),
     },
@@ -119,10 +121,11 @@ function scripted(script: Script): { prompter: Prompter, asked: string[] } {
 describe('construct init (interactive)', () => {
   it('fills every gap from the prompts and writes on confirmation', async () => {
     const dir = scratch()
-    const { prompter, asked } = scripted({ preset: 'node-backend', ai: 'both', name: 'custom-name', review: true, confirm: true })
+    const { prompter, asked } = scripted({ preset: 'node-backend', ai: 'both', name: 'custom-name', review: true, lanes: 4, confirm: true })
     const result = await runInit(ui, { dir, yes: false, dryRun: false }, prompter)
     expect(result.status).toBe('done')
-    expect(asked).toEqual(['preset', 'ai', 'name', 'review', 'confirm'])
+    expect(asked).toEqual(['preset', 'ai', 'name', 'review', 'lanes', 'confirm'])
+    expect(readManifest(dir)?.lanes).toBe(4)
     expect(existsSync(path.join(dir, '.github/workflows/claude-review.yml'))).toBe(true)
     expect(readManifest(dir)?.review).toEqual({ provider: 'claude', model: 'claude-sonnet-5' })
     const pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name: string }
@@ -133,9 +136,9 @@ describe('construct init (interactive)', () => {
 
   it('asks nothing the construct.json already answers, leaving only the confirmation that authorises the write', async () => {
     const dir = scratch()
-    const first = scripted({ preset: 'node-backend', ai: 'both', name: 'custom-name', review: true, confirm: true })
+    const first = scripted({ preset: 'node-backend', ai: 'both', name: 'custom-name', review: true, lanes: 5, confirm: true })
     await runInit(ui, { dir, yes: false, dryRun: false }, first.prompter)
-    expect(first.asked).toEqual(['preset', 'ai', 'name', 'review', 'confirm'])
+    expect(first.asked).toEqual(['preset', 'ai', 'name', 'review', 'lanes', 'confirm'])
 
     const lines: string[] = []
     const second = scripted({ confirm: true })
@@ -148,6 +151,7 @@ describe('construct init (interactive)', () => {
     expect(manifest?.ai).toBe('both')
     expect(manifest?.vars.projectName).toBe('custom-name')
     expect(manifest?.review).toEqual({ provider: 'claude', model: 'claude-sonnet-5' })
+    expect(manifest?.lanes).toBe(5)
     expect(lines.join('')).toContain('came from the construct.json already here')
   })
 
@@ -166,14 +170,14 @@ describe('construct init (interactive)', () => {
   it('lets flags answer questions so only the confirmation is asked', async () => {
     const dir = scratch()
     const { prompter, asked } = scripted({ confirm: true })
-    const result = await runInit(ui, { dir, preset: 'node-backend', ai: 'cursor', name: 'flagged', review: 'none', yes: false, dryRun: false }, prompter)
+    const result = await runInit(ui, { dir, preset: 'node-backend', ai: 'cursor', name: 'flagged', review: 'none', lanes: '2', yes: false, dryRun: false }, prompter)
     expect(result.status).toBe('done')
     expect(asked).toEqual(['confirm'])
     expect(existsSync(path.join(dir, '.claude'))).toBe(false)
   })
 
   it('writes nothing when the netrunner jacks out at any prompt', async () => {
-    for (const script of [{}, { preset: 'node-backend' as const }, { preset: 'node-backend' as const, ai: 'claude' as const, name: 'x', review: false, confirm: false }]) {
+    for (const script of [{}, { preset: 'node-backend' as const }, { preset: 'node-backend' as const, ai: 'claude' as const, name: 'x', review: false, lanes: 3, confirm: false }]) {
       const dir = scratch()
       const result = await runInit(ui, { dir, yes: false, dryRun: false }, scripted(script).prompter)
       expect(result.status).toBe('aborted')

@@ -414,6 +414,7 @@ describe('a carrier path that appears after the collision check is never overwri
       aiTarget: () => Promise.resolve(undefined),
       projectName: () => Promise.resolve(undefined),
       review: () => Promise.resolve(undefined),
+      lanes: () => Promise.resolve(3),
       harnessCommand: () => Promise.resolve(HARNESS),
       confirm: () => {
         mkdirSync(path.dirname(path.join(dir, target)), { recursive: true })
@@ -643,6 +644,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
       aiTarget: () => Promise.resolve(undefined),
       projectName: () => Promise.resolve(undefined),
       review: () => Promise.resolve(undefined),
+      lanes: () => Promise.resolve(3),
       harnessCommand: () => Promise.resolve(HARNESS),
       confirm: () => {
         writeSettings(dir, '{ nope')
@@ -687,6 +689,7 @@ function racingPrompter(beforeConfirm: () => void): Prompter {
     aiTarget: () => Promise.resolve(undefined),
     projectName: () => Promise.resolve(undefined),
     review: () => Promise.resolve(undefined),
+    lanes: () => Promise.resolve(3),
     harnessCommand: () => Promise.resolve(HARNESS),
     confirm: () => {
       beforeConfirm()

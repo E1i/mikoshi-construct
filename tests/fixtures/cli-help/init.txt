@@ -13,6 +13,7 @@ OPTIONS
                                        --review=<claude|none>    AI code review on pull requests: claude | none (default: none)           
                                  --reviewModel=<review_model>    Model for the review workflow (default: claude-sonnet-5)                 
                                           --harness=<harness>    The harness command the ladder verifies with; nothing is assumed         
+                                              --lanes=<lanes>    How many parallel lanes the bus runs, recorded in construct.json         
                                                     -y, --yes    Non-interactive: take defaults and skip the confirmation (Default: false)
                                                      --dryRun    Print the plan, write nothing (Default: false)                           
 

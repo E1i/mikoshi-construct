@@ -9,6 +9,7 @@ OPTIONS
                    --johnny    Wake up, Netrunner. (Default: false)                                                                        
         --harness=<harness>    The harness command the ladder verifies with; nothing is assumed                                            
   --ai=<claude|cursor|both>    AI target: claude (cursor and both are refused)                                                             
+            --lanes=<lanes>    How many parallel lanes the bus runs, recorded in .construct/attach.json                                    
                   -y, --yes    Non-interactive: skip the confirmation; needs --harness (Default: false)                                    
                     --entry    Print the entry protocol the agent follows to propose one harness; reads and writes nothing (Default: false)
 
