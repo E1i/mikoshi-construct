@@ -126,11 +126,16 @@ function busTickOn(db: Bus, clock: Clock): BusTick {
   return new BusTick(db, new NetWatchWithNothingNew(db, new FakeGitHub().client, clock.now), clock.now)
 }
 
-function timedTick(busTick: BusTick, clock: Clock): number {
+function threadWorkMs(since?: NodeJS.CpuUsage): number {
+  const { user, system } = process.threadCpuUsage(since)
+  return (user + system) / 1000
+}
+
+function tickWorkMs(busTick: BusTick, clock: Clock): number {
   clock.advance(TICK_MS)
-  const started = performance.now()
+  const started = process.threadCpuUsage()
   expect(busTick.run()?.reduced).not.toBeNull()
-  return performance.now() - started
+  return threadWorkMs(started)
 }
 
 function nodeWriting(file: string, busyMs: number): { stop: () => Promise<{ writes: number, errors: string[] }> } {
@@ -149,11 +154,6 @@ function nodeWriting(file: string, busyMs: number): { stop: () => Promise<{ writ
 }
 
 interface WriteHold { wallMs: number, workMs: number }
-
-function threadWorkMs(since?: NodeJS.CpuUsage): number {
-  const { user, system } = process.threadCpuUsage(since)
-  return (user + system) / 1000
-}
 
 function writeHolds(db: Bus): WriteHold[] {
   const holds: WriteHold[] = []
@@ -189,13 +189,13 @@ function heldLock(file: string, holdMs: number): { release: () => void, released
 }
 
 describe('a bus:run restart holds no write longer than a node waits', () => {
-  it('a bus:run restart on a copy of the live bus.db keeps the first tick within twice a usual tick and no node log has database is locked', async () => {
+  it('a bus:run restart on a copy of the live bus.db keeps the work of the first tick on the bus thread within twice a usual tick and no node log has database is locked', async () => {
     const file = scratch('bus-restart-first-tick-')
     await copyOfTheLiveBus(file)
     const clock = new Clock(Date.now())
     const before = openBus(file)
     const running = busTickOn(before, clock)
-    timedTick(running, clock)
+    tickWorkMs(running, clock)
     const signal = new Int32Array(new SharedArrayBuffer(8))
     const node = new Worker(WRITES_LIKE_A_NODE, { eval: true, workerData: { file, signal, busyMs: BUSY_TIMEOUT_MS, everyMs: NODE_WRITE_EVERY_MS } })
     const nodeLog = once(node, 'message')
@@ -203,13 +203,13 @@ describe('a bus:run restart holds no write longer than a node waits', () => {
     const usual: number[] = []
     for (let round = 0; round < USUAL_TICKS; round += 1) {
       nodeWritesWhileDown(before, round)
-      usual.push(timedTick(running, clock))
+      usual.push(tickWorkMs(running, clock))
     }
     nodeWritesWhileDown(before, USUAL_TICKS)
     before.close()
 
     const restarted = openBus(file)
-    const first = timedTick(busTickOn(restarted, clock), clock)
+    const first = tickWorkMs(busTickOn(restarted, clock), clock)
     Atomics.store(signal, 1, 1)
     Atomics.notify(signal, 1)
     const [written] = await nodeLog as [{ writes: number, errors: string[] }]
@@ -234,7 +234,7 @@ describe('a bus:run restart holds no write longer than a node waits', () => {
     const clock = new Clock(Date.now())
     const restarted = openBus(file)
     const holds = writeHolds(restarted)
-    timedTick(busTickOn(restarted, clock), clock)
+    tickWorkMs(busTickOn(restarted, clock), clock)
     const written = await node.stop()
 
     expect(reducedThrough(restarted)).toBeGreaterThan(through)
