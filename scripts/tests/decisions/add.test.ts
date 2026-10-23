@@ -1,6 +1,11 @@
 import type { OwnerDecision } from '../../bus/decisions.js'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ARCHIVE_HEADER, runDecisionsAdd } from '../../decisions/add.js'
+import { openBus } from '../../bus/db.js'
+import { pendingRequests } from '../../bus/window-requests.js'
+import { ARCHIVE_HEADER, requestDecision, runDecisionsAdd } from '../../decisions/add.js'
 import { DECISIONS_IN_FORCE_LIMIT, decisionsRefusals } from '../../decisions/decisions.js'
 import { runDecisionsRead } from '../../decisions/read.js'
 
@@ -50,7 +55,6 @@ function decisionsRead(files: Record<string, string>): { code: number, out: stri
     bus: new Map(),
     exists: file => file in files,
     read: file => files[file]!,
-    write: () => {},
     out: line => out.push(line),
     err: line => err.push(line),
   })
@@ -198,5 +202,28 @@ describe('pnpm decisions:add appends one owner decision', () => {
     expect(add({}, ['[owner] x.', '[owner] y.']).code).toBe(2)
     expect(add({}, ['--supersedes', 'D-01', '[owner] x.']).code).toBe(2)
     expect(add({}, ['[owner] x.']).err).toEqual([`[decisions] no decisions at ${FILE}`])
+  })
+})
+
+describe('pnpm decisions:add in a window session asks the bus', () => {
+  it('queues a window.request, says the decision is not written yet, and refuses --file', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'decisions-request-'))
+    const db = openBus(path.join(root, 'bus.db'))
+    try {
+      const out: string[] = []
+      expect(requestDecision(['--from', 'answer', '--file', FILE, '[owner] x.'], db, NOW, 'window-1', line => out.push(line))).toBe(2)
+      expect(pendingRequests(db)).toEqual([])
+      expect(out.some(line => line.includes('not written yet'))).toBe(false)
+
+      const asked: string[] = []
+      expect(requestDecision(['--from', 'answer', '--card', '#5', '[owner] x.'], db, NOW, 'window-1', line => asked.push(line))).toBe(0)
+      const [request] = pendingRequests(db)
+      expect(JSON.parse(request!.payload)).toEqual({ kind: 'decisions:add', text: '[owner] x.', from: 'answer', cards: ['#5'], supersedes: [] })
+      expect(asked.at(-1)).toBe(`[decisions] not written yet: window.request ${request!.id} waits for bus:run, which writes it into owner-decisions.md outside the sandbox and answers window.request.done or window.request.refused; while bus:run is down nothing is written`)
+    }
+    finally {
+      db.close()
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
