@@ -1,5 +1,5 @@
 import type { BusCardStates, JournalEntry } from '../../src/card/closed.js'
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -18,7 +18,6 @@ export interface DecisionsReadDeps {
   history: readonly JournalEntry[]
   bus: BusCardStates
   read: (file: string) => string
-  write: (file: string, text: string) => void
   out: (line: string) => void
   err: (line: string) => void
   finding?: (line: string) => void
@@ -52,8 +51,6 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
   const archiveFile = archiveOf(file)
   const archive = deps.exists(archiveFile) ? deps.read(archiveFile) : ''
   const text = settleSupersedes(spendDecisions(read, card => settled.has(card)), archive)
-  if (text !== read)
-    deps.write(file, text)
   const refusals = decisionsRefusals(text, archive)
   if (refusals.length > 0) {
     for (const line of refusals)
@@ -75,7 +72,6 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     bus: busCardStates(defaultBusPath()),
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
-    write: (file, text) => writeFileSync(file, text),
     out: line => console.log(line),
     err: line => console.error(line),
     finding: line => console.error(line),

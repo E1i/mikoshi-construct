@@ -10,29 +10,36 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BOARD_ALARM, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
+import { OWNER_SOURCE } from '../decisions/decisions.js'
+import { settledCards } from '../decisions/read.js'
 import { FACTORY_MODES, isFactoryMode } from './card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from './db.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
+import { legacyHistory } from './legacy-history.js'
 import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from './queue.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt } from './shards.js'
 import { storedByKey } from './stored.js'
 import { cleanUpdatesOf } from './update-done.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add'] as const
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', PLAN_ITEM_ADDED], ['link', PLAN_ITEM_LINKED], ['remove', PLAN_ITEM_REMOVED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'item', 'title', 'goal', 'file', 'card'] as const
 const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM events WHERE type = '${PLAN_OPENED}' AND legacy = 0 AND actor = 'owner' AND json_extract(payload, '$.id') = ? ORDER BY id LIMIT 1`
 const TABLE_ROW = /^\s*\|/
 const TABLE_RULE = /^\s*\|[\s:|-]+\|\s*$/
+const OWNER_ORDER = /^owner-order-[^/]+\.md$/
+const QUOTE_MARK = /^\s*>\s?/
+export const ANSWER_SOURCE = 'answer'
+const DECISION_FLAGS: ReadonlyMap<string, string> = new Map([['--card', 'cards'], ['--supersedes', 'supersedes'], ['--until', 'until'], ['--from', 'from']])
 export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_UNDER = 186
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE}|<absolute handoff/owner-order-*.md> [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"`
 
-const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
+export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
 
 export type RequestKind = typeof REQUEST_KINDS[number]
@@ -160,8 +167,22 @@ export class WindowRequests {
       'plan': (request, payload) => this.plan(request, payload),
       'owner.wait': (request, payload) => this.openWait(request, payload),
       'owner.wait.close': (request, payload) => this.closeWait(request, payload),
+      'decisions:add': (_, payload) => this.addDecision(payload),
     }
     return executors[kind]
+  }
+
+  private addDecision(payload: Record<string, unknown>): Executed {
+    const decision = text(payload.text)
+    const from = text(payload.from)
+    if (decision === null || from === null)
+      return { done: false, why: 'decisions:add needs the owner\'s text and --from answer or an owner order file' }
+    const unsourced = ownerWordsRefusal(decision, from)
+    if (unsourced !== null)
+      return { done: false, why: unsourced }
+    const settled = [...settledCards(legacyHistory(this.db), cardStatesOf(this.db))].map(card => `#${card}`)
+    const written = this.tools.addDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), decision])
+    return { done: written.code === 0, why: written.lines.join('; ') }
   }
 
   private openWait(request: number, payload: Record<string, unknown>): Executed {
@@ -355,6 +376,48 @@ export class WindowRequests {
   }
 }
 
+function cardStatesOf(db: DatabaseSync): Map<string, string> {
+  const rows = db.prepare('SELECT card_id, state FROM cards WHERE state IS NOT NULL').all() as { card_id: number, state: string }[]
+  return new Map(rows.map(row => [String(row.card_id), row.state]))
+}
+
+function flagsOf(name: string, values: unknown): string[] {
+  return (Array.isArray(values) ? values : values === undefined ? [] : [values]).flatMap(value => [name, String(value)])
+}
+
+function ownerWordsRefusal(decision: string, from: string): string | null {
+  if (from === ANSWER_SOURCE)
+    return null
+  if (!path.isAbsolute(from) || !OWNER_ORDER.test(path.basename(from)) || path.basename(path.dirname(from)) !== 'handoff' || !existsSync(from))
+    return `decisions:add --from ${from} is neither ${ANSWER_SOURCE} nor an absolute handoff/owner-order-*.md that exists`
+  const words = decision.startsWith(OWNER_SOURCE) ? decision.slice(OWNER_SOURCE.length).trim() : decision
+  if (words === '')
+    return `decisions:add: an empty decision; the bus writes only the owner's own words`
+  return readFileSync(from, 'utf8').split('\n').some(line => line.replace(QUOTE_MARK, '').trim() === words) ? null : `decisions:add: the text is no whole line of ${from}; the bus writes only the owner's own words, verbatim`
+}
+
+function decisionRequestOf(argv: readonly string[]): Record<string, unknown> | null {
+  const fields: Record<string, string[]> = { cards: [], supersedes: [], until: [], from: [] }
+  const texts: string[] = []
+  for (let at = 1; at < argv.length; at += 1) {
+    const field = DECISION_FLAGS.get(argv[at]!)
+    if (field !== undefined && argv[at + 1] !== undefined) {
+      fields[field]!.push(argv[at + 1]!)
+      at += 1
+    }
+    else if (argv[at]!.startsWith('--')) {
+      return null
+    }
+    else {
+      texts.push(argv[at]!)
+    }
+  }
+  const { cards, supersedes, until, from } = fields
+  if (texts.length !== 1 || from!.length !== 1 || until!.length > 1)
+    return null
+  return { kind: 'decisions:add', text: texts[0], from: from![0], cards, supersedes, ...(until!.length === 0 ? {} : { until: until![0] }) }
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -415,6 +478,8 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const answer = flag(argv, '--answer')
     return id === undefined || answer === undefined ? null : { kind, id, answer }
   }
+  if (kind === 'decisions:add')
+    return decisionRequestOf(argv)
   if (kind === 'plan') {
     const given = PLAN_FLAGS.flatMap(name => flag(argv, `--${name}`) === undefined ? [] : [[name, flag(argv, `--${name}`)] as const])
     return { kind, ...Object.fromEntries(given) }
