@@ -86,7 +86,7 @@ describe('intake and slicing write only into the bus', () => {
     const ports = busIntakePorts(w.db)
     const admitted = runAdmit({ file: path.join(w.parking, `${second}.md`), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: () => new Map(), admissions: ports.cardAdmissions })
     expect(admitted.status).toMatch(/^(?:admitted|alreadyAdmitted)$/)
-    expect(runMove({ move: `#${first}`, to: 'lane-01', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events: ports.cardEvents, admissions: ports.cardAdmissions })).toMatchObject({ status: 'moved', event: CARD_MOVED })
+    expect(runMove({ move: `#${first}`, to: 'lane-01', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents, admissions: ports.cardAdmissions })).toMatchObject({ status: 'moved', event: CARD_MOVED })
     reduce(w.db)
     expect(parkedMarkdown(w.parking)).toEqual([])
     expect(admittedTexts(w, first!).at(-1)).toBe(admittedTexts(w, first!)[0])

@@ -6,6 +6,7 @@ import path from 'node:path'
 import { runMain } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
+import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
 import { parkingLane } from '../../bus/admissions.js'
@@ -219,7 +220,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     const text = readFileSync(park(w, ''), 'utf8')
     expect(admitThroughThePorts(w, path.join(w.parking, '90.md'))).toBe('admitted')
-    expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
     const [admitted, moved] = admissions(w)
     expect(moved!.payload).toMatchObject({ lane: 'lane-8', text, textSha: sha256(text), prevAdmissionId: admitted!.id, prevTextSha: sha256(text) })
   })
@@ -231,7 +232,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     const db = openBus(w.bus)
     try {
       db.exec(`CREATE TRIGGER refuse_admission BEFORE INSERT ON events WHEN NEW.type = '${CARD_ADMITTED}' BEGIN SELECT RAISE(ABORT, 'admission refused'); END`)
-      expect(() => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events: busCardEvents(db, 's1') }, () => AFTER_THE_CUTOFF)).toThrow('admission refused')
+      expect(() => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: busCardEvents(db, 's1') }, () => AFTER_THE_CUTOFF)).toThrow('admission refused')
       expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${CARD_MOVED}'`).get()).toEqual({ n: 0 })
     }
     finally {
@@ -259,7 +260,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     expect(admitThroughThePorts(w, park(w, ''))).toBe('admitted')
-    expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => NOW)).status).toBe('moved')
+    expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => NOW)).status).toBe('moved')
     const [, moved, admitted] = cardEvents(w)
     expect(moved).toMatchObject({ type: CARD_MOVED, cardId: 90, payload: { lane: 'lane-8' } })
     expect(admitted).toMatchObject({ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: 'lane-8', depends: [], decision: 'auto', contour: 'cheap' } })
@@ -269,14 +270,14 @@ describe('pnpm intake writes card events to bus.db', () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     expect(admitThroughThePorts(w, park(w, 'lane-7'))).toBe('admitted')
-    expect(withPort(w, events => runMove({ move: '#90', to: 'notes', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => NOW)).status).toBe('moved')
+    expect(withPort(w, events => runMove({ move: '#90', to: 'notes', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => NOW)).status).toBe('moved')
     expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_MOVED])
   })
 
   it('a move of a card with no card.admitted in the bus is refused, and the file stays where it was', () => {
     const w = world()
     const file = park(w, '')
-    expect(() => withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF))).toThrow('#90 has no card.admitted in the bus')
+    expect(() => withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF))).toThrow('#90 has no card.admitted in the bus')
     expect(existsSync(file)).toBe(true)
     expect(cardEvents(w)).toEqual([])
   })
@@ -284,7 +285,7 @@ describe('pnpm intake writes card events to bus.db', () => {
   it.each(['dropped', 'archive', 'superseded'])('a parked card the bus never admitted is dropped with card.dropped when it moves into %s', (lane) => {
     const w = world()
     park(w, '')
-    expect(withPort(w, events => runMove({ move: '#90', to: lane, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    expect(withPort(w, events => runMove({ move: '#90', to: lane, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
     expect(existsSync(path.join(w.parking, lane, '90.md'))).toBe(true)
     expect(cardEvents(w)).toMatchObject([{ type: CARD_DROPPED, actor: 'worker:intake:s1', cardId: 90, payload: { lane } }])
   })
@@ -299,7 +300,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     finally {
       db.close()
     }
-    expect(withPort(w, events => runMove({ move: '#90', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    expect(withPort(w, events => runMove({ move: '#90', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
     expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_DROPPED])
   })
 
@@ -338,7 +339,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     expect(admitThroughThePorts(w, park(w, ''))).toBe('admitted')
-    expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
     expect(admitThroughThePorts(w, path.join(w.parking, 'lane-8', '90.md'))).toBe('alreadyAdmitted')
   })
 
@@ -346,6 +347,8 @@ describe('pnpm intake writes card events to bus.db', () => {
     const w = world()
     const file = park(w, 'lane-7')
     withPort(w, events => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW))
+    mkdirSync(path.dirname(w.journal), { recursive: true })
+    writeFileSync(w.journal, `${JSON.stringify({ event: 'intake', task: '90', card: CARD, confirmation: 'none', corrections: [], bodySha: bodySha(readFileSync(file, 'utf8')), source: 'admit', ts: NOW.toISOString() })}\n`)
     const db = openBus(w.bus)
     expect(importJournalFile(db, w.journal, parkingLane(w.parking), () => NOW)).toMatchObject({ imported: 1, admitted: 0 })
     db.close()

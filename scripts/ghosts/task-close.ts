@@ -27,7 +27,6 @@ import { VERIFICATION_WORDS } from '../core/verification.js'
 import { parseDecisions } from '../decisions/decisions.js'
 import { archiveOf, defaultDecisions } from '../decisions/read.js'
 import { REPO } from '../shift/places.js'
-import { CLOUD_START_EVENT } from './cloud-start.js'
 import { ENTRY_EVENT, entryOf, startedEntryOf } from './entry.js'
 import { ghostLines } from './journal.js'
 import { cardStartedLines, prCardOf } from './tasks.js'
@@ -241,11 +240,6 @@ function launchStartOf(lines: Record<string, unknown>[], id: string): StartLine 
     return undefined
   const session = ghostSessionOf(lines, id)
   return { event: 'path', task: id, path: entry.card.contour, session, card: entry.card }
-}
-
-function cloudStartOf(lines: Record<string, unknown>[], id: string): StartLine | undefined {
-  const start = lines.filter(line => line.event === CLOUD_START_EVENT && line.task === id).filter(hasCard).at(-1)
-  return start === undefined ? undefined : { event: 'path', task: id, path: start.card.contour, session: start.run, card: start.card }
 }
 
 const LATEST_ADMITTED_WITH_A_CARD = `
@@ -498,9 +492,9 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   if (!(VERIFICATION_WORDS as readonly string[]).includes(verification))
     return refuse(`verification '${verification}' is not one of ${VERIFICATION_WORDS.join(', ')}; nothing written`)
   const lines = [...legacyLines(deps.busPath), ...ghostLines(deps.busPath), ...cardStartedLines(deps.busPath)]
-  const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? cloudStartOf(lines, id) ?? launchNodeStartOf(lines, deps.busPath, id)
+  const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? launchNodeStartOf(lines, deps.busPath, id)
   if (start === undefined)
-    return refuse(`the journal lines in the bus ${deps.busPath} have no task:start line with a card for #${id}, no ghosts:launch entry line with one and no cloud-start line with one, and the bus ${deps.busPath} has no card.started with one; start the task with pnpm task:start <branch> --card "<card>", or a cloud run with cloud-start.ts <run-id> --card "<card>"; nothing written`)
+    return refuse(`the journal lines in the bus ${deps.busPath} have no task:start line with a card for #${id}, no ghosts:launch entry line with one, and the bus ${deps.busPath} has no card.started with one; start the task with pnpm task:start <branch> --card "<card>"; nothing written`)
   const unproven = verification === 'mutation' ? mutationRefusal(lines, id, `the bus ${deps.busPath}`) : null
   if (unproven !== null)
     return refuse(unproven)

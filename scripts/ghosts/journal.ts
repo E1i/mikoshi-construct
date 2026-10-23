@@ -8,6 +8,7 @@ import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../bus/db
 import { cardIdOf } from '../bus/identifiers.js'
 import { legacyHistory } from '../bus/legacy-history.js'
 import { openDatabase } from '../bus/sqlite.js'
+import { GHOST_LINE } from '../core/events.js'
 
 export type RangeDiffOutcome = 'identical' | 'equal' | 'regenerated'
 
@@ -38,8 +39,6 @@ export interface JournalEntry {
 }
 
 export type GhostLine = Record<string, unknown>
-
-export const GHOST_LINE = 'ghost.line'
 
 const GHOST_LINES = `SELECT payload FROM events WHERE type = '${GHOST_LINE}' AND legacy = 0 ORDER BY id`
 

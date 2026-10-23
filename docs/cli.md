@@ -918,7 +918,7 @@ construct mutate judge --id M2 --report m2.json
 |---|---|---|
 | `mutate judge --baseline` | `--report <file>`, `--format <vitest-json\|junit-xml>`, `--json` | Records a well-formed report in which nothing failed as `.construct/mutations/baseline.json`, with the report's run start time. A red, empty or unreadable report is refused and nothing is written. |
 | `mutate apply` | `--from <file>`, `--id <id>`, `--json` | Applies the line with that id: one `find` → `replace` in one file, after copying the original to `.construct/mutations/<id>.orig` and recording `<id>.json` (the file's sha256 before and after, `appliedAt`, the prediction). |
-| `mutate judge` | `--id <id>`, `--report <file>`, `--format <vitest-json\|junit-xml>`, `--card <n>`, `--journal <file>`, `--json` | Restores the file from the copy, compares it byte for byte, deletes the record and the copy, then reads the outcome from the report. A report in which no test ran (none listed, or every one skipped) is refused as `report-no-test`, and so is a report in which the test named in the prediction was skipped while others passed (`named-test-skipped`): a witness that cannot fail counts for nothing. The file is still restored, and nothing is journaled. With `--card`, it then journals the verdict (below). |
+| `mutate judge` | `--id <id>`, `--report <file>`, `--format <vitest-json\|junit-xml>`, `--card <n>`, `--json` | Restores the file from the copy, compares it byte for byte, deletes the record and the copy, then reads the outcome from the report. A report in which no test ran (none listed, or every one skipped) is refused as `report-no-test`, and so is a report in which the test named in the prediction was skipped while others passed (`named-test-skipped`): a witness that cannot fail counts for nothing. The file is still restored, and nothing is recorded. With `--card`, it then records the verdict in the bus (below). |
 
 `--format` names how `--report` is written, and defaults to `vitest-json`: Vitest's own `--reporter=json
 --outputFile=<file>`, whose run start time is its top-level `startTime`. `--format junit-xml` reads a
@@ -977,15 +977,16 @@ the mutation; it cannot check which tree it ran on, and the output says so.
 | Hard failure | `3` |
 
 `--card <n>` (`#616` or `616`) names the card the mutation verifies. After a verdict — a matched or an
-unmatched outcome, never a refusal, no witness or a hard failure — `judge` appends one line to
-`--journal`, by default `~/.construct/handoff/ghosts.jsonl`, the journal `intake` writes to:
+unmatched outcome, never a refusal, no witness or a hard failure — `judge` records one `ghost.line` event
+in the bus. The bus is wired in by `pnpm mutate judge` in this repository; the published `construct` ships no bus,
+so there `--card` is refused before the file is touched:
 
 ```
 {"event":"mutation-judged","card":"616","id":"M2","outcome":"named-red","matched":true,"ts":"2026-10-06T10:00:00.000Z"}
 ```
 
 `outcome` is `named-red`, `other-red` or `nothing-red`. A `--card` that is not a number is refused
-before the file is touched. Without `--card`, `judge` writes no journal line; the line is what lets a
+before the file is touched. Without `--card`, `judge` records nothing; the line is what lets a
 task close as verified by `mutation` stand on a mutation that ran.
 
 Inside a shift, whose session carries its card in `CONSTRUCT_CARD`, an `--id` run without `--card` is
@@ -1853,7 +1854,7 @@ It runs no model and no `gh`.
 | `--journal <file>` | `~/.construct/handoff/ghosts.jsonl` | The journal a `#<id>` in `depends` or `blocks` is read merged from: a `depends` or `blocks` is removed when a merge line written before `2026-10-12T17:04Z` names the task, or when the bus a caller wires in holds its card `merged` or `closed`, and kept when it is only done; a journal line written after that time counts only through the bus. `construct` reads merge lines and runs no `gh`. |
 | `--dry-run` | `false` | Print the cards, write nothing. |
 | `--confirm <token>` | — | Park cards whose corrections a person has seen: the token the run that held them printed. |
-| `--auto-confirm` | `false` | Accept corrections in advance: park at once, and record each card with its corrections in `--journal`. |
+| `--auto-confirm` | `false` | Accept corrections in advance: park at once, and record each card with its corrections in the bus a caller wires in. |
 
 ```bash
 { gh pr list --state all --limit 1000 --json number -q '.[].number'
@@ -1898,11 +1899,13 @@ command prints each held card with its `corrected:` lines and a token, and exits
 the list and runs the same command again with `--confirm <token>`; the token is the hash of the cards
 as printed, so a run whose cards differ — a new number taken, a path changed — holds them again and
 says the confirmation was for another list. `--auto-confirm`, off by default, is a person accepting
-corrections in advance: the cards are parked at once. Every parked card gets an `intake` line in
-`--journal` — `{"event":"intake","task","card","confirmation","corrections","bodySha","ts"}`, with
-`confirmation` `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is
-recorded with the corrections it accepted; `bodySha` is the digest of the card's `touches` line and
-its text below its header, the task and its witnesses. When a caller wires a bus in, as this repository's `pnpm intake` does, a card parked after `2026-10-12T17:04Z` gets its `card.admitted` in the bus and no `intake` line: past that time the bus is the record, and numbers, admissions and amendments read it, counting only the `intake` lines written before. The published CLI has no bus and writes the journal line as before. A bus-wired run writes no parking file and lays no lane directory: the card's text travels in its `card.admitted` alone, the bus lays its lane, and `pnpm intake --export` below is how that text reaches a file. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
+corrections in advance: the cards are parked at once. When a caller wires a bus in, as this repository's
+`pnpm intake` does, every parked card gets its `card.admitted` in the bus, carrying `confirmation`
+`person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is recorded with the
+corrections it accepted — and `bodySha`, the digest of the card's `touches` line and its text below its
+header, the task and its witnesses. Intake writes no line to `--journal`: the bus is the record, and
+numbers, admissions and amendments read it, counting the `intake` lines of `--journal` written before
+`2026-10-12T17:04Z` as history. The published CLI has no bus and records nothing beyond the parked file. A bus-wired run writes no parking file and lays no lane directory: the card's text travels in its `card.admitted` alone, the bus lays its lane, and `pnpm intake --export` below is how that text reaches a file. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
 
 **Too big to take whole.** Before a card is parked, intake counts four signals of complexity from its
 `touches` and its `unclear:` lines: more than 6 `touches` entries or more than 2 areas (mechanism,
@@ -1935,12 +1938,12 @@ before intake confirmed cards: no `--draft`, no `--taken` (with either it refuse
 The card is checked like a sliced one under its own number; with a correction it is held behind a
 token (exit `2`) until `--confirm <token>` or `--auto-confirm`. Admitting rewrites only the card line
 and the `touches` line a correction changed, appends the `corrected:` and `unclear:` lines, leaves
-`who` as it is, and writes the card's `intake` line with `"source":"admit"`. A bus-wired run writes
+`who` as it is, and records the card with `"source":"admit"`. A bus-wired run writes
 none of that back to the file: the file stays as the person wrote it, the corrected text is the one its
 `card.admitted` carries, and a card with no file is admitted from the text the bus holds. The command prints
-whether a bus was wired to the run: only a bus-wired run, such as this repository's `pnpm intake`, also
+whether a bus was wired to the run: only a bus-wired run, such as this repository's `pnpm intake`,
 appends `card.admitted`, the event this repository's `task:start` and shift read; the published CLI has
-no bus and writes the journal line alone. When a bus database exists on the machine (`~/.construct/bus.db`, or the
+no bus and records nothing beyond the file. When a bus database exists on the machine (`~/.construct/bus.db`, or the
 file `CONSTRUCT_BUS_DB` names) and the run has no bus wired, `--admit` refuses with exit `1`, writes nothing and
 names `pnpm intake --admit`, so a card is never admitted beside a bus that does not hear of it. A card the journal already admitted is amended when its card line, task text or
 witnesses or its `touches` line differ from the latest `intake` line for its number — or that line

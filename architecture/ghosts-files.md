@@ -16,7 +16,6 @@ file. This file is not owner-merged: who merges is decided in [owner-merges.md](
 | `scripts/ghosts/args-chain.ts` | ghosts |
 | `scripts/ghosts/cleanup.ts` | ghosts |
 | `scripts/ghosts/cloud-key.ts` | ghosts |
-| `scripts/ghosts/cloud-start.ts` | ghosts |
 | `scripts/ghosts/entry.ts` | plain |
 | `scripts/ghosts/every.ts` | plain |
 | `scripts/ghosts/expect-sample.ts` | plain |

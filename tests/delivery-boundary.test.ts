@@ -107,7 +107,7 @@ describe('the product boundary of dist/cli.js', () => {
     expect(run.status, run.stderr).toBe(0)
     expect(run.stderr).not.toContain(EXPERIMENTAL_WARNING)
     expect(existsSync(path.join(parking, '13.md'))).toBe(true)
-    expect(readFileSync(journal, 'utf8')).toContain('"event":"intake"')
+    expect(existsSync(journal)).toBe(false)
     expect(existsSync(path.join(root, 'bus.db'))).toBe(false)
   }, BUILD_TIMEOUT_MS)
 })

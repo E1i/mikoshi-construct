@@ -35,7 +35,7 @@ function park(dir: string, id: number, body = 'Do the thing.'): string {
 }
 
 function move(w: { parking: string, journal: string }, id: number, to: string, events: CardEventPort = () => {}) {
-  return runMove({ move: `#${id}`, to, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => NOW)
+  return runMove({ move: `#${id}`, to, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => NOW)
 }
 
 function admitThenMove(w: { parking: string, journal: string }, events?: CardEventPort): void {
@@ -44,7 +44,7 @@ function admitThenMove(w: { parking: string, journal: string }, events?: CardEve
   mkdirSync(path.join(repo, 'src'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'a.ts'), '')
   expect(runAdmit({ file, dir: repo, journal: w.journal, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
-  expect(runMove({ move: '#706', to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events }, () => AFTER_THE_CUTOFF).status).toBe('moved')
+  expect(runMove({ move: '#706', to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('moved')
 }
 
 function journalLines(journal: string): Record<string, unknown>[] {
@@ -62,21 +62,22 @@ describe('intake --move', () => {
     const w = world()
     const file = park(w.parking, 700)
     const text = readFileSync(file, 'utf8')
-    expect(move(w, 700, 'after-0.42').status).toBe('moved')
+    const bus: CardEvent[] = []
+    expect(move(w, 700, 'after-0.42', event => bus.push(event)).status).toBe('moved')
     const moved = path.join(w.parking, 'after-0.42', '700.md')
     expect(existsSync(file)).toBe(false)
     expect(readFileSync(moved, 'utf8')).toBe(text)
-    expect(move(w, 700, '.').status).toBe('moved')
+    expect(move(w, 700, '.', event => bus.push(event)).status).toBe('moved')
     expect(readFileSync(file, 'utf8')).toBe(text)
     expect(existsSync(moved)).toBe(false)
-    const lines = journalLines(w.journal)
-    expect(lines).toEqual([
-      { event: 'intake-move', task: '700', from: w.parking, to: path.join(w.parking, 'after-0.42'), bodySha: bodySha(text), ts: NOW.toISOString() },
-      { event: 'intake-move', task: '700', from: path.join(w.parking, 'after-0.42'), to: w.parking, bodySha: bodySha(text), ts: NOW.toISOString() },
+    expect(bus).toMatchObject([
+      { type: CARD_MOVED, cardId: 700, payload: { from: w.parking, to: path.join(w.parking, 'after-0.42'), bodySha: bodySha(text) } },
+      { type: CARD_MOVED, cardId: 700, payload: { from: path.join(w.parking, 'after-0.42'), to: w.parking, bodySha: bodySha(text) } },
     ])
+    expect(journalLines(w.journal)).toEqual([])
   })
 
-  it('a moved card writes card.moved to the bus beside its journal line', () => {
+  it('a moved card writes card.moved to the bus and no journal line', () => {
     const w = world()
     const text = readFileSync(park(w.parking, 704), 'utf8')
     const bus: CardEvent[] = []
@@ -89,7 +90,7 @@ describe('intake --move', () => {
       dedupeKey: `${CARD_MOVED}:704:lane-2:${NOW.toISOString()}`,
       payload: { from: w.parking, to, bodySha: bodySha(text), lane: 'lane-2' },
     }])
-    expect(journalLines(w.journal)).toEqual([{ event: 'intake-move', task: '704', from: w.parking, to, bodySha: bodySha(text), ts: NOW.toISOString() }])
+    expect(journalLines(w.journal)).toEqual([])
   })
 
   it('with a connected bus after the cutoff intake writes no journal line', () => {
@@ -103,7 +104,7 @@ describe('intake --move', () => {
   it('without a bus a move is refused: the file stays and no journal line holds a move', () => {
     const w = world()
     const file = park(w.parking, 708)
-    const result = runMove({ move: '#708', to: 'lane-2', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal }, () => NOW)
+    const result = runMove({ move: '#708', to: 'lane-2', draft: undefined, taken: undefined, admit: undefined, parking: w.parking }, () => NOW)
     expect(printed(result)).toEqual({ lines: [expect.stringContaining('a move is held only by the bus')], exit: 1 })
     expect(existsSync(file)).toBe(true)
     expect(journalLines(w.journal)).toEqual([])

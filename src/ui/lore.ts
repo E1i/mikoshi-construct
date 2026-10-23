@@ -290,9 +290,9 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   mutateFileFailedToRun: string
   mutateRestsOn: (report: string, startedAt: string) => string
   mutateRefusedBadCard: (card: string) => string
-  mutateRefusedNoJournal: string
+  mutateRefusedNoBus: string
   mutateRefusedCardRequired: (card: string) => string
-  mutateJournaled: (journal: string) => string
+  mutateJournaled: (bus: string) => string
   boardColumns: string[]
   boardExpectNotRecorded: string
   boardActual: (tokens: number | 'unknown', seconds: number) => string
@@ -698,9 +698,9 @@ export const LORE: Lore = {
   mutateFileFailedToRun: '(the file failed to run)',
   mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
   mutateRefusedBadCard: (card: string) => `NO SIGNAL: --card ${card} is not a card number (#<n> or <n>); the file was not touched`,
-  mutateRefusedNoJournal: 'NO SIGNAL: --journal names no file; the file was not touched',
+  mutateRefusedNoBus: 'NO SIGNAL: --card records its verdict in the bus, and this run has none; run it as pnpm mutate judge. The file was not touched',
   mutateRefusedCardRequired: (card: string) => `NO SIGNAL: this shift runs card #${card}; pass --card ${card} so the verdict is journaled. The file was not touched`,
-  mutateJournaled: (journal: string) => `Verdict journaled to ${journal}.`,
+  mutateJournaled: (bus: string) => `Verdict recorded in the bus ${bus}.`,
   boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'],
   boardExpectNotRecorded: 'expect not recorded in .construct/runs.jsonl',
   boardActual: (tokens: number | 'unknown', seconds: number) => `tokens ${tokens}, seconds ${seconds}`,
@@ -1084,9 +1084,9 @@ export const PLAIN_LORE: Lore = {
   mutateFileFailedToRun: '(the file failed to run)',
   mutateRestsOn: (report: string, startedAt: string) => `The verdict rests on ${report}, a report that started at ${startedAt}; construct did not see the run.`,
   mutateRefusedBadCard: (card: string) => `Refused: --card ${card} is not a card number (#<n> or <n>). Nothing was changed.`,
-  mutateRefusedNoJournal: 'Refused: --journal names no file. Nothing was changed.',
+  mutateRefusedNoBus: 'Refused: --card records its verdict in the bus, and this run has none; run it as pnpm mutate judge. Nothing was changed.',
   mutateRefusedCardRequired: (card: string) => `Refused: this shift runs card #${card}; pass --card ${card} so the verdict is journaled. Nothing was changed.`,
-  mutateJournaled: (journal: string) => `The verdict is journaled to ${journal}.`,
+  mutateJournaled: (bus: string) => `The verdict is recorded in the bus ${bus}.`,
   boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'],
   boardExpectNotRecorded: 'expect not recorded in .construct/runs.jsonl',
   boardActual: (tokens: number | 'unknown', seconds: number) => `tokens ${tokens}, seconds ${seconds}`,
