@@ -5,13 +5,14 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { MANIFEST_FILE } from '../../src/manifest.js'
+import { ATTACH_RECORD_FILE } from '../../src/commands/attach/record.js'
+import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../src/manifest.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, MERGE_DONE } from '../core/events.js'
 import { taskConflicts } from '../shift/overlap.js'
 import { appendEvent } from './db.js'
 import { prOf } from './identifiers.js'
 
-export const DEFAULT_LANE_COUNT = 3
+export const DEFAULT_LANE_COUNT = DEFAULT_LANES
 export const LANE_COUNT_FIELD = 'lanes'
 
 const CHAIN_LANE = /^lane-(\d+)$/
@@ -63,17 +64,27 @@ export function chainLaneNumber(lane: string): number | null {
   return number === undefined ? null : Number(number)
 }
 
-export function laneCount(root: string): number {
-  const file = path.join(root, MANIFEST_FILE)
+const LANE_COUNT_RECORDS = [MANIFEST_FILE, ATTACH_RECORD_FILE]
+
+function recordedLaneCount(file: string): number | null {
   if (!existsSync(file))
-    return DEFAULT_LANE_COUNT
+    return null
   try {
     const value = (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> | null)?.[LANE_COUNT_FIELD]
-    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : DEFAULT_LANE_COUNT
+    return isLaneCount(value) ? value : null
   }
   catch {
-    return DEFAULT_LANE_COUNT
+    return null
   }
+}
+
+export function laneCount(root: string): number {
+  for (const record of LANE_COUNT_RECORDS) {
+    const count = recordedLaneCount(path.join(root, record))
+    if (count !== null)
+      return count
+  }
+  return DEFAULT_LANE_COUNT
 }
 
 export function mainCheckoutOf(cwd: string): string {

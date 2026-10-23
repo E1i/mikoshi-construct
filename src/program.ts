@@ -82,6 +82,7 @@ const init = withKnownFlags(defineCommand({
     review: { type: 'enum', options: REVIEW_PROVIDERS, description: 'AI code review on pull requests: claude | none (default: none)' },
     reviewModel: { type: 'string', description: `Model for the review workflow (default: ${DEFAULT_REVIEW_MODEL})` },
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
+    lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in construct.json' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: take defaults and skip the confirmation', default: false },
     dryRun: { type: 'boolean', description: 'Print the plan, write nothing', default: false },
   },
@@ -90,7 +91,7 @@ const init = withKnownFlags(defineCommand({
     console.banner(VERSION, args.johnny)
     try {
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
-      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, review: args.review, reviewModel: args.reviewModel, harness: args.harness, yes: args.yes, dryRun: args.dryRun }, prompter)
+      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, review: args.review, reviewModel: args.reviewModel, harness: args.harness, lanes: args.lanes, yes: args.yes, dryRun: args.dryRun }, prompter)
       process.exitCode = INIT_EXIT[result.status]
     }
     catch (error) {
@@ -106,6 +107,7 @@ const attach = withKnownFlags(defineCommand({
     ...commonArgs,
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
     ai: { type: 'enum', options: AI_TARGETS, description: 'AI target: claude (cursor and both are refused)' },
+    lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in .construct/attach.json' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
     entry: { type: 'boolean', description: 'Print the entry protocol the agent follows to propose one harness; reads and writes nothing', default: false },
   },
@@ -118,7 +120,7 @@ const attach = withKnownFlags(defineCommand({
         return
       }
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
-      const result = await runAttach(console, { dir: args.dir, harness: args.harness, ai: args.ai, yes: args.yes }, prompter)
+      const result = await runAttach(console, { dir: args.dir, harness: args.harness, ai: args.ai, lanes: args.lanes, yes: args.yes }, prompter)
       process.exitCode = ATTACH_EXIT[result.status]
     }
     catch (error) {

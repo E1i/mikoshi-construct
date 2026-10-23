@@ -38,6 +38,9 @@
         "johnny": {
           "type": "boolean"
         },
+        "lanes": {
+          "type": "string"
+        },
         "plain": {
           "type": "boolean"
         },
@@ -169,6 +172,9 @@
         },
         "johnny": {
           "type": "boolean"
+        },
+        "lanes": {
+          "type": "string"
         },
         "name": {
           "type": "string"
