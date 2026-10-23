@@ -11,13 +11,14 @@ import { ATTACH_EXIT, ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, pla
 import { originalCopyPath } from '../src/commands/attach/original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, NO_HARNESS } from '../src/commands/attach/record.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
+import { WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { printDoctor } from '../src/commands/doctor/report.js'
 import { runInit } from '../src/commands/init.js'
 import { IGNORED_ENTRIES } from '../src/detect/ignored-entries.js'
 import { planMaterialize } from '../src/materialize/plan.js'
-import { ATTACH_CARRIERS, ATTACH_GUARD, getPreset, groupsFor } from '../src/presets/index.js'
+import { ATTACH_CARRIERS, ATTACH_GUARD, ATTACH_WINDOW_HOOKS, getPreset, groupsFor } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -144,7 +145,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
     expect(record?.excludeSeparator).toBe(1)
 
     const files = Object.keys(record?.files ?? {}).sort()
-    expect(files).toEqual([...ATTACH_CARRIERS.targets, ATTACH_GUARD.target, ATTACH_GUARD.parser].sort())
+    expect(files).toEqual([...ATTACH_CARRIERS.targets, ATTACH_GUARD.target, ATTACH_GUARD.parser, ATTACH_WINDOW_HOOKS.target].sort())
     for (const [file, sha] of Object.entries(record?.files ?? {}))
       expect(sha256(path.join(dir, file)), file).toBe(sha)
 
@@ -539,6 +540,10 @@ const GUARD_ENTRY = {
   hooks: [{ type: 'command', command: `node "$CLAUDE_PROJECT_DIR"/${ATTACH_GUARD.target}`, timeout: 30 }],
 }
 
+const WINDOW_HOOKS = Object.fromEntries(WINDOW_EVENTS.map(event => [event, [WINDOW_ENTRIES[event]]]))
+
+const WINDOW_CREATED = WINDOW_EVENTS.map(event => ({ event, entry: WINDOW_ENTRIES[event], created: true }))
+
 function writeSettings(dir: string, content: string): void {
   mkdirSync(path.join(dir, '.claude'), { recursive: true })
   writeFileSync(path.join(dir, SETTINGS_FILE), content)
@@ -554,9 +559,9 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY] } })
+    expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY], ...WINDOW_HOOKS } })
     expect(porcelain(dir)).toBe('')
-    expect(readAttachRecord(dir)?.settingsHook).toEqual({ file: SETTINGS_FILE, created: { file: true, hooks: true, preToolUse: true }, entry: GUARD_ENTRY })
+    expect(readAttachRecord(dir)?.settingsHook).toEqual({ file: SETTINGS_FILE, created: { file: true, hooks: true, preToolUse: true }, entry: GUARD_ENTRY, window: WINDOW_CREATED })
     expect(readFileSync(path.join(dir, ATTACH_GUARD.target)).equals(readFileSync(path.join(import.meta.dirname, '../templates/attach/_construct/commit-guard.mjs')))).toBe(true)
     expect(readAttachRecord(dir)?.files[ATTACH_GUARD.target]).toBe(sha256(path.join(dir, ATTACH_GUARD.target)))
   })
@@ -568,7 +573,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ ...existing, hooks: { ...existing.hooks, PreToolUse: [...existing.hooks.PreToolUse, GUARD_ENTRY] } })
+    expect(readSettings(dir)).toEqual({ ...existing, hooks: { ...WINDOW_HOOKS, PreToolUse: [...existing.hooks.PreToolUse, GUARD_ENTRY], Stop: [...existing.hooks.Stop, WINDOW_ENTRIES.Stop] } })
     expect(readAttachRecord(dir)?.settingsHook?.created).toEqual({ file: false, hooks: false, preToolUse: false })
     expect(porcelain(dir)).toBe('')
   })
@@ -579,7 +584,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ permissions: { allow: [] }, hooks: { PreToolUse: [GUARD_ENTRY] } })
+    expect(readSettings(dir)).toEqual({ permissions: { allow: [] }, hooks: { PreToolUse: [GUARD_ENTRY], ...WINDOW_HOOKS } })
     expect(readAttachRecord(dir)?.settingsHook?.created).toEqual({ file: false, hooks: true, preToolUse: true })
   })
 
@@ -655,7 +660,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('settings-unreadable')
-    expect(result.rolledBack).toHaveLength(14)
+    expect(result.rolledBack).toHaveLength(15)
     expect(listing(dir)).toEqual([...before, '.claude/', SETTINGS_FILE].sort())
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('{ nope')
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)
