@@ -10,8 +10,18 @@ const REFUSED = 1
 const TURN_WATCH_TIMEOUT_MS = 10_000
 const TURN_WATCH_LINE = 'turn-watch:'
 
+const HEADLESS_ENTRYPOINT = 'sdk-cli'
+
+function underTheLoop(env) {
+  return env.MIKO_WINDOW === '1' || Boolean(env.MIKO_LOOP_PID) || Boolean(env.MIKO_EXIT_REQUEST)
+}
+
+function tabCandidate(env) {
+  return env.CLAUDE_CODE_ENTRYPOINT !== HEADLESS_ENTRYPOINT && env.CONSTRUCT_BUS_RAISED !== '1'
+}
+
 export function windowMarked(env) {
-  return env.MIKO_WINDOW === '1' && !env.CONSTRUCT_CARD
+  return !env.CONSTRUCT_CARD && (underTheLoop(env) || tabCandidate(env))
 }
 
 export function stopInputOf(text) {
