@@ -5,6 +5,7 @@ import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { renderAtlas } from '../src/atlas/page.js'
 import { editorTemplate, RELATIVE_LINKS } from '../src/atlas/source-link.js'
+import { THEME_BUTTON_ID, THEME_KEY, THEME_SCRIPT } from '../src/atlas/theme.js'
 import { parseModel } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
 
@@ -96,7 +97,7 @@ interface Run {
   location: { hash: string, href?: string }
 }
 
-const IDS = ['atlas-svg', 'atlas-viewport', 'atlas-panel', 'atlas-tip', 'atlas-search', 'atlas-results', 'atlas-legend', 'atlas-hidden', 'atlas-sort']
+const IDS = ['atlas-svg', 'atlas-viewport', 'atlas-panel', 'atlas-tip', 'atlas-search', 'atlas-results', 'atlas-legend', 'atlas-hidden', 'atlas-sort', THEME_BUTTON_ID]
 
 function run(script: string, hash: string, href?: string): Run {
   const page = Object.fromEntries(IDS.map(id => [id, new FakeElement()])) as Record<string, FakeElement>
@@ -383,5 +384,39 @@ describe('a source link opens where the manifest and the remote say', () => {
     expect(editorTemplate('javascript:alert({abs})')).toBeNull()
     expect(editorTemplate('vscode://file/{abs}:{line}')).toBe('vscode://file/{abs}:{line}')
     expect(editorTemplate(undefined)).toBeNull()
+  })
+})
+
+function themed(stored: string | null, prefersLight: boolean): { root: FakeElement, button: FakeElement, storage: Map<string, string> } {
+  const root = new FakeElement()
+  const button = new FakeElement()
+  const storage = new Map(stored == null ? [] : [[THEME_KEY, stored]])
+  const context = {
+    document: { documentElement: root, getElementById: (id: string) => (id === THEME_BUTTON_ID ? button : undefined) },
+    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
+    matchMedia: () => ({ matches: prefersLight }),
+  }
+  vm.runInNewContext(THEME_SCRIPT, context)
+  return { root, button, storage }
+}
+
+describe('the theme button switches the scheme and remembers it', () => {
+  it('follows the system scheme until clicked, then flips it and stores the choice', () => {
+    for (const [prefersLight, next] of [[false, 'light'], [true, 'dark']] as const) {
+      const page = themed(null, prefersLight)
+      expect(page.root.getAttribute('data-theme')).toBeNull()
+      page.button.dispatchEvent(new FakeEvent('click'))
+      expect(page.root.getAttribute('data-theme')).toBe(next)
+      expect(page.storage.get(THEME_KEY)).toBe(next)
+    }
+  })
+
+  it('a reload applies the stored choice and ignores a value that is no theme', () => {
+    expect(themed('light', false).root.getAttribute('data-theme')).toBe('light')
+    expect(themed('neon', false).root.getAttribute('data-theme')).toBeNull()
+  })
+
+  it('the map page runs the theme switch inside its one hashed script', () => {
+    expect(scriptOf(pageOf())).toContain(THEME_SCRIPT)
   })
 })
