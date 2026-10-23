@@ -34,6 +34,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'decisions': 'prints the owner decisions in force, refusing a file that breaks the numbered record; its own tests are its gate',
   'decisions:add': 'appends one owner decision and its decision.recorded event when run by hand, restoring the file on a refusal or a failed event write; its own tests are its gate',
   'dev': 'runs the CLI from source',
+  'owner:say': 'writes one file of the owner\'s words and the time into ~/.construct-owner/answers when the owner runs it by hand; its own tests are its gate',
   'gate:window': 'prints the window gate of D-194 for the tree it runs in, the ci:select layers of its changes against origin/main; it judges nothing itself, and its own tests are its gate',
   'done:check': 'a step a reviewer runs on a finished ladder run; its own tests are its gate',
   'ghosts:cleanup': 'removes a merged task\'s worktree and quality logs when run by hand; its own tests are its gate',

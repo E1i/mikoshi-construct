@@ -255,7 +255,7 @@ describe('the close node', () => {
 
     const first = verified(made, 988)
     const second = verified(made, 989)
-    node.failOnNextCall(2)
+    node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
     expect(byEvent(made)).toEqual([])
     expect(cursorOf(made)).toBe(cursor)

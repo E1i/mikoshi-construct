@@ -92,7 +92,7 @@ export class AnswerNode extends Node<AnswerStep> {
   constructor(private readonly answerParts: AnswerNodeParts) {
     super('answer', { db: answerParts.db, clock: answerParts.clock, session: answerParts.session, mode: answerParts.mode, env: answerParts.env })
     this.executor = new AnswerExecutor(answerParts)
-    this.subscribe(ANSWER_ON, event => this.detectOn(event, scopeOf(event)))
+    this.subscribe(ANSWER_ON, scopeOf)
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {

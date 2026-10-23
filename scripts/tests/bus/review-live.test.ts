@@ -151,7 +151,7 @@ describe('review live', () => {
     for (const pr of [981, 982])
       openGreen(made, pr)
     observedWithoutDeriveQueues(made)
-    node.failOnNextCall(2)
+    node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
     for (const pr of [981, 982]) {
       expect(detectedOf(made, pr)).toEqual([])

@@ -152,7 +152,7 @@ describe('merge live', () => {
 
     dependencyMerged(made, 838, 738)
     dependencyMerged(made, 839, 739)
-    node.failOnNextCall(2)
+    node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
     for (const pr of [726, 727]) {
       expect(detectedOf(made, pr)).toEqual([])
