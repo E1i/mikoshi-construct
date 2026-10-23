@@ -5,12 +5,15 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { LEASE_MS } from '../../bus/lease.js'
+import { SILENT_MS } from '../../bus/liveness-sites.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import * as restartExecutor from '../../bus/restart-executor.js'
 import * as restartWorker from '../../bus/restart-worker.js'
 import * as role from '../../bus/role.js'
+import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
 import { requestFromWindow } from '../../bus/window-requests.js'
 import { CARD_STOPPED, ROLE_LEASED, ROLE_RAISED } from '../../core/events.js'
+import { claimLoop, recordLoopEnded } from '../../miko/loop.js'
 
 const MIKO_HANDOFF = '/handoff/miko.md'
 const START = Date.parse('2026-10-22T10:00:00.000Z')
@@ -104,6 +107,70 @@ describe('a role stopped at a threshold', () => {
     reduce(bus.db)
     expect(waits(bus.db)).toEqual([])
     expect(countOf(bus.db, RAISE_EVENTS)).toBe(0)
+    bus.close()
+  })
+
+  it('a role stopped at its threshold under a live pnpm miko loop opens no Q3', () => {
+    const bus = roleBus()
+    claimLoop(bus.db, 4242, new Date(bus.at()))
+    bus.advance(60_000)
+    bus.stopMiko()
+
+    expect(bus.worker.step()).toEqual({ kind: 'idle' })
+    reduce(bus.db)
+    expect(waits(bus.db)).toEqual([])
+    expect(countOf(bus.db, [role.ROLE_TO_OWNER])).toBe(0)
+    bus.close()
+  })
+
+  it('a role stopped at its threshold with a live tab heartbeat opens no Q3', () => {
+    const bus = roleBus()
+    recordWindowHeartbeat(bus.db, bus.at(), 'tab-1', { mode: 'tab' })
+    bus.advance(60_000)
+    bus.stopMiko()
+
+    expect(bus.worker.step()).toEqual({ kind: 'idle' })
+    reduce(bus.db)
+    expect(waits(bus.db)).toEqual([])
+    expect(countOf(bus.db, [role.ROLE_TO_OWNER])).toBe(0)
+    bus.close()
+  })
+
+  it('a role stopped at its threshold with no live window of either mode still opens the start question', () => {
+    const bus = roleBus()
+    claimLoop(bus.db, 4242, new Date(bus.at()))
+    recordLoopEnded(bus.db, 4242, new Date(bus.at()))
+    recordWindowHeartbeat(bus.db, bus.at(), 'tab-1', { mode: 'tab' })
+    bus.advance(SILENT_MS + 1)
+    bus.stopMiko()
+
+    expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', wait: 'Q1' })
+    reduce(bus.db)
+    expect(waits(bus.db)).toEqual([{ id: 'Q1', need: 'command', command: 'pnpm miko', state: 'open' }])
+    bus.close()
+  })
+
+  it('a fresh tab heartbeat from a window that ended before the stop holds back no start question', () => {
+    const bus = roleBus()
+    bus.stopMiko()
+    expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko' })
+    recordWindowHeartbeat(bus.db, bus.at(), 'tab-1', { mode: 'tab' })
+    bus.advance(1_000)
+    expect(role.returnEndedRole(bus.db, bus.at(), 'worker:miko:7', 'miko', 'close')).toMatchObject({ role: 'miko' })
+    bus.advance(1_000)
+
+    expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko' })
+    bus.close()
+  })
+
+  it('a live window holds back only the start question: a stopped Operator still goes to the owner', () => {
+    const bus = roleBus()
+    recordWindowHeartbeat(bus.db, bus.at(), 'tab-1', { mode: 'tab' })
+    bus.stopMiko()
+    role.observeRoleStop(bus.db, bus.at(), 'worker:operator:7', { role: 'operator', handoff: '/handoff/operator.md', status: 'CONTINUE', reason: 'spend', raised: false })
+
+    expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'operator', wait: null })
+    expect(bus.worker.step()).toEqual({ kind: 'idle' })
     bus.close()
   })
 })

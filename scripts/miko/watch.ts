@@ -11,7 +11,7 @@ import { defaultBusPath, openBus } from '../bus/db.js'
 import { CARD_PROCESS } from '../bus/heartbeat.js'
 import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../bus/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../bus/review-executor.js'
-import { windowBeat, windowSessionOf } from '../bus/window-heartbeat.js'
+import { windowBeat, windowOf } from '../bus/window-heartbeat.js'
 import { windowOpenPrs } from '../bus/window-prs.js'
 import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
@@ -574,7 +574,7 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     rememberStalls: stalls => rememberStalls(woken, stalls),
     emit: emitLine,
     beforeCommit: async () => {},
-    beat: windowBeat(bus, windowSessionOf(process.env), Date.now),
+    beat: windowBeat(bus, windowOf(process.env), Date.now),
   }
 }
 

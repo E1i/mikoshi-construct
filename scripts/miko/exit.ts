@@ -8,9 +8,10 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../bus/db.js'
 import { RAISED_STATUS, raisedByTheBus } from '../bus/role.js'
+import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
 import { realRoleStopObserver } from '../shift/role-bus.js'
 import { appendExitLine, exitLineOf, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
-import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
+import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
 import { windowEndObserver } from './role-end.js'
 
 export const FRESH_MS = 2 * 60 * 1000
