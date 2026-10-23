@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { SessionGauges } from '../miko/eddies-measure.js'
+import type { BusEvent } from './db.js'
 import type { HolderStart, Lease } from './lease.js'
 import { realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -132,8 +133,9 @@ export function leaseHeartbeat(lease: Lease, session: string): Heartbeat {
 export function recordHeartbeat(db: DatabaseSync, ts: string, beat: Heartbeat, measure: SessionMeasure = measureSession): void {
   const gauges = measure(beat.session)
   const dedupeKey = `${SESSION_HEARTBEAT}:${beat.card}:${beat.session}:${ts}`
+  const event: BusEvent = { ts, type: SESSION_HEARTBEAT, actor: `worker:session:${beat.session}`, cardId: beat.card, pr: beat.pr, head: beat.head, dedupeKey, payload: JSON.stringify({ step: beat.step, session: beat.session, ...(beat.lease === null ? {} : { task_key: beat.lease.taskKey, lease_gen: beat.lease.leaseGen }), ...gauges }), legacy: false }
   inTransaction(db, () => {
-    if (appendEvent(db, { ts, type: SESSION_HEARTBEAT, actor: `worker:session:${beat.session}`, cardId: beat.card, pr: beat.pr, head: beat.head, dedupeKey, payload: { step: beat.step, session: beat.session, ...(beat.lease === null ? {} : { task_key: beat.lease.taskKey, lease_gen: beat.lease.leaseGen }), ...gauges }, legacy: false }))
+    if (appendEvent(db, event))
       LEASE_FOLDS[SESSION_HEARTBEAT]!(db, storedByKey(db, dedupeKey))
   })
 }

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 import { parseCard } from '../../src/card/grammar.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from '../core/events.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
@@ -9,6 +10,8 @@ import { openDatabase } from './sqlite.js'
 export { BUS_DB_VARIABLE, defaultBusPath } from '../core/bus-path.js'
 export const BUSY_TIMEOUT_MS = 30_000
 export const CARD_BLOCKS = 'card_blocks'
+
+const IN_MEMORY = ':memory:'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
@@ -187,6 +190,8 @@ export function openBus(file: string): DatabaseSync {
   db.exec(SCHEMA)
   addMissingColumns(db)
   db.function(CARD_BLOCKS, { deterministic: true }, blocksOfCardLine)
+  if (file !== IN_MEMORY)
+    watchLocks(db, { now: () => performance.now(), observe: lockLogger(locksLogOf(file)) })
   return db
 }
 
@@ -278,15 +283,90 @@ export function closeOwnerWait(db: DatabaseSync, ts: string, actor: string, id: 
   return appendEvent(db, { ts, type: OWNER_WAIT_CLOSED, actor, cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${id}`, payload: { id, answer, request }, legacy: false })
 }
 
+export const LOCKS_LOG = 'locks.log'
+export const LOGGED_HOLD_MS = 2_000
+export const LOGGED_WAIT_MS = 5_000
+
+export type LockOutcome = 'commit' | 'rollback' | 'not-taken'
+
+export interface LockReading {
+  caller: () => string
+  waitMs: number
+  holdMs: number | null
+  outcome: LockOutcome
+}
+
+export interface LockWatch {
+  now: () => number
+  observe: (reading: LockReading) => void
+}
+
+export interface LockHolder {
+  pid: number
+  argv: readonly string[]
+}
+
+const UNWATCHED: LockWatch = { now: () => 0, observe: () => {} }
+const watches = new WeakMap<DatabaseSync, LockWatch>()
+
+export function watchLocks(db: DatabaseSync, watch: LockWatch): void {
+  watches.set(db, watch)
+}
+
+export function locksLogOf(busFile: string): string {
+  return path.join(path.dirname(busFile), 'bus', LOCKS_LOG)
+}
+
+function callerOf(site: Error): string {
+  const frame = site.stack?.split('\n')[2]?.trim() ?? ''
+  return frame.startsWith('at ') ? frame.slice(3) : frame
+}
+
+function lockLine(holder: LockHolder, reading: LockReading, what: 'wait' | 'hold', ms: number): string {
+  return `${JSON.stringify({ ts: new Date().toISOString(), pid: holder.pid, argv: holder.argv.join(' '), caller: reading.caller(), what, ms: Math.round(ms), outcome: reading.outcome })}\n`
+}
+
+export function lockLogger(file: string, holder: LockHolder = { pid: process.pid, argv: process.argv }): (reading: LockReading) => void {
+  return (reading) => {
+    const lines = [
+      ...(reading.waitMs > LOGGED_WAIT_MS ? [lockLine(holder, reading, 'wait', reading.waitMs)] : []),
+      ...(reading.holdMs !== null && reading.holdMs > LOGGED_HOLD_MS ? [lockLine(holder, reading, 'hold', reading.holdMs)] : []),
+    ]
+    if (lines.length === 0)
+      return
+    try {
+      mkdirSync(path.dirname(file), { recursive: true })
+      appendFileSync(file, lines.join(''))
+    }
+    catch (error) {
+      console.error(`the ${LOCKS_LOG} line was not written: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+}
+
 export function inTransaction<T>(db: DatabaseSync, work: () => T): T {
-  db.exec('BEGIN IMMEDIATE')
+  const site = new Error('lock site')
+  const watch = watches.get(db) ?? UNWATCHED
+  const caller = (): string => callerOf(site)
+  const asked = watch.now()
+  try {
+    db.exec('BEGIN IMMEDIATE')
+  }
+  catch (error) {
+    watch.observe({ caller, waitMs: watch.now() - asked, holdMs: null, outcome: 'not-taken' })
+    throw error
+  }
+  const taken = watch.now()
+  const settled = (outcome: LockOutcome): void => watch.observe({ caller, waitMs: taken - asked, holdMs: watch.now() - taken, outcome })
   try {
     const result = work()
     db.exec('COMMIT')
+    settled('commit')
     return result
   }
   catch (error) {
     db.exec('ROLLBACK')
+    settled('rollback')
     throw error
   }
 }
