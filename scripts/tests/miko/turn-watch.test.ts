@@ -1,13 +1,17 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
+import { RAISED_VARIABLE } from '../../bus/role.js'
 import { recordWindowHeartbeat, WINDOW_BEAT_MS } from '../../bus/window-heartbeat.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
-import { lastWindowBeat, LIVE_WATCH, NO_LIVE_WATCH, NOT_A_WINDOW, realTurnWatchDeps, runTurnWatch, watchIsLive } from '../../miko/turn-watch.js'
+import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
+import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
+import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../miko/tab.js'
+import { lastWindowBeat, LIVE_WATCH, NO_LIVE_WATCH, NOT_A_WINDOW, realTurnWatchDeps, runTurnWatch, TAB_CONTINUE, TAB_STOPS, watchIsLive } from '../../miko/turn-watch.js'
 import { WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -48,7 +52,7 @@ function lastBeatIn(bus: string, session: string): string | null {
 
 function run(session: string | null, lastBeat: string | null): { code: number, lines: string[] } {
   const lines: string[] = []
-  const code = runTurnWatch({ session, lastBeat: () => lastBeat, now: () => NOW, err: line => lines.push(line) })
+  const code = runTurnWatch({ session, mode: 'loop', status: () => null, lastBeat: () => lastBeat, now: () => NOW, err: line => lines.push(line) })
   return { code, lines }
 }
 
@@ -106,24 +110,36 @@ describe('a window turn ends only while a miko:watch beats for its session', () 
   }, 20_000)
 })
 
-describe('the window is the session the loop marked, not any session without a card', () => {
+describe('the loop window waits on a watch, a tab window on the STATUS of its handoff', () => {
   function hook(env: NodeJS.ProcessEnv): { code: number, lines: string[] } {
     const lines: string[] = []
     const code = runTurnWatch({ ...realTurnWatchDeps(env), lastBeat: () => null, now: () => NOW, err: line => lines.push(line) })
     return { code, lines }
   }
 
-  const marked = { [WINDOW_VARIABLE]: WINDOW_MARK }
+  function handoffDir(status: string | null): NodeJS.ProcessEnv {
+    const dir = mkdtempSync(path.join(tmpdir(), 'turn-watch-handoff-'))
+    roots.push(dir)
+    if (status !== null)
+      writeFileSync(path.join(dir, MIKO_HANDOFF_NAME), `# Handoff\n\nSTATUS: CONTINUE\n\nSTATUS: ${status}\n`)
+    return { [HANDOFF_DIR_VARIABLE]: dir }
+  }
 
-  it('a reviewer session started withoutCard is not a window and its stop is not blocked', () => {
-    expect(hook(withoutCard({ CLAUDE_CODE_SESSION_ID: 's-reviewer', CONSTRUCT_CARD: '1197' }))).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
-    expect(hook(withoutCard({ ...marked, CLAUDE_CODE_SESSION_ID: 's-reviewer', CONSTRUCT_CARD: '1197' }))).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
-    expect(hook(withoutCard({ ...marked, CLAUDE_CODE_SESSION_ID: 's-reviewer' }))).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
+  const marked = { [WINDOW_VARIABLE]: WINDOW_MARK }
+  const headless = { [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT }
+
+  it('a headless reviewer session started withoutCard is not a window and its stop is not blocked, whatever the handoff says', () => {
+    const continuing = handoffDir('CONTINUE')
+    expect(hook(withoutCard({ ...continuing, ...headless, CLAUDE_CODE_SESSION_ID: 's-reviewer', CONSTRUCT_CARD: '1197' }))).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
+    expect(hook(withoutCard({ ...continuing, ...headless, ...marked, CLAUDE_CODE_SESSION_ID: 's-reviewer', CONSTRUCT_CARD: '1197' }))).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
+    expect(hook({ ...continuing, CLAUDE_CODE_SESSION_ID: 's-raised', [RAISED_VARIABLE]: '1' })).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
   })
 
-  it('a session with neither the window marker nor a card is not blocked', () => {
-    expect(hook({ CLAUDE_CODE_SESSION_ID: 's-owner' })).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
-    expect(hook({ CLAUDE_CODE_SESSION_ID: 's-owner', [WINDOW_VARIABLE]: '' })).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
+  it('a tab window whose handoff ends STATUS: CONTINUE is blocked with the watch to run, and stops at any other STATUS or without a handoff', () => {
+    expect(hook({ ...handoffDir('CONTINUE'), CLAUDE_CODE_SESSION_ID: 's-tab', [WINDOW_VARIABLE]: '' })).toEqual({ code: 1, lines: [TAB_CONTINUE] })
+    expect(TAB_CONTINUE).toContain('pnpm miko:watch --once')
+    for (const status of ['OWNER', 'DONE', null])
+      expect(hook({ ...handoffDir(status), CLAUDE_CODE_SESSION_ID: 's-tab' })).toEqual({ code: 0, lines: [TAB_STOPS] })
   })
 
   it('a window session with the marker and no live watch is blocked', () => {
