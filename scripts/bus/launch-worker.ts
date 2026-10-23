@@ -21,7 +21,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { commandWords, realIsolationReader } from '../ports/isolation.js'
@@ -38,6 +37,7 @@ import { CARD_BODIES, cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
+import { handoffDir } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { bodyNotFoldedYet } from './launch-candidates.js'
@@ -641,7 +641,7 @@ async function main(): Promise<number> {
   const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
-  const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), process.cwd(), env, busPath))
+  const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(handoffDir(env), process.cwd(), env, busPath))
   return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 
