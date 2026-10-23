@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { mapRulesForTargets } from './rules.js'
-import { appendBlock, mergeJson, strategyFor } from './strategies.js'
+import { appendBlock, mergeHookSettings, mergeJson, strategyFor } from './strategies.js'
 import { listTemplateFiles, render } from './templates.js'
 import { yamlScalar } from './yaml-scalar.js'
 
@@ -132,6 +132,13 @@ function planOne(root: string, target: string, content: string, conflicts: strin
     const merged = mergeJson(existing, incoming, localConflicts)
     conflicts.push(...localConflicts.map(key => `${target}: ${key}`))
     return { target, strategy, action: 'merge', content: `${JSON.stringify(orderManifestKeys(sortSections(merged)), null, 2)}\n` }
+  }
+
+  if (strategy === 'merge-hooks') {
+    const merged = mergeHookSettings(readFileSync(absolute, 'utf8'), content)
+    return merged == null
+      ? { target, strategy, action: 'skip', content, note: 'exists, review manually' }
+      : { target, strategy, action: 'merge', content: merged }
   }
 
   if (strategy === 'append-block') {

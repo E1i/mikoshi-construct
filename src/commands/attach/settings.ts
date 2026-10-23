@@ -3,7 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, 
 import path from 'node:path'
 import process from 'node:process'
 import { isDeepStrictEqual } from 'node:util'
-import { isJsonObject } from '../../materialize/strategies.js'
+import { appendHookEntry, isJsonObject } from '../../materialize/strategies.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
 import { sha256OfBytes } from './original.js'
 
@@ -165,12 +165,6 @@ export type SettingsInstall
     | { kind: 'unreadable' }
     | { kind: 'guarded' }
 
-function appendEntry(hooks: JsonObject, event: HookEvent, entry: JsonObject): boolean {
-  const created = !(event in hooks)
-  hooks[event] = [...(Array.isArray(hooks[event]) ? hooks[event] : []), entry]
-  return created
-}
-
 export function installHookEntries(root: string, reading: SettingsReading): SettingsInstall {
   if (reading.kind === 'unreadable')
     return { kind: 'unreadable' }
@@ -180,10 +174,10 @@ export function installHookEntries(root: string, reading: SettingsReading): Sett
   const hooks: JsonObject = isJsonObject(settings.hooks) ? settings.hooks : {}
   const createdHooks = !('hooks' in settings)
   const entry = structuredClone(GUARD_ENTRY)
-  const created: SettingsCreated = { file: reading.kind === 'absent', hooks: createdHooks, preToolUse: appendEntry(hooks, 'PreToolUse', entry) }
+  const created: SettingsCreated = { file: reading.kind === 'absent', hooks: createdHooks, preToolUse: appendHookEntry(hooks, 'PreToolUse', entry) }
   const window = WINDOW_EVENTS.map((event) => {
     const windowEntry = structuredClone(WINDOW_ENTRIES[event])
-    return { event, entry: windowEntry, created: appendEntry(hooks, event, windowEntry) }
+    return { event, entry: windowEntry, created: appendHookEntry(hooks, event, windowEntry) }
   })
   settings.hooks = hooks
   const afterSha256 = sha256OfBytes(writeSettings(root, settings))

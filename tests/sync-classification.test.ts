@@ -188,6 +188,16 @@ describe('the ordered comparison inside recorded, present and produced', () => {
     expect(classifyPath({ target: 'AGENTS.md', recordedSha: null, present: null, produced: 'x' })?.strategy).toBe('append-block')
     expect(classifyPath({ target: TARGET, recordedSha: null, present: null, produced: 'x' })?.strategy).toBe('create')
   })
+
+  it('keeps a hook settings file that carries every entry the template writes, and never writes one that does not', () => {
+    const produced = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node hook.mjs stop' }] }] } })
+    const merged = JSON.stringify({ model: 'x', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo own' }] }, { hooks: [{ type: 'command', command: 'node hook.mjs stop' }] }] } })
+    const carried = classifyPath({ target: '.claude/settings.json', recordedSha: 'recorded', present: merged, produced })
+    expect(carried?.class).toBe('keep')
+    const dropped = classifyPath({ target: '.claude/settings.json', recordedSha: 'recorded', present: '{"model":"x"}', produced })!
+    expect(dropped.class).toBe('conflict')
+    expect(isWritable(dropped)).toBe(false)
+  })
 })
 
 describe('a block target whose template variant no evidence settles', () => {
