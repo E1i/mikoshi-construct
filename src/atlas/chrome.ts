@@ -1,4 +1,5 @@
 import type { MapState } from './components.js'
+import type { DescriptionSource, NameSource, RepoIdentity } from './identity.js'
 import type { AtlasMode } from './switch.js'
 import type { AtlasTally } from './tally.js'
 import { escaped } from '../model/page.js'
@@ -24,6 +25,9 @@ const WORDS = {
   derived: 'states derived on read, never stored',
   offline: 'offline · no network calls',
   command: 'construct atlas',
+  nameFrom: { 'package.json': 'name from package.json', 'README': 'name from the README heading', 'folder': 'name from the folder', 'none': 'no name found' } satisfies Record<NameSource, string>,
+  descriptionFrom: { 'package.json': 'description from package.json', 'README': 'description from the README' } satisfies Record<DescriptionSource, string>,
+  noDescription: 'no description found',
 }
 
 const count = (value: number): string => value.toLocaleString('en-US')
@@ -76,11 +80,20 @@ function statsHtml(tally: AtlasTally | null): string {
   ].join('\n')
 }
 
-export function heroHtml(mode: AtlasMode, projectName: string, tally: AtlasTally | null): string {
+function identityHtml(repo: RepoIdentity): string[] {
+  const descriptionFrom = repo.description == null ? WORDS.noDescription : WORDS.descriptionFrom[repo.description.from]
+  return [
+    `<h1 class="repo">${escaped(repo.name.text)}</h1>`,
+    repo.description == null ? '' : `<p class="lede">${escaped(repo.description.text)}</p>`,
+    `<p class="provenance"><span>${escaped(WORDS.nameFrom[repo.name.from])}</span><span>${escaped(descriptionFrom)}</span></p>`,
+  ]
+}
+
+export function heroHtml(mode: AtlasMode, repo: RepoIdentity, tally: AtlasTally | null): string {
   return [
     `<header class="hero">`,
     `<div class="eyebrow">${escaped(WORDS.eyebrow[mode])}</div>`,
-    `<h1 class="repo">${escaped(projectName)}</h1>`,
+    ...identityHtml(repo),
     statsHtml(tally),
     `</header>`,
   ].filter(line => line !== '').join('\n')

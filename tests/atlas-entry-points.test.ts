@@ -96,7 +96,7 @@ describe('construct atlas: entry points come from the repository\'s own configs'
     const mechanics = discoverMechanics(repository(ENTRIES))
     expect(componentMap(mechanics, [], 'shop').relations.map(relation => `${relation.from} → ${relation.to}`)).toEqual(['scripts/board.ts → scripts/lib.ts', 'scripts/board.ts → scripts/lib.ts'])
     const model = parseModel(JSON.stringify({ modelVersion: 6, facts: [], claims: [], hypotheses: [], mechanics }), MODEL_FILE)
-    const script = atlasScript({ projectName: 'shop', model, states: deriveModelState(model, tmpdir()), mechanics: model.mechanics }, '')!
+    const script = atlasScript({ repo: { name: { text: 'shop', from: 'package.json' } }, model, states: deriveModelState(model, tmpdir()), mechanics: model.mechanics }, '')!
     const data = JSON.parse(/const DATA = (.*);\n/.exec(script)![1]!) as { files: string[], entries: Array<{ name: string, runs: number[] }> }
     const runBy = (file: string): string[] => data.entries.filter(entry => entry.runs.includes(data.files.indexOf(file))).map(entry => entry.name)
     expect(runBy('scripts/check.mjs')).toEqual(['quality › Check', 'ci'])
