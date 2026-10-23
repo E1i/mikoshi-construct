@@ -10,12 +10,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { busFacts, busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
 import { ITEM_STAGES, planLine } from '../../../src/commands/board/goal.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
-import { isLive } from '../../../src/commands/board/screens.js'
+import { backlogCards } from '../../../src/commands/board/screens.js'
 import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, ITEM_PROGRESS_ORDER, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, ITEM_PROGRESS_ORDER, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
 import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
 import { defaultBusPath } from '../../bus/db.js'
 import { TICK_MS } from '../../bus/netwatch.js'
@@ -581,7 +581,8 @@ describe('board.html', () => {
     const slots = slotsOf(html)
     const flow = slots.get('flow')!
     const goal = slots.get('goal')!
-    const byStage = CARD_STAGES.map(stage => ({ stage, cards: facts.cards.filter(card => isLive(card) && card.stage === stage).map(card => card.id) }))
+    const shown = backlogCards(facts.cards, facts.at, false)
+    const byStage = CARD_STAGES.map(stage => ({ stage, cards: shown.filter(card => card.stage === stage).map(card => card.id) }))
     const stages = PROGRESS_ORDER.map(stage => byStage.find(entry => entry.stage === stage)!)
     expect(new Set(PROGRESS_ORDER)).toEqual(new Set(CARD_STAGES))
     const legend = [...flow.matchAll(/<div class="stage"( data-empty)?><i class="sw" data-stage="([^"]+)"><\/i><span class="name">([^<]+)<\/span><span class="n">(\d+)<\/span>(?:<span class="ids">(.*?)<\/span>)?<\/div>/g)]
@@ -611,7 +612,7 @@ describe('board.html', () => {
   it('every card stage and every slice stage has its swatch colour, stopped and slices without cards hatched, and a bus with no open plan draws no goal', () => {
     const html = pageText(seededBus())
     expect(slotsOf(html).get('goal')).toBe('')
-    expect(slotsOf(html).get('flow')).toContain('<span class="meta">live cards by stage</span>')
+    expect(slotsOf(html).get('flow')).toContain(`<span class="meta">${FLOW_META}</span>`)
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     const sw = /\n\.sw \{([\s\S]*?)\n\}/.exec(style)![1]!
     for (const stage of [...CARD_STAGES, ...ITEM_STAGES])
@@ -619,6 +620,83 @@ describe('board.html', () => {
     expect(new Set(ITEM_PROGRESS_ORDER)).toEqual(new Set(ITEM_STAGES))
     expect(sw).toMatch(/&\[data-stage="stopped"\] \{[^}]*--_paint: repeating-linear-gradient\(135deg/)
     expect(sw).toMatch(/&\[data-stage="not_created"\] \{[^}]*--_paint: repeating-linear-gradient\(135deg/)
+  })
+
+  function busOf(seed: BusSeed): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-truth-'))
+    roots.push(root)
+    return busWithRecords(path.join(root, 'bus.db'), { events: [{ ts: minutesAgo(1), type: 'netwatch.tick', card: null, payload: '{}' }], ...seed })
+  }
+
+  function legendIds(html: string, stage: string): number[] | undefined {
+    const row = new RegExp(`<i class="sw" data-stage="${stage}"></i><span class="name">[^<]+</span><span class="n">(\\d+)</span>(?:<span class="ids">(.*?)</span>)?</div>`).exec(slotsOf(html).get('flow')!)
+    return row === null ? undefined : [...(row[2] ?? '').matchAll(/#(\d+)/g)].map(match => Number(match[1]))
+  }
+
+  it('a stopped card with an answer in lease shows as answer/changes in FLOW and LIVE', () => {
+    const busPath = busOf({
+      cards: [{ id: 870, state: 'stopped', lane: 'lane-1', line: 'card: #870 asks [implement/netwatch/S/cheap/owner] · depends — · blocks —', since: minutesAgo(30), pr: 14 }],
+      tasks: [{ queue: 'answer', card: 870, pr: 14, head: 'abcdef1234567', state: 'leased' }],
+    })
+    const html = pageText(busPath)
+    expect(liveFacts(busPath).cards.map(card => card.stage)).toEqual(['answer/changes'])
+    expect(legendIds(html, 'answer/changes')).toEqual([870])
+    expect(legendIds(html, 'stopped')).toEqual([])
+    expect(html).toContain('<tr data-card="870" data-stage="answer/changes" data-live')
+    expect(constructBoardLines(busPath)).toContain('in work (1): #870')
+  })
+
+  it('a stopped card shows in the STOPPED row', () => {
+    const busPath = busOf({
+      cards: [
+        { id: 871, state: 'stopped', lane: 'lane-1', line: 'card: #871 asks', since: minutesAgo(30) },
+        { id: 873, state: 'merged', lane: null, line: 'card: #873 done', since: minutesAgo(10) },
+        { id: 874, state: 'queued', lane: 'lane-1', line: 'card: #874 next', since: minutesAgo(10) },
+      ],
+      tasks: [{ queue: 'answer', card: 871, pr: null, head: null, state: 'queued' }],
+    })
+    const html = pageText(busPath)
+    expect(legendIds(html, 'stopped')).toEqual([871])
+    expect(slotsOf(html).get('flow')).toContain('<span class="name">merged</span><span class="n">1</span>')
+    expect(legendIds(html, 'planned')).toEqual([874])
+    expect(html).toContain('<tr data-card="871" data-stage="stopped" data-open')
+  })
+
+  it('one process is one tile', () => {
+    const busPath = busOf({
+      cards: [{ id: 872, state: 'changes', lane: 'lane-1', line: 'card: #872 fixes', since: minutesAgo(30), pr: 15 }],
+      tasks: [{ queue: 'answer', card: 872, pr: 15, head: '52918a5abcdef', state: 'leased' }],
+      events: [{ ts: minutesAgo(1), type: SESSION_HEARTBEAT, card: 872, payload: JSON.stringify({ step: 'answer', session: 's872', context: 169_000 }) }],
+    })
+    const html = pageText(busPath)
+    const tiles = html.split('<div class="svc" ').filter(tile => tile.includes('<span class="svc-target">#872</span>'))
+    expect(tiles).toHaveLength(1)
+    expect(tiles[0]).toContain('answer · pulse 1 min ago')
+    expect(tiles[0]).toContain('<span class="edd-v">169k')
+    const facts = liveFacts(busPath)
+    expect(new Set(facts.services.map(service => `${service.role} ${service.task}`)).size).toBe(facts.services.length)
+  })
+
+  it('a services tile with six-digit CTX and SPENT shows each number whole', () => {
+    const html = pageText(seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 182_345, spent: 2_950_000 }) },
+    ]))
+    const { contextLimit, sessionSpend } = readEddiesLimits()
+    const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    const edd = /\n\.edd \{([\s\S]*?)\n\}/.exec(style)![1]!
+    expect(edd).toMatch(/grid-template-columns: \S+ minmax\(0, 1fr\) max-content;/)
+    expect(style).toMatch(/\.edd-v \{[^}]*white-space: nowrap/)
+    expect(html).toMatch(new RegExp(`<span class="edd-v">182k${contextLimit === null ? '' : '/\\d+(?:\\.\\d)?[kM]'}</span>`))
+    expect(html).toMatch(new RegExp(`<span class="edd-v">3M${sessionSpend === null ? '' : '/\\d+(?:\\.\\d)?[kM]'}</span>`))
+  })
+
+  it('a pull request number in prose stays text and only a card number opens its card', () => {
+    const busPath = busOf({
+      cards: [{ id: 861, state: 'running', lane: 'lane-1', line: 'card: #861 second', since: minutesAgo(20) }],
+      decisions: [[217, 'PR #861 merges after #861 ships.']],
+    })
+    const html = pageText(busPath)
+    expect(html).toContain('<span>PR #861 merges after <button type="button" class="cid" data-open="card-861" tabindex="0" aria-haspopup="dialog">#861 ›</button> ships.</span>')
   })
 
   it('the waits-for-you strip is absent when the fact is empty', () => {

@@ -86,14 +86,31 @@ describe('a role stopped at a threshold', () => {
     requestFromWindow(bus.db, bus.at(), 'owner-session', { kind: 'status' })
     bus.advance(LEASE_MS + 1)
     expect(bus.worker.step()).toMatchObject({ kind: 'returned', role: 'miko' })
-    expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', wait: 'Q1' })
+    expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', wait: 'Q2' })
     for (let tick = 0; tick < 5; tick += 1) {
       bus.advance(LEASE_MS + 1)
       bus.worker.step()
     }
     reduce(bus.db)
     expect(countOf(bus.db, RAISE_EVENTS)).toBe(0)
-    expect(waits(bus.db)).toEqual([{ id: 'Q1', need: 'command', command: 'pnpm miko', state: 'open' }])
+    expect(waits(bus.db)).toEqual([{ id: 'Q1', need: 'command', command: 'pnpm miko', state: 'closed' }, { id: 'Q2', need: 'command', command: 'pnpm miko', state: 'open' }])
+    bus.close()
+  })
+
+  it('a window heartbeat after Q3 closes Q3', () => {
+    const bus = roleBus()
+    bus.stopMiko()
+    expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', wait: 'Q1' })
+    bus.advance(1_000)
+    recordWindowHeartbeat(bus.db, bus.at(), 'tab-1', { mode: 'tab' })
+    const beat = bus.at()
+    bus.advance(1_000)
+
+    expect(bus.worker.step()).toEqual({ kind: 'idle' })
+    reduce(bus.db)
+    expect(bus.db.prepare('SELECT id, state, answer FROM owner_waits').all()).toEqual([{ id: 'Q1', state: 'closed', answer: `the window beat again at ${beat}` }])
+    expect(bus.worker.step()).toEqual({ kind: 'idle' })
+    expect(countOf(bus.db, ['owner.wait.closed'])).toBe(1)
     bus.close()
   })
 
