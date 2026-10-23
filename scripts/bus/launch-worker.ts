@@ -21,6 +21,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
+import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { commandWords, realIsolationReader } from '../ports/isolation.js'
@@ -35,7 +36,7 @@ import { NOT_A_BACKFILL } from './backfill-source.js'
 import { DROPPED_CARD, RUNNING_CARD } from './card-automaton.js'
 import { CARD_BODIES, cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
-import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
 import { handoffDir } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
@@ -157,6 +158,16 @@ export const SESSIONLESS_LADDER_STEP = 'launch'
 
 export function noPullRequestDetail(cardId: number, session: string, result: string | null): string {
   return `session-end: card #${cardId} session ${session} ended with no pull request; ${result ?? 'its shift report names no result'}`
+}
+
+const QUESTION_TEXT = /^question:[ \t]*(\S.*)$/gm
+
+function reportQuestions(report: string | null): string[] {
+  return report === null ? [] : [...report.matchAll(QUESTION_TEXT)].map(found => found[1].trim())
+}
+
+export function cardDecisionCommand(cardId: number): string {
+  return `pnpm decisions:add --card #${cardId} "${OWNER_SOURCE} <decision>"`
 }
 
 const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
@@ -382,7 +393,16 @@ export class LaunchNode extends Node<LaunchStep> {
 
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
     const detail = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
-    return appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, payload: { reason: 'fault', detail }, legacy: false })
+    const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
+    return inTransaction(this.db, () => {
+      const ts = this.ts()
+      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, payload: { reason: 'fault', detail }, legacy: false })
+      if (recorded) {
+        for (const question of questions)
+          openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `card #${start.card_id} session ${card.session} asks: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
+      }
+      return recorded
+    })
   }
 
   private stopDeadSession(start: RunningStart, card: StartedCard): boolean {
