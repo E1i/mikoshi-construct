@@ -4,8 +4,8 @@ import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { CARD_ADMITTED, CARD_WAITING, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OPENED, WITNESS_DOWNGRADE } from '../core/events.js'
-import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from './card-automaton.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OPENED, WITNESS_DOWNGRADE } from '../core/events.js'
+import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAINS_PROJECTION } from './chain.js'
 import { CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
@@ -24,6 +24,7 @@ export const PREFIX = '[bus:reduce] '
 export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id', plans: 'plan_id', plan_items: 'plan_id, item_id', [OWNER_WAITS]: 'id' }
 export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION]
 
+const DOWNGRADE_WAIT_PREFIX = 'W'
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
 const CI = new Set(['pending', 'green', 'red'])
 
@@ -142,6 +143,24 @@ function prClosed(db: DatabaseSync, event: StoredEvent): void {
     cardPrMerged(db, known.card_id, event.id)
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND need = 'merge' AND pr = ?`)
     .run(`PR #${pr} ${merged ? 'merged' : 'closed'}`, event.id, pr)
+  closeWaitsOfAnEndedCard(db, known.card_id, event.id)
+}
+
+const ENDED_CARD_STATES: ReadonlySet<string | null> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+
+function closeWaitsOfAnEndedCard(db: DatabaseSync, cardId: number | null, eventId: number): void {
+  if (cardId === null)
+    return
+  const state = (db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state ?? null
+  if (!ENDED_CARD_STATES.has(state))
+    return
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ?`)
+    .run(`card #${cardId} ${state}`, eventId, cardId)
+}
+
+function foldEndingTheWaitsOfAnEndedCard(db: DatabaseSync, event: StoredEvent): void {
+  CARD_FOLDS[event.type]!(db, event)
+  closeWaitsOfAnEndedCard(db, event.card_id, event.id)
 }
 
 function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
@@ -152,9 +171,15 @@ function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
   db.prepare('INSERT INTO mains (sha, touches_mechanics, event_id) VALUES (?, ?, ?)').run(payload.sha, touches ? 1 : 0, event.id)
 }
 
+function closeDowngradeWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent): void {
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND id LIKE '${DOWNGRADE_WAIT_PREFIX}%' AND event_id < ?`)
+    .run(`card #${event.card_id} admitted without the downgrade`, event.id, event.card_id, event.id)
+}
+
 function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent): void {
   CARD_FOLDS[CARD_ADMITTED]!(db, event)
   foldCardBody(db, event)
+  closeDowngradeWaitsTheAdmissionAnswers(db, event)
 }
 
 function prOpened(db: DatabaseSync, event: StoredEvent): void {
@@ -218,7 +243,7 @@ function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
 }
 
 export function downgradeWaitId(eventId: number): string {
-  return `W${eventId}`
+  return `${DOWNGRADE_WAIT_PREFIX}${eventId}`
 }
 
 function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent): void {
@@ -357,6 +382,10 @@ const REDUCERS: Record<string, Fold> = {
   ...CARD_FOLDS,
   ...OWNER_WAIT_FOLDS,
   ...PLAN_FOLDS,
+  [MERGE_DONE]: foldEndingTheWaitsOfAnEndedCard,
+  [CARD_CLOSED]: foldEndingTheWaitsOfAnEndedCard,
+  [CARD_MOVED]: foldEndingTheWaitsOfAnEndedCard,
+  [CARD_DROPPED]: foldEndingTheWaitsOfAnEndedCard,
   [CARD_ADMITTED]: foldAdmittedWithBody,
 }
 

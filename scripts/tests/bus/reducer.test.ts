@@ -549,6 +549,47 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 
+  function downgradeOf(cardId: number): BusEvent {
+    return event(CARD_WAITING, { actor: 'worker:intake:s1', cardId, payload: { reason: WITNESS_DOWNGRADE, witnesses: ['w; red on main'], actions: [`разрешить понижение свидетеля w; red on main у #${cardId}`] } })
+  }
+
+  it('a dropped card closes its owner waits on the next tick', () => {
+    const ts = '2026-10-09T12:00:00.000Z'
+    const db = busWith(admitted(1262), downgradeOf(1262))
+    const question = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1262, request: 7 })
+    const other = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1263, request: 8 })
+    reduce(db)
+    expect(waits(db).filter(wait => wait.state === 'open')).toHaveLength(3)
+    appendEvent(db, event('card.dropped', { actor: 'owner', cardId: 1262, payload: { replaced_by: 1263 } }))
+    reduce(db)
+    expect(waits(db).map(wait => [wait.id, wait.card_id, wait.state, wait.answer])).toEqual([
+      [question, 1262, 'closed', 'card #1262 dropped'],
+      [other, 1263, 'open', null],
+      [expect.stringMatching(/^W\d+$/), 1262, 'closed', 'card #1262 dropped'],
+    ])
+    db.close()
+  })
+
+  it('a merged card closes its witness-downgrade wait', () => {
+    const db = busWith(admitted(1216), started(1216), opened(1216, 900), observed(900, 1216), downgradeOf(1216))
+    reduce(db)
+    expect(waits(db).map(wait => wait.state)).toEqual(['open'])
+    appendEvent(db, closed(900, true))
+    reduce(db)
+    expect(waits(db).map(wait => [wait.card_id, wait.state, wait.answer])).toEqual([[1216, 'closed', 'card #1216 merged']])
+    db.close()
+  })
+
+  it('a card admitted after its held downgrade closes the downgrade wait, and a later downgrade opens a new one', () => {
+    const db = busWith(admitted(1216), downgradeOf(1216), admitted(1216))
+    reduce(db)
+    expect(waits(db).map(wait => [wait.state, wait.answer])).toEqual([['closed', 'card #1216 admitted without the downgrade']])
+    appendEvent(db, downgradeOf(1216))
+    reduce(db)
+    expect(waits(db).map(wait => wait.state)).toEqual(['closed', 'open'])
+    db.close()
+  })
+
   it('a witness downgrade that names no action for the owner is rejected', () => {
     const db = busWith(event(CARD_WAITING, { cardId: 1216, payload: { reason: WITNESS_DOWNGRADE, actions: [] } }), event(CARD_WAITING, { payload: { reason: WITNESS_DOWNGRADE, actions: ['a'] } }))
     expect(reduce(db)).toEqual({ applied: 0, rejected: 2 })

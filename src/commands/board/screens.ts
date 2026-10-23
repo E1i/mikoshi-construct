@@ -1,6 +1,6 @@
 import type { Lore } from '../../ui/lore.js'
 import type { BusCard, BusFacts, BusMatrix, OwnerWait } from './bus.js'
-import { FLOW_STATES, LIVE_STATES, SHORT_SHA } from './bus.js'
+import { FLOW_STAGES, LIVE_STAGES, LIVE_STATES, SHORT_SHA } from './bus.js'
 import { planLine } from './goal.js'
 
 const CARD_PREFIX = /^card:\s*/
@@ -20,11 +20,11 @@ function flowName(card: BusCard): string {
 }
 
 export function isLive(card: BusCard): boolean {
-  return card.body && !card.closed && LIVE_STATES.includes(card.state ?? '')
+  return card.body && !card.closed && LIVE_STAGES.includes(card.stage) && LIVE_STATES.includes(card.state ?? '')
 }
 
 function endedRecently(card: BusCard, at: string): boolean {
-  const endedAt = card.closed ? card.closedAt : LIVE_STATES.includes(card.state ?? '') ? null : card.since
+  const endedAt = card.closed ? card.closedAt : isLive(card) ? null : card.since
   if (endedAt === null)
     return false
   const age = Date.parse(at) - Date.parse(endedAt)
@@ -33,7 +33,7 @@ function endedRecently(card: BusCard, at: string): boolean {
 
 export function flowLines(cards: BusCard[], lore: Lore): string[] {
   const live = cards.filter(isLive)
-  return lore.boardFlowColumns.map((title, column) => lore.boardColumnLine(title, live.filter(card => FLOW_STATES[column]!.includes(card.state ?? '')).map(flowName)))
+  return lore.boardFlowColumns.map((title, column) => lore.boardColumnLine(title, live.filter(card => FLOW_STAGES[column]!.includes(card.stage)).map(flowName)))
 }
 
 export function laneColumns(cards: BusCard[], lanes: number | null): (string | null)[] {
