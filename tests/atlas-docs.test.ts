@@ -1,4 +1,5 @@
 import type { AtlasMechanics } from '../src/atlas/view.js'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -6,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { componentMap } from '../src/atlas/components.js'
 import { renderAtlasDocs } from '../src/atlas/docs.js'
 import { renderAtlas } from '../src/atlas/page.js'
+import { THEME_SCRIPT } from '../src/atlas/theme.js'
 import { FILE_LEAF_LIMIT } from '../src/atlas/tree.js'
 import { parseModel } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
@@ -33,14 +35,13 @@ function input(label: string): Parameters<typeof renderAtlas>[0] {
 }
 
 describe('the docs view', () => {
-  it('changing a node in the engram changes the map and the docs', () => {
-    const before = [renderAtlas(input('Juice press'), 'm', '', FILES), renderAtlasDocs(input('Juice press'), 'm', '', FILES)]
-    const after = [renderAtlas(input('Cider press'), 'm', '', FILES), renderAtlasDocs(input('Cider press'), 'm', '', FILES)]
-    for (const [index, page] of before.entries()) {
-      expect(page).toContain('Juice press')
-      expect(after[index]).toContain('Cider press')
-      expect(after[index]).not.toContain('Juice press')
-    }
+  it('changing a node in the engram changes the docs, and the map draws no node of the engram', () => {
+    const before = renderAtlasDocs(input('Juice press'), 'm', '', FILES)
+    const after = renderAtlasDocs(input('Cider press'), 'm', '', FILES)
+    expect(before).toContain('Juice press')
+    expect(after).toContain('Cider press')
+    expect(after).not.toContain('Juice press')
+    expect(renderAtlas(input('Juice press'), 'm', '', FILES)).not.toContain('Juice press')
   })
 
   it('carries the switch to the other view and keeps empty stages', () => {
@@ -51,10 +52,13 @@ describe('the docs view', () => {
     expect(renderAtlas(input('Juice press'), 'm', '', FILES)).toContain('<a href="atlas-docs.html">Docs</a>')
   })
 
-  it('fetches nothing and runs no script', () => {
+  it('fetches nothing and runs only the theme switch, whose hash the policy names', () => {
     const docs = renderAtlasDocs(input('Juice press'), 'm', '', FILES)
-    for (const forbidden of ['<script', '<link', '@import', 'url(', 'http'])
-      expect(docs).not.toContain(forbidden)
+    const markup = docs.replace(`<script>${THEME_SCRIPT}</script>`, '')
+    for (const forbidden of ['<script', '<link', '@import', 'url(', 'http:', 'https:'])
+      expect(markup).not.toContain(forbidden)
+    expect(THEME_SCRIPT).not.toMatch(/https?:|fetch\(|import\(/)
+    expect(docs).toContain(`script-src 'sha256-${createHash('sha256').update(THEME_SCRIPT).digest('base64')}'`)
   })
 
   it('draws no switch on a map written without a docs view', () => {
