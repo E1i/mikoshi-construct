@@ -42,11 +42,11 @@ describe('the board screens', () => {
     expect(backlogLines(backlog, PLAIN_LORE)).toEqual(['no lane (3)', '  #8 eight · review', '  #9 nine · answer/changes', '  #4 four · ready'])
   })
 
-  it('flow puts queued in planned, running and changes in work, in_review in review, ready in ready to merge, and leaves every other state out', () => {
-    const cards = [card(1, 'queued'), card(2, 'running'), card(3, 'changes'), card(4, 'in_review'), card(5, 'ready'), card(6, 'merged'), card(7, 'fell'), card(8, null)]
+  it('flow columns read the stage: planned, in work and answer/changes, review, ready, and leave every other stage and state out', () => {
+    const cards = [card(1, 'queued'), card(2, 'running', null, null, 'in work'), card(3, 'changes', null, null, 'answer/changes'), card(4, 'in_review', null, null, 'review'), card(5, 'ready', null, null, 'ready'), card(6, 'merged', null, null, 'merged'), card(7, 'fell'), card(8, null), card(9, 'stopped', null, null, 'answer/changes'), card(10, 'stopped', null, null, 'stopped')]
     expect(flowLines(cards, PLAIN_LORE)).toEqual([
       'planned (1): #1',
-      'in work (2): #2 · #3',
+      'in work (3): #2 · #3 · #9',
       'in review (1): #4',
       'ready to merge (1): #5',
     ])
