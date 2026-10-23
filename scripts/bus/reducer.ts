@@ -16,6 +16,7 @@ import { allowLiveCommand, namesQueueLive } from './live-decision.js'
 import { TASKS_PROJECTION } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { ROLE_FOLDS, ROLES_PROJECTION } from './role.js'
+import { RECUT_ACTOR } from './round-limit-decision.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
@@ -304,8 +305,16 @@ function planItemAdded(db: DatabaseSync, event: StoredEvent): void {
     .run(planId, itemId, planText(payload, 'title'), '[]', event.id)
 }
 
+function recutLinkPayload(db: DatabaseSync, event: StoredEvent): Record<string, unknown> | null {
+  const actor = (db.prepare('SELECT actor FROM events WHERE id = ?').get(event.id) as { actor: string | null }).actor
+  if (actor !== RECUT_ACTOR)
+    return null
+  const payload = payloadOf(event)
+  return cardIdOf(payload.recut_of) === null ? reject(`${event.type} by ${RECUT_ACTOR} names no recut_of card`) : payload
+}
+
 function planItemLinked(db: DatabaseSync, event: StoredEvent): void {
-  const payload = ownersPlanPayload(db, event)
+  const payload = recutLinkPayload(db, event) ?? ownersPlanPayload(db, event)
   const planId = openPlanId(db, payload)
   const itemId = planText(payload, 'item')
   const cardId = cardIdOf(payload.card) ?? reject('card is not a card number')

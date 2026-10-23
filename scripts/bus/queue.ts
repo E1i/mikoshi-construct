@@ -6,7 +6,8 @@ import type { OverlapCatch } from './launch-candidates.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { PRIORITIES } from '../../src/card/parking.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_RECORDED } from '../core/events.js'
+import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_RECORDED } from '../core/events.js'
 import { BACKFILL_SOURCE } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { appendEvent, inTransaction, openOwnerWait } from './db.js'
@@ -307,6 +308,47 @@ function windowWaitText(row: WindowQuestionRow): string {
   return `card #${row.card_id} ${why}: ${question}; the window amends the card, and the answer goes on after its card.admitted`
 }
 
+export const REPEATED_RED = 2
+
+const HEADS_RED_AGAIN_WITH_NO_WAIT = `
+  SELECT red.card_id, red.pr, red.head FROM events AS red JOIN prs ON prs.pr = red.pr AND prs.head = red.head
+  WHERE red.type = '${WITNESS_RECORDED}' AND red.legacy = 0 AND prs.state = 'open' AND json_extract(red.payload, '$.verdict') = 'red'
+    AND NOT EXISTS (
+      SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.pr = red.pr AND instr(json_extract(opened.payload, '$.text'), red.head) > 0
+    )
+  GROUP BY red.card_id, red.pr, red.head HAVING count(*) >= ${REPEATED_RED}
+  ORDER BY red.pr
+`
+
+export function proofMechanismWaitText(cardId: number, pr: number, head: string): string {
+  return `card #${cardId}: the witness was red again on PR #${pr} at ${head}; a red witness spends no review round and starts no re-cut, so check the proof mechanism`
+}
+
+function openProofMechanismWaits(db: DatabaseSync, ts: string): void {
+  for (const row of db.prepare(HEADS_RED_AGAIN_WITH_NO_WAIT).all() as { card_id: number, pr: number, head: string }[])
+    inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: proofMechanismWaitText(row.card_id, row.pr, row.head), card: row.card_id, pr: row.pr }))
+}
+
+export const RECUT_GRACE_MS = 10 * 60 * 1000
+
+const ROUND_LIMITS_WITH_NO_OUTCOME = `
+  SELECT spent.card_id, spent.pr FROM events AS spent JOIN prs ON prs.pr = spent.pr
+  WHERE spent.type = '${REVIEW_ROUNDS_SPENT}' AND spent.legacy = 0 AND spent.ts <= ? AND prs.state = 'open'
+    AND NOT EXISTS (SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.pr = spent.pr AND opened.id > spent.id)
+    AND NOT EXISTS (SELECT 1 FROM events AS recut WHERE recut.type = '${PR_OPENED}' AND json_extract(recut.payload, '$.recut_of') = spent.pr)
+  ORDER BY spent.pr
+`
+
+export function lostRecutWaitText(cardId: number, pr: number): string {
+  return `card #${cardId}: PR #${pr} reached the review round limit (D-104), and the bus holds neither its re-cut nor an owner wait for it; check whether it was re-cut before deciding it`
+}
+
+function openLostRecutWaits(db: DatabaseSync, ts: string): void {
+  const settled = new Date(Date.parse(ts) - RECUT_GRACE_MS).toISOString()
+  for (const row of db.prepare(ROUND_LIMITS_WITH_NO_OUTCOME).all(settled) as { card_id: number, pr: number }[])
+    inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: lostRecutWaitText(row.card_id, row.pr), card: row.card_id, pr: row.pr }))
+}
+
 function openWindowWaits(db: DatabaseSync, ts: string): void {
   for (const row of db.prepare(QUESTIONS_WITH_NO_WINDOW_WAIT_YET).all() as unknown as WindowQuestionRow[])
     inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'command', text: windowWaitText(row), command: admitCommandOf(row.card_id, row.lane), card: row.card_id, ...(row.pr === null ? {} : { pr: row.pr }) }))
@@ -346,17 +388,46 @@ interface Candidate {
   witness_base?: string | null
 }
 
-const HEADS_WITH_CHANGES_OF_A_PR = `
-  SELECT DISTINCT head FROM events
-  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.verdict') = 'changes'
+const REVIEWS_OF_A_PR = `
+  SELECT head, json_extract(payload, '$.verdict') AS verdict, json_extract(payload, '$.card_body') AS card_body FROM events
+  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? ORDER BY id
 `
 
-export function headsWithChangesOf(db: DatabaseSync, pr: number): Set<string | null> {
-  return new Set((db.prepare(HEADS_WITH_CHANGES_OF_A_PR).all(pr) as { head: string | null }[]).map(row => row.head))
+export interface RoundReview {
+  head: string | null
+  verdict: unknown
+  card_body: unknown
 }
 
-export function changesRoundsOf(db: DatabaseSync, pr: number): number {
-  return headsWithChangesOf(db, pr).size
+const BODIES_OWNER_AMENDED_FOR_A_PR = `
+  SELECT DISTINCT json_extract(payload, '$.bodySha') AS body FROM events
+  WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND json_extract(payload, '$.source') = '${AMEND_SOURCE}' AND json_type(payload, '$.bodySha') = 'text'
+    AND card_id IN (SELECT card_id FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND card_id IS NOT NULL)
+`
+
+function ownerAmendedSinceThePreviousReview(reviews: readonly RoundReview[], at: number, ownerAmended: ReadonlySet<string>): boolean {
+  const before = at > 0 ? reviews[at - 1]!.card_body : null
+  const now = reviews[at]!.card_body
+  return typeof before === 'string' && typeof now === 'string' && before !== now && ownerAmended.has(now)
+}
+
+export function roundsOf(reviews: readonly RoundReview[], ownerAmended: ReadonlySet<string>): number {
+  const heads = new Set<string | null>()
+  let rounds = 0
+  for (const [at, review] of reviews.entries()) {
+    if (review.verdict !== 'changes' || heads.has(review.head))
+      continue
+    heads.add(review.head)
+    if (!ownerAmendedSinceThePreviousReview(reviews, at, ownerAmended))
+      rounds += 1
+  }
+  return rounds
+}
+
+export function changesRoundsOf(db: DatabaseSync, pr: number, next?: RoundReview): number {
+  const reviews = db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[]
+  const ownerAmended = new Set((db.prepare(BODIES_OWNER_AMENDED_FOR_A_PR).all(pr) as { body: string }[]).map(row => row.body))
+  return roundsOf(next === undefined ? reviews : [...reviews, next], ownerAmended)
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']
@@ -946,6 +1017,8 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
       derived.queued.push(row.task_key)
   }
   openWindowWaits(db, ts)
+  openProofMechanismWaits(db, ts)
+  openLostRecutWaits(db, ts)
   for (const tasksOf of candidates(db, ts)) {
     for (const task of tasksOf()) {
       if (queueTask(db, ts, task))

@@ -1,18 +1,22 @@
 import type { AuthorityRule } from '../../bus/policy.js'
+import type { RoundReview } from '../../bus/queue.js'
+import type { RecutCard, RecutPlan } from '../../bus/round-limit-decision.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
+import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
+import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { importJournal } from '../../bus/import.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { pastRoundLimit, underOwnerDecision } from '../../bus/policy.js'
-import { changesRoundsOf, closedByRounds, REVIEW_ROUNDS } from '../../bus/queue.js'
+import { changesRoundsOf, closedByRounds, REVIEW_ROUNDS, roundsOf } from '../../bus/queue.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../bus/review-worker.js'
-import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
+import { complexitySlicesOf, dryRunHoldsAt, observedHeadsOf, placeOf, recutCardCount, recutOf, recutPlanOf, roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { cleanUpdatesOf } from '../../bus/update-done.js'
 import { manualUpdateDone } from '../../bus/update-executor.js'
-import { MERGE_DONE, PR_OBSERVED, PR_OPENED, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, MERGE_DONE, PR_OBSERVED, PR_OPENED, REVIEW_RECORDED } from '../../core/events.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, spendReviewRounds } from './merge-bench.js'
 
@@ -320,5 +324,136 @@ describe('a merge past the review round limit by an owner decision', () => {
     expect(lapsedByMerge.merge(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'no_pass_on_head' } })
     expect(lapsedByMerge.gitHub.published).toEqual([])
     expect(lapsedByMerge.gitHub.puts.filter(put => put.endpoint.endsWith('/merge'))).toEqual([])
+  })
+})
+
+const NO_AMENDS: ReadonlySet<string> = new Set()
+
+function changes(head: string | null, cardBody: unknown = 'body-1'): RoundReview {
+  return { head, verdict: 'changes', card_body: cardBody }
+}
+
+describe('the round counter', () => {
+  it('counts one round per head with a changes review and none for a pass', () => {
+    expect(roundsOf([changes(sha('a')), changes(sha('a')), { ...changes(sha('b')), verdict: 'pass' }, changes(sha('c'))], NO_AMENDS)).toBe(2)
+  })
+
+  it('holds a null head and an empty head apart', () => {
+    expect(roundsOf([changes(null), changes(''), changes(null)], NO_AMENDS)).toBe(2)
+  })
+
+  it('spends no round on a changes review that follows an owner amend of the card body', () => {
+    expect(roundsOf([changes(sha('a'), 'body-1'), changes(sha('b'), 'body-2'), changes(sha('c'), 'body-2')], new Set(['body-2']))).toBe(2)
+  })
+
+  it('spends a round on a changes review that follows a body change no owner amend wrote', () => {
+    expect(roundsOf([changes(sha('a'), 'body-1'), changes(sha('b'), 'body-2'), changes(sha('c'), 'body-2')], new Set(['body-3']))).toBe(3)
+  })
+
+  it('reads a review with no card body as no evidence of an amend', () => {
+    expect(roundsOf([changes(sha('a'), null), changes(sha('b'), 'body-1'), changes(sha('c'), undefined), changes(sha('d'), 'body-1')], new Set(['body-1']))).toBe(4)
+  })
+
+  it('counts the review about to be recorded without writing it', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    for (const [round, head] of [sha('a'), sha('b')].entries())
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:test', cardId: PR + 100, pr: PR, head, dedupeKey: `${REVIEW_RECORDED}:counter-${round}`, payload: { head, verdict: 'changes', card_body: 'body-1' }, legacy: false })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:test', cardId: PR + 100, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:counter-amend`, payload: { bodySha: 'body-2', source: AMEND_SOURCE }, legacy: false })
+
+    expect(changesRoundsOf(bench.db, PR, changes(sha('c')))).toBe(3)
+    expect(changesRoundsOf(bench.db, PR, changes(sha('c'), 'body-3'))).toBe(3)
+    expect(changesRoundsOf(bench.db, PR, changes(sha('c'), 'body-2'))).toBe(2)
+    expect(changesRoundsOf(bench.db, PR)).toBe(2)
+  })
+})
+
+const RECUT_CARD = 1070
+const RECUT_PR = 970
+
+function recutText(body: string[], witness = 'pnpm exec vitest run tests/board.test.ts'): string {
+  return parkingFileText({
+    card: `#${RECUT_CARD} a-card [implement/netwatch/M/cheap/auto] · depends #1000 · blocks —`,
+    branch: 'feat/a-card',
+    touches: ['src/a.ts', 'src/b.ts'],
+    creates: ['src/b.ts'],
+    continue: 'stop',
+    who: 'shift',
+    body: ['Do the thing.', ...body, '', 'Witnesses:', `- ${witness}`].join('\n'),
+  })
+}
+
+const SLICES = ['seam: complexity — two concerns', 'slice: 1 first — src/a.ts', 'slice: 2 second — src/b.ts · depends 1']
+
+function planOf(text: string, findings: string[]): Exclude<RecutPlan, { kind: 'owner_wait' }> {
+  const plan = recutPlanOf(RECUT_CARD, text, findings)
+  if (plan.kind === 'owner_wait')
+    throw new Error(plan.why)
+  return plan
+}
+
+function cardOf({ id, text }: RecutCard): { line: string, branch: string, touches: string[], body: string } {
+  const parsed = parseParkingFile(`${id}.md`, text)
+  if (parsed.kind === 'refused')
+    throw new Error(parsed.reason)
+  const { task } = parsed.parked
+  return { line: task.card.line, branch: task.branch, touches: task.touches, body: task.body }
+}
+
+describe('the re-cut plan', () => {
+  it('places a finding only when it names exactly one file and anchor', () => {
+    expect(placeOf('src/a.ts:run is wrong')).toEqual({ finding: 'src/a.ts:run is wrong', file: 'src/a.ts', anchor: 'run' })
+    expect(placeOf('src/a.ts:run and src/a.ts:run again')).toMatchObject({ file: 'src/a.ts', anchor: 'run' })
+    expect(placeOf('src/a.ts:run and src/b.ts:stop')).toBeNull()
+    expect(placeOf('something is wrong')).toBeNull()
+  })
+
+  it('reads slices only under a complexity or volume seam', () => {
+    expect(complexitySlicesOf(SLICES.join('\n'))).toEqual([{ index: 1, touches: ['src/a.ts'], depends: [] }, { index: 2, touches: ['src/b.ts'], depends: [1] }])
+    expect(complexitySlicesOf(['seam: risk — R1 and R4', 'slice: 1 R1 — src/a.ts'].join('\n'))).toEqual([])
+  })
+
+  it('narrows at most two placed findings off the goal witness, and slices otherwise', () => {
+    expect(planOf(recutText(SLICES), ['src/a.ts:run is wrong']).kind).toBe('narrow')
+    expect(planOf(recutText(SLICES), ['src/a.ts:run', 'src/b.ts:stop', 'src/a.ts:go']).kind).toBe('slice')
+    expect(planOf(recutText(SLICES, 'pnpm exec eslint src/a.ts'), ['src/a.ts:run is wrong']).kind).toBe('slice')
+    expect(recutPlanOf(RECUT_CARD, recutText([]), ['nowhere'])).toMatchObject({ kind: 'owner_wait' })
+  })
+
+  it('counts one new card for a narrowing and one per slice', () => {
+    expect(recutCardCount(planOf(recutText(SLICES), ['src/a.ts:run is wrong']))).toBe(1)
+    expect(recutCardCount(planOf(recutText(SLICES), []))).toBe(2)
+  })
+
+  it('narrows the card before its witnesses and cuts the findings into a card that depends on it', () => {
+    const text = recutText([])
+    const recut = recutOf(planOf(text, ['src/a.ts:run is wrong']), text, RECUT_PR, 1200)
+
+    expect(recut.added).toEqual([1200])
+    expect(recut.dropsTheCard).toBe(false)
+    expect(recut.carrier.id).toBe(RECUT_CARD)
+    const carrier = cardOf(recut.carrier)
+    expect(carrier.line).toContain('· blocks #1200')
+    expect(carrier.body).toMatch(/narrowed: src\/a\.ts:run moved to card #1200 at the review round limit \(D-104\) on PR #970: src\/a\.ts:run is wrong\n\nWitnesses:/)
+    const findings = cardOf(recut.admitted[1]!)
+    expect(findings.line).toBe('#1200 a-card-findings [implement/netwatch/S/cheap/auto] · depends #1070 · blocks —')
+    expect(findings.branch).toBe('feat/a-card-findings')
+    expect(findings.touches).toEqual(['src/a.ts'])
+  })
+
+  it('slices the card into cards in dependency order, the first on its branch, and drops the original', () => {
+    const text = recutText(SLICES)
+    const recut = recutOf(planOf(text, []), text, RECUT_PR, 1200)
+
+    expect(recut.added).toEqual([1200, 1201])
+    expect(recut.dropsTheCard).toBe(true)
+    expect(recut.carrier.id).toBe(1200)
+    const [first, second] = recut.admitted.map(cardOf)
+    expect(first!.line).toBe('#1200 a-card-1 [implement/netwatch/M/cheap/auto] · depends #1000 · blocks —')
+    expect(second!.line).toBe('#1201 a-card-2 [implement/netwatch/M/cheap/auto] · depends #1000, #1200 · blocks —')
+    expect([first!.branch, second!.branch]).toEqual(['feat/a-card', 'feat/a-card-2'])
+    expect([first!.touches, second!.touches]).toEqual([['src/a.ts'], ['src/b.ts']])
+    expect(recut.admitted[1]!.text).toContain('creates: src/b.ts')
+    expect(first!.body).not.toContain('slice: ')
   })
 })

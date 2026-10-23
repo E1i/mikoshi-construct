@@ -1,3 +1,4 @@
+import type { CardEvent } from '../../../src/commands/intake/index.js'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,12 +9,12 @@ import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
 import { parkingLane } from '../../bus/admissions.js'
-import { WINDOW_LANE } from '../../bus/card-bodies.js'
-import { BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
+import { appendCardEvent, laid, WINDOW_LANE } from '../../bus/card-bodies.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { importJournalFile } from '../../bus/import.js'
-import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
+import { busCardEvents, busIntakePorts, parkedCardNumbers } from '../../bus/intake.js'
 import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, LANE_ASSIGNED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, FACTORY_MODE, LANE_ASSIGNED } from '../../core/events.js'
 
 const NOW = new Date('2026-10-12T16:00:00.000Z')
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
@@ -409,5 +410,69 @@ describe('pnpm intake writes card events to bus.db', () => {
     }
     expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED).map(event => (event.payload as { card: string }).card)).toEqual([card(91, '—')])
     expect(cardEvents(w).filter(event => event.type === CARD_WAITING).map(event => [event.cardId, event.payload])).toEqual([[92, { depends: [81] }]])
+  })
+})
+
+describe('a card event written to the bus', () => {
+  function admission(cardId: number, text: string | undefined, depends: number[] = []): CardEvent {
+    return { type: CARD_ADMITTED, cardId, ts: NOW.toISOString(), dedupeKey: `${CARD_ADMITTED}:${cardId}:${text ?? 'none'}`, payload: { card: `#${cardId}`, depends, ...(text === undefined ? {} : { text, textSha: `sha-${text}` }) } }
+  }
+
+  function payloadsOf(bus: string, cardId: number): Record<string, unknown>[] {
+    const db = openBus(bus)
+    try {
+      return (db.prepare(`SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id`).all(cardId) as { payload: string }[]).map(row => JSON.parse(row.payload) as Record<string, unknown>)
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  it('versions an admission with a body against the admission before it, and reports a duplicate as not appended', () => {
+    const w = world()
+    const db = openBus(w.bus)
+    try {
+      expect(appendCardEvent(db, 'worker:intake:test', admission(95, 'first'))).toBe(true)
+      expect(appendCardEvent(db, 'worker:intake:test', admission(95, 'second'))).toBe(true)
+      expect(appendCardEvent(db, 'worker:intake:test', admission(95, 'second'))).toBe(false)
+      expect(appendCardEvent(db, 'worker:intake:test', admission(95, undefined))).toBe(true)
+    }
+    finally {
+      db.close()
+    }
+    const [first, second, bodiless] = payloadsOf(w.bus, 95)
+    expect(first).toMatchObject({ prevAdmissionId: null, prevTextSha: null })
+    expect(second).toMatchObject({ prevTextSha: 'sha-first' })
+    expect(second!.prevAdmissionId).toEqual(expect.any(Number))
+    expect(bodiless).not.toHaveProperty('prevAdmissionId')
+  })
+
+  it('lays an admission on the window lane in window mode and on its parent\'s lane in parallel mode, and leaves other events as they are', () => {
+    const w = world()
+    const db = openBus(w.bus)
+    try {
+      const dropped: CardEvent = { type: CARD_DROPPED, cardId: 96, ts: NOW.toISOString(), dedupeKey: `${CARD_DROPPED}:96`, payload: { to: 'dropped' } }
+      expect(laid(db, dropped)).toBe(dropped)
+      expect(laid(db, admission(96, 'body')).payload.lane).toBe(WINDOW_LANE)
+      appendEvent(db, { ts: NOW.toISOString(), type: FACTORY_MODE, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${FACTORY_MODE}:parallel`, payload: { mode: 'parallel' }, legacy: false })
+      appendCardEvent(db, 'worker:intake:test', { ...admission(97, 'parent'), payload: { ...admission(97, 'parent').payload, lane: 'lane-4' } })
+      expect(laid(db, admission(98, 'child', [97])).payload.lane).toBe('lane-4')
+    }
+    finally {
+      db.close()
+    }
+  })
+})
+
+describe('the numbers parked cards hold', () => {
+  it('reads the card numbers of every lane under the parking and refuses a parking it cannot read', () => {
+    const { parking } = world()
+    mkdirSync(path.join(parking, 'lane-2'), { recursive: true })
+    writeFileSync(path.join(parking, '90.md'), '')
+    writeFileSync(path.join(parking, 'lane-2', '1300.md'), '')
+    writeFileSync(path.join(parking, 'lane-2', 'notes.txt'), '')
+
+    expect(parkedCardNumbers(parking)().sort((a, b) => a - b)).toEqual([90, 1300])
+    expect(() => parkedCardNumbers(path.join(parking, 'missing'))()).toThrow('cannot be read, so no card number is allocated')
   })
 })

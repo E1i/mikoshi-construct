@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from '../../src/commands/intake/index.js'
 import type { BusPorts } from '../../src/program.js'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -10,14 +11,16 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { printExport, runExport } from '../../src/commands/intake/export.js'
+import { parkedNumbers } from '../../src/commands/intake/numbers.js'
+import { parkingTree } from '../../src/commands/intake/parking-tree.js'
 import { createMain } from '../../src/program.js'
 import { createUi } from '../../src/ui/console.js'
 import { resolveTheme } from '../../src/ui/theme.js'
 import { CARD_ADMITTED, CARD_MOVED } from '../core/events.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
-import { admittedLane, cardBodyText } from './card-bodies.js'
-import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from './db.js'
+import { appendCardEvent, cardBodyText, laid } from './card-bodies.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from './db.js'
 import { layLanes, repositoryLanes } from './lane-assign.js'
 import { openDatabase } from './sqlite.js'
 
@@ -37,8 +40,6 @@ const INTAKE_ADMISSIONS = `
 const ANY_ADMISSION = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? LIMIT 1`
 
 const LATEST_ADMITTED_TEXT = `SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS sha FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_type(payload, '$.text') = 'text' ORDER BY id DESC`
-
-const PREVIOUS_ADMISSION = `SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
 export interface IntakeAdmission extends RecordedIntake {
   task: string
@@ -95,30 +96,12 @@ export function busCardAdmissions(db: DatabaseSync): CardAdmissionsPort {
   }
 }
 
-function recordedTextSha(payload: string): string | null {
-  try {
-    const parsed = JSON.parse(payload) as Record<string, unknown> | null
-    return typeof parsed?.textSha === 'string' ? parsed.textSha : null
+export function parkedCardNumbers(root: string = path.join(os.homedir(), '.construct', 'parking')): () => number[] {
+  return () => {
+    if (!existsSync(root))
+      throw new Error(`the parking ${root} cannot be read, so no card number is allocated`)
+    return parkingTree(root).flatMap(dir => parkedNumbers(readdirSync(dir)))
   }
-  catch {
-    return null
-  }
-}
-
-export function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
-  if (event.type !== CARD_ADMITTED || typeof event.payload.text !== 'string')
-    return event
-  const previous = db.prepare(PREVIOUS_ADMISSION).get(event.cardId) as { id: number, payload: string } | undefined
-  return { ...event, payload: { ...event.payload, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
-}
-
-function laid(db: DatabaseSync, event: CardEvent): CardEvent {
-  return event.type === CARD_ADMITTED ? { ...event, payload: { ...event.payload, lane: admittedLane(db, event.cardId, event.payload.depends) } } : event
-}
-
-function append(db: DatabaseSync, actor: string, unversioned: CardEvent): void {
-  const event = versioned(db, unversioned)
-  appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
 }
 
 function parkedText(to: string, cardId: number): string | null {
@@ -155,10 +138,10 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
   return event => inTransaction(db, () => {
     if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
-    append(db, actor, laid(db, event))
+    appendCardEvent(db, actor, laid(db, event))
     const admitted = event.type === CARD_MOVED ? admissionOfMove(db, event) : null
     if (admitted !== null)
-      append(db, actor, admitted)
+      appendCardEvent(db, actor, admitted)
     if (event.type === CARD_ADMITTED || admitted !== null)
       layLanes(db, lanes(), event.ts, actor, event.cardId)
   })

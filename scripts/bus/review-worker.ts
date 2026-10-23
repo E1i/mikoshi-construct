@@ -7,6 +7,7 @@ import type { GitHub } from './github.js'
 import type { SessionMeasure } from './heartbeat.js'
 import type { Lease } from './lease.js'
 import type { DetectionMode, Scope } from './node.js'
+import type { RoundLimitRecut } from './pr-close.js'
 import type { QueuedTask } from './queue.js'
 import type { ReadSet } from './report.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
@@ -29,13 +30,15 @@ import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
 import { keepDryRun } from './dry-run-record.js'
-import { ghApi } from './github.js'
+import { ghApi, ghApiPatch, ghApiPost } from './github.js'
 import { busSessionPulse, measureSession } from './heartbeat.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
+import { parkedCardNumbers } from './intake.js'
 import { expireLeases, leaseNext, leaseQueued } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { Node, runNode, SWITCH_FLAG } from './node.js'
 import { busCardBodies } from './parking-reads.js'
+import { RoundLimitRecutter } from './pr-close.js'
 import { promptsDirOf } from './prompt-store.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from './queue.js'
 import { shadowReading } from './report.js'
@@ -324,6 +327,7 @@ export interface ReviewRun {
   notePr?: (pr: number, line: string) => void
   isolation: IsolationReader
   keepDryRun?: KeepDryRun
+  recut?: (db: DatabaseSync) => RoundLimitRecut
 }
 
 function ghOutput(port: GhPort, args: string[], call: GhCallOptions): string {
@@ -372,6 +376,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     clearLeftovers: run.clearLeftovers,
     notePr: run.notePr,
     isolation: run.isolation,
+    recut: run.recut?.(db),
     prompts: promptsDirOf(run.busPath),
     mode: detection,
     env,
@@ -418,6 +423,7 @@ async function main(): Promise<number> {
     notePr: ghNotePr(cwd),
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
+    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), parked: parkedCardNumbers() }),
   })
 }
 

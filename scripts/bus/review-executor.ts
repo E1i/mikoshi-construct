@@ -4,18 +4,19 @@ import type { Isolation, IsolationReader } from '../ports/isolation.js'
 import type { BusEvent } from './db.js'
 import type { GitHub } from './github.js'
 import type { AfterFailure, Lease, SUPERSEDED_LEASE } from './lease.js'
+import type { RoundLimitAt, RoundLimitRecut } from './pr-close.js'
 import type { SessionInput } from './prompt-store.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
-import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_RECORDED, REVIEW_TREE_ORPHANED } from '../core/events.js'
+import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED } from '../core/events.js'
 import { NO_ISOLATION } from '../ports/isolation.js'
 import { cardBodyText } from './card-bodies.js'
 import { appendEvent } from './db.js'
 import { reviewInputOfKey } from './identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from './lease.js'
 import { storedInput } from './prompt-store.js'
-import { headsWithChangesOf, REVIEW_ROUNDS } from './queue.js'
+import { changesRoundsOf, REVIEW_ROUNDS } from './queue.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
 import { PREFIX, ReviewFailed } from './reviewer.js'
@@ -23,7 +24,7 @@ import { PREFIX, ReviewFailed } from './reviewer.js'
 const CI_NOT_READY = 'ci_not_ready'
 const STALE_HEAD = 'stale_head'
 export const TREE_LEFT = 'tree_left'
-export const REVIEW_ROUNDS_SPENT = 'review.rounds_spent'
+export { REVIEW_ROUNDS_SPENT }
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const SPAWNS_NO_SESSION = 'spawns-no-session'
 
@@ -45,6 +46,7 @@ export interface ExecutorParts {
   clearLeftovers?: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
   isolation: IsolationReader | typeof SPAWNS_NO_SESSION
+  recut?: RoundLimitRecut
 }
 
 interface Reviewed {
@@ -199,16 +201,19 @@ export class ReviewExecutor {
       return this.denied(lease, outcome.denial)
     const spent = this.roundsSpent(lease, review)
     completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }), ...(spent === null ? [] : [spent])])
-    if (spent !== null && lease.pr !== null)
+    if (spent !== null && lease.pr !== null) {
       this.noted(lease.pr, roundLimitLine(lease.pr, REVIEW_ROUNDS))
+      this.recutAtTheLimit({ cardId: lease.cardId, pr: lease.pr, head: lease.head, findings: review.findings })
+    }
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
   }
 
   private roundsSpent(lease: Lease, review: Review): BusEvent | null {
-    if (review.verdict !== 'changes' || lease.pr === null)
+    if (lease.pr === null)
       return null
-    const rounds = headsWithChangesOf(this.parts.db, lease.pr).add(lease.head).size
-    if (rounds < REVIEW_ROUNDS)
+    const before = changesRoundsOf(this.parts.db, lease.pr)
+    const rounds = changesRoundsOf(this.parts.db, lease.pr, { head: lease.head, verdict: review.verdict, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null })
+    if (before >= REVIEW_ROUNDS || rounds < REVIEW_ROUNDS)
       return null
     return {
       ts: this.ts(),
@@ -229,6 +234,15 @@ export class ReviewExecutor {
     }
     catch (error) {
       console.error(`${PREFIX}PR #${pr}: the round-limit line was not added to its body, the bus event holds the report: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  private recutAtTheLimit(at: RoundLimitAt): void {
+    try {
+      this.parts.recut?.recut(at)
+    }
+    catch (error) {
+      console.error(`${PREFIX}PR #${at.pr}: the re-cut at the round limit stopped before its outcome was recorded, and the queue opens the owner wait for it: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
