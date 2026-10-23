@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../bus/db.js'
+import { openDatabase } from '../../bus/sqlite.js'
 import { recordWindowHeartbeat, WINDOW_BEAT_MS, windowBeat, windowOf, windowSessionOf } from '../../bus/window-heartbeat.js'
 import { WINDOW_ACTOR } from '../../bus/window-requests.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
@@ -32,6 +33,30 @@ function beats(file: string): { ts: string, actor: string }[] {
   }
   finally {
     db.close()
+  }
+}
+
+function sqliteErrorOf(run: () => void): unknown {
+  try {
+    run()
+  }
+  catch (error) {
+    return error
+  }
+  throw new Error('the statement did not fail')
+}
+
+function lockedBusError(file: string): unknown {
+  const holder = openBus(file)
+  const waiter = openDatabase(file, { timeout: 0 })
+  try {
+    holder.exec('BEGIN IMMEDIATE')
+    return sqliteErrorOf(() => waiter.exec('BEGIN IMMEDIATE'))
+  }
+  finally {
+    holder.exec('ROLLBACK')
+    waiter.close()
+    holder.close()
   }
 }
 
@@ -91,6 +116,41 @@ describe('the window heartbeat', () => {
     const silent = busFile()
     windowBeat(silent, null, () => START, () => ({}))()
     expect(beats(silent)).toEqual([])
+  })
+
+  it('a locked bus skips one window beat without throwing', () => {
+    const file = busFile()
+    const locked = lockedBusError(file)
+    expect(locked).toMatchObject({ errcode: 5 })
+    let now = START
+    let measures = 0
+    const beat = windowBeat(file, { session: 'abc-1', mode: 'loop' }, () => now, () => {
+      measures += 1
+      if (measures === 1)
+        throw locked
+      return {}
+    })
+    expect(() => beat()).not.toThrow()
+    expect(beats(file)).toEqual([])
+    now += WINDOW_BEAT_MS - 1
+    beat()
+    expect(measures).toBe(1)
+    now += 1
+    beat()
+    expect(beats(file)).toEqual([{ ts: new Date(START + WINDOW_BEAT_MS).toISOString(), actor: `${WINDOW_ACTOR}abc-1` }])
+  })
+
+  it('an error other than a locked bus still throws from the window beat', () => {
+    const file = busFile()
+    const malformed = sqliteErrorOf(() => openDatabase(':memory:').exec('SELEKT 1'))
+    expect(malformed).toMatchObject({ errcode: 1 })
+    expect(() => windowBeat(file, { session: 'abc-1', mode: 'loop' }, () => START, () => {
+      throw malformed
+    })()).toThrow(malformed as Error)
+    const broken = new Error('the transcript cannot be read')
+    expect(() => windowBeat(file, { session: 'abc-1', mode: 'loop' }, () => START, () => {
+      throw broken
+    })()).toThrow(broken)
   })
 
   it('the window heartbeat carries the gauges of the window session transcript', () => {
