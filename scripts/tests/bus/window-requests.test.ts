@@ -427,7 +427,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
 
     const outcomes = made.requests().run()
     expect(outcomes.map(outcome => [outcome.request, outcome.kind])).toEqual([[fromOrder, 'done'], [notInOrder, 'refused'], [notAnOrder, 'refused'], [fromAnswer, 'done']])
-    expect(outcomes[1]!.detail).toBe(`decisions:add: the text is not in ${order} verbatim; the bus writes only the owner's own words`)
+    expect(outcomes[1]!.detail).toBe(`decisions:add: the text is no whole line of ${order}; the bus writes only the owner's own words, verbatim`)
     expect(readFileSync(file, 'utf8')).toContain(`- D-2 · ${stampOf(made.bench.clock.now())} — [owner] allow-live witness for Q13 on card #1214. · card #1214 · decisions:add\n- D-3 · `)
     expect(answerOf(made, fromOrder).type).toBe(REQUEST_DONE)
     reduce(made.bench.db)
@@ -450,6 +450,39 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(readFileSync(file, 'utf8')).toBe(before)
     reduce(made.bench.db)
     expect(inForceDecisions(made.bench.db)).toEqual([])
+  })
+
+  it('a decisions:add request from an order is refused for an empty body and for a part of a line', () => {
+    const made = room()
+    const file = withDecisionsFile(made, '- D-1 · 2026-10-08 — first. · decisions:add')
+    const order = path.join(made.root, '.construct', 'handoff', 'owner-order-s157-q13.md')
+    writeFileSync(order, '# Owner order (Eli), verbatim\n\n> allow-live witness for Q13.\nanother line.\n')
+    const before = readFileSync(file, 'utf8')
+    const empty = windowAsks(made, '--from', order, '[owner]')
+    const part = windowAsks(made, '--from', order, '[owner] allow')
+    const quoted = windowAsks(made, '--from', order, '[owner] allow-live witness for Q13.')
+    expect(made.requests().run().map(outcome => [outcome.request, outcome.kind, outcome.detail.slice(0, 30)])).toEqual([
+      [empty, 'refused', 'decisions:add: an empty decisi'],
+      [part, 'refused', 'decisions:add: the text is no '],
+      [quoted, 'done', `- D-2 · ${stampOf(made.bench.clock.now())} — [owner]`.slice(0, 30)],
+    ])
+    expect(readFileSync(file, 'utf8')).toBe(`${before}- D-2 · ${stampOf(made.bench.clock.now())} — [owner] allow-live witness for Q13. · decisions:add\n`)
+  })
+
+  it('a decisions:add request archives the decisions whose card the bus holds merged, so spent ones never fill the limit', () => {
+    const made = room()
+    const filler = Array.from({ length: 53 }, (_, at) => `- D-${at + 1} · 2026-10-08 — decision ${at + 1}.`)
+    const spent = `- D-55 · 2026-10-09 — ${'spent '.repeat(1200).trim()} · card #${CARD}`
+    const file = withDecisionsFile(made, ...filler, '- D-54 · 2026-10-09 — A decision bound to a card is spent once that card is merged or closed.', spent)
+    appendEvent(made.bench.db, { ts: made.bench.clock.now().toISOString(), type: 'fixture.merged', actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `fixture.merged:${CARD}`, payload: {}, legacy: false })
+    const event = (made.bench.db.prepare('SELECT id FROM events WHERE dedupe_key = ?').get(`fixture.merged:${CARD}`) as { id: number }).id
+    made.bench.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, \'merged\', NULL, ?)').run(CARD, event)
+
+    const request = windowAsks(made, '--from', ANSWER_SOURCE, `[owner] ${'kept '.repeat(300).trim()}`)
+    expect(made.requests().run()).toMatchObject([{ kind: 'done', request }])
+    expect(readFileSync(file, 'utf8')).not.toContain(spent)
+    expect(readFileSync(file, 'utf8')).toContain('- D-56 · ')
+    expect(readFileSync(path.join(made.root, '.construct', 'owner-decisions.archive.md'), 'utf8')).toContain(`${spent}\n`)
   })
 
   it('a decisions:add request needs one text and one --from, and takes no --file', () => {

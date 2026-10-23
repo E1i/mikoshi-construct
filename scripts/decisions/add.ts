@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { OwnerDecision } from '../bus/decisions.js'
 import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -6,12 +7,13 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { recordDecision } from '../bus/decisions.js'
 import { runRequest, SESSION_VARIABLE } from '../bus/window-requests.js'
+import { REQUEST_DONE, REQUEST_REFUSED } from '../core/events.js'
 import { busHistory } from '../ghosts/journal.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, WRITER_MARKER } from './decisions.js'
 import { archiveOf, defaultDecisions, settledCards } from './read.js'
 
-export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
+export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] [--settled #N]... "[owner] <decision>"'
 export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
 
 const SOURCE_TAG = /^\[[^\]]*\]/
@@ -37,6 +39,7 @@ export interface AddArgs {
   supersedes: number[]
   cards: number[]
   until: string | null
+  settled?: number[]
   text: string
 }
 
@@ -48,8 +51,8 @@ export interface AddPlan {
   archived: number[]
 }
 
-function parseArgs(args: readonly string[]): AddArgs | null {
-  const parsed: AddArgs = { file: null, supersedes: [], cards: [], until: null, text: '' }
+function parseArgs(args: readonly string[]): Required<AddArgs> | null {
+  const parsed: Required<AddArgs> = { file: null, supersedes: [], cards: [], until: null, settled: [], text: '' }
   const texts: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -64,6 +67,10 @@ function parseArgs(args: readonly string[]): AddArgs | null {
     }
     else if (arg === '--card' && value !== undefined && CARD_REFERENCE.test(value)) {
       parsed.cards.push(Number(CARD_REFERENCE.exec(value)![1]))
+      index += 1
+    }
+    else if (arg === '--settled' && value !== undefined && CARD_REFERENCE.test(value)) {
+      parsed.settled.push(Number(CARD_REFERENCE.exec(value)![1]))
       index += 1
     }
     else if (arg === '--until' && value !== undefined && parsed.until === null && UNTIL_VALUE.test(value) && calendarTerm(value)) {
@@ -157,7 +164,7 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
   const archiveExisted = deps.exists(archiveFile)
   const originalArchive = archiveExisted ? deps.read(archiveFile) : ''
   const now = deps.now()
-  const plan = planAdd(original, originalArchive, parsed, now, deps.settled)
+  const plan = planAdd(original, originalArchive, parsed, now, card => parsed.settled.includes(card) || deps.settled(card))
   if (typeof plan === 'string') {
     deps.err(plan)
     return 1
@@ -221,10 +228,20 @@ function settledCardsOnThisMachine(): (card: number) => boolean {
   return card => cards.has(card)
 }
 
+export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void): number {
+  const lines: string[] = []
+  const code = runRequest(['decisions:add', ...args], db, now, session, line => lines.push(line))
+  for (const line of lines)
+    out(line)
+  if (code === 0)
+    out(`${PREFIX}not written yet: ${lines[0]?.match(/window\.request \d+/)?.[0] ?? 'the request'} waits for bus:run, which writes it into owner-decisions.md outside the sandbox and answers ${REQUEST_DONE} or ${REQUEST_REFUSED}; while bus:run is down nothing is written`)
+  return code
+}
+
 function requestFromThisWindow(session: string, args: string[]): number {
   const db = openBus(defaultBusPath())
   try {
-    return runRequest(['decisions:add', ...args], db, new Date(), session, line => console.log(line))
+    return requestDecision(args, db, new Date(), session, line => console.log(line))
   }
   finally {
     db.close()

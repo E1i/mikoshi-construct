@@ -11,10 +11,12 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BOARD_ALARM, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
+import { settledCards } from '../decisions/read.js'
 import { FACTORY_MODES, isFactoryMode } from './card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from './db.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
+import { legacyHistory } from './legacy-history.js'
 import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from './queue.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from './round-limit-decision.js'
 import { decisionsInForceAt } from './shards.js'
@@ -28,6 +30,7 @@ const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM
 const TABLE_ROW = /^\s*\|/
 const TABLE_RULE = /^\s*\|[\s:|-]+\|\s*$/
 const OWNER_ORDER = /^owner-order-[^/]+\.md$/
+const QUOTE_MARK = /^\s*>\s?/
 export const ANSWER_SOURCE = 'answer'
 const DECISION_FLAGS: ReadonlyMap<string, string> = new Map([['--card', 'cards'], ['--supersedes', 'supersedes'], ['--until', 'until'], ['--from', 'from']])
 export const WINDOW_ACTOR = 'worker:window:'
@@ -177,7 +180,8 @@ export class WindowRequests {
     const unsourced = ownerWordsRefusal(decision, from)
     if (unsourced !== null)
       return { done: false, why: unsourced }
-    const written = this.tools.addDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), decision])
+    const settled = [...settledCards(legacyHistory(this.db), cardStatesOf(this.db))].map(card => `#${card}`)
+    const written = this.tools.addDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), decision])
     return { done: written.code === 0, why: written.lines.join('; ') }
   }
 
@@ -372,6 +376,11 @@ export class WindowRequests {
   }
 }
 
+function cardStatesOf(db: DatabaseSync): Map<string, string> {
+  const rows = db.prepare('SELECT card_id, state FROM cards WHERE state IS NOT NULL').all() as { card_id: number, state: string }[]
+  return new Map(rows.map(row => [String(row.card_id), row.state]))
+}
+
 function flagsOf(name: string, values: unknown): string[] {
   return (Array.isArray(values) ? values : values === undefined ? [] : [values]).flatMap(value => [name, String(value)])
 }
@@ -382,7 +391,9 @@ function ownerWordsRefusal(decision: string, from: string): string | null {
   if (!path.isAbsolute(from) || !OWNER_ORDER.test(path.basename(from)) || path.basename(path.dirname(from)) !== 'handoff' || !existsSync(from))
     return `decisions:add --from ${from} is neither ${ANSWER_SOURCE} nor an absolute handoff/owner-order-*.md that exists`
   const words = decision.startsWith(OWNER_SOURCE) ? decision.slice(OWNER_SOURCE.length).trim() : decision
-  return readFileSync(from, 'utf8').includes(words) ? null : `decisions:add: the text is not in ${from} verbatim; the bus writes only the owner's own words`
+  if (words === '')
+    return `decisions:add: an empty decision; the bus writes only the owner's own words`
+  return readFileSync(from, 'utf8').split('\n').some(line => line.replace(QUOTE_MARK, '').trim() === words) ? null : `decisions:add: the text is no whole line of ${from}; the bus writes only the owner's own words, verbatim`
 }
 
 function decisionRequestOf(argv: readonly string[]): Record<string, unknown> | null {
