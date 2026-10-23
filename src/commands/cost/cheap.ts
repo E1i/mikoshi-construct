@@ -9,7 +9,6 @@ import { median, MINIMUM_SAMPLE } from './sample.js'
 import { tokensWithoutCacheReads } from './usage.js'
 
 export const SHIFT_JOURNAL_FILE = 'shift.jsonl'
-export const WINDOW_JOURNAL_FILE = 'ghosts.jsonl'
 
 const CHEAP_CONTOUR = 'cheap'
 const SUBAGENTS_DIR = 'subagents'
@@ -89,10 +88,6 @@ interface WindowLine {
 
 export function defaultShiftRoot(): string {
   return path.join(homedir(), '.construct', 'shift')
-}
-
-export function defaultWindowJournal(): string {
-  return path.join(homedir(), '.construct', 'handoff', WINDOW_JOURNAL_FILE)
 }
 
 export function cheapClass(card: { kind: string, size: string }): string {

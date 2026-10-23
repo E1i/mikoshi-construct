@@ -49,7 +49,7 @@ function busWithAdmittedCard(): { bus: string, text: string } {
   const db = openBus(bus)
   try {
     const ports = busIntakePorts(db, 's1')
-    runAdmit({ file, dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, parkingRoot: parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF)
+    runAdmit({ file, dir: repo, dryRun: false, autoConfirm: false, parkingRoot: parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF)
     reduce(db)
   }
   finally {

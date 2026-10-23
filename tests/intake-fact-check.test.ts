@@ -80,7 +80,7 @@ function intake(cards: Record<string, unknown>[], options: Partial<IntakeOptions
   const parking = path.join(root, 'parking')
   const draftFile = path.join(root, 'draft.json')
   writeFileSync(draftFile, JSON.stringify({ cards }))
-  const result = runIntake({ draft: draftFile, parking, dir: root, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, readStdin: () => options.taken ?? '1', ...options, taken: '-' })
+  const result = runIntake({ draft: draftFile, parking, dir: root, dryRun: false, autoConfirm: true, readStdin: () => options.taken ?? '1', ...options, taken: '-' })
   return { result, parking, draftFile }
 }
 
@@ -157,11 +157,9 @@ describe('intake fact check', () => {
 
   it('removes a merged depends, keeps a parked one and marks an unknown one unclear', () => {
     const root = scratch()
-    const journal = path.join(root, 'ghosts.jsonl')
-    writeFileSync(journal, `${JSON.stringify({ event: 'path', task: '77', path: 'cheap', verification: 'run' })}\n${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' })}\n${JSON.stringify({ event: 'start', task: '78' })}\n`)
     put(root, 'parking/13.md', '')
     const dir = repository(['src/a.ts'])
-    const { result, parking } = intake([card({ depends: ['#77', '#13', '#78', '#900'], blocks: ['#77'] })], { root, dir, journal, taken: '12' })
+    const { result, parking } = intake([card({ depends: ['#77', '#13', '#78', '#900'], blocks: ['#77'] })], { root, dir, cardStates: () => new Map([['77', 'merged']]), taken: '12' })
     const text = written(result, parking, 14)
     const output = printed(result)
     expect(output).toContain('corrected: depends — #77 → (removed) — already merged')
@@ -289,12 +287,8 @@ describe('intake fact check', () => {
 
   it('keeps every original value in the card and never edits the draft file', () => {
     const dir = repository(['src/commands/sync/index.ts'])
-    const journal = path.join(scratch(), 'ghosts.jsonl')
-    writeFileSync(journal, `${JSON.stringify({ event: 'path', task: '77', path: 'cheap', verification: 'run' })}
-${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' })}
-`)
     const draftBefore = JSON.stringify({ cards: [card({ number: 12, touches: ['src/command/sync/**'], contour: 'fast', depends: ['#77'] })] })
-    const { result, parking, draftFile } = intake(JSON.parse(draftBefore).cards, { dir, journal, taken: '12' })
+    const { result, parking, draftFile } = intake(JSON.parse(draftBefore).cards, { dir, cardStates: () => new Map([['77', 'merged']]), taken: '12' })
     const text = written(result, parking, 13)
     for (const was of ['#12', 'src/command/sync/**', 'fast', '#77'])
       expect(text).toContain(`${was} →`)
@@ -361,7 +355,7 @@ ${JSON.stringify({ event: 'merge', task: '77', by: 'E1i', commit: 'c0ffee', ts: 
     const parked = path.join(dir, 'parking', '80.md')
     const witnesses = witness === undefined ? '' : `\nWitnesses:\n- ${witness}\n`
     put(dir, 'parking/80.md', `card: #80 admit-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-80\ntouches: ${touches}\ncontinue: stop\nwho: shift\n\nDo the thing.\n${witnesses}`)
-    const { status } = runAdmit({ file: parked, dir, journal: path.join(dir, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, parkingRoot: path.join(dir, 'parking') })
+    const { status } = runAdmit({ file: parked, dir, dryRun: false, autoConfirm: true, parkingRoot: path.join(dir, 'parking') })
     return { status, parked }
   }
 

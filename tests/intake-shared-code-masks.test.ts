@@ -44,7 +44,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-interface World { root: string, repo: string, parking: string, journal: string, contourMap: string }
+interface World { root: string, repo: string, parking: string, contourMap: string }
 
 function world(): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-masks-'))
@@ -56,7 +56,7 @@ function world(): World {
   }
   const contourMap = path.join(root, 'contour-map.md')
   writeFileSync(contourMap, CONTOUR_MAP)
-  return { root, repo, parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), contourMap }
+  return { root, repo, parking: path.join(root, 'parking'), contourMap }
 }
 
 function park(w: World, touches: string, creates?: string): string {
@@ -67,7 +67,7 @@ function park(w: World, touches: string, creates?: string): string {
 }
 
 function admit(w: World, file: string, contourMap = w.contourMap): AdmitResult {
-  return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: true, parkingRoot: w.parking, contourMap }, () => NOW)
+  return runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, contourMap }, () => NOW)
 }
 
 function printed(print: (ui: ReturnType<typeof createUi>) => number): { lines: string[], exit: number } {
@@ -132,7 +132,7 @@ describe('intake refuses a ** mask over shared factory code', () => {
     const w = world()
     const draft = path.join(w.root, 'draft.json')
     writeFileSync(draft, JSON.stringify({ cards: [{ name: 'bus-card', kind: 'implement', milestone: 'netwatch', size: 'S', contour: 'cheap', touches: ['scripts/bus/**'], task: 'Do it.', witnesses: ['`true` passes'] }] }))
-    const result = runIntake({ draft, taken: '-', parking: w.parking, parkingRoot: w.parking, contourMap: w.contourMap, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: true, readStdin: () => '' })
+    const result = runIntake({ draft, taken: '-', parking: w.parking, parkingRoot: w.parking, contourMap: w.contourMap, dir: w.repo, dryRun: false, autoConfirm: true, readStdin: () => '' })
     expect(result).toMatchObject({ status: 'refused', refusal: 'sharedCodeMask' })
     const { lines, exit } = printed(ui => printIntake(ui, result))
     expect(exit).toBe(INTAKE_EXIT.refused)

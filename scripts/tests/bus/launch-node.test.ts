@@ -751,7 +751,7 @@ describe('the launch node', () => {
     const parked = (body: string): string => parkingFileText({ card: '#1191 amended-card [implement/netwatch/S/cheap/auto] · depends — · blocks —', branch: 'feat/amended-card', touches: ['docs/a.md'], continue: 'auto', who: 'shift', body })
     const admitted = (): string => {
       const ports = busIntakePorts(made.db, 's1')
-      const result = runAdmit({ file, dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, parkingRoot: path.join(root, 'parking'), events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, made.clock.now)
+      const result = runAdmit({ file, dir: repo, dryRun: false, autoConfirm: true, parkingRoot: path.join(root, 'parking'), events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, made.clock.now)
       made.tick()
       return result.status === 'admitted' ? result.source : result.status
     }

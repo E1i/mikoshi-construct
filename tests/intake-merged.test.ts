@@ -8,8 +8,6 @@ import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
 const TASK = 'The intake should read a depends as met only once its pull request is merged.'
-const DONE = { event: 'path', task: '77', path: 'cheap', pr: 537, verification: 'run' }
-const MERGED = { event: 'merge', task: '77', pr: 537, by: 'owner', commit: 'abc', merged: '2026-10-05T00:00:00Z' }
 const roots: string[] = []
 
 afterEach(() => {
@@ -23,13 +21,7 @@ function scratch(): string {
   return root
 }
 
-function journalOf(...lines: object[]): string {
-  const file = path.join(scratch(), 'ghosts.jsonl')
-  writeFileSync(file, lines.map(line => `${JSON.stringify(line)}\n`).join(''))
-  return file
-}
-
-function parkedCardText(journal: string, fields: Record<string, unknown>, cardStates?: () => ReadonlyMap<string, string>): { text: string, output: string } {
+function parkedCardText(cards: ReadonlyMap<string, string>, fields: Record<string, unknown>): { text: string, output: string } {
   const root = scratch()
   const parking = path.join(root, 'parking')
   mkdirSync(parking)
@@ -37,7 +29,7 @@ function parkedCardText(journal: string, fields: Record<string, unknown>, cardSt
   const draft = path.join(root, 'draft.json')
   const card = { name: 'merge-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['src/a.ts'], task: TASK, witnesses: ['`pnpm run quality` is green'], ...fields }
   writeFileSync(draft, JSON.stringify({ cards: [card] }))
-  const result: IntakeResult = runIntake({ draft, parking, dir: root, journal, dryRun: false, autoConfirm: true, readStdin: () => '12', taken: '-', ...(cardStates === undefined ? {} : { cardStates }) })
+  const result: IntakeResult = runIntake({ draft, parking, dir: root, dryRun: false, autoConfirm: true, readStdin: () => '12', taken: '-', cardStates: () => cards })
   if (result.status === 'refused')
     throw new Error(`refused: ${result.refusal} ${result.detail.join('; ')}`)
   const lines: string[] = []
@@ -46,42 +38,27 @@ function parkedCardText(journal: string, fields: Record<string, unknown>, cardSt
   return { text: readFileSync(path.join(parking, `${assigned}.md`), 'utf8'), output: lines.join('\n') }
 }
 
-describe('a depends or blocks is met by a merge line, not by a done task', () => {
-  it('keeps a depends on a task done but not merged and removes it once a merge line names it', () => {
-    const open = parkedCardText(journalOf(DONE), { depends: ['#77'] })
-    expect(open.text).toMatch(/^card: #14 \S+ \[.*\] · depends #77 · blocks —$/m)
+describe('a depends or blocks is met by a card the bus holds merged or closed, not by one still in work', () => {
+  it('keeps a depends on a card the bus holds in work and removes it once the bus holds it merged', () => {
+    const open = parkedCardText(new Map([['77', 'running']]), { depends: ['#77'] })
+    expect(open.text).toMatch(/^card: #78 \S+ \[.*\] · depends #77 · blocks —$/m)
     expect(open.output).not.toContain('corrected: depends')
-    expect(open.text).not.toContain('unclear: depends')
-    const merged = parkedCardText(journalOf(DONE, MERGED), { depends: ['#77'] })
-    expect(merged.text).toMatch(/^card: #14 \S+ \[.*\] · depends — · blocks —$/m)
+    const merged = parkedCardText(new Map([['77', 'merged']]), { depends: ['#77'] })
+    expect(merged.text).toMatch(/^card: #78 \S+ \[.*\] · depends — · blocks —$/m)
     expect(merged.output).toContain('corrected: depends — #77 → (removed) — already merged')
   })
 
   it('applies the same rule to blocks', () => {
-    const open = parkedCardText(journalOf(DONE), { blocks: ['#77'] })
-    expect(open.text).toMatch(/^card: #14 \S+ \[.*\] · depends — · blocks #77$/m)
+    const open = parkedCardText(new Map([['77', 'running']]), { blocks: ['#77'] })
+    expect(open.text).toMatch(/^card: #78 \S+ \[.*\] · depends — · blocks #77$/m)
     expect(open.output).not.toContain('corrected: blocks')
-    const merged = parkedCardText(journalOf(DONE, MERGED), { blocks: ['#77'] })
+    const merged = parkedCardText(new Map([['77', 'merged']]), { blocks: ['#77'] })
     expect(merged.output).toContain('corrected: blocks — #77 → (removed) — already merged')
-    expect(merged.text).toMatch(/^card: #14 \S+ \[.*\] · depends — · blocks —$/m)
+    expect(merged.text).toMatch(/^card: #78 \S+ \[.*\] · depends — · blocks —$/m)
   })
 
-  it('reads a depends as merged when the bus holds its card merged or closed, and a merge line after the journal half of history only through the bus', () => {
-    const byBus = parkedCardText(journalOf(DONE), { depends: ['#77'] }, () => new Map([['77', 'closed']]))
+  it('reads a depends as merged when the bus holds its card closed', () => {
+    const byBus = parkedCardText(new Map([['77', 'closed']]), { depends: ['#77'] })
     expect(byBus.output).toContain('corrected: depends — #77 → (removed) — already merged')
-    const late = parkedCardText(journalOf({ ...MERGED, ts: '2026-10-12T18:00:00.000Z' }), { depends: ['#77'] }, () => new Map([['77', 'running']]))
-    expect(late.text).toMatch(/^card: #78 \S+ \[.*\] · depends #77 · blocks —$/m)
-  })
-
-  it('without a bus a merge line after the cutoff lifts depends', () => {
-    const late = parkedCardText(journalOf({ ...MERGED, ts: '2026-10-12T18:00:00.000Z' }), { depends: ['#77'] })
-    expect(late.output).toContain('corrected: depends — #77 → (removed) — already merged')
-    expect(late.text).toMatch(/^card: #14 \S+ \[.*\] · depends — · blocks —$/m)
-  })
-
-  it('with a bus a merge line after the cutoff lifts nothing', () => {
-    const late = parkedCardText(journalOf({ ...MERGED, ts: '2026-10-12T18:00:00.000Z' }), { depends: ['#77'] }, () => new Map())
-    expect(late.output).not.toContain('corrected: depends')
-    expect(late.text).toMatch(/^card: #14 \S+ \[.*\] · depends #77 · blocks —$/m)
   })
 })

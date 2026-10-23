@@ -43,7 +43,7 @@ function admitThenMove(w: { parking: string, journal: string }, events?: CardEve
   const repo = path.join(path.dirname(w.parking), 'repo')
   mkdirSync(path.join(repo, 'src'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'a.ts'), '')
-  expect(runAdmit({ file, dir: repo, journal: w.journal, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
+  expect(runAdmit({ file, dir: repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
   expect(runMove({ move: '#706', to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('moved')
 }
 

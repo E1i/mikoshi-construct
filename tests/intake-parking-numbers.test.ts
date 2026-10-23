@@ -26,13 +26,11 @@ function park(dir: string, ...ids: number[]): string {
   return dir
 }
 
-function assigned(root: string, parking: string, parkingRoot: string, journalLines: object[] = [], bus?: ReadonlyMap<string, string>): number[] {
+function assigned(root: string, parking: string, parkingRoot: string, bus?: ReadonlyMap<string, string>): number[] {
   const draft = path.join(root, 'draft.json')
   const card = { name: 'number-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['src/a.ts'], task: TASK, witnesses: ['`pnpm run quality` is green'] }
   writeFileSync(draft, JSON.stringify({ cards: [card] }))
-  const journal = path.join(root, 'ghosts.jsonl')
-  writeFileSync(journal, journalLines.map(line => `${JSON.stringify(line)}\n`).join(''))
-  const result = runIntake({ draft, parking, parkingRoot, dir: root, journal, dryRun: true, autoConfirm: true, readStdin: () => '1', taken: '-', cardStates: bus === undefined ? undefined : () => bus })
+  const result = runIntake({ draft, parking, parkingRoot, dir: root, dryRun: true, autoConfirm: true, readStdin: () => '1', taken: '-', cardStates: bus === undefined ? undefined : () => bus })
   if (result.status !== 'dryRun')
     throw new Error(`not a dry run: ${JSON.stringify(result)}`)
   return result.cards.map(card => card.id)
@@ -68,18 +66,10 @@ describe('construct intake assigns a number no card already holds', () => {
     expect(assigned(root, elsewhere, parkingRoot)).toEqual([8])
   })
 
-  it('skips a number the journal admitted', () => {
+  it('skips a number the bus holds', () => {
     const root = scratch()
     const parkingRoot = park(path.join(root, 'parking'), 10)
-    const intake = { event: 'intake', task: '621', card: '#621 moved-card [implement/black-ice/S/cheap/auto] · depends — · blocks —', confirmation: 'auto', corrections: [], bodySha: 'abc', ts: '2026-10-06T00:00:00Z' }
-    expect(assigned(root, parkingRoot, parkingRoot, [intake])).toEqual([622])
-  })
-
-  it('with the bus a number the bus holds is taken and a journal intake line after the cutoff is not counted', () => {
-    const root = scratch()
-    const parkingRoot = park(path.join(root, 'parking'), 10)
-    const intake = { event: 'intake', task: '700', card: '#700 late-card [implement/black-ice/S/cheap/auto] · depends — · blocks —', confirmation: 'auto', corrections: [], bodySha: 'abc', ts: '2026-10-13T00:00:00Z' }
-    expect(assigned(root, parkingRoot, parkingRoot, [intake], new Map([['40', 'parked']]))).toEqual([41])
+    expect(assigned(root, parkingRoot, parkingRoot, new Map([['40', 'parked']]))).toEqual([41])
   })
 })
 

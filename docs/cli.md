@@ -1851,7 +1851,6 @@ It runs no model and no `gh`.
 | `--taken <file\|->` | — | The pull request and issue numbers already taken, separated by whitespace, from a file or stdin. Required. |
 | `--parking <dir>` | `~/.construct/parking` | Where the cards are written, outside the repository. |
 | `--dir <dir>` | `.` | The repository the `touches`, `creates` and witness checks read. Never written. |
-| `--journal <file>` | `~/.construct/handoff/ghosts.jsonl` | The journal a `#<id>` in `depends` or `blocks` is read merged from: a `depends` or `blocks` is removed when a merge line written before `2026-10-12T17:04Z` names the task, or when the bus a caller wires in holds its card `merged` or `closed`, and kept when it is only done; a journal line written after that time counts only through the bus. `construct` reads merge lines and runs no `gh`. |
 | `--dry-run` | `false` | Print the cards, write nothing. |
 | `--confirm <token>` | — | Park cards whose corrections a person has seen: the token the run that held them printed. |
 | `--auto-confirm` | `false` | Accept corrections in advance: park at once, and record each card with its corrections in the bus a caller wires in. |
@@ -1876,11 +1875,11 @@ after every number taken in the parking directory and in `--taken`. Without `--t
 refuses: a card that reuses a pull request's number is worse than no card.
 
 **Corrected is written down.** Each card is checked against the repository under `--dir` and the
-journal, and every correction is written into the card and printed as
+bus a caller wires in, and every correction is written into the card and printed as
 `corrected: <field> — <was> → <now> — <reason>`: a `touches` path that does not exist becomes the one
 path named like it, a named `number` becomes the assigned one, a `contour` or `decision` outside the
-card grammar becomes the grammar's default, a `depends` or `blocks` on a card that is merged — a merge line in the journal before `2026-10-12T17:04Z`, or the
-card `merged` or `closed` in a bus the caller wires in — is removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path of a kind every change of
+card grammar becomes the grammar's default, a `depends` or `blocks` on a card the bus a caller wires in holds `merged` or `closed` is removed
+(one the bus holds in any other state is kept), and a `creates` entry that already exists is noted as not new. A path of a kind every change of
 which carries a companion gets each companion it lacks added to `touches`, from one table,
 `COMPANION_TABLE` in `src/commands/intake/check.ts`: `package.json` carries `CONTRIBUTING.md` and
 `tests/harness-membership.test.ts`, `src/program.ts` carries `README.md`, `docs/cli.md` and
@@ -1903,9 +1902,9 @@ corrections in advance: the cards are parked at once. When a caller wires a bus 
 `pnpm intake` does, every parked card gets its `card.admitted` in the bus, carrying `confirmation`
 `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is recorded with the
 corrections it accepted — and `bodySha`, the digest of the card's `touches` line and its text below its
-header, the task and its witnesses. Intake writes no line to `--journal`: the bus is the record, and
-numbers, admissions and amendments read it, counting the `intake` lines of `--journal` written before
-`2026-10-12T17:04Z` as history. The published CLI has no bus and records nothing beyond the parked file. A bus-wired run writes no parking file and lays no lane directory: the card's text travels in its `card.admitted` alone, the bus lays its lane, and `pnpm intake --export` below is how that text reaches a file. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
+header, the task and its witnesses. The bus is the record: closed and merged cards, numbers,
+admissions and amendments are read from it alone, and intake reads no journal file. The published CLI
+has no bus and records nothing beyond the parked file. A bus-wired run writes no parking file and lays no lane directory: the card's text travels in its `card.admitted` alone, the bus lays its lane, and `pnpm intake --export` below is how that text reaches a file. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
 
 **Too big to take whole.** Before a card is parked, intake counts four signals of complexity from its
 `touches` and its `unclear:` lines: more than 6 `touches` entries or more than 2 areas (mechanism,
@@ -1945,8 +1944,8 @@ whether a bus was wired to the run: only a bus-wired run, such as this repositor
 appends `card.admitted`, the event this repository's `task:start` and shift read; the published CLI has
 no bus and records nothing beyond the file. When a bus database exists on the machine (`~/.construct/bus.db`, or the
 file `CONSTRUCT_BUS_DB` names) and the run has no bus wired, `--admit` refuses with exit `1`, writes nothing and
-names `pnpm intake --admit`, so a card is never admitted beside a bus that does not hear of it. A card the journal already admitted is amended when its card line, task text or
-witnesses or its `touches` line differ from the latest `intake` line for its number — or that line
+names `pnpm intake --admit`, so a card is never admitted beside a bus that does not hear of it. A card the bus already admitted is amended when its card line, task text or
+witnesses or its `touches` line differ from the latest `card.admitted` the bus holds for its number — or that line
 recorded no `bodySha`, so the text it admitted is unknown: the card is checked with the parking grammar and held behind a token
 exactly as on admission, and its new `intake` line carries `"source":"amend"`. An admitted card that
 did not change is reported and nothing is written: no bus is wired to `construct intake`. An `intake` line written before `bodySha` covered
@@ -1954,7 +1953,7 @@ the `touches` line records no touches, so a card whose latest line is one of tho
 its card line, task text or witnesses change; a change to its `touches` line alone is not seen until
 then. `--dry-run` prints the card it would admit. A first admission whose `depends` still name a card that
 is parked, done or known to the bus, and is not merged, is not admitted: before any confirmation is
-asked, the file and the journal stay as they are, a bus-wired run appends a `card.waiting` naming those
+asked, the file stays as it is, a bus-wired run appends a `card.waiting` naming those
 cards, and the exit is `3`; `--dry-run` reports the same wait with the same exit and writes nothing; run
 `--admit` again once they merge. A `depends` on a card that is neither parked, known to the bus, done nor
 merged does not wait: the card is admitted with an `unclear:` mark. An amend of an admitted card never waits.

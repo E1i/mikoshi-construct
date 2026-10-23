@@ -91,7 +91,7 @@ function admitThroughThePorts(w: World, file: string): string {
   const db = openBus(w.bus)
   try {
     const ports = busIntakePorts(db, 's1')
-    return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF).status
+    return runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF).status
   }
   finally {
     db.close()
@@ -131,7 +131,7 @@ describe('intake lays the lane of an admitted card by the factory mode', () => {
   it('in window mode every card gets one lane', () => {
     const w = world()
     for (const id of [91, 92, 93])
-      expect(withPort(w, events => runAdmit({ file: parkCard(w, id), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
+      expect(withPort(w, events => runAdmit({ file: parkCard(w, id), dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
     expect(admittedLanes(w)).toEqual([WINDOW_LANE, WINDOW_LANE, WINDOW_LANE])
   })
 
@@ -139,7 +139,7 @@ describe('intake lays the lane of an admitted card by the factory mode', () => {
     const w = world()
     setMode(w, 'parallel')
     for (const id of [91, 92, 93])
-      expect(withPort(w, events => runAdmit({ file: parkCard(w, id), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
+      expect(withPort(w, events => runAdmit({ file: parkCard(w, id), dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
     expect(admittedLanes(w)).toEqual(['lane-01', 'lane-02', 'lane-03'])
   })
 
@@ -177,13 +177,13 @@ describe('pnpm intake writes card events to bus.db', () => {
   it('an --admit through the port writes card.admitted to the bus as the intake worker', () => {
     const w = world()
     const file = park(w, 'lane-7')
-    expect(withPort(w, events => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
+    expect(withPort(w, events => runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
     expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: WINDOW_LANE, depends: [], decision: 'auto', contour: 'cheap' } }])
   })
 
   it('an --admit through the port writes the card a lane.assigned', () => {
     const w = world()
-    expect(withPort(w, events => runAdmit({ file: park(w, 'lane-7'), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
+    expect(withPort(w, events => runAdmit({ file: park(w, 'lane-7'), dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
     const db = openBus(w.bus)
     try {
       expect(db.prepare(`SELECT card_id, json_extract(payload, '$.lane') AS lane FROM events WHERE type = '${LANE_ASSIGNED}'`).all()).toEqual([{ card_id: 90, lane: 'lane-1' }])
@@ -312,7 +312,7 @@ describe('pnpm intake writes card events to bus.db', () => {
       const db = openBus(w.bus)
       try {
         const ports = busIntakePorts(db, 's1')
-        return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF).status
+        return runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF).status
       }
       finally {
         db.close()
@@ -346,7 +346,7 @@ describe('pnpm intake writes card events to bus.db', () => {
   it('the one-time import does not admit a second time a card the port admitted', () => {
     const w = world()
     const file = park(w, 'lane-7')
-    withPort(w, events => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW))
+    withPort(w, events => runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW))
     mkdirSync(path.dirname(w.journal), { recursive: true })
     writeFileSync(w.journal, `${JSON.stringify({ event: 'intake', task: '90', card: CARD, confirmation: 'none', corrections: [], bodySha: bodySha(readFileSync(file, 'utf8')), source: 'admit', ts: NOW.toISOString() })}\n`)
     const db = openBus(w.bus)

@@ -14,7 +14,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-interface World { repo: string, parking: string, journal: string, draft: string }
+interface World { repo: string, parking: string, draft: string }
 
 function world(files: Record<string, string>, touches: string[]): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-covering-'))
@@ -26,11 +26,11 @@ function world(files: Record<string, string>, touches: string[]): World {
   }
   const draft = path.join(root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards: [{ name: 'covered-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', who: 'shift', touches, task: 'Change the code.', witnesses: ['`pnpm run quality` is green'] }] }))
-  return { repo, parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), draft }
+  return { repo, parking: path.join(root, 'parking'), draft }
 }
 
 function intake(w: World, events?: CardEventPort): IntakeResult {
-  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '12', events })
+  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, dryRun: false, autoConfirm: false, readStdin: () => '12', events })
 }
 
 function parked(w: World, bus?: readonly CardEvent[]): { touches: string[], runs: string[] } {

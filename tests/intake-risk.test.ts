@@ -92,7 +92,7 @@ function intake(touches: readonly string[], unclear: number = 0, confirm?: strin
   }
   const draft = path.join(root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards: [draftCard('risk-card', touches, unclear)] }))
-  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, confirm, readStdin: () => '600', events })
+  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), dir: repo, dryRun: false, autoConfirm: false, confirm, readStdin: () => '600', events })
 }
 
 function only(result: IntakeResult) {
@@ -313,7 +313,7 @@ describe('the decision reads the touches and the creates of a card', () => {
     mkdirSync(parking, { recursive: true })
     const file = path.join(parking, '601.md')
     writeFileSync(file, parkingFileText({ card: '#601 new-attach-step [implement/netwatch/S/cheap/auto] · depends — · blocks —', branch: 'feat/new-attach-step', touches: ['docs/cli.md'], creates, continue: 'stop', who: 'shift', body: 'Add the step.' }))
-    return runAdmit({ file, dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: true, autoConfirm: true, parkingRoot: parking })
+    return runAdmit({ file, dir: repo, dryRun: true, autoConfirm: true, parkingRoot: parking })
   }
 
   it('a new R1 file in creates makes the decision owner', () => {

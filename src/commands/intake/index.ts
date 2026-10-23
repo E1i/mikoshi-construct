@@ -130,7 +130,6 @@ export interface IntakeOptions {
   parkingRoot?: string
   contourMap?: string
   dir: string
-  journal: string
   dryRun: boolean
   confirm?: string
   autoConfirm: boolean
@@ -164,10 +163,6 @@ function refused(refusal: Refusal, detail: string[] = []): IntakeResult {
   return { status: 'refused', refusal, detail }
 }
 
-function readJournal(journal: string): string | null {
-  return existsSync(journal) ? readFileSync(journal, 'utf8') : null
-}
-
 function readInput(source: string, readStdin: () => string): string {
   return source === FROM_STDIN ? readStdin() : readFileSync(source, 'utf8')
 }
@@ -191,7 +186,6 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     return refused('bothFromStdin')
   let draftText: string
   let takenText: string
-  let journalText: string | null
   let ownerMerges: string | null
   let published: string[] | undefined
   if (!isDirectory(options.dir))
@@ -199,7 +193,6 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   try {
     draftText = readInput(options.draft, options.readStdin)
     takenText = readInput(options.taken, options.readStdin)
-    journalText = readJournal(options.journal)
     const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
     ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
     const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
@@ -219,14 +212,14 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     return refused('invalid', [taken.reason])
   const parked = parkingsSharingNumbers(options.parking, options.parkingRoot ?? defaultParking()).flatMap(dir => parkedNumbers(parkedFiles(dir)))
   const cards = options.cardStates?.()
-  const used = [...taken.numbers, ...parked, ...admittedNumbers(journalText, cards)]
+  const used = [...taken.numbers, ...parked, ...admittedNumbers(null, cards)]
   const numbers = nextFreeNumbers(used, draft.cards.length)
   const repository = new DirectoryFacts(options.dir, process.env.PATH ?? '')
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
     parked: new Set(parked),
-    done: new Set(closedTasks(journalText, cards).keys()),
-    merged: mergedTasks(journalText, cards),
+    done: new Set(closedTasks(null, cards).keys()),
+    merged: mergedTasks(null, cards),
     repository,
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),

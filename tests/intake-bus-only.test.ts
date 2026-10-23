@@ -1,3 +1,4 @@
+import type { CommandDef } from 'citty'
 import type { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,6 +13,7 @@ import { runExport } from '../src/commands/intake/export.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
 import { runMove } from '../src/commands/intake/move.js'
 import { parkingTree } from '../src/commands/intake/parking-tree.js'
+import { main } from '../src/program.js'
 
 const roots: string[] = []
 
@@ -20,7 +22,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-interface World { root: string, parking: string, journal: string, repo: string, db: DatabaseSync }
+interface World { root: string, parking: string, repo: string, db: DatabaseSync }
 
 function world(): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-bus-only-'))
@@ -28,10 +30,9 @@ function world(): World {
   const repo = path.join(root, 'repo')
   mkdirSync(path.join(repo, 'src', 'board'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'board', 'run.ts'), '')
-  const journal = path.join(root, 'handoff', 'ghosts.jsonl')
-  mkdirSync(path.dirname(journal), { recursive: true })
+  mkdirSync(path.join(root, 'handoff'), { recursive: true })
   const db = openBus(path.join(root, 'handoff', 'bus.db'))
-  return { root, parking: path.join(root, 'parking'), journal, repo, db }
+  return { root, parking: path.join(root, 'parking'), repo, db }
 }
 
 function draftOf(w: World, cards: Record<string, unknown>[]): string {
@@ -46,7 +47,7 @@ function sliced(name: string, depends: string[] = []): Record<string, unknown> {
 
 function intakeThroughBus(w: World, cards: Record<string, unknown>[]): number[] {
   const ports = busIntakePorts(w.db)
-  const result = runIntake({ draft: draftOf(w, cards), taken: '-', readStdin: () => '1', parking: w.parking, parkingRoot: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: true, events: ports.cardEvents, cardStates: () => new Map() })
+  const result = runIntake({ draft: draftOf(w, cards), taken: '-', readStdin: () => '1', parking: w.parking, parkingRoot: w.parking, dir: w.repo, dryRun: false, autoConfirm: true, events: ports.cardEvents, cardStates: () => new Map() })
   expect(result.status).toBe('written')
   return result.status === 'written' ? result.cards.map(card => card.id) : []
 }
@@ -84,7 +85,7 @@ describe('intake and slicing write only into the bus', () => {
     expect(admittedTexts(w, first!)).toHaveLength(1)
 
     const ports = busIntakePorts(w.db)
-    const admitted = runAdmit({ file: path.join(w.parking, `${second}.md`), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: () => new Map(), admissions: ports.cardAdmissions })
+    const admitted = runAdmit({ file: path.join(w.parking, `${second}.md`), dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: () => new Map(), admissions: ports.cardAdmissions })
     expect(admitted.status).toMatch(/^(?:admitted|alreadyAdmitted)$/)
     expect(runMove({ move: `#${first}`, to: 'lane-01', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents, admissions: ports.cardAdmissions })).toMatchObject({ status: 'moved', event: CARD_MOVED })
     reduce(w.db)
@@ -100,7 +101,7 @@ describe('intake and slicing write only into the bus', () => {
     const written = 'card: #80 hand-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-80\ntouches: scripts/board/run.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n'
     writeFileSync(file, written)
     const ports = busIntakePorts(w.db)
-    const result = runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: () => new Map(), admissions: ports.cardAdmissions })
+    const result = runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: () => new Map(), admissions: ports.cardAdmissions })
     expect(result).toMatchObject({ status: 'admitted', card: { corrections: [expect.anything()] } })
     expect(readFileSync(file, 'utf8')).toBe(written)
     expect(admittedTexts(w, 80).at(-1)).not.toBe(written)
@@ -125,6 +126,45 @@ describe('intake and slicing write only into the bus', () => {
     expect(runExport({ card: '#77', admissions })).toMatchObject({ status: 'refused', refusal: 'notAdmitted' })
     expect(runExport({ card: 'lane-01', admissions })).toMatchObject({ status: 'refused', refusal: 'notACard' })
     expect(await exportThroughEntry(w, '#77')).toEqual({ exit: INTAKE_EXIT.refused, output: expect.not.stringContaining('card:') })
+    w.db.close()
+  })
+})
+
+describe('construct intake reads the bus its caller wires in and no journal file', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  function journalOnlyMerges(w: World, task: string): void {
+    const lines = [{ event: 'path', task, path: 'cheap', pr: 7, verification: 'run' }, { event: 'merge', task, by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }]
+    writeFileSync(path.join(w.root, 'handoff', 'ghosts.jsonl'), lines.map(line => `${JSON.stringify(line)}\n`).join(''))
+    vi.stubEnv('HOME', w.root)
+  }
+
+  function dependsLine(w: World, cards: ReadonlyMap<string, string>): string {
+    const result = runIntake({ draft: draftOf(w, [sliced('board-run', ['#77'])]), taken: '-', readStdin: () => '1', parking: w.parking, parkingRoot: w.parking, dir: w.repo, dryRun: true, autoConfirm: true, cardStates: () => cards })
+    return result.status === 'dryRun' ? result.cards[0]!.line : result.status
+  }
+
+  function admitted(w: World, cards: ReadonlyMap<string, string>): string {
+    mkdirSync(w.parking, { recursive: true })
+    const file = path.join(w.parking, '80.md')
+    writeFileSync(file, 'card: #80 hand-card [implement/runner/S/cheap/owner] · depends #77 · blocks —\nbranch: feat/card-80\ntouches: src/board/run.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n')
+    const result = runAdmit({ file, dir: w.repo, dryRun: true, autoConfirm: true, parkingRoot: w.parking, cardStates: () => cards, admissions: () => null })
+    return 'card' in result ? result.card.line : result.status
+  }
+
+  it('construct intake has no journal option and reads closed and merged cards from the bus alone', () => {
+    const intake = (main.subCommands as Record<string, CommandDef>).intake!
+    expect(Object.keys(intake.args as Record<string, unknown>)).not.toContain('journal')
+
+    const w = world()
+    journalOnlyMerges(w, '77')
+    expect(dependsLine(w, new Map())).toContain('· depends #77 ·')
+    expect(dependsLine(w, new Map([['77', 'merged']]))).toContain('· depends — ·')
+    expect(dependsLine(w, new Map([['77', 'closed']]))).toContain('· depends — ·')
+    expect(admitted(w, new Map([['77', 'running']]))).toContain('· depends #77 ·')
+    expect(admitted(w, new Map([['77', 'merged']]))).toContain('· depends — ·')
     w.db.close()
   })
 })
