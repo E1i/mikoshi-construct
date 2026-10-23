@@ -59,6 +59,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'lint:fix': 'a fixer; lint is its gate',
   'miko': 'runs Mikoshi sessions in a loop in the owner\'s terminal when run by hand; its own tests, on a claude stub, are its gate',
   'miko:exit': 'ends the claude of the current Mikoshi window when a session runs it; its own tests, on a claude stub under the loop, are its gate',
+  'miko:pull': 'pulls main into the window\'s tree when the window runs it, or hands the owner the pull command; its own tests, on scratch git repositories, are its gate',
   'miko:watch': 'blocks until a journal event or a watched PID exits, for the foreman to wait on when run by hand; its own tests are its gate',
   'model:render': 'a writer; model:check is its gate',
   'prepublishOnly': 'a packaging hook',
