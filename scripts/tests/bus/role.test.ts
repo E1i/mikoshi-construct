@@ -150,6 +150,19 @@ describe('a role stopped at a threshold', () => {
     bus.close()
   })
 
+  it('a fresh tab heartbeat from a window that ended before the stop holds back no start question', () => {
+    const bus = roleBus()
+    bus.stopMiko()
+    expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko' })
+    recordWindowHeartbeat(bus.db, bus.at(), 'tab-1', { mode: 'tab' })
+    bus.advance(1_000)
+    expect(role.returnEndedRole(bus.db, bus.at(), 'worker:miko:7', 'miko', 'close')).toMatchObject({ role: 'miko' })
+    bus.advance(1_000)
+
+    expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko' })
+    bus.close()
+  })
+
   it('a live window holds back only the start question: a stopped Operator still goes to the owner', () => {
     const bus = roleBus()
     recordWindowHeartbeat(bus.db, bus.at(), 'tab-1', { mode: 'tab' })

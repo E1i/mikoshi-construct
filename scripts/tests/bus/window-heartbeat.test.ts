@@ -65,6 +65,8 @@ describe('the window heartbeat', () => {
     expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1', CONSTRUCT_CARD: '1137' })).toBeNull()
     expect(windowSessionOf(marked)).toBeNull()
     expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'a:b' })).toBeNull()
+    expect(windowSessionOf({ [LOOP_PID_VARIABLE]: '4242', CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
+    expect(windowSessionOf({ [EXIT_REQUEST_VARIABLE]: '/h/miko-exit.4242.request', CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
   })
 
   it('a beat is a window sign: written once per ts under the window actor of its session', () => {
