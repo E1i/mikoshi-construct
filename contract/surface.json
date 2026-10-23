@@ -313,6 +313,19 @@
         }
       }
     },
+    "say": {
+      "flags": {
+        "johnny": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        },
+        "words": {
+          "type": "positional"
+        }
+      }
+    },
     "soulkill": {
       "flags": {
         "dir": {
