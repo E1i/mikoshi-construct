@@ -43,7 +43,7 @@ function admit(w: World): void {
   const db = openBus(w.bus)
   try {
     const ports = busIntakePorts(db, 's1')
-    runAdmit({ file: w.file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF)
+    runAdmit({ file: w.file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF)
   }
   finally {
     db.close()

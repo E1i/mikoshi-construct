@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { closedFromBus, closedTasks, JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
+import { closedFromBus, closedTasks, endedCards, JOURNAL_HISTORY_ENDS, mergedTasks, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
+
+describe('closedTasks and mergedTasks without a journal', () => {
+  it('closedTasks and mergedTasks read the bus card states with no journal text', () => {
+    const bus = new Map([['77', 'merged'], ['78', 'closed'], ['79', 'running'], ['80', 'parked']])
+    expect([...closedTasks(null, bus)]).toEqual([['77', 'merged'], ['78', 'closed']])
+    expect([...mergedTasks(null, bus)]).toEqual(['77', '78'])
+    expect(closedTasks(null, new Map()).size).toBe(0)
+    expect(mergedTasks(null, new Map()).size).toBe(0)
+    expect([...endedCards(bus)]).toEqual(['77', '78'])
+    expect(endedCards(undefined).size).toBe(0)
+  })
+})
 
 describe('closedTasks', () => {
   it('a start line does not close, a closing path line with a verification does, and a line that is not JSON is skipped', () => {

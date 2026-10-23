@@ -351,7 +351,7 @@ describe('the launch queue', () => {
     }
     requestFromWindow(bench.db, new Date().toISOString(), 'test', { kind: 'mode', mode: 'parallel' })
     new WindowRequests(bench.db, () => new Date(), { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }).run()
-    const result = runIntake({ draft, taken: '-', readStdin: () => '1075', parking, parkingRoot: parking, dir: process.cwd(), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: true, events: busCardEvents(bench.db) })
+    const result = runIntake({ draft, taken: '-', readStdin: () => '1075', parking, parkingRoot: parking, dir: process.cwd(), dryRun: false, autoConfirm: true, events: busCardEvents(bench.db) })
     expect(result.status).toBe('written')
     const cards = result.status === 'written' ? result.cards : []
     expect(existsSync(parking)).toBe(false)

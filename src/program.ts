@@ -12,7 +12,7 @@ import { printAtlas, runAtlas } from './atlas/index.js'
 import { ATTACH_EXIT, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
 import { busReaderAt } from './commands/board/bus.js'
 import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, rawSectionsAsked, readBoard, STALE_HOURS } from './commands/board/index.js'
-import { COST_EXIT, costExpect, costJson, costReport, defaultWindowJournal, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
+import { COST_EXIT, costExpect, costJson, costReport, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph } from './commands/graph.js'
@@ -373,7 +373,6 @@ function intakeCommand(bus: BusPorts | undefined) {
       to: { type: 'string', description: 'With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root' },
       parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
       dir: commonArgs.dir,
-      journal: { type: 'string', description: 'The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)' },
       dryRun: { type: 'boolean', description: 'Print the cards, write nothing', default: false },
       confirm: { type: 'string', description: 'Park cards whose corrections a person has seen: the token the run that held them printed' },
       autoConfirm: { type: 'boolean', description: 'Accept corrections in advance: park at once and record each card and its corrections in the bus a caller wires in', default: false },
@@ -382,7 +381,6 @@ function intakeCommand(bus: BusPorts | undefined) {
       const console = ui(args)
       const failed = reported(console, () => {
         const dir = path.resolve(args.dir)
-        const journal = path.resolve(args.journal ?? defaultWindowJournal())
         if (args.move !== undefined || args.to !== undefined) {
           process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), events, admissions }))
           return
@@ -393,7 +391,7 @@ function intakeCommand(bus: BusPorts | undefined) {
             process.exitCode = INTAKE_EXIT.refused
             return
           }
-          process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, journal, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
+          process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
           return
         }
         const result = runIntake({
@@ -402,7 +400,6 @@ function intakeCommand(bus: BusPorts | undefined) {
           taken: args.taken,
           parking: path.resolve(args.parking ?? defaultParking()),
           dir,
-          journal,
           dryRun: args.dryRun,
           confirm: args.confirm,
           autoConfirm: args.autoConfirm,

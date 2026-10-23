@@ -118,7 +118,7 @@ function intake(root: string, cards: unknown[], options: Partial<IntakeOptions> 
   const dir = repositoryOf(root, cards)
   for (const [file, characters] of Object.entries(sizes))
     writeFileSync(path.join(dir, file), 'x'.repeat(characters))
-  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => '600', ...options, dir })
+  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), dryRun: false, autoConfirm: false, readStdin: () => '600', ...options, dir })
 }
 
 function sliced(result: IntakeResult) {

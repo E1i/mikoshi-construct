@@ -59,7 +59,7 @@ function intake(draft: unknown, taken: string, parking: string, options: Partial
   const repo = repositoryOf(root, typeof draft === 'object' && draft !== null && 'cards' in draft ? draft.cards : [])
   for (const [file, text] of Object.entries(sources))
     writeFileSync(path.join(repo, file), text)
-  return runIntake({ draft: draftFile, taken: '-', parking, dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, readStdin: () => taken, ...options })
+  return runIntake({ draft: draftFile, taken: '-', parking, dir: repo, dryRun: false, autoConfirm: false, readStdin: () => taken, ...options })
 }
 
 function cards(result: IntakeResult) {

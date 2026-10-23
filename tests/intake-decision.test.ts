@@ -1,6 +1,6 @@
 import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
 import type { IntakeResult } from '../src/commands/intake/index.js'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -19,7 +19,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-interface World { parking: string, journal: string, repo: string }
+interface World { parking: string, repo: string }
 
 function world(files: readonly string[], ownerMerges = true): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-decision-'))
@@ -33,7 +33,7 @@ function world(files: readonly string[], ownerMerges = true): World {
     mkdirSync(path.join(repo, 'architecture'), { recursive: true })
     copyFileSync(OWNER_MERGES, path.join(repo, OWNER_MERGES))
   }
-  return { parking: path.join(root, 'parking'), journal: path.join(root, 'handoff', 'ghosts.jsonl'), repo }
+  return { parking: path.join(root, 'parking'), repo }
 }
 
 function publishingDist(w: World): World {
@@ -49,7 +49,7 @@ function park(w: World, id: number, decision: string, touches: string): string {
 }
 
 function admit(w: World, file: string, options: Partial<AdmitOptions> = {}): AdmitResult {
-  return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, ...options }, () => NOW)
+  return runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, ...options }, () => NOW)
 }
 
 function cardOf(file: string): string {
@@ -122,7 +122,6 @@ describe('construct intake --admit derives the decision from architecture/owner-
     expect(readFileSync(file, 'utf8')).not.toContain(NO_OWNER_PATH)
     const lines: string[] = []
     expect(printAdmit(createUi(resolveTheme({ plain: true }), line => lines.push(line)), result)).not.toBe(INTAKE_EXIT.refused)
-    expect(existsSync(w.journal)).toBe(false)
   })
 
   it('an R1 card on the approval rules is owner by its owner-merges row', () => {
@@ -157,7 +156,7 @@ describe('construct intake --admit derives the decision from architecture/owner-
 function drafted(w: World, decision: string | undefined, touches: readonly string[]): IntakeResult {
   const draft = path.join(path.dirname(w.repo), 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards: [{ name: 'drafted-card', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision, who: 'shift', touches, task: 'Do the thing.', witnesses: ['`pnpm test` passes'] }] }))
-  return runIntake({ draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: true, autoConfirm: false, readStdin: () => '600' })
+  return runIntake({ draft, taken: '-', parking: w.parking, dir: w.repo, dryRun: true, autoConfirm: false, readStdin: () => '600' })
 }
 
 function draftedLine(result: IntakeResult): string {

@@ -233,9 +233,6 @@
         "johnny": {
           "type": "boolean"
         },
-        "journal": {
-          "type": "string"
-        },
         "move": {
           "type": "string"
         },

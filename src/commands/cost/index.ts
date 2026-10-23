@@ -16,7 +16,7 @@ import { resolveRuntime } from './runtime.js'
 import { knownRunSteps, readStepCache, recordRunSteps } from './step-cache.js'
 import { readTurnJournal } from './turns.js'
 
-export { cheapClass, cheapForecast, cheapForecastOf, cheapRows, defaultShiftRoot, defaultWindowJournal, readCheapClasses, readCheapTasks, sessionTokens, SHIFT_JOURNAL_FILE, WINDOW_JOURNAL_FILE } from './cheap.js'
+export { cheapClass, cheapForecast, cheapForecastOf, cheapRows, defaultShiftRoot, readCheapClasses, readCheapTasks, sessionTokens, SHIFT_JOURNAL_FILE } from './cheap.js'
 export type { CheapClassReading, CheapForecast, CheapNote, CheapReading, CheapRow, CheapSample, CheapSession, CheapTask } from './cheap.js'
 export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, projectKey, readAgentRecord } from './claude-code.js'
 export type { AgentRecord } from './claude-code.js'
