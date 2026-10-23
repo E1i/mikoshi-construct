@@ -76,8 +76,8 @@ not parked until a person has seen it:
   person asked for it.
 
 Every parked card is recorded in the bus as one `card.admitted`, with its confirmation (`none`, `person` or
-`auto`) and its corrections. A confirmed card keeps the `who` of the draft: confirmation, not `who: window`, is what holds a
-corrected card back. Only an unclear field sets `who: window`.
+`auto`) and its corrections. A confirmed card keeps the `who` of the draft: confirmation, not `who: window`, is
+what holds a corrected card back. Only an unclear field sets `who: window`.
 
 ## 4. Report
 
