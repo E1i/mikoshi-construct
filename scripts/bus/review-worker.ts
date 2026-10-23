@@ -33,6 +33,7 @@ import { keepDryRun } from './dry-run-record.js'
 import { ghApi, ghApiPatch, ghApiPost } from './github.js'
 import { busSessionPulse, measureSession } from './heartbeat.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
+import { parkedCardNumbers } from './intake.js'
 import { expireLeases, leaseNext, leaseQueued } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
 import { Node, runNode, SWITCH_FLAG } from './node.js'
@@ -422,7 +423,7 @@ async function main(): Promise<number> {
     notePr: ghNotePr(cwd),
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
-    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date() }),
+    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), parked: parkedCardNumbers() }),
   })
 }
 

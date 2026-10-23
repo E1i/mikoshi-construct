@@ -4,6 +4,7 @@ import type { RecutCard, RecutPlan } from '../../bus/round-limit-decision.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
+import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { importJournal } from '../../bus/import.js'
@@ -15,7 +16,7 @@ import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../bus/review-worker.js'
 import { complexitySlicesOf, dryRunHoldsAt, observedHeadsOf, placeOf, recutCardCount, recutOf, recutPlanOf, roundLimitDecisionOf } from '../../bus/round-limit-decision.js'
 import { cleanUpdatesOf } from '../../bus/update-done.js'
 import { manualUpdateDone } from '../../bus/update-executor.js'
-import { MERGE_DONE, PR_OBSERVED, PR_OPENED, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, MERGE_DONE, PR_OBSERVED, PR_OPENED, REVIEW_RECORDED } from '../../core/events.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, spendReviewRounds } from './merge-bench.js'
 
@@ -326,25 +327,31 @@ describe('a merge past the review round limit by an owner decision', () => {
   })
 })
 
+const NO_AMENDS: ReadonlySet<string> = new Set()
+
 function changes(head: string | null, cardBody: unknown = 'body-1'): RoundReview {
   return { head, verdict: 'changes', card_body: cardBody }
 }
 
 describe('the round counter', () => {
   it('counts one round per head with a changes review and none for a pass', () => {
-    expect(roundsOf([changes(sha('a')), changes(sha('a')), { ...changes(sha('b')), verdict: 'pass' }, changes(sha('c'))])).toBe(2)
+    expect(roundsOf([changes(sha('a')), changes(sha('a')), { ...changes(sha('b')), verdict: 'pass' }, changes(sha('c'))], NO_AMENDS)).toBe(2)
   })
 
   it('holds a null head and an empty head apart', () => {
-    expect(roundsOf([changes(null), changes(''), changes(null)])).toBe(2)
+    expect(roundsOf([changes(null), changes(''), changes(null)], NO_AMENDS)).toBe(2)
   })
 
-  it('spends no round on a changes review that follows an amend of the card body', () => {
-    expect(roundsOf([changes(sha('a'), 'body-1'), changes(sha('b'), 'body-2'), changes(sha('c'), 'body-2')])).toBe(2)
+  it('spends no round on a changes review that follows an owner amend of the card body', () => {
+    expect(roundsOf([changes(sha('a'), 'body-1'), changes(sha('b'), 'body-2'), changes(sha('c'), 'body-2')], new Set(['body-2']))).toBe(2)
+  })
+
+  it('spends a round on a changes review that follows a body change no owner amend wrote', () => {
+    expect(roundsOf([changes(sha('a'), 'body-1'), changes(sha('b'), 'body-2'), changes(sha('c'), 'body-2')], new Set(['body-3']))).toBe(3)
   })
 
   it('reads a review with no card body as no evidence of an amend', () => {
-    expect(roundsOf([changes(sha('a'), null), changes(sha('b'), 'body-1'), changes(sha('c'), undefined), changes(sha('d'), 'body-1')])).toBe(4)
+    expect(roundsOf([changes(sha('a'), null), changes(sha('b'), 'body-1'), changes(sha('c'), undefined), changes(sha('d'), 'body-1')], new Set(['body-1']))).toBe(4)
   })
 
   it('counts the review about to be recorded without writing it', () => {
@@ -352,8 +359,10 @@ describe('the round counter', () => {
     benches.push(bench)
     for (const [round, head] of [sha('a'), sha('b')].entries())
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:test', cardId: PR + 100, pr: PR, head, dedupeKey: `${REVIEW_RECORDED}:counter-${round}`, payload: { head, verdict: 'changes', card_body: 'body-1' }, legacy: false })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:test', cardId: PR + 100, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:counter-amend`, payload: { bodySha: 'body-2', source: AMEND_SOURCE }, legacy: false })
 
     expect(changesRoundsOf(bench.db, PR, changes(sha('c')))).toBe(3)
+    expect(changesRoundsOf(bench.db, PR, changes(sha('c'), 'body-3'))).toBe(3)
     expect(changesRoundsOf(bench.db, PR, changes(sha('c'), 'body-2'))).toBe(2)
     expect(changesRoundsOf(bench.db, PR)).toBe(2)
   })

@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from '../../src/commands/intake/index.js'
 import type { BusPorts } from '../../src/program.js'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +11,8 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { printExport, runExport } from '../../src/commands/intake/export.js'
+import { parkedNumbers } from '../../src/commands/intake/numbers.js'
+import { parkingTree } from '../../src/commands/intake/parking-tree.js'
 import { createMain } from '../../src/program.js'
 import { createUi } from '../../src/ui/console.js'
 import { resolveTheme } from '../../src/ui/theme.js'
@@ -90,6 +93,14 @@ export function busCardAdmissions(db: DatabaseSync): CardAdmissionsPort {
       return null
     const text = admittedText(db, cardId)
     return text === null ? admission : { ...admission, text }
+  }
+}
+
+export function parkedCardNumbers(root: string = path.join(os.homedir(), '.construct', 'parking')): () => number[] {
+  return () => {
+    if (!existsSync(root))
+      throw new Error(`the parking ${root} cannot be read, so no card number is allocated`)
+    return parkingTree(root).flatMap(dir => parkedNumbers(readdirSync(dir)))
   }
 }
 

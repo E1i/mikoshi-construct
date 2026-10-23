@@ -6,6 +6,7 @@ import type { OverlapCatch } from './launch-candidates.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { PRIORITIES } from '../../src/card/parking.js'
+import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_RECORDED } from '../core/events.js'
 import { BACKFILL_SOURCE } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
@@ -310,8 +311,8 @@ function windowWaitText(row: WindowQuestionRow): string {
 export const REPEATED_RED = 2
 
 const HEADS_RED_AGAIN_WITH_NO_WAIT = `
-  SELECT red.card_id, red.pr, red.head FROM events AS red
-  WHERE red.type = '${WITNESS_RECORDED}' AND red.legacy = 0 AND red.pr IS NOT NULL AND red.head IS NOT NULL AND json_extract(red.payload, '$.verdict') = 'red'
+  SELECT red.card_id, red.pr, red.head FROM events AS red JOIN prs ON prs.pr = red.pr AND prs.head = red.head
+  WHERE red.type = '${WITNESS_RECORDED}' AND red.legacy = 0 AND prs.state = 'open' AND json_extract(red.payload, '$.verdict') = 'red'
     AND NOT EXISTS (
       SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.pr = red.pr AND instr(json_extract(opened.payload, '$.text'), red.head) > 0
     )
@@ -398,20 +399,26 @@ export interface RoundReview {
   card_body: unknown
 }
 
-function amendedSinceThePreviousReview(reviews: readonly RoundReview[], at: number): boolean {
+const BODIES_OWNER_AMENDED_FOR_A_PR = `
+  SELECT DISTINCT json_extract(payload, '$.bodySha') AS body FROM events
+  WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND json_extract(payload, '$.source') = '${AMEND_SOURCE}' AND json_type(payload, '$.bodySha') = 'text'
+    AND card_id IN (SELECT card_id FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND card_id IS NOT NULL)
+`
+
+function ownerAmendedSinceThePreviousReview(reviews: readonly RoundReview[], at: number, ownerAmended: ReadonlySet<string>): boolean {
   const before = at > 0 ? reviews[at - 1]!.card_body : null
   const now = reviews[at]!.card_body
-  return typeof before === 'string' && typeof now === 'string' && before !== now
+  return typeof before === 'string' && typeof now === 'string' && before !== now && ownerAmended.has(now)
 }
 
-export function roundsOf(reviews: readonly RoundReview[]): number {
+export function roundsOf(reviews: readonly RoundReview[], ownerAmended: ReadonlySet<string>): number {
   const heads = new Set<string | null>()
   let rounds = 0
   for (const [at, review] of reviews.entries()) {
     if (review.verdict !== 'changes' || heads.has(review.head))
       continue
     heads.add(review.head)
-    if (!amendedSinceThePreviousReview(reviews, at))
+    if (!ownerAmendedSinceThePreviousReview(reviews, at, ownerAmended))
       rounds += 1
   }
   return rounds
@@ -419,7 +426,8 @@ export function roundsOf(reviews: readonly RoundReview[]): number {
 
 export function changesRoundsOf(db: DatabaseSync, pr: number, next?: RoundReview): number {
   const reviews = db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[]
-  return roundsOf(next === undefined ? reviews : [...reviews, next])
+  const ownerAmended = new Set((db.prepare(BODIES_OWNER_AMENDED_FOR_A_PR).all(pr) as { body: string }[]).map(row => row.body))
+  return roundsOf(next === undefined ? reviews : [...reviews, next], ownerAmended)
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']

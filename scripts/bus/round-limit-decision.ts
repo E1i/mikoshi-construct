@@ -10,7 +10,11 @@ import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { PR_OBSERVED, PR_OPENED } from '../core/events.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
+import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 import { isFullSha } from './identifiers.js'
+
+export const RECUT_SOURCE = 'round-limit-recut'
+export const RECUT_ACTOR = `${INTAKE_ACTOR_PREFIX}${RECUT_SOURCE}`
 
 const OWNER_DECISION = 'owner'
 const OWNER_EVEN_PAST_THE_LIMIT = 'R1'

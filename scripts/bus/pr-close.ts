@@ -9,15 +9,13 @@ import { textSha } from '../../src/card/text-sha.js'
 import { bodySha } from '../../src/commands/intake/confirm.js'
 import { nextFreeNumbers } from '../../src/commands/intake/numbers.js'
 import { CARD_ADMITTED, CARD_DROPPED, COMMAND_EXECUTED, OPEN_PLAN, PLAN_ITEM_LINKED, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, PR_OPENED } from '../core/events.js'
-import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 import { DROPPED_CARD } from './card-automaton.js'
 import { appendCardEvent, cardBodyText, laid } from './card-bodies.js'
 import { appendEvent, inTransaction, openBusWait } from './db.js'
 import { messageOf } from './errors.js'
-import { OWNER } from './inbox.js'
 import { leasedOn } from './lease.js'
 import { CLOSE_RULES, closePolicy, RETRIED_CLOSE_RULES } from './policy.js'
-import { recutCardCount, recutOf, recutPlanOf } from './round-limit-decision.js'
+import { RECUT_ACTOR, RECUT_SOURCE, recutCardCount, recutOf, recutPlanOf } from './round-limit-decision.js'
 
 export const CLOSE_COMMAND = 'close'
 export const CLOSE_ACTOR = 'worker:close-pr:bus'
@@ -63,6 +61,7 @@ export interface RecutParts {
   post: GitHubPut
   patch: GitHubPut
   clock: () => Date
+  parked: () => number[]
   admit?: CardAdmit
 }
 
@@ -79,8 +78,6 @@ interface Branch {
   base: string
 }
 
-export const RECUT_SOURCE = 'round-limit-recut'
-export const RECUT_ACTOR = `${INTAKE_ACTOR_PREFIX}${RECUT_SOURCE}`
 const SUPERSEDED_LANE = 'superseded'
 const CREATED = 201
 
@@ -259,7 +256,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
   }
 
   private admitted(at: RoundLimitAt, plan: Exclude<RecutPlan, { kind: 'owner_wait' }>, text: string, onGitHub: number): Recut {
-    const [firstId] = nextFreeNumbers([...this.numbersInTheBus(), onGitHub], recutCardCount(plan))
+    const [firstId] = nextFreeNumbers([...this.numbersInTheBus(), ...this.parts.parked(), onGitHub], recutCardCount(plan))
     const recut = recutOf(plan, text, at.pr, firstId!)
     const ts = this.parts.clock()
     for (const card of recut.admitted) {
@@ -285,7 +282,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
       .filter(item => (JSON.parse(item.cards) as number[]).includes(at.cardId))
     for (const item of items) {
       for (const card of added)
-        appendEvent(this.parts.db, { ts: this.now(), type: PLAN_ITEM_LINKED, actor: OWNER, cardId: card, pr: null, head: null, dedupeKey: `${PLAN_ITEM_LINKED}:round-limit-${at.pr}:${item.plan_id}:${item.item_id}:${card}`, payload: { plan: item.plan_id, item: item.item_id, card, recut_of: at.cardId }, legacy: false })
+        appendEvent(this.parts.db, { ts: this.now(), type: PLAN_ITEM_LINKED, actor: RECUT_ACTOR, cardId: card, pr: null, head: null, dedupeKey: `${PLAN_ITEM_LINKED}:round-limit-${at.pr}:${item.plan_id}:${item.item_id}:${card}`, payload: { plan: item.plan_id, item: item.item_id, card, recut_of: at.cardId }, legacy: false })
     }
   }
 

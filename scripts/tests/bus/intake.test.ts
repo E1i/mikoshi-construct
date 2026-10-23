@@ -12,7 +12,7 @@ import { parkingLane } from '../../bus/admissions.js'
 import { appendCardEvent, laid, WINDOW_LANE } from '../../bus/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { importJournalFile } from '../../bus/import.js'
-import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
+import { busCardEvents, busIntakePorts, parkedCardNumbers } from '../../bus/intake.js'
 import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, FACTORY_MODE, LANE_ASSIGNED } from '../../core/events.js'
 
@@ -461,5 +461,18 @@ describe('a card event written to the bus', () => {
     finally {
       db.close()
     }
+  })
+})
+
+describe('the numbers parked cards hold', () => {
+  it('reads the card numbers of every lane under the parking and refuses a parking it cannot read', () => {
+    const { parking } = world()
+    mkdirSync(path.join(parking, 'lane-2'), { recursive: true })
+    writeFileSync(path.join(parking, '90.md'), '')
+    writeFileSync(path.join(parking, 'lane-2', '1300.md'), '')
+    writeFileSync(path.join(parking, 'lane-2', 'notes.txt'), '')
+
+    expect(parkedCardNumbers(parking)().sort((a, b) => a - b)).toEqual([90, 1300])
+    expect(() => parkedCardNumbers(path.join(parking, 'missing'))()).toThrow('cannot be read, so no card number is allocated')
   })
 })
