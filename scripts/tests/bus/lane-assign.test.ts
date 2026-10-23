@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardStarter } from '../../bus/launch-executor.js'
 import type { QueuedTask } from '../../bus/queue.js'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -211,6 +211,22 @@ describe('a lane is a chain written by lane.assigned', () => {
     expect(laneCount(root)).toBe(3)
     writeFileSync(path.join(root, 'construct.json'), JSON.stringify({ construct: '0.1.0', lanes: 5 }))
     expect(laneCount(root)).toBe(5)
+  })
+
+  it('the bus reads the lane count from construct.json or from the attach record', () => {
+    const attached = tempRoot()
+    mkdirSync(path.join(attached, '.construct'), { recursive: true })
+    writeFileSync(path.join(attached, '.construct/attach.json'), JSON.stringify({ recordVersion: 3, lanes: 6 }))
+    expect(laneCount(attached)).toBe(6)
+
+    const constructed = tempRoot()
+    writeFileSync(path.join(constructed, 'construct.json'), JSON.stringify({ construct: '0.1.0', lanes: 4 }))
+    expect(laneCount(constructed)).toBe(4)
+
+    const neither = tempRoot()
+    mkdirSync(path.join(neither, '.construct'), { recursive: true })
+    writeFileSync(path.join(neither, '.construct/attach.json'), JSON.stringify({ recordVersion: 3 }))
+    expect(laneCount(neither)).toBe(DEFAULT_LANE_COUNT)
   })
 
   it('after the re-layout no live card has a lane number above N', () => {

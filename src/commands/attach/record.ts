@@ -22,6 +22,7 @@ export interface AttachRecord {
   browserHeld?: string[]
   excludeSeparator: number
   settingsHook?: SettingsHook
+  lanes?: number
 }
 
 export function readAttachRecord(root: string): AttachRecord | null {

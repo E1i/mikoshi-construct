@@ -7,7 +7,7 @@ import type { Prompter } from '../ui/prompts.js'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
-import { buildManifest, readManifest, recordedShas, recordedVariants, writeManifest } from '../manifest.js'
+import { buildManifest, DEFAULT_LANES, isLaneCount, readManifest, recordedShas, recordedVariants, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
 import { planMaterialize } from '../materialize/plan.js'
 import { repositoryCarriesTheSample } from '../materialize/sample.js'
@@ -15,10 +15,12 @@ import { withoutStillbornClaims } from '../model/birth.js'
 import { buildModel, mergeModel, readModel, writeModel } from '../model/write.js'
 import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, groupsFor, isPresetId, keysGivenADefault, PRESET_LIST, sampleGroups, sampleMounts, workspacePackagesFor } from '../presets/index.js'
 import { ownedSha } from '../sync/ownership.js'
-import { isValidProjectName } from '../ui/prompts.js'
+import { isValidProjectName, parseLaneCount } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { ATTACH_RECORD_FILE } from './attach/record.js'
 import { printDetectReport } from './soulkill.js'
+
+export { DEFAULT_LANES } from '../manifest.js'
 
 function ownedShasOfBlocks(written: FileOp[]): Record<string, string> {
   return Object.fromEntries(written.filter(op => op.strategy === 'append-block').map(op => [op.target, ownedSha(op.target, op.content)]))
@@ -34,6 +36,7 @@ export interface InitOptions {
   review?: string
   reviewModel?: string
   harness?: string
+  lanes?: string
 }
 
 export interface InitResult {
@@ -56,6 +59,7 @@ interface InitChoices {
   projectName: string
   review: ReviewProvider
   reviewModel: string
+  lanes: number
   answeredByTheRecord: string[]
 }
 
@@ -65,6 +69,7 @@ interface RecordedChoices {
   projectName?: string
   review?: ReviewProvider
   reviewModel?: string
+  lanes?: number
 }
 
 function choicesAlreadyRecorded(previous: Manifest | null): RecordedChoices {
@@ -77,6 +82,7 @@ function choicesAlreadyRecorded(previous: Manifest | null): RecordedChoices {
     projectName: typeof name === 'string' && isValidProjectName(name) ? name : undefined,
     review: previous.review == null ? 'none' : previous.review.provider,
     reviewModel: previous.review?.model,
+    lanes: isLaneCount(previous.lanes) ? previous.lanes : undefined,
   }
 }
 
@@ -249,7 +255,15 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
 
   const reviewModel = options.reviewModel ?? recorded.reviewModel ?? DEFAULT_REVIEW_MODEL
 
-  return { presetId, ai, projectName, review, reviewModel, answeredByTheRecord }
+  let lanes: number | undefined = options.lanes == null ? undefined : parseLaneCount(options.lanes)
+  lanes ??= fromTheRecord('parallel lanes', recorded.lanes)
+  if (lanes == null) {
+    lanes = prompter == null ? DEFAULT_LANES : await prompter.lanes(DEFAULT_LANES)
+    if (lanes == null)
+      return CANCELLED
+  }
+
+  return { presetId, ai, projectName, review, reviewModel, lanes, answeredByTheRecord }
 }
 
 export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter): Promise<InitResult> {
@@ -282,7 +296,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const choices = await askChoices(ui, options, report, root, interactive, previous)
   if (choices === CANCELLED)
     return aborted()
-  const { presetId, ai, projectName, review, reviewModel, answeredByTheRecord } = choices
+  const { presetId, ai, projectName, review, reviewModel, lanes, answeredByTheRecord } = choices
   const preset = getPreset(presetId)
   if (!preset.available)
     throw new Error(`preset "${presetId}" is not available yet in v${VERSION}`)
@@ -384,7 +398,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const changing = applied.filter(op => changesTheTree(root, op))
   const next = nextStepAfter(changing, vars)
   const written = applyPlan(root, plan.ops)
-  const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, ownedShas: ownedShasOfBlocks(written), contracts: preset.contracts, previous, policy })
+  const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, ownedShas: ownedShasOfBlocks(written), contracts: preset.contracts, previous, policy, lanes })
   writeManifest(root, manifest)
   const sample = sampleIsHere({ preset, vars, ai, review, omittedGroups: plan.omittedGroups, previous })
   const born = withoutStillbornClaims(buildModel({ vars, contracts: preset.contracts, sample }), existingModel, root)
