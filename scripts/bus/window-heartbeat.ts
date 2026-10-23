@@ -14,6 +14,8 @@ export const LOOP_PROCESS = 'miko:'
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SESSION_ID = /^[^:\s]+$/
+const SQLITE_BUSY = 5
+const PRIMARY_RESULT_CODE = 0xFF
 
 const LAST_LOOP_BEATS = `
   SELECT beats.name, beats.ts FROM (
@@ -59,14 +61,25 @@ export function windowBeat(bus: string, window: WindowSession | null, now: () =>
     if (window === null || at - last < WINDOW_BEAT_MS)
       return
     last = at
-    const db = openBus(bus)
     try {
-      recordWindowHeartbeat(db, new Date(at).toISOString(), window.session, { mode: window.mode, ...measure(window.session) })
+      const db = openBus(bus)
+      try {
+        recordWindowHeartbeat(db, new Date(at).toISOString(), window.session, { mode: window.mode, ...measure(window.session) })
+      }
+      finally {
+        db.close()
+      }
     }
-    finally {
-      db.close()
+    catch (error) {
+      if (!busLocked(error))
+        throw error
     }
   }
+}
+
+function busLocked(error: unknown): boolean {
+  const code = (error as { errcode?: unknown } | null)?.errcode
+  return typeof code === 'number' && (code & PRIMARY_RESULT_CODE) === SQLITE_BUSY
 }
 
 export function lastLoopBeats(db: DatabaseSync): { name: string, ts: string }[] {
