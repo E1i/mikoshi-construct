@@ -71,8 +71,12 @@ export function importJournalFile(db: DatabaseSync, journal: string, laneOnDisk:
   return existsSync(journal) ? importJournal(db, readFileSync(journal, 'utf8'), laneOnDisk, now) : null
 }
 
+export function handoffDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+}
+
 export function journalPath(): string {
-  return path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), 'ghosts.jsonl')
+  return path.join(handoffDir(), 'ghosts.jsonl')
 }
 
 function main(): number {
