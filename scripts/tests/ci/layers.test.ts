@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { selectRun } from '../../ci/layers.js'
+import { layerIn, layerOf, selectRun } from '../../ci/layers.js'
 import { cruise } from '../../ci/select.js'
+import { readLayerMap } from '../../core/layer-map.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const DEPCRUISE = path.join(REPO_ROOT, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruiser.mjs')
@@ -172,6 +173,22 @@ describe('the layer rules of the bus hold over scripts and src', () => {
     })
     expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts', 'src'])).toEqual({ status: 1, violations: ['bus-takes-event-names-from-core scripts/bus/card-automaton.ts -> src/commands/intake/index.ts'] })
   }, CRUISE_TIMEOUT_MS)
+})
+
+describe('the CI selector reads its layers from the one layer map', () => {
+  it('the CI selector takes the layer of a file from the layer map', () => {
+    const map = { files: { 'scripts/bus/queue.ts': 'core' }, folders: { 'scripts/bus/': 'bus', 'src/': 'src' } }
+    expect(layerIn(map, 'scripts/bus/queue.ts')).toBe('core')
+    expect(layerIn(map, 'scripts/bus/lease.ts')).toBe('bus')
+    expect(layerIn(map, 'scripts/ghosts/launch.ts')).toBeNull()
+    const recorded = readLayerMap()
+    for (const [file, layer] of Object.entries(recorded.files))
+      expect([file, layerOf(file)]).toEqual([file, layer])
+  })
+
+  it('a file two folders of the map claim belongs to no layer', () => {
+    expect(layerIn({ files: {}, folders: { 'scripts/': 'scripts', 'scripts/bus/': 'bus' } }, 'scripts/bus/db.ts')).toBeNull()
+  })
 })
 
 describe('a test that scans the scripts or src tree runs on every pull request', () => {

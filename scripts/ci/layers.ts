@@ -1,5 +1,7 @@
+import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
 import { isTest, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
+import { layersIn, readLayerMap } from '../core/layer-map.js'
 import { scansATree } from './tree-scanners.js'
 
 export { isTest }
@@ -16,7 +18,7 @@ export const BUS_SHARED: readonly string[] = [
   'scripts/bus/stored.ts',
 ]
 export const BUS_TESTS = 'scripts/tests/bus/'
-const SCRIPT_DIR = /^scripts\/([^/]+)\//
+const LAYERS = readLayerMap()
 const SOURCE_FILE = /\.ts$/
 const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
 
@@ -30,18 +32,15 @@ function underTestRoot(file: string): boolean {
   return TEST_ROOTS.some(root => file.startsWith(`${root}/`))
 }
 
-export function layerOf(file: string): string | null {
+export function layerIn(map: LayerMap, file: string): string | null {
   if (underTestRoot(file) || !SOURCE_FILE.test(file))
     return null
-  if (BUS_CORE.test(file))
-    return 'bus-core'
-  const service = BUS_SERVICE.exec(file)?.[1]
-  if (service !== undefined)
-    return `bus:${service}`
-  if (file.startsWith('src/'))
-    return 'src'
-  const dir = SCRIPT_DIR.exec(file)?.[1]
-  return dir === undefined ? null : dir
+  const layers = layersIn(map, file)
+  return layers.length === 1 ? layers[0]! : null
+}
+
+export function layerOf(file: string): string | null {
+  return layerIn(LAYERS, file)
 }
 
 export function reverseGraph(graph: Graph): Map<string, string[]> {

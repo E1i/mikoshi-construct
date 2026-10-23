@@ -58,10 +58,10 @@ function vitestRun(status: number, tests: Parameters<typeof report>[0]): VitestR
 }
 
 const NOTES_GRAPH: Graph = new Map([
-  ['scripts/notes/print.ts', []],
-  ['scripts/notes/parse.ts', []],
-  ['scripts/tests/notes/print.test.ts', ['scripts/notes/print.ts']],
-  ['scripts/tests/notes/parse.test.ts', ['scripts/notes/parse.ts']],
+  ['scripts/docs/print.ts', []],
+  ['scripts/docs/parse.ts', []],
+  ['scripts/tests/notes/print.test.ts', ['scripts/docs/print.ts']],
+  ['scripts/tests/notes/parse.test.ts', ['scripts/docs/parse.ts']],
   ['scripts/tests/core/events.test.ts', []],
 ])
 const SCANNER_TEXT = 'readdirSync(path.join(ROOT, \'scripts\'))'
@@ -126,7 +126,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
 
   it('a red local test leaves the push undone', () => {
     const red = testsVerdict(vitestRun(1, [{ file: 'scripts/tests/notes/print.test.ts', name: 'prints', status: 'failed' }]))
-    const gate = prepushGate(['scripts/notes/print.ts'], () => red, () => [])
+    const gate = prepushGate(['scripts/docs/print.ts'], () => red, () => [])
     expect(gate.code).toBe(1)
     expect(gate.lines).toEqual([
       'prepush: red — the push does not happen; fix these in this session and run the gate again:',
@@ -136,7 +136,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
 
   it('a broken test command is a block with a finding and a question', () => {
     for (const broken of [{ status: null, report: null, error: 'spawn node ENOENT' }, { status: 1, report: null, error: null }, { status: 1, report: { testResults: [] }, error: null }, vitestRun(1, [{ file: 'scripts/tests/notes/print.test.ts', name: 'prints', status: 'skipped' }])] satisfies VitestRun[]) {
-      const gate = prepushGate(['scripts/notes/print.ts'], () => testsVerdict(broken), () => [])
+      const gate = prepushGate(['scripts/docs/print.ts'], () => testsVerdict(broken), () => [])
       expect(gate.code).toBe(2)
       expect(gate.lines[0]).toBe('prepush: broken — the push does not happen.')
       expect(gate.lines[1]).toMatch(/^finding: the pre-push test command is broken: /)
@@ -145,8 +145,8 @@ describe('the session pre-push runs the CI selector over the session diff', () =
   })
 
   it('an edit of one function runs locally only its related tests and the global scanners while CI still runs the layer', () => {
-    const run = selectRun(['scripts/notes/print.ts'], NOTES_GRAPH, test => test === 'scripts/tests/core/events.test.ts' ? SCANNER_TEXT : '')
-    expect(run).toEqual({ kind: 'layers', layers: ['notes'], tests: ['scripts/tests/core/events.test.ts', 'scripts/tests/notes/print.test.ts'] })
+    const run = selectRun(['scripts/docs/print.ts'], NOTES_GRAPH, test => test === 'scripts/tests/core/events.test.ts' ? SCANNER_TEXT : '')
+    expect(run).toEqual({ kind: 'layers', layers: ['docs'], tests: ['scripts/tests/core/events.test.ts', 'scripts/tests/notes/print.test.ts'] })
     expect(sessionArgs(run, [])).toEqual(['scripts/tests/core/events.test.ts', 'scripts/tests/notes/print.test.ts', PASS_WITH_NO_TESTS, RETRY])
     expect(SELECT_STEP.if).toBe('github.event_name == \'pull_request\' && !startsWith(github.head_ref, \'changeset-release/\')')
     expect(workflow.jobs.changes!.outputs!.full).toBe(expression('steps.select.outputs.full || \'true\''))
@@ -173,7 +173,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
       { file: 'scripts/tests/notes/print.test.ts', name: 'print > reads a pid', status: 'failed', messages: ['Error: spawnSync ps EPERM'] },
     ]))
     expect(verdict).toEqual({ kind: 'red', failed: ['scripts/tests/notes/print.test.ts > print > reads a pid'] })
-    expect(prepushGate(['scripts/notes/print.ts'], () => verdict, () => []).code).toBe(1)
+    expect(prepushGate(['scripts/docs/print.ts'], () => verdict, () => []).code).toBe(1)
   })
 
   it('a listed test that stopped failing turns the liveness check red on a pull request of the list while an ordinary card push passes', () => {
@@ -188,7 +188,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     expect(ofTheList.code).toBe(1)
     expect(ofTheList.lines).toContain('stale: scripts/tests/notes/print.test.ts > print > spawns ps — no longer fails in the session sandbox: it passed')
     const liveness = vi.fn(() => stale)
-    const ordinary = prepushGate(['scripts/notes/parse.ts'], green, liveness)
+    const ordinary = prepushGate(['scripts/docs/parse.ts'], green, liveness)
     expect(ordinary).toEqual({ lines: ['prepush: green — 1 tests ran; the push may go.'], code: 0 })
     expect(liveness).not.toHaveBeenCalled()
     expect(workflow.jobs['sandbox-list']!.steps.at(-1)).toEqual({ if: 'needs.changes.outputs.liveness == \'true\'', run: 'pnpm exec tsx scripts/ci/sandbox-liveness.ts --ci' })
