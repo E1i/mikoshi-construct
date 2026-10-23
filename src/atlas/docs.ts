@@ -186,13 +186,13 @@ export function renderAtlasDocs(input: AtlasInput, generatedFrom: string, rootFr
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="${contentPolicy(THEME_SCRIPT, DOCS_STYLE)}">
-<title>${escaped(WORDS.title(input.projectName))}</title>
+<title>${escaped(WORDS.title(input.repo.name.text))}</title>
 <style>${DOCS_STYLE}</style>
 </head>
 <body>
 ${topbarHtml('docs', modeFiles)}
 <main class="page">
-${heroHtml('docs', input.projectName, tally)}
+${heroHtml('docs', input.repo, tally)}
 <div class="cols">
 ${contents(body.sections)}
 <div class="reading">

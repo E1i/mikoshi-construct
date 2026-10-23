@@ -9,6 +9,7 @@ import { deriveModelState } from '../model/state.js'
 import { readModel } from '../model/write.js'
 import { PLAIN_LORE } from '../ui/lore.js'
 import { renderAtlasDocs } from './docs.js'
+import { repoIdentity } from './identity.js'
 import { renderAtlas } from './page.js'
 import { readRemoteBlob } from './remote.js'
 import { editorTemplate } from './source-link.js'
@@ -59,7 +60,7 @@ export function runAtlas(options: AtlasOptions): AtlasWritten {
   const page = options.out == null ? defaultPage(root, constructed || options.attached, engram) : path.resolve(options.out)
   mkdirSync(path.dirname(page), { recursive: true })
   const links = { template: constructed ? editorTemplate(readAtlasRecord(root)?.open) : null, remote: readRemoteBlob(root) }
-  const input = { projectName: path.basename(root), model, states: deriveModelState(model, root), mechanics: model.mechanics, links }
+  const input = { repo: repoIdentity(root), model, states: deriveModelState(model, root), mechanics: model.mechanics, links }
   const modeFiles = constructed && !options.attached ? { map: path.basename(page), docs: docsFileOf(page) } : undefined
   writeFileSync(page, renderAtlas(input, MODEL_FILE, rootFrom(page, root), modeFiles))
   if (modeFiles != null)

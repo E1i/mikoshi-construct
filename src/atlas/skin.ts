@@ -64,6 +64,8 @@ button, input { font: inherit; color: inherit; }
 .eyebrow { display: flex; flex-wrap: wrap; gap: 0.375rem 0.875rem; font: 700 0.6875rem var(--f-mono); letter-spacing: 0.2em; text-transform: uppercase; color: var(--signal); }
 .eyebrow span { color: var(--dim); letter-spacing: 0.08em; }
 .repo { margin: 0; font: 700 clamp(1.625rem, 4.6cqi, 2.875rem)/1.02 var(--f-display); letter-spacing: 0.06em; text-wrap: balance; overflow-wrap: anywhere; }
+.lede { margin: 0; max-inline-size: 80ch; color: var(--text); font-size: 0.9375rem; text-wrap: pretty; overflow-wrap: anywhere; }
+.provenance { display: flex; flex-wrap: wrap; gap: 0.25rem 0.875rem; margin: 0; font: 600 0.625rem var(--f-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
 .stats { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); margin-block-start: 0.25rem; }
 .stat { flex: 1; display: grid; min-inline-size: 7rem; padding: 0.5rem 0.875rem; background: var(--panel-2); }
 .stat b { font: 700 1.375rem var(--f-display); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; color: var(--_c, var(--text)); }
