@@ -60,7 +60,6 @@ export function windowBeat(bus: string, window: WindowSession | null, now: () =>
     const at = now()
     if (window === null || at - last < WINDOW_BEAT_MS)
       return
-    last = at
     try {
       const db = openBus(bus)
       try {
@@ -69,6 +68,7 @@ export function windowBeat(bus: string, window: WindowSession | null, now: () =>
       finally {
         db.close()
       }
+      last = at
     }
     catch (error) {
       if (!busLocked(error))
