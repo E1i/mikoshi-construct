@@ -19,9 +19,9 @@ import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, NO_HARNESS, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
-import { installGuardEntry, readSettings, SETTINGS_FILE } from './settings.js'
+import { installHookEntries, readSettings, SETTINGS_FILE } from './settings.js'
 import { shellWord } from './shell-word.js'
-import { writeCarriersExclusively } from './write.js'
+import { planWindowHooks, writeCarriersExclusively } from './write.js'
 
 export { planCarriers } from './carriers.js'
 export { printEntryProtocol } from './earlier.js'
@@ -171,7 +171,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   if (lanes == null)
     return aborted()
 
-  const ops = planCarriers(root, harness)
+  const ops = [...planCarriers(root, harness), ...planWindowHooks()]
   const targets = ops.map(op => op.target)
   for (const target of targets)
     ui.line(`  ${ui.theme.ok('+')} ${target}`)
@@ -199,7 +199,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     const rollback = rollbackAttach(root, { written, directories: rollbackDirectories, separator: exclude.separator })
     return refused(ui, { reason: 'settings-original', paths: [kept.copy], rolledBack: true }, rollback)
   }
-  const installed = installGuardEntry(root, reading)
+  const installed = installHookEntries(root, reading)
   if (installed.kind !== 'installed') {
     const rollback = rollbackAttach(root, { written, directories: rollbackDirectories, separator: exclude.separator })
     if (kept != null)

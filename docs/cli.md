@@ -1182,10 +1182,10 @@ yourself, then run it again. A collision found during the write keeps the output
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
    `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`,
-   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`.
-3. The guard entry in `.claude/settings.local.json` (below). The file is read again at this moment: if
-   it no longer parses, or already carries a guard entry, the files of this run are rolled back and
-   attach refuses.
+   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`, and the window hooks `.construct/window-hooks.mjs`.
+3. The guard entry and the three window hook entries in `.claude/settings.local.json` (below). The file
+   is read again at this moment: if it no longer parses, or already carries a guard or window hook
+   entry, the files of this run are rolled back and attach refuses.
 4. The record, `.construct/attach.json`.
 
 The carriers and the guard are written exclusively (`wx`), in the order listed above. If one of them appears between
@@ -1208,6 +1208,28 @@ the original, so the formatting of the rest of it may change. A session started 
 entry; nothing here claims that a session already running does. The guard imports its reader of the
 command line, `.construct/shell-parser.mjs`, when a call arrives; attach writes and detach removes both
 files, and a call arriving while the parser is missing is refused with exit 2.
+
+### The window hooks
+
+`.construct/window-hooks.mjs` keeps a tab window going with nobody at a terminal. It is self-contained:
+it imports only Node built-ins and runs nothing of the repository or of mikoshi-construct. attach
+registers it in the same `.claude/settings.local.json`, the same way, with one element appended to each
+of three lists: `hooks.Stop` runs it as `stop`, `hooks.PreCompact` as `pre-compact`, and
+`hooks.SessionStart` with the matcher `compact` as `session-start`, each a `command` hook with a timeout
+of 10 seconds. It creates each list only where it is missing.
+
+It reads the handoff at `CONSTRUCT_HANDOFF`, or `miko.md` in `CONSTRUCT_HANDOFF_DIR`, or
+`~/.construct/handoff/miko.md`, and does nothing in a card session (`CONSTRUCT_CARD`), a headless one
+(`CLAUDE_CODE_ENTRYPOINT=sdk-cli`) or one the bus raised (`CONSTRUCT_BUS_RAISED=1`). Every other
+session in an attached repository is a tab window, and without either variable all of them, in every
+attached repository, read the one handoff: while it ends `STATUS: CONTINUE`, none of them stops after
+its turn. This is accepted: an attached repository is one Mikoshi lives in. To keep a session out, or
+to give one repository its own handoff, start the session with `CONSTRUCT_HANDOFF` naming another file.
+
+At Stop it blocks the stop when the handoff's last `STATUS:` line is `CONTINUE` and lets the second
+stop in a row through; after a compaction it hands the session `additionalContext` naming the handoff
+to continue from; before a compaction it returns a `systemMessage`, which Claude Code shows the owner,
+saying that the handoff is missing or older than two minutes. It writes no file.
 
 The guard refuses the agent a `git commit`, `git push`, `git merge`, `git rebase` or `git tag` into the
 attached repository, or into a repository it cannot pin down, with exit code 2 and three lines, what,
@@ -1254,15 +1276,16 @@ lists.
 
 | Field | What it holds |
 |---|---|
-| `recordVersion` | `3`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought; a `2` differs from `3` only in that its `harness` is always a command. |
+| `recordVersion` | `4`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought; a `2` differs from `3` only in that its `harness` is always a command; a `3` carries no `settingsHook.window`, so only the guard entry is sought. |
 | `construct` | The CLI version that attached. |
 | `attachedAt` | ISO timestamp of the run. |
 | `harness` | `{ "command": "<command>" }`, the command passed or chosen, never a default; or the string `"none"` when the owner chose none or nothing was proposed. |
-| `files` | Every carrier path, `.construct/commit-guard.mjs` and `.construct/shell-parser.mjs` with the sha256 of the bytes written. The record itself is not in it. |
+| `files` | Every carrier path, `.construct/commit-guard.mjs`, `.construct/shell-parser.mjs` and `.construct/window-hooks.mjs` with the sha256 of the bytes written. The record itself is not in it. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
 | `ledgerCreated` | Whether `.construct/` was created by this run (`true`) or already existed (`false`). `detach` removes `.construct/` only when this is `true`; a record without the field (written before it existed) does not say, so `.construct/` stays. |
 | `settingsHook` | `file` (`.claude/settings.local.json`), `created` (`file`, `hooks` and `preToolUse`: whether this run created each), and `entry`, the element appended to `hooks.PreToolUse` as written. `detach` compares the entry by value and removes the file, `hooks` or `PreToolUse` only where `created` says attach made it and it is now empty. |
+| `settingsHook.window` | One element per window hook entry: `event` (`Stop`, `PreCompact` or `SessionStart`), `entry`, the element appended to that list as written, and `created`, whether this run created the list. `detach` treats each like the guard entry. |
 | `settingsHook.original` | Present only when `.claude/settings.local.json` existed, untracked, before attach: `copy`, the absolute path of the pre-image attach kept, `sha256`, the hash of those bytes, and `afterSha256`, the hash of the file as attach left it. The copy is `.construct/attach/<key>/settings.local.json.orig` under the user's home directory, outside the repository, where `<key>` is the first twelve hex digits of the sha256 of the repository's real path, a dash and its directory name; the directory is `0700` and the copy `0600`. The record holds the path and the hashes, never the bytes. `detach` refuses before any write when the copy is missing, elsewhere or hashes differently; when the file is still what attach left, it writes the original bytes back instead of cutting the entry out, and then deletes the copy. |
 | `ledgerHeld` | The ladder's runtime paths (`.construct/runs.jsonl`, `.construct/steps.jsonl`, `.construct/implement-agreed.txt`, `.construct/implement-args.json`, `.construct/atlas.html`, `.construct/browser`) that were already on disk at attach. `detach` removes the untracked ones not in this list and leaves those in it. |
 | `browserHeld` | The names inside `.construct/browser` at attach, sorted. When `.construct/browser` already existed, `detach` removes only the run directories not in this list; a record without the field leaves every run directory there. |
@@ -1277,7 +1300,7 @@ no `--yes`.
 
 ## construct detach
 
-The inverse of `attach`: removes what `.construct/attach.json` lists, the commit guard entry it added to
+The inverse of `attach`: removes what `.construct/attach.json` lists, the commit guard and window hook entries it added to
 `.claude/settings.local.json` included, and nothing else. It reads
 everything before it writes anything, so a refusal leaves the tree exactly as it found it. Alias:
 `jack-out`. There is no `--force`.
@@ -1306,14 +1329,16 @@ this order, taking the first class that matches:
 | changed | the bytes on disk hash differently from the record | the whole run refuses, listing the changed paths; nothing is removed |
 | to remove | the bytes are what attach wrote | removed |
 
-The commit guard entry in `.claude/settings.local.json` is classed after the files, in this order:
+The commit guard entry and the window hook entries in `.claude/settings.local.json` are classed together
+after the files, in this order; "such an element" is one in a recorded list that runs the recorded
+script:
 
 | Class | Test | What happens |
 |---|---|---|
 | adopted | `.claude/settings.local.json` is in the git index | named, left byte for byte |
-| already absent | the file is missing, or no element of `hooks.PreToolUse` runs `.construct/commit-guard.mjs` | named as `already absent: .claude/settings.local.json commit guard entry`; the guard script is still removed |
+| already absent | the file is missing, or no such element is left | named as `already absent: .claude/settings.local.json commit guard entry`; the guard script is still removed |
 | unreadable | the file no longer parses as a settings file | refused as `settings-unreadable`, nothing removed |
-| changed | an element runs the guard and differs from the recorded entry | the path joins the `changed` refusal, nothing removed |
+| changed | such an element differs from the recorded entry | the path joins the `changed` refusal, nothing removed |
 | to remove | every such element is the recorded entry | the entry is taken out first; a file attach created is deleted when nothing else is left in it, and counts as removed; an entry cut out of a file that stays is reported on its own line and not counted |
 
 Whatever else the file holds, grants or other hooks, is never read for the decision and never removed.

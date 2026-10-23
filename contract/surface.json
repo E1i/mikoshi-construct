@@ -443,7 +443,7 @@
   "formats": {
     "manifestVersion": 6,
     "modelVersion": 6,
-    "recordVersion": 3
+    "recordVersion": 4
   },
   "jsonKeys": {
     "board": {
@@ -1019,6 +1019,7 @@
         ".construct/attach.json",
         ".construct/commit-guard.mjs",
         ".construct/shell-parser.mjs",
+        ".construct/window-hooks.mjs",
         "scripts/construct/browser-lab.mjs",
         "scripts/construct/browser-witness.mjs",
         "scripts/construct/check-acceptance.mjs",
