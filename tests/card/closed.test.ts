@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closedFromBus, closedTasks, JOURNAL_HISTORY_ENDS, mergedTasks, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
+import { closedFromBus, closedTasks, endedCards, JOURNAL_HISTORY_ENDS, mergedTasks, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 
 describe('closedTasks and mergedTasks without a journal', () => {
   it('closedTasks and mergedTasks read the bus card states with no journal text', () => {
@@ -8,6 +8,8 @@ describe('closedTasks and mergedTasks without a journal', () => {
     expect([...mergedTasks(null, bus)]).toEqual(['77', '78'])
     expect(closedTasks(null, new Map()).size).toBe(0)
     expect(mergedTasks(null, new Map()).size).toBe(0)
+    expect([...endedCards(bus)]).toEqual(['77', '78'])
+    expect(endedCards(undefined).size).toBe(0)
   })
 })
 

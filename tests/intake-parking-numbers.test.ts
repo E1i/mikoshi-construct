@@ -74,15 +74,8 @@ describe('construct intake assigns a number no card already holds', () => {
 })
 
 describe('admittedNumbers', () => {
-  it('reads the task number of intake lines only', () => {
-    const journal = [
-      JSON.stringify({ event: 'intake', task: '12' }),
-      JSON.stringify({ event: 'path', task: '99' }),
-      JSON.stringify({ event: 'intake', task: 'not-a-number' }),
-      'not json',
-      JSON.stringify({ event: 'intake', task: '7' }),
-    ].join('\n')
-    expect(admittedNumbers(journal)).toEqual([12, 7])
-    expect(admittedNumbers(null)).toEqual([])
+  it('reads the numbered cards the bus holds and nothing without a bus', () => {
+    expect(admittedNumbers(new Map([['12', 'parked'], ['not-a-number', 'running'], ['7', 'merged']]))).toEqual([12, 7])
+    expect(admittedNumbers(undefined)).toEqual([])
   })
 })

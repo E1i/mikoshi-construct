@@ -51,6 +51,10 @@ function mergedIn(history: readonly JournalEntry[], bus: BusCardStates | undefin
   return merged
 }
 
+export function endedCards(bus: BusCardStates | undefined): Set<string> {
+  return new Set(endedInBus(bus).map(([task]) => task))
+}
+
 export function closedTasks(journal: string | null, bus?: BusCardStates): Map<string, string> {
   return closedIn(historyOf(journal, bus), bus)
 }

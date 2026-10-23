@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { CARD_ADMITTED } from '../../../scripts/core/events.js'
-import { closedTasks, mergedTasks } from '../../card/closed.js'
+import { endedCards } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { textSha } from '../../card/text-sha.js'
@@ -212,14 +212,15 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     return refused('invalid', [taken.reason])
   const parked = parkingsSharingNumbers(options.parking, options.parkingRoot ?? defaultParking()).flatMap(dir => parkedNumbers(parkedFiles(dir)))
   const cards = options.cardStates?.()
-  const used = [...taken.numbers, ...parked, ...admittedNumbers(null, cards)]
+  const used = [...taken.numbers, ...parked, ...admittedNumbers(cards)]
   const numbers = nextFreeNumbers(used, draft.cards.length)
   const repository = new DirectoryFacts(options.dir, process.env.PATH ?? '')
+  const ended = endedCards(cards)
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
     parked: new Set(parked),
-    done: new Set(closedTasks(null, cards).keys()),
-    merged: mergedTasks(null, cards),
+    done: ended,
+    merged: ended,
     repository,
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),

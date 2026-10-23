@@ -13,7 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
-import { closedTasks, mergedTasks } from '../../card/closed.js'
+import { endedCards } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
@@ -360,12 +360,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
   const cards = options.cardStates?.()
   const parked = new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking())))
-  const done = new Set(closedTasks(null, cards).keys())
+  const ended = endedCards(cards)
   const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
     parked,
-    done,
-    merged: mergedTasks(null, cards),
+    done: ended,
+    merged: ended,
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
@@ -398,7 +398,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
     return { status: 'refused', why: reparsed.reason }
-  const waitingOn = unmergedKnown(checked.depends, parked, cards, done)
+  const waitingOn = unmergedKnown(checked.depends, parked, cards, ended)
   if (source === ADMIT_SOURCE && waitingOn.length > 0) {
     if (!options.dryRun)
       options.events?.(waitingEvent(card.id, waitingOn, now()))

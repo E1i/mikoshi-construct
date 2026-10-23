@@ -93,8 +93,8 @@ command with `--confirm <token>`. The token is the hash of the cards as printed,
 covers exactly the list the person saw. `--auto-confirm`, off by default, is the person accepting
 corrections in advance; those cards are parked at once. Through a wired bus every parked card leaves a
 `card.admitted` with its confirmation (`person`, `auto` or `none`) and its corrections, so the corrections
-an auto-confirmed run accepted are not lost and the flag's use is on record; nothing is written to the
-journal. A confirmed card keeps the
+an auto-confirmed run accepted are not lost and the flag's use is on record; intake reads and writes
+no journal file. A confirmed card keeps the
 `who` of its draft; only an `unclear:` line or the split signal still holds it at `who: window`.
 
 ## Too big to take whole is seen before the work, not after two falls
@@ -152,7 +152,6 @@ before that door has none. `pnpm intake --admit <parking>/<id>.md` writes it wit
 keeps its number and its file, the same facts check runs under that number, and a correction is held
 behind the same token until a person confirms it. Only the card line and the `touches` line change,
 and only by a correction; the `corrected:` and `unclear:` lines are appended, and `who` stays as the
-card states it. The `card.admitted` carries `source: admit`, and nothing is written to the journal. A
-second `--admit` of a card already admitted, by the bus or by an `intake` line the journal holds from
-before the bus became the record, writes the card's `card.admitted` with the `ts` of that admission,
-which the bus keeps once, so a card admitted earlier reaches the door.
+card states it. The `card.admitted` carries `source: admit`, and no journal file is read or written. A
+second `--admit` of a card the bus already admitted with the same text writes nothing, and one whose
+text changed is amended with `source: amend`.
