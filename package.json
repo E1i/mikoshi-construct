@@ -98,6 +98,7 @@
     "lint:fix": "eslint --fix .",
     "miko": "node --import tsx scripts/miko/loop.ts",
     "miko:exit": "node --import tsx scripts/miko/exit.ts",
+    "miko:pull": "node --import tsx scripts/miko/pull.ts",
     "miko:watch": "node --import tsx scripts/miko/watch.ts",
     "mutate": "node --import tsx scripts/bus/mutate.ts",
     "morse:approve": "node --import tsx scripts/ghosts/morse-approve.ts",

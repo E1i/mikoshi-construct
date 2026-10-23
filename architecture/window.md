@@ -249,6 +249,11 @@ that session: it writes the handoff, and the work goes on in a new session. A ni
 fresh session opened after the pull. A PreToolUse hook on the Agent tool enforces this by refusing a role once the
 definitions differ from what the session started with; this text only explains it.
 
+The window pulls `main` only with `pnpm miko:pull`, never with `git pull`. The window's sandbox cannot write
+`.claude/**`, and a `git pull` that cannot unlink a file there half-applies: `HEAD` stays while the other paths are
+written, and old hooks call new scripts. When an incoming path is under `.claude/`, `pnpm miko:pull` pulls nothing
+and prints the owner's pull command for the main tree; the owner runs it.
+
 ## Choosing the contour: cheap path or ladder path
 
 The principle is *The cheapest contour that gives the required proof* in
