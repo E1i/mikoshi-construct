@@ -85,6 +85,7 @@ const SUPERSEDED_LANE = 'superseded'
 const CREATED = 201
 
 const NUMBERS_TAKEN = 'SELECT max(card_id) AS card, max(pr) AS pr FROM events'
+const LATEST_ISSUE_OR_PULL = `${REPO}/issues?state=all&sort=created&direction=desc&per_page=1`
 
 const OPEN_PLAN_ITEMS = `
   SELECT plan_items.plan_id, plan_items.item_id, plan_items.cards FROM plan_items JOIN plans ON plans.plan_id = plan_items.plan_id
@@ -118,6 +119,18 @@ function cardEventOf(card: RecutCard, at: Date): CardEvent {
     dedupeKey: `${CARD_ADMITTED}:${card.id}:${sha}:${ts}`,
     payload: { card: line, lane: null, depends, decision, contour, confirmation: 'auto', corrections: [], bodySha: sha, text: card.text, textSha: textSha(card.text), source: RECUT_SOURCE },
   }
+}
+
+export function latestGitHubNumber(gitHub: GitHub): number {
+  const response = gitHub(LATEST_ISSUE_OR_PULL)
+  if (response.status !== 200 || !Array.isArray(response.body))
+    throw new Error(`GitHub answered ${response.status} to the read of its latest issue or pull request, so no card number is allocated`)
+  if (response.body.length === 0)
+    return 0
+  const latest = (response.body[0] as { number?: unknown } | null)?.number
+  if (typeof latest !== 'number')
+    throw new Error('GitHub named its latest issue or pull request with no number, so no card number is allocated')
+  return latest
 }
 
 function cardLineOf(card: RecutCard): string {
@@ -226,7 +239,8 @@ export class RoundLimitRecutter implements RoundLimitRecut {
       return this.waited(at, branch)
     let recut: Recut
     try {
-      recut = inTransaction(this.parts.db, () => this.admitted(at, plan, text))
+      const onGitHub = latestGitHubNumber(this.parts.gitHub)
+      recut = inTransaction(this.parts.db, () => this.admitted(at, plan, text, onGitHub))
     }
     catch (error) {
       return this.waited(at, `the bus admitted none of the re-cut cards, so PR #${at.pr} and its branch ${branch.head} are untouched: ${messageOf(error)}`)
@@ -244,8 +258,8 @@ export class RoundLimitRecutter implements RoundLimitRecut {
     return this.parts.clock().toISOString()
   }
 
-  private admitted(at: RoundLimitAt, plan: Exclude<RecutPlan, { kind: 'owner_wait' }>, text: string): Recut {
-    const [firstId] = nextFreeNumbers(this.numbersTaken(), recutCardCount(plan))
+  private admitted(at: RoundLimitAt, plan: Exclude<RecutPlan, { kind: 'owner_wait' }>, text: string, onGitHub: number): Recut {
+    const [firstId] = nextFreeNumbers([...this.numbersInTheBus(), onGitHub], recutCardCount(plan))
     const recut = recutOf(plan, text, at.pr, firstId!)
     const ts = this.parts.clock()
     for (const card of recut.admitted) {
@@ -261,7 +275,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
     return recut
   }
 
-  private numbersTaken(): number[] {
+  private numbersInTheBus(): number[] {
     const row = this.parts.db.prepare(NUMBERS_TAKEN).get() as { card: number | null, pr: number | null }
     return [row.card ?? 0, row.pr ?? 0]
   }

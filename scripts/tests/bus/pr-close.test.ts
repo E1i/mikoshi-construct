@@ -1,8 +1,9 @@
+import type { GhResponse } from '../../bus/github.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../bus/db.js'
 import { leaseNext, releaseTask } from '../../bus/lease.js'
-import { PrCloser } from '../../bus/pr-close.js'
+import { latestGitHubNumber, PrCloser } from '../../bus/pr-close.js'
 import { queueTask } from '../../bus/queue.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../bus/window-requests.js'
 import { CARD_DROPPED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
@@ -173,5 +174,18 @@ describe('the bus closes a card pull request without merge, only through the clo
   it('the window request needs a pr, a card and a reason', () => {
     expect(requestOf(['close-pr', '--pr', '980', '--card', '1080', '--reason', 'cut anew'])).toEqual({ kind: 'close-pr', pr: 980, card: 1080, reason: 'cut anew' })
     expect(requestOf(['close-pr', '--pr', '980', '--card', '1080'])).toBeNull()
+  })
+})
+
+describe('the card numbers a re-cut must not take', () => {
+  function answering(response: GhResponse): (endpoint: string) => GhResponse {
+    return () => response
+  }
+
+  it('reads the latest GitHub issue or pull request number, zero for none, and refuses an answer it cannot read', () => {
+    expect(latestGitHubNumber(answering({ status: 200, headers: {}, body: [{ number: 1300 }] }))).toBe(1300)
+    expect(latestGitHubNumber(answering({ status: 200, headers: {}, body: [] }))).toBe(0)
+    expect(() => latestGitHubNumber(answering({ status: 502, headers: {}, body: null }))).toThrow('GitHub answered 502')
+    expect(() => latestGitHubNumber(answering({ status: 200, headers: {}, body: [{}] }))).toThrow('no number')
   })
 })

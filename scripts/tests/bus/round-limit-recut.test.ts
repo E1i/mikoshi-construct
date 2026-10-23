@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { GhResponse, GitHubPut } from '../../bus/github.js'
+import type { GhResponse, GitHub, GitHubPut } from '../../bus/github.js'
 import type { CardAdmit, RecutOutcome } from '../../bus/pr-close.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -9,7 +9,7 @@ import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent, WINDOW_LANE } from '../../bus/card-bodies.js'
 import { appendEvent } from '../../bus/db.js'
 import { RECUT_ACTOR, RoundLimitRecutter } from '../../bus/pr-close.js'
-import { changesRoundsOf } from '../../bus/queue.js'
+import { changesRoundsOf, RECUT_GRACE_MS } from '../../bus/queue.js'
 import { fullReview } from '../../bus/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../bus/review-worker.js'
 import { CARD_ADMITTED, CARD_DROPPED, MERGE_DONE, OWNER_WAIT_OPENED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, WITNESS_RECORDED } from '../../core/events.js'
@@ -23,6 +23,7 @@ const FIRST_NEW_CARD = CARD + 1
 const HEADS = [sha('b'), sha('c'), sha('d')]
 const GOAL_FILE = 'src/commands/board/goal.ts'
 const NARROW_FINDING = `${GOAL_FILE}:planLine prints the wrong count`
+const ISSUES = 'repos/{owner}/{repo}/issues?'
 const benches: MergeBench[] = []
 
 afterEach(() => {
@@ -72,7 +73,14 @@ interface Fixture {
   decision: string
 }
 
-function fixture(text: string, options: { decision?: string, admit?: CardAdmit } = {}): Fixture {
+interface FixtureOptions {
+  decision?: string
+  admit?: CardAdmit
+  latestOnGitHub?: GhResponse
+  recutThrows?: boolean
+}
+
+function fixture(text: string, options: FixtureOptions = {}): Fixture {
   const bench = liveBench()
   benches.push(bench)
   const posts: Post[] = []
@@ -84,7 +92,8 @@ function fixture(text: string, options: { decision?: string, admit?: CardAdmit }
     bench.gitHub.open({ number, head: bench.gitHub.pulls.get(PR)!.head, ref: fields.head, body: fields.body })
     return { status: 201, headers: {}, body: { number } }
   }
-  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub: bench.gitHub.client, post, patch: bench.gitHub.patch, clock: bench.clock.now, admit: options.admit })
+  const gitHub: GitHub = endpoint => endpoint.startsWith(ISSUES) ? options.latestOnGitHub ?? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
+  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, admit: options.admit })
   const worker = new ReviewWorker({
     isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
     db: bench.db,
@@ -95,6 +104,8 @@ function fixture(text: string, options: { decision?: string, admit?: CardAdmit }
     clock: bench.clock.now,
     session: 'worker-1',
     recut: { recut: (at) => {
+      if (options.recutThrows === true)
+        throw new Error('database is locked')
       const outcome = recutter.recut(at)
       outcomes.push(outcome)
       return outcome
@@ -293,5 +304,52 @@ describe('the re-cut of a pull request at the review round limit', () => {
     const admittedAt = (cardId: number): number => (db.prepare('SELECT id FROM events WHERE type = ? AND card_id = ? AND actor = ?').get(CARD_ADMITTED, cardId, RECUT_ACTOR) as { id: number }).id
     for (const cardId of [FIRST_NEW_CARD, FIRST_NEW_CARD + 1])
       expect(linkedAt(cardId)).toBeGreaterThan(admittedAt(cardId))
+  })
+
+  it('a number taken on GitHub above the bus maximum is not given to a re-cut card', async () => {
+    const fixed = fixture(cardText(), { latestOnGitHub: { status: 200, headers: {}, body: [{ number: CARD + 40 }] } })
+    fixed.reviewer.findings = [NARROW_FINDING]
+    await reviewToTheLimit(fixed)
+
+    expect(admittedByTheRecut(fixed.bench.db).map(card => card.cardId)).toEqual([CARD, CARD + 41])
+  })
+
+  it('gitHub numbers that cannot be read allocate no card and leave the PR untouched behind an owner wait', async () => {
+    const fixed = fixture(cardText(), { latestOnGitHub: { status: 502, headers: {}, body: null } })
+    fixed.reviewer.findings = [NARROW_FINDING]
+    await reviewToTheLimit(fixed)
+
+    untouched(fixed)
+    expect(ownerWaits(fixed.bench.db)).toEqual([expect.stringContaining('GitHub answered 502')])
+  })
+
+  it('a re-cut that stops before its outcome is recorded gets an owner wait from the queue once its grace is over', async () => {
+    const fixed = fixture(cardText(), { recutThrows: true })
+    fixed.reviewer.findings = [NARROW_FINDING]
+    await reviewToTheLimit(fixed)
+    fixed.bench.tick()
+
+    expect(eventsOf(fixed.bench.db, REVIEW_ROUNDS_SPENT)).toHaveLength(1)
+    expect(ownerWaits(fixed.bench.db)).toEqual([])
+    fixed.bench.clock.advance(RECUT_GRACE_MS)
+    fixed.bench.tick()
+    fixed.bench.tick()
+
+    expect(ownerWaits(fixed.bench.db)).toEqual([expect.stringContaining(`PR #${PR} reached the review round limit (D-104), and the bus holds neither its re-cut nor an owner wait`)])
+    untouched(fixed)
+  })
+
+  it('a re-cut that ended in its own owner wait or a new PR gets no second wait from the queue', async () => {
+    for (const findings of [[NARROW_FINDING], ['the count is wrong somewhere']]) {
+      const fixed = fixture(cardText())
+      fixed.reviewer.findings = findings
+      await reviewToTheLimit(fixed)
+      const waits = ownerWaits(fixed.bench.db).length
+      expect(fixed.outcomes.map(outcome => outcome.kind)).toEqual([findings[0] === NARROW_FINDING ? 'recut' : 'owner_wait'])
+      fixed.bench.clock.advance(RECUT_GRACE_MS)
+      fixed.bench.tick()
+
+      expect(ownerWaits(fixed.bench.db)).toHaveLength(waits)
+    }
   })
 })
