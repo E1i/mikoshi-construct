@@ -198,12 +198,18 @@ describe('the window hooks script ships self-contained', () => {
     expect(hook('session-start', { source: 'compact' }, { CONSTRUCT_HANDOFF: path.join(home(), 'absent.md') }).stdout).toBe('')
   })
 
-  it('pre-compact names a stale handoff and stays quiet for a fresh one', () => {
+  it('pre-compact names a stale handoff in a systemMessage the owner sees and stays quiet for a fresh one', () => {
     const file = handoff('STATUS: CONTINUE\n')
-    expect(hook('pre-compact', { trigger: 'auto' }).stderr).toBe('')
+    expect(hook('pre-compact', { trigger: 'auto' }).stdout).toBe('')
     utimesSync(file, new Date(Date.now() - 10 * 60_000), new Date(Date.now() - 10 * 60_000))
     const run = hook('pre-compact', { trigger: 'auto' })
     expect(run.status).toBe(0)
-    expect(run.stderr).toContain(file)
+    expect((JSON.parse(run.stdout) as { systemMessage: string }).systemMessage).toContain(file)
+  })
+
+  it('pre-compact names a missing handoff in a systemMessage', () => {
+    const absent = path.join(home(), 'absent.md')
+    const run = hook('pre-compact', { trigger: 'manual' }, { CONSTRUCT_HANDOFF: absent })
+    expect((JSON.parse(run.stdout) as { systemMessage: string }).systemMessage).toContain(absent)
   })
 })

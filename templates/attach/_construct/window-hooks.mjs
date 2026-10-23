@@ -74,6 +74,10 @@ export function preCompactLine(handoff, mtime, now) {
   return now - mtime <= FRESH_MS ? null : `window-hooks: ${handoff} is older than ${FRESH_MS / 1000}s; write the handoff before the next compaction`
 }
 
+export function preCompactOutput(line) {
+  return line === null ? null : { systemMessage: line }
+}
+
 export function windowHookOutput(event, input, env, home, now) {
   if (!tabWindow(env))
     return {}
@@ -83,7 +87,7 @@ export function windowHookOutput(event, input, env, home, now) {
   if (event === 'session-start')
     return { stdout: sessionStartOutput(input, handoff, readOrNull(handoff)) }
   if (event === 'pre-compact')
-    return { stderr: preCompactLine(handoff, mtimeOrNull(handoff), now) }
+    return { stdout: preCompactOutput(preCompactLine(handoff, mtimeOrNull(handoff), now)) }
   return { stderr: `window-hooks: ${event ?? 'no event'} is not one of stop, session-start, pre-compact; nothing run` }
 }
 

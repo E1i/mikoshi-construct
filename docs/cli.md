@@ -1220,11 +1220,16 @@ of 10 seconds. It creates each list only where it is missing.
 
 It reads the handoff at `CONSTRUCT_HANDOFF`, or `miko.md` in `CONSTRUCT_HANDOFF_DIR`, or
 `~/.construct/handoff/miko.md`, and does nothing in a card session (`CONSTRUCT_CARD`), a headless one
-(`CLAUDE_CODE_ENTRYPOINT=sdk-cli`) or one the bus raised (`CONSTRUCT_BUS_RAISED=1`). At Stop it blocks
-the stop when the handoff's last `STATUS:` line is `CONTINUE` and lets the second stop in a row
-through; after a compaction it hands the session `additionalContext` naming the handoff to continue
-from; before a compaction it prints, on stderr, that the handoff is missing or older than two minutes.
-It writes no file.
+(`CLAUDE_CODE_ENTRYPOINT=sdk-cli`) or one the bus raised (`CONSTRUCT_BUS_RAISED=1`). Every other
+session in an attached repository is a tab window, and without either variable all of them, in every
+attached repository, read the one handoff: while it ends `STATUS: CONTINUE`, none of them stops after
+its turn. This is accepted: an attached repository is one Mikoshi lives in. To keep a session out, or
+to give one repository its own handoff, start the session with `CONSTRUCT_HANDOFF` naming another file.
+
+At Stop it blocks the stop when the handoff's last `STATUS:` line is `CONTINUE` and lets the second
+stop in a row through; after a compaction it hands the session `additionalContext` naming the handoff
+to continue from; before a compaction it returns a `systemMessage`, which Claude Code shows the owner,
+saying that the handoff is missing or older than two minutes. It writes no file.
 
 The guard refuses the agent a `git commit`, `git push`, `git merge`, `git rebase` or `git tag` into the
 attached repository, or into a repository it cannot pin down, with exit code 2 and three lines, what,
