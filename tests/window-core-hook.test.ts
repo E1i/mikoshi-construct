@@ -1,10 +1,15 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
+import { CONTINUE_PROMPT, MIKO_HANDOFF_NAME } from '../scripts/miko/loop.js'
+import { ENTRYPOINT_VARIABLE } from '../scripts/miko/tab.js'
+import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../scripts/ports/session.js'
 
-const HOOK = path.resolve(import.meta.dirname, '../.claude/hooks/window-core.mjs')
+const REPO_ROOT = path.resolve(import.meta.dirname, '..')
+const HOOK = path.join(REPO_ROOT, '.claude', 'hooks', 'window-core.mjs')
 const CORE_TEXT = '# Window core\n\nwindow-core v1\n\nÅ unicode and `code`\n'
 const roots: string[] = []
 
@@ -23,6 +28,18 @@ function run(root: string | null) {
   if (root != null)
     env.CLAUDE_PROJECT_DIR = root
   return spawnSync('node', [HOOK], { input: '{}', env, encoding: 'utf8' })
+}
+
+function tabSession(source: string): { additionalContext: string } {
+  const handoffDir = mkdtempSync(path.join(tmpdir(), 'construct-window-core-handoff-'))
+  roots.push(handoffDir)
+  writeFileSync(path.join(handoffDir, MIKO_HANDOFF_NAME), '# Handoff\n\nSTATUS: CONTINUE\n')
+  const env = { ...process.env, CLAUDE_PROJECT_DIR: REPO_ROOT, CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir, CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_RAISED: '', [ENTRYPOINT_VARIABLE]: 'cli', [CARD_VARIABLE]: '', [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }
+  const result = spawnSync('node', [HOOK], { input: JSON.stringify({ hook_event_name: 'SessionStart', source }), env, encoding: 'utf8' })
+  expect(result.status).toBe(0)
+  const lines = result.stdout.split('\n').filter(line => line !== '')
+  expect(lines).toHaveLength(1)
+  return (JSON.parse(lines[0]) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput
 }
 
 afterEach(() => {
@@ -71,4 +88,17 @@ describe('the window-core SessionStart hook', () => {
     expect(output.hookSpecificOutput.additionalContext).toContain('architecture/window-core.md')
     expect(result.stderr).toContain('architecture/window-core.md')
   })
+
+  it('a tab window on SessionStart with source compact returns the continue prompt as additionalContext', () => {
+    const core = readFileSync(path.join(REPO_ROOT, 'architecture', 'window-core.md'), 'utf8')
+    const output = tabSession('compact')
+    expect(output.additionalContext.startsWith(core)).toBe(true)
+    expect(output.additionalContext.trimEnd().endsWith(CONTINUE_PROMPT)).toBe(true)
+  }, 20_000)
+
+  it('a tab window on SessionStart with source startup, resume or clear returns the window core alone', () => {
+    const core = readFileSync(path.join(REPO_ROOT, 'architecture', 'window-core.md'), 'utf8')
+    for (const source of ['startup', 'resume', 'clear'])
+      expect(tabSession(source).additionalContext).toBe(core)
+  }, 20_000)
 })

@@ -66,13 +66,17 @@ session when it is interactive and not raised by the bus (`tabWindowOf` in `scri
 tab window). A tab window continues by itself with nobody at a terminal. At Stop, `scripts/miko/turn-watch.ts` reads
 the last `STATUS:` of the session's handoff: `CONTINUE` blocks the stop with a reason telling the window to run
 `pnpm miko:watch --once` and take the next move; `OWNER`, `DONE` or no handoff lets it stop. The loop guard is
-`stop_hook_active` (the second stop in a row passes) and the watch's own timeout. Before a compaction,
-`scripts/miko/pre-compact.ts` leaves a handoff written within `FRESH_MS` alone and otherwise writes an insurance
-handoff from it through `pnpm handoff:write`. After a compaction, SessionStart with source `compact` returns
-`CONTINUE_PROMPT` as `additionalContext` when the handoff exists (`scripts/miko/compact-start.ts`). At a context or
+`stop_hook_active` (the second stop in a row passes) and the watch's own timeout; the Stop hook
+`.claude/hooks/turn-watch.mjs` asks `turn-watch.ts` for every session `windowSessionOf` or `tabWindowOf` names. Before
+a compaction, the PreCompact hook `.claude/hooks/miko-relay.mjs pre-compact` runs `scripts/miko/pre-compact.ts`, which
+leaves a handoff written within `FRESH_MS` alone and otherwise writes an insurance handoff from it through
+`pnpm handoff:write`. After a compaction, `.claude/hooks/window-core.mjs` on SessionStart with source `compact` appends
+`CONTINUE_PROMPT` to its `additionalContext` when `scripts/miko/compact-start.ts` finds the handoff of a tab window. At a context or
 spend threshold, `pnpm miko:exit` in a tab window ends nothing and says so: the window writes the handoff and goes on,
 and compaction carries the session on from it. No route leads from a spend threshold to a compaction. Compaction comes
-only from the context filling, or from `/compact`, which the owner types and the model cannot run. So the spend warn in
+only from the context filling, or from `/compact`, which the owner types and the model cannot run: the PreCompact
+`trigger` is `auto` or `manual` and nothing else, and no hook output starts a compaction
+([hooks reference](https://code.claude.com/docs/en/hooks)). So the spend warn in
 a tab window reaches compaction only when the context fills as well. Below `sessionSpend` the window keeps working,
 and at `sessionSpend` Eddies refuses new work. The hooks are thin wrappers in `.claude/hooks/`, and they work the same
 in the IDE extensions as in the CLI.

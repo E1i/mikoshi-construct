@@ -9,8 +9,8 @@ import { openBus } from '../../bus/db.js'
 import { recordWindowHeartbeat, windowSessionOf } from '../../bus/window-heartbeat.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
-import { ENTRYPOINT_VARIABLE } from '../../miko/tab.js'
-import { LIVE_WATCH, NO_LIVE_WATCH } from '../../miko/turn-watch.js'
+import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT, tabWindowOf } from '../../miko/tab.js'
+import { LIVE_WATCH, NO_LIVE_WATCH, TAB_CONTINUE } from '../../miko/turn-watch.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -46,18 +46,21 @@ function emptyRoot(): string {
   return root
 }
 
-function handoffEnv(status: string): NodeJS.ProcessEnv {
+function handoffEnv(status: string | null): NodeJS.ProcessEnv {
   const dir = mkdtempSync(path.join(tmpdir(), 'stop-hook-handoff-'))
   roots.push(dir)
-  writeFileSync(path.join(dir, MIKO_HANDOFF_NAME), `# Handoff\n\nSTATUS: ${status}\n`)
-  return { [HANDOFF_DIR_VARIABLE]: dir, [ENTRYPOINT_VARIABLE]: 'cli', CONSTRUCT_HANDOFF: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }
+  if (status !== null)
+    writeFileSync(path.join(dir, MIKO_HANDOFF_NAME), `# Handoff\n\nSTATUS: ${status}\n`)
+  return { [HANDOFF_DIR_VARIABLE]: dir }
 }
+
+const HEADLESS = { [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT }
 
 function stopRun(bus: string, input: object, env: NodeJS.ProcessEnv = {}): { status: number | null, stdout: string, stderr: string } {
   const run = spawnSync(process.execPath, [HOOK], {
     cwd: REPO_ROOT,
     input: JSON.stringify({ hook_event_name: 'Stop', ...input }),
-    env: { ...process.env, CLAUDE_PROJECT_DIR: REPO_ROOT, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', ...env },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: REPO_ROOT, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', [ENTRYPOINT_VARIABLE]: 'cli', CONSTRUCT_BUS_RAISED: '', CONSTRUCT_HANDOFF: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '', ...handoffEnv(null), ...env },
     encoding: 'utf8',
   })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
@@ -88,12 +91,12 @@ describe('the Stop hook asks turn-watch whether a window turn may end', () => {
   }, 20_000)
 
   it('the Stop hook lets a bus reviewer end without a watch: withoutCard drops the window mark', () => {
-    const reviewer = withoutCard({ ...process.env, ...WINDOW_ENV, CONSTRUCT_CARD: '1183' })
+    const reviewer = withoutCard({ ...process.env, ...WINDOW_ENV, ...HEADLESS, ...handoffEnv('CONTINUE'), CONSTRUCT_CARD: '1183' })
     expect(reviewer[WINDOW_VARIABLE]).toBeUndefined()
     expect(stop(busFile(), { session_id: SESSION, stop_hook_active: false }, reviewer)).toEqual({ status: 0, stdout: '' })
   }, 20_000)
 
-  it('the Stop hook lets an ordinary owner session in the repository end without a watch', () => {
+  it('the Stop hook lets an owner tab session with no handoff end without a watch', () => {
     expect(stop(busFile(), { session_id: SESSION, stop_hook_active: false })).toEqual({ status: 0, stdout: '' })
   }, 20_000)
 
@@ -112,19 +115,38 @@ describe('the Stop hook asks turn-watch whether a window turn may end', () => {
   }, 20_000)
 
   it('the Stop hook starts no turn-watch child for a session that is not a window', () => {
-    for (const env of [{}, { ...WINDOW_ENV, CONSTRUCT_CARD: '1183' }])
+    for (const env of [HEADLESS, { CONSTRUCT_BUS_RAISED: '1' }, { ...WINDOW_ENV, CONSTRUCT_CARD: '1183' }])
       expect(stopRun(busFile(), { session_id: SESSION, stop_hook_active: false }, { ...env, CLAUDE_PROJECT_DIR: emptyRoot() })).toEqual({ status: 0, stdout: '', stderr: '' })
   }, 20_000)
 
-  it('the hook marks a window exactly when windowSessionOf names one', async () => {
+  it('the hook marks a window exactly when windowSessionOf or tabWindowOf names one', async () => {
     const { windowMarked } = await import(pathToFileURL(HOOK).href) as { windowMarked: (env: NodeJS.ProcessEnv) => boolean }
-    const envs: NodeJS.ProcessEnv[] = [{}, WINDOW_ENV, { [WINDOW_VARIABLE]: '0' }, { ...WINDOW_ENV, CONSTRUCT_CARD: '' }, { ...WINDOW_ENV, CONSTRUCT_CARD: '1183' }, { CONSTRUCT_CARD: '1183' }]
-    for (const env of envs)
-      expect(windowMarked(env)).toBe(windowSessionOf({ ...env, CLAUDE_CODE_SESSION_ID: SESSION }) !== null)
+    const bases: NodeJS.ProcessEnv[] = [{}, WINDOW_ENV, { [WINDOW_VARIABLE]: '0' }, { ...WINDOW_ENV, CONSTRUCT_CARD: '' }, { ...WINDOW_ENV, CONSTRUCT_CARD: '1183' }, { CONSTRUCT_CARD: '1183' }, { [LOOP_PID_VARIABLE]: '42' }, { [EXIT_REQUEST_VARIABLE]: '/h/miko-exit.1.request' }]
+    for (const base of bases) {
+      for (const env of [base, { ...base, ...HEADLESS }, { ...base, CONSTRUCT_BUS_RAISED: '1' }, { ...base, [ENTRYPOINT_VARIABLE]: 'cli' }]) {
+        const session = { ...env, CLAUDE_CODE_SESSION_ID: SESSION }
+        expect(windowMarked(env)).toBe(windowSessionOf(session) !== null || tabWindowOf(session) !== null)
+      }
+    }
   })
 
-  it('a tab session whose handoff ends STATUS: OWNER stops', () => {
-    expect(stop(busFile(), { session_id: SESSION, stop_hook_active: false }, handoffEnv('OWNER'))).toEqual({ status: 0, stdout: '' })
+  it('a tab session whose handoff ends STATUS: CONTINUE is blocked at Stop with a reason naming pnpm miko:watch --once', () => {
+    const run = stop(busFile(), { session_id: SESSION, stop_hook_active: false }, handoffEnv('CONTINUE'))
+    expect(run.status).toBe(0)
+    expect(JSON.parse(run.stdout)).toEqual({ decision: 'block', reason: expect.stringContaining(TAB_CONTINUE) })
+    expect(TAB_CONTINUE).toContain('pnpm miko:watch --once')
+  }, 20_000)
+
+  it('a tab session whose handoff ends STATUS: OWNER stops, and so does one ending STATUS: DONE', () => {
+    for (const status of ['OWNER', 'DONE']) {
+      const run = stopRun(busFile(), { session_id: SESSION, stop_hook_active: false }, handoffEnv(status))
+      expect({ status: run.status, stdout: run.stdout }).toEqual({ status: 0, stdout: '' })
+      expect(run.stderr).toBe('')
+    }
+  }, 30_000)
+
+  it('a tab session blocked once at CONTINUE stops on the next stop while Claude continues from the block', () => {
+    expect(stop(busFile(), { session_id: SESSION, stop_hook_active: true }, handoffEnv('CONTINUE'))).toEqual({ status: 0, stdout: '' })
   }, 20_000)
 
   it('the repository settings run the hook on Stop', () => {

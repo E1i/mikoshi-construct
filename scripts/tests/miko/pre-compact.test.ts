@@ -15,6 +15,7 @@ import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABL
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const PRE_COMPACT = path.join(REPO_ROOT, 'scripts', 'miko', 'pre-compact.ts')
+const RELAY = path.join(REPO_ROOT, '.claude', 'hooks', 'miko-relay.mjs')
 const DECISIONS = fileURLToPath(import.meta.url)
 const roots: string[] = []
 
@@ -43,6 +44,11 @@ function world(env: NodeJS.ProcessEnv = {}): World {
 function node(w: World, args: string[]): { status: number | null, stderr: string } {
   const run = spawnSync(process.execPath, ['--import', 'tsx', ...args], { cwd: REPO_ROOT, env: w.env, encoding: 'utf8' })
   return { status: run.status, stderr: run.stderr }
+}
+
+function relay(w: World, script: string): { status: number | null, stdout: string, stderr: string } {
+  const run = spawnSync(process.execPath, [RELAY, script], { cwd: REPO_ROOT, env: { ...w.env, CLAUDE_PROJECT_DIR: REPO_ROOT }, input: JSON.stringify({ hook_event_name: 'PreCompact', trigger: 'auto' }), encoding: 'utf8' })
+  return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }
 
 function written(w: World): string {
@@ -106,5 +112,22 @@ describe('preCompact keeps the handoff of a tab window fresh before the context 
     const handoff = '# Handoff\n\n## STOP — window, 2026-10-23, session 7, boundary: none\nprev: archive/0003.md\nmerged today: none\nwindows: merge 0, update 0\nstop reason: none\ncurrent card: none\nqueue: #650\nin-flight:\n- #650 brief\n- #651 review PR #9\nblocked: none\nnext task: #650 brief\n\nSTATUS: CONTINUE\n'
     expect(insuranceDraftOf(handoff, true)).toBe('# Handoff\n\nrole: window\nsession: 7\nnext task: #650 brief\n\nSTATUS: CONTINUE\n')
     expect(insuranceDraftOf(handoff, false)).toBe('# Handoff\n\nrole: window\nsession: 7\ncurrent card: none\nqueue: #650\nin-flight:\n- #650 brief\n- #651 review PR #9\nblocked: none\nnext task: #650 brief\n\nSTATUS: CONTINUE\n')
+  })
+
+  it('the PreCompact hook relays to pre-compact and insures a stale handoff', () => {
+    const w = world()
+    written(w)
+    age(w, FRESH_MS + 60_000)
+    const run = relay(w, 'pre-compact')
+    expect({ status: run.status, stdout: run.stdout }).toEqual({ status: 0, stdout: '' })
+    expect(run.stderr).toContain(INSURED)
+    expect(archived(w)).toEqual(['0001.md'])
+  }, 30_000)
+
+  it('the relay hook runs no script it does not name', () => {
+    const w = world()
+    const run = relay(w, 'exit')
+    expect({ status: run.status, stdout: run.stdout }).toEqual({ status: 0, stdout: '' })
+    expect(run.stderr).toContain('is not one of pre-compact')
   })
 })
