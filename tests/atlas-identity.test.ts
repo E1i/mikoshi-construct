@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { heroHtml } from '../src/atlas/chrome.js'
-import { repoIdentity } from '../src/atlas/identity.js'
+import { DESCRIPTION_LIMIT, repoIdentity, UNKNOWN_REPO } from '../src/atlas/identity.js'
 
 function repository(files: Record<string, string>): string {
   const root = path.join(mkdtempSync(path.join(tmpdir(), 'atlas-identity-')), 'orchard-folder')
@@ -14,6 +14,11 @@ function repository(files: Record<string, string>): string {
 }
 
 const README = '<p align="center"><img src="logo.svg"></p>\n\n# Orchard Press\n\n[![ci](badge.svg)](ci)\n\nPresses apples\ninto juice.\n\nMore below.\n'
+
+const FENCED = '```sh\n# install\npnpm add orchard\n```\n\n# Orchard Press\n\n~~~\nnot prose\n~~~\n\nPresses apples.\n'
+const LISTED = '# Orchard\n\n- first bullet\n- second\n\n* star bullet\n\n1. numbered\n\nPresses [apples](https://example.test/apples) with **steel** and `code`.\n'
+const FENCE_ONLY = 'intro line\n\n```sh\n# install\n```\n'
+const LONG_WORDS = Array.from({ length: 120 }, (_, index) => `word${index}`).join(' ')
 
 const CASES = {
   'package.json': {
@@ -36,6 +41,21 @@ const CASES = {
     identity: { name: { text: 'Orchard', from: 'README' } },
     shown: ['name from the README heading', 'no description found'],
   },
+  'README whose first heading-like line is a shell comment in a fenced block': {
+    files: { 'README.md': FENCED },
+    identity: { name: { text: 'Orchard Press', from: 'README' }, description: { text: 'Presses apples.', from: 'README' } },
+    shown: ['name from the README heading', 'description from the README'],
+  },
+  'README with no heading but a fenced shell comment': {
+    files: { 'README.md': FENCE_ONLY },
+    identity: { name: { text: 'orchard-folder', from: 'folder' }, description: { text: 'intro line', from: 'README' } },
+    shown: ['name from the folder', 'description from the README'],
+  },
+  'README whose first blocks are lists and whose paragraph carries inline markdown': {
+    files: { 'README.md': LISTED },
+    identity: { name: { text: 'Orchard', from: 'README' }, description: { text: 'Presses apples with steel and code.', from: 'README' } },
+    shown: ['name from the README heading', 'description from the README'],
+  },
   'neither file': {
     files: {},
     identity: { name: { text: 'orchard-folder', from: 'folder' } },
@@ -54,6 +74,18 @@ describe('the repository identity in the atlas header', () => {
         expect(hero).toContain(`<span>${line}</span>`)
     })
   }
+
+  it('a root with no basename and no file to read is the unknown repo', () => {
+    expect(repoIdentity('/')).toEqual({ name: { text: UNKNOWN_REPO, from: 'none' } })
+  })
+
+  it('a long first paragraph is cut at a word under the limit and marked as cut', () => {
+    const description = repoIdentity(repository({ 'README.md': `# Orchard\n\n${LONG_WORDS}\n` })).description!
+    expect(description.text.length).toBeLessThanOrEqual(DESCRIPTION_LIMIT)
+    expect(description.text.endsWith('…')).toBe(true)
+    expect(LONG_WORDS.startsWith(description.text.slice(0, -1))).toBe(true)
+    expect(LONG_WORDS[description.text.length - 1]).toBe(' ')
+  })
 
   it('a header with no description draws no lede', () => {
     expect(heroHtml('docs', { name: { text: 'unknown repo', from: 'none' } }, null)).not.toContain('class="lede"')

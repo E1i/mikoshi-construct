@@ -27,7 +27,11 @@ export const UNKNOWN_REPO = 'unknown repo'
 const README_FILE = /^readme(?:\.(?:md|markdown|txt))?$/i
 const TOP_HEADING = '# '
 const CLOSING_HASHES = /#+$/
-const NOT_PROSE = /^(?:[#<|>]|!\[|\[!\[|```|---|===)/
+const NOT_PROSE = /^(?:[#<|>]|!\[|\[!\[|---|===|[-*+]\s|\d+[.)]\s)/
+const FENCES = ['```', '~~~']
+const INLINE_LINK = /\[([^\]]*)\]\([^)]*\)/g
+const INLINE_MARKS = /\*\*|__|`/g
+export const DESCRIPTION_LIMIT = 280
 
 function readText(file: string): string | null {
   return existsSync(file) && statSync(file).isFile() ? readFileSync(file, 'utf8') : null
@@ -46,11 +50,35 @@ function readManifest(root: string): Record<string, unknown> | null {
   }
 }
 
+function outsideFences(text: string): string {
+  let fenced = false
+  return text.split('\n').map((line) => {
+    const fence = FENCES.some(mark => line.trim().startsWith(mark))
+    const hidden = fenced || fence
+    if (fence)
+      fenced = !fenced
+    return hidden ? '' : line
+  }).join('\n')
+}
+
+function plainText(markdown: string): string {
+  return markdown.replace(INLINE_LINK, '$1').replace(INLINE_MARKS, '')
+}
+
+function capped(text: string): string {
+  if (text.length <= DESCRIPTION_LIMIT)
+    return text
+  const cut = text.slice(0, DESCRIPTION_LIMIT - 1)
+  const space = cut.lastIndexOf(' ')
+  return `${(space > 0 ? cut.slice(0, space) : cut).trimEnd()}…`
+}
+
 function readReadme(root: string): string | null {
   if (!existsSync(root) || !statSync(root).isDirectory())
     return null
   const file = readdirSync(root).sort().find(entry => README_FILE.test(entry))
-  return file == null ? null : readText(path.join(root, file))
+  const text = file == null ? null : readText(path.join(root, file))
+  return text == null ? null : outsideFences(text)
 }
 
 function manifestField(field: string): Adapter<'package.json'> {
@@ -62,7 +90,7 @@ function manifestField(field: string): Adapter<'package.json'> {
 
 const readmeHeading: Adapter<'README'> = ({ readme }) => {
   const line = (readme ?? '').split('\n').find(candidate => candidate.startsWith(TOP_HEADING))
-  const heading = line?.slice(TOP_HEADING.length).trim().replace(CLOSING_HASHES, '').trim()
+  const heading = line == null ? undefined : plainText(line.slice(TOP_HEADING.length).trim().replace(CLOSING_HASHES, '')).trim()
   return heading == null || heading === '' ? null : { text: heading, from: 'README' }
 }
 
@@ -71,7 +99,7 @@ const readmeParagraph: Adapter<'README'> = ({ readme }) => {
     .split(/\n\s*\n/)
     .map(block => block.trim())
     .find(block => block !== '' && !NOT_PROSE.test(block))
-  return paragraph == null ? null : { text: paragraph.split('\n').map(line => line.trim()).join(' '), from: 'README' }
+  return paragraph == null ? null : { text: capped(plainText(paragraph.split('\n').map(line => line.trim()).join(' '))), from: 'README' }
 }
 
 const folderName: Adapter<'folder'> = ({ root }) => {
