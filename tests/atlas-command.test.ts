@@ -22,7 +22,7 @@ const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 const home = useIsolatedHome()
 
 const SHOP: Record<string, string> = {
-  'package.json': `${JSON.stringify({ name: 'shop', private: true, scripts: { quality: 'node --version' } }, null, 2)}\n`,
+  'package.json': `${JSON.stringify({ name: 'shop', description: 'Takes and stores the orders of the shop', private: true, scripts: { quality: 'node --version' } }, null, 2)}\n`,
   'src/orders/api.ts': 'import { save } from \'./store.js\'\n\nexport function place(): void {\n  save()\n}\n',
   'src/orders/store.ts': 'export function save(): void {}\n',
   'README.md': '# shop\n',
@@ -155,6 +155,16 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     const data = pageData(html)
     expect(data.files).toEqual(['README.md', 'package.json', 'src/orders/api.ts', 'src/orders/store.ts'])
     expect(data.reasons).toEqual({ 'README.md': 'type-not-scanned', 'package.json': 'type-not-scanned' })
+  })
+
+  it('heads the page with the name and description package.json gives, not the folder name, and says where each came from', async () => {
+    const dir = foreignRepository()
+    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    const hero = /<header class="hero">[\s\S]*?<\/header>/.exec(readFileSync(atlasOf(dir).page, 'utf8'))![0]
+    expect(hero).toContain('<h1 class="repo">shop</h1>')
+    expect(hero).toContain('<p class="lede">Takes and stores the orders of the shop</p>')
+    expect(hero).toContain('<span>name from package.json</span><span>description from package.json</span>')
+    expect(hero).not.toContain(path.basename(dir))
   })
 
   it('writes no documentation view into an attached repository and draws no switch on its map', async () => {

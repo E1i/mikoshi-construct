@@ -68,7 +68,7 @@ function inputOf(mechanics?: AtlasMechanics): Parameters<typeof renderAtlas>[0] 
   mkdirSync(path.join(root, 'press'))
   writeFileSync(path.join(root, 'press/main.ts'), 'x\n')
   const model = parseModel(JSON.stringify(DOCUMENT), 'M')
-  return { projectName: 'orchard', model, states: deriveModelState(model, root), mechanics }
+  return { repo: { name: { text: 'orchard', from: 'package.json' } }, model, states: deriveModelState(model, root), mechanics }
 }
 
 function render(mechanics?: AtlasMechanics): string {
@@ -175,7 +175,7 @@ describe('a node shows the status word and the reason derived from its proof', (
     const model = parseModel(JSON.stringify(DOCUMENT), 'M')
     const states = deriveModelState(model, root, { reports: 'read', constructPaths: [] })
     expect(states.nodes.crate).toEqual({ status: 'unknown', reason: 'not-run', state: 'unknown' })
-    const html = renderAtlasDocs({ projectName: 'orchard', model, states }, 'construct.model.json', '', FILES)
+    const html = renderAtlasDocs({ repo: { name: { text: 'orchard', from: 'package.json' } }, model, states }, 'construct.model.json', '', FILES)
     const crate = html.slice(html.indexOf('id="crate"'), html.indexOf('</article>', html.indexOf('id="crate"')))
     expect(crate).toContain('<p class="status">unknown — not run</p>')
   })
@@ -195,7 +195,7 @@ describe('a hostile document', () => {
   it('carries no markup and no script address from a hostile document', () => {
     const hostile = { ...DOCUMENT, nodes: [{ id: 'bad', label: '<script>alert(1)</script>', stage: 'grow', source: { path: 'javascript:alert(1)' }, supportedBy: [] }, { id: 'worse', label: 'Worse', stage: 'grow', source: { path: '//evil.test/x' }, supportedBy: [] }], links: [] }
     const model = parseModel(JSON.stringify(hostile), 'M')
-    const input = { projectName: 'orchard', model, states: deriveModelState(model, tmpdir()) }
+    const input = { repo: { name: { text: 'orchard', from: 'package.json' as const } }, model, states: deriveModelState(model, tmpdir()) }
     for (const html of [renderAtlas(input, 'M'), renderAtlasDocs(input, 'M', '', FILES)]) {
       expect(scriptsOf(html)).toEqual([`|${THEME_SCRIPT}`])
       expect(html).not.toContain('href="javascript:')
@@ -223,7 +223,7 @@ describe('what the review of the renderer found', () => {
   it('gives two ids that clean up to one anchor two different anchors', () => {
     const twins = { ...DOCUMENT, nodes: [{ id: 'a b', label: 'First', stage: 'grow', source: { path: 'a' }, supportedBy: [] }, { id: 'a_b', label: 'Second', stage: 'grow', source: { path: 'b' }, supportedBy: [] }], links: [{ from: 'a b', to: 'a_b' }] }
     const model = parseModel(JSON.stringify(twins), 'M')
-    const html = renderAtlasDocs({ projectName: 'orchard', model, states: deriveModelState(model, tmpdir()) }, 'M', '', FILES)
+    const html = renderAtlasDocs({ repo: { name: { text: 'orchard', from: 'package.json' } }, model, states: deriveModelState(model, tmpdir()) }, 'M', '', FILES)
     const ids = [...html.matchAll(/<article id="([^"]+)"/g)].map(match => match[1])
     expect(ids).toHaveLength(2)
     expect(new Set(ids).size).toBe(2)
@@ -246,7 +246,7 @@ describe('source links carry no path of the machine that built the page', () => 
     const root = mkdtempSync(path.join(tmpdir(), 'atlas-'))
     const model = parseModel(JSON.stringify(DOCUMENT), 'M')
     const links = { template: editorTemplate('vscode'), remote: null }
-    const html = renderAtlas({ projectName: 'orchard', model, states: deriveModelState(model, root), mechanics: MECHANICS, links }, 'construct.model.json', '..')
+    const html = renderAtlas({ repo: { name: { text: 'orchard', from: 'package.json' } }, model, states: deriveModelState(model, root), mechanics: MECHANICS, links }, 'construct.model.json', '..')
     expect(pageData(html)).toMatchObject({ source: { template: 'vscode://file/{abs}:{line}', remote: null } })
     for (const machinePath of [root, realpathSync(root), homedir(), tmpdir()])
       expect(html).not.toContain(machinePath)
@@ -254,7 +254,7 @@ describe('source links carry no path of the machine that built the page', () => 
 
   it('with neither a template nor a remote a source link is relative as before', () => {
     const model = parseModel(JSON.stringify(DOCUMENT), 'M')
-    const input = { projectName: 'orchard', model, states: deriveModelState(model, tmpdir()), mechanics: MECHANICS, links: RELATIVE_LINKS }
+    const input = { repo: { name: { text: 'orchard', from: 'package.json' as const } }, model, states: deriveModelState(model, tmpdir()), mechanics: MECHANICS, links: RELATIVE_LINKS }
     expect(pageData(renderAtlas(input, 'construct.model.json', '..'))).toMatchObject({ root: '..', source: { template: null, remote: null } })
     const html = renderAtlasDocs(input, 'construct.model.json', '..', FILES)
     expect([...html.matchAll(/href="([^"#][^"]*)" data-source/g)].map(match => match[1])).toEqual(['../press', '../lids/none.ts', '../crate/index.ts', '../route'])
@@ -263,7 +263,7 @@ describe('source links carry no path of the machine that built the page', () => 
   it('with a remote and no editor a source link opens the file at the recorded commit', () => {
     const remote = 'https://github.com/acme/orchard/blob/0123456789abcdef0123456789abcdef01234567'
     const model = parseModel(JSON.stringify(DOCUMENT), 'M')
-    const html = renderAtlasDocs({ projectName: 'orchard', model, states: deriveModelState(model, tmpdir()), links: { template: editorTemplate('vscode'), remote } }, 'construct.model.json', '..', FILES)
+    const html = renderAtlasDocs({ repo: { name: { text: 'orchard', from: 'package.json' } }, model, states: deriveModelState(model, tmpdir()), links: { template: editorTemplate('vscode'), remote } }, 'construct.model.json', '..', FILES)
     expect(html).toContain(`href="${remote}/press" data-source`)
   })
 })
