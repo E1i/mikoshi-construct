@@ -122,7 +122,7 @@ describe('construct intake --admit derives the decision from architecture/owner-
     expect(readFileSync(file, 'utf8')).not.toContain(NO_OWNER_PATH)
     const lines: string[] = []
     expect(printAdmit(createUi(resolveTheme({ plain: true }), line => lines.push(line)), result)).not.toBe(INTAKE_EXIT.refused)
-    expect(existsSync(w.journal)).toBe(true)
+    expect(existsSync(w.journal)).toBe(false)
   })
 
   it('an R1 card on the approval rules is owner by its owner-merges row', () => {

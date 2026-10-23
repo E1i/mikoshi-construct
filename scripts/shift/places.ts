@@ -4,7 +4,6 @@ import path from 'node:path'
 
 export const SHIFT_JOURNAL = 'shift.jsonl'
 export const REPO = 'E1i/mikoshi-construct'
-export const GHOST_JOURNAL = 'ghosts.jsonl'
 
 export function reportPath(dir: string, number: string): string {
   return path.join(dir, `report-${number}.md`)

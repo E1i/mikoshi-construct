@@ -1,9 +1,8 @@
 import type { Correction } from './check.js'
 import type { SlicedCard } from './slice.js'
 import { createHash } from 'node:crypto'
-import { INTAKE_EVENT } from '../../../scripts/core/events.js'
 import { SEAM_PREFIX } from '../../card/risk.js'
-import { COMPANION_REASON, correctionText, COVERING_REASON } from './check.js'
+import { COMPANION_REASON, COVERING_REASON } from './check.js'
 
 export type Confirmation = 'auto' | 'person' | 'none'
 
@@ -68,17 +67,4 @@ export function confirmationOf(card: SlicedCard, autoConfirm: boolean): Confirma
   if (autoConfirm)
     return 'auto'
   return needsPerson(card) ? 'person' : 'none'
-}
-
-export function intakeJournalLine(card: SlicedCard, confirmation: Confirmation, at: Date, source?: string): string {
-  return JSON.stringify({
-    event: INTAKE_EVENT,
-    task: String(card.id),
-    card: card.line,
-    confirmation,
-    corrections: card.corrections.map(correctionText),
-    bodySha: bodySha(card.text),
-    ...(source === undefined ? {} : { source }),
-    ts: at.toISOString(),
-  })
 }

@@ -107,7 +107,6 @@
   "scripts/tests/ghosts/approve.test.ts": 0.3,
   "scripts/tests/ghosts/args-chain.test.ts": 0.1,
   "scripts/tests/ghosts/cleanup.e2e.test.ts": 53.5,
-  "scripts/tests/ghosts/cloud-start.test.ts": 0.1,
   "scripts/tests/ghosts/entry-readers.test.ts": 0.1,
   "scripts/tests/ghosts/entry-versions.test.ts": 0.1,
   "scripts/tests/ghosts/entry.test.ts": 0.1,

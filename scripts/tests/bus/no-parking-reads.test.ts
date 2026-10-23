@@ -82,7 +82,7 @@ function admitAndMove(w: World, between: () => void = () => {}): void {
     expect(runAdmit({ file: path.join(w.parking, 'lane-1', '90.md'), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => ADMITTED_AT).status).toBe('admitted')
     reduce(db)
     between()
-    expect(runMove({ move: '#90', to: 'lane-2', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, journal: w.journal, events: ports.cardEvents }, () => MOVED_AT).status).toBe('moved')
+    expect(runMove({ move: '#90', to: 'lane-2', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents }, () => MOVED_AT).status).toBe('moved')
     reduce(db)
   }
   finally {

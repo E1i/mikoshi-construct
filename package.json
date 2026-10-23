@@ -97,6 +97,7 @@
     "miko": "node --import tsx scripts/miko/loop.ts",
     "miko:exit": "node --import tsx scripts/miko/exit.ts",
     "miko:watch": "node --import tsx scripts/miko/watch.ts",
+    "mutate": "node --import tsx scripts/bus/mutate.ts",
     "morse:approve": "node --import tsx scripts/ghosts/morse-approve.ts",
     "morse:predict": "node --import tsx scripts/morse/cli.ts predict",
     "prepublishOnly": "pnpm build",

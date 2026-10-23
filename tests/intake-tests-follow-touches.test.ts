@@ -1,5 +1,5 @@
-import type { IntakeResult } from '../src/commands/intake/index.js'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import type { CardEvent, CardEventPort, IntakeResult } from '../src/commands/intake/index.js'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -29,17 +29,14 @@ function world(files: Record<string, string>, touches: string[]): World {
   return { repo, parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), draft }
 }
 
-function intake(w: World): IntakeResult {
-  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '12' })
+function intake(w: World, events?: CardEventPort): IntakeResult {
+  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '12', events })
 }
 
-function parked(w: World): { touches: string[], runs: string[] } {
-  const parsed = parseParkingFile('13.md', readFileSync(path.join(w.parking, '13.md'), 'utf8'))
+function parked(w: World, bus?: readonly CardEvent[]): { touches: string[], runs: string[] } {
+  const text = bus === undefined ? readFileSync(path.join(w.parking, '13.md'), 'utf8') : String(bus.at(-1)?.payload.text)
+  const parsed = parseParkingFile('13.md', text)
   return parsed.kind === 'parked' ? { touches: parsed.parked.task.touches, runs: runsOf(parsed.parked.task.body) } : { touches: [], runs: [] }
-}
-
-function journalLines(w: World): Record<string, unknown>[] {
-  return existsSync(w.journal) ? readFileSync(w.journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
 }
 
 describe('intake puts the tests that cover the touched files into runs, not touches', () => {
@@ -86,9 +83,10 @@ describe('intake puts the tests that cover the touched files into runs, not touc
       'scripts/tests/bus/merge-worker.test.ts': 'import { runMergeWorker } from \'../../bus/merge-worker.js\'\n',
       'scripts/bus/merge-worker.ts': 'export function runMergeWorker() {}\n',
     }, ['scripts/bus/review-worker.ts'])
-    expect(intake(w).status).toBe('written')
-    expect(parked(w)).toEqual({ touches: ['scripts/bus/review-worker.ts'], runs: ['scripts/tests/bus/review-worker.test.ts'] })
-    expect(journalLines(w)).toMatchObject([{ task: '13', confirmation: 'none' }])
+    const bus: CardEvent[] = []
+    expect(intake(w, event => bus.push(event)).status).toBe('written')
+    expect(parked(w, bus)).toEqual({ touches: ['scripts/bus/review-worker.ts'], runs: ['scripts/tests/bus/review-worker.test.ts'] })
+    expect(bus).toMatchObject([{ cardId: 13, payload: { confirmation: 'none' } }])
   })
 
   it('covering tests do not count toward the touches signal of the complexity seam', () => {

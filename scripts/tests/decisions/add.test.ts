@@ -46,7 +46,7 @@ function decisionsRead(files: Record<string, string>): { code: number, out: stri
   const err: string[] = []
   const code = runDecisionsRead([FILE], {
     home: '/home/x',
-    journal: '/h/ghosts.jsonl',
+    history: [],
     bus: new Map(),
     exists: file => file in files,
     read: file => files[file]!,

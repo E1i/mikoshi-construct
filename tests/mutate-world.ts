@@ -1,4 +1,5 @@
 import type { Buffer } from 'node:buffer'
+import type { MutationJudgedLine, MutationJudgedPort } from '../src/commands/mutate/journal.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -70,12 +71,15 @@ export class MutateWorld {
     return file
   }
 
-  get journal(): string {
-    return path.join(this.scratch, 'handoff', 'ghosts.jsonl')
+  readonly recorded: MutationJudgedLine[] = []
+
+  get bus(): string {
+    return path.join(this.scratch, 'bus.db')
   }
 
-  journalLines(): Record<string, unknown>[] {
-    return existsSync(this.journal) ? readFileSync(this.journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
+  readonly record: MutationJudgedPort = (line) => {
+    this.recorded.push(line)
+    return this.bus
   }
 
   mutations(): string[] {

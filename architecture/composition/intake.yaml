@@ -20,16 +20,18 @@ description: >-
   and neither `--auto-confirm` nor a `--confirm` naming the hash of exactly these cards was given,
   `confirm.ts` holds them: nothing is written, the corrections and the token are printed, and the exit
   is 2. A confirmed or correction-free draft is written card by card, once, exclusively, into the
-  parking directory, which is outside the repository, so an attached repository gets no file; then
-  each card gets an `intake` line in --journal naming its confirmation (`person`, `auto` or `none`) and
-  its corrections. `--admit <parking>/<id>.md` routes to `runAdmit` in `src/commands/intake/admit.ts`
+  parking directory, which is outside the repository, so an attached repository gets no file; a
+  bus-wired run writes no file and records each card as one `card.admitted` in the bus, naming its
+  confirmation (`person`, `auto` or `none`) and its corrections, and a run with no bus records nothing
+  beyond the file. Nothing is written to --journal: it is only read, for merged depends and blocks and
+  for the `intake` lines written before the bus became the record. `--admit <parking>/<id>.md` routes to `runAdmit` in `src/commands/intake/admit.ts`
   instead, for a card parked before the intake door: it parses the file with `parseParkingFile`, runs
   the same `checkDraft` under the card's own number, holds a corrected card behind the same
   confirmation token, rewrites only the card line, the touches line and the appended `corrected:` and
-  `unclear:` lines, and writes one `intake` line with `source: admit`; a card whose line the journal
-  already admitted is left alone. A first admission whose checked depends still name a card that is
+  `unclear:` lines, and records one `card.admitted` with `source: admit` in the bus when one is wired,
+  and nothing when none is; a card already admitted with the same text is left alone. A first admission whose checked depends still name a card that is
   parked, done or known to the bus, and is not merged, is not admitted: before any
-  confirmation is asked, the file and the journal stay as they are, a bus-wired run appends one
+  confirmation is asked, the file and the bus admissions stay as they are, a bus-wired run appends one
   `card.waiting` naming those depends (a --dry-run only reports it), and the exit is 3; a depends on
   a card nobody knows is admitted with an `unclear:` mark; an amend of an admitted card never waits.
 doc: architecture/intake.md
@@ -41,7 +43,7 @@ boundaries:
   - id: slice
     label: Number, render, check
   - id: write
-    label: Write · the parking and the journal
+    label: Write · the parking and the bus
 nodes:
   - id: cli
     label: construct intake (citty)
@@ -52,7 +54,7 @@ nodes:
     path: src/commands/intake/index.ts
     boundary: entry
   - id: admit
-    label: runAdmit · --admit a parked card under its own number, no new number; nothing when the journal already admitted it
+    label: runAdmit · --admit a parked card under its own number, no new number; nothing when it is already admitted with the same text
     path: src/commands/intake/admit.ts
     boundary: entry
   - id: draft
@@ -87,8 +89,8 @@ nodes:
     label: <parking>/<id>.md · exclusive, or printed on --dry-run
     path: src/commands/intake/index.ts
     boundary: write
-  - id: journal
-    label: --journal · one intake line per parked card, its confirmation and corrections
+  - id: admitted
+    label: card.admitted · through the bus port a caller wires in, one per parked or admitted card, its confirmation and corrections; nothing without a bus
     path: src/commands/intake/index.ts
     boundary: write
   - id: waiting
@@ -106,7 +108,7 @@ edges:
   - {from: admit, to: check, kind: sequence}
   - {from: admit, to: confirm, kind: sequence}
   - {from: admit, to: waiting, kind: route}
-  - {from: admit, to: journal, kind: sequence}
+  - {from: admit, to: admitted, kind: sequence}
   - {from: waiting, to: print, kind: sequence}
   - {from: run, to: draft, kind: sequence}
   - {from: draft, to: numbers, kind: sequence}
@@ -118,5 +120,5 @@ edges:
   - {from: slice, to: confirm, kind: sequence}
   - {from: confirm, to: write, kind: sequence}
   - {from: confirm, to: print, kind: sequence}
-  - {from: write, to: journal, kind: sequence}
-  - {from: journal, to: print, kind: sequence}
+  - {from: write, to: admitted, kind: sequence}
+  - {from: admitted, to: print, kind: sequence}

@@ -2,20 +2,15 @@ import type { BusEvent } from '../bus/db.js'
 import type { WindowScope, WindowShard } from '../bus/shards.js'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync, realpathSync } from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
+import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, openBus } from '../bus/db.js'
 import { activeWindowShards, decisionsInForceAt, isWindowScope, WINDOW_SHARD_HOURS, windowShardEnded } from '../bus/shards.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
-import { GHOST_JOURNAL } from './places.js'
 
 export const PREFIX = '[shard] '
 export const USAGE = 'usage: pnpm shard --card <n> | --pr <n> [--under D-<id>] | --window [--hours <n>] [--scope merge|merge+decisions] | --stop [--by <name>]'
-export const SHARD_EVENT = 'shard'
 const VALUED_FLAGS = ['--by', '--card', '--pr', '--under', '--hours', '--scope']
 const WINDOW_FLAG = '--window'
 const STOP_FLAG = '--stop'
@@ -23,8 +18,6 @@ const DECISION_ID = /^D-([1-9]\d*)$/
 const HOUR_MS = 3_600_000
 
 export interface ShardDeps {
-  handoffDir: string
-  append: (file: string, text: string) => void
   record: (event: BusEvent) => void
   activeWindows: (now: Date) => WindowShard[]
   inForce: (decisionId: number, now: Date) => boolean
@@ -89,7 +82,6 @@ function issueWindow(deps: ShardDeps, by: string, order: WindowOrder): number {
   const ts = now.toISOString()
   const until = new Date(now.getTime() + order.hours * HOUR_MS).toISOString()
   deps.record({ ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:${id}`, payload: { id, by, run: null, window: true, scope: order.scope, until }, legacy: false })
-  deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify({ event: SHARD_EVENT, id, by, ts, window: true, scope: order.scope, until })}\n`)
   deps.out(`${PREFIX}shard ${id} issued by ${by} for the window, scope ${order.scope}, until ${until}; pnpm shard ${STOP_FLAG} revokes it`)
   return 0
 }
@@ -141,9 +133,7 @@ export function runShard(argv: string[], deps: ShardDeps): number {
     return 1
   const id = deps.uuid()
   const ts = deps.now().toISOString()
-  const names = { ...(target.card === null ? {} : { card: target.card }), ...(target.pr === null ? {} : { pr: target.pr }) }
   deps.record({ ts, type: SHARD_ISSUED, actor: 'owner', cardId: target.card, pr: target.pr, head: null, dedupeKey: `${SHARD_ISSUED}:${id}`, payload: { id, by, run: null, ...(under === null ? {} : { under }) }, legacy: false })
-  deps.append(path.join(deps.handoffDir, GHOST_JOURNAL), `${JSON.stringify({ event: SHARD_EVENT, id, by, ts, ...names, ...(under === null ? {} : { under }) })}\n`)
   deps.out(`${PREFIX}shard ${id} issued by ${by} for ${coveredBy(target)}${under === null ? '' : `, under D-${under} while it is in force: owner_by_risk, R1 and security-invariants lift, the version pull request and a reserved card do not`}`)
   return 0
 }
@@ -160,11 +150,6 @@ export function recordInBus(event: BusEvent): void {
 
 function realDeps(): ShardDeps {
   return {
-    handoffDir: process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'),
-    append: (file, text) => {
-      mkdirSync(path.dirname(file), { recursive: true })
-      appendFileSync(file, text)
-    },
     record: recordInBus,
     activeWindows: (now) => {
       const db = openBus(defaultBusPath())

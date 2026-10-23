@@ -1,11 +1,12 @@
 import type { ReportFormat } from '../../model/schema.js'
 import type { Failure, ReportUnreadable, TestReport } from '../../model/test-report.js'
+import type { MutationJudgedPort } from './journal.js'
 import type { Prediction } from './lines.js'
 import type { MutationRecord } from './record.js'
 import { readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { failuresOf, readTestReport, testCount, testsNamed, wasExecuted } from '../../model/test-report.js'
-import { cardId, journalJudged } from './journal.js'
+import { cardId, mutationJudgedLine } from './journal.js'
 import { copyPath, forgetMutation, isSafeId, readCopy, readMutationRecord, sha256, writeBaseline } from './record.js'
 
 export interface JudgeOptions {
@@ -15,7 +16,7 @@ export interface JudgeOptions {
   baseline?: boolean
   format?: ReportFormat
   card?: string
-  journal?: string
+  record?: MutationJudgedPort
   shiftCard?: string
 }
 
@@ -31,7 +32,7 @@ export type JudgeRefusal
     | 'named-test-ambiguous'
     | 'named-test-skipped'
     | 'bad-card'
-    | 'no-journal'
+    | 'no-bus'
     | 'card-required'
 
 export type HardFailureCause = 'file-changed' | 'copy-unreadable' | 'restore-failed'
@@ -170,11 +171,11 @@ export function runJudge(options: JudgeOptions): JudgeResult {
   const card = cardId(options.card)
   if (card == null)
     return refused('bad-card', options.card)
-  if (options.journal == null || options.journal === '')
-    return refused('no-journal')
+  if (options.record == null)
+    return refused('no-bus')
   const result = judgeMutation(root, options.id, reportPath, format)
   if (result.status !== 'judged')
     return result
-  journalJudged(options.journal, { card, id: result.id, outcome: result.outcome, matched: result.matched }, new Date())
-  return { ...result, journaled: options.journal }
+  const journaled = options.record(mutationJudgedLine({ card, id: result.id, outcome: result.outcome, matched: result.matched }, new Date()))
+  return { ...result, journaled }
 }
