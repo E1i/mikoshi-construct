@@ -20,8 +20,6 @@ import { VERSION } from '../version.js'
 import { ATTACH_RECORD_FILE } from './attach/record.js'
 import { printDetectReport } from './soulkill.js'
 
-export { DEFAULT_LANES } from '../manifest.js'
-
 function ownedShasOfBlocks(written: FileOp[]): Record<string, string> {
   return Object.fromEntries(written.filter(op => op.strategy === 'append-block').map(op => [op.target, ownedSha(op.target, op.content)]))
 }

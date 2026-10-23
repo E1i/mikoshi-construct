@@ -16,7 +16,7 @@ import { COST_EXIT, costExpect, costJson, costReport, defaultWindowJournal, expe
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph } from './commands/graph.js'
-import { DEFAULT_LANES, INIT_EXIT, runInit } from './commands/init.js'
+import { INIT_EXIT, runInit } from './commands/init.js'
 import { printAdmit, runAdmit } from './commands/intake/admit.js'
 import { defaultParking, INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
 import { printMove, runMove } from './commands/intake/move.js'
@@ -82,7 +82,7 @@ const init = withKnownFlags(defineCommand({
     review: { type: 'enum', options: REVIEW_PROVIDERS, description: 'AI code review on pull requests: claude | none (default: none)' },
     reviewModel: { type: 'string', description: `Model for the review workflow (default: ${DEFAULT_REVIEW_MODEL})` },
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
-    lanes: { type: 'string', description: `How many parallel lanes the bus runs, recorded in construct.json (default: ${DEFAULT_LANES})` },
+    lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in construct.json' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: take defaults and skip the confirmation', default: false },
     dryRun: { type: 'boolean', description: 'Print the plan, write nothing', default: false },
   },
@@ -107,7 +107,7 @@ const attach = withKnownFlags(defineCommand({
     ...commonArgs,
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
     ai: { type: 'enum', options: AI_TARGETS, description: 'AI target: claude (cursor and both are refused)' },
-    lanes: { type: 'string', description: `How many parallel lanes the bus runs, recorded in .construct/attach.json (default: ${DEFAULT_LANES})` },
+    lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in .construct/attach.json' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
     entry: { type: 'boolean', description: 'Print the entry protocol the agent follows to propose one harness; reads and writes nothing', default: false },
   },
