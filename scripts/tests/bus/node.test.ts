@@ -45,15 +45,10 @@ function task(pr: number): QueuedTask {
 class FakeNode extends Node<NodeStep> {
   found: QueuedTask[] = []
   derived: QueuedTask[] | null = null
-  failAfterRecord = false
 
   constructor(db: DatabaseSync, readonly clock: Clock, mode: DetectionMode, pattern: readonly string[] = [PROBE_SEEN, 'ci.*'], env: NodeJS.ProcessEnv = {}) {
     super('merge', { db, clock: clock.now, session: 'fake', mode, env })
-    this.subscribe(pattern, (event) => {
-      this.detectOn(event, { pr: event.pr ?? undefined })
-      if (this.failAfterRecord)
-        throw new Error('injected after the record and before the cursor')
-    })
+    this.subscribe(pattern, event => ({ pr: event.pr ?? undefined }))
   }
 
   protected candidates(scope?: Scope): QueuedTask[] {
@@ -75,7 +70,7 @@ const NODE_KINDS = QUEUES.filter((queue): queue is NodeKind => queue in SLOTS)
 class KindNode extends Node<NodeStep> {
   constructor(kind: NodeKind, db: DatabaseSync, clock: Clock, env: NodeJS.ProcessEnv) {
     super(kind, { db, clock: clock.now, session: 'kind', mode: 'shadow', env })
-    this.subscribe([PROBE_SEEN], () => {})
+    this.subscribe([PROBE_SEEN])
   }
 
   protected candidates(): QueuedTask[] {
@@ -152,7 +147,7 @@ describe('a node', () => {
 
   it('holds one subscription: a second subscribe throws, and a pattern is event types with at most a trailing *', () => {
     const node = new FakeNode(newBus(), new Clock(), 'shadow')
-    expect(() => node.subscribe(['other'], () => {})).toThrow(SecondSubscription)
+    expect(() => node.subscribe(['other'])).toThrow(SecondSubscription)
     for (const pattern of [['*'], ['ci.*.x'], ['']])
       expect(() => new FakeNode(newBus(), new Clock(), 'shadow', pattern)).toThrow(/trailing \*/)
   })
@@ -196,14 +191,14 @@ describe('a node', () => {
       const cursor = cursorOf(db)
       node.found = [task(970)]
       seen(db, clock, 970)
-      node.failAfterRecord = true
+      db.exec(`CREATE TRIGGER fail_the_cursor BEFORE UPDATE ON ${NODE_CURSORS} BEGIN SELECT RAISE(ABORT, 'injected after the record and before the cursor'); END`)
       await expect(once(node)).rejects.toThrow('injected')
 
       expect(cursorOf(db)).toBe(cursor)
       expect(detections(db)).toEqual([])
       expect(enqueued(db)).toBe(0)
 
-      node.failAfterRecord = false
+      db.exec('DROP TRIGGER fail_the_cursor')
       await once(node)
       expect(detections(db, 'event').map(each => each.outcome)).toEqual([mode === 'live' ? 'queued' : undefined])
       expect(enqueued(db)).toBe(mode === 'live' ? 1 : 0)
@@ -293,6 +288,7 @@ describe('a node', () => {
           if (locked)
             throw new Error('database is locked')
           delivered.push(event.id)
+          return { pr: event.pr ?? undefined }
         })
       }
 

@@ -88,9 +88,21 @@ export interface Equivalence {
   only_derive: string[]
 }
 
+export type ScopeOf = (event: StoredEvent) => Scope | undefined
+
 interface Subscription {
   pattern: EventPattern
-  handler: (event: StoredEvent) => void
+  scopeOf: ScopeOf
+}
+
+interface ScopedEvent {
+  id: number
+  scope: Scope | undefined
+}
+
+interface Detection {
+  task: QueuedTask
+  eventId: number
 }
 
 export class SecondSubscription extends Error {}
@@ -98,6 +110,8 @@ export class SecondSubscription extends Error {}
 export class NodeRefused extends Error {}
 
 const IDLE: IdleStep = { kind: 'idle' }
+
+const WHOLE_QUEUE: ScopeOf = () => undefined
 
 const LEASED_BY = `
   SELECT tasks.task_key FROM tasks JOIN events ON events.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
@@ -155,6 +169,22 @@ function matchingEvents(db: DatabaseSync, pattern: EventPattern, after: number, 
   return db.prepare(query).all(after, through, ...exact, ...prefixes.flatMap(prefix => [prefix.length, prefix])) as unknown as StoredEvent[]
 }
 
+function inScope(task: QueuedTask, scope: Scope | undefined): boolean {
+  return scope === undefined || ((scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId))
+}
+
+function firstDetections(found: readonly QueuedTask[], events: readonly ScopedEvent[]): Detection[] {
+  const first = new Map<string, Detection>()
+  for (const event of events) {
+    for (const task of found) {
+      const key = keyOf(task)
+      if (!first.has(key) && inScope(task, event.scope))
+        first.set(key, { task, eventId: event.id })
+    }
+  }
+  return [...first.values()]
+}
+
 export function equivalenceOf(node: readonly string[], derived: readonly string[]): Equivalence {
   const fromDerive = new Set(derived)
   const fromNode = new Set(node)
@@ -208,11 +238,11 @@ export abstract class Node<S extends NodeStep> {
     return { kind: this.kind, actor: this.actor, mode: this.parts.mode, slots: this.slots, cursor: this.cursor(), leased, lastStep: this.lastStep, startedAt: this.startedAt }
   }
 
-  subscribe(pattern: EventPattern, handler: (event: StoredEvent) => void): Unsubscribe {
+  subscribe(pattern: EventPattern, scopeOf: ScopeOf = WHOLE_QUEUE): Unsubscribe {
     if (this.subscription !== null)
       throw new SecondSubscription(`the ${this.kind} node already holds its one subscription`)
     exactAndPrefixes(pattern)
-    const subscription = { pattern, handler }
+    const subscription = { pattern, scopeOf }
     this.subscription = subscription
     return () => {
       if (this.subscription === subscription)
@@ -316,13 +346,20 @@ export abstract class Node<S extends NodeStep> {
     const subscription = this.subscription
     if (subscription === null)
       return
+    const cursor = this.cursor()
+    const after = cursor ?? 0
+    const through = lastEventId(this.db)
+    if (through <= after)
+      return
+    const events = matchingEvents(this.db, subscription.pattern, after, through).map(event => ({ id: event.id, scope: subscription.scopeOf(event) }))
+    const detections = events.length === 0 ? [] : firstDetections(this.candidates(), events)
     inTransaction(this.db, () => {
-      const after = this.cursor() ?? 0
-      const through = lastEventId(this.db)
-      if (through <= after)
+      if (this.cursor() !== cursor)
         return
-      for (const event of matchingEvents(this.db, subscription.pattern, after, through))
-        subscription.handler(event)
+      for (const { task, eventId } of detections) {
+        if (this.stillStands(task, through))
+          this.record(task, 'event', eventId)
+      }
       this.db.prepare(`UPDATE ${NODE_CURSORS} SET event_id = ? WHERE kind = ?`).run(through, this.kind)
     })
   }

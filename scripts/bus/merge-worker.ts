@@ -80,7 +80,7 @@ export class MergeNode extends Node<MergeStep> {
     super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
     this.rerun = rerunModeOf(parts.env)
     this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun })
-    this.subscribe(MERGE_ON, event => this.detectOn(event, scopeOf(event)))
+    this.subscribe(MERGE_ON, scopeOf)
   }
 
   protected override before(): void {

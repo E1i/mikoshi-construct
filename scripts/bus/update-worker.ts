@@ -63,7 +63,7 @@ export class UpdateNode extends Node<UpdateStep> {
     super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
     this.rerun = rerunModeOf(parts.env)
     this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, rerun: this.rerun })
-    this.subscribe(UPDATE_ON, event => this.detectOn(event, scopeOf(event)))
+    this.subscribe(UPDATE_ON, scopeOf)
   }
 
   protected override before(): void {

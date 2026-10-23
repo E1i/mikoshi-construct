@@ -98,7 +98,7 @@ export class ReviewNode extends Node<Step> {
   constructor(private readonly reviewParts: ReviewNodeParts) {
     super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env })
     this.executor = new ReviewExecutor(reviewParts)
-    this.subscribe(REVIEW_ON, event => this.detectOn(event, scopeOf(event)))
+    this.subscribe(REVIEW_ON, scopeOf)
   }
 
   protected override renewsByTimer(): boolean {

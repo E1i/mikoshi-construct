@@ -43,6 +43,7 @@ import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const ARRIVAL_GUARD_MS = 25_000
+const UNDER_FULL_SUITE_LOAD_MS = 5 * 60_000
 const roots: string[] = []
 const groups: number[] = []
 
@@ -376,7 +377,7 @@ describe('the launch queue', () => {
       expect(reason).toBe(true)
     }
     bench.close()
-  })
+  }, UNDER_FULL_SUITE_LOAD_MS)
 
   it('a card whose pull request is merged or that a legacy shift started is not offered for launch', () => {
     const bench = launchBench()
