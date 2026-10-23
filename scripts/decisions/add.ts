@@ -5,9 +5,10 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { recordDecision } from '../bus/decisions.js'
+import { runRequest, SESSION_VARIABLE } from '../bus/window-requests.js'
 import { busHistory } from '../ghosts/journal.js'
 import { busCardStates } from '../ghosts/tasks.js'
-import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, WRITER_MARKER } from './decisions.js'
+import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, WRITER_MARKER } from './decisions.js'
 import { archiveOf, defaultDecisions, settledCards } from './read.js'
 
 export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
@@ -103,7 +104,8 @@ function untilTail(until: string | null): string {
   return until === null ? '' : ` · until ${until}`
 }
 
-export function planAdd(text: string, archive: string, { text: record, supersedes, cards, until }: AddArgs, now: Date, settled: (card: number) => boolean = () => false): AddPlan | string {
+export function planAdd(read: string, archive: string, { text: record, supersedes, cards, until }: AddArgs, now: Date, settled: (card: number) => boolean = () => false): AddPlan | string {
+  const text = settleSupersedes(read, archive)
   const { decisions } = parseDecisions(text)
   const outOfForce = outOfForceLines(decisions, now, settled)
   const archivedNumbers = parseDecisions(archive).decisions.map(decision => decision.number)
@@ -219,8 +221,18 @@ function settledCardsOnThisMachine(): (card: number) => boolean {
   return card => cards.has(card)
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = runDecisionsAdd(process.argv.slice(2), {
+function requestFromThisWindow(session: string, args: string[]): number {
+  const db = openBus(defaultBusPath())
+  try {
+    return runRequest(['decisions:add', ...args], db, new Date(), session, line => console.log(line))
+  }
+  finally {
+    db.close()
+  }
+}
+
+function writeOnThisMachine(args: string[]): number {
+  return runDecisionsAdd(args, {
     home: os.homedir(),
     now: () => new Date(),
     exists: existsSync,
@@ -232,4 +244,9 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     out: line => console.log(line),
     err: line => console.error(line),
   })
+}
+
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const windowSession = process.env[SESSION_VARIABLE]?.trim()
+  process.exitCode = windowSession ? requestFromThisWindow(windowSession, process.argv.slice(2)) : writeOnThisMachine(process.argv.slice(2))
 }

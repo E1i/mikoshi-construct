@@ -50,7 +50,6 @@ function decisionsRead(files: Record<string, string>): { code: number, out: stri
     bus: new Map(),
     exists: file => file in files,
     read: file => files[file]!,
-    write: () => {},
     out: line => out.push(line),
     err: line => err.push(line),
   })
