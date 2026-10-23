@@ -306,6 +306,7 @@ describe('the record version detach reads', () => {
       aiTarget: () => Promise.resolve(undefined),
       projectName: () => Promise.resolve(undefined),
       review: () => Promise.resolve(undefined),
+      lanes: () => Promise.resolve(3),
       harnessCommand: () => Promise.resolve(null),
       confirm: () => Promise.resolve(true),
     }

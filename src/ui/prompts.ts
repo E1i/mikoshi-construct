@@ -9,6 +9,7 @@ export interface Prompter {
   aiTarget: (initial: AiTarget) => Promise<AiTarget | undefined>
   projectName: (initial: string) => Promise<string | undefined>
   review: (initial: boolean) => Promise<boolean | undefined>
+  lanes: (initial: number) => Promise<number | undefined>
   confirm: (message: string) => Promise<boolean | undefined>
   harnessCommand: (candidates: string[]) => Promise<string | null | undefined>
 }
@@ -19,6 +20,23 @@ const PROJECT_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
 
 export function isValidProjectName(value: string): boolean {
   return PROJECT_NAME_PATTERN.test(value)
+}
+
+const LANE_COUNT_PATTERN = /^[1-9]\d*$/
+
+function laneCountOf(value: string): number | undefined {
+  const trimmed = value.trim()
+  if (!LANE_COUNT_PATTERN.test(trimmed))
+    return undefined
+  const count = Number(trimmed)
+  return Number.isSafeInteger(count) ? count : undefined
+}
+
+export function parseLaneCount(value: string): number {
+  const count = laneCountOf(value)
+  if (count == null)
+    throw new Error(`invalid lane count "${value}" (a whole number, 1 or more)`)
+  return count
 }
 
 export function toAiTarget(selected: SingleAiTarget[]): AiTarget {
@@ -96,6 +114,15 @@ export function createClackPrompter(lore: Lore, streams: PromptStreams = {}): Pr
     },
     async review(initial) {
       return settle(await confirm({ ...streams, message: lore.askReview, initialValue: initial }))
+    },
+    async lanes(initial) {
+      const answer = settle(await text({
+        ...streams,
+        message: lore.askLanes,
+        initialValue: String(initial),
+        validate: value => (laneCountOf(value ?? '') === undefined ? lore.lanesInvalid : undefined),
+      }))
+      return answer == null ? undefined : laneCountOf(answer)
     },
     async confirm(message) {
       return settle(await confirm({ ...streams, message, initialValue: true }))

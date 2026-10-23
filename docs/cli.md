@@ -55,6 +55,7 @@ it changed other files, and nothing at all where it changed none.
 | `--name <name>` | directory name | The project name written into `package.json` and the agent files. |
 | `--review <provider>` | `none` | `claude` adds the label-triggered review workflow. It needs a `CODE_REVIEW_API_KEY` secret. |
 | `--review-model <model>` | `claude-sonnet-5` | The model that review workflow runs. |
+| `--lanes <count>` | `3` | How many parallel lanes the bus runs, a whole number from 1 up, recorded as `lanes` in `construct.json`. |
 | `--yes`, `-y` | `false` | Ask nothing. Take the defaults and skip the confirmation. |
 | `--dry-run` | `false` | Print the plan and write nothing. |
 
@@ -120,8 +121,9 @@ already on disk. The same changed count decides whether the run names a next ste
 lines cannot disagree.
 
 A second `init` asks nothing `construct.json` already answers. The preset, the agent target, the
-project name and the code-review provider are all recorded there, so a re-run reads them and names
-them in the configuration block instead of putting the same four questions again. A flag still
+project name, the code-review provider and the number of parallel lanes are all recorded there, so a
+re-run reads them and names them in the configuration block instead of putting the same five
+questions again. A flag still
 overrides any of them, and the change is reported like any other change to a recorded value. The one
 question that survives is the confirmation before writing — it authorises this run, which no record
 can do on its behalf.
@@ -187,6 +189,7 @@ it is read and never written back.
 | `blocks` | For each `append-block` target the run wrote, the sha256 of the construct block's owned view (discovery bodies left out) and a snapshot of the `vars` it was written with, so `sync` can tell an edited block from an edited record. Measured at the write and never back-filled: a record from before manifest version 6 carries none. |
 | `policy` | The workspace import policy as structure, not as rendered source: one entry per package directory naming what it may import. What a run renders into `eslint.config.mjs` follows this, never the other way round. |
 | `discovery` | Where each marker lives, and who wrote it. |
+| `lanes` | How many parallel lanes the bus runs. A record without it reads as `3`. |
 
 ```json
 {
@@ -1064,6 +1067,7 @@ did in `.construct/attach.json`. No `construct.json`, no
 |---|---|---|
 | `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: in a terminal attach first offers the [candidates](#harness-candidates) it read; under `--yes` without it, the harness is recorded as `none`. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
+| `--lanes <count>` | asked, `3` | How many parallel lanes the bus runs, a whole number from 1 up. Recorded as `lanes` in `.construct/attach.json`, never in a `construct.json`; under `--yes` without it, `3`. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |
 | `--entry` | `false` | Print the entry protocol and exit `0`; nothing else runs, whatever other flags are given. |
 

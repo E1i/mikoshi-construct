@@ -30,7 +30,8 @@ runner, the `browser-lab` skill and its script, the commit guard
 `.construct/commit-guard.mjs` and the shell parser it reads the command line through,
 `.construct/shell-parser.mjs`. It hides them, and `.construct/`, through a block in
 `.git/info/exclude`, so `git status` stays empty. It records what it created, with a hash per file, in
-`.construct/attach.json`.
+`.construct/attach.json`, beside how many parallel lanes the bus runs here: asked in a terminal,
+`--lanes <count>` otherwise, 3 by default.
 
 It also adds one entry to `.claude/settings.local.json`, the untracked per-user settings file, that runs
 the guard before every Bash call: in this repository the agent is refused `git commit`, `git push`,
