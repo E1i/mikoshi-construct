@@ -173,7 +173,7 @@ function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
 
 function closeDowngradeWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent): void {
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND id LIKE '${DOWNGRADE_WAIT_PREFIX}%' AND event_id < ?`)
-    .run(`card #${event.card_id} admitted without the downgrade`, event.id, event.card_id, event.id)
+    .run(`card #${event.card_id} admitted`, event.id, event.card_id, event.id)
 }
 
 function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent): void {
