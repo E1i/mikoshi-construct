@@ -1,13 +1,12 @@
 import type { Shell } from '../ports/worktree.js'
 import type { GrepReading } from './evidence.js'
-import { appendFileSync, mkdirSync, realpathSync } from 'node:fs'
-import os from 'node:os'
+import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { defaultBusPath } from '../bus/db.js'
+import { recordGhostLine } from '../ghosts/journal.js'
 import { gitIn, realShell, withWorktree } from '../ports/worktree.js'
-import { GHOST_JOURNAL } from '../shift/places.js'
 import { checkEvidence, grepWitnessEvidence } from './evidence.js'
 import { byPosition, checkedFunctions } from './functions.js'
 import { readMap } from './map.js'
@@ -24,7 +23,7 @@ export interface DoneInputs {
 
 export interface DoneDeps {
   shell: Shell
-  journal: string
+  record: (line: object) => void
 }
 
 export interface DoneResult {
@@ -32,6 +31,7 @@ export interface DoneResult {
   lines: string[]
 }
 
+const DONE_CHECK_WRITER = 'done-check'
 const REQUIRED_OPTIONS = ['--args', '--map', '--base']
 const OPTIONS = [...REQUIRED_OPTIONS, '--task']
 
@@ -40,11 +40,9 @@ function failure(sections: Array<[string, string[]]>): DoneResult {
   return { passed: false, lines: ['FAIL', ...lines] }
 }
 
-function journalGrepReadings(deps: DoneDeps, task: string | null, head: string, readings: GrepReading[]): void {
-  if (readings.length === 0)
-    return
-  mkdirSync(path.dirname(deps.journal), { recursive: true })
-  appendFileSync(deps.journal, readings.map(({ criterion, matched }) => `${JSON.stringify({ event: 'grep-witness', task, criterion, head, matched })}\n`).join(''))
+function recordGrepReadings(deps: DoneDeps, task: string | null, head: string, readings: GrepReading[]): void {
+  for (const { criterion, matched } of readings)
+    deps.record({ event: 'grep-witness', task, criterion, head, matched })
 }
 
 function probeOnTree(deps: DoneDeps, tree: string): (probe: string) => boolean {
@@ -64,7 +62,7 @@ export function doneCheck(root: string, inputs: DoneInputs, deps: DoneDeps): Don
       matchesOnHead: probeOnTree(deps, root),
       matchesOnBase: probes => withWorktree(root, base, baseTree => probes.map(probeOnTree(deps, baseTree))),
     })
-    journalGrepReadings(deps, inputs.task, head, grep.readings)
+    recordGrepReadings(deps, inputs.task, head, grep.readings)
     const evidence = checkEvidence(tree, brief, rows)
     const checked = checkedFunctions(tree, evidence.citations)
     const label = (fn: { file: string, nameLine: number, name: string }): string => `${fn.file}:${fn.nameLine} ${fn.name}`
@@ -113,8 +111,7 @@ function runFromCommandLine(argv: string[]): DoneResult {
   catch (error) {
     return failure([['input:', [(error as Error).message]]])
   }
-  const journal = path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), GHOST_JOURNAL)
-  return doneCheck(process.cwd(), inputs, { shell: realShell, journal })
+  return doneCheck(process.cwd(), inputs, { shell: realShell, record: line => recordGhostLine(DONE_CHECK_WRITER, line, defaultBusPath()) })
 }
 
 function main(): void {

@@ -5,9 +5,10 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../bus/db.js'
 import { recordDecision } from '../bus/decisions.js'
+import { busHistory } from '../ghosts/journal.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, WRITER_MARKER } from './decisions.js'
-import { archiveOf, defaultDecisions, journalOf, settledCards } from './read.js'
+import { archiveOf, defaultDecisions, settledCards } from './read.js'
 
 export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
 export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
@@ -214,8 +215,7 @@ function recordInBus(decision: OwnerDecision): void {
 }
 
 function settledCardsOnThisMachine(): (card: number) => boolean {
-  const journal = journalOf(os.homedir(), process.env.CONSTRUCT_HANDOFF_DIR)
-  const cards = settledCards(existsSync(journal) ? readFileSync(journal, 'utf8') : '', busCardStates(defaultBusPath()))
+  const cards = settledCards(busHistory(defaultBusPath()), busCardStates(defaultBusPath()))
   return card => cards.has(card)
 }
 

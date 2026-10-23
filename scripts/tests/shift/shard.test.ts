@@ -1,14 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../bus/db.js'
 import type { ShardDeps } from '../../shift/shard.js'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { activeWindowShards, expiredWindowShards } from '../../bus/shards.js'
 import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
-import { GHOST_JOURNAL } from '../../shift/places.js'
 import { runShard, USAGE } from '../../shift/shard.js'
 
 const SHARD = '5a4d0000-0000-4000-8000-000000000650'
@@ -32,19 +31,8 @@ function captured(): Captured {
   return { out: [], err: [] }
 }
 
-function eventsOf(world: World, event: string): Record<string, unknown>[] {
-  let text: string
-  try {
-    text = readFileSync(path.join(world.handoff, GHOST_JOURNAL), 'utf8')
-  }
-  catch {
-    return []
-  }
-  return text.split('\n').filter(line => line !== '').map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line.event === event)
-}
-
 function shardDeps(world: World, io: Captured, record: ShardDeps['record'] = () => {}): ShardDeps {
-  return { handoffDir: world.handoff, append: (file, text) => writeFileSync(file, text, { flag: 'a' }), record, activeWindows: () => [], inForce: () => false, now: () => new Date('2026-10-08T09:00:00.000Z'), uuid: () => SHARD, by: () => '', out: line => io.out.push(line), err: line => io.err.push(line) }
+  return { record, activeWindows: () => [], inForce: () => false, now: () => new Date('2026-10-08T09:00:00.000Z'), uuid: () => SHARD, by: () => '', out: line => io.out.push(line), err: line => io.err.push(line) }
 }
 
 function busEvents(db: DatabaseSync): Record<string, unknown>[] {
@@ -61,7 +49,6 @@ describe('a shard delegates one owner merge', () => {
     expect(busEvents(db)).toEqual([
       { type: SHARD_ISSUED, actor: 'owner', card_id: 726, pr: 626, payload: { id: `${SHARD}-card`, by: 'Eli', run: null } },
     ])
-    expect(eventsOf(world, 'shard').at(-1)).toEqual({ event: 'shard', id: `${SHARD}-card`, by: 'Eli', ts: '2026-10-08T09:00:00.000Z', card: 726, pr: 626 })
     expect(io.out.at(-1)).toContain('card #726 and PR #626')
     db.close()
   })
@@ -74,7 +61,6 @@ describe('a shard delegates one owner merge', () => {
     for (const argv of [[], [world.shift], [world.shift, '--card', '726'], ['--card', 'x'], ['--pr', '0'], ['--card'], ['--card', '726', '--by']])
       expect(runShard(argv, deps)).toBe(1)
     expect(recorded).toEqual([])
-    expect(eventsOf(world, 'shard')).toEqual([])
     expect(io.err.every(line => line.includes(USAGE))).toBe(true)
   })
 
@@ -103,7 +89,6 @@ describe('a shard delegates one owner merge', () => {
       { type: SHARD_ISSUED, actor: 'owner', card_id: null, pr: null, payload: { id: SHARD, by: 'Eli', run: null, window: true, scope: 'merge', until: '2026-10-08T15:00:00.000Z' } },
       { type: SHARD_ISSUED, actor: 'owner', card_id: null, pr: null, payload: { id: `${SHARD}-all`, by: 'Eli', run: null, window: true, scope: 'merge+decisions', until: '2026-10-08T11:00:00.000Z' } },
     ])
-    expect(eventsOf(world, 'shard').at(0)).toEqual({ event: 'shard', id: SHARD, by: 'Eli', ts: '2026-10-08T09:00:00.000Z', window: true, scope: 'merge', until: '2026-10-08T15:00:00.000Z' })
     expect(io.out[0]).toContain('for the window, scope merge, until 2026-10-08T15:00:00.000Z')
     expect(activeWindowShards(db, new Date('2026-10-08T12:00:00.000Z')).map(shard => shard.id)).toEqual([SHARD])
     db.close()
@@ -117,7 +102,6 @@ describe('a shard delegates one owner merge', () => {
     for (const argv of [['--window', '--card', '726'], ['--window', world.shift], ['--window', '--hours', '0'], ['--window', '--hours', '1.5'], ['--window', '--scope', 'all'], ['--card', '726', '--hours', '2'], ['--stop', '--window'], ['--stop', '--hours', '2']])
       expect(runShard([...argv, '--by', 'Eli'], deps)).toBe(1)
     expect(recorded).toEqual([])
-    expect(eventsOf(world, 'shard')).toEqual([])
     expect(io.err.every(line => line.includes(USAGE))).toBe(true)
   })
 

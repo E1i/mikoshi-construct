@@ -9,7 +9,9 @@ import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
+import { GHOST_LINE } from '../core/events.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
+import { legacyHistory } from './legacy-history.js'
 import { cardBodies } from './parking-reads.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { openDatabase } from './sqlite.js'
@@ -368,16 +370,23 @@ export function readBriefs(dir: string): Brief[] {
   })
 }
 
+const GHOST_LINE_PAYLOADS = `SELECT payload FROM events WHERE type = '${GHOST_LINE}' AND legacy = 0 ORDER BY id`
+
+export function ghostJournalOf(db: DatabaseSync): string {
+  const history = legacyHistory(db).map(entry => JSON.stringify(entry))
+  const lines = (db.prepare(GHOST_LINE_PAYLOADS).all() as { payload: string }[]).map(row => row.payload)
+  return [...history, ...lines].map(line => `${line}\n`).join('')
+}
+
 function main(): void {
   const handoff = process.env.CONSTRUCT_HANDOFF_DIR ?? path.join(os.homedir(), '.construct', 'handoff')
-  const journalFile = path.join(handoff, 'ghosts.jsonl')
   const db = openDatabase(defaultBusPath(), { timeout: BUSY_TIMEOUT_MS })
   const catalog = buildCatalog({
     graph: cruise(),
     testText: test => readFileSync(path.join(REPO_ROOT, test), 'utf8'),
     cards: cardBodies(db),
     briefs: readBriefs(handoff),
-    journal: existsSync(journalFile) ? readFileSync(journalFile, 'utf8') : '',
+    journal: ghostJournalOf(db),
   })
   writeCatalog(db, catalog)
   db.close()

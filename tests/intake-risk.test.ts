@@ -1,8 +1,9 @@
-import type { IntakeResult } from '../src/commands/intake/index.js'
+import type { CardEvent, CardEventPort, IntakeResult } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { splitSignal } from '../src/card/complexity.js'
 import { parkingFileText, WINDOW_WHO } from '../src/card/parking.js'
 import { RISK_LEVELS, RISK_MEANING, RISK_PREFIX, riskOf, riskReading, SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
@@ -80,7 +81,7 @@ function draftCard(name: string, touches: readonly string[], unclear: number) {
   }
 }
 
-function intake(touches: readonly string[], unclear: number = 0, confirm?: string, root: string = mkdtempSync(path.join(tmpdir(), 'intake-risk-'))): IntakeResult {
+function intake(touches: readonly string[], unclear: number = 0, confirm?: string, root: string = mkdtempSync(path.join(tmpdir(), 'intake-risk-')), events?: CardEventPort): IntakeResult {
   roots.push(root)
   const repo = path.join(root, 'repo')
   for (const entry of touches) {
@@ -91,7 +92,7 @@ function intake(touches: readonly string[], unclear: number = 0, confirm?: strin
   }
   const draft = path.join(root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards: [draftCard('risk-card', touches, unclear)] }))
-  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, confirm, readStdin: () => '600' })
+  return runIntake({ draft, taken: '-', parking: path.join(root, 'parking'), dir: repo, journal: path.join(root, 'ghosts.jsonl'), dryRun: false, autoConfirm: false, confirm, readStdin: () => '600', events })
 }
 
 function only(result: IntakeResult) {
@@ -276,21 +277,22 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
 describe('a proposed risk seam waits for the confirmation token corrections wait for', () => {
   const touches = ['architecture/security-invariants.md', 'src/commands/intake/slice.ts', 'docs/cli.md']
 
-  it('parks nothing until a person confirms the token, then journals the confirmation as a person\'s', () => {
+  it('parks nothing until a person confirms the token, then records the confirmation as a person\'s', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'intake-risk-'))
-    const held = intake(touches, 0, undefined, root)
+    const bus: CardEvent[] = []
+    const held = intake(touches, 0, undefined, root, event => bus.push(event))
     expect(existsSync(path.join(root, 'parking'))).toBe(false)
-    expect(existsSync(path.join(root, 'ghosts.jsonl'))).toBe(false)
+    expect(bus).toEqual([])
     expect(held.status).toBe('awaiting')
     const token = held.status === 'awaiting' ? held.token : ''
     const out: string[] = []
     printIntake(createUi(resolveTheme({ plain: true }), text => out.push(text)), held)
     expect(out.at(-1)).toContain(`--confirm ${token}`)
-    expect(intake(touches, 0, token, root).status).toBe('written')
-    const journalled = readFileSync(path.join(root, 'ghosts.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line) as unknown)
-    expect(journalled).toHaveLength(2)
-    for (const line of journalled)
-      expect(line).toMatchObject({ event: 'intake', confirmation: 'person', corrections: [] })
+    expect(intake(touches, 0, token, root, event => bus.push(event)).status).toBe('written')
+    expect(bus).toHaveLength(2)
+    for (const event of bus)
+      expect(event).toMatchObject({ type: CARD_ADMITTED, payload: { confirmation: 'person', corrections: [] } })
+    expect(existsSync(path.join(root, 'ghosts.jsonl'))).toBe(false)
   })
 
   it('a card with no risk seam is written without a token', () => {

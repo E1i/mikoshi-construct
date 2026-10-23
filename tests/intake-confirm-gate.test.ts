@@ -1,4 +1,4 @@
-import type { CardEvent, IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
+import type { CardAdmissionsPort, CardEvent, IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -25,14 +25,14 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-interface World { root: string, repo: string, parking: string, journal: string, draft: string }
+interface World { root: string, repo: string, parking: string, journal: string, draft: string, bus: CardEvent[] }
 
 function world(cards: Record<string, unknown>[]): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-confirm-'))
   roots.push(root)
   const draft = path.join(root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards }))
-  return { root, repo: repositoryOf(root, cards), parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), draft }
+  return { root, repo: repositoryOf(root, cards), parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), draft, bus: [] }
 }
 
 function repositoryOf(root: string, cards: unknown): string {
@@ -53,11 +53,22 @@ function card(fields: Record<string, unknown> = {}): Record<string, unknown> {
 }
 
 function intake(w: World, options: Partial<IntakeOptions> = {}): IntakeResult {
-  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '12', ...options })
+  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '12', events: event => w.bus.push(event), ...options })
 }
 
 function journalLines(w: World): Record<string, unknown>[] {
   return existsSync(w.journal) ? readFileSync(w.journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
+}
+
+function admitted(bus: readonly CardEvent[]): Record<string, unknown>[] {
+  return bus.filter(event => event.type === CARD_ADMITTED).map(event => ({ task: String(event.cardId), ...event.payload, ts: event.ts }))
+}
+
+function admissionsOf(bus: readonly CardEvent[]): CardAdmissionsPort {
+  return (cardId) => {
+    const last = bus.filter(event => event.type === CARD_ADMITTED && event.cardId === cardId).at(-1)
+    return last === undefined ? null : { card: String(last.payload.card), bodySha: last.payload.bodySha, ts: last.ts, confirmation: last.payload.confirmation, source: last.payload.source }
+  }
 }
 
 function printed(result: IntakeResult): { lines: string[], exit: number } {
@@ -74,7 +85,7 @@ describe('intake confirmation gate', () => {
     const held = intake(w)
     expect(held.status).toBe('awaiting')
     expect(existsSync(path.join(w.parking, '13.md'))).toBe(false)
-    expect(journalLines(w)).toEqual([])
+    expect(admitted(w.bus)).toEqual([])
     const { lines, exit } = printed(held)
     expect(exit).toBe(INTAKE_EXIT.awaiting)
     expect(lines.join('\n')).toContain(`corrected: ${CORRECTION}`)
@@ -86,7 +97,8 @@ describe('intake confirmation gate', () => {
     const text = readFileSync(path.join(w.parking, '13.md'), 'utf8')
     expect(text).toContain(`corrected: ${CORRECTION}`)
     expect(text).toContain('who: shift')
-    expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', confirmation: 'person', corrections: [CORRECTION] }])
+    expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: 'person', corrections: [CORRECTION] }])
+    expect(journalLines(w)).toEqual([])
   })
 
   it('confirmed slices are parked as cards with depends and no manual step', () => {
@@ -111,7 +123,7 @@ describe('intake confirmation gate', () => {
     }
     expect(readFileSync(path.join(w.parking, '13.md'), 'utf8')).toContain('touches: scripts/bus/queue.ts\n')
     expect(readFileSync(path.join(w.parking, '14.md'), 'utf8')).toContain('touches: scripts/bus/inbox.ts\n')
-    expect(journalLines(w)).toMatchObject([{ task: '13', confirmation: 'person' }, { task: '14', confirmation: 'person' }])
+    expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: 'person' }, { task: '14', confirmation: 'person' }])
   })
 
   it('card A of probe 1075 passes intake into cards with depends with no manual step', () => {
@@ -145,31 +157,32 @@ describe('intake confirmation gate', () => {
     expect(printed(result).lines[0]).toContain('--confirm names a different list of corrections')
   })
 
-  it('with --auto-confirm a corrected card is parked at once and its corrections and the flag are written to the journal', () => {
+  it('with --auto-confirm a corrected card is parked at once and its corrections and the flag are recorded in the bus', () => {
     const w = world([card({ number: 12 }), card({ name: 'clean-card' })])
     const result = intake(w, { autoConfirm: true })
     expect(result.status).toBe('written')
     expect(printed(result).exit).toBe(INTAKE_EXIT.written)
     expect(readFileSync(path.join(w.parking, '13.md'), 'utf8')).toContain('who: shift')
-    expect(journalLines(w)).toMatchObject([
-      { event: 'intake', task: '13', confirmation: 'auto', corrections: [CORRECTION] },
-      { event: 'intake', task: '14', confirmation: 'auto', corrections: [] },
+    expect(admitted(w.bus)).toMatchObject([
+      { task: '13', confirmation: 'auto', corrections: [CORRECTION] },
+      { task: '14', confirmation: 'auto', corrections: [] },
     ])
+    expect(journalLines(w)).toEqual([])
   })
 
-  it('a draft with no correction is parked without a confirmation and journaled as needing none', () => {
+  it('a draft with no correction is parked without a confirmation and recorded as needing none', () => {
     const w = world([card()])
     const result = intake(w)
     expect(result.status).toBe('written')
-    expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', confirmation: 'none', corrections: [] }])
+    expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: 'none', corrections: [] }])
   })
 
-  it.each([['the parking root', '', null], ['a lane', 'lane-4', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted beside the journal line, and writes no parking file', (_where, lane, expected) => {
+  it.each([['the parking root', '', null], ['a lane', 'lane-4', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted, and writes no journal line and no parking file', (_where, lane, expected) => {
     const w = world([card()])
     const bus: CardEvent[] = []
     expect(intake(w, { parking: path.join(w.parking, lane), parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('written')
     expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 13, payload: { card: expect.stringMatching(/^#13 gate-card /), lane: expected, confirmation: 'none' } }])
-    expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '13', ts: bus[0]!.ts }])
+    expect(journalLines(w)).toEqual([])
     expect(existsSync(w.parking)).toBe(false)
   })
 
@@ -179,15 +192,15 @@ describe('intake confirmation gate', () => {
     expect(lines.join('\n')).toContain('accepted in advance by --auto-confirm, and recorded in the bus.')
   })
 
-  it('--dry-run neither parks nor journals, whatever the corrections', () => {
+  it('--dry-run neither parks nor records, whatever the corrections', () => {
     const w = world([card({ number: 12 })])
     expect(intake(w, { dryRun: true }).status).toBe('dryRun')
     expect(existsSync(w.parking)).toBe(false)
-    expect(journalLines(w)).toEqual([])
+    expect(w.bus).toEqual([])
     printIntake(createUi(resolveTheme({ plain: true }), silentWriter), intake(w, { dryRun: true }))
   })
 
-  it('an admitted card writes card.admitted to the bus beside its intake line in the journal, an amend writes the amended card again, and a second --admit hands the bus only the key it already holds', () => {
+  it('an admitted card writes card.admitted to the bus and no journal line, an amend writes the amended card again, and a second --admit hands the bus only the key it already holds', () => {
     const w = world([card()])
     const lane = path.join(w.parking, 'lane-2')
     mkdirSync(lane, { recursive: true })
@@ -196,7 +209,7 @@ describe('intake confirmation gate', () => {
     writeFileSync(file, parked)
     const bus: CardEvent[] = []
     const keepOncePerDedupeKey = (event: CardEvent) => bus.some(kept => kept.dedupeKey === event.dedupeKey) || bus.push(event)
-    const admit = () => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: keepOncePerDedupeKey })
+    const admit = () => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: keepOncePerDedupeKey, admissions: admissionsOf(bus) })
     expect(admit().status).toBe('admitted')
     const text = readFileSync(file, 'utf8')
     expect(bus).toEqual([{
@@ -206,7 +219,7 @@ describe('intake confirmation gate', () => {
       dedupeKey: expect.stringMatching(/^card\.admitted:80:/),
       payload: { card: expect.stringMatching(/^#80 clean-card /), lane: 'lane-2', depends: [], decision: 'owner', contour: 'cheap', confirmation: 'none', corrections: [], bodySha: bodySha(text), text, textSha: textSha(text), source: ADMIT_SOURCE },
     }])
-    expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '80', source: ADMIT_SOURCE, bodySha: bodySha(text) }])
+    expect(journalLines(w)).toEqual([])
     expect(admit().status).toBe('alreadyAdmitted')
     writeFileSync(file, parked.replace('Do the thing.', 'Do the other thing.'))
     expect(admit()).toMatchObject({ status: 'admitted', source: AMEND_SOURCE })
@@ -214,10 +227,10 @@ describe('intake confirmation gate', () => {
     expect(bus[1]).toMatchObject({ type: CARD_ADMITTED, cardId: 80, payload: { lane: 'lane-2', bodySha: bodySha(readFileSync(file, 'utf8')), source: AMEND_SOURCE } })
     expect(admit().status).toBe('alreadyAdmitted')
     expect(bus).toHaveLength(2)
-    expect(journalLines(w)).toMatchObject([{ source: ADMIT_SOURCE }, { source: AMEND_SOURCE }])
+    expect(admitted(bus)).toMatchObject([{ source: ADMIT_SOURCE }, { source: AMEND_SOURCE }])
   })
 
-  it('a card admitted at the parking root writes its intake line and hands the bus card.admitted with no lane', () => {
+  it('a card admitted at the parking root hands the bus card.admitted with no lane', () => {
     const w = world([card()])
     mkdirSync(w.parking, { recursive: true })
     const file = path.join(w.parking, '81.md')
@@ -225,7 +238,7 @@ describe('intake confirmation gate', () => {
     const bus: CardEvent[] = []
     expect(runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('admitted')
     expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 81, payload: { card: expect.stringMatching(/^#81 root-card /), lane: null } }])
-    expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '81', source: ADMIT_SOURCE }])
+    expect(admitted(bus)).toMatchObject([{ task: '81', source: ADMIT_SOURCE }])
   })
 
   it.each([['notes', 'a parking subdirectory that is no lane'], ['../elsewhere', 'a directory outside the parking tree'], ['lane-2/inner', 'a directory below a lane'], ['../lane-2', 'a lane-named directory outside the parking tree'], ['lane-2/lane-3', 'a lane-named directory below a lane']])('a card admitted from %s (%s) hands the bus card.admitted with no lane', (relative) => {
@@ -237,6 +250,6 @@ describe('intake confirmation gate', () => {
     const bus: CardEvent[] = []
     expect(runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('admitted')
     expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 82, payload: { lane: null } }])
-    expect(journalLines(w)).toMatchObject([{ event: 'intake', task: '82', source: ADMIT_SOURCE }])
+    expect(admitted(bus)).toMatchObject([{ task: '82', source: ADMIT_SOURCE }])
   })
 })

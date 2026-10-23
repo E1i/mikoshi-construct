@@ -177,55 +177,55 @@ describe('mutate judge --card', () => {
   it('journals the card, the id, the outcome and whether it matched after the file is restored', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
-    const result = runJudge({ dir: w.root, report, id: 'M1', card: '#616', journal: w.journal })
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '#616', record: w.record })
 
-    expect(result).toMatchObject({ status: 'judged', outcome: 'named-red', matched: true, journaled: w.journal })
+    expect(result).toMatchObject({ status: 'judged', outcome: 'named-red', matched: true, journaled: w.bus })
     expect(w.bytes(SOURCE).equals(Buffer.from(ORIGINAL))).toBe(true)
-    const lines = w.journalLines()
+    const lines = w.recorded
     expect(lines).toEqual([{ event: 'mutation-judged', card: '616', id: 'M1', outcome: 'named-red', matched: true, ts: expect.any(String) }])
     expect(new Date(lines[0].ts as string).toISOString()).toBe(lines[0].ts)
-    expect(printed(result)).toContain(`The verdict is journaled to ${w.journal}.`)
+    expect(printed(result)).toContain(`The verdict is recorded in the bus ${w.bus}.`)
   })
 
   it('journals an unmatched verdict as unmatched', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [passing(TEST_FILE, 'within', 'is strict')])
-    runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+    runJudge({ dir: w.root, report, id: 'M1', card: '616', record: w.record })
 
-    expect(w.journalLines()).toMatchObject([{ card: '616', id: 'M1', outcome: 'nothing-red', matched: false }])
+    expect(w.recorded).toMatchObject([{ card: '616', id: 'M1', outcome: 'nothing-red', matched: false }])
   })
 
-  it('without --card writes no journal line', () => {
+  it('without --card records no line', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
-    const result = runJudge({ dir: w.root, report, id: 'M1', journal: w.journal })
+    const result = runJudge({ dir: w.root, report, id: 'M1', record: w.record })
 
     expect(result).toMatchObject({ status: 'judged', matched: true })
     expect(result).not.toHaveProperty('journaled')
-    expect(existsSync(w.journal)).toBe(false)
+    expect(w.recorded).toEqual([])
   })
 
   it('refuses a report that ran no test, restores the file and journals nothing', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [])
-    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', record: w.record })
 
     expect(result).toMatchObject({ status: 'refused', refusal: 'report-no-test' })
     expect(printed(result)).toContain('no verdict')
     expect(printed(result)).not.toContain('baseline')
     expect(w.bytes(SOURCE).equals(Buffer.from(ORIGINAL))).toBe(true)
     expect(w.mutations()).toEqual(['baseline.json'])
-    expect(existsSync(w.journal)).toBe(false)
+    expect(w.recorded).toEqual([])
   })
 
   it('refuses a report whose every test was skipped, restores the file and journals nothing', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [{ file: TEST_FILE, titles: ['within', 'is strict'], status: 'skipped' }])
-    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', record: w.record })
 
     expect(result).toMatchObject({ status: 'refused', refusal: 'report-no-test' })
     expect(w.bytes(SOURCE).equals(Buffer.from(ORIGINAL))).toBe(true)
-    expect(existsSync(w.journal)).toBe(false)
+    expect(w.recorded).toEqual([])
   })
 
   it('refuses a report in which the named test was skipped while others passed', () => {
@@ -234,51 +234,51 @@ describe('mutate judge --card', () => {
       { file: TEST_FILE, titles: ['within', 'is strict'], status: 'skipped' },
       passing(TEST_FILE, 'within', 'is total'),
     ])
-    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', record: w.record })
 
     expect(result).toMatchObject({ status: 'refused', refusal: 'named-test-skipped' })
     expect(printed(result)).toContain('skipped')
     expect(w.bytes(SOURCE).equals(Buffer.from(ORIGINAL))).toBe(true)
-    expect(existsSync(w.journal)).toBe(false)
+    expect(w.recorded).toEqual([])
   })
 
   it('journals nothing when there is no witness', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt - 1, [failing(TEST_FILE, 'within', 'is strict')])
-    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', record: w.record })
 
     expect(result.status).toBe('no-witness')
-    expect(existsSync(w.journal)).toBe(false)
+    expect(w.recorded).toEqual([])
   })
 
   it('journals nothing when the named test is missing', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [passing(TEST_FILE, 'bounds', 'is strict')])
-    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', record: w.record })
 
     expect(result).toMatchObject({ status: 'refused', refusal: 'named-test-missing' })
-    expect(existsSync(w.journal)).toBe(false)
+    expect(w.recorded).toEqual([])
   })
 
   it('journals nothing on a hard failure', () => {
     const { w, appliedAt } = applied()
     w.write(SOURCE, `${ORIGINAL}// someone else's line\n`)
     const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
-    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', journal: w.journal })
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: '616', record: w.record })
 
     expect(result).toMatchObject({ status: 'hard-failure', cause: 'file-changed' })
-    expect(existsSync(w.journal)).toBe(false)
+    expect(w.recorded).toEqual([])
   })
 
   it('refuses a card that is not a number before touching the file', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
-    const result = runJudge({ dir: w.root, report, id: 'M1', card: 'mutate-judge', journal: w.journal })
+    const result = runJudge({ dir: w.root, report, id: 'M1', card: 'mutate-judge', record: w.record })
 
     expect(result).toMatchObject({ status: 'refused', refusal: 'bad-card', detail: 'mutate-judge' })
     expect(judgeExit(result)).toBe(MUTATE_JUDGE_EXIT.refused)
     expect(readMutationRecord(w.root, 'M1')).not.toBeNull()
-    expect(existsSync(w.journal)).toBe(false)
+    expect(w.recorded).toEqual([])
   })
 
   it('refuses --id without --card inside a shift, naming the card, before touching the file', () => {
@@ -298,14 +298,14 @@ describe('mutate judge --card', () => {
     const green = w.report('green2.json', appliedAt + 1, [passing(TEST_FILE, 'within', 'is strict')])
     expect(runJudge({ dir: w.root, report: green, baseline: true, shiftCard: '629' }).status).toBe('baseline-recorded')
     const report = w.report('m1.json', appliedAt + 2, [failing(TEST_FILE, 'within', 'is strict')])
-    expect(runJudge({ dir: w.root, report, id: 'M1', card: '629', journal: w.journal, shiftCard: '629' })).toMatchObject({ status: 'judged', matched: true, journaled: w.journal })
+    expect(runJudge({ dir: w.root, report, id: 'M1', card: '629', record: w.record, shiftCard: '629' })).toMatchObject({ status: 'judged', matched: true, journaled: w.bus })
   })
 
-  it('refuses a card with no journal to append to', () => {
+  it('refuses a card when no bus is wired in to record it', () => {
     const { w, appliedAt } = applied()
     const report = w.report('m1.json', appliedAt + 1, [failing(TEST_FILE, 'within', 'is strict')])
 
-    expect(runJudge({ dir: w.root, report, id: 'M1', card: '616' })).toMatchObject({ status: 'refused', refusal: 'no-journal' })
+    expect(runJudge({ dir: w.root, report, id: 'M1', card: '616' })).toMatchObject({ status: 'refused', refusal: 'no-bus' })
     expect(readMutationRecord(w.root, 'M1')).not.toBeNull()
   })
 })

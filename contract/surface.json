@@ -299,9 +299,6 @@
         "johnny": {
           "type": "boolean"
         },
-        "journal": {
-          "type": "string"
-        },
         "json": {
           "type": "boolean"
         },

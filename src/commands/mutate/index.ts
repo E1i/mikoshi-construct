@@ -58,7 +58,7 @@ const JUDGE_REFUSAL_LINE: Record<JudgeRefusal, (lore: Lore, detail: string) => s
   'named-test-ambiguous': (lore, detail) => lore.mutateRefusedNamedTestAmbiguous(detail),
   'named-test-skipped': lore => lore.mutateRefusedNamedTestSkipped,
   'bad-card': (lore, detail) => lore.mutateRefusedBadCard(detail),
-  'no-journal': lore => lore.mutateRefusedNoJournal,
+  'no-bus': lore => lore.mutateRefusedNoBus,
   'card-required': (lore, detail) => lore.mutateRefusedCardRequired(detail),
 }
 
