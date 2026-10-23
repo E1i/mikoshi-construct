@@ -2,12 +2,11 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { consumeOwnerWord, ownerChannelOf, SAID_PREFIX, USED_WORD } from '../../owner/channel.js'
+import { consumeOwnerWord, OWNER_CHANNEL_HOME, ownerChannelOf, SAID_PREFIX, USED_WORD } from '../../owner/channel.js'
 import { runOwnerSay } from '../../owner/say.js'
 
 const REPO = path.join(import.meta.dirname, '..', '..', '..')
 const HOME = '/Users/owner'
-const SANDBOX_FILESYSTEM_KEYS = ['allowRead', 'allowWrite', 'denyRead', 'denyWrite']
 const GLOB = /[*?[{]/
 const NOW = new Date('2026-10-23T09:00:00.000Z')
 
@@ -24,22 +23,14 @@ function channel(): string {
   return path.join(root, 'answers')
 }
 
-function allowWriteOf(settings: unknown): string[] {
-  const sandbox = (settings as { sandbox?: unknown }).sandbox
-  if (sandbox === undefined)
-    return []
-  const filesystem = (sandbox as { filesystem?: unknown }).filesystem
-  if (filesystem === undefined)
-    return []
-  const unknownKeys = Object.keys(filesystem as object).filter(key => !SANDBOX_FILESYSTEM_KEYS.includes(key))
-  if (unknownKeys.length > 0)
-    throw new Error(`sandbox.filesystem names ${unknownKeys.join(', ')}, keys this check does not read`)
-  const allow = (filesystem as { allowWrite?: unknown }).allowWrite
-  if (allow === undefined)
-    return []
-  if (!Array.isArray(allow) || !allow.every(entry => typeof entry === 'string'))
-    throw new Error('sandbox.filesystem.allowWrite is not a list of paths')
-  return allow
+function stringsOf(value: unknown): string[] {
+  if (typeof value === 'string')
+    return [value]
+  if (Array.isArray(value))
+    return value.flatMap(stringsOf)
+  if (value !== null && typeof value === 'object')
+    return Object.values(value).flatMap(stringsOf)
+  return []
 }
 
 function absolute(entry: string): string {
@@ -57,22 +48,20 @@ function covers(allowed: string, home: string): boolean {
 }
 
 function coveringEntries(settings: unknown): string[] {
-  return allowWriteOf(settings).filter(allowed => [homedir(), HOME].some(home => covers(allowed, home)))
-}
-
-function sandboxWith(allowWrite: unknown): unknown {
-  return { sandbox: { filesystem: { allowWrite } } }
+  return stringsOf(settings).filter(entry => entry.includes(OWNER_CHANNEL_HOME) || [homedir(), HOME].some(home => covers(entry, home)))
 }
 
 describe('the owner channel', () => {
   it('sandbox allowWrite does not cover the owner channel', () => {
     const covering = ['~/.construct-owner', '~/.construct-owner/answers', '~', path.join(homedir(), '.construct-owner'), homedir(), '~/.construct*', '~/**', `${HOME}/.construct-owner`]
-    const apart = ['~/.construct', '~/.construct/*', '~/.construct/**', '.', '/tmp/claude', path.join(homedir(), '.construct')]
-    expect(coveringEntries(sandboxWith([...covering, ...apart]))).toEqual(covering)
-    expect(() => coveringEntries({ sandbox: { filesystem: { writeAllow: ['~'] } } })).toThrow('writeAllow')
-    expect(() => coveringEntries(sandboxWith('~'))).toThrow('not a list')
+    const apart = ['~/.construct', '~/.construct/*', '~/.construct/**', '.', '/tmp/claude', path.join(homedir(), '.construct'), 'Bash(gh pr merge * --auto *)']
+    expect(coveringEntries({ sandbox: { filesystem: { allowWrite: [...covering, ...apart] } } })).toEqual(covering)
+    expect(coveringEntries({ sandbox: { filesystem: { writeAllow: ['~/.construct-owner'] } } })).toEqual(['~/.construct-owner'])
+    expect(coveringEntries({ sandbox: { write: { allowOnly: ['~'] } }, permissions: { additionalDirectories: [homedir()] } })).toEqual(['~', homedir()])
+    expect(coveringEntries({ env: { OWNER: 'echo ~/.construct-owner/answers/x' } })).toEqual(['echo ~/.construct-owner/answers/x'])
 
     const settings = JSON.parse(readFileSync(path.join(REPO, '.claude', 'settings.json'), 'utf8')) as unknown
+    expect(stringsOf(settings).length).toBeGreaterThan(0)
     expect(coveringEntries(settings)).toEqual([])
   })
 
