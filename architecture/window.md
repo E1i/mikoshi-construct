@@ -58,6 +58,25 @@ STATUS means to the window: a `miko.md` whose last `STATUS:` line is `CONTINUE` 
 question to the owner; one whose last `STATUS:` line is `OWNER` has its question asked in the window and the answer waited
 for in the same session, then `pnpm handoff:write` with `STATUS: CONTINUE`, with no `pnpm miko:exit`.
 
+Mikoshi runs in one of two modes, decided by `windowModeOf` in `scripts/ports/session.ts` (#1265): loop mode under
+`pnpm miko` (`MIKO_WINDOW=1`, `MIKO_LOOP_PID` or `MIKO_EXIT_REQUEST` set), and tab mode, a session with none of those
+marks and no `CONSTRUCT_CARD` (an IDE tab or a bare `claude`). Loop mode keeps the rules above. A tab window is that
+session when it is interactive and not raised by the bus (`tabWindowOf` in `scripts/miko/tab.ts`: a
+`CLAUDE_CODE_ENTRYPOINT` of `sdk-cli`, the headless one a bus reviewer runs under, or `CONSTRUCT_BUS_RAISED=1` is no
+tab window). A tab window continues by itself with nobody at a terminal. At Stop, `scripts/miko/turn-watch.ts` reads
+the last `STATUS:` of the session's handoff: `CONTINUE` blocks the stop with a reason telling the window to run
+`pnpm miko:watch --once` and take the next move; `OWNER`, `DONE` or no handoff lets it stop. The loop guard is
+`stop_hook_active` (the second stop in a row passes) and the watch's own timeout. Before a compaction,
+`scripts/miko/pre-compact.ts` leaves a handoff written within `FRESH_MS` alone and otherwise writes an insurance
+handoff from it through `pnpm handoff:write`. After a compaction, SessionStart with source `compact` returns
+`CONTINUE_PROMPT` as `additionalContext` when the handoff exists (`scripts/miko/compact-start.ts`). At a context or
+spend threshold, `pnpm miko:exit` in a tab window ends nothing and says so: the window writes the handoff and goes on,
+and compaction carries the session on from it. No route leads from a spend threshold to a compaction. Compaction comes
+only from the context filling, or from `/compact`, which the owner types and the model cannot run. So the spend warn in
+a tab window reaches compaction only when the context fills as well. Below `sessionSpend` the window keeps working,
+and at `sessionSpend` Eddies refuses new work. The hooks are thin wrappers in `.claude/hooks/`, and they work the same
+in the IDE extensions as in the CLI.
+
 Mikoshi, as foreman, does not poll: it waits on events, a stall, a repeated refusal and a dead session with `pnpm miko:watch --once` (#1081).
 
 Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default).

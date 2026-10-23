@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -7,8 +7,11 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../bus/db.js'
 import { recordWindowHeartbeat, windowSessionOf } from '../../bus/window-heartbeat.js'
+import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
+import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
+import { ENTRYPOINT_VARIABLE } from '../../miko/tab.js'
 import { LIVE_WATCH, NO_LIVE_WATCH } from '../../miko/turn-watch.js'
-import { WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const HOOK = path.join(REPO_ROOT, '.claude', 'hooks', 'turn-watch.mjs')
@@ -41,6 +44,13 @@ function emptyRoot(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'stop-hook-root-'))
   roots.push(root)
   return root
+}
+
+function handoffEnv(status: string): NodeJS.ProcessEnv {
+  const dir = mkdtempSync(path.join(tmpdir(), 'stop-hook-handoff-'))
+  roots.push(dir)
+  writeFileSync(path.join(dir, MIKO_HANDOFF_NAME), `# Handoff\n\nSTATUS: ${status}\n`)
+  return { [HANDOFF_DIR_VARIABLE]: dir, [ENTRYPOINT_VARIABLE]: 'cli', CONSTRUCT_HANDOFF: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }
 }
 
 function stopRun(bus: string, input: object, env: NodeJS.ProcessEnv = {}): { status: number | null, stdout: string, stderr: string } {
@@ -112,6 +122,10 @@ describe('the Stop hook asks turn-watch whether a window turn may end', () => {
     for (const env of envs)
       expect(windowMarked(env)).toBe(windowSessionOf({ ...env, CLAUDE_CODE_SESSION_ID: SESSION }) !== null)
   })
+
+  it('a tab session whose handoff ends STATUS: OWNER stops', () => {
+    expect(stop(busFile(), { session_id: SESSION, stop_hook_active: false }, handoffEnv('OWNER'))).toEqual({ status: 0, stdout: '' })
+  }, 20_000)
 
   it('the repository settings run the hook on Stop', () => {
     const settings = JSON.parse(readFileSync(path.join(REPO_ROOT, '.claude', 'settings.json'), 'utf8')) as { hooks: Record<string, { hooks: { command: string }[] }[]> }
