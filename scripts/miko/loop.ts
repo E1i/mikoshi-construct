@@ -10,8 +10,9 @@ import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../bus/db.js'
 import { recordProcessHeartbeat } from '../bus/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../bus/liveness-sites.js'
+import { lastLoopBeats, LOOP_PROCESS } from '../bus/window-heartbeat.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
-import { WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
+import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { ancestors, parsePs } from './exit.js'
 import { windowEndObserver } from './role-end.js'
 
@@ -23,25 +24,9 @@ export const MIKO_HANDOFF_NAME = 'miko.md'
 export const CONTINUE_PROMPT = `прочитай ~/.construct/handoff/${MIKO_HANDOFF_NAME}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца; если OWNER — задай вопрос владельцу в окне и жди ответа в этой же сессии, после ответа pnpm handoff:write со STATUS: CONTINUE, без pnpm miko:exit; событие жди через pnpm miko:watch --once в этой же сессии, следующую карточку бери в этой же сессии, pnpm handoff:write на каждой границе — страховка, без pnpm miko:exit; pnpm miko:exit — только при контексте или тратах сессии не ниже порога предупреждения Eddies или STATUS: DONE`
 export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_WINDOW_MS = 1500
-export const LOOP_PID_VARIABLE = 'MIKO_LOOP_PID'
-export const EXIT_REQUEST_VARIABLE = 'MIKO_EXIT_REQUEST'
 export const EXIT_REQUEST_PREFIX = 'miko-exit'
 export const EXIT_POLL_MS = 200
-export const LOOP_PROCESS = 'miko:'
 export const LOOP_BEAT_MS = 5 * 60_000
-
-const LAST_LOOP_BEATS = `
-  SELECT beats.name, beats.ts FROM (
-    SELECT json_extract(payload, '$.process') AS name, max(ts) AS ts FROM events
-    WHERE type = '${PROCESS_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.process') LIKE '${LOOP_PROCESS}%'
-    GROUP BY name
-  ) AS beats
-  WHERE NOT EXISTS (
-    SELECT 1 FROM events AS ended
-    WHERE ended.type = '${PROCESS_ENDED}' AND json_valid(ended.payload) AND json_extract(ended.payload, '$.process') = beats.name AND ended.ts >= beats.ts
-  )
-  ORDER BY beats.ts DESC
-`
 
 export type Status = 'CONTINUE' | 'OWNER' | 'DONE' | 'STOP'
 
@@ -126,7 +111,7 @@ function loopActor(pid: number): string {
 
 export function liveLoop(db: DatabaseSync, pid: number, nowMs: number): LiveLoop | null {
   const own = loopProcess(pid)
-  const live = (db.prepare(LAST_LOOP_BEATS).all() as { name: string, ts: string }[]).find(beat => beat.name !== own && beatsLive(beat.ts, nowMs))
+  const live = lastLoopBeats(db).find(beat => beat.name !== own && beatsLive(beat.ts, nowMs))
   return live === undefined ? null : { process: live.name, lastBeat: live.ts }
 }
 

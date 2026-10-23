@@ -7,6 +7,7 @@ import { appendEvent, inTransaction, openBusWait } from './db.js'
 import { LEASE_MS } from './lease.js'
 import { payloadOf, reject } from './stored.js'
 import { reduceProjection } from './watermark.js'
+import { windowLive } from './window-heartbeat.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
 export const ROLE_RAISE_FAILED = 'role.raise_failed'
@@ -62,8 +63,10 @@ const ROLE_COLUMNS = 'role, handoff, state, lease_gen, lease_until, reason, even
 const STOPPED_AT_A_THRESHOLD = `
   SELECT ${ROLE_COLUMNS} FROM roles
   WHERE ${AT_A_THRESHOLD} AND state = '${STOPPED}'
-  ORDER BY role LIMIT 1
+  ORDER BY role
 `
+
+const LAST_WINDOW_END = `SELECT max(ts) AS ts FROM events WHERE type = '${ROLE_RETURNED}' AND json_valid(payload) AND json_extract(payload, '$.ended') IS NOT NULL`
 
 const SILENT_OWNER_SESSION = `
   SELECT roles.role, roles.handoff, roles.event_id, max(signs.ts) AS last_sign FROM roles
@@ -204,7 +207,10 @@ function ownerDetail(row: RoleRow, start: string | null): string {
 
 export function roleToOwner(db: DatabaseSync, ts: string, actor: string): RoleToOwner | null {
   return inTransaction(db, () => {
-    const row = db.prepare(STOPPED_AT_A_THRESHOLD).get() as RoleRow | undefined
+    const stopped = db.prepare(STOPPED_AT_A_THRESHOLD).all() as unknown as RoleRow[]
+    const startable = stopped.some(each => ROLE_STARTS[each.role] !== null)
+    const live = startable && windowLive(db, Date.parse(ts), (db.prepare(LAST_WINDOW_END).get() as { ts: string | null }).ts)
+    const row = stopped.find(each => !live || ROLE_STARTS[each.role] === null)
     if (row === undefined)
       return null
     const start = ROLE_STARTS[row.role]
