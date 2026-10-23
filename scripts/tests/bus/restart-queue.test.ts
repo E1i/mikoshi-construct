@@ -295,7 +295,7 @@ describe('a role stopped at a threshold', () => {
     bench.close()
   })
 
-  it('a role the owner\'s window left silent comes back from the owner and goes to the owner again on the wait still open', () => {
+  it('a role the owner\'s window left silent comes back from the owner and goes to the owner again on a new wait, the window having beaten after the first', () => {
     const bench = restartBench()
     const worker = bench.worker()
     bench.stopRole({ role: 'miko', handoff: MIKO_HANDOFF, status: 'CONTINUE', reason: 'context' })
@@ -307,7 +307,7 @@ describe('a role stopped at a threshold', () => {
     const returned = worker.step()
     expect(returned).toMatchObject({ kind: 'returned', role: 'miko', handoff: MIKO_HANDOFF })
     expect(restartStepLine(returned)).toContain('relaunch:miko: back from the owner')
-    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', wait: 'Q1' })
+    expect(worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', wait: 'Q2' })
     expect(eventsOf(bench.db, 'role.leased')).toEqual([])
     bench.close()
   })

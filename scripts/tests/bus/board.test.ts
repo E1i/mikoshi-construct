@@ -11,7 +11,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { busFacts } from '../../../src/commands/board/bus.js'
 import { backlogCards } from '../../../src/commands/board/screens.js'
 import { answerLeaseOrder } from '../../bus/answer-worker.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, printBoard, runBoardCli } from '../../bus/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, FLOW_META, printBoard, runBoardCli } from '../../bus/board-page.js'
 import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS, windowGauges } from '../../bus/board.js'
 import { DROPPED_LANE, MERGED_CARD } from '../../bus/card-automaton.js'
 import { observeChain } from '../../bus/chain.js'
@@ -650,7 +650,7 @@ describe('the factory board', () => {
     const page = written.join('')
     expect(page).toContain('<div class="goal" id="slot-goal"><div class="goal-top"><span class="goal-k">plan</span><span class="goal-name">Plan 0.45: delivered 1 of 3 · queued 1 · in progress 0 · review 0 · slices without cards: 1 · +1 in 24 h · backlog: 0</span></div>')
     expect(page).toContain('<div class="bar" role="img" aria-label="Plan slices by stage"><i class="sw" data-stage="delivered" style="--_n: 1" title="delivered: 1"></i><i class="sw" data-stage="queued" style="--_n: 1" title="queued: 1"></i><i class="sw" data-stage="not_created" style="--_n: 1" title="not_created: 1"></i></div>')
-    expect(page).toContain('<h2 id="h-flow">Flow</h2><span class="meta">live cards by stage</span></div>')
+    expect(page).toContain(`<h2 id="h-flow">Flow</h2><span class="meta">${FLOW_META}</span></div>`)
     planEvent(bench, PLAN_CLOSED, { plan: 'p-045' })
     const closed: string[] = []
     expect(printBoard(bench.db.location()!, bench.clock.now(), text => closed.push(text))).toBe(0)

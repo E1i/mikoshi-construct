@@ -9,13 +9,15 @@ export const SESSION_DEATH_KEY = `${CARD_STOPPED}:session-end:`
 export const SHORT_SHA = 7
 export const SUBAGENT_SHOWN_HOURS = 12
 export const SESSION_SHOWN_MINUTES = 10
-export const FLOW_STATES = [['queued'], ['running', 'changes'], ['in_review'], ['ready']]
-export const LIVE_STATES = FLOW_STATES.flat()
+export const LIVE_STATES = ['queued', 'running', 'changes', 'in_review', 'ready', 'stopped']
 export const CARD_STAGES = ['planned', 'in work', 'review', 'answer/changes', 'ready', 'merged', 'stopped', 'dropped'] as const
 const HOUR_MS = 3_600_000
 const MINUTE_MS = 60_000
 
 export type CardStage = typeof CARD_STAGES[number]
+
+export const FLOW_STAGES: readonly (readonly CardStage[])[] = [['planned'], ['in work', 'answer/changes'], ['review'], ['ready']]
+export const LIVE_STAGES: readonly CardStage[] = FLOW_STAGES.flat()
 
 const STAGE_OF_STATE: Readonly<Record<string, CardStage>> = {
   queued: 'planned',
@@ -33,7 +35,8 @@ const STAGE_OF_STEP: Readonly<Record<string, CardStage>> = { ...STAGE_OF_QUEUE, 
 const SETTLED_STATES = new Set(['merged', 'stopped', 'dropped', 'closed'])
 
 const LANELESS_STATES = ['merged', 'dropped', 'closed']
-const OPEN_TASK_STATES = ['queued', 'leased']
+const LEASED = 'leased'
+const OPEN_TASK_STATES = ['queued', LEASED]
 
 export interface BusCard {
   id: number
@@ -264,6 +267,15 @@ function sessionServices(events: BoardEvents, cards: BusCard[], now: Date): BusS
   })
 }
 
+function processKey(service: BusService): string {
+  return `${service.role} ${service.task}`
+}
+
+function oneTilePerProcess(tasks: BusService[], sessions: BusService[]): BusService[] {
+  const shown = new Set(sessions.map(processKey))
+  return tasks.filter(task => !shown.has(processKey(task)))
+}
+
 const FAULT_REASON = 'fault'
 
 function isSessionDeath(row: EventRow): boolean {
@@ -287,12 +299,14 @@ function lastFailure(events: BoardEvents): string | null {
   return `card #${row.card_id ?? '?'} ${failureOf(row)}${row.ts === null ? '' : ` at ${row.ts}`}`
 }
 
-function openQueues(db: BusDb): Map<number, string> {
-  const rows = db.prepare(`SELECT card_id, queue FROM tasks WHERE state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY id`).all(...OPEN_TASK_STATES) as unknown as { card_id: number, queue: string }[]
+function queuesIn(db: BusDb, states: readonly string[]): Map<number, string> {
+  const rows = db.prepare(`SELECT card_id, queue FROM tasks WHERE state IN (${states.map(() => '?').join(', ')}) ORDER BY id`).all(...states) as unknown as { card_id: number, queue: string }[]
   return new Map(rows.filter(row => STAGE_OF_QUEUE[row.queue] !== undefined).map(row => [row.card_id, row.queue] as const))
 }
 
-function stageOf(state: string | null, closed: boolean, queue: string | undefined): CardStage {
+function stageOf(state: string | null, closed: boolean, queue: string | undefined, leased: string | undefined): CardStage {
+  if (state === 'stopped' && leased !== undefined)
+    return STAGE_OF_QUEUE[leased]!
   if (state !== null && SETTLED_STATES.has(state))
     return STAGE_OF_STATE[state]!
   if (closed)
@@ -315,8 +329,9 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
     ORDER BY c.card_id
   `).all(...LANELESS_STATES, LANE_ASSIGNED) as unknown as CardRow[]
   const closed = new Map(events.of(CARD_VERIFIED).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
-  const queues = openQueues(db)
-  return rows.map(row => ({ id: row.id, state: row.state, stage: stageOf(row.state, closed.has(row.id), queues.get(row.id)), lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
+  const queues = queuesIn(db, OPEN_TASK_STATES)
+  const leased = queuesIn(db, [LEASED])
+  return rows.map(row => ({ id: row.id, state: row.state, stage: stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
 }
 
 const OWNER_WAITS_TABLE = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'owner_waits'`
@@ -395,6 +410,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
   const cards = cardsOf(db, events)
+  const sessions = sessionServices(events, cards, now)
   return {
     at: now.toISOString(),
     goal: goalOf(db, now),
@@ -402,7 +418,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     pulse: lastPulse(db),
     slots: slotsOf(db),
     cards,
-    services: [...windowRoles(db), ...taskServices(db), ...windowServices(events, now), ...sessionServices(events, cards, now)],
+    services: [...windowRoles(db), ...oneTilePerProcess(taskServices(db), sessions), ...windowServices(events, now), ...sessions],
     matrices: checkMatrices(db),
     failure: lastFailure(events),
     reviewQueue: Number(queue.n),
