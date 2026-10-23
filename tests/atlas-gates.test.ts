@@ -58,6 +58,35 @@ describe('the Atlas quality gates', () => {
     })
   })
 
+  describe('the docs view draws every node the Engram knows, under its stage, with its links', () => {
+    function drawnUnderStages(html: string): string[] {
+      return [...html.matchAll(/<section [^>]*data-stage="([^"]*)"[^>]*>([\s\S]*?)<\/section>/g)]
+        .flatMap(([, stage, body]) => [...body!.matchAll(/<article id="([^"]*)" data-state="[^"]*">/g)].map(([, id]) => `${stage}/${id}`))
+        .sort()
+    }
+
+    function linkedFrom(html: string, id: string): string[] {
+      const article = new RegExp(`<article id="${id}"[\\s\\S]*?</article>`).exec(html)![0]
+      return [...article.matchAll(/Leads to: ((?:<a href="#[^"]*">[^<]*<\/a>(?:, )?)+)/g)].flatMap(([, list]) => [...list!.matchAll(/href="#([^"]*)"/g)].map(([, to]) => to!))
+    }
+
+    it('the fixture draws each node once, in the stage the Engram gives it, leading where its links go', () => {
+      const { model, docs } = built()
+      expect(drawnUnderStages(docs.html)).toEqual(model.nodes.map(node => `${node.stage}/${node.id}`).sort())
+      for (const node of model.nodes)
+        expect(linkedFrom(docs.html, node.id)).toEqual(model.links.filter(link => link.from === node.id).map(link => link.to))
+    })
+
+    it('a node the docs view drops or draws under another stage no longer matches the Engram', () => {
+      const { model, docs } = built()
+      const expected = model.nodes.map(node => `${node.stage}/${node.id}`).sort()
+      const dropped = docs.html.replace(/<article id="cellar"[\s\S]*?<\/article>/, '')
+      const moved = docs.html.replace('data-stage="keep"', 'data-stage="kept"')
+      expect(drawnUnderStages(dropped)).not.toEqual(expected)
+      expect(drawnUnderStages(moved)).not.toEqual(expected)
+    })
+  })
+
   describe('a node without a source breaks the build', () => {
     it('a node whose source path does not exist is red', () => {
       const build = built(root => editModel(root, (model) => {
