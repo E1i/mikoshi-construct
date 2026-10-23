@@ -34,6 +34,12 @@ describe('mergeHookSettings', () => {
     expect(JSON.parse(merged)).toEqual({ hooks: { Stop: [stop] } })
   })
 
+  it('adds an entry when the present entries carry only some of its commands', () => {
+    const pair = { hooks: [{ type: 'command', command: 'node hook.mjs stop' }, { type: 'command', command: 'node hook.mjs journal' }] }
+    const merged = mergeHookSettings(incoming, JSON.stringify({ hooks: { Stop: [pair] } }))!
+    expect(JSON.parse(merged)).toEqual({ hooks: { Stop: [stop, pair] } })
+  })
+
   it('refuses settings that are not JSON, not an object, or carry hooks of another shape', () => {
     for (const existing of ['{ nope', '[]', '{"hooks":[]}', '{"hooks":{"Stop":{}}}'])
       expect(mergeHookSettings(existing, incoming), existing).toBeNull()
