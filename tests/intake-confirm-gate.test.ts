@@ -64,6 +64,11 @@ function admitted(bus: readonly CardEvent[]): Record<string, unknown>[] {
   return bus.filter(event => event.type === CARD_ADMITTED).map(event => ({ task: String(event.cardId), ...event.payload, ts: event.ts }))
 }
 
+function admittedText(w: World, file: string): string {
+  const cardId = Number(path.basename(file, '.md'))
+  return String(w.bus.filter(event => event.type === CARD_ADMITTED && event.cardId === cardId).at(-1)?.payload.text)
+}
+
 function admissionsOf(bus: readonly CardEvent[]): CardAdmissionsPort {
   return (cardId) => {
     const last = bus.filter(event => event.type === CARD_ADMITTED && event.cardId === cardId).at(-1)
@@ -94,7 +99,7 @@ describe('intake confirmation gate', () => {
 
     const confirmed = intake(w, { confirm: token })
     expect(confirmed.status).toBe('written')
-    const text = readFileSync(path.join(w.parking, '13.md'), 'utf8')
+    const text = admittedText(w, '13.md')
     expect(text).toContain(`corrected: ${CORRECTION}`)
     expect(text).toContain('who: shift')
     expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: 'person', corrections: [CORRECTION] }])
@@ -116,13 +121,13 @@ describe('intake confirmation gate', () => {
       '#14 gate-card-slice-2 [implement/runner/S/cheap/owner] · depends — · blocks #13',
     ])
     for (const [index, entry] of parked.entries()) {
-      const text = readFileSync(path.join(w.parking, entry.file), 'utf8')
+      const text = admittedText(w, entry.file)
       expect(text).toContain(`whole: slice ${index + 1} of gate-card`)
       expect(text).toContain('who: shift')
       expect(text).toContain('- `pnpm run quality` is green')
     }
-    expect(readFileSync(path.join(w.parking, '13.md'), 'utf8')).toContain('touches: scripts/bus/queue.ts\n')
-    expect(readFileSync(path.join(w.parking, '14.md'), 'utf8')).toContain('touches: scripts/bus/inbox.ts\n')
+    expect(admittedText(w, '13.md')).toContain('touches: scripts/bus/queue.ts\n')
+    expect(admittedText(w, '14.md')).toContain('touches: scripts/bus/inbox.ts\n')
     expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: 'person' }, { task: '14', confirmation: 'person' }])
   })
 
@@ -143,7 +148,7 @@ describe('intake confirmation gate', () => {
     ])
     expect(parked.map(entry => entry.who)).toEqual(['shift', 'shift'])
     expect(parked.every(entry => entry.slices.length === 0 && entry.unclear.length === 0)).toBe(true)
-    const parsed = parked.map(entry => parseParkingFile(entry.file, readFileSync(path.join(w.parking, entry.file), 'utf8')))
+    const parsed = parked.map(entry => parseParkingFile(entry.file, admittedText(w, entry.file)))
     const parkedTouches = parsed.flatMap(entry => (entry.kind === 'parked' ? entry.parked.task.touches : []))
     expect(new Set(parkedTouches)).toEqual(new Set(touches))
     expect(parsed.map(entry => entry.kind === 'parked' && entry.parked.task.touches.includes('scripts/bus/queue.ts'))).toEqual([true, false])
@@ -162,7 +167,7 @@ describe('intake confirmation gate', () => {
     const result = intake(w, { autoConfirm: true })
     expect(result.status).toBe('written')
     expect(printed(result).exit).toBe(INTAKE_EXIT.written)
-    expect(readFileSync(path.join(w.parking, '13.md'), 'utf8')).toContain('who: shift')
+    expect(admittedText(w, '13.md')).toContain('who: shift')
     expect(admitted(w.bus)).toMatchObject([
       { task: '13', confirmation: 'auto', corrections: [CORRECTION] },
       { task: '14', confirmation: 'auto', corrections: [] },

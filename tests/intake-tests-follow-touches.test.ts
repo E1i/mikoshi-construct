@@ -33,8 +33,9 @@ function intake(w: World, events?: CardEventPort): IntakeResult {
   return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '12', events })
 }
 
-function parked(w: World): { touches: string[], runs: string[] } {
-  const parsed = parseParkingFile('13.md', readFileSync(path.join(w.parking, '13.md'), 'utf8'))
+function parked(w: World, bus?: readonly CardEvent[]): { touches: string[], runs: string[] } {
+  const text = bus === undefined ? readFileSync(path.join(w.parking, '13.md'), 'utf8') : String(bus.at(-1)?.payload.text)
+  const parsed = parseParkingFile('13.md', text)
   return parsed.kind === 'parked' ? { touches: parsed.parked.task.touches, runs: runsOf(parsed.parked.task.body) } : { touches: [], runs: [] }
 }
 
@@ -84,7 +85,7 @@ describe('intake puts the tests that cover the touched files into runs, not touc
     }, ['scripts/bus/review-worker.ts'])
     const bus: CardEvent[] = []
     expect(intake(w, event => bus.push(event)).status).toBe('written')
-    expect(parked(w)).toEqual({ touches: ['scripts/bus/review-worker.ts'], runs: ['scripts/tests/bus/review-worker.test.ts'] })
+    expect(parked(w, bus)).toEqual({ touches: ['scripts/bus/review-worker.ts'], runs: ['scripts/tests/bus/review-worker.test.ts'] })
     expect(bus).toMatchObject([{ cardId: 13, payload: { confirmation: 'none' } }])
   })
 

@@ -501,7 +501,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(lines.join('\n')).toContain('source amend')
     expect(admittedPayloads(w).at(-1)).toMatchObject({ card: CLEAN, source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
 
-    park(w, 80, CLEAN, 'src/board/**', 'Do the corrected thing.\n\nWitnesses:\n- `pnpm vitest run` exit 1')
+    park(w, 80, CLEAN, 'src/board/**', 'Do the corrected thing.\n\nWitnesses:\n- `pnpm vitest run` exit 0\n- `pnpm lint` exit 0')
     expect(admit(w, file)).toMatchObject({ status: 'admitted', source: 'amend' })
     expect(admittedEvents(w)).toBe(3)
     expect(admit(w, file).status).toBe('alreadyAdmitted')
