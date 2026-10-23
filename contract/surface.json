@@ -320,9 +320,6 @@
         },
         "plain": {
           "type": "boolean"
-        },
-        "words": {
-          "type": "positional"
         }
       }
     },

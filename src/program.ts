@@ -327,7 +327,6 @@ const say = withKnownFlags(defineCommand({
   args: {
     plain: commonArgs.plain,
     johnny: commonArgs.johnny,
-    words: { type: 'positional', description: 'The owner\'s words, quoted as one argument', required: false },
   },
   run({ args }) {
     const console = ui(args)

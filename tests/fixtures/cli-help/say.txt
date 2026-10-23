@@ -1,10 +1,6 @@
 Write the owner's words, with the time, as one unused answer in ~/.construct-owner/answers, the channel an owner decision is accepted from (construct say v<version>)
 
-USAGE construct say [OPTIONS] [WORDS]
-
-ARGUMENTS
-
-  WORDS    The owner's words, quoted as one argument
+USAGE construct say [OPTIONS] 
 
 OPTIONS
 
