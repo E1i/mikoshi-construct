@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { LockReading } from '../../bus/db.js'
 import type { HeldLease } from '../../bus/heartbeat.js'
 import type { Lease } from '../../bus/lease.js'
 import type { ReviewPlan } from '../../bus/review-depth.js'
@@ -13,7 +14,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AnswerNode } from '../../bus/answer-worker.js'
 import { cardFields } from '../../bus/card-contract.js'
 import { CloseNode } from '../../bus/close-worker.js'
-import { openBus } from '../../bus/db.js'
+import { openBus, watchLocks } from '../../bus/db.js'
 import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
 import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease } from '../../bus/lease.js'
 import { MergeNode } from '../../bus/merge-worker.js'
@@ -31,6 +32,8 @@ const HOOK_MEASURE = path.join(REPO_ROOT, '.claude', 'hooks', 'eddies-measure.mj
 const BEAT_ENV = { [CARD_VARIABLE]: '1110', [STEP_VARIABLE]: 'implement' }
 const START = Date.parse('2026-10-20T02:00:00.000Z')
 const HEAD = 'a'.repeat(40)
+const LONG_TRANSCRIPT_TURNS = 50_000
+const HEARTBEAT_HOLD_MS = 100
 const roots: string[] = []
 
 afterEach(() => {
@@ -277,6 +280,20 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     reopened.close()
     expect(rows.map(row => row.type)).toEqual([SESSION_HEARTBEAT, SESSION_HEARTBEAT])
     expect(rows.map(row => JSON.parse(row.payload))).toEqual([{ step: 'implement', session: 'session-1', reason: NO_TRANSCRIPT }, { step: 'implement', session: 'session-1', reason: NO_TRANSCRIPT }])
+  })
+
+  it('a session heartbeat holds the write lock no longer than 100 ms', () => {
+    const { db } = bus()
+    const lease = reviewLease(db)
+    const { home, root } = sessionTree('session-1', Array.from({ length: LONG_TRANSCRIPT_TURNS }, (_, turn) => usageLine(`r${turn}`, { input: 3_000 + turn, cacheRead: 40_000 })))
+    const readings: LockReading[] = []
+    watchLocks(db, { now: () => performance.now(), observe: reading => readings.push(reading) })
+    recordHeartbeat(db, at(60_000), { card: lease.cardId, pr: lease.pr, head: lease.head, step: lease.queue, session: 'session-1', lease: heldBy(lease) }, session => sessionGauges(home, root, session))
+
+    expect(readings.map(reading => reading.outcome)).toEqual(['commit'])
+    expect(readings[0]!.holdMs).toBeLessThanOrEqual(HEARTBEAT_HOLD_MS)
+    expect(taskState(db, lease).lease_until).not.toBeNull()
+    expect(lastHeartbeat(db, lease.cardId)?.ts).toBe(at(60_000))
   })
 })
 
