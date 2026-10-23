@@ -15,7 +15,7 @@ One card per change that merges on its own: one task, one branch, one pull reque
 card that needs another one first names it in `depends`. For each card settle:
 
 - `name` — a slug of a-z, 0-9 and `-`.
-- `kind` — `implement` (a change, in main once the journal holds the merge line of its pull request) or `probe`
+- `kind` — `implement` (a change, in main once the bus records its pull request merged) or `probe`
   (knowledge, closed by its report).
 - `milestone` — one of the closed list the card grammar holds; a refusal from `construct intake` prints it.
 - `size` — `XS`, `S`, `M` or `L`.
@@ -64,10 +64,9 @@ older than the sources is not the only way in. The parking defaults to `~/.const
 repository, so an attached repository gets no file from this step.
 
 `construct intake` checks each card against the repository `--dir` names (default: the current directory) and
-against the journal (`--journal`, default `~/.construct/handoff/ghosts.jsonl`), and corrects what they settle: a
-`touches` path that does not exist, a `depends` or `blocks` on a task already in main — an implement task whose
-`event:merge` line is in the journal, or a probe closed by its report. A card with a correction is not parked until
-a person has seen it:
+against the closed and merged cards the bus records, and corrects what they settle: a `touches` path that does
+not exist, a `depends` or `blocks` on a card the bus already holds closed or merged. A card with a correction is
+not parked until a person has seen it:
 
 - Without corrections, the cards are parked at once, exit `0`.
 - With corrections, nothing is parked: every card is printed with its `corrected:` lines and a token, exit `2`.
@@ -76,8 +75,8 @@ a person has seen it:
 - `--auto-confirm` accepts corrections in advance and parks at once. It is off by default; use it only when the
   person asked for it.
 
-Every parked card gets an `intake` line in the journal, with its confirmation (`none`, `person` or `auto`) and its
-corrections. A confirmed card keeps the `who` of the draft: confirmation, not `who: window`, is what holds a
+Every parked card is recorded in the bus as one `card.admitted`, with its confirmation (`none`, `person` or
+`auto`) and its corrections. A confirmed card keeps the `who` of the draft: confirmation, not `who: window`, is what holds a
 corrected card back. Only an unclear field sets `who: window`.
 
 ## 4. Report

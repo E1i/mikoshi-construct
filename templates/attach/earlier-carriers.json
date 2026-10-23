@@ -593,5 +593,10 @@
     "target": ".claude/skills/implement/SKILL.md",
     "sha256": "29ce618fdacb8424aec3f6262fcc6fabb49e776ad9c1ddfc53dc9d0672b70f4f",
     "date": "2026-10-19"
+  },
+  {
+    "target": ".claude/skills/intake/SKILL.md",
+    "sha256": "88369ba70a45f489b88ee090223461159239e8e4382ec2c4636194f3052e9321",
+    "date": "2026-10-23"
   }
 ]
