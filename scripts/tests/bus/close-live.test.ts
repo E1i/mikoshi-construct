@@ -177,7 +177,7 @@ describe('close live', () => {
     await once(node)
     for (const pr of [988, 989])
       cardVerified(made.db, made.clock.now().toISOString(), pr + 100, pr)
-    node.failOnNextCall(2)
+    node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
 
     const restarted = liveNode(made)

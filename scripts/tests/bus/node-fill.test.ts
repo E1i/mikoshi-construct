@@ -261,7 +261,10 @@ describe('a fill pass', () => {
     const first = keyOf(task(970))
     const node = new BlockingNode(db, clock, 1, first)
     const delivered: number[] = []
-    node.subscribe(['test.delivered'], event => delivered.push(Number(event.id)))
+    node.subscribe(['test.delivered'], (event) => {
+      delivered.push(Number(event.id))
+      return undefined
+    })
     queueTaskWithin(db, clock.now().toISOString(), task(970))
     const controller = new AbortController()
     let appended = 0

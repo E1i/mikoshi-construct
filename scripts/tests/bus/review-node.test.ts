@@ -254,7 +254,7 @@ describe('the review node', () => {
     openGreen(made, 1050)
     openGreen(made, 1051)
     made.tick()
-    node.failOnNextCall(2)
+    node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
     expect(detected(made, 'event')).toEqual([])
     expect(cursorOf(made)).toBe(cursor)
