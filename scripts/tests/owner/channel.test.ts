@@ -1,5 +1,5 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { consumeOwnerWord, ownerChannelOf, SAID_PREFIX, USED_WORD } from '../../owner/channel.js'
@@ -7,6 +7,8 @@ import { runOwnerSay } from '../../owner/say.js'
 
 const REPO = path.join(import.meta.dirname, '..', '..', '..')
 const HOME = '/Users/owner'
+const SANDBOX_FILESYSTEM_KEYS = ['allowRead', 'allowWrite', 'denyRead', 'denyWrite']
+const GLOB = /[*?[{]/
 const NOW = new Date('2026-10-23T09:00:00.000Z')
 
 const roots: string[] = []
@@ -23,22 +25,55 @@ function channel(): string {
 }
 
 function allowWriteOf(settings: unknown): string[] {
-  const allow = (settings as { sandbox?: { filesystem?: { allowWrite?: unknown } } }).sandbox?.filesystem?.allowWrite
-  return Array.isArray(allow) ? allow.map(String) : []
+  const sandbox = (settings as { sandbox?: unknown }).sandbox
+  if (sandbox === undefined)
+    return []
+  const filesystem = (sandbox as { filesystem?: unknown }).filesystem
+  if (filesystem === undefined)
+    return []
+  const unknownKeys = Object.keys(filesystem as object).filter(key => !SANDBOX_FILESYSTEM_KEYS.includes(key))
+  if (unknownKeys.length > 0)
+    throw new Error(`sandbox.filesystem names ${unknownKeys.join(', ')}, keys this check does not read`)
+  const allow = (filesystem as { allowWrite?: unknown }).allowWrite
+  if (allow === undefined)
+    return []
+  if (!Array.isArray(allow) || !allow.every(entry => typeof entry === 'string'))
+    throw new Error('sandbox.filesystem.allowWrite is not a list of paths')
+  return allow
 }
 
-function covers(allowed: string, target: string): boolean {
-  const resolved = path.resolve(REPO, allowed.replace(/^~(?=\/|$)/, HOME))
+function absolute(entry: string): string {
+  return path.isAbsolute(entry) ? entry : `${REPO}${path.sep}${entry}`
+}
+
+function covers(allowed: string, home: string): boolean {
+  const target = ownerChannelOf(home)
+  const expanded = allowed.replace(/^~(?=\/|$)/, home)
+  const literal = GLOB.exec(expanded)
+  if (literal !== null)
+    return target.startsWith(absolute(expanded.slice(0, literal.index)))
+  const resolved = path.resolve(REPO, expanded)
   return target === resolved || target.startsWith(`${resolved}${path.sep}`)
+}
+
+function coveringEntries(settings: unknown): string[] {
+  return allowWriteOf(settings).filter(allowed => [homedir(), HOME].some(home => covers(allowed, home)))
+}
+
+function sandboxWith(allowWrite: unknown): unknown {
+  return { sandbox: { filesystem: { allowWrite } } }
 }
 
 describe('the owner channel', () => {
   it('sandbox allowWrite does not cover the owner channel', () => {
-    const target = ownerChannelOf(HOME)
-    expect(covers('~/.construct-owner', target)).toBe(true)
-    expect(covers('~/.construct', target)).toBe(false)
+    const covering = ['~/.construct-owner', '~/.construct-owner/answers', '~', path.join(homedir(), '.construct-owner'), homedir(), '~/.construct*', '~/**', `${HOME}/.construct-owner`]
+    const apart = ['~/.construct', '~/.construct/*', '~/.construct/**', '.', '/tmp/claude', path.join(homedir(), '.construct')]
+    expect(coveringEntries(sandboxWith([...covering, ...apart]))).toEqual(covering)
+    expect(() => coveringEntries({ sandbox: { filesystem: { writeAllow: ['~'] } } })).toThrow('writeAllow')
+    expect(() => coveringEntries(sandboxWith('~'))).toThrow('not a list')
+
     const settings = JSON.parse(readFileSync(path.join(REPO, '.claude', 'settings.json'), 'utf8')) as unknown
-    expect(allowWriteOf(settings).filter(allowed => covers(allowed, target))).toEqual([])
+    expect(coveringEntries(settings)).toEqual([])
   })
 
   it('owner:say writes the text and the time into a new file of the channel', () => {
@@ -68,7 +103,8 @@ describe('the owner channel', () => {
     expect(word).not.toBeNull()
     expect(consumeOwnerWord(answers, 'first line')).toBeNull()
     expect(readdirSync(answers).every(name => name.endsWith(USED_WORD))).toBe(true)
-    word!.release()
+    expect(word!.release()).toBe(true)
+    expect(word!.release()).toBe(false)
     expect(consumeOwnerWord(answers, 'first line')?.file).toBe(word!.file)
   })
 

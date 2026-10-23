@@ -11,7 +11,7 @@ export const OWNER_WORD_NOT_FOUND = 'слово владельца не найд
 
 export interface ConsumedWord {
   file: string
-  release: () => void
+  release: () => boolean
 }
 
 export function ownerChannelOf(home: string): string {
@@ -35,9 +35,9 @@ function holdsWords(file: string, words: string): boolean {
   }
 }
 
-function claimed(file: string): boolean {
+function renamed(from: string, to: string): boolean {
   try {
-    renameSync(file, `${file}${USED_WORD}`)
+    renameSync(from, to)
     return true
   }
   catch {
@@ -49,6 +49,6 @@ export function consumeOwnerWord(channel: string, words: string): ConsumedWord |
   if (!existsSync(channel))
     return null
   const unused = readdirSync(channel).filter(name => name.endsWith(UNUSED_WORD)).sort().map(name => path.join(channel, name))
-  const file = unused.find(candidate => holdsWords(candidate, words) && claimed(candidate))
-  return file === undefined ? null : { file, release: () => renameSync(`${file}${USED_WORD}`, file) }
+  const file = unused.find(candidate => holdsWords(candidate, words) && renamed(candidate, `${candidate}${USED_WORD}`))
+  return file === undefined ? null : { file, release: () => renamed(`${file}${USED_WORD}`, file) }
 }

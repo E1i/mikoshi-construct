@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { BOARD_ALARM, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { settledCards } from '../decisions/read.js'
-import { consumeOwnerWord, OWNER_WORD_NOT_FOUND, ownerChannelOf } from '../owner/channel.js'
+import { consumeOwnerWord, OWNER_WORD_NOT_FOUND, ownerChannelOf, USED_WORD } from '../owner/channel.js'
 import { FACTORY_MODES, isFactoryMode } from './card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from './db.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from './identifiers.js'
@@ -186,10 +186,19 @@ export class WindowRequests {
     if (word === null)
       return { done: false, why: OWNER_WORD_NOT_FOUND }
     const settled = [...settledCards(legacyHistory(this.db), cardStatesOf(this.db))].map(card => `#${card}`)
-    const written = this.tools.addDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), decision])
-    if (written.code !== 0)
-      word.release()
-    return { done: written.code === 0, why: [...written.lines, `owner word ${word.file} ${written.code === 0 ? 'used' : 'left unused'}`].join('; ') }
+    const written = this.writtenDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), decision])
+    const done = written.code === 0
+    const fate = done ? 'used' : word.release() ? 'left unused' : `stays used though nothing was written; the owner renames ${word.file}${USED_WORD} back to ${path.basename(word.file)}`
+    return { done, why: [...written.lines, `owner word ${word.file} ${fate}`].join('; ') }
+  }
+
+  private writtenDecision(args: string[]): { code: number, lines: string[] } {
+    try {
+      return this.tools.addDecision(args)
+    }
+    catch (error) {
+      return { code: 1, lines: [`decisions:add failed: ${messageOf(error)}`] }
+    }
   }
 
   private openWait(request: number, payload: Record<string, unknown>): Executed {

@@ -510,6 +510,31 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(readdirSync(channelOf(made)).some(name => name.endsWith(USED_WORD))).toBe(false)
   })
 
+  it('a decisions:add write that throws is refused and leaves the owner file unused', () => {
+    const made = room()
+    const said = ownerSays(made, 'Q14: the second path.')
+    const request = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] Q14: the second path.')
+    const requests = made.requests({ addDecision: () => {
+      throw new Error('the bus event write failed')
+    } })
+
+    expect(requests.run()).toEqual([{ kind: 'refused', request, detail: `decisions:add failed: the bus event write failed; owner word ${said} left unused` }])
+    expect(readdirSync(channelOf(made))).toEqual([path.basename(said)])
+  })
+
+  it('a failed decisions:add whose used owner file is gone is still answered, naming the hand recovery', () => {
+    const made = room()
+    const said = ownerSays(made, 'Q14: the second path.')
+    const request = windowAsks(made, '--from', ANSWER_SOURCE, '[owner] Q14: the second path.')
+    const requests = made.requests({ addDecision: () => {
+      rmSync(`${said}${USED_WORD}`)
+      return { code: 1, lines: ['nothing written'] }
+    } })
+
+    expect(requests.run()).toEqual([{ kind: 'refused', request, detail: `nothing written; owner word ${said} stays used though nothing was written; the owner renames ${said}${USED_WORD} back to ${path.basename(said)}` }])
+    expect(answerOf(made, request).type).toBe(REQUEST_REFUSED)
+  })
+
   it('a decisions:add request over the byte limit is refused with its reason and leaves the file untouched', () => {
     const made = room()
     const file = withDecisionsFile(made, ...Array.from({ length: 7 }, (_, at) => `- D-${at + 1} · 2026-10-08 — ${`decision ${at + 1} `.repeat(100).trim()} · decisions:add`))
