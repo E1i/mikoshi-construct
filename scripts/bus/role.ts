@@ -2,8 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
-import { ROLE_LEASED, ROLE_RAISED, ROLE_RETURNED, ROLE_STOPPED, WINDOW_HEARTBEAT } from '../core/events.js'
-import { appendEvent, inTransaction, openBusWait } from './db.js'
+import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, ROLE_LEASED, ROLE_RAISED, ROLE_RETURNED, ROLE_STOPPED, WINDOW_HEARTBEAT } from '../core/events.js'
+import { appendEvent, CLOSED_WAIT, inTransaction, openBusWait, OWNER_WAITS } from './db.js'
 import { LEASE_MS } from './lease.js'
 import { payloadOf, reject } from './stored.js'
 import { reduceProjection } from './watermark.js'
@@ -205,8 +205,30 @@ function ownerDetail(row: RoleRow, start: string | null): string {
   return start === null ? `${stopped}, and ${row.role} has no launcher since the shift runner was removed` : `${stopped}: start it in a terminal with ${start}`
 }
 
+const START_COMMANDS = Object.values(ROLE_STARTS).filter((start): start is string => start !== null)
+
+const START_WAITS_A_WINDOW_BEAT_ANSWERED = `
+  SELECT id, beat FROM (
+    SELECT json_extract(opened.payload, '$.id') AS id, (
+      SELECT min(beat.ts) FROM events AS beat
+      WHERE beat.id > opened.id AND (beat.type IN ('${WINDOW_HEARTBEAT}', '${ROLE_RETURNED}') OR beat.actor LIKE '${WINDOW_ACTOR}%')
+    ) AS beat
+    FROM events AS opened
+    WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0 AND json_extract(opened.payload, '$.need') = 'command'
+      AND json_extract(opened.payload, '$.command') IN (${START_COMMANDS.map(() => '?').join(', ')})
+      AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.id = json_extract(opened.payload, '$.id') AND wait.state = '${CLOSED_WAIT}')
+      AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
+  ) WHERE beat IS NOT NULL ORDER BY id
+`
+
+function closeStartWaitsAWindowBeatAnswered(db: DatabaseSync, ts: string, actor: string): void {
+  for (const { id, beat } of db.prepare(START_WAITS_A_WINDOW_BEAT_ANSWERED).all(...START_COMMANDS) as { id: string, beat: string }[])
+    appendEvent(db, { ts, type: OWNER_WAIT_CLOSED, actor, cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${id}`, payload: { id, answer: `the window beat again at ${beat}` }, legacy: false })
+}
+
 export function roleToOwner(db: DatabaseSync, ts: string, actor: string): RoleToOwner | null {
   return inTransaction(db, () => {
+    closeStartWaitsAWindowBeatAnswered(db, ts, actor)
     const stopped = db.prepare(STOPPED_AT_A_THRESHOLD).all() as unknown as RoleRow[]
     const startable = stopped.some(each => ROLE_STARTS[each.role] !== null)
     const live = startable && windowLive(db, Date.parse(ts), (db.prepare(LAST_WINDOW_END).get() as { ts: string | null }).ts)

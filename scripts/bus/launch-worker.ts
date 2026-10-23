@@ -206,7 +206,7 @@ export class LaunchNode extends Node<LaunchStep> {
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
     this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
-    this.subscribe(LAUNCH_ON, event => this.detectOn(event))
+    this.subscribe(LAUNCH_ON)
   }
 
   stopOverdue(): number[] {

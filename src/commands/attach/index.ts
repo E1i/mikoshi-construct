@@ -8,8 +8,9 @@ import type { Rollback } from './rollback.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { sha256 } from '../../manifest.js'
+import { DEFAULT_LANES, sha256 } from '../../manifest.js'
 import { AI_TARGETS } from '../../presets/index.js'
+import { parseLaneCount } from '../../ui/prompts.js'
 import { VERSION } from '../../version.js'
 import { browserEntriesHeldAtAttach, directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
 import { writeExcludeBlock } from './exclude.js'
@@ -18,9 +19,9 @@ import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, NO_HARNESS, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
-import { installGuardEntry, readSettings, SETTINGS_FILE } from './settings.js'
+import { installHookEntries, readSettings, SETTINGS_FILE } from './settings.js'
 import { shellWord } from './shell-word.js'
-import { writeCarriersExclusively } from './write.js'
+import { planWindowHooks, writeCarriersExclusively } from './write.js'
 
 export { planCarriers } from './carriers.js'
 export { printEntryProtocol } from './earlier.js'
@@ -37,6 +38,7 @@ export interface AttachOptions {
   dir: string
   harness?: string
   ai?: string
+  lanes?: string
   yes: boolean
   env?: NodeJS.ProcessEnv
 }
@@ -144,6 +146,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   const root = path.resolve(options.dir)
   if (options.ai != null && !(AI_TARGETS as readonly string[]).includes(options.ai))
     throw new Error(`unknown AI target "${options.ai}" (claude | cursor | both)`)
+  const lanesGiven = options.lanes == null ? undefined : parseLaneCount(options.lanes)
 
   const refusal = refusalFor(root, options)
   if (refusal != null)
@@ -164,7 +167,11 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   if (unchecked != null)
     return refused(ui, unchecked)
 
-  const ops = planCarriers(root, harness)
+  const lanes = lanesGiven ?? (interactive == null ? DEFAULT_LANES : await interactive.lanes(DEFAULT_LANES))
+  if (lanes == null)
+    return aborted()
+
+  const ops = [...planCarriers(root, harness), ...planWindowHooks()]
   const targets = ops.map(op => op.target)
   for (const target of targets)
     ui.line(`  ${ui.theme.ok('+')} ${target}`)
@@ -192,7 +199,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     const rollback = rollbackAttach(root, { written, directories: rollbackDirectories, separator: exclude.separator })
     return refused(ui, { reason: 'settings-original', paths: [kept.copy], rolledBack: true }, rollback)
   }
-  const installed = installGuardEntry(root, reading)
+  const installed = installHookEntries(root, reading)
   if (installed.kind !== 'installed') {
     const rollback = rollbackAttach(root, { written, directories: rollbackDirectories, separator: exclude.separator })
     if (kept != null)
@@ -213,6 +220,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     ledgerHeld,
     browserHeld,
     settingsHook: kept == null ? installed.hook : { ...installed.hook, original: { copy: kept.copy, sha256: kept.sha256, afterSha256: installed.afterSha256 } },
+    lanes,
   })
 
   ui.ok(ui.lore.attached)

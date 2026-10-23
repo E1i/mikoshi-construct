@@ -4,7 +4,7 @@ import path from 'node:path'
 
 export const ATTACH_RECORD_FILE = '.construct/attach.json'
 export const ATTACH_LEDGER_DIR = '.construct'
-export const ATTACH_RECORD_VERSION = 3
+export const ATTACH_RECORD_VERSION = 4
 export const NO_HARNESS = 'none'
 
 export type AttachHarness = { command: string } | typeof NO_HARNESS
@@ -22,6 +22,7 @@ export interface AttachRecord {
   browserHeld?: string[]
   excludeSeparator: number
   settingsHook?: SettingsHook
+  lanes?: number
 }
 
 export function readAttachRecord(root: string): AttachRecord | null {

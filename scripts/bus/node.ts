@@ -88,9 +88,21 @@ export interface Equivalence {
   only_derive: string[]
 }
 
+export type ScopeOf = (event: StoredEvent) => Scope | undefined
+
 interface Subscription {
   pattern: EventPattern
-  handler: (event: StoredEvent) => void
+  scopeOf: ScopeOf
+}
+
+interface ScopedEvent {
+  id: number
+  scope: Scope | undefined
+}
+
+interface Detection {
+  task: QueuedTask
+  eventId: number
 }
 
 export class SecondSubscription extends Error {}
@@ -99,10 +111,20 @@ export class NodeRefused extends Error {}
 
 const IDLE: IdleStep = { kind: 'idle' }
 
+const WHOLE_QUEUE: ScopeOf = () => undefined
+
 const LEASED_BY = `
   SELECT tasks.task_key FROM tasks JOIN events ON events.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
   WHERE tasks.state = '${LEASED}' AND events.actor = ? ORDER BY tasks.id
 `
+
+const TAKEN_SINCE = `SELECT 1 FROM tasks WHERE task_key = ? AND event_id > ?`
+
+const CHANGED_SINCE = `
+  SELECT 1 FROM events WHERE id > ? AND actor IS NOT ? AND (card_id = ? OR pr = ?) LIMIT 1
+`
+
+export const DERIVE_EVERY_TICKS = 5
 
 export const DATABASE_LOCKED = 'database is locked'
 
@@ -147,6 +169,22 @@ function matchingEvents(db: DatabaseSync, pattern: EventPattern, after: number, 
   return db.prepare(query).all(after, through, ...exact, ...prefixes.flatMap(prefix => [prefix.length, prefix])) as unknown as StoredEvent[]
 }
 
+function inScope(task: QueuedTask, scope: Scope | undefined): boolean {
+  return scope === undefined || ((scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId))
+}
+
+function firstDetections(found: readonly QueuedTask[], events: readonly ScopedEvent[]): Detection[] {
+  const first = new Map<string, Detection>()
+  for (const event of events) {
+    for (const task of found) {
+      const key = keyOf(task)
+      if (!first.has(key) && inScope(task, event.scope))
+        first.set(key, { task, eventId: event.id })
+    }
+  }
+  return [...first.values()]
+}
+
 export function equivalenceOf(node: readonly string[], derived: readonly string[]): Equivalence {
   const fromDerive = new Set(derived)
   const fromNode = new Set(node)
@@ -176,6 +214,7 @@ export abstract class Node<S extends NodeStep> {
   private lastStep: S | WaitStep | IdleStep | null = null
   private startedAt: string | null = null
   private startRecorded = false
+  private ticksUntilDerive = 0
 
   constructor(readonly kind: NodeKind, protected readonly parts: NodeParts) {
     this.actor = `worker:${kind}:${parts.session}`
@@ -199,11 +238,11 @@ export abstract class Node<S extends NodeStep> {
     return { kind: this.kind, actor: this.actor, mode: this.parts.mode, slots: this.slots, cursor: this.cursor(), leased, lastStep: this.lastStep, startedAt: this.startedAt }
   }
 
-  subscribe(pattern: EventPattern, handler: (event: StoredEvent) => void): Unsubscribe {
+  subscribe(pattern: EventPattern, scopeOf: ScopeOf = WHOLE_QUEUE): Unsubscribe {
     if (this.subscription !== null)
       throw new SecondSubscription(`the ${this.kind} node already holds its one subscription`)
     exactAndPrefixes(pattern)
-    const subscription = { pattern, handler }
+    const subscription = { pattern, scopeOf }
     this.subscription = subscription
     return () => {
       if (this.subscription === subscription)
@@ -307,31 +346,47 @@ export abstract class Node<S extends NodeStep> {
     const subscription = this.subscription
     if (subscription === null)
       return
+    const cursor = this.cursor()
+    const after = cursor ?? 0
+    const through = lastEventId(this.db)
+    if (through <= after)
+      return
+    const events = matchingEvents(this.db, subscription.pattern, after, through).map(event => ({ id: event.id, scope: subscription.scopeOf(event) }))
+    const detections = events.length === 0 ? [] : firstDetections(this.candidates(), events)
     inTransaction(this.db, () => {
-      const after = this.cursor() ?? 0
-      const through = lastEventId(this.db)
-      if (through <= after)
+      if (this.cursor() !== cursor)
         return
-      for (const event of matchingEvents(this.db, subscription.pattern, after, through))
-        subscription.handler(event)
+      for (const { task, eventId } of detections) {
+        if (this.stillStands(task, through))
+          this.record(task, 'event', eventId)
+      }
       this.db.prepare(`UPDATE ${NODE_CURSORS} SET event_id = ? WHERE kind = ?`).run(through, this.kind)
     })
   }
 
+  private stillStands(task: QueuedTask, through: number): boolean {
+    const taken = this.db.prepare(TAKEN_SINCE).get(keyOf(task), through) !== undefined
+    return !taken && this.db.prepare(CHANGED_SINCE).get(through, this.actor, task.cardId, task.pr ?? null) === undefined
+  }
+
   private tick(): void {
+    const through = lastEventId(this.db)
+    const cursor = this.cursor()
+    const found = this.candidates()
+    const derives = this.ticksUntilDerive === 0
+    const derived = derives ? this.derivedCandidates(this.ts()) : null
+    const equivalence = derived === null ? null : equivalenceOf(found.map(keyOf), derived.map(keyOf))
     inTransaction(this.db, () => {
-      const through = lastEventId(this.db)
-      const found = this.candidates()
-      const derived = this.derivedCandidates(this.ts())
-      const equivalence = derived === null ? null : equivalenceOf(found.map(keyOf), derived.map(keyOf))
+      const standing = this.cursor() === cursor ? found.filter(task => this.stillStands(task, through)) : []
       recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind), { queue: this.kind, slots: this.slots })
-      for (const task of found)
+      for (const task of standing)
         this.record(task, 'tick', through)
       if (equivalence !== null) {
         const ts = this.ts()
         appendEvent(this.db, { ts, type: NODE_EQUIVALENCE, actor: this.actor, cardId: null, pr: null, head: null, dedupeKey: `${NODE_EQUIVALENCE}:${this.kind}:${this.actor}:${through}:${ts}`, payload: { ...equivalence, event_id: through }, legacy: false })
       }
     })
+    this.ticksUntilDerive = derives ? DERIVE_EVERY_TICKS - 1 : this.ticksUntilDerive - 1
   }
 
   protected executes(): boolean {

@@ -12,8 +12,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { CARD_WAITING, INTAKE_EVENT, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
-import { closedTasks, mergedTasks, writtenBeforeHistoryEnds } from '../../card/closed.js'
+import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
+import { endedCards } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
@@ -131,7 +131,6 @@ type AdmitSource = typeof ADMIT_SOURCE | typeof AMEND_SOURCE
 export interface AdmitOptions {
   file: string
   dir: string
-  journal: string
   dryRun: boolean
   confirm?: string
   autoConfirm: boolean
@@ -279,18 +278,8 @@ function admittedText(text: string, line: string, checked: CheckedCard): string 
   return [...rewritten, ...(notes.length === 0 ? [] : ['', ...notes]), ''].join('\n')
 }
 
-function latestIntake(journal: string | null, card: Card, admissions: CardAdmissionsPort | undefined): RecordedIntake | null {
-  const counted = admissions === undefined ? () => true : writtenBeforeHistoryEnds
-  let latest: RecordedIntake | null = null
-  for (const text of (journal ?? '').split('\n')) {
-    try {
-      const entry = JSON.parse(text) as Record<string, unknown> | null
-      if (entry?.event === INTAKE_EVENT && entry.task === String(card.id) && typeof entry.card === 'string' && counted(entry))
-        latest = { card: entry.card, bodySha: entry.bodySha, ts: entry.ts, confirmation: entry.confirmation, source: entry.source }
-    }
-    catch {}
-  }
-  return admissions?.(card.id) ?? latest
+function latestIntake(card: Card, admissions: CardAdmissionsPort | undefined): RecordedIntake | null {
+  return admissions?.(card.id) ?? null
 }
 
 function sameCardLine(recorded: string, line: string): boolean {
@@ -344,13 +333,11 @@ function busBodyOf(options: AdmitOptions): string | null {
 
 export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult {
   let text: string
-  let journal: string | null
   let ownerMerges: string | null
   let published: string[] | undefined
   const busBody = busBodyOf(options)
   try {
     text = busBody ?? readFileSync(options.file, 'utf8')
-    journal = existsSync(options.journal) ? readFileSync(options.journal, 'utf8') : null
     const ownerMergesFile = path.join(options.dir, OWNER_MERGES)
     ownerMerges = existsSync(ownerMergesFile) ? readFileSync(ownerMergesFile, 'utf8') : null
     const packageManifestFile = path.join(options.dir, PACKAGE_MANIFEST)
@@ -373,12 +360,12 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
   const cards = options.cardStates?.()
   const parked = new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking())))
-  const done = new Set(closedTasks(journal, cards).keys())
+  const ended = endedCards(cards)
   const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
     parked,
-    done,
-    merged: mergedTasks(journal, cards),
+    done: ended,
+    merged: ended,
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
@@ -399,7 +386,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     corrections: checked.corrections,
     text: admittedText(text, line, checked),
   }
-  const recorded = latestIntake(journal, card, options.admissions)
+  const recorded = latestIntake(card, options.admissions)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
   const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined }
   const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
@@ -411,7 +398,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
     return { status: 'refused', why: reparsed.reason }
-  const waitingOn = unmergedKnown(checked.depends, parked, cards, done)
+  const waitingOn = unmergedKnown(checked.depends, parked, cards, ended)
   if (source === ADMIT_SOURCE && waitingOn.length > 0) {
     if (!options.dryRun)
       options.events?.(waitingEvent(card.id, waitingOn, now()))

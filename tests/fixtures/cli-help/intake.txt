@@ -13,7 +13,6 @@ OPTIONS
             --to=<to>    With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root                                     
   --parking=<parking>    The parking directory the cards are written to (default: ~/.construct/parking)                                                                             
           --dir=<dir>    Target directory (Default: .)                                                                                                                              
-  --journal=<journal>    The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)                                                  
              --dryRun    Print the cards, write nothing (Default: false)                                                                                                            
   --confirm=<confirm>    Park cards whose corrections a person has seen: the token the run that held them printed                                                                   
         --autoConfirm    Accept corrections in advance: park at once and record each card and its corrections in the bus a caller wires in (Default: false)                         

@@ -25,14 +25,14 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-interface World { root: string, repo: string, parking: string, journal: string, draft: string, bus: CardEvent[] }
+interface World { root: string, repo: string, parking: string, draft: string, bus: CardEvent[] }
 
 function world(cards: Record<string, unknown>[]): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-confirm-'))
   roots.push(root)
   const draft = path.join(root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards }))
-  return { root, repo: repositoryOf(root, cards), parking: path.join(root, 'parking'), journal: path.join(root, 'ghosts.jsonl'), draft, bus: [] }
+  return { root, repo: repositoryOf(root, cards), parking: path.join(root, 'parking'), draft, bus: [] }
 }
 
 function repositoryOf(root: string, cards: unknown): string {
@@ -53,11 +53,7 @@ function card(fields: Record<string, unknown> = {}): Record<string, unknown> {
 }
 
 function intake(w: World, options: Partial<IntakeOptions> = {}): IntakeResult {
-  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '12', events: event => w.bus.push(event), ...options })
-}
-
-function journalLines(w: World): Record<string, unknown>[] {
-  return existsSync(w.journal) ? readFileSync(w.journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
+  return runIntake({ draft: w.draft, taken: '-', parking: w.parking, dir: w.repo, dryRun: false, autoConfirm: false, readStdin: () => '12', events: event => w.bus.push(event), ...options })
 }
 
 function admitted(bus: readonly CardEvent[]): Record<string, unknown>[] {
@@ -103,7 +99,6 @@ describe('intake confirmation gate', () => {
     expect(text).toContain(`corrected: ${CORRECTION}`)
     expect(text).toContain('who: shift')
     expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: 'person', corrections: [CORRECTION] }])
-    expect(journalLines(w)).toEqual([])
   })
 
   it('confirmed slices are parked as cards with depends and no manual step', () => {
@@ -172,7 +167,6 @@ describe('intake confirmation gate', () => {
       { task: '13', confirmation: 'auto', corrections: [CORRECTION] },
       { task: '14', confirmation: 'auto', corrections: [] },
     ])
-    expect(journalLines(w)).toEqual([])
   })
 
   it('a draft with no correction is parked without a confirmation and recorded as needing none', () => {
@@ -187,7 +181,6 @@ describe('intake confirmation gate', () => {
     const bus: CardEvent[] = []
     expect(intake(w, { parking: path.join(w.parking, lane), parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('written')
     expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 13, payload: { card: expect.stringMatching(/^#13 gate-card /), lane: expected, confirmation: 'none' } }])
-    expect(journalLines(w)).toEqual([])
     expect(existsSync(w.parking)).toBe(false)
   })
 
@@ -214,7 +207,7 @@ describe('intake confirmation gate', () => {
     writeFileSync(file, parked)
     const bus: CardEvent[] = []
     const keepOncePerDedupeKey = (event: CardEvent) => bus.some(kept => kept.dedupeKey === event.dedupeKey) || bus.push(event)
-    const admit = () => runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: keepOncePerDedupeKey, admissions: admissionsOf(bus) })
+    const admit = () => runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: keepOncePerDedupeKey, admissions: admissionsOf(bus) })
     expect(admit().status).toBe('admitted')
     const text = readFileSync(file, 'utf8')
     expect(bus).toEqual([{
@@ -224,7 +217,6 @@ describe('intake confirmation gate', () => {
       dedupeKey: expect.stringMatching(/^card\.admitted:80:/),
       payload: { card: expect.stringMatching(/^#80 clean-card /), lane: 'lane-2', depends: [], decision: 'owner', contour: 'cheap', confirmation: 'none', corrections: [], bodySha: bodySha(text), text, textSha: textSha(text), source: ADMIT_SOURCE },
     }])
-    expect(journalLines(w)).toEqual([])
     expect(admit().status).toBe('alreadyAdmitted')
     writeFileSync(file, parked.replace('Do the thing.', 'Do the other thing.'))
     expect(admit()).toMatchObject({ status: 'admitted', source: AMEND_SOURCE })
@@ -241,7 +233,7 @@ describe('intake confirmation gate', () => {
     const file = path.join(w.parking, '81.md')
     writeFileSync(file, `card: #81 root-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-81\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
     const bus: CardEvent[] = []
-    expect(runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('admitted')
+    expect(runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('admitted')
     expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 81, payload: { card: expect.stringMatching(/^#81 root-card /), lane: null } }])
     expect(admitted(bus)).toMatchObject([{ task: '81', source: ADMIT_SOURCE }])
   })
@@ -253,7 +245,7 @@ describe('intake confirmation gate', () => {
     const file = path.join(dir, '82.md')
     writeFileSync(file, `card: #82 stray-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-82\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
     const bus: CardEvent[] = []
-    expect(runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('admitted')
+    expect(runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('admitted')
     expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 82, payload: { lane: null } }])
     expect(admitted(bus)).toMatchObject([{ task: '82', source: ADMIT_SOURCE }])
   })

@@ -8,8 +8,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf } from '../../miko/exit.js'
+import { ancestors, exitDecision, FRESH_MS, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../miko/exit.js'
 import { mikoHandoff } from '../../miko/loop.js'
+import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../miko/tab.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
@@ -81,9 +82,9 @@ function journal(dir: string): ExitLine[] {
   return read(dir, path.join('.construct', 'eddies.jsonl')).split('\n').filter(Boolean).map(line => JSON.parse(line) as ExitLine)
 }
 
-function run(dir: string, command: string, args: string[]): Promise<{ code: number | null, signal: NodeJS.Signals | null, stderr: string }> {
+function run(dir: string, command: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null, signal: NodeJS.Signals | null, stderr: string }> {
   const child = spawn(command, args, {
-    env: { ...process.env, HOME: dir, STUB_DIR: dir, MIKO_CLAUDE: path.join(dir, 'claude'), TSX, EXIT, CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PROJECT_DIR: dir, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db') },
+    env: { ...process.env, HOME: dir, STUB_DIR: dir, MIKO_CLAUDE: path.join(dir, 'claude'), TSX, EXIT, CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PROJECT_DIR: dir, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CONSTRUCT_CARD: '', ...env },
     stdio: ['ignore', 'ignore', 'pipe'],
   })
   let stderr = ''
@@ -163,7 +164,7 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
     writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
     const threeMinutesAgo = (Date.now() - 3 * 60 * 1000) / 1000
     utimesSync(mikoHandoff(dir), threeMinutesAgo, threeMinutesAgo)
-    const { code, signal } = await run(dir, path.join(dir, 'claude'), [])
+    const { code, signal } = await run(dir, path.join(dir, 'claude'), [], { [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT })
     expect({ code, signal }).toEqual({ code: 0, signal: null })
     expect(read(dir, 'exit.code').trim()).toBe('1')
     expect(read(dir, 'survived').trim()).toBe('survived')
@@ -424,5 +425,34 @@ describe('outside the loop an EPERM from ps or kill is one refusing line, not a 
     expect(() => exit({ table: () => {
       throw new Error('boom')
     } })).toThrow('boom')
+  })
+})
+
+describe('in a tab window a threshold continues the session instead of ending it', () => {
+  it('a loop-mode session keeps the pnpm miko:exit path at the threshold', () => {
+    for (const readings of [AT_CONTEXT, AT_SPEND_WARN])
+      expect(exit({ tab: false, readings: () => readings })).toMatchObject({ code: 0, kills: [12], recorded: [expect.objectContaining({ reason: stopReasonOf('CONTINUE', readings) })] })
+    const requests: string[] = []
+    expect(exit({ tab: false, loopRequest: '/h/miko-exit.10.request', requestEnd: request => requests.push(request), readings: () => AT_SPEND_WARN })).toMatchObject({ code: 0, kills: [] })
+    expect(requests).toEqual(['/h/miko-exit.10.request'])
+  })
+
+  it('a tab session at the context or the spend warn with a fresh handoff ends nothing, records no exit and names the compaction route', () => {
+    for (const readings of [AT_CONTEXT, AT_SPEND_WARN, AT_SPEND]) {
+      const outcome = exit({ tab: true, table: () => outsideLoop, readings: () => readings })
+      expect(outcome).toMatchObject({ code: 1, kills: [], stops: [], ends: [], recorded: [] })
+      expect(outcome.lines).toEqual([`[miko] ${TAB_THRESHOLD}`])
+    }
+  })
+
+  it('a tab session at a threshold with a stale handoff is told to write it first', () => {
+    const outcome = exit({ tab: true, table: () => outsideLoop, handoffMtime: () => 0, now: () => FRESH_MS + 1000, readings: () => AT_CONTEXT })
+    expect(outcome).toMatchObject({ code: 1, kills: [] })
+    expect(outcome.lines[0]).toContain('write it with pnpm handoff:write first')
+  })
+
+  it('a tab session with STATUS DONE still ends, and below every threshold is still refused', () => {
+    expect(exit({ tab: true, table: () => outsideLoop, readings: () => UNREAD, status: () => 'DONE' })).toMatchObject({ code: 0, kills: [12] })
+    expect(exit({ tab: true, table: () => outsideLoop, readings: () => BELOW }).lines).toEqual([`[miko] ${NOT_AT_A_STOP_CONDITION}; nothing ended`])
   })
 })

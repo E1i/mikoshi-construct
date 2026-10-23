@@ -61,7 +61,7 @@ function runtimeModules(dir: string): string[] {
   })
 }
 
-interface World { root: string, parking: string, journal: string, repo: string, bus: string }
+interface World { root: string, parking: string, repo: string, bus: string }
 
 function world(name: string): World {
   const root = mkdtempSync(path.join(tmpdir(), `no-parking-reads-${name}-`))
@@ -72,14 +72,14 @@ function world(name: string): World {
   const parking = path.join(root, 'parking')
   mkdirSync(path.join(parking, 'lane-1'), { recursive: true })
   writeFileSync(path.join(parking, 'lane-1', '90.md'), TEXT)
-  return { root, parking, journal: path.join(root, 'handoff', 'ghosts.jsonl'), repo, bus: path.join(root, 'bus.db') }
+  return { root, parking, repo, bus: path.join(root, 'bus.db') }
 }
 
 function admitAndMove(w: World, between: () => void = () => {}): void {
   const db = openBus(w.bus)
   try {
     const ports = busIntakePorts(db, 's1')
-    expect(runAdmit({ file: path.join(w.parking, 'lane-1', '90.md'), dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => ADMITTED_AT).status).toBe('admitted')
+    expect(runAdmit({ file: path.join(w.parking, 'lane-1', '90.md'), dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => ADMITTED_AT).status).toBe('admitted')
     reduce(db)
     between()
     expect(runMove({ move: '#90', to: 'lane-2', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents }, () => MOVED_AT).status).toBe('moved')

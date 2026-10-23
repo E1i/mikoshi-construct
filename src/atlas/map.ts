@@ -8,13 +8,26 @@ import { ATLAS_DATA_MARK, ATLAS_SCRIPT } from './client.js'
 import { componentMap, CROSSINGS, isCodeRelation, MAP_STATES } from './components.js'
 import { entryMap } from './entries.js'
 import { RELATIVE_LINKS } from './source-link.js'
+import { drawnFiles } from './tally.js'
 
 const WORDS = {
   label: 'The map of contours, their parts and the arrows between them',
+  heading: 'Map',
+  levels: 'contours → parts → files',
+  gestures: 'drag to pan · scroll to zoom',
   search: 'Find a file, contour, part or entry point by name',
+  searchPlaceholder: 'find a file, contour, part or entry point',
+  edges: 'edges',
   filters: 'Show or hide a kind of edge',
+  sortParts: 'sort parts',
   sorts: 'Sort the parts inside a contour',
-  hint: 'Click a contour to unfold its parts, a part to list its files, a file to see what it reaches and what reaches it. Selecting a node lights its edges and neighbours. Drag to pan, scroll to zoom; edge labels show on hover, on the selection and when zoomed in.',
+  click: 'Click',
+  hint: ' a contour to open its parts, a part to list its files, a file to see what it reaches and what reaches it. Selecting a node lights its edges and neighbours; edge labels show on hover, on the selection and when zoomed in.',
+  inspector: 'Inspector',
+  inspectorHint: 'Click a contour, part or file: its facts and edges open here.',
+  legend: 'Legend',
+  legendKinds: 'file states · edge kinds',
+  noMechanics: (name: string) => `Nothing to draw yet: ${name} holds no mechanics. construct atlas scans the tracked files and draws them here.`,
   states: {
     held: 'read, and its relations found',
     unknown: 'not read: discovery reads no file of this type, or could not read it',
@@ -41,14 +54,8 @@ export function scriptSafeJson(value: unknown): string {
 }
 
 function pageData(map: ComponentMap, mechanics: NonNullable<AtlasInput['mechanics']>, rootFromPage: string, links: SourceLinks): unknown {
-  const paths = new Set(mechanics.components.map(component => component.path))
-  for (const contour of map.contours) {
-    for (const component of contour.components)
-      component.files.forEach(file => paths.add(file.path))
-  }
-  const files = [...paths].sort()
+  const { files, drawn: stateOf } = drawnFiles(map, mechanics)
   const index = new Map(files.map((file, at) => [file, at]))
-  const stateOf = new Map(map.contours.flatMap(contour => contour.components.flatMap(component => component.files.map(file => [file.path, file] as const))))
   const countsOf = (counts: { held: number, unknown: number, absent: number }): number[] => MAP_STATES.map(state => counts[state])
   const entries = entryMap(mechanics.relations)
   return {
@@ -82,10 +89,15 @@ function lineOf(at: string): number {
   return Number(at.slice(at.lastIndexOf(':') + 1))
 }
 
-export function atlasScript(input: AtlasInput, rootFromPage: string): string | null {
+export function mapOf(input: AtlasInput): ComponentMap | null {
   if (input.mechanics == null)
     return null
-  const map = componentMap({ contours: [], ...input.mechanics }, input.model.interpretation?.components ?? [], input.projectName)
+  return componentMap({ contours: [], ...input.mechanics }, input.model.interpretation?.components ?? [], input.repo.name.text)
+}
+
+export function atlasScript(input: AtlasInput, rootFromPage: string, map = mapOf(input)): string | null {
+  if (input.mechanics == null || map == null)
+    return null
   return ATLAS_SCRIPT.split(ATLAS_DATA_MARK).join(scriptSafeJson(pageData(map, input.mechanics, rootFromPage, input.links ?? RELATIVE_LINKS)))
 }
 
@@ -101,28 +113,32 @@ function legend(): string {
   const states = MAP_STATES.map(state => `<li data-state="${state}"><b>${state}</b> — ${escaped(WORDS.states[state])}</li>`).join('')
   const crossings = CROSSINGS.map(crossing => `<li data-crossing="${crossing}"><b>${crossing}</b> — ${escaped(WORDS.crossings[crossing])}</li>`).join('')
   const layers = Object.entries(WORDS.layers).map(([layer, meaning]) => `<li data-layer="${layer}"><b>${layer}</b> — ${escaped(meaning)}</li>`).join('')
-  return `<ul class="legend">${states}${crossings}${layers}</ul>`
+  return `<section class="panelbox" aria-labelledby="atlas-legend-heading">
+<div class="ph"><h2 id="atlas-legend-heading">${escaped(WORDS.legend)}</h2><span class="meta">${escaped(WORDS.legendKinds)}</span></div>
+<ul class="legend">${states}${crossings}${layers}</ul>
+</section>`
 }
 
 function filters(): string {
   const crossings = CROSSINGS.map(crossing => `<button type="button" data-filter="${crossing}" data-crossing="${crossing}" aria-pressed="true" title="${escaped(WORDS.crossings[crossing])}">${crossing}</button>`)
   const layers = Object.entries(WORDS.layers).map(([layer, meaning]) => `<button type="button" data-filter="${layer}" data-layer="${layer}" aria-pressed="true" title="${escaped(meaning)}">${layer}</button>`)
-  return `<div id="atlas-legend" role="group" aria-label="${escaped(WORDS.filters)}">${[...crossings, ...layers].join('')}</div>`
+  return `<span class="tool-k">${escaped(WORDS.edges)}</span><div id="atlas-legend" role="group" aria-label="${escaped(WORDS.filters)}">${[...crossings, ...layers].join('')}</div>`
 }
 
 function sorts(): string {
-  return `<div id="atlas-sort" role="group" aria-label="${escaped(WORDS.sorts)}">${SORTS.map(sort => `<button type="button" data-sort="${sort}" aria-pressed="false">${sort}</button>`).join('')}</div>`
+  return `<span class="tool-k">${escaped(WORDS.sortParts)}</span><div id="atlas-sort" role="group" aria-label="${escaped(WORDS.sorts)}">${SORTS.map(sort => `<button type="button" data-sort="${sort}" aria-pressed="false">${sort}</button>`).join('')}</div>`
 }
 
-export function mapSection(script: string | null): string {
+export function mapSection(script: string | null, generatedFrom = ''): string {
   if (script == null)
-    return ''
-  return `<section class="atlas-map" aria-label="${escaped(WORDS.label)}">
-<p class="prose">${escaped(WORDS.hint)}</p>
-<div class="tools"><input id="atlas-search" type="search" placeholder="${escaped(WORDS.search)}" aria-label="${escaped(WORDS.search)}"><ul id="atlas-results"></ul></div>
+    return `<p class="notice" data-no-mechanics>${escaped(WORDS.noMechanics(generatedFrom))}</p>`
+  return `<section class="panelbox atlas-map" aria-labelledby="atlas-map-heading">
+<div class="ph"><h2 id="atlas-map-heading">${escaped(WORDS.heading)}</h2><span class="meta">${escaped(WORDS.levels)}</span><span class="meta">${escaped(WORDS.gestures)}</span></div>
+<p class="hint"><b>${escaped(WORDS.click)}</b>${escaped(WORDS.hint)}</p>
+<div class="tools"><div class="search-wrap"><input id="atlas-search" type="search" placeholder="${escaped(WORDS.searchPlaceholder)}" aria-label="${escaped(WORDS.search)}"></div><ul id="atlas-results"></ul></div>
 <div class="tools">${filters()}${sorts()}</div>
 <p id="atlas-hidden" class="empty" hidden></p>
-<div class="canvas"><svg id="atlas-svg" role="img" aria-label="${escaped(WORDS.label)}"><g id="atlas-viewport"></g></svg><div id="atlas-tip" hidden></div><aside id="atlas-panel"></aside></div>
-${legend()}
-</section>`
+<div class="canvas"><svg id="atlas-svg" role="img" aria-label="${escaped(WORDS.label)}"><g id="atlas-viewport"></g></svg><div id="atlas-tip" hidden></div><aside id="atlas-panel" aria-label="${escaped(WORDS.inspector)}"><p data-empty-hint><b>${escaped(WORDS.inspector)}</b><br>${escaped(WORDS.inspectorHint)}</p></aside></div>
+</section>
+${legend()}`
 }

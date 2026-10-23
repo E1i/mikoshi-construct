@@ -12,7 +12,7 @@ import { printAtlas, runAtlas } from './atlas/index.js'
 import { ATTACH_EXIT, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
 import { busReaderAt } from './commands/board/bus.js'
 import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, rawSectionsAsked, readBoard, STALE_HOURS } from './commands/board/index.js'
-import { COST_EXIT, costExpect, costJson, costReport, defaultWindowJournal, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
+import { COST_EXIT, costExpect, costJson, costReport, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
 import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph } from './commands/graph.js'
@@ -82,6 +82,7 @@ const init = withKnownFlags(defineCommand({
     review: { type: 'enum', options: REVIEW_PROVIDERS, description: 'AI code review on pull requests: claude | none (default: none)' },
     reviewModel: { type: 'string', description: `Model for the review workflow (default: ${DEFAULT_REVIEW_MODEL})` },
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
+    lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in construct.json' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: take defaults and skip the confirmation', default: false },
     dryRun: { type: 'boolean', description: 'Print the plan, write nothing', default: false },
   },
@@ -90,7 +91,7 @@ const init = withKnownFlags(defineCommand({
     console.banner(VERSION, args.johnny)
     try {
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
-      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, review: args.review, reviewModel: args.reviewModel, harness: args.harness, yes: args.yes, dryRun: args.dryRun }, prompter)
+      const result = await runInit(console, { dir: args.dir, preset: args.preset, ai: args.ai, name: args.name, review: args.review, reviewModel: args.reviewModel, harness: args.harness, lanes: args.lanes, yes: args.yes, dryRun: args.dryRun }, prompter)
       process.exitCode = INIT_EXIT[result.status]
     }
     catch (error) {
@@ -106,6 +107,7 @@ const attach = withKnownFlags(defineCommand({
     ...commonArgs,
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
     ai: { type: 'enum', options: AI_TARGETS, description: 'AI target: claude (cursor and both are refused)' },
+    lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in .construct/attach.json' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
     entry: { type: 'boolean', description: 'Print the entry protocol the agent follows to propose one harness; reads and writes nothing', default: false },
   },
@@ -118,7 +120,7 @@ const attach = withKnownFlags(defineCommand({
         return
       }
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
-      const result = await runAttach(console, { dir: args.dir, harness: args.harness, ai: args.ai, yes: args.yes }, prompter)
+      const result = await runAttach(console, { dir: args.dir, harness: args.harness, ai: args.ai, lanes: args.lanes, yes: args.yes }, prompter)
       process.exitCode = ATTACH_EXIT[result.status]
     }
     catch (error) {
@@ -371,7 +373,6 @@ function intakeCommand(bus: BusPorts | undefined) {
       to: { type: 'string', description: 'With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root' },
       parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
       dir: commonArgs.dir,
-      journal: { type: 'string', description: 'The journal a #<id> in depends or blocks is read closed from (default: ~/.construct/handoff/ghosts.jsonl)' },
       dryRun: { type: 'boolean', description: 'Print the cards, write nothing', default: false },
       confirm: { type: 'string', description: 'Park cards whose corrections a person has seen: the token the run that held them printed' },
       autoConfirm: { type: 'boolean', description: 'Accept corrections in advance: park at once and record each card and its corrections in the bus a caller wires in', default: false },
@@ -380,7 +381,6 @@ function intakeCommand(bus: BusPorts | undefined) {
       const console = ui(args)
       const failed = reported(console, () => {
         const dir = path.resolve(args.dir)
-        const journal = path.resolve(args.journal ?? defaultWindowJournal())
         if (args.move !== undefined || args.to !== undefined) {
           process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), events, admissions }))
           return
@@ -391,7 +391,7 @@ function intakeCommand(bus: BusPorts | undefined) {
             process.exitCode = INTAKE_EXIT.refused
             return
           }
-          process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, journal, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
+          process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
           return
         }
         const result = runIntake({
@@ -400,7 +400,6 @@ function intakeCommand(bus: BusPorts | undefined) {
           taken: args.taken,
           parking: path.resolve(args.parking ?? defaultParking()),
           dir,
-          journal,
           dryRun: args.dryRun,
           confirm: args.confirm,
           autoConfirm: args.autoConfirm,

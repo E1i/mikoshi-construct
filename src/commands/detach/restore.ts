@@ -3,7 +3,7 @@ import type { SettingsHook, SettingsOriginal } from '../attach/settings.js'
 import { lstatSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { isConfinedCopy, sha256OfBytes } from '../attach/original.js'
-import { removeGuardEntry, SETTINGS_FILE, writeSettingsBytes } from '../attach/settings.js'
+import { removeHookEntries, SETTINGS_FILE, writeSettingsBytes } from '../attach/settings.js'
 
 export type OriginalCheck
   = | { kind: 'matched', bytes: Buffer }
@@ -37,6 +37,6 @@ export function takeOutGuardEntry(root: string, hook: SettingsHook, check: Origi
     writeSettingsBytes(root, check.bytes)
     return { settingsDeleted: false, entryCutOut: false, bytesRestored: true }
   }
-  const settingsDeleted = removeGuardEntry(root, hook).fileDeleted
+  const settingsDeleted = removeHookEntries(root, hook).fileDeleted
   return { settingsDeleted, entryCutOut: !settingsDeleted, bytesRestored: false }
 }

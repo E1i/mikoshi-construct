@@ -150,7 +150,7 @@ describe('update live', () => {
     for (const pr of [981, 982])
       made.gitHub.pulls.get(pr)!.mergeable_state = 'behind'
     made.tick()
-    node.failOnNextCall(2)
+    node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
     for (const pr of [981, 982]) {
       expect(detectedOf(made, pr)).toEqual([])

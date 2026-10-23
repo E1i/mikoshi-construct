@@ -1,5 +1,6 @@
 import type { TaskStartDeps } from '../scripts/ghosts/task-start.js'
 import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
+import type { RecordedIntake } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -30,7 +31,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-interface World { root: string, parking: string, journal: string, repo: string }
+interface World { root: string, parking: string, repo: string, cards: Map<string, string> }
 
 function world(): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-admit-'))
@@ -38,7 +39,7 @@ function world(): World {
   const repo = path.join(root, 'repo')
   mkdirSync(path.join(repo, 'src', 'board'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'board', 'run.ts'), '')
-  return { root, parking: path.join(root, 'parking'), journal: path.join(root, 'handoff', 'ghosts.jsonl'), repo }
+  return { root, parking: path.join(root, 'parking'), repo, cards: new Map() }
 }
 
 function park(w: World, id: number, card: string, touches = 'src/board/**', body = 'Do the thing.'): string {
@@ -48,23 +49,23 @@ function park(w: World, id: number, card: string, touches = 'src/board/**', body
   return file
 }
 
-function journal(w: World, lines: Record<string, unknown>[]): void {
-  mkdirSync(path.dirname(w.journal), { recursive: true })
-  writeFileSync(w.journal, lines.map(line => `${JSON.stringify(line)}\n`).join(''))
+function mergedInBus(w: World, ...ids: string[]): void {
+  for (const id of ids)
+    w.cards.set(id, 'merged')
 }
 
-function journalLines(w: World): Record<string, unknown>[] {
-  return existsSync(w.journal) ? readFileSync(w.journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
+function recorded(card: string, fields: Partial<RecordedIntake> = {}): () => RecordedIntake {
+  return () => ({ card, bodySha: undefined, confirmation: 'none', source: 'admit', ts: NOW.toISOString(), ...fields })
 }
 
 function busOf(w: World): string {
-  return path.join(path.dirname(w.journal), 'bus.db')
+  return path.join(w.root, 'bus.db')
 }
 
 function admit(w: World, file: string, options: Partial<AdmitOptions> = {}, at: Date = NOW): AdmitResult {
   const db = openBus(busOf(w))
   try {
-    return runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), ...options }, () => at)
+    return runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => w.cards, ...options }, () => at)
   }
   finally {
     db.close()
@@ -74,7 +75,7 @@ function admit(w: World, file: string, options: Partial<AdmitOptions> = {}, at: 
 function admitThroughBus(w: World, file: string, options: Partial<AdmitOptions> = {}): AdmitResult {
   const db = openBus(busOf(w))
   try {
-    const result = runAdmit({ file, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), ...options }, () => AFTER_THE_CUTOFF)
+    const result = runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => w.cards, ...options }, () => AFTER_THE_CUTOFF)
     reduce(db)
     return result
   }
@@ -158,7 +159,7 @@ function stalePark(w: World): string {
 }
 
 function mergedSeventy(w: World): void {
-  journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+  mergedInBus(w, '70')
 }
 
 function latestText(w: World, file: string): string {
@@ -191,7 +192,6 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(readFileSync(file, 'utf8')).toBe(before)
     expect(admittedPayloads(w)).toEqual([expect.objectContaining({ card: CLEAN, confirmation: 'none', corrections: [], bodySha: bodySha(before), source: 'admit' })])
     expect(admittedTimes(w)).toEqual([NOW.toISOString()])
-    expect(existsSync(w.journal)).toBe(false)
     expect(taskStart(w, CLEAN)).toBe(0)
   })
 
@@ -200,7 +200,6 @@ describe('construct intake --admit takes a card parked before the intake door', 
     writeFileSync(path.join(w.repo, 'construct.json'), JSON.stringify({ manifestVersion: 6, milestones: ['ghosts', 'ice'] }))
     const outside = '#81 port-card [implement/moon/S/cheap/auto] · depends — · blocks —'
     expect(admit(w, park(w, 81, outside))).toEqual({ status: 'refused', why: `milestone 'moon' is not one of ghosts, ice` })
-    expect(journalLines(w)).toEqual([])
     expect(admit(w, park(w, 82, '#82 port-card [implement/ice/S/cheap/auto] · depends — · blocks —')).status).toBe('admitted')
   })
 
@@ -266,7 +265,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     park(w, 80, CLEAN)
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 81, STALE)
-    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    mergedSeventy(w)
     expect(admit(w, file).status).toBe('awaiting')
   })
 
@@ -276,17 +275,12 @@ describe('construct intake --admit takes a card parked before the intake door', 
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 81, STALE)
     const before = readFileSync(file, 'utf8')
-    journal(w, [
-      { event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' },
-      { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' },
-      { event: 'intake', task: '81', card: STALE, confirmation: 'none', corrections: [], source: 'admit', ts: NOW.toISOString() },
-    ])
-    const held = admit(w, file)
+    mergedSeventy(w)
+    const held = admit(w, file, { admissions: recorded(STALE) })
     expect(held).toMatchObject({ status: 'awaiting', stale: false })
     expect(held.status === 'awaiting' ? held.token : '').not.toBe('')
     expect(printed(held).exit).toBe(INTAKE_EXIT.awaiting)
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(journalLines(w)).toHaveLength(3)
   })
 
   it('no confirmation is recorded without --confirm', () => {
@@ -294,10 +288,9 @@ describe('construct intake --admit takes a card parked before the intake door', 
     park(w, 80, CLEAN)
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 81, STALE)
-    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    mergedSeventy(w)
     const held = admit(w, file)
     expect(printed(held).lines.join('\n')).not.toContain('confirmed by a person')
-    expect(journalLines(w).filter(line => line.event === 'intake')).toHaveLength(0)
     const token = held.status === 'awaiting' ? held.token : ''
     expect(admit(w, file, { confirm: token }).status).toBe('admitted')
     expect(admittedPayloads(w).at(-1)).toMatchObject({ confirmation: 'person' })
@@ -308,7 +301,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     park(w, 80, CLEAN)
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 81, STALE, 'scripts/board/run.ts')
-    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    mergedSeventy(w)
     expect(admit(w, file).status).toBe('awaiting')
   })
 
@@ -318,7 +311,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 81, STALE, 'scripts/board/run.ts')
     const before = readFileSync(file, 'utf8')
-    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    mergedSeventy(w)
 
     const held = admit(w, file)
     expect(held.status).toBe('awaiting')
@@ -326,7 +319,6 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(exit).toBe(INTAKE_EXIT.awaiting)
     expect(lines.join('\n')).toContain('corrected: depends — #70 → (removed) — already merged')
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(journalLines(w)).toHaveLength(2)
 
     const token = held.status === 'awaiting' ? held.token : ''
     expect(admit(w, file, { confirm: token }).status).toBe('admitted')
@@ -349,12 +341,11 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(exit).toBe(INTAKE_EXIT.waiting)
     expect(lines.join('')).toContain(`Not admitted yet ${file}: ${WAITING}. It depends on #80, not merged yet`)
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(journalLines(w)).toEqual([])
     expect(admittedEvents(w)).toBe(0)
     expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [80] }])
     expect(taskStart(w, WAITING)).toBe(1)
 
-    journal(w, [{ event: 'merge', task: '80', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    mergedInBus(w, '80')
     const held = admit(w, file)
     expect(held.status).toBe('awaiting')
     const token = held.status === 'awaiting' ? held.token : ''
@@ -371,8 +362,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(printed(waiting).lines.join('')).toContain('no bus is wired to this run, so nothing was written')
     expect(payloadsOf(w, 'card.waiting')).toEqual([])
 
-    journal(w, [{ event: 'intake', task: '82', card: WAITING, bodySha: 'an earlier body', source: 'admit', ts: NOW.toISOString() }])
-    expect(admit(w, file, { events: undefined }).status).toBe('admitted')
+    expect(admit(w, file, { events: undefined, admissions: recorded(WAITING, { bodySha: 'an earlier body' }) }).status).toBe('admitted')
   })
 
   it('a corrected card that keeps an unmerged depends waits before it asks for a confirmation, and is held behind the token once the depends merges', () => {
@@ -381,14 +371,12 @@ describe('construct intake --admit takes a card parked before the intake door', 
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 83, STALE_WAITING, 'scripts/board/run.ts')
     const before = readFileSync(file, 'utf8')
-    const merge70 = { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }
-    journal(w, [merge70])
+    mergedSeventy(w)
 
     expect(admit(w, file)).toMatchObject({ status: 'waiting', waitingOn: [80] })
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(journalLines(w)).toHaveLength(1)
 
-    journal(w, [merge70, { event: 'merge', task: '80', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    mergedInBus(w, '80')
     const held = admit(w, file)
     expect(held.status).toBe('awaiting')
     const token = held.status === 'awaiting' ? held.token : ''
@@ -417,14 +405,6 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(payloadsOf(w, 'card.waiting')).toEqual([])
   })
 
-  it('a depends whose card opened its pull request but has no merge line waits', () => {
-    const w = world()
-    const file = park(w, 82, WAITING.replace('depends #80', 'depends #77'))
-    journal(w, [{ event: 'path', task: '77', path: 'cheap', pr: 7, verification: 'run' }])
-    expect(admit(w, file)).toMatchObject({ status: 'waiting', waitingOn: [77] })
-    expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [77] }])
-  })
-
   it('a depends known only to the bus waits while the bus runs it, and not once the bus ended it', () => {
     const admitWithBusState = (state: string): AdmitResult => {
       const w = world()
@@ -449,7 +429,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     park(w, 80, CLEAN)
     park(w, 90, CLEAN.replace('#80 clean-card', '#90 board-card'))
     const file = park(w, 83, STALE_WAITING, 'scripts/board/run.ts')
-    journal(w, [{ event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    mergedSeventy(w)
     const dry = admit(w, file, { dryRun: true })
     expect(dry).toMatchObject({ status: 'waiting', waitingOn: [80], dryRun: true })
     const { lines, exit } = printed(dry)
@@ -460,10 +440,9 @@ describe('construct intake --admit takes a card parked before the intake door', 
   it('a stale --confirm admits nothing', () => {
     const w = world()
     const file = park(w, 81, STALE, 'scripts/board/run.ts')
-    journal(w, [{ event: 'path', task: '70', path: 'cheap', pr: 1, verification: 'run' }, { event: 'merge', task: '70', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    mergedSeventy(w)
     const held = admit(w, file, { confirm: 'not-the-token' })
     expect(held).toMatchObject({ status: 'awaiting', stale: true })
-    expect(journalLines(w)).toHaveLength(2)
   })
 
   it('a second --admit of an admitted card writes no second card.admitted', () => {
@@ -533,11 +512,9 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const file = park(w, 80, CLEAN)
     const text = readFileSync(file, 'utf8')
     expect(bodyShaWithoutTouches(text)).not.toBe(bodySha(text))
-    journal(w, [{ event: 'intake', task: '80', card: CLEAN, confirmation: 'none', corrections: [], bodySha: bodyShaWithoutTouches(text), source: 'admit', ts: NOW.toISOString() }])
-    const again = admit(w, file)
+    const again = admit(w, file, { admissions: recorded(CLEAN, { bodySha: bodyShaWithoutTouches(text) }) })
     expect(again).toMatchObject({ status: 'alreadyAdmitted', source: 'amend' })
     expect(printed(again).lines.join('\n')).toContain('Its card.admitted is in the bus')
-    expect(journalLines(w)).toHaveLength(1)
   })
 
   it('amends an admitted card through the parking grammar: a refused file writes nothing, and a correction waits for its token', () => {
@@ -554,8 +531,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
   it('amends a card whose intake line recorded no body digest, since the text it admitted is unknown', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
-    journal(w, [{ event: 'intake', task: '80', card: CLEAN, confirmation: 'none', corrections: [], source: 'admit', ts: NOW.toISOString() }])
-    expect(admit(w, file)).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(admit(w, file, { admissions: recorded(CLEAN) })).toMatchObject({ status: 'admitted', source: 'amend' })
     expect(admittedPayloads(w).at(-1)).toMatchObject({ source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
   })
 
@@ -578,7 +554,6 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const result = admit(w, file, { dryRun: true })
     expect(result.status).toBe('dryRun')
     expect(printed(result).exit).toBe(INTAKE_EXIT.dryRun)
-    expect(existsSync(w.journal)).toBe(false)
   })
 
   it('admit refuses a witness whose -t is not a regex', () => {
@@ -593,7 +568,6 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(lines.join('\n')).toContain(witness)
     expect(lines.join('\n')).toContain('Nothing to repeat')
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(existsSync(w.journal)).toBe(false)
   })
 
   it('admit takes a witness whose -t compiles', () => {
@@ -608,8 +582,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const file = path.join(w.parking, '80.md')
     writeFileSync(file, 'not a card\n')
     expect(printed(admit(w, file)).exit).toBe(INTAKE_EXIT.refused)
-    expect(runIntake({ admit: file, draft: 'd.json', taken: '-', parking: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: false, readStdin: () => '' })).toMatchObject({ status: 'refused', refusal: 'admitWithDraft' })
-    expect(existsSync(w.journal)).toBe(false)
+    expect(runIntake({ admit: file, draft: 'd.json', taken: '-', parking: w.parking, dir: w.repo, dryRun: false, autoConfirm: false, readStdin: () => '' })).toMatchObject({ status: 'refused', refusal: 'admitWithDraft' })
   })
 })
 
@@ -720,15 +693,6 @@ describe('witnessDowngrades', () => {
   })
 })
 
-describe('construct intake --admit with the bus counts a journal line only before the cutoff', () => {
-  it('a journal intake line after the cutoff with no card.admitted in the bus does not make the card admitted', () => {
-    const w = world()
-    const file = park(w, 80, CLEAN)
-    journal(w, [{ event: 'intake', task: '80', card: CLEAN, bodySha: bodySha(readFileSync(file, 'utf8')), confirmation: 'none', source: 'admit', ts: '2026-10-13T00:00:00.000Z' }])
-    expect(admit(w, file, { admissions: () => null }, new Date('2026-10-13T09:00:00.000Z'))).toMatchObject({ status: 'admitted', source: 'admit' })
-  })
-})
-
 describe('construct intake --admit says whether task:start will take the card', () => {
   it('names the bus when the port wrote card.admitted, and task:start takes the card', () => {
     const w = world()
@@ -744,15 +708,13 @@ describe('construct intake --admit says whether task:start will take the card', 
     expect(taskStart(w, CLEAN)).toBe(1)
   })
 
-  it('a bus-wired --admit after an unwired run writes its card.admitted, the unwired run wrote no journal line, and task:start takes the card', () => {
+  it('a bus-wired --admit after an unwired run writes its card.admitted, the unwired run wrote nothing, and task:start takes the card', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
     admit(w, file, { events: undefined })
-    expect(existsSync(w.journal)).toBe(false)
     const again = admit(w, file)
     expect(again.status).toBe('admitted')
     expect(printed(again).lines[0]).toBe(`[ok] Admitted ${file}: ${CLEAN}. Its card.admitted is in the bus, so task:start and the shift take it.\n`)
-    expect(existsSync(w.journal)).toBe(false)
     expect(admittedEvents(w)).toBe(1)
     expect(taskStart(w, CLEAN)).toBe(0)
   })
@@ -882,7 +844,7 @@ describe('construct intake --admit across the lanes of the parking', () => {
     const file = parkIn(w, 'lane-2', 58, line)
     expect(admit(w, file)).toMatchObject({ status: 'waiting', waitingOn: [53], card: { line, unclear: [] } })
 
-    journal(w, [{ event: 'merge', task: '53', by: 'E1i', commit: 'c0ffee', ts: '2026-10-05T00:00:00.000Z' }])
+    mergedInBus(w, '53')
     expect(admit(w, file)).toMatchObject({ status: 'awaiting', card: { unclear: [] } })
     expect(admit(w, file, { autoConfirm: true })).toMatchObject({ status: 'admitted', card: { unclear: [] } })
     expect(latestText(w, file)).not.toContain('unclear:')
@@ -907,7 +869,7 @@ describe('construct intake --admit across the lanes of the parking', () => {
     const db = openBus(busOf(w))
     const result = (() => {
       try {
-        return runIntake({ draft, taken: '-', readStdin: () => '1', parking: w.parking, parkingRoot: w.parking, dir: w.repo, journal: w.journal, dryRun: false, autoConfirm: true, events: busCardEvents(db) })
+        return runIntake({ draft, taken: '-', readStdin: () => '1', parking: w.parking, parkingRoot: w.parking, dir: w.repo, dryRun: false, autoConfirm: true, events: busCardEvents(db) })
       }
       finally {
         db.close()
@@ -959,7 +921,7 @@ describe('construct intake --admit through the CLI entry', () => {
     })
     const previousExit = process.exitCode
     try {
-      await runCommand(createMain(), { rawArgs: ['intake', '--plain', '--admit', file, '--dir', w.repo, '--journal', w.journal, '--parking', w.parking, ...extra] })
+      await runCommand(createMain(), { rawArgs: ['intake', '--plain', '--admit', file, '--dir', w.repo, '--parking', w.parking, ...extra] })
       return { exit: process.exitCode, output: written.join('') }
     }
     finally {
@@ -977,7 +939,6 @@ describe('construct intake --admit through the CLI entry', () => {
     const inBus = admittedEvents(w) > 0
     const refusedAndNamed = exit === INTAKE_EXIT.refused && output.includes('pnpm intake --admit')
     expect(inBus || refusedAndNamed).toBe(true)
-    expect(existsSync(w.journal)).toBe(false)
   })
 
   it('intake --admit --dry-run through the CLI entry beside a bus is never refused and writes nothing', async () => {
@@ -989,10 +950,9 @@ describe('construct intake --admit through the CLI entry', () => {
     expect(exit).not.toBe(INTAKE_EXIT.refused)
     expect(output).not.toContain('pnpm intake --admit instead')
     expect(admittedEvents(w)).toBe(0)
-    expect(journalLines(w)).toHaveLength(0)
   })
 
-  it('intake --admit through the CLI entry on a machine with no bus admits the card and writes no journal file', async () => {
+  it('intake --admit through the CLI entry on a machine with no bus admits the card and creates no bus', async () => {
     const w = world()
     const file = park(w, 80, CLEAN)
     vi.stubEnv(BUS_DB_VARIABLE, busOf(w))
@@ -1000,6 +960,5 @@ describe('construct intake --admit through the CLI entry', () => {
     expect(exit).not.toBe(INTAKE_EXIT.refused)
     expect(existsSync(busOf(w))).toBe(false)
     expect(readFileSync(file, 'utf8')).toContain('card: ')
-    expect(existsSync(w.journal)).toBe(false)
   })
 })

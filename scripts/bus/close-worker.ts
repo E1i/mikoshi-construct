@@ -64,7 +64,7 @@ export class CloseNode extends Node<CloseStep> {
   constructor(private readonly closeParts: CloseNodeParts) {
     super('close', { db: closeParts.db, clock: closeParts.clock, session: closeParts.session, mode: closeParts.mode, env: closeParts.env })
     this.executor = new CloseExecutor({ db: closeParts.db, reported: closeParts.reported, clock: closeParts.clock, parking: closeParts.parking, trees: closeParts.trees })
-    this.subscribe(CLOSE_ON, event => this.detectOn(event, scopeOf(event)))
+    this.subscribe(CLOSE_ON, scopeOf)
   }
 
   freeEndedTrees(): void {

@@ -183,7 +183,7 @@ describe.concurrent('every command exits with the code it exits with today, as a
     writeFileSync(waiting, 'card: #9 waiting-card [implement/runner/S/cheap/owner] · depends #8 · blocks —\nbranch: feat/waiting-card\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo a third thing.\n')
     vi.stubEnv('CONSTRUCT_BUS_DB', path.join(w.home, 'no-bus.db'))
     try {
-      expect(await intake('--admit', waiting, '--journal', path.join(w.home, 'ghosts.jsonl'))).toBe(3)
+      expect(await intake('--admit', waiting)).toBe(3)
     }
     finally {
       vi.unstubAllEnvs()

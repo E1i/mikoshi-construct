@@ -58,6 +58,29 @@ STATUS means to the window: a `miko.md` whose last `STATUS:` line is `CONTINUE` 
 question to the owner; one whose last `STATUS:` line is `OWNER` has its question asked in the window and the answer waited
 for in the same session, then `pnpm handoff:write` with `STATUS: CONTINUE`, with no `pnpm miko:exit`.
 
+Mikoshi runs in one of two modes, decided by `windowModeOf` in `scripts/ports/session.ts` (#1265): loop mode under
+`pnpm miko` (`MIKO_WINDOW=1`, `MIKO_LOOP_PID` or `MIKO_EXIT_REQUEST` set), and tab mode, a session with none of those
+marks and no `CONSTRUCT_CARD` (an IDE tab or a bare `claude`). Loop mode keeps the rules above. A tab window is that
+session when it is interactive and not raised by the bus (`tabWindowOf` in `scripts/miko/tab.ts`: a
+`CLAUDE_CODE_ENTRYPOINT` of `sdk-cli`, the headless one a bus reviewer runs under, or `CONSTRUCT_BUS_RAISED=1` is no
+tab window). A tab window continues by itself with nobody at a terminal. At Stop, `scripts/miko/turn-watch.ts` reads
+the last `STATUS:` of the session's handoff: `CONTINUE` blocks the stop with a reason telling the window to run
+`pnpm miko:watch --once` and take the next move; `OWNER`, `DONE` or no handoff lets it stop. The loop guard is
+`stop_hook_active` (the second stop in a row passes) and the watch's own timeout; the Stop hook
+`.claude/hooks/turn-watch.mjs` asks `turn-watch.ts` for every session `windowSessionOf` or `tabWindowOf` names. Before
+a compaction, the PreCompact hook `.claude/hooks/miko-relay.mjs pre-compact` runs `scripts/miko/pre-compact.ts`, which
+leaves a handoff written within `FRESH_MS` alone and otherwise writes an insurance handoff from it through
+`pnpm handoff:write`. After a compaction, `.claude/hooks/window-core.mjs` on SessionStart with source `compact` appends
+`CONTINUE_PROMPT` to its `additionalContext` when `scripts/miko/compact-start.ts` finds the handoff of a tab window. At a context or
+spend threshold, `pnpm miko:exit` in a tab window ends nothing and says so: the window writes the handoff and goes on,
+and compaction carries the session on from it. No route leads from a spend threshold to a compaction. Compaction comes
+only from the context filling, or from `/compact`, which the owner types and the model cannot run: the PreCompact
+`trigger` is `auto` or `manual` and nothing else, and no hook output starts a compaction
+([hooks reference](https://code.claude.com/docs/en/hooks)). So the spend warn in
+a tab window reaches compaction only when the context fills as well. Below `sessionSpend` the window keeps working,
+and at `sessionSpend` Eddies refuses new work. The hooks are thin wrappers in `.claude/hooks/`, and they work the same
+in the IDE extensions as in the CLI.
+
 Mikoshi, as foreman, does not poll: it waits on events, a stall, a repeated refusal and a dead session with `pnpm miko:watch --once` (#1081).
 
 Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default).
@@ -155,8 +178,13 @@ open owner questions and the owner texts of the current session, at most `DAY_FI
 shares with the decisions in force (`scripts/shift/day-archive.ts`).
 
 - Owner texts, verbatim, each under an `## Owner …` heading naming its session (`session <N>`); the window never edits
-  one after writing it. An owner order that holds longer than a day goes into the decisions through
-  `pnpm decisions:add`, not into the day file.
+  one after writing it. An owner order that holds longer than a day goes into the decisions, not into the day file,
+  and an order file, the day file or a handoff is no source for one: the window writes them itself. The source is the
+  owner channel, `~/.construct-owner/answers/`, outside every sandbox's `allowWrite`: the owner runs
+  `pnpm owner:say "<words>"`, which puts the words and the time there as one file, and the window asks
+  `pnpm bus:request decisions:add --from answer "[owner] <words>"`. `bus:run` writes the decision only when the words
+  are a whole line of a file of the channel not used yet, and marks that file used in the same step; with none it
+  answers `window.request.refused` «слово владельца не найдено в канале владельца».
 - Owner questions, one list under `## Owner questions`, one item each, `- Q<N> open — …` or `- Q<N> answered — …`; the
   handoff's owner-waits field names them as `Q<N> open|answered [PR #M]`.
 - Everything else — answered questions, an earlier session's owner texts, progress lines, any other section — is moved
@@ -174,6 +202,9 @@ review when main merged in cleanly and refuses with `review again` otherwise
 one is carried by the bus;
 and `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`. A pull request of an
 owner-merged kind is gated locally the same way, committed, pushed and opened; the owner merges.
+When the owner commits a card tree's change themselves, the window builds the patch and the command it hands them only with
+`pnpm owner:command --tree <worktree> --card <id> --message <m>`, never by hand: the patch carries every file the card
+created, and the command commits without `-a`.
 A pull request that changes `src/` or `templates/` ends its description with the code matrix over the alphabet of
 [architecture/code-matrix.md](code-matrix.md), the common rules and those its brief declares, and its count line
 `■ n □ n · n`; the window does not arm auto-merge on one without that line. A pull request that changes only `scripts/`

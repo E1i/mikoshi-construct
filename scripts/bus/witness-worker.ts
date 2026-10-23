@@ -47,7 +47,7 @@ export class WitnessNode extends Node<WitnessOutcome> {
   constructor(parts: WitnessNodeParts) {
     super('witness', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
     this.executor = new WitnessExecutor({ db: parts.db, clock: parts.clock, trees: parts.trees, shell: parts.shell, log: line => this.log(line) })
-    this.subscribe(WITNESS_ON, event => this.detectOn(event, scopeOf(event)))
+    this.subscribe(WITNESS_ON, scopeOf)
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {

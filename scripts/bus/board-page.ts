@@ -116,7 +116,8 @@ const DECISIONS_DIALOG = 'decisions'
 const HANDOFF_STATUS = 'STATUS'
 const OPEN_HINT = '<span class="open-hint">open ›</span>'
 const CARD_TASK = /^#(\d+)$/
-const CARD_REFERENCE = /(?<!&)#(\d+)\b/g
+const CARD_REFERENCE = /(?<!&|PR )#(\d+)\b/g
+export const FLOW_META = 'live and recently ended cards by stage'
 const CODE_SPAN = /`([^`]+)`/g
 const HANDOFF_LINE = /^([^\s#:*-][^:]*):(?: (.*))?$/
 const LIST_ITEM = /^\s*[-*]\s+/
@@ -279,9 +280,9 @@ function failureSpan(facts: BusFacts): string {
   return `<span class="fail"${facts.failure === null ? ' data-none' : ''}>last failure <b>${escaped(facts.failure ?? 'none')}</b></span>`
 }
 
-function liveStages(cards: BusCard[]): CardsAtStage[] {
-  const live = cards.filter(isLive)
-  return CARD_STAGES.map(stage => ({ stage, cards: live.filter(card => card.stage === stage).map(card => card.id) }))
+function shownStages(facts: BusFacts): CardsAtStage[] {
+  const shown = backlogCards(facts.cards, facts.at, false)
+  return CARD_STAGES.map(stage => ({ stage, cards: shown.filter(card => card.stage === stage).map(card => card.id) }))
 }
 
 function inProgressOrder(stages: CardsAtStage[]): CardsAtStage[] {
@@ -289,7 +290,7 @@ function inProgressOrder(stages: CardsAtStage[]): CardsAtStage[] {
 }
 
 function flowStages(facts: BusFacts): CardsAtStage[] {
-  return inProgressOrder(liveStages(facts.cards))
+  return inProgressOrder(shownStages(facts))
 }
 
 function swatch(stage: CardStage | ItemStage, count?: number): string {
@@ -333,7 +334,7 @@ function waitsSlot(page: BoardPage): string {
 function flowSlot(page: BoardPage): string {
   const { facts } = page
   return [
-    `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2><span class="meta">live cards by stage</span></div>`,
+    `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2><span class="meta">${FLOW_META}</span></div>`,
     '<div class="flow">',
     ...flowStages(facts).map(entry => legendRow(entry, page)),
     `<div class="flow-note"><span>review queue <b>${facts.reviewQueue}</b></span>${failureSpan(facts)}</div>`,
@@ -906,7 +907,7 @@ header.panel {
   --_bar: var(--wire);
   --_value: var(--text);
   display: grid;
-  grid-template-columns: 3.25rem 1fr 5rem;
+  grid-template-columns: 3.25rem minmax(0, 1fr) max-content;
   gap: var(--space-s);
   align-items: center;
   color: var(--dim);
@@ -915,7 +916,7 @@ header.panel {
   &[data-over] { --_bar: var(--signal); --_value: var(--signal); }
 }
 .edd-k { text-transform: uppercase; letter-spacing: 0.08em; }
-.edd-v { text-align: end; color: var(--_value); }
+.edd-v { text-align: end; white-space: nowrap; color: var(--_value); }
 .edd-bar {
   block-size: 0.375rem;
   position: relative;

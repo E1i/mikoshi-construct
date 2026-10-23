@@ -55,6 +55,7 @@ it changed other files, and nothing at all where it changed none.
 | `--name <name>` | directory name | The project name written into `package.json` and the agent files. |
 | `--review <provider>` | `none` | `claude` adds the label-triggered review workflow. It needs a `CODE_REVIEW_API_KEY` secret. |
 | `--review-model <model>` | `claude-sonnet-5` | The model that review workflow runs. |
+| `--lanes <count>` | `3` | How many parallel lanes the bus runs, a whole number from 1 up, recorded as `lanes` in `construct.json`. |
 | `--yes`, `-y` | `false` | Ask nothing. Take the defaults and skip the confirmation. |
 | `--dry-run` | `false` | Print the plan and write nothing. |
 
@@ -120,8 +121,9 @@ already on disk. The same changed count decides whether the run names a next ste
 lines cannot disagree.
 
 A second `init` asks nothing `construct.json` already answers. The preset, the agent target, the
-project name and the code-review provider are all recorded there, so a re-run reads them and names
-them in the configuration block instead of putting the same four questions again. A flag still
+project name, the code-review provider and the number of parallel lanes are all recorded there, so a
+re-run reads them and names them in the configuration block instead of putting the same five
+questions again. A flag still
 overrides any of them, and the change is reported like any other change to a recorded value. The one
 question that survives is the confirmation before writing — it authorises this run, which no record
 can do on its behalf.
@@ -187,6 +189,7 @@ it is read and never written back.
 | `blocks` | For each `append-block` target the run wrote, the sha256 of the construct block's owned view (discovery bodies left out) and a snapshot of the `vars` it was written with, so `sync` can tell an edited block from an edited record. Measured at the write and never back-filled: a record from before manifest version 6 carries none. |
 | `policy` | The workspace import policy as structure, not as rendered source: one entry per package directory naming what it may import. What a run renders into `eslint.config.mjs` follows this, never the other way round. |
 | `discovery` | Where each marker lives, and who wrote it. |
+| `lanes` | How many parallel lanes the bus runs. A record without it reads as `3`. |
 
 ```json
 {
@@ -1064,6 +1067,7 @@ did in `.construct/attach.json`. No `construct.json`, no
 |---|---|---|
 | `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: in a terminal attach first offers the [candidates](#harness-candidates) it read; under `--yes` without it, the harness is recorded as `none`. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
+| `--lanes <count>` | asked, `3` | How many parallel lanes the bus runs, a whole number from 1 up. Recorded as `lanes` in `.construct/attach.json`, never in a `construct.json`; under `--yes` without it, `3`. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |
 | `--entry` | `false` | Print the entry protocol and exit `0`; nothing else runs, whatever other flags are given. |
 
@@ -1178,10 +1182,10 @@ yourself, then run it again. A collision found during the write keeps the output
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
    `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`,
-   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`.
-3. The guard entry in `.claude/settings.local.json` (below). The file is read again at this moment: if
-   it no longer parses, or already carries a guard entry, the files of this run are rolled back and
-   attach refuses.
+   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`, and the window hooks `.construct/window-hooks.mjs`.
+3. The guard entry and the three window hook entries in `.claude/settings.local.json` (below). The file
+   is read again at this moment: if it no longer parses, or already carries a guard or window hook
+   entry, the files of this run are rolled back and attach refuses.
 4. The record, `.construct/attach.json`.
 
 The carriers and the guard are written exclusively (`wx`), in the order listed above. If one of them appears between
@@ -1204,6 +1208,28 @@ the original, so the formatting of the rest of it may change. A session started 
 entry; nothing here claims that a session already running does. The guard imports its reader of the
 command line, `.construct/shell-parser.mjs`, when a call arrives; attach writes and detach removes both
 files, and a call arriving while the parser is missing is refused with exit 2.
+
+### The window hooks
+
+`.construct/window-hooks.mjs` keeps a tab window going with nobody at a terminal. It is self-contained:
+it imports only Node built-ins and runs nothing of the repository or of mikoshi-construct. attach
+registers it in the same `.claude/settings.local.json`, the same way, with one element appended to each
+of three lists: `hooks.Stop` runs it as `stop`, `hooks.PreCompact` as `pre-compact`, and
+`hooks.SessionStart` with the matcher `compact` as `session-start`, each a `command` hook with a timeout
+of 10 seconds. It creates each list only where it is missing.
+
+It reads the handoff at `CONSTRUCT_HANDOFF`, or `miko.md` in `CONSTRUCT_HANDOFF_DIR`, or
+`~/.construct/handoff/miko.md`, and does nothing in a card session (`CONSTRUCT_CARD`), a headless one
+(`CLAUDE_CODE_ENTRYPOINT=sdk-cli`) or one the bus raised (`CONSTRUCT_BUS_RAISED=1`). Every other
+session in an attached repository is a tab window, and without either variable all of them, in every
+attached repository, read the one handoff: while it ends `STATUS: CONTINUE`, none of them stops after
+its turn. This is accepted: an attached repository is one Mikoshi lives in. To keep a session out, or
+to give one repository its own handoff, start the session with `CONSTRUCT_HANDOFF` naming another file.
+
+At Stop it blocks the stop when the handoff's last `STATUS:` line is `CONTINUE` and lets the second
+stop in a row through; after a compaction it hands the session `additionalContext` naming the handoff
+to continue from; before a compaction it returns a `systemMessage`, which Claude Code shows the owner,
+saying that the handoff is missing or older than two minutes. It writes no file.
 
 The guard refuses the agent a `git commit`, `git push`, `git merge`, `git rebase` or `git tag` into the
 attached repository, or into a repository it cannot pin down, with exit code 2 and three lines, what,
@@ -1250,15 +1276,16 @@ lists.
 
 | Field | What it holds |
 |---|---|
-| `recordVersion` | `3`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought; a `2` differs from `3` only in that its `harness` is always a command. |
+| `recordVersion` | `4`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought; a `2` differs from `3` only in that its `harness` is always a command; a `3` carries no `settingsHook.window`, so only the guard entry is sought. |
 | `construct` | The CLI version that attached. |
 | `attachedAt` | ISO timestamp of the run. |
 | `harness` | `{ "command": "<command>" }`, the command passed or chosen, never a default; or the string `"none"` when the owner chose none or nothing was proposed. |
-| `files` | Every carrier path, `.construct/commit-guard.mjs` and `.construct/shell-parser.mjs` with the sha256 of the bytes written. The record itself is not in it. |
+| `files` | Every carrier path, `.construct/commit-guard.mjs`, `.construct/shell-parser.mjs` and `.construct/window-hooks.mjs` with the sha256 of the bytes written. The record itself is not in it. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
 | `ledgerCreated` | Whether `.construct/` was created by this run (`true`) or already existed (`false`). `detach` removes `.construct/` only when this is `true`; a record without the field (written before it existed) does not say, so `.construct/` stays. |
 | `settingsHook` | `file` (`.claude/settings.local.json`), `created` (`file`, `hooks` and `preToolUse`: whether this run created each), and `entry`, the element appended to `hooks.PreToolUse` as written. `detach` compares the entry by value and removes the file, `hooks` or `PreToolUse` only where `created` says attach made it and it is now empty. |
+| `settingsHook.window` | One element per window hook entry: `event` (`Stop`, `PreCompact` or `SessionStart`), `entry`, the element appended to that list as written, and `created`, whether this run created the list. `detach` treats each like the guard entry. |
 | `settingsHook.original` | Present only when `.claude/settings.local.json` existed, untracked, before attach: `copy`, the absolute path of the pre-image attach kept, `sha256`, the hash of those bytes, and `afterSha256`, the hash of the file as attach left it. The copy is `.construct/attach/<key>/settings.local.json.orig` under the user's home directory, outside the repository, where `<key>` is the first twelve hex digits of the sha256 of the repository's real path, a dash and its directory name; the directory is `0700` and the copy `0600`. The record holds the path and the hashes, never the bytes. `detach` refuses before any write when the copy is missing, elsewhere or hashes differently; when the file is still what attach left, it writes the original bytes back instead of cutting the entry out, and then deletes the copy. |
 | `ledgerHeld` | The ladder's runtime paths (`.construct/runs.jsonl`, `.construct/steps.jsonl`, `.construct/implement-agreed.txt`, `.construct/implement-args.json`, `.construct/atlas.html`, `.construct/browser`) that were already on disk at attach. `detach` removes the untracked ones not in this list and leaves those in it. |
 | `browserHeld` | The names inside `.construct/browser` at attach, sorted. When `.construct/browser` already existed, `detach` removes only the run directories not in this list; a record without the field leaves every run directory there. |
@@ -1273,7 +1300,7 @@ no `--yes`.
 
 ## construct detach
 
-The inverse of `attach`: removes what `.construct/attach.json` lists, the commit guard entry it added to
+The inverse of `attach`: removes what `.construct/attach.json` lists, the commit guard and window hook entries it added to
 `.claude/settings.local.json` included, and nothing else. It reads
 everything before it writes anything, so a refusal leaves the tree exactly as it found it. Alias:
 `jack-out`. There is no `--force`.
@@ -1302,14 +1329,16 @@ this order, taking the first class that matches:
 | changed | the bytes on disk hash differently from the record | the whole run refuses, listing the changed paths; nothing is removed |
 | to remove | the bytes are what attach wrote | removed |
 
-The commit guard entry in `.claude/settings.local.json` is classed after the files, in this order:
+The commit guard entry and the window hook entries in `.claude/settings.local.json` are classed together
+after the files, in this order; "such an element" is one in a recorded list that runs the recorded
+script:
 
 | Class | Test | What happens |
 |---|---|---|
 | adopted | `.claude/settings.local.json` is in the git index | named, left byte for byte |
-| already absent | the file is missing, or no element of `hooks.PreToolUse` runs `.construct/commit-guard.mjs` | named as `already absent: .claude/settings.local.json commit guard entry`; the guard script is still removed |
+| already absent | the file is missing, or no such element is left | named as `already absent: .claude/settings.local.json commit guard entry`; the guard script is still removed |
 | unreadable | the file no longer parses as a settings file | refused as `settings-unreadable`, nothing removed |
-| changed | an element runs the guard and differs from the recorded entry | the path joins the `changed` refusal, nothing removed |
+| changed | such an element differs from the recorded entry | the path joins the `changed` refusal, nothing removed |
 | to remove | every such element is the recorded entry | the entry is taken out first; a file attach created is deleted when nothing else is left in it, and counts as removed; an entry cut out of a file that stays is reported on its own line and not counted |
 
 Whatever else the file holds, grants or other hooks, is never read for the decision and never removed.
@@ -1851,7 +1880,6 @@ It runs no model and no `gh`.
 | `--taken <file\|->` | — | The pull request and issue numbers already taken, separated by whitespace, from a file or stdin. Required. |
 | `--parking <dir>` | `~/.construct/parking` | Where the cards are written, outside the repository. |
 | `--dir <dir>` | `.` | The repository the `touches`, `creates` and witness checks read. Never written. |
-| `--journal <file>` | `~/.construct/handoff/ghosts.jsonl` | The journal a `#<id>` in `depends` or `blocks` is read merged from: a `depends` or `blocks` is removed when a merge line written before `2026-10-12T17:04Z` names the task, or when the bus a caller wires in holds its card `merged` or `closed`, and kept when it is only done; a journal line written after that time counts only through the bus. `construct` reads merge lines and runs no `gh`. |
 | `--dry-run` | `false` | Print the cards, write nothing. |
 | `--confirm <token>` | — | Park cards whose corrections a person has seen: the token the run that held them printed. |
 | `--auto-confirm` | `false` | Accept corrections in advance: park at once, and record each card with its corrections in the bus a caller wires in. |
@@ -1876,11 +1904,11 @@ after every number taken in the parking directory and in `--taken`. Without `--t
 refuses: a card that reuses a pull request's number is worse than no card.
 
 **Corrected is written down.** Each card is checked against the repository under `--dir` and the
-journal, and every correction is written into the card and printed as
+bus a caller wires in, and every correction is written into the card and printed as
 `corrected: <field> — <was> → <now> — <reason>`: a `touches` path that does not exist becomes the one
 path named like it, a named `number` becomes the assigned one, a `contour` or `decision` outside the
-card grammar becomes the grammar's default, a `depends` or `blocks` on a card that is merged — a merge line in the journal before `2026-10-12T17:04Z`, or the
-card `merged` or `closed` in a bus the caller wires in — is removed (one that is only done is kept), and a `creates` entry that already exists is noted as not new. A path of a kind every change of
+card grammar becomes the grammar's default, a `depends` or `blocks` on a card the bus a caller wires in holds `merged` or `closed` is removed
+(one the bus holds in any other state is kept), and a `creates` entry that already exists is noted as not new. A path of a kind every change of
 which carries a companion gets each companion it lacks added to `touches`, from one table,
 `COMPANION_TABLE` in `src/commands/intake/check.ts`: `package.json` carries `CONTRIBUTING.md` and
 `tests/harness-membership.test.ts`, `src/program.ts` carries `README.md`, `docs/cli.md` and
@@ -1903,9 +1931,9 @@ corrections in advance: the cards are parked at once. When a caller wires a bus 
 `pnpm intake` does, every parked card gets its `card.admitted` in the bus, carrying `confirmation`
 `person`, `auto` or `none` (no correction to confirm) — so an auto-confirmed run is recorded with the
 corrections it accepted — and `bodySha`, the digest of the card's `touches` line and its text below its
-header, the task and its witnesses. Intake writes no line to `--journal`: the bus is the record, and
-numbers, admissions and amendments read it, counting the `intake` lines of `--journal` written before
-`2026-10-12T17:04Z` as history. The published CLI has no bus and records nothing beyond the parked file. A bus-wired run writes no parking file and lays no lane directory: the card's text travels in its `card.admitted` alone, the bus lays its lane, and `pnpm intake --export` below is how that text reaches a file. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
+header, the task and its witnesses. The bus is the record: closed and merged cards, numbers,
+admissions and amendments are read from it alone, and intake reads no journal file. The published CLI
+has no bus and records nothing beyond the parked file. A bus-wired run writes no parking file and lays no lane directory: the card's text travels in its `card.admitted` alone, the bus lays its lane, and `pnpm intake --export` below is how that text reaches a file. A confirmed card keeps the `who` of the draft, unless it is held for the window by an `unclear:` line or by the split signal below.
 
 **Too big to take whole.** Before a card is parked, intake counts four signals of complexity from its
 `touches` and its `unclear:` lines: more than 6 `touches` entries or more than 2 areas (mechanism,
@@ -1945,8 +1973,8 @@ whether a bus was wired to the run: only a bus-wired run, such as this repositor
 appends `card.admitted`, the event this repository's `task:start` and shift read; the published CLI has
 no bus and records nothing beyond the file. When a bus database exists on the machine (`~/.construct/bus.db`, or the
 file `CONSTRUCT_BUS_DB` names) and the run has no bus wired, `--admit` refuses with exit `1`, writes nothing and
-names `pnpm intake --admit`, so a card is never admitted beside a bus that does not hear of it. A card the journal already admitted is amended when its card line, task text or
-witnesses or its `touches` line differ from the latest `intake` line for its number — or that line
+names `pnpm intake --admit`, so a card is never admitted beside a bus that does not hear of it. A card the bus already admitted is amended when its card line, task text or
+witnesses or its `touches` line differ from the latest `card.admitted` the bus holds for its number — or that line
 recorded no `bodySha`, so the text it admitted is unknown: the card is checked with the parking grammar and held behind a token
 exactly as on admission, and its new `intake` line carries `"source":"amend"`. An admitted card that
 did not change is reported and nothing is written: no bus is wired to `construct intake`. An `intake` line written before `bodySha` covered
@@ -1954,7 +1982,7 @@ the `touches` line records no touches, so a card whose latest line is one of tho
 its card line, task text or witnesses change; a change to its `touches` line alone is not seen until
 then. `--dry-run` prints the card it would admit. A first admission whose `depends` still name a card that
 is parked, done or known to the bus, and is not merged, is not admitted: before any confirmation is
-asked, the file and the journal stay as they are, a bus-wired run appends a `card.waiting` naming those
+asked, the file stays as it is, a bus-wired run appends a `card.waiting` naming those
 cards, and the exit is `3`; `--dry-run` reports the same wait with the same exit and writes nothing; run
 `--admit` again once they merge. A `depends` on a card that is neither parked, known to the bus, done nor
 merged does not wait: the card is admitted with an `unclear:` mark. An amend of an admitted card never waits.
