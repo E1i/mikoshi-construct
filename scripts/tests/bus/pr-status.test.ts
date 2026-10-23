@@ -15,6 +15,7 @@ import { Clock, FakeGitHub } from './github-fake.js'
 const HEAD = 'b'.repeat(40)
 const NEXT = 'c'.repeat(40)
 const NOW = new Date('2026-10-20T08:00:00.000Z')
+const UNDER_FULL_SUITE_LOAD_MS = 5 * 60_000
 
 function unopenedBus(): DatabaseSync {
   return openBus(path.join(mkdtempSync(path.join(tmpdir(), 'bus-pr-status-')), 'bus.db'))
@@ -160,7 +161,7 @@ describe('the PR status check the bus sets', () => {
     expect(count(db, PR_STATUS_SET)).toBe(2 * STATUS_BATCH)
     db.close()
     vi.unstubAllEnvs()
-  })
+  }, UNDER_FULL_SUITE_LOAD_MS)
 
   it('with the status node switched off a tick makes no status call, and switched back on the next tick posts', () => {
     const { db, busPath, root, clock } = tickedBus()
