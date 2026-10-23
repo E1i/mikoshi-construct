@@ -7,7 +7,7 @@ empty repository.
 
 ```bash
 mkdir my-service && cd my-service
-npx mikoshi-construct init          # interactive: preset, agent, project name
+npx mikoshi-construct init          # interactive: preset, agent, project name, parallel lanes
 pnpm install && pnpm run quality    # green before you write a line
 ```
 

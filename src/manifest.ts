@@ -10,6 +10,7 @@ import { RecordAheadOfReader } from './record-ahead.js'
 
 export const MANIFEST_FILE = 'construct.json'
 export const MANIFEST_VERSION = 6
+export const DEFAULT_LANES = 3
 
 export const DISCOVERY_MARKERS = [
   'product',
@@ -77,6 +78,7 @@ export interface Manifest {
   policy: PolicyRecord | null
   milestones?: string[]
   atlas?: AtlasRecord
+  lanes?: number
 }
 
 export function sha256(content: string): string {
@@ -107,6 +109,7 @@ export function buildManifest(input: {
   contracts: boolean
   previous: Manifest | null
   policy: WorkspaceImports | null
+  lanes?: number
 }): Manifest {
   const written: Record<string, string> = {}
   for (const op of input.written)
@@ -134,6 +137,7 @@ export function buildManifest(input: {
     discovery: input.previous?.discovery ?? { baseSha: null, filledAt: null, markers },
     sync: input.previous?.sync ?? null,
     policy: input.policy == null ? input.previous?.policy ?? null : { workspaceImports: input.policy },
+    lanes: input.lanes ?? input.previous?.lanes,
   }
 }
 
@@ -202,6 +206,10 @@ function upgradeAtlas(raw: unknown): AtlasRecord | undefined {
   return typeof value.open === 'string' && value.open !== '' ? { open: value.open } : undefined
 }
 
+export function isLaneCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
 function declaredVersion(raw: unknown): number {
   const value = (raw as { manifestVersion?: unknown }).manifestVersion
   return typeof value === 'number' && Number.isInteger(value) ? value : 0
@@ -231,6 +239,7 @@ export function upgradeManifest(raw: unknown): Manifest {
     sync: upgradeSync(manifest.sync),
     policy: upgradePolicy(manifest.policy),
     atlas: upgradeAtlas(manifest.atlas),
+    lanes: isLaneCount(manifest.lanes) ? manifest.lanes : undefined,
   }
 }
 

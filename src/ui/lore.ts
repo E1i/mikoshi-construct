@@ -37,8 +37,10 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   askAi: string
   askName: string
   askReview: string
+  askLanes: string
   presetUnavailable: string
   nameInvalid: string
+  lanesInvalid: string
   cancelled: string
   needsTerminal: string
   unknownFlag: (flags: string[]) => string
@@ -378,8 +380,10 @@ export const LORE: Lore = {
   askAi: 'Which Netrunners will jack in?',
   askName: 'Project name',
   askReview: 'Add the Claude code-review workflow on pull requests? (label-triggered, needs a CODE_REVIEW_API_KEY secret)',
+  askLanes: 'How many parallel lanes will the Netrunners run?',
   presetUnavailable: 'not materialized yet in this version',
   nameInvalid: 'lowercase letters, digits, "-", "." and "_" only',
+  lanesInvalid: 'a whole number of lanes, 1 or more',
   cancelled: 'Netrunner jacked out. Nothing was written.',
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
   unknownFlag: (flags: string[]) => `BREACH FAILED // UNKNOWN ICE: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not wired into this command; nothing was written`,
@@ -762,8 +766,10 @@ export const PLAIN_LORE: Lore = {
   askAi: 'AI agents',
   askName: 'Project name',
   askReview: 'Add the Claude code-review workflow on pull requests? (label-triggered, needs a CODE_REVIEW_API_KEY secret)',
+  askLanes: 'How many parallel lanes?',
   presetUnavailable: 'not available yet in this version',
   nameInvalid: 'lowercase letters, digits, "-", "." and "_" only',
+  lanesInvalid: 'a whole number of lanes, 1 or more',
   cancelled: 'Cancelled. Nothing was written.',
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
   unknownFlag: (flags: string[]) => `Unknown ${flags.length === 1 ? 'flag' : 'flags'}: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not part of this command; nothing was written.`,
