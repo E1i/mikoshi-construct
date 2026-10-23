@@ -250,7 +250,7 @@ describe('the update node', () => {
     made.gitHub.pulls.get(982)!.mergeable_state = 'behind'
     made.tick()
     const first = lastEventOf(made, 'pr.observed', 981)
-    node.failOnNextCall(2)
+    node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
     expect(byEvent(made)).toEqual([])
     expect(cursorOf(made)).toBe(cursor)

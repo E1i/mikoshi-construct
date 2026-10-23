@@ -283,7 +283,7 @@ describe('the answer node', () => {
 
     const first = stopped(made, 905)
     const second = stopped(made, 906)
-    node.failOnNextCall(2)
+    node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
     expect(detected(made, 'event')).toEqual([])
     expect(cursorOf(made)).toBe(cursor)
