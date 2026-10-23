@@ -202,6 +202,9 @@ review when main merged in cleanly and refuses with `review again` otherwise
 one is carried by the bus;
 and `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`. A pull request of an
 owner-merged kind is gated locally the same way, committed, pushed and opened; the owner merges.
+When the owner commits a card tree's change themselves, the window builds the patch and the command it hands them only with
+`pnpm owner:command --tree <worktree> --card <id> --message <m>`, never by hand: the patch carries every file the card
+created, and the command commits without `-a`.
 A pull request that changes `src/` or `templates/` ends its description with the code matrix over the alphabet of
 [architecture/code-matrix.md](code-matrix.md), the common rules and those its brief declares, and its count line
 `■ n □ n · n`; the window does not arm auto-merge on one without that line. A pull request that changes only `scripts/`
