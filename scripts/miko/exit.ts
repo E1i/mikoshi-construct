@@ -13,10 +13,12 @@ import { realRoleStopObserver } from '../shift/role-bus.js'
 import { appendExitLine, exitLineOf, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
 import { windowEndObserver } from './role-end.js'
+import { tabWindowOf } from './tab.js'
 
 export const FRESH_MS = 2 * 60 * 1000
 export const LOOP_SCRIPT = path.join('scripts', 'miko', 'loop.ts')
 export const NOT_AT_A_STOP_CONDITION = 'not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card'
+export const TAB_THRESHOLD = 'in a tab window a threshold ends no session: continue in this session; compaction carries it on from the handoff (PreCompact insures it, SessionStart compact returns the continue prompt); nothing ended'
 export const SANDBOX_REFUSAL = 'outside the pnpm miko loop the sandbox lets this command neither find nor signal any process: nothing ended; run the session under pnpm miko'
 const CLAUDE = 'claude'
 const ARGV_HEAD_NAMING_THE_PROGRAM = 2
@@ -45,6 +47,7 @@ export interface MikoExitDeps {
   raised?: boolean
   observeStop?: (stop: RoleStop) => void
   endWindow?: (end: WindowEnd) => void
+  tab?: boolean
 }
 
 export function parsePs(text: string): ProcessRow[] {
@@ -123,6 +126,13 @@ export function loopExitDecision(handoffMtime: number | undefined, now: number, 
   return { kill: null, reason, line: `the loop ends the session at the ${reason} limit: the pnpm miko loop starts the next session` }
 }
 
+export function tabThresholdDecision(handoffMtime: number | undefined, now: number, status: string | null, readings: ExitReadings): ExitDecision | null {
+  const reason = stopReasonOf(status, readings)
+  if (reason === null || reason === 'done')
+    return null
+  return { refuse: staleHandoffRefusal(handoffMtime, now) ?? TAB_THRESHOLD }
+}
+
 export function isPermissionDenied(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'EPERM' || /EPERM|not permitted/i.test(error instanceof Error ? error.message : String(error))
 }
@@ -141,6 +151,9 @@ function chainOf(deps: MikoExitDeps): ProcessRow[] | null {
 function decisionOf(deps: MikoExitDeps, status: string | null, readings: ExitReadings): ExitDecision {
   if (deps.loopRequest !== undefined)
     return loopExitDecision(deps.handoffMtime(), deps.now(), status, readings)
+  const tab = deps.tab === true ? tabThresholdDecision(deps.handoffMtime(), deps.now(), status, readings) : null
+  if (tab !== null)
+    return tab
   const chain = chainOf(deps)
   return chain === null ? { refuse: SANDBOX_REFUSAL } : exitDecision(chain, deps.handoffMtime(), deps.now(), status, readings)
 }
@@ -240,6 +253,7 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
     raised: raisedByTheBus(process.env),
     observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
     endWindow: windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) }),
+    tab: tabWindowOf(process.env) !== null,
   }
 }
 
