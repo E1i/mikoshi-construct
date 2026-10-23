@@ -10,7 +10,7 @@ const GRAPH: Graph = new Map([
   ['scripts/bus/merge-worker.ts', ['scripts/bus/db.ts']],
   ['scripts/bus/review-worker.ts', ['scripts/bus/db.ts']],
   ['scripts/ghosts/launch.ts', ['scripts/bus/db.ts']],
-  ['scripts/docs/print.ts', []],
+  ['scripts/notes/print.ts', []],
   ['scripts/tests/bus/merge-worker.test.ts', ['scripts/bus/merge-worker.ts']],
   ['scripts/tests/bus/review-worker.test.ts', ['scripts/bus/review-worker.ts']],
   ['scripts/tests/ghosts/launch.test.ts', ['scripts/ghosts/launch.ts']],
@@ -54,7 +54,7 @@ describe('the checks a change reaches follow the layers of the dependency graph'
   })
 
   it('a test that spawns a changed script is selected though it imports nothing', () => {
-    const run = layersRun(['scripts/docs/print.ts'], test => test === 'scripts/tests/notes/spawn.test.ts' ? 'tsx scripts/docs/print.ts' : '')
+    const run = layersRun(['scripts/notes/print.ts'], test => test === 'scripts/tests/notes/spawn.test.ts' ? 'tsx scripts/notes/print.ts' : '')
     expect(run.tests).toEqual(['scripts/tests/notes/spawn.test.ts'])
   })
 
@@ -104,7 +104,7 @@ describe('the checks a change reaches follow the layers of the dependency graph'
   })
 
   it('a test that names a changed script only by its file name is selected', () => {
-    const run = layersRun(['scripts/docs/print.ts'], test => test === 'scripts/tests/notes/spawn.test.ts' ? 'tsx print.ts' : '')
+    const run = layersRun(['scripts/notes/print.ts'], test => test === 'scripts/tests/notes/spawn.test.ts' ? 'tsx print.ts' : '')
     expect(run.tests).toEqual(['scripts/tests/notes/spawn.test.ts'])
   })
 
@@ -115,10 +115,10 @@ describe('the checks a change reaches follow the layers of the dependency graph'
 
   it('a change outside every scanned tree does not add the scanning tests', () => {
     const graph: Graph = new Map([
-      ['scripts/docs/print.ts', []],
+      ['scripts/notes/print.ts', []],
       ['tests/dependency-policy.test.ts', []],
     ])
-    const run = selectRun(['scripts/docs/print.ts'], graph, () => '')
+    const run = selectRun(['scripts/notes/print.ts'], graph, () => '')
     expect(run).toMatchObject({ kind: 'layers', tests: [] })
   })
 })

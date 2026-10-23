@@ -20,9 +20,9 @@ const MATRIX_MODULE = path.resolve(import.meta.dirname, '../../bus/check-matrix.
 const GRAPH: Graph = new Map([
   ['scripts/bus/db.ts', []],
   ['scripts/bus/merge-worker.ts', ['scripts/bus/db.ts']],
-  ['scripts/docs/print.ts', []],
+  ['scripts/notes/print.ts', []],
   ['scripts/tests/bus/merge-worker.test.ts', ['scripts/bus/merge-worker.ts']],
-  ['scripts/tests/notes/print.test.ts', ['scripts/docs/print.ts']],
+  ['scripts/tests/notes/print.test.ts', ['scripts/notes/print.ts']],
 ])
 
 const BRIEF = [
@@ -94,7 +94,7 @@ describe('the check matrix built from the catalog rows', () => {
   })
 
   it('rows the matrix leaves out carry why', async () => {
-    const untouched = buildMatrix(['scripts/docs/print.ts'], GRAPH, () => '', rowsOf({ find: 'a', replacement: 'b' }, 'scripts/tests/bus/merge-worker.test.ts', 'bus:merge'))
+    const untouched = buildMatrix(['scripts/notes/print.ts'], GRAPH, () => '', rowsOf({ find: 'a', replacement: 'b' }, 'scripts/tests/bus/merge-worker.test.ts', 'bus:merge'))
     expect(untouched.skipped.map(entry => entry.why)).toEqual(['its layer is not touched'])
     const unpredicted = buildMatrix(['scripts/bus/merge-worker.ts'], GRAPH, () => '', rowsOf({ find: 'a', replacement: 'b' }, null, 'bus:merge'))
     expect(unpredicted.skipped.map(entry => entry.why)).toEqual(['no test predicted to kill it'])

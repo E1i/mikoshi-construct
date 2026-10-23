@@ -19,6 +19,7 @@ export const BUS_SHARED: readonly string[] = [
 ]
 export const BUS_TESTS = 'scripts/tests/bus/'
 const LAYERS = readLayerMap()
+const SCRIPT_DIR = /^scripts\/([^/]+)\//
 const SOURCE_FILE = /\.ts$/
 const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
 
@@ -36,6 +37,8 @@ export function layerIn(map: LayerMap, file: string): string | null {
   if (underTestRoot(file) || !SOURCE_FILE.test(file))
     return null
   const layers = layersIn(map, file)
+  if (layers.length === 0)
+    return SCRIPT_DIR.exec(file)?.[1] ?? null
   return layers.length === 1 ? layers[0]! : null
 }
 
