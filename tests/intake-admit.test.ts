@@ -691,6 +691,17 @@ describe('witnessDowngrades', () => {
   it('names a removed witness and one that lost red on main, and not one that gained it or kept it', () => {
     expect(witnessDowngrades(['a; red on main', 'b', 'c; red on main', 'd'], ['a', 'b; red on main', 'c; red on main'])).toEqual(['a; red on main', 'd'])
   })
+
+  it('rewording a witness into the red on main form is not a downgrade', () => {
+    const before = '`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0; non-zero on main'
+    expect(witnessDowngrades([before], ['`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0 — red on main'])).toEqual([])
+    expect(witnessDowngrades([before], ['`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0, red on main'])).toEqual([])
+  })
+
+  it('rewording a red on main witness into the non-zero on main form is a downgrade', () => {
+    const before = '`pnpm exec vitest run tests/a.test.ts` exits 0 — red on main'
+    expect(witnessDowngrades([before], ['`pnpm exec vitest run tests/a.test.ts` exits 0; non-zero on main'])).toEqual([before])
+  })
 })
 
 describe('construct intake --admit says whether task:start will take the card', () => {
