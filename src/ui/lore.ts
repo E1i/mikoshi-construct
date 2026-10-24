@@ -244,6 +244,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   detachRefusedSettingsUnreadable: string
   detachRefusedOriginalCopy: string
   detachRefusedFactoryKeptAlive: string
+  detachRefusedBesideUnremovable: string
   detachFactoryKeepAlive: (plist: string) => string
   detachFactoryKeepAliveUnreadable: (plist: string) => string
   detachSettingsEntry: string
@@ -662,6 +663,7 @@ export const LORE: Lore = {
   detachRefusedFactoryKeptAlive: 'BREACH FAILED // FACTORY KEPT ALIVE: a keep-alive still names the factory beside this repository and would raise it again; unload and delete it, then run construct detach again; nothing was removed',
   detachFactoryKeepAlive: (plist: string) => `keep-alive ${plist}: launchctl bootout gui/$(id -u) ${plist}, then delete the file`,
   detachFactoryKeepAliveUnreadable: (plist: string) => `keep-alive ${plist} cannot be read, so whether it names the factory cannot be told: fix or remove it`,
+  detachRefusedBesideUnremovable: 'BREACH FAILED // BESIDE STUCK: a path the factory deployed beside this repository could not be removed; the repository and its attach record are untouched; free it, then run construct detach again',
   detachRefusedOriginalCopy: 'BREACH FAILED // PRE-IMAGE LOST: the copy of .claude/settings.local.json that attach kept is missing, is not the file attach read, or is not where attach keeps it; nothing was changed, the copy stays as the witness',
   detachSettingsEntry: '.claude/settings.local.json commit guard entry',
   detachEntryRemoved: (file: string) => `guard entry cut out of ${file}; the file stays`,
@@ -1057,6 +1059,7 @@ export const PLAIN_LORE: Lore = {
   detachRefusedFactoryKeptAlive: 'Refused: a keep-alive still names the factory beside this repository, and launchd would raise the factory into its place again after detach removed it; unload and delete it, then run `construct detach` again. Nothing was removed:',
   detachFactoryKeepAlive: (plist: string) => `keep-alive ${plist}: launchctl bootout gui/$(id -u) ${plist}, then delete the file`,
   detachFactoryKeepAliveUnreadable: (plist: string) => `keep-alive ${plist} cannot be read, so whether it names the factory cannot be told: fix or remove it`,
+  detachRefusedBesideUnremovable: 'Refused: a path the factory deployed beside this repository could not be removed, so detach stopped before changing the repository; the repository and its attach record are untouched. Free the path (permissions, a process holding it), then run `construct detach` again, which removes what is left:',
   detachRefusedOriginalCopy: 'Refused: the copy of .claude/settings.local.json that attach kept is missing, is not the file attach read, or is not where attach keeps copies, so the original bytes cannot be restored; nothing was changed and the copy stays as it is:',
   detachSettingsEntry: '.claude/settings.local.json commit guard entry',
   detachEntryRemoved: (file: string) => `removed the commit guard entry from ${file}; the file stays.`,

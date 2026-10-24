@@ -8,7 +8,7 @@ import { planExcludeRemoval, readExcludeBlockPaths } from '../attach/exclude.js'
 import { dropOriginal } from '../attach/original.js'
 import { ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, readAttachRecord } from '../attach/record.js'
 import { classifyEntry, isSettingsHook, SETTINGS_FILE } from '../attach/settings.js'
-import { keepAlivesHolding, removeEngram, removeFactoryBeside } from './beside.js'
+import { keepAlivesHolding, removeBeside } from './beside.js'
 import { classifyRecordedFiles, ofKind } from './classify.js'
 import { readTrackedPaths } from './index-reader.js'
 import { closeRecord, removeAttached } from './remove.js'
@@ -22,7 +22,7 @@ export interface DetachOptions {
   dir: string
 }
 
-export type DetachRefusalReason = 'orphan-block' | 'record-version' | 'record-ahead' | 'hook-record' | 'separator' | 'separator-mismatch' | 'changed' | 'settings-unreadable' | 'original-copy' | 'factory-kept-alive' | IndexUnreadable
+export type DetachRefusalReason = 'orphan-block' | 'record-version' | 'record-ahead' | 'hook-record' | 'separator' | 'separator-mismatch' | 'changed' | 'settings-unreadable' | 'original-copy' | 'factory-kept-alive' | 'beside-unremovable' | IndexUnreadable
 
 export interface DetachResult {
   status: 'done' | 'nothing-attached' | 'refused'
@@ -44,6 +44,7 @@ const REFUSAL_LINE: Record<DetachRefusalReason, (lore: Lore, paths: string[]) =>
   'settings-unreadable': lore => lore.detachRefusedSettingsUnreadable,
   'original-copy': lore => lore.detachRefusedOriginalCopy,
   'factory-kept-alive': lore => lore.detachRefusedFactoryKeptAlive,
+  'beside-unremovable': lore => lore.detachRefusedBesideUnremovable,
   'separator': lore => lore.detachRefusedSeparator,
   'separator-mismatch': lore => lore.detachRefusedSeparatorMismatch,
   'changed': (lore, paths) => lore.detachRefusedChanged(paths.length),
@@ -114,6 +115,9 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   const keptAlive = keepAlivesHolding(record.factoryBeside)
   if (keptAlive.length > 0)
     return refused(ui, 'factory-kept-alive', keptAlive.map(({ plist, unreadable }) => unreadable ? ui.lore.detachFactoryKeepAliveUnreadable(plist) : ui.lore.detachFactoryKeepAlive(plist)))
+  const beside = removeBeside(root, record.factoryBeside)
+  if ('unremovable' in beside)
+    return refused(ui, 'beside-unremovable', [beside.unremovable])
   const runtime = classifyRuntime(record, reading.tracked, readRuntimeListing(root))
 
   const entryLabel = ui.lore.detachSettingsEntry
@@ -124,10 +128,8 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   if (original != null)
     dropOriginal(original.copy)
   closeRecord(root, record, exclude)
-  const engram = removeEngram(root, record.factoryBeside)
-  const factory = removeFactoryBeside(record.factoryBeside)
-  const removed = [...(settingsDeleted ? [SETTINGS_FILE] : []), ...removal.removed, ...engram.removed, ...factory]
-  const leftBehind = [...removal.leftBehind, ...engram.leftBehind]
+  const removed = [...(settingsDeleted ? [SETTINGS_FILE] : []), ...removal.removed, ...beside.removed]
+  const leftBehind = [...removal.leftBehind, ...beside.leftBehind]
   for (const target of removed)
     ui.line(`  ${ui.theme.dim('-')} ${target}`)
   if (entryCutOut)

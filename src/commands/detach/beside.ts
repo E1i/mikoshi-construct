@@ -79,3 +79,24 @@ export function removeEngram(root: string, beside: FactoryBeside | undefined, ho
   const emptiedAbove = beside == null ? [] : removeUpTo(directory, beside.createdFrom)
   return { removed: [file, directory, ...emptiedAbove], leftBehind: [] }
 }
+
+export interface BesideUnremovable {
+  unremovable: string
+}
+
+function failedPath(error: unknown, fallback: string): string {
+  if (error instanceof Error && 'path' in error && typeof error.path === 'string')
+    return 'code' in error && typeof error.code === 'string' ? `${error.path} (${error.code})` : error.path
+  return fallback
+}
+
+export function removeBeside(root: string, beside: FactoryBeside | undefined, home: string = homedir()): EngramRemoval | BesideUnremovable {
+  try {
+    const engram = removeEngram(root, beside, home)
+    const factory = removeFactoryBeside(beside)
+    return { removed: [...engram.removed, ...factory], leftBehind: engram.leftBehind }
+  }
+  catch (error) {
+    return { unremovable: failedPath(error, beside?.home ?? engramFile(root, { attached: true, home })) }
+  }
+}

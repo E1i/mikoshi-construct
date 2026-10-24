@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -243,6 +243,26 @@ describe('detach removes what the factory deployed beside the repository and not
     runDetach(ui, { dir })
 
     expect(existsSync(engramRoot)).toBe(true)
+  })
+
+  it('a path beside the repository that cannot be removed is a refusal before the repository is touched, and a later detach finishes', async () => {
+    const dir = cloneCarryingItsOwnConstruct()
+    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    const factoryHome = path.join(home(), OWN_FACTORY_HOME)
+    const attached = snapshot(dir)
+    chmodSync(factoryHome, 0o500)
+
+    try {
+      expect(runDetach(ui, { dir })).toEqual({ status: 'refused', refusal: 'beside-unremovable', removed: [] })
+      expect(snapshot(dir)).toEqual(attached)
+      expect(readAttachRecord(dir)?.factoryBeside?.home).toBe(factoryHome)
+    }
+    finally {
+      chmodSync(factoryHome, 0o700)
+    }
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect(existsSync(factoryHome)).toBe(false)
   })
 
   it('refuses while a keep-alive names the factory home, and removes nothing', async () => {

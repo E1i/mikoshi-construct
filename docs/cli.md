@@ -1428,6 +1428,11 @@ too, since whether it names the factory cannot be told. The launch logs and sess
 started beside the repository are under its directory, in `bus/launch/`, and go with it. Whether a factory process still runs is the
 supervisor's judgement, not detach's: stop the factory before detaching it.
 
+What is beside the repository is removed before anything in it. When a path there cannot be removed
+(its permissions, a process holding it), detach refuses with `beside-unremovable`, naming the path,
+with the repository and its attach record untouched; free the path and run `construct detach` again,
+which removes what is left.
+
 detach writes nothing into `.git` beyond its block in `.git/info/exclude`: no ref, reflog or `[branch]`
 section is deleted. A card the factory cut leaves its branch and its worktree record in `.git`, and
 detach leaves both to the user, whose work they may hold; `git worktree remove <tree>` and
