@@ -5,6 +5,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/bus/bg.js'
@@ -24,6 +25,28 @@ const LAUNCHED_WITHIN_MS = 10_000
 const SYSTEM_BIN_DIRS = ['/usr/bin', '/bin']
 const UID = 501
 const USER_PATH = '/opt/user/bin:/usr/bin:/bin'
+const SECURITY_INVARIANTS = path.join(REPOSITORY, 'architecture', 'security-invariants.md')
+const FACTORY_SPAWNS = ['launchctl', 'nohup', 'ps']
+const LAUNCHCTL_SUBCOMMANDS = ['print', 'bootout', 'bootstrap']
+const SPAWN_BOUNDARY_TEST = 'construct-factory spawns only launchctl and the supervisor the package ships'
+const SPAWN_BOUNDARY_SANDBOX_LEVEL = 'none'
+const SPAWNS_LOG = 'spawns.jsonl'
+const NEVER_SPAWNED = ['pnpm', 'git']
+const NOHUP_ENTRIES = ['supervisor.js', 'run.js']
+const SPAWN_RECORDER = `import childProcess from 'node:child_process'
+import { appendFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
+import process from 'node:process'
+const log = process.env.STUB_OUT + '/${SPAWNS_LOG}'
+for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']) {
+  const original = childProcess[name]
+  childProcess[name] = function (command, ...rest) {
+    appendFileSync(log, JSON.stringify({ command, args: Array.isArray(rest[0]) ? rest[0] : [] }) + '\\n')
+    return original.call(this, command, ...rest)
+  }
+}
+syncBuiltinESMExports()
+`
 
 const roots: string[] = []
 
@@ -60,6 +83,51 @@ function keepAliveParts(home: string, launchctl: (args: string[]) => LaunchctlRu
 function plistValue(text: string, key: string): string | undefined {
   return new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(text)?.[1]
 }
+
+function linesOf(file: string): string[] {
+  return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(line => line !== '') : []
+}
+
+function spawnBoundaryRow(): string | undefined {
+  const text = readFileSync(SECURITY_INVARIANTS, 'utf8')
+  const block = text.slice(text.indexOf('<!-- construct:discover:security-invariants -->'), text.indexOf('<!-- /construct:discover:security-invariants -->'))
+  return block.split('\n').find(line => line.startsWith('| `construct-factory`'))
+}
+
+function clauseAfter(text: string, label: string): string {
+  const start = text.indexOf(label)
+  return start === -1 ? '' : text.slice(start + label.length, text.indexOf('. ', start))
+}
+
+function listAfter(text: string, label: string): string[] {
+  const clause = clauseAfter(text, label)
+  return [...clause.slice(0, clause.includes(';') ? clause.indexOf(';') : clause.length).matchAll(/`([^`]+)`/g)].map(match => match[1]!)
+}
+
+interface RecordedSpawn {
+  command: string
+  args: string[]
+}
+
+function recordedSpawns(file: string): RecordedSpawn[] {
+  return linesOf(file).map(line => JSON.parse(line) as RecordedSpawn)
+}
+
+describe('the construct-factory spawn boundary', () => {
+  it('security-invariants names the construct-factory spawn boundary and the test that holds it', () => {
+    const row = spawnBoundaryRow()
+    expect(row, 'a row starting | `construct-factory` inside the discovery block').toBeDefined()
+    const [invariant, enforcedBy] = row!.split(' | ')
+    expect(listAfter(invariant!, 'Spawns only: ')).toEqual(FACTORY_SPAWNS)
+    expect(listAfter(invariant!, '`launchctl` subcommands only: ')).toEqual(LAUNCHCTL_SUBCOMMANDS)
+    expect(listAfter(invariant!, 'Never spawned: ')).toEqual(NEVER_SPAWNED)
+    for (const entry of NOHUP_ENTRIES)
+      expect(clauseAfter(invariant!, '`nohup` targets only: ')).toContain(`\`${entry}\``)
+    expect(clauseAfter(invariant!, 'Sandbox: ')).toContain(`run at level \`${SPAWN_BOUNDARY_SANDBOX_LEVEL}\``)
+    expect(enforcedBy).toContain('`tests/factory-start.test.ts`')
+    expect(enforcedBy).toContain(`\`${SPAWN_BOUNDARY_TEST}\``)
+  })
+})
 
 describe('a factory process is launched as the package it runs from', () => {
   it('runs a worker as pnpm --silent <script> in this checkout and as node on its built file from an installed package', () => {
@@ -213,7 +281,9 @@ describe('the start command in the published package', () => {
     stub(bin, 'ps', 'exit 0')
     stub(bin, 'nohup', 'printf \'%s\\n\' "$*" >> "$STUB_OUT/nohup.argv"')
     stub(bin, 'launchctl', 'printf \'%s\\n\' "$*" >> "$STUB_OUT/launchctl.argv"\n[ "$1" = print ] && exit 1\nexit 0')
-    const env = { PATH: [bin, path.dirname(process.execPath), ...SYSTEM_BIN_DIRS].join(path.delimiter), HOME: home, STUB_OUT: out, CONSTRUCT_BUS_DB: path.join(packed.root, 'bus.db') }
+    const recorder = path.join(packed.root, 'record-spawns.mjs')
+    writeFileSync(recorder, SPAWN_RECORDER)
+    const env = { PATH: [bin, path.dirname(process.execPath), ...SYSTEM_BIN_DIRS].join(path.delimiter), HOME: home, STUB_OUT: out, CONSTRUCT_BUS_DB: path.join(packed.root, 'bus.db'), NODE_OPTIONS: `--import ${pathToFileURL(recorder).href}` }
     run = spawnSync(path.join(packed.prefix, 'bin', START_BIN), [], { cwd: user, env, encoding: 'utf8' })
   }, PACK_TIMEOUT_MS)
 
@@ -234,6 +304,28 @@ describe('the start command in the published package', () => {
     const built = (source: string): string => path.join(packed.installed, OUT_DIR, 'scripts', 'bus', source)
     expect(launched.map(line => line.slice(line.indexOf(' ') + 1)).sort()).toEqual([built('run.js'), `${built('supervisor.js')} ${SUPERVISE_FLAG}`].sort())
     expect(existsSync(path.join(busDirOf(path.join(packed.root, 'bus.db')), SUPERVISOR_LAUNCH.instanceFile!))).toBe(true)
+  })
+
+  it(SPAWN_BOUNDARY_TEST, async () => {
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const log = path.join(out, SPAWNS_LOG)
+    const nohups = (): RecordedSpawn[] => recordedSpawns(log).filter(spawn => spawn.command === 'nohup')
+    await waitFor(() => nohups().length >= 2, () => `two launches in ${log}`, LAUNCHED_WITHIN_MS)
+    const spawns = recordedSpawns(log)
+    expect(spawns.map(spawn => spawn.command).filter(command => !FACTORY_SPAWNS.includes(command))).toEqual([])
+    expect(spawns.filter(spawn => NEVER_SPAWNED.includes(path.basename(spawn.command)) || spawn.args.some(arg => NEVER_SPAWNED.includes(arg)))).toEqual([])
+    const launchctl = spawns.filter(spawn => spawn.command === 'launchctl')
+    expect(launchctl.length > 0).toBe(process.platform === KEEP_ALIVE_PLATFORM)
+    expect(launchctl.map(spawn => spawn.args[0]).filter(subcommand => !LAUNCHCTL_SUBCOMMANDS.includes(subcommand!))).toEqual([])
+    const shipped = `${path.join(packed.installed, OUT_DIR)}${path.sep}`
+    for (const { args } of nohups()) {
+      expect(path.basename(args[0]!), args.join(' ')).toBe(path.basename(process.execPath))
+      expect(args[1]!.startsWith(shipped), args.join(' ')).toBe(true)
+    }
+    expect(nohups().map(spawn => path.basename(spawn.args[1]!)).sort()).toEqual([...NOHUP_ENTRIES].sort())
+    const ps = spawns.filter(spawn => spawn.command === 'ps')
+    expect(ps.length > 0).toBe(true)
+    expect(ps.filter(spawn => !spawn.args[0]?.startsWith('-'))).toEqual([])
   })
 
   it.runIf(process.platform === KEEP_ALIVE_PLATFORM)('the published command loads a keep-alive that reruns the installed starter in the user repository', () => {
