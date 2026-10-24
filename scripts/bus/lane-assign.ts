@@ -299,7 +299,7 @@ export function relayAmended(db: DatabaseSync, cardId: number, count: number, ts
 
 function relayOne(db: DatabaseSync, row: AdmittedRow, stalled: ReadonlySet<number>, count: number, ts: string, actor: string): boolean {
   const current = currentLane(db, row.card_id)
-  if (current === null || !NOT_STARTED_STATES.includes(row.state))
+  if (!NOT_STARTED_STATES.includes(row.state))
     return false
   const card = laneCardOf(db, row.card_id)
   const live = liveLanes(db)
