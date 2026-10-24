@@ -5,11 +5,9 @@ import { readBodyCard } from '../../src/card/grammar.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { ownerPathsOf } from '../../src/commands/intake/check.js'
-import { MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
+import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
 import { matchGlob } from '../shredder/glob.js'
 import { readOwnerMergeKinds } from '../shredder/reader.js'
-import { cardBodyText } from './card-bodies.js'
-import { cardBodyShaOfCard } from './queue.js'
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const VERSION_BRANCH = /^changeset-release\//
@@ -289,13 +287,19 @@ export function cardWitnessesOf(body: string): CardWitnesses {
   }
 }
 
+const LATEST_ADMISSION_WITH_TEXT = `
+  SELECT json_extract(payload, '$.bodySha') AS body_sha, json_extract(payload, '$.text') AS text FROM events
+  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ?
+    AND json_type(payload, '$.bodySha') = 'text' AND json_type(payload, '$.text') = 'text'
+  ORDER BY id DESC LIMIT 1
+`
+
 export function witnessSubjectOf(db: DatabaseSync, cardId: number): WitnessSubject | null {
-  const cardBody = cardBodyShaOfCard(db, cardId)
-  const text = cardBodyText(db, cardId)
-  if (cardBody === null || text === null)
+  const admission = db.prepare(LATEST_ADMISSION_WITH_TEXT).get(cardId) as { body_sha: string, text: string } | undefined
+  if (admission === undefined)
     return null
-  const witnesses = cardWitnessesOf(text)
-  return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody, ...witnesses }
+  const witnesses = cardWitnessesOf(admission.text)
+  return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody: admission.body_sha, ...witnesses }
 }
 
 export interface WitnessDenial {

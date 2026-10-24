@@ -130,6 +130,15 @@ describe('the witness node', () => {
     expect(witnessDenial(w.db, CARD, w.head, w.base)!.detail).toMatch(/is red: P7/)
   })
 
+  it('a witness judges the witnesses of the body whose sha it records', () => {
+    const w = world([], 'done.txt')
+    const amended = parkingFileText({ card: `#${CARD} witnessed [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: 'feat/witnessed', touches: ['amended.txt'], continue: 'stop', who: 'shift', body: 'Write amended.txt.\n\nWitnesses:\n- `test -f amended.txt` exits 0; red on main' })
+    const amendedSha = textSha(amended).slice(0, 12)
+    appendEvent(w.db, { ts: '2026-10-21T10:01:30.000Z', type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:amended`, payload: { card: `#${CARD}`, lane: 'lane-1', text: amended, textSha: textSha(amended), bodySha: amendedSha }, legacy: false })
+
+    expect(witnessSubjectOf(w.db, CARD)).toEqual({ cardId: CARD, cardBody: amendedSha, acceptance: [{ criterion: '`test -f amended.txt` exits 0; red on main', command: 'test -f amended.txt' }], invariants: [] })
+  })
+
   it('a card with no admitted witnesses is not held by the gate', () => {
     const w = world([], 'done.txt')
     expect(witnessDenial(w.db, CARD + 1, w.head, w.base)).toBeNull()
