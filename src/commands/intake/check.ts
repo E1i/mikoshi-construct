@@ -21,6 +21,8 @@ const HOME_REFERENCE = /^~(?:\/|$)|\$\{?HOME\b/
 const ARGUMENT_PREFIX = /^(?:[\w-]+=|\d*[<>]+&?|['"(])+/
 const TRAILING_QUOTES = /['")]+$/
 const DEVICE_ROOT = '/dev/'
+const OUTPUT_REDIRECT = /(?:\d|&)?>>?\s*\S+/g
+const INFORMATION_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help'])
 const CURRENT_DIRECTORY_PREFIX = /^\.\//
 const TREE_READING_COMMANDS = new Set(['pnpm', 'npm', 'npx', 'yarn', 'node', 'git', 'vitest', 'tsx', 'tsc', 'eslint'])
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
@@ -100,7 +102,6 @@ export interface CheckFacts {
   done: ReadonlySet<string>
   merged: ReadonlySet<string>
   repository: RepositoryFacts
-  root?: string
   ownerMerges?: OwnerPaths
   published?: readonly string[]
 }
@@ -376,43 +377,40 @@ function proseUnclear(witness: string): UnclearField[] {
 }
 
 function argumentsOf(command: string): string[] {
-  const word = commandWord(command)
-  const words = command.trim().split(/\s+/)
+  const read = command.replace(TEST_NAME_ARGUMENT, ' ').replace(OUTPUT_REDIRECT, ' ')
+  const word = commandWord(read)
+  const words = read.trim().split(/\s+/)
   return words.filter((_, index) => index !== words.indexOf(word ?? '')).map(token => token.replace(ARGUMENT_PREFIX, '').replace(TRAILING_QUOTES, '')).filter(token => token !== '')
 }
 
-function isUnder(root: string, target: string): boolean {
-  const inside = path.relative(root, target)
-  return inside === '' || (!inside.startsWith('..') && !path.isAbsolute(inside))
-}
-
-function outsidePath(command: string, root: string | undefined): string | undefined {
+function outsidePath(command: string): string | undefined {
   const word = commandWord(command)
   if (word !== undefined && HOME_REFERENCE.test(word))
     return word
-  return argumentsOf(command).find(token => HOME_REFERENCE.test(token) || (path.isAbsolute(token) && !token.startsWith(DEVICE_ROOT) && (root === undefined || !isUnder(root, token))))
+  return argumentsOf(command).find(token => HOME_REFERENCE.test(token) || (path.isAbsolute(token) && !token.startsWith(DEVICE_ROOT)))
 }
 
-function outsidePathsUnclear(commands: readonly string[], witness: string, root: string | undefined): UnclearField[] {
+function outsidePathsUnclear(commands: readonly string[], witness: string): UnclearField[] {
   return commands.flatMap((command) => {
-    const outside = outsidePath(command, root)
-    return outside === undefined ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" names ${outside}, a path outside the repository; the tree under test cannot change it, so the witness cannot be red on the base` }]
+    const outside = outsidePath(command)
+    return outside === undefined ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" names ${outside}, a path outside the worktree the witness runs in; the tree under test cannot change it, so the witness cannot be red on the base` }]
   })
 }
 
 function readsTheTree(command: string, repository: RepositoryFacts): boolean {
   const word = commandWord(command) ?? ''
+  const named = argumentsOf(command)
   if (TREE_READING_COMMANDS.has(word))
-    return true
-  const named = word.includes('/') ? [word, ...argumentsOf(command)] : argumentsOf(command)
-  return named.some(token => !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token) && repository.exists(token.replace(CURRENT_DIRECTORY_PREFIX, '')))
+    return named.length === 0 || named.some(token => !INFORMATION_FLAGS.has(token))
+  const paths = word.includes('/') ? [word, ...named] : named
+  return paths.some(token => !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token) && repository.exists(token.replace(CURRENT_DIRECTORY_PREFIX, '')))
 }
 
 function headIndependentUnclear(commands: readonly string[], witness: string, repository: RepositoryFacts): UnclearField[] {
   return commands.some(command => readsTheTree(command, repository)) ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" reads nothing the tree under test can change; its result does not depend on the head` }]
 }
 
-function witnessesUnclear(card: DraftCard, repository: RepositoryFacts, root: string | undefined): UnclearField[] {
+function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): UnclearField[] {
   return card.witnesses.flatMap((witness) => {
     const commands = [...witness.matchAll(BACKTICKED)].map(match => match[1]!).filter(command => (commandWord(command) ?? '') !== '')
     const words = commands.map(command => commandWord(command)!)
@@ -424,7 +422,7 @@ function witnessesUnclear(card: DraftCard, repository: RepositoryFacts, root: st
       ...movingRefsUnclear(witness),
       ...bashSyntaxUnclear(witness),
       ...proseUnclear(witness),
-      ...outsidePathsUnclear(commands, witness, root),
+      ...outsidePathsUnclear(commands, witness),
       ...(unresolved.length === 0 ? headIndependentUnclear(commands, witness, repository) : []),
     ]
   })
@@ -473,7 +471,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
       ...touched.unclear,
       ...depends.unclear,
       ...blocks.unclear,
-      ...witnessesUnclear(card, facts.repository, facts.root),
+      ...witnessesUnclear(card, facts.repository),
     ],
     corrections: byFieldOrder([
       ...numberCorrection(card, assigned, facts),

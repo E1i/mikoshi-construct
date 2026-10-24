@@ -233,29 +233,52 @@ describe('intake fact check', () => {
     expect(checked!.unclear.map(entry => entry.reason)).toEqual([`witness "${witness}" is written as prose: '→' is a step no command runs; a witness is a command and its exit`])
   })
 
+  function outside(witness: string, named: string): string {
+    return `witness "${witness}" names ${named}, a path outside the worktree the witness runs in; the tree under test cannot change it, so the witness cannot be red on the base`
+  }
+
+  function headIndependent(witness: string): string {
+    return `witness "${witness}" reads nothing the tree under test can change; its result does not depend on the head`
+  }
+
   it('a witness naming a path outside the repository is refused', () => {
-    const root = scratch()
-    const witnesses = ['`test -f ~/.construct/probes/report.md` exits 0', '`grep -q done $HOME/notes.md` exits 0', '`grep -q done /etc/hosts` exits 0', `\`grep -q done ${path.join(root, 'src/a.ts')} >/dev/null\` exits 0`]
-    const [checked] = checkDraft([draftCard({ witnesses })], [2], facts({ root, repository: repositoryFacts({ exists: relative => relative === 'src/a.ts' || relative === 'scripts/a.ts' }) }))
+    const witnesses = ['`test -f ~/.construct/probes/report.md` exits 0', '`grep -q done $HOME/notes.md` exits 0', '`grep -q done /etc/hosts` exits 0', '`grep -q done src/a.ts >/dev/null` exits 0']
+    const [checked] = checkDraft([draftCard({ witnesses })], [2], facts({ repository: repositoryFacts({ exists: relative => relative === 'src/a.ts' || relative === 'scripts/a.ts' }) }))
     expect(checked!.unclear.map(entry => entry.reason)).toEqual([
-      `witness "${witnesses[0]}" names ~/.construct/probes/report.md, a path outside the repository; the tree under test cannot change it, so the witness cannot be red on the base`,
-      `witness "${witnesses[0]}" reads nothing the tree under test can change; its result does not depend on the head`,
-      `witness "${witnesses[1]}" names $HOME/notes.md, a path outside the repository; the tree under test cannot change it, so the witness cannot be red on the base`,
-      `witness "${witnesses[1]}" reads nothing the tree under test can change; its result does not depend on the head`,
-      `witness "${witnesses[2]}" names /etc/hosts, a path outside the repository; the tree under test cannot change it, so the witness cannot be red on the base`,
-      `witness "${witnesses[2]}" reads nothing the tree under test can change; its result does not depend on the head`,
-      `witness "${witnesses[3]}" reads nothing the tree under test can change; its result does not depend on the head`,
+      outside(witnesses[0]!, '~/.construct/probes/report.md'),
+      headIndependent(witnesses[0]!),
+      outside(witnesses[1]!, '$HOME/notes.md'),
+      headIndependent(witnesses[1]!),
+      outside(witnesses[2]!, '/etc/hosts'),
+      headIndependent(witnesses[2]!),
     ])
+  })
+
+  it('an absolute path into the checkout intake reads is refused at intake and at admit alike, since the witness runs in another worktree', () => {
+    const dir = repository(['src/a.ts'])
+    const absolute = path.join(dir, 'src/a.ts')
+    const witness = `\`grep -q done ${absolute}\` exits 0`
+    const reason = `unclear: witnesses — ${outside(witness, absolute)}`
+    const { result, parking } = intake([card({ witnesses: [witness] })], { dir })
+    expect(written(result, parking, 2)).toContain(reason)
+    const { status, parked } = admitParked(dir, 'src/a.ts', witness)
+    expect(status).toBe('admitted')
+    expect(readFileSync(parked, 'utf8')).toContain(reason)
+  })
+
+  it('a test-name pattern or an output redirect target that looks absolute is no path the witness reads', () => {
+    const repo = repositoryFacts({ exists: relative => relative === 'scripts/a.ts' || relative === 'tests/api.test.ts' })
+    const witnesses = ['`pnpm exec vitest run tests/api.test.ts -t \'/api/users\'` exits 0', '`pnpm exec vitest run tests/api.test.ts --testNamePattern=/api/users` exits 0', '`grep -c done tests/api.test.ts > /tmp/out` exits 0', '`grep -c done tests/api.test.ts 2>/tmp/err` exits 0']
+    const [checked] = checkDraft([draftCard({ witnesses })], [2], facts({ repository: repo }))
+    expect(checked!.unclear).toEqual([])
   })
 
   it('a witness that does not depend on the head is refused', () => {
     const repo = repositoryFacts({ exists: relative => ['src/a.ts', 'scripts/a.ts', 'scripts/run.sh'].includes(relative) })
-    const witnesses = ['`true` exits 0', '`echo done` exits 0', '`test -f src/a.ts` exits 0', '`./scripts/run.sh` exits 0', '`pnpm run quality` is green', '`git diff --quiet HEAD` exits 0']
-    const [checked] = checkDraft([draftCard({ witnesses })], [2], facts({ repository: repo }))
-    expect(checked!.unclear.map(entry => entry.reason)).toEqual([
-      'witness "`true` exits 0" reads nothing the tree under test can change; its result does not depend on the head',
-      'witness "`echo done` exits 0" reads nothing the tree under test can change; its result does not depend on the head',
-    ])
+    const refused = ['`true` exits 0', '`echo done` exits 0', '`node -v` exits 0', '`git --version` exits 0', '`pnpm --version` exits 0']
+    const kept = ['`test -f src/a.ts` exits 0', '`./scripts/run.sh` exits 0', '`pnpm run quality` is green', '`git diff --quiet HEAD` exits 0', '`tsc` exits 0']
+    const [checked] = checkDraft([draftCard({ witnesses: [...refused, ...kept] })], [2], facts({ repository: repo }))
+    expect(checked!.unclear.map(entry => entry.reason)).toEqual(refused.map(headIndependent))
   })
 
   it('the real admit refuses a witness that reads a home file', () => {
@@ -263,7 +286,7 @@ describe('intake fact check', () => {
     const witness = '`test -f ~/.construct/probes/report.md` exits 0'
     const { status, parked } = admitParked(dir, 'src/a.ts', witness)
     expect(status).toBe('admitted')
-    expect(readFileSync(parked, 'utf8')).toContain(`unclear: witnesses — witness "${witness}" names ~/.construct/probes/report.md, a path outside the repository`)
+    expect(readFileSync(parked, 'utf8')).toContain(`unclear: witnesses — ${outside(witness, '~/.construct/probes/report.md')}`)
   })
 
   it('checks every backticked command of a witness and names the second one when it does not resolve', () => {
