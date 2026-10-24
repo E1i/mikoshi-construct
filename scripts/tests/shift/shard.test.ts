@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { AnswerOutcome } from '../../bus/answer-executor.js'
 import type { Answerer } from '../../bus/answerer.js'
 import type { CardTreeTools } from '../../bus/card-tree.js'
 import type { BusEvent } from '../../bus/db.js'
@@ -44,6 +45,35 @@ function shardDeps(world: World, io: Captured, record: ShardDeps['record'] = () 
 
 function busEvents(db: DatabaseSync): Record<string, unknown>[] {
   return db.prepare('SELECT type, actor, card_id, pr, payload FROM events ORDER BY id').all().map(row => ({ ...row, payload: JSON.parse(String(row.payload)) as unknown }))
+}
+
+interface Asked {
+  outcome: AnswerOutcome
+  decided: number
+  waits: unknown[]
+}
+
+async function askedUnderADecisionsShard(question: string): Promise<Asked> {
+  const world = initWorld()
+  const db = openBus(path.join(world.handoff, 'bus.db'))
+  expect(runShard(['--window', '--hours', '2', '--scope', DECISIONS_SCOPE, '--by', 'Eli'], shardDeps(world, captured(), event => appendEvent(db, event)))).toBe(0)
+  const now = new Date('2026-10-08T09:30:00.000Z')
+  const ts = now.toISOString()
+  const worktree = path.join(world.handoff, 'mc-905')
+  mkdirSync(worktree)
+  appendEvent(db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STARTED}:905`, payload: { session: 'card-session-1', worktree, branch: 'feat/card-905', base: '1'.repeat(40) }, legacy: false })
+  appendEvent(db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:905`, payload: { reason: 'question.agent', detail: 'a question on card #905' }, legacy: false })
+  const stop = Number((db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
+  queueTask(db, ts, { queue: 'answer', cardId: 905, stop })
+  const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: 'a'.repeat(40), after: 'a'.repeat(40), owner: question })
+  const trees: CardTreeTools = { home: world.handoff, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+  const executor = new AnswerExecutor({ db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) })
+  const outcome = await executor.answer(leaseNext(db, ts, 'answer', 'worker:answer:worker-1')!)
+  reduce(db)
+  const decided = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(SHARD_DECIDED) as { n: number }).n)
+  const waits = db.prepare(`SELECT need, text, command, card_id, state FROM ${OWNER_WAITS}`).all().map(row => ({ ...row }))
+  db.close()
+  return { outcome, decided, waits }
 }
 
 describe('a shard delegates one owner merge', () => {
@@ -143,26 +173,16 @@ describe('a shard delegates one owner merge', () => {
   })
 
   it('a question in the owner boundary opens an owner wait instead of a shard decision', async () => {
-    const world = initWorld()
-    const db = openBus(path.join(world.handoff, 'bus.db'))
-    expect(runShard(['--window', '--hours', '2', '--scope', DECISIONS_SCOPE, '--by', 'Eli'], shardDeps(world, captured(), event => appendEvent(db, event)))).toBe(0)
-    const now = new Date('2026-10-08T09:30:00.000Z')
-    const ts = now.toISOString()
-    const worktree = path.join(world.handoff, 'mc-905')
-    mkdirSync(worktree)
-    appendEvent(db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STARTED}:905`, payload: { session: 'card-session-1', worktree, branch: 'feat/card-905', base: '1'.repeat(40) }, legacy: false })
-    appendEvent(db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:905`, payload: { reason: 'question.agent', detail: 'a question on card #905' }, legacy: false })
-    const stop = Number((db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
-    queueTask(db, ts, { queue: 'answer', cardId: 905, stop })
-    const question = 'may the owner push 03c463cd, which changes .github/workflows/ci.yml?'
-    const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: 'a'.repeat(40), after: 'a'.repeat(40), owner: question })
-    const trees: CardTreeTools = { home: world.handoff, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-    const executor = new AnswerExecutor({ db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) })
-    const outcome = await executor.answer(leaseNext(db, ts, 'answer', 'worker:answer:worker-1')!)
-    expect(outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: expect.stringContaining('.github/workflows/ci.yml is R1') as unknown })
-    expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(SHARD_DECIDED)).toEqual({ n: 0 })
-    reduce(db)
-    expect(db.prepare(`SELECT need, command, card_id, state FROM ${OWNER_WAITS}`).all()).toEqual([{ need: 'decision', command: cardDecisionCommand(905), card_id: 905, state: OPEN_WAIT }])
-    db.close()
+    const r1 = 'may the owner push 03c463cd, which changes .github/workflows/ci.yml?'
+    const r1Detail = `${r1} (.github/workflows/ci.yml is R1 and stays the owner's under any shard)`
+    const owner = await askedUnderADecisionsShard(r1)
+    expect(owner.outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: r1Detail })
+    expect(owner.decided).toBe(0)
+    expect(owner.waits).toEqual([{ need: 'decision', text: `card #905 asks: ${r1Detail}`, command: cardDecisionCommand(905), card_id: 905, state: OPEN_WAIT }])
+    const windowOwn = 'may the card also touch AGENTS.md?'
+    const decided = await askedUnderADecisionsShard(windowOwn)
+    expect(decided.outcome).toMatchObject({ kind: 'decided', shard: SHARD, question: windowOwn })
+    expect(decided.decided).toBe(1)
+    expect(decided.waits).toEqual([])
   })
 })
