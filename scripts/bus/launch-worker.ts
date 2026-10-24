@@ -58,7 +58,7 @@ import { stampLogOutput } from './stamp.js'
 export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
 
-export const TASK_START_SCRIPT = 'task:start'
+const TASK_START_SCRIPT = 'task:start'
 export const TREE_PR_ENTRY = 'scripts/shift/tree-pr-cli'
 
 export function publishedTreePr(repo: string, installed: string | null): string {
