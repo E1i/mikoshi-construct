@@ -16,7 +16,8 @@ JavaScript under `dist/scripts/` and `dist/src/`, so it runs with `node` and non
 repository's development tools. [`construct-factory`](/cli#construct-factory), run in your
 repository, starts it in the background and, on macOS, installs the launchd agent that keeps it
 running after the terminal closes and the machine restarts. [`construct say`](/cli#construct-say) is
-the owner's channel for a decision.
+the owner's channel for a decision, and [`construct-intake`](/cli#construct-intake) parks a card on
+the factory's bus so it launches.
 
 ## Into an empty directory
 

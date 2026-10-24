@@ -419,6 +419,11 @@ function intakeCommand(bus: BusPorts | undefined) {
           process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
           return
         }
+        if (events === undefined && !args.dryRun && busExpected()) {
+          console.flatline(console.lore.intakeDraftNeedsBus)
+          process.exitCode = INTAKE_EXIT.refused
+          return
+        }
         const result = runIntake({
           admit: args.admit,
           draft: args.draft,

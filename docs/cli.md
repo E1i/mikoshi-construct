@@ -2060,6 +2060,23 @@ the move still holds; a card none of whose admissions carries a `bodySha` is not
 One refused card refuses the whole draft and nothing is written. Exit `0` when the cards were written
 or printed, `1` when the draft was refused, `2` when corrections wait for a person's confirmation.
 
+## construct-intake
+
+A bin of its own beside `construct`: `construct intake` with its card events wired to the repository's
+bus, `dist/scripts/bus/intake.js`. It takes the same flags, writes the same parking cards, and records
+every admit, slice and move on the bus `construct-factory` runs over (`~/.construct/<repo-id>/`, or
+the one `CONSTRUCT_BUS_DB` names), so the factory can launch the card.
+
+```bash
+construct-intake --draft cards.json --taken taken.txt
+construct-intake --admit ~/.construct/parking/12.md
+```
+
+Once that bus exists, `construct intake` writes nothing beside it: it cannot record the card there, and
+the factory would refuse a card it holds no `card.admitted` for. It names `construct-intake` and
+exits `1`. `--dry-run` still prints. From the checkout of mikoshi-construct itself the same command is
+`pnpm intake`.
+
 ## construct-factory
 
 A bin of its own beside `construct`, not a subcommand: the CLI starts no process, and this command
