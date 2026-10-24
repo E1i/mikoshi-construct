@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import type { IsolationReader } from '../ports/isolation.js'
 import type { ProcessTable } from './chain-process.js'
+import type { BusEvent } from './db.js'
 import type { LadderSteps } from './ladder-starter.js'
 import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
@@ -20,7 +21,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
@@ -39,6 +40,7 @@ import { CARD_BODIES, cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from './db.js'
 import { heartbeatEnv, lastHeartbeat } from './heartbeat.js'
+import { generationOfKey } from './identifiers.js'
 import { handoffDir } from './import.js'
 import { LadderCardStarter } from './ladder-starter.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
@@ -50,10 +52,11 @@ import { TICK_MS } from './netwatch.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { busCardBodies } from './parking-reads.js'
 import { promptsDirOf, storedInput } from './prompt-store.js'
-import { launchTasks } from './queue.js'
+import { COMPLETED, generationField, launchTasks, TASK_FOLDS } from './queue.js'
 import { transcriptFile } from './session-journal.js'
 import { openDatabase } from './sqlite.js'
 import { stampLogOutput } from './stamp.js'
+import { storedByKey } from './stored.js'
 
 export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
@@ -148,6 +151,14 @@ const RUNNING_STARTS = latestStartsOf(RUNNING_CARD)
 
 const DROPPED_STARTS = latestStartsOf(DROPPED_CARD, `
     AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = c.card_id AND id > e.id AND legacy = 0 AND type IN ('${CARD_STOPPED}', '${CARD_SESSION_ENDED}'))`)
+
+const LAUNCH_TASK_OF_CARD = `SELECT task_key, state, event_id FROM tasks WHERE queue = 'launch' AND card_id = ? ORDER BY id DESC LIMIT 1`
+
+interface LaunchTaskRow {
+  task_key: string
+  state: string
+  event_id: number
+}
 
 const STOPPED_SINCE = `SELECT 1 FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND id > ? LIMIT 1`
 
@@ -308,7 +319,7 @@ export class LaunchNode extends Node<LaunchStep> {
     this.starters[card.contour]?.stop(card)
     if (this.sessionProcess(card) !== 'gone')
       return false
-    return appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, payload: { reason: 'fault', detail: `${cause}: ${why}` }, legacy: false })
+    return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, `${cause}: ${why}`)
   }
 
   private endedWithoutPullRequest(start: RunningStart, card: StartedCard): boolean {
@@ -404,7 +415,25 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private stopContinuation(start: RunningStart, cause: string, detail: string): boolean {
-    return appendEvent(this.db, { ts: this.ts(), type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, payload: { reason: 'fault', detail: `${cause}: ${detail}` }, legacy: false })
+    return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, `${cause}: ${detail}`)
+  }
+
+  private faultStop(ts: string, start: RunningStart, dedupeKey: string, detail: string): boolean {
+    const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey, payload: { reason: 'fault', detail }, legacy: false })
+    const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
+    if (!recorded || task === undefined)
+      return recorded
+    if (task.state === COMPLETED)
+      this.supersedeTheStoppedLaunch(ts, start.card_id, task)
+    appendEvent(this.db, { ts, type: BOARD_ALARM, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${dedupeKey}`, payload: { task_key: task.task_key, reason: 'fault', detail }, legacy: false })
+    return recorded
+  }
+
+  private supersedeTheStoppedLaunch(ts: string, cardId: number, task: LaunchTaskRow): void {
+    const generation = generationOfKey(task.task_key, { queue: 'launch', cardId })
+    const event: BusEvent = { ts, type: TASK_SUPERSEDED, actor: this.actor, cardId, pr: null, head: null, dedupeKey: `${TASK_SUPERSEDED}:${task.task_key}:after-${task.event_id}`, payload: { task_key: task.task_key, queue: 'launch', ...generationField(generation) }, legacy: false }
+    if (appendEvent(this.db, event))
+      TASK_FOLDS[TASK_SUPERSEDED]!(this.db, storedByKey(this.db, event.dedupeKey))
   }
 
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
@@ -412,7 +441,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
     return inTransaction(this.db, () => {
       const ts = this.ts()
-      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, payload: { reason: 'fault', detail }, legacy: false })
+      const recorded = this.faultStop(ts, start, `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, detail)
       if (recorded) {
         for (const question of questions)
           openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `card #${start.card_id} session ${card.session} asks: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
@@ -428,7 +457,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const ended = `session-end: card #${start.card_id} session ${card.session} ended with no pull request, commit or handoff`
     const detail = final ? `${ended}; session death ${deaths} of ${SESSION_DEATH_CAP} (D-104), the card is not queued again` : ended
     const ts = this.ts()
-    const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:session-end:${start.dedupe_key}`, payload: { reason: 'fault', detail }, legacy: false })
+    const recorded = this.faultStop(ts, start, `${CARD_STOPPED}:session-end:${start.dedupe_key}`, detail)
     if (recorded && !final && admitted !== undefined) {
       const { lane, decision, contour, depends } = JSON.parse(admitted.payload) as Record<string, unknown>
       const admission = `session-end:${start.dedupe_key}`
