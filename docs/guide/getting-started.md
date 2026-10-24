@@ -11,6 +11,11 @@ Nothing is installed globally unless you want it to be.
 npx mikoshi-construct init
 ```
 
+The package also carries the factory — the bus, the shift, the Ghosts and Miko — built to plain
+JavaScript under `dist/scripts/` and `dist/src/`, so it runs with `node` and none of the
+repository's development tools. No published command starts it yet. The one factory command the CLI
+has today is [`construct say`](/cli#construct-say), the owner's channel for a decision.
+
 ## Into an empty directory
 
 ```bash

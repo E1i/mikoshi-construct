@@ -44,6 +44,8 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   cancelled: string
   needsTerminal: string
   unknownFlag: (flags: string[]) => string
+  sayNeedsWords: string
+  ownerSaid: (file: string) => string
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => string
   initRefusedAttached: string
   confirm: string
@@ -386,6 +388,8 @@ export const LORE: Lore = {
   lanesInvalid: 'a whole number of lanes, 1 or more',
   cancelled: 'Netrunner jacked out. Nothing was written.',
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
+  sayNeedsWords: 'DEAD AIR // the owner channel takes words: construct say "<your words>"; nothing was written',
+  ownerSaid: (file: string) => `WORD BURNED INTO THE OWNER CHANNEL // ${file}`,
   unknownFlag: (flags: string[]) => `BREACH FAILED // UNKNOWN ICE: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not wired into this command; nothing was written`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `BREACH FAILED // WRONG CHROME: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written`,
   initRefusedAttached: 'BREACH FAILED // ALREADY ATTACHED: .construct/attach.json is here; run construct detach first',
@@ -772,6 +776,8 @@ export const PLAIN_LORE: Lore = {
   lanesInvalid: 'a whole number of lanes, 1 or more',
   cancelled: 'Cancelled. Nothing was written.',
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
+  sayNeedsWords: 'No words given: run construct say "<your words>"; nothing was written.',
+  ownerSaid: (file: string) => `Said into the owner channel: ${file}`,
   unknownFlag: (flags: string[]) => `Unknown ${flags.length === 1 ? 'flag' : 'flags'}: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not part of this command; nothing was written.`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `Refused: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written.`,
   initRefusedAttached: 'Refused: this repository is attached (.construct/attach.json is here); run `construct detach` first.',

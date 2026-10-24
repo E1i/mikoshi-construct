@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import buildConfig from '../tsup.config.js'
+import { factoryBuild, productBuild } from '../tsup.config.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -15,7 +15,9 @@ async function lowestEngineMajor(): Promise<string> {
 }
 
 describe('build target', () => {
-  it('the tsup target matches the lowest node engines allows', async () => {
-    expect(buildConfig).toMatchObject({ target: `node${await lowestEngineMajor()}` })
+  it('the tsup target of the product and of the factory matches the lowest node engines allows', async () => {
+    const target = `node${await lowestEngineMajor()}`
+    expect(productBuild).toMatchObject({ target })
+    expect(factoryBuild).toMatchObject({ target })
   })
 })

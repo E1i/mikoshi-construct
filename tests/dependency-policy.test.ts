@@ -94,6 +94,17 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/program.ts', 'import { runSync } from \'./sync/index.js\'\n\nexport const probe = runSync\n')).toEqual(['no-restricted-imports'])
   })
 
+  it('lets the program reach the factory only through scripts/core and the owner channel, so the bus, shift and ghosts code never lands in dist/cli.js', async () => {
+    expect(await violations('src/program.ts', 'import { defaultBusPath } from \'../scripts/core/bus-path.js\'\n\nexport const probe = defaultBusPath\n')).toEqual([])
+    expect(await violations('src/program.ts', 'import { sayToOwnerChannel } from \'../scripts/owner/channel.js\'\n\nexport const probe = sayToOwnerChannel\n')).toEqual([])
+    expect(await violations('src/program.ts', 'import { runOwnerSay } from \'../scripts/owner/say.js\'\n\nexport const probe = runOwnerSay\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/program.ts', 'import { BUS_DB_VARIABLE } from \'../scripts/bus/db.js\'\n\nexport const probe = BUS_DB_VARIABLE\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/commands/board/probe.ts', 'import { EVENT_TYPES } from \'../../../scripts/core/events.js\'\n\nexport const probe = EVENT_TYPES\n')).toEqual([])
+    expect(await violations('src/commands/doctor/probe.ts', 'import { sayToOwnerChannel } from \'../../../scripts/owner/channel.js\'\n\nexport const probe = sayToOwnerChannel\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/commands/attach/probe.ts', 'import { BUS_DB_VARIABLE } from \'../../../scripts/bus/db.js\'\n\nexport const probe = BUS_DB_VARIABLE\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/model/probe.ts', 'import { defaultBusPath } from \'../../scripts/core/bus-path.js\'\n\nexport const probe = defaultBusPath\n')).toEqual(['no-restricted-imports'])
+  })
+
   it('keeps the entry point to running the program', async () => {
     expect(await violations('src/cli.ts', 'import { main } from \'./program.js\'\n\nexport const probe = main\n')).toEqual([])
     expect(await violations('src/cli.ts', 'import { runDoctor } from \'./commands/doctor/index.js\'\n\nexport const probe = runDoctor\n')).toEqual(['no-restricted-imports'])

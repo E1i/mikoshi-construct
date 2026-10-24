@@ -93,3 +93,15 @@ differences:
     reason: >-
       Present before init ran, so init skipped it; this repository excludes the template fixtures and
       raises the test timeout for the init end-to-end suites.
+  - path: .claude/settings.json
+    kind: skipped-at-init
+    reason: >-
+      This repository's own settings carry its status line, permissions and its own hooks, and the
+      construct materialized here before init wrote hook settings, so the manifest records no sha for
+      it; the template carries only the three tab-window hook entries a generated repository starts with.
+  - path: scripts/construct/window-hooks.mjs
+    kind: absent-at-root
+    reason: >-
+      This repository runs its window hooks from its own .claude/hooks scripts, registered in its own
+      .claude/settings.json, not from the carrier init writes; the carrier's identity with the attach
+      window hook is held by tests/init.test.ts, not by a copy at the root.

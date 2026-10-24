@@ -1,4 +1,3 @@
-import type { Options } from 'tsup'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,7 +6,7 @@ import process from 'node:process'
 import { build } from 'tsup'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE } from '../scripts/bus/db.js'
-import productBuild from '../tsup.config.js'
+import { productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const BUS_SOURCE = 'scripts/bus/'
@@ -50,7 +49,7 @@ function scratchBesideDependencies(): string {
 interface ProductBundle { cli: string, inputs: BundleInputs }
 
 async function buildProduct(outDir: string): Promise<ProductBundle> {
-  await build({ ...(productBuild as Options), outDir, metafile: true, silent: true, config: false })
+  await build({ ...productBuild, outDir, metafile: true, silent: true, config: false })
   const metafile = JSON.parse(readFileSync(path.join(outDir, 'metafile-esm.json'), 'utf8')) as { inputs: BundleInputs }
   return { cli: path.join(outDir, 'cli.js'), inputs: metafile.inputs }
 }

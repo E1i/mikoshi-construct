@@ -313,6 +313,16 @@
         }
       }
     },
+    "say": {
+      "flags": {
+        "johnny": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
     "soulkill": {
       "flags": {
         "dir": {
@@ -1034,6 +1044,7 @@
         ".claude/rules/conventions.md",
         ".claude/rules/secrets.md",
         ".claude/rules/tests.md",
+        ".claude/settings.json",
         ".claude/skills/browser-lab/SKILL.md",
         ".claude/skills/implement/SKILL.md",
         ".claude/skills/intake/SKILL.md",
@@ -1091,6 +1102,7 @@
         "scripts/construct/check-acceptance.mjs",
         "scripts/construct/check-baseline.mjs",
         "scripts/construct/implement.workflow",
+        "scripts/construct/window-hooks.mjs",
         "scripts/contracts/types.mjs",
         "scripts/tests/composition/files.test.ts",
         "scripts/tests/composition/model.test.ts",
@@ -1110,6 +1122,7 @@
         ".claude/rules/conventions.md",
         ".claude/rules/secrets.md",
         ".claude/rules/tests.md",
+        ".claude/settings.json",
         ".claude/skills/browser-lab/SKILL.md",
         ".claude/skills/implement/SKILL.md",
         ".claude/skills/intake/SKILL.md",
@@ -1147,6 +1160,7 @@
         "scripts/construct/check-acceptance.mjs",
         "scripts/construct/check-baseline.mjs",
         "scripts/construct/implement.workflow",
+        "scripts/construct/window-hooks.mjs",
         "scripts/contracts/types.mjs",
         "scripts/tests/composition/files.test.ts",
         "scripts/tests/composition/model.test.ts",
@@ -1181,6 +1195,7 @@
         ".claude/rules/css.md",
         ".claude/rules/secrets.md",
         ".claude/rules/tests.md",
+        ".claude/settings.json",
         ".claude/skills/browser-lab/SKILL.md",
         ".claude/skills/implement/SKILL.md",
         ".claude/skills/intake/SKILL.md",
@@ -1216,6 +1231,7 @@
         "scripts/construct/check-acceptance.mjs",
         "scripts/construct/check-baseline.mjs",
         "scripts/construct/implement.workflow",
+        "scripts/construct/window-hooks.mjs",
         "scripts/tests/composition/files.test.ts",
         "scripts/tests/composition/model.test.ts",
         "scripts/tests/composition/render.test.ts",
@@ -1238,6 +1254,7 @@
         ".claude/rules/conventions.md",
         ".claude/rules/secrets.md",
         ".claude/rules/tests.md",
+        ".claude/settings.json",
         ".claude/skills/browser-lab/SKILL.md",
         ".claude/skills/implement/SKILL.md",
         ".claude/skills/intake/SKILL.md",
@@ -1270,6 +1287,7 @@
         "scripts/construct/check-acceptance.mjs",
         "scripts/construct/check-baseline.mjs",
         "scripts/construct/implement.workflow",
+        "scripts/construct/window-hooks.mjs",
         "scripts/tests/composition/files.test.ts",
         "scripts/tests/composition/model.test.ts",
         "scripts/tests/composition/render.test.ts",

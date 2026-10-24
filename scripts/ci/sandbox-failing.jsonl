@@ -337,6 +337,7 @@
 {"file":"tests/cli-flag-refusal.test.ts","test":"an unknown flag is refused the way citty refuses an argument > mutate judge prints its usage, names the flag on stderr without a stack trace, exits 1 and writes nothing","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-flag-refusal.test.ts","test":"an unknown flag is refused the way citty refuses an argument > names every unknown flag, as it was typed, not only the first","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-help.test.ts","test":"--help of every command matches its frozen snapshot, with the version as the one normalisation > atlas","refused":"listen EPERM on the tsx IPC pipe"}
+{"file":"tests/cli-help.test.ts","test":"--help of every command matches its frozen snapshot, with the version as the one normalisation > say","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-help.test.ts","test":"--help of every command matches its frozen snapshot, with the version as the one normalisation > attach","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-help.test.ts","test":"--help of every command matches its frozen snapshot, with the version as the one normalisation > board","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-help.test.ts","test":"--help of every command matches its frozen snapshot, with the version as the one normalisation > cost","refused":"listen EPERM on the tsx IPC pipe"}

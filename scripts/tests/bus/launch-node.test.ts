@@ -20,19 +20,19 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { DROPPED_CARD, DROPPED_LANE, STOPPED_CARD } from '../../bus/card-automaton.js'
 import { cardBodyText } from '../../bus/card-bodies.js'
-import { appendEvent, BUS_DB_VARIABLE } from '../../bus/db.js'
+import { appendEvent, BUS_DB_VARIABLE, OPEN_WAIT, OWNER_WAITS } from '../../bus/db.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { busIntakePorts } from '../../bus/intake.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { gitChangedPaths, ShiftCardStarter } from '../../bus/launch-starter.js'
-import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, cardDecisionCommand, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { keyOf, launchTasks, queueTask } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
-import { CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, NODE_EQUIVALENCE, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { recordGhostLine } from '../../ghosts/journal.js'
@@ -525,6 +525,40 @@ describe('the launch node', () => {
     made.tick()
     expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 1077`).get()).toEqual({ state: STOPPED_CARD })
     expect(launchRows(made, 1077)).toBe(1)
+  })
+
+  async function endedWithReport(cardId: number, report: string): Promise<{ made: MergeBench, node: ProbedLaunchNode }> {
+    const made = bench()
+    admit(made, cardId, 'lane-a')
+    made.tick()
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, reportOf: start => start.cardId === cardId ? report : null, isolation: sandboxed })
+    await once(node)
+    made.tick()
+    return { made, node }
+  }
+
+  it('a session that ends with question lines in its shift report opens an owner wait per question', async () => {
+    const report = '#1225 a-card\nresult: stopped before PR\nno PR\nquestion: may the card widen its touches to src/card?\nquestion:   which lane takes the follow-up?\n'
+    const { made, node } = await endedWithReport(1225, report)
+
+    expect(node.stopOverdue()).toEqual([1225])
+    expect(node.stopOverdue()).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([
+      { id: 'Q1', need: 'decision', text: 'card #1225 session s-1225 asks: may the card widen its touches to src/card?', command: cardDecisionCommand(1225), card: 1225 },
+      { id: 'Q2', need: 'decision', text: 'card #1225 session s-1225 asks: which lane takes the follow-up?', command: cardDecisionCommand(1225), card: 1225 },
+    ])
+    made.tick()
+    expect(made.db.prepare(`SELECT count(*) AS n FROM ${OWNER_WAITS} WHERE card_id = 1225 AND state = '${OPEN_WAIT}'`).get()).toEqual({ n: 2 })
+  })
+
+  it('a session that ends with no question line opens no owner wait', async () => {
+    const { made, node } = await endedWithReport(1226, '#1226 a-card\nresult: stopped before PR\nno PR\nverification: run\n')
+
+    expect(node.stopOverdue()).toEqual([1226])
+    expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
   })
 
   async function endedAtEddiesWarn(cardId: number, warned: boolean, publish: (made: MergeBench) => void): Promise<{ made: MergeBench, node: ProbedLaunchNode, published: string[] }> {

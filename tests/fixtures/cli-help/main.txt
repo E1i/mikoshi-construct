@@ -1,6 +1,6 @@
 mikoshi-construct — bootstrap for AI-native software projects (construct v<version>)
 
-USAGE construct init|attach|jack-in|detach|jack-out|soulkill|inspect|capture|doctor|sync|cost|board|graph|atlas|intake|mutate
+USAGE construct init|attach|jack-in|detach|jack-out|soulkill|inspect|capture|doctor|sync|cost|board|graph|atlas|intake|mutate|say
 
 COMMANDS
 
@@ -20,6 +20,7 @@ COMMANDS
      atlas    Discover the code into the Engram and build the Atlas page from it: one self-contained HTML file, written into no tracked file                                                                                                                                                                                                                       
     intake    Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model                                                            
     mutate    Apply a named wrong implementation and judge it from the report the runner hands over; runs no test itself                                                                                                                                                                                                                                           
+       say    Write the owner's words, with the time, as one unused answer in ~/.construct-owner/answers, the channel an owner decision is accepted from                                                                                                                                                                                                           
 
 Use construct <command> --help for more information about a command.
 
