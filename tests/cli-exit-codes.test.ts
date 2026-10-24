@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runCli } from './cli-process.js'
 
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
@@ -164,11 +164,16 @@ describe.concurrent('every command exits with the code it exits with today, as a
     expect(await run(w, 'soulkill', '--json')).toBe(0)
   })
 
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('intake: written 0, dry run 0, refused 1, awaiting confirmation 2, waiting on a depends 3', async () => {
     const w = world()
     const draft = path.join(w.home, 'draft.json')
     const taken = path.join(w.home, 'taken.txt')
     const parking = path.join(w.home, 'parking')
+    vi.stubEnv('CONSTRUCT_BUS_DB', path.join(w.home, 'no-bus.db'))
     writeFileSync(draft, JSON.stringify({ cards: [{ name: 'one-card', kind: 'implement', milestone: 'runner', size: 'S', who: 'shift', touches: ['src/a.ts'], task: 'Do one thing.', witnesses: ['it is done'] }] }))
     writeFileSync(taken, '1 2\n')
     const intake = async (...args: string[]): Promise<number | null> => (await runCli(['intake', '--parking', parking, ...args], w.home)).status
@@ -181,13 +186,7 @@ describe.concurrent('every command exits with the code it exits with today, as a
     writeFileSync(path.join(parking, '8.md'), 'card: #8 depended-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/depended-card\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the first thing.\n')
     const waiting = path.join(parking, '9.md')
     writeFileSync(waiting, 'card: #9 waiting-card [implement/runner/S/cheap/owner] · depends #8 · blocks —\nbranch: feat/waiting-card\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo a third thing.\n')
-    vi.stubEnv('CONSTRUCT_BUS_DB', path.join(w.home, 'no-bus.db'))
-    try {
-      expect(await intake('--admit', waiting)).toBe(3)
-    }
-    finally {
-      vi.unstubAllEnvs()
-    }
+    expect(await intake('--admit', waiting)).toBe(3)
   })
 
   it('mutate apply: applied 0, refused 1', async () => {

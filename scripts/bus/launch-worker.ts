@@ -33,6 +33,7 @@ import { eddiesJournalPath, reportPath } from '../shift/places.js'
 import { renderPrompt } from '../shift/prompt.js'
 import { reportClosingOf } from '../shift/tree-pr.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
+import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from './bg.js'
 import { DROPPED_CARD, RUNNING_CARD } from './card-automaton.js'
 import { CARD_BODIES, cardBodyText } from './card-bodies.js'
 import { launchProcess, REAL_PROCESSES } from './chain-process.js'
@@ -57,11 +58,26 @@ import { stampLogOutput } from './stamp.js'
 export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
 
-export function launchPlaces(home: string, repo: string): StarterPlaces {
+export const TASK_START_SCRIPT = 'task:start'
+export const TREE_PR_ENTRY = 'scripts/shift/tree-pr-cli'
+
+export function publishedTreePr(repo: string, installed: string | null): string {
+  if (installed === null)
+    return treePrCommand(repo)
+  return `${shellWord(process.execPath)} ${shellWord(path.join(installed, BUILD_DIR, `${TREE_PR_ENTRY}${BUILT_MODULE}`))}`
+}
+
+export function taskStartCommand(installed: string | null): { file: string, args: string[] } {
+  if (installed === null)
+    return { file: 'pnpm', args: ['--silent', TASK_START_SCRIPT] }
+  return { file: process.execPath, args: [builtEntryOf(installed, TASK_START_SCRIPT)] }
+}
+
+export function launchPlaces(home: string, repo: string, installed: string | null = installedPackage()): StarterPlaces {
   return {
     launchDir: path.join(home, '.construct', 'shift', LAUNCH_DIR),
     claude: 'claude',
-    treePr: treePrCommand(repo),
+    treePr: publishedTreePr(repo, installed),
   }
 }
 
@@ -563,11 +579,12 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => []): StarterPorts {
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage()): StarterPorts {
+  const taskStart = taskStartCommand(installed)
   return {
     read: bodyOf,
     cut: (task) => {
-      execFileSync('pnpm', ['--silent', 'task:start', task.branch, '--card', task.card.line], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      execFileSync(taskStart.file, [...taskStart.args, task.branch, '--card', task.card.line], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
       return taskWorktree(worktreeHome(env), String(task.card.id))
     },
     base: worktree => execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
