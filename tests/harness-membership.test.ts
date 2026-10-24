@@ -34,6 +34,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'decisions': 'prints the owner decisions in force, refusing a file that breaks the numbered record; its own tests are its gate',
   'decisions:add': 'appends one owner decision and its decision.recorded event when run by hand, restoring the file on a refusal or a failed event write; its own tests are its gate',
   'dev': 'runs the CLI from source',
+  'factory:start': 'starts the factory and installs its keep-alive when run by hand, as construct-factory does from the package; tests/factory-start.test.ts, on nohup, ps and launchctl stubs, is its gate',
   'owner:say': 'writes one file of the owner\'s words and the time into ~/.construct-owner/answers when the owner runs it by hand, as construct say does from the package; its own tests are its gate',
   'owner:command': 'writes the patch and the command the window hands the owner for a card tree into ~/.construct/probes/owner-<card> when run by hand; its own tests are its gate',
   'gate:window': 'prints the window gate of D-194 for the tree it runs in, the ci:select layers of its changes against origin/main; it judges nothing itself, and its own tests are its gate',

@@ -12,7 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus } from '../core/bus-path.js'
 import { PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
-import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
+import { carriesMarker, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
 import { RUNNING_CARD } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
@@ -155,7 +155,7 @@ export async function stopInstance(running: RunningProcess, markers: readonly st
       return
     await pause(STOP_POLL_MS)
   }
-  for (const left of processes().filter(candidate => candidate.pid !== process.pid && markers.some(marker => candidate.args.includes(marker))))
+  for (const left of processes().filter(candidate => candidate.pid !== process.pid && carriesMarker(candidate.args, markers)))
     signal(left.pid, 'SIGKILL')
   await pause(STOP_POLL_MS)
 }
@@ -977,10 +977,21 @@ function decisionsInForce(): InForceDecision[] {
   }
 }
 
+export function pinnedBusDir(): string {
+  return busDirOf(pinBus(process.env, os.homedir(), process.cwd()))
+}
+
+const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath())
+
+export async function startBus(busDir: string = pinnedBusDir(), processes: ProcessList = psList()): Promise<BgResult> {
+  const judged = await restartSilentSupervisorOnBus(busDir, processes)
+  const started = runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], process.env, processes, startReviewWorker)
+  return { ...started, stdout: [...judged, ...started.stdout] }
+}
+
 async function main(): Promise<void> {
-  const busDir = busDirOf(pinBus(process.env, os.homedir(), process.cwd()))
+  const busDir = pinnedBusDir()
   const cwd = process.cwd()
-  const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath())
   const command = bgCommand(process.argv.slice(2))
   if (command.kind === 'supervise') {
     process.exitCode = await supervise(busDir, cwd, reviewPreflight)
@@ -994,10 +1005,7 @@ async function main(): Promise<void> {
     printBg(detectionCommand(busDir, command.worker, command.live, command.live ? decisionsInForce() : []))
     return
   }
-  const processes = psList()
-  for (const line of await restartSilentSupervisorOnBus(busDir, processes))
-    console.log(line)
-  printBg(runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], process.env, processes, startReviewWorker))
+  printBg(await startBus(busDir))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
