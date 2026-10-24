@@ -12,7 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus } from '../core/bus-path.js'
 import { PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
-import { carriesMarker, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
+import { instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
 import { RUNNING_CARD } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { inForceDecisions } from './decisions.js'
@@ -155,7 +155,7 @@ export async function stopInstance(running: RunningProcess, markers: readonly st
       return
     await pause(STOP_POLL_MS)
   }
-  for (const left of processes().filter(candidate => candidate.pid !== process.pid && carriesMarker(candidate.args, markers)))
+  for (const left of instancesOf(processes(), markers))
     signal(left.pid, 'SIGKILL')
   await pause(STOP_POLL_MS)
 }
@@ -853,15 +853,15 @@ export interface GroupedProcess extends RunningProcess {
 }
 
 export function outsideGroup(processes: GroupedProcess[], group: number): RunningProcess[] {
-  return processes.filter(candidate => candidate.group !== group).map(({ pid, args }) => ({ pid, args }))
+  return processes.filter(candidate => candidate.group !== group).map(({ group: _group, ...running }) => running)
 }
 
 function psOutsideOwnGroup(): ProcessList {
   const own = Number(execFileSync('ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim())
-  return () => outsideGroup(execFileSync('ps', ['-axo', 'pid=,pgid=,args='], { encoding: 'utf8' }).split('\n').flatMap((line) => {
+  return () => outsideGroup(withBuses(execFileSync('ps', ['-axo', 'pid=,pgid=,args='], { encoding: 'utf8' }).split('\n').flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s(.*)$/.exec(line)
     return match === null ? [] : [{ pid: Number(match[1]), group: Number(match[2]), args: match[3]! }]
-  }), own)
+  })), own)
 }
 
 export function runReducer(cwd: string): string[] {

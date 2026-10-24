@@ -3,6 +3,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFi
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { BUS_DB_VARIABLE } from '../core/bus-path.js'
 import { STAMP_ENV } from './stamp.js'
 
 export const PREFIX = '[bus:bg] '
@@ -16,6 +17,9 @@ export const BUILT_MODULE = '.js'
 
 const FACTORY_SCRIPT = /^node --import tsx (scripts\/[\w/-]+)\.ts(?:\s|$)/
 const SOURCE_MARKER = /^(scripts\/[\w/-]+)\.ts(?=\s|$)/
+const PS_LINE = /^\s*(\d+)\s(.*)$/
+const BUS_ASSIGNMENT = `${BUS_DB_VARIABLE}=`
+const BUS_IN_ENVIRONMENT = new RegExp(`(?:^|\\s)${BUS_ASSIGNMENT}(\\S+)`, 'g')
 
 export interface BgResult {
   stdout: string[]
@@ -27,6 +31,7 @@ export interface BgResult {
 export interface RunningProcess {
   pid: number
   args: string
+  bus?: string
 }
 
 export type ProcessList = () => RunningProcess[]
@@ -73,17 +78,61 @@ export function carriesMarker(args: string, markers: readonly string[]): boolean
   return markers.some(marker => args.includes(marker) || args.includes(marker.replace(SOURCE_MARKER, `$1${BUILT_MODULE}`)))
 }
 
-export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
-  return () => execFileSync('ps', ['-axo', 'pid=,args='], { encoding: 'utf8', env })
+function psLines(args: string[], env: NodeJS.ProcessEnv): RunningProcess[] {
+  return execFileSync('ps', args, { encoding: 'utf8', env })
     .split('\n')
     .flatMap((line) => {
-      const match = /^\s*(\d+)\s(.*)$/.exec(line)
+      const match = PS_LINE.exec(line)
       return match === null ? [] : [{ pid: Number(match[1]), args: match[2]! }]
     })
 }
 
-export function runningInstance(processes: RunningProcess[], markers: readonly string[]): RunningProcess | undefined {
-  return processes.find(candidate => candidate.pid !== process.pid && carriesMarker(candidate.args, markers))
+function busesFromPs(env: NodeJS.ProcessEnv): Map<number, string> {
+  return new Map(psLines(['-axEo', 'pid=,args='], env).flatMap(({ pid, args }) => {
+    const bus = [...args.matchAll(BUS_IN_ENVIRONMENT)].at(-1)?.[1]
+    return bus === undefined ? [] : [[pid, bus] as const]
+  }))
+}
+
+function busesFromProc(processes: RunningProcess[]): Map<number, string> {
+  return new Map(processes.flatMap(({ pid }) => {
+    try {
+      const bus = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').find(entry => entry.startsWith(BUS_ASSIGNMENT))?.slice(BUS_ASSIGNMENT.length)
+      return bus === undefined ? [] : [[pid, bus] as const]
+    }
+    catch {
+      return []
+    }
+  }))
+}
+
+export function withBuses<T extends RunningProcess>(processes: T[], env: NodeJS.ProcessEnv = process.env): T[] {
+  const buses = process.platform === 'linux' ? busesFromProc(processes) : busesFromPs(env)
+  return processes.map((candidate) => {
+    const bus = buses.get(candidate.pid)
+    return bus === undefined ? candidate : { ...candidate, bus }
+  })
+}
+
+export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
+  return () => withBuses(psLines(['-axo', 'pid=,args='], env), env)
+}
+
+export function thisBus(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const bus = env[BUS_DB_VARIABLE]
+  return bus === undefined || bus === '' ? undefined : bus
+}
+
+export function servesBus(candidate: RunningProcess, bus: string | undefined): boolean {
+  return bus === undefined || candidate.bus === undefined || path.resolve(candidate.bus) === path.resolve(bus)
+}
+
+export function instancesOf(processes: RunningProcess[], markers: readonly string[], bus: string | undefined = thisBus()): RunningProcess[] {
+  return processes.filter(candidate => candidate.pid !== process.pid && servesBus(candidate, bus) && carriesMarker(candidate.args, markers))
+}
+
+export function runningInstance(processes: RunningProcess[], markers: readonly string[], bus: string | undefined = thisBus()): RunningProcess | undefined {
+  return instancesOf(processes, markers, bus)[0]
 }
 
 export function runningBus(processes: RunningProcess[]): RunningProcess | undefined {
@@ -151,7 +200,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
   if (holder !== null)
     return { stdout: [], stderr: [`${prefix}another start (pid ${holder}) is starting ${script} (${lock}); nothing started`], exitCode: 1 }
   try {
-    const running = runningInstance(processes(), launch.markers)
+    const running = runningInstance(processes(), launch.markers, thisBus(env))
     if (running !== undefined)
       return { stdout: [], stderr: [`${prefix}${script} is already running as pid ${running.pid} (${running.args}); nothing started`], exitCode: 1, alreadyRunning: running }
     const problems = launch.preflight?.() ?? []
