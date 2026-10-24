@@ -416,6 +416,55 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  function launchedWithPr(bench: ReturnType<typeof launchBench>, cardId: number, pr: number): void {
+    bench.admit(cardId, 'lane-a')
+    bench.tick()
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: launch(cardId) })
+    bench.gitHub.open({ number: pr, body: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —` })
+    bench.tick()
+  }
+
+  function readmitted(bench: ReturnType<typeof launchBench>, cardId: number): void {
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:again`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `again-${cardId}` }, legacy: false })
+    bench.tick()
+  }
+
+  it('a card whose pull request closed without merge is launched again after its next admission', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1290, 1087)
+    bench.gitHub.close(1087, false)
+    bench.tick()
+    expect(launchCandidates(bench.db)).toEqual([])
+
+    readmitted(bench, 1290)
+    expect(taskState(bench.db, launch(1290, 'again-1290'))).toMatchObject({ state: 'queued' })
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: launch(1290, 'again-1290') })
+    bench.close()
+  })
+
+  it('a card whose pull request is still open is not launched again by a new admission', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1229, 1064)
+
+    readmitted(bench, 1229)
+    expect(launchCandidates(bench.db)).toEqual([])
+    expect(taskState(bench.db, launch(1229, 'again-1229'))).toBeUndefined()
+    bench.close()
+  })
+
+  it('a card whose pull request closed without merge frees its lane for another card', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1277, 1110)
+    bench.admit(1278, 'lane-a')
+    bench.tick()
+    expect(taskState(bench.db, launch(1278))).toBeUndefined()
+
+    bench.gitHub.close(1110, false)
+    bench.tick()
+    expect(taskState(bench.db, launch(1278))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
   function stoppedInTree(bench: ReturnType<typeof launchBench>, cardId: number, tree: string, contour = 'cheap'): void {
     const ts = bench.clock.now().toISOString()
     bench.admit(cardId, 'lane-a', [], contour)
