@@ -8,6 +8,11 @@ export interface DryRunRecord {
 }
 
 const SESSION_NAME = /^[\w-]+$/
+const DRY_RUN_REVIEWS = 'dry-run-reviews'
+
+export function dryRunReviewsDir(busDir: string): string {
+  return path.join(busDir, DRY_RUN_REVIEWS)
+}
 
 function recordPath(dir: string, session: string): string | null {
   return SESSION_NAME.test(session) ? path.join(dir, `${session}.dry-run.json`) : null

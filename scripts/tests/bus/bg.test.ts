@@ -321,7 +321,7 @@ describe('pnpm bus:bg', () => {
     for (const name of ['ps', 'pgrep', 'kill', 'pkill', 'nohup', 'pnpm'])
       stub(bin, name, `echo "${name} $*" >> "${calls}"`)
     const env = { ...process.env, HOME: root, PATH: [bin, path.dirname(process.execPath), ...SYSTEM_BIN_DIRS].join(path.delimiter), CONSTRUCT_BUS_DB: path.join(root, 'bus.db') }
-    const busDir = path.join(root, '.construct', 'bus')
+    const busDir = path.join(root, 'bus')
 
     for (const [flag, worker] of [['--on', 'merge'], ['--on', 'update'], ['--off', 'merge']] as const) {
       const run = spawnSync(process.execPath, ['--import', TSX_LOADER, SUPERVISOR_ENTRY, flag, worker], { cwd: root, env, encoding: 'utf8' })

@@ -7,7 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
-import { busExpected, defaultBusPath } from '../scripts/core/bus-path.js'
+import { busExpected, busPathOf } from '../scripts/core/bus-path.js'
 import { ownerChannelOf, sayToOwnerChannel } from '../scripts/owner/channel.js'
 import { printAtlas, runAtlas } from './atlas/index.js'
 import { ATTACH_EXIT, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
@@ -225,7 +225,7 @@ const board = withKnownFlags(defineCommand({
     if (everySeconds !== undefined && args.prs === PRS_FROM_STDIN)
       return refuse(lore.boardEveryWithStdin)
     const dir = path.resolve(args.dir)
-    const frame = (): BoardReading => readBoard(dir, { all: args.all, staleHours, prs: args.prs, readStdin: () => readStdinToEnd(), bus: args.json ? undefined : busReaderAt(defaultBusPath()), version: VERSION, mode: process.env.CONSTRUCT_MODE === 'hijack' ? 'hijack' : undefined, geek: rawSectionsAsked({ geek: args.geek, all: args.all, staleHours, prs: args.prs }) })
+    const frame = (): BoardReading => readBoard(dir, { all: args.all, staleHours, prs: args.prs, readStdin: () => readStdinToEnd(), bus: args.json ? undefined : busReaderAt(busPathOf(process.env, homedir(), dir)), version: VERSION, mode: process.env.CONSTRUCT_MODE === 'hijack' ? 'hijack' : undefined, geek: rawSectionsAsked({ geek: args.geek, all: args.all, staleHours, prs: args.prs }) })
     try {
       if (args.json) {
         process.stdout.write(`${JSON.stringify(boardJson(frame()), null, 2)}\n`)

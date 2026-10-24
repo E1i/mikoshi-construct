@@ -1577,7 +1577,7 @@ not print it; `ghosts:expect-sample --effort` reads it for its forecast by step.
 
 The text report ends with one signal block (decision 0046) per class of finished cheap task, a class
 being its card's kind and size, read from the bus database (`CONSTRUCT_BUS_DB`, by default
-`~/.construct/bus.db`), from the shift journals under `~/.construct/shift` and from the window journal
+the repository's `~/.construct/<owner>--<repo>/bus.db`), from the shift journals under `~/.construct/shift` and from the window journal
 `~/.construct/handoff/ghosts.jsonl`. A cheap card the bus holds closed is read from its `cards` and `card_bodies` rows and its
 `card.started` / `card.closed` events: the session and tree its start recorded and its minutes from start to close;
 a journal or shift line for the same card is not read again. A `bus.db` without those tables reads as no bus, and
@@ -1698,8 +1698,8 @@ runs is `none — <reason>`, never the overall median.
 
 Shows where each task stands in this repository, from what the repository holds: the ladder runs in
 `.construct/runs.jsonl` and the pull request list that `gh pr list` wrote. The CLI runs no `gh` and
-writes no file, `--every` included; you fetch the list and hand it over. When the bus database
-(`~/.construct/bus.db`) is there, the board reads it read-only and shows one screen with no scroll, under a
+writes no file, `--every` included; you fetch the list and hand it over. When the bus database of the `--dir`
+repository (`~/.construct/<owner>--<repo>/bus.db`, `<owner>/<repo>` read from its git remote, `origin` first) is there, the board reads it read-only and shows one screen with no scroll, under a
 header with the construct version and the mode (`HIJACK` when `CONSTRUCT_MODE=hijack`, nothing
 otherwise): Flow (planned, in work, in review, ready to merge; a card with no body in the bus or closed through a
 shared pull request is not shown), Backlog (live cards only, grouped by lane; dropped, merged and closed
@@ -2005,7 +2005,7 @@ none of that back to the file: the file stays as the person wrote it, the correc
 `card.admitted` carries, and a card with no file is admitted from the text the bus holds. The command prints
 whether a bus was wired to the run: only a bus-wired run, such as this repository's `pnpm intake`,
 appends `card.admitted`, the event this repository's `task:start` and shift read; the published CLI has
-no bus and records nothing beyond the file. When a bus database exists on the machine (`~/.construct/bus.db`, or the
+no bus and records nothing beyond the file. When a bus database exists for the repository (`~/.construct/<owner>--<repo>/bus.db`, or the
 file `CONSTRUCT_BUS_DB` names) and the run has no bus wired, `--admit` refuses with exit `1`, writes nothing and
 names `pnpm intake --admit`, so a card is never admitted beside a bus that does not hear of it. A card the bus already admitted is amended when its card line, task text or
 witnesses or its `touches` line differ from the latest `card.admitted` the bus holds for its number — or that line

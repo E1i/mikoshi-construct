@@ -1,9 +1,21 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { GhCaller } from '../core/gh.js'
 import type { ExitReason } from './continuation.js'
 import path from 'node:path'
+import { repoSlugOf } from '../core/bus-path.js'
 
 export const SHIFT_JOURNAL = 'shift.jsonl'
-export const REPO = 'E1i/mikoshi-construct'
+
+export function noGitRemoteReason(dir: string): string {
+  return `${dir} has no git remote that names an <owner>/<repo>, so gh has no repository to read; run it inside a clone with an origin remote`
+}
+
+export function ghInRepositoryOf(dir: string, gh: GhCaller): GhCaller {
+  return (args) => {
+    const repo = repoSlugOf(dir)
+    return repo === null ? { kind: 'failed', cause: 'failed', reason: noGitRemoteReason(dir), stdout: '', stderr: '', attempts: 0 } : gh([...args, '-R', repo])
+  }
+}
 
 export function reportPath(dir: string, number: string): string {
   return path.join(dir, `report-${number}.md`)

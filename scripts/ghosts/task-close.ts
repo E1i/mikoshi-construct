@@ -26,7 +26,7 @@ import { execGh, readGhJson } from '../core/gh.js'
 import { VERIFICATION_WORDS } from '../core/verification.js'
 import { parseDecisions } from '../decisions/decisions.js'
 import { archiveOf, defaultDecisions } from '../decisions/read.js'
-import { REPO } from '../shift/places.js'
+import { ghInRepositoryOf } from '../shift/places.js'
 import { ENTRY_EVENT, entryOf, startedEntryOf } from './entry.js'
 import { ghostLines } from './journal.js'
 import { cardStartedLines, prCardOf } from './tasks.js'
@@ -378,7 +378,7 @@ function actualText(actual: Actual): string {
 
 export function prBodyOf(gh: GhCaller): (pr: number) => GhRead<string | null> {
   return (pr) => {
-    const read = readGhJson<{ body: string | null }>(gh, ['pr', 'view', String(pr), '-R', REPO, '--json', 'body'])
+    const read = readGhJson<{ body: string | null }>(gh, ['pr', 'view', String(pr), '--json', 'body'])
     return read.kind === 'read' ? { kind: 'read', value: read.value.body } : read
   }
 }
@@ -577,6 +577,7 @@ export function realpathOrSelf(file: string): string {
 }
 
 function realDeps(): TaskCloseDeps {
+  const gh = ghInRepositoryOf(process.cwd(), execGh)
   return {
     cwd: process.cwd(),
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
@@ -590,13 +591,13 @@ function realDeps(): TaskCloseDeps {
     projectsDir: claudeProjectsDir(),
     forecast: taskClass => cheapForecastOf(defaultShiftRoot(), taskClass, claudeProjectsDir(), defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
-    prBody: prBodyOf(execGh),
+    prBody: prBodyOf(gh),
     decisionsFile: defaultDecisions(os.homedir()),
     openIssue: (issue) => {
-      const open = readGhJson<(OpenIssue & { number: number })[]>(execGh, ['issue', 'list', '-R', REPO, '--state', 'open', '--limit', String(OPEN_ISSUE_LIMIT), '--json', 'number,title,body'])
+      const open = readGhJson<(OpenIssue & { number: number })[]>(gh, ['issue', 'list', '--state', 'open', '--limit', String(OPEN_ISSUE_LIMIT), '--json', 'number,title,body'])
       return open.kind === 'read' ? { kind: 'read', value: open.value.find(candidate => candidate.number === issue) ?? null } : open
     },
-    closeIssue: (issue, comment) => execGh(['issue', 'close', String(issue), '-R', REPO, '--comment', comment]),
+    closeIssue: (issue, comment) => gh(['issue', 'close', String(issue), '--comment', comment]),
   }
 }
 

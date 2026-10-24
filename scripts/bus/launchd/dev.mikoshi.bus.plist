@@ -8,7 +8,7 @@
 	<array>
 		<string>/bin/zsh</string>
 		<string>-c</string>
-		<string>mkdir -p "$HOME/.construct/bus" &amp;&amp; exec &gt;&gt;"$HOME/.construct/bus/launchd.log" 2&gt;&amp;1 &amp;&amp; cd "$HOME/projects/mikoshi-construct" &amp;&amp; export PATH="$HOME/.vite-plus/bin:/opt/homebrew/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin" CONSTRUCT_REVIEW_MODEL=sonnet &amp;&amp; GH_TOKEN=$(gh auth token --user E1i) exec pnpm --silent bus:bg</string>
+		<string>mkdir -p "$HOME/.construct" &amp;&amp; exec &gt;&gt;"$HOME/.construct/dev.mikoshi.bus.log" 2&gt;&amp;1 &amp;&amp; cd "${CONSTRUCT_FACTORY_DIR:?set CONSTRUCT_FACTORY_DIR to the factory checkout with launchctl setenv}" &amp;&amp; export PATH="$HOME/.vite-plus/bin:/opt/homebrew/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin" CONSTRUCT_REVIEW_MODEL=sonnet &amp;&amp; exec pnpm --silent bus:bg</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
