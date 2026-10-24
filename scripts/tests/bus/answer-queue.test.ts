@@ -1,9 +1,10 @@
 import type { AnswerOutcome } from '../../bus/answer-executor.js'
-import type { AnswerRun } from '../../bus/answerer.js'
+import type { AnswerRun, TreeMerge } from '../../bus/answerer.js'
 import type { CardTreeTools } from '../../bus/card-tree.js'
 import type { Queue } from '../../bus/identifiers.js'
 import type { Lease } from '../../bus/lease.js'
 import type { StoredEvent } from '../../bus/stored.js'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -12,7 +13,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { AnswerExecutor } from '../../bus/answer-executor.js'
 import { answerSourceOf, NO_RECORDED_SESSION } from '../../bus/answer-source.js'
 import { runAnswerWorker } from '../../bus/answer-worker.js'
-import { claudeAnswerer, ownerQuestionPath, projectDirOf } from '../../bus/answerer.js'
+import { claudeAnswerer, ownerQuestionPath, projectDirOf, treeMergeOf } from '../../bus/answerer.js'
 import { readBoard } from '../../bus/board.js'
 import { appendEvent } from '../../bus/db.js'
 import { recordDecision } from '../../bus/decisions.js'
@@ -44,6 +45,7 @@ interface Tools {
   published: { branch: string, commitMessage: string }[]
   recreated: { worktree: string, branch: string }[]
   recreating: () => void
+  merge: TreeMerge
 }
 
 function answerBench(storesPrompts = false) {
@@ -52,7 +54,7 @@ function answerBench(storesPrompts = false) {
   const treeOf = (cardId: number): string => path.join(trees, `mc-${cardId}`)
   const home = path.join(trees, 'worktrees')
   const answers = path.join(trees, 'answers')
-  const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {}, published: [], recreated: [], recreating: () => {} }
+  const tools: Tools = { runs: [], available: true, heads: [sha('a'), PUSHED], during: () => {}, published: [], recreated: [], recreating: () => {}, merge: { kind: 'none' } }
   const cardTrees: CardTreeTools = {
     home,
     exists: existsSync,
@@ -78,7 +80,7 @@ function answerBench(storesPrompts = false) {
       tools.published.push({ branch: card.branch, commitMessage })
     },
   })
-  const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees, ...(storesPrompts ? { prompts: path.join(trees, 'prompts') } : {}) })
+  const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees, treeMerge: () => tools.merge, ...(storesPrompts ? { prompts: path.join(trees, 'prompts') } : {}) })
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
@@ -1048,6 +1050,70 @@ describe('the answer executor', () => {
     expect(bench.tools.runs[1]!.argv.at(-1)).toContain(`pull request #1030 conflicts with main at ${PUSHED}`)
     expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
     bench.close()
+  })
+
+  it('a dirty pull request whose card tree stands mid-merge gets an answer that finishes the merge without reset or abort', async () => {
+    const bench = answerBench()
+    bench.started(1132)
+    bench.gitHub.open({ number: 1032, head: PUSHED, review: 'success', mergeable_state: 'dirty' })
+    bench.tick()
+    bench.tools.merge = { kind: 'mid-merge', files: ['scripts/bus/queue.ts', 'package.json'] }
+    bench.tools.heads = [PUSHED, sha('f')]
+
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: answer(1132, 1032, PUSHED), head: sha('f') })
+    const prompt = bench.tools.runs[0]!.argv.at(-1)!
+    expect(prompt).toContain(`its tree ${bench.treeOf(1132)} stands mid-merge with scripts/bus/queue.ts, package.json unmerged: finish that merge where it stands`)
+    expect(prompt).toContain('never git merge --abort, git reset or a new merge over it')
+    expect(prompt).not.toContain(`merge origin/main into the branch`)
+    expect(bench.tools.published).toEqual([{ branch: 'feat/card-1132', commitMessage: expect.stringContaining('on PR #1032') }])
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toMatchObject([{ source: 'changes', from: PUSHED, to: sha('f') }])
+    bench.close()
+  })
+
+  it('a dirty pull request whose card tree cannot be read opens a named owner wait and spawns no session', async () => {
+    const bench = answerBench()
+    bench.started(1133)
+    bench.gitHub.open({ number: 1033, head: PUSHED, mergeable_state: 'dirty' })
+    bench.tick()
+    bench.tools.merge = { kind: 'unreadable', why: 'not a git repository' }
+
+    const outcome = await bench.answer(bench.leaseAnswer()!)
+    expect(outcome).toMatchObject({ kind: 'waiting', taskKey: answer(1133, 1033, PUSHED), detail: expect.stringContaining('not a git repository') })
+    expect(bench.tools.runs).toEqual([])
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toMatchObject([{ id: (outcome as { wait: string }).wait, need: 'decision', card: 1133, pr: 1033, text: expect.stringContaining(bench.treeOf(1133)) }])
+    expect(taskState(bench.db, answer(1133, 1033, PUSHED)).state).toBe('completed')
+    bench.tick()
+    expect(bench.leaseAnswer()).toBeNull()
+    bench.close()
+  })
+
+  it('the tree reader sees a merge stopped on a conflict, a clean tree, and a directory that is no git tree', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-answer-merge-'))
+    const worktree = path.join(root, 'tree')
+    const git = (...args: string[]): string => execFileSync('git', ['-C', worktree, '-c', 'user.name=bus', '-c', 'user.email=bus@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    const card = { session: CARD_SESSION, worktree, branch: 'feat/card-1134' }
+    mkdirSync(worktree)
+    git('init', '-q', '-b', 'main')
+    writeFileSync(path.join(worktree, 'a.txt'), 'base\n')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'base')
+    git('checkout', '-q', '-b', card.branch)
+    writeFileSync(path.join(worktree, 'a.txt'), 'card\n')
+    git('commit', '-q', '-am', 'card')
+    git('checkout', '-q', 'main')
+    writeFileSync(path.join(worktree, 'a.txt'), 'main\n')
+    git('commit', '-q', '-am', 'main')
+    git('checkout', '-q', card.branch)
+    expect(treeMergeOf(card)).toEqual({ kind: 'none' })
+
+    expect(() => git('merge', '-q', 'main')).toThrow()
+    expect(treeMergeOf(card)).toEqual({ kind: 'mid-merge', files: ['a.txt'] })
+    writeFileSync(path.join(worktree, 'a.txt'), 'both\n')
+    git('add', 'a.txt')
+    expect(treeMergeOf(card)).toEqual({ kind: 'mid-merge', files: [] })
+
+    expect(treeMergeOf({ ...card, worktree: path.join(root, 'gone') })).toMatchObject({ kind: 'unreadable' })
+    rmSync(root, { recursive: true, force: true })
   })
 })
 

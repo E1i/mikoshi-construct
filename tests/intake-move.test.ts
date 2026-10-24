@@ -3,6 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { openBus } from '../scripts/bus/db.js'
+import { busCardEvents } from '../scripts/bus/intake.js'
+import { reduce } from '../scripts/bus/reducer.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED } from '../scripts/core/events.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
@@ -217,6 +220,44 @@ describe('intake --move', () => {
     expect(printed(result).lines.join('\n')).toContain(b)
     expect(existsSync(a)).toBe(true)
     expect(journalLines(w.journal)).toEqual([])
+  })
+
+  it('a sliced stub moves and its parent leaves the bus queue naming its children', () => {
+    const w = world()
+    const db = openBus(path.join(path.dirname(w.parking), 'bus.db'))
+    try {
+      const events = busCardEvents(db, 'by-hand', () => 1)
+      const file = park(path.join(w.parking, 'lane-1'), 170)
+      const repo = path.join(path.dirname(w.parking), 'repo')
+      mkdirSync(path.join(repo, 'src'), { recursive: true })
+      writeFileSync(path.join(repo, 'src', 'a.ts'), '')
+      expect(runAdmit({ file, dir: repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
+      reduce(db)
+      expect(db.prepare('SELECT state FROM cards WHERE card_id = 170').get()).toEqual({ state: 'queued' })
+      rmSync(file)
+      const stub = path.join(w.parking, 'sliced', '170.md')
+      mkdirSync(path.dirname(stub))
+      writeFileSync(stub, 'sliced into #582, #583\n')
+      const result = runMove({ move: '#170', to: 'sliced', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)
+      expect(result).toEqual({ status: 'recordedInPlace', file: stub, event: CARD_DROPPED })
+      expect(reduce(db).rejected).toBe(0)
+      expect(db.prepare('SELECT state FROM cards WHERE card_id = 170').get()).toEqual({ state: 'dropped' })
+      const dropped = db.prepare(`SELECT payload FROM events WHERE type = '${CARD_DROPPED}' AND card_id = 170`).all() as { payload: string }[]
+      expect(dropped.map(row => JSON.parse(row.payload))).toMatchObject([{ lane: 'sliced', children: [582, 583], reason: 'sliced into #582, #583' }])
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it('a sliced stub moved into a lane is still the parent\'s end, and a stub naming no child is refused', () => {
+    const w = world()
+    writeFileSync(path.join(w.parking, '171.md'), 'sliced into #584\n')
+    writeFileSync(path.join(w.parking, '172.md'), 'sliced into nothing\n')
+    const bus: CardEvent[] = []
+    expect(move(w, 171, 'lane-2', event => bus.push(event))).toMatchObject({ status: 'moved', event: CARD_DROPPED })
+    expect(bus).toMatchObject([{ type: CARD_DROPPED, cardId: 171, payload: { lane: 'lane-2', children: [584], reason: 'sliced into #584' } }])
+    expect(move(w, 172, 'sliced').status).toBe('refused')
   })
 
   it('refuses a card that is not parked and a card the grammar refuses', () => {

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Isolation, IsolationReader } from '../ports/isolation.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
-import type { Answered, Answerer } from './answerer.js'
+import type { Answered, Answerer, TreeMerge } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease } from './lease.js'
@@ -12,8 +12,9 @@ import { riskOf } from '../../src/card/risk.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED } from '../core/events.js'
 import { matchGlob } from '../shredder/glob.js'
 import { admittedScopeOf, answerSourceOf } from './answer-source.js'
-import { CardTreeGone } from './answerer.js'
+import { CardTreeGone, treeMergeOf } from './answerer.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from './card-tree.js'
+import { openBusWait } from './db.js'
 import { messageOf } from './errors.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
@@ -36,6 +37,7 @@ export type AnswerOutcome
     | { kind: 'decided', taskKey: string, shard: string, question: string }
     | { kind: 'denied', taskKey: string, denial: AnswerDenial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
+    | { kind: 'waiting', taskKey: string, wait: string, detail: string }
 
 export interface AnswerParts {
   db: DatabaseSync
@@ -43,6 +45,7 @@ export interface AnswerParts {
   ownerMerges: () => string
   clock: () => Date
   trees?: CardTreeTools
+  treeMerge?: (card: CardSession) => TreeMerge
   isolation?: IsolationReader
   prompts?: string
 }
@@ -102,11 +105,11 @@ export class AnswerExecutor {
   async answer(lease: Lease): Promise<AnswerOutcome> {
     try {
       assertHeld(this.parts.db, lease)
-      const source = answerSourceOf(this.parts.db, lease) ?? this.conflict(lease)
-      if (source === null)
+      const source = answerSourceOf(this.parts.db, lease)
+      if (source === null && !this.dirtyOnHead(lease))
         return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
       let widened: Widened | null = null
-      if (source.kind === 'question' && source.widen !== null) {
+      if (source?.kind === 'question' && source.widen !== null) {
         const globs = ownerGlobs(this.parts.ownerMerges())
         const ownerPath = source.widen.paths.find(file => globs.some(glob => matchGlob(glob, file)))
         if (ownerPath !== undefined)
@@ -124,12 +127,16 @@ export class AnswerExecutor {
         return this.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started, no start line with a worktree and a branch, and no open pull request` })
       if ('kind' in card)
         return this.denied(lease, card)
+      const merge = source === null ? (this.parts.treeMerge ?? treeMergeOf)(card) : null
+      if (merge?.kind === 'unreadable')
+        return this.waiting(lease, card, merge.why)
+      const answering = source ?? this.conflict(lease, card, merge)
       const sessionStart = this.parts.clock().getTime()
-      const first = await this.session(lease, source, widened, card, false)
-      const answered = endedOnContextWarn(first) ? await this.session(lease, source, widened, card, true) : first
+      const first = await this.session(lease, answering, widened, card, false)
+      const answered = endedOnContextWarn(first) ? await this.session(lease, answering, widened, card, true) : first
       if ('kind' in answered)
         return this.denied(lease, answered)
-      return this.settled(lease, source, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
+      return this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -138,10 +145,23 @@ export class AnswerExecutor {
     }
   }
 
-  private conflict(lease: Lease): AnswerSource | null {
-    if (lease.pr === null || lease.head === null || this.parts.db.prepare(DIRTY_ON_HEAD).get(lease.pr, lease.head) === undefined)
-      return null
-    return { kind: 'changes', findings: [`pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}: merge origin/${MAIN_BRANCH} into the branch and resolve every conflict, keeping what the card asks for`], events: [] }
+  private dirtyOnHead(lease: Lease): boolean {
+    return lease.pr !== null && lease.head !== null && this.parts.db.prepare(DIRTY_ON_HEAD).get(lease.pr, lease.head) !== undefined
+  }
+
+  private conflict(lease: Lease, card: CardSession, merge: TreeMerge | null): AnswerSource {
+    const conflicts = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}`
+    if (merge?.kind !== 'mid-merge')
+      return { kind: 'changes', findings: [`${conflicts}: merge origin/${MAIN_BRANCH} into the branch and resolve every conflict, keeping what the card asks for`], events: [] }
+    const unmerged = merge.files.length === 0 ? '' : ` with ${merge.files.join(', ')} unmerged`
+    return { kind: 'changes', findings: [`${conflicts}, and its tree ${card.worktree} stands mid-merge${unmerged}: finish that merge where it stands, resolving every unmerged path keeping what the card asks for and staging it with git -C ${card.worktree} add, and leave the commit that concludes the merge to the bus; never git merge --abort, git reset or a new merge over it`], events: [] }
+  }
+
+  private waiting(lease: Lease, card: CardSession, why: string): AnswerOutcome {
+    const detail = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}, and the tree ${card.worktree} of card #${lease.cardId} cannot be read to answer it: ${why}`
+    completeTask(this.parts.db, this.ts(), lease, [])
+    const wait = openBusWait(this.parts.db, this.ts(), lease.actor, { need: 'decision', text: detail, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
+    return { kind: 'waiting', taskKey: lease.taskKey, wait, detail }
   }
 
   private tree(lease: Lease): CardSession | AnswerDenial | null {

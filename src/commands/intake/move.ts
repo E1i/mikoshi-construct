@@ -8,6 +8,7 @@ import { bodySha } from './confirm.js'
 import { INTAKE_EXIT, recordIntake } from './index.js'
 
 export const CARD_NUMBER = /^#?(\d+)$/
+const SLICED_STUB = /^sliced into (#\d+(?:,\s*#\d+)*)$/
 
 export interface MoveOptions {
   move: string | undefined
@@ -44,20 +45,28 @@ function isParkingDirectoryName(to: string): boolean {
 
 interface Moved { from: string | null, to: string, bodySha: string }
 
-function moveType(targetDir: string): typeof CARD_MOVED | typeof CARD_DROPPED {
-  return TERMINAL_LANES.has(path.basename(targetDir)) ? CARD_DROPPED : CARD_MOVED
+interface Slicing { reason: string, children: number[] }
+
+function slicingOf(text: string): Slicing | null {
+  const reason = text.trim()
+  const children = SLICED_STUB.exec(reason)?.[1]
+  return children === undefined ? null : { reason, children: children.split(',').map(child => Number(child.trim().slice(1))) }
 }
 
-function recordMove(options: MoveOptions, number: number, moved: Moved, ts: string): void {
-  const type = moveType(moved.to)
+function moveType(targetDir: string, slicing: Slicing | null): typeof CARD_MOVED | typeof CARD_DROPPED {
+  return slicing !== null || TERMINAL_LANES.has(path.basename(targetDir)) ? CARD_DROPPED : CARD_MOVED
+}
+
+function recordMove(options: MoveOptions, number: number, moved: Moved, slicing: Slicing | null, ts: string): void {
+  const type = moveType(moved.to, slicing)
   const lane = path.basename(moved.to)
-  recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${lane}:${ts}`, payload: { ...moved, lane } }], options.events)
+  recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${lane}:${ts}`, payload: { ...moved, lane, ...slicing } }], options.events)
 }
 
 function moveInBus(options: MoveOptions, number: number, text: string, now: () => Date): MoveResult {
   const to = path.resolve(options.parking, options.to!)
-  recordMove(options, number, { from: null, to, bodySha: bodySha(text) }, now().toISOString())
-  return { status: 'moved', from: `#${number}`, to, event: moveType(to) }
+  recordMove(options, number, { from: null, to, bodySha: bodySha(text) }, null, now().toISOString())
+  return { status: 'moved', from: `#${number}`, to, event: moveType(to, null) }
 }
 
 export function runMove(options: MoveOptions, now: () => Date = () => new Date()): MoveResult {
@@ -83,8 +92,9 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   const targetDir = path.resolve(options.parking, options.to)
   const target = path.join(targetDir, path.basename(from))
   const text = readFileSync(from, 'utf8')
-  const parsed = parseParkingFile(path.basename(from), text)
-  if (parsed.kind === 'refused')
+  const slicing = slicingOf(text)
+  const parsed = slicing === null ? parseParkingFile(path.basename(from), text) : null
+  if (parsed?.kind === 'refused')
     return refused(ui => ui.lore.intakeRefusedUnreadable(`${from}: ${parsed.reason}`))
   const inPlace = path.resolve(from) === target
   const createdDir = inPlace ? undefined : mkdirSync(targetDir, { recursive: true })
@@ -92,9 +102,9 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
     renameSync(from, target)
   const ts = now().toISOString()
   const moved = { from: path.dirname(from), to: targetDir, bodySha: bodySha(text) }
-  const type = moveType(targetDir)
+  const type = moveType(targetDir, slicing)
   try {
-    recordMove(options, number, moved, ts)
+    recordMove(options, number, moved, slicing, ts)
   }
   catch (error) {
     if (!inPlace)
