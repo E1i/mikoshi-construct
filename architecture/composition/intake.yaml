@@ -10,8 +10,8 @@ description: >-
   after every number taken in the parking directory and in `--taken`, because card numbers are shared
   with pull requests and issues. `checkDraft` corrects or marks unclear, by facts, each wrong path,
   named number, contour, decision, merged depends/blocks and command-less witness. It reads the
-  repository under --dir only through `facts.ts` and merged tasks from --journal through
-  `mergedTasks` in `src/card/closed.ts`. Each correction is a `corrected:` line. `sliceCards` resolves `depends` by name inside the draft, adds the
+  repository under --dir only through `facts.ts` and closed and merged cards from the bus, through the
+  card-states port a caller wires in and `endedCards` in `src/card/closed.ts`. Each correction is a `corrected:` line. `sliceCards` resolves `depends` by name inside the draft, adds the
   matching `blocks`, defaults only `contour` and `decision` and marks each default as an `unclear:`
   line, keeps every card with an unclear line at `who: window`, renders the card line and the file with
   the renderers that sit beside the card grammar in `src/card/`, and parses every file back with
@@ -23,8 +23,7 @@ description: >-
   parking directory, which is outside the repository, so an attached repository gets no file; a
   bus-wired run writes no file and records each card as one `card.admitted` in the bus, naming its
   confirmation (`person`, `auto` or `none`) and its corrections, and a run with no bus records nothing
-  beyond the file. Nothing is written to --journal: it is only read, for merged depends and blocks and
-  for the `intake` lines written before the bus became the record. `--admit <parking>/<id>.md` routes to `runAdmit` in `src/commands/intake/admit.ts`
+  beyond the file. `--admit <parking>/<id>.md` routes to `runAdmit` in `src/commands/intake/admit.ts`
   instead, for a card parked before the intake door: it parses the file with `parseParkingFile`, runs
   the same `checkDraft` under the card's own number, holds a corrected card behind the same
   confirmation token, rewrites only the card line, the touches line and the appended `corrected:` and
@@ -39,7 +38,7 @@ boundaries:
   - id: entry
     label: Entry
   - id: read
-    label: Read · the draft, the taken numbers, the journal and the repository
+    label: Read · the draft, the taken numbers, the bus and the repository
   - id: slice
     label: Number, render, check
   - id: write
