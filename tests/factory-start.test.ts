@@ -24,6 +24,12 @@ const LAUNCHED_WITHIN_MS = 10_000
 const SYSTEM_BIN_DIRS = ['/usr/bin', '/bin']
 const UID = 501
 const USER_PATH = '/opt/user/bin:/usr/bin:/bin'
+const SECURITY_INVARIANTS = path.join(REPOSITORY, 'architecture', 'security-invariants.md')
+const FACTORY_SPAWNS = ['launchctl', 'nohup', 'ps']
+const LAUNCHCTL_SUBCOMMANDS = ['print', 'bootout', 'bootstrap']
+const SPAWN_BOUNDARY_TEST = 'construct-factory spawns only launchctl and the supervisor the package ships'
+const SPAWN_BOUNDARY_SANDBOX_LEVEL = 'none'
+const SPAWNED_LOG = 'spawned'
 
 const roots: string[] = []
 
@@ -40,7 +46,7 @@ function tempRoot(prefix: string): string {
 
 function stub(bin: string, name: string, body: string): void {
   const file = path.join(bin, name)
-  writeFileSync(file, `#!/bin/sh\n${body}\n`)
+  writeFileSync(file, `#!/bin/sh\nprintf '%s\\n' '${name}' >> "$STUB_OUT/${SPAWNED_LOG}"\n${body}\n`)
   chmodSync(file, 0o755)
 }
 
@@ -60,6 +66,30 @@ function keepAliveParts(home: string, launchctl: (args: string[]) => LaunchctlRu
 function plistValue(text: string, key: string): string | undefined {
   return new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(text)?.[1]
 }
+
+function linesOf(file: string): string[] {
+  return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(line => line !== '') : []
+}
+
+function spawnBoundaryRow(): string | undefined {
+  const text = readFileSync(SECURITY_INVARIANTS, 'utf8')
+  const block = text.slice(text.indexOf('<!-- construct:discover:security-invariants -->'), text.indexOf('<!-- /construct:discover:security-invariants -->'))
+  return block.split('\n').find(line => line.startsWith('| `construct-factory`'))
+}
+
+describe('the construct-factory spawn boundary', () => {
+  it('security-invariants names the construct-factory spawn boundary and the test that holds it', () => {
+    const row = spawnBoundaryRow()
+    expect(row, 'a row starting | `construct-factory` inside the discovery block').toBeDefined()
+    const [invariant, enforcedBy] = row!.split(' | ')
+    for (const command of [...FACTORY_SPAWNS, ...LAUNCHCTL_SUBCOMMANDS])
+      expect(invariant).toContain(`\`${command}\``)
+    expect(invariant).toContain('`supervisor.js`')
+    expect(invariant).toContain(`level \`${SPAWN_BOUNDARY_SANDBOX_LEVEL}\``)
+    expect(enforcedBy).toContain('`tests/factory-start.test.ts`')
+    expect(enforcedBy).toContain(`\`${SPAWN_BOUNDARY_TEST}\``)
+  })
+})
 
 describe('a factory process is launched as the package it runs from', () => {
   it('runs a worker as pnpm --silent <script> in this checkout and as node on its built file from an installed package', () => {
@@ -234,6 +264,24 @@ describe('the start command in the published package', () => {
     const built = (source: string): string => path.join(packed.installed, OUT_DIR, 'scripts', 'bus', source)
     expect(launched.map(line => line.slice(line.indexOf(' ') + 1)).sort()).toEqual([built('run.js'), `${built('supervisor.js')} ${SUPERVISE_FLAG}`].sort())
     expect(existsSync(path.join(busDirOf(path.join(packed.root, 'bus.db')), SUPERVISOR_LAUNCH.instanceFile!))).toBe(true)
+  })
+
+  it(SPAWN_BOUNDARY_TEST, async () => {
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    await waitFor(() => linesOf(path.join(out, 'nohup.argv')).length >= 2, () => `two launches in ${out}`, LAUNCHED_WITHIN_MS)
+    const spawned = new Set(linesOf(path.join(out, SPAWNED_LOG)))
+    expect([...spawned].filter(command => !FACTORY_SPAWNS.includes(command))).toEqual([])
+    expect(spawned.has('nohup')).toBe(true)
+    const launchctl = linesOf(path.join(out, 'launchctl.argv'))
+    expect(launchctl.length > 0).toBe(process.platform === KEEP_ALIVE_PLATFORM)
+    expect(launchctl.map(line => line.split(' ')[0]).filter(subcommand => !LAUNCHCTL_SUBCOMMANDS.includes(subcommand!))).toEqual([])
+    const shipped = `${path.join(packed.installed, OUT_DIR, 'scripts', 'bus')}${path.sep}`
+    for (const line of linesOf(path.join(out, 'nohup.argv'))) {
+      const [command, entry] = line.split(' ')
+      expect(path.basename(command!), line).toBe(path.basename(process.execPath))
+      expect(entry!.startsWith(shipped), line).toBe(true)
+    }
+    expect(linesOf(path.join(out, 'nohup.argv')).some(line => line.includes(`supervisor.js ${SUPERVISE_FLAG}`))).toBe(true)
   })
 
   it.runIf(process.platform === KEEP_ALIVE_PLATFORM)('the published command loads a keep-alive that reruns the installed starter in the user repository', () => {
