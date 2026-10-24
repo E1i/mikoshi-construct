@@ -6,8 +6,9 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { BUS_DB_VARIABLE, busDirOf, pinBus } from '../core/bus-path.js'
 import { builtEntryOf, installedPackage, printBg } from './bg.js'
-import { pinnedBusDir, startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
+import { startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
 
 export const START_PREFIX = '[factory:start] '
 export const OWNER_AGENT = 'dev.mikoshi.bus'
@@ -32,6 +33,7 @@ export interface KeepAliveParts {
   uid: number
   node: string
   path: string
+  busDb: string
   busDir: string
   launchctl: (args: string[]) => LaunchctlRun
 }
@@ -42,6 +44,7 @@ export interface KeepAliveAgent {
   starter: string
   repository: string
   path: string
+  busDb: string
   log: string
 }
 
@@ -81,6 +84,8 @@ export function keepAlivePlist(agent: KeepAliveAgent): string {
     '\t<dict>',
     '\t\t<key>PATH</key>',
     `\t\t${plistString(agent.path)}`,
+    `\t\t<key>${BUS_DB_VARIABLE}</key>`,
+    `\t\t${plistString(agent.busDb)}`,
     '\t</dict>',
     '\t<key>StandardOutPath</key>',
     `\t${plistString(agent.log)}`,
@@ -119,7 +124,7 @@ export function installKeepAlive(repository: string, installed: string | null, p
   const label = agentLabel(repository)
   const plist = path.join(parts.home, LAUNCH_AGENTS, `${label}.plist`)
   const domain = `gui/${parts.uid}`
-  const text = keepAlivePlist({ label, node: parts.node, starter: builtEntryOf(installed, SUPERVISOR_LAUNCH.script), repository, path: parts.path, log: path.join(parts.busDir, AGENT_LOG) })
+  const text = keepAlivePlist({ label, node: parts.node, starter: builtEntryOf(installed, SUPERVISOR_LAUNCH.script), repository, path: parts.path, busDb: parts.busDb, log: path.join(parts.busDir, AGENT_LOG) })
   if (readOrNull(plist) === text && parts.launchctl(['print', `${domain}/${label}`]).status === 0)
     return { stdout: [`${START_PREFIX}the keep-alive ${label} for ${repository} is already installed and loaded (${plist})`], stderr: [], exitCode: 0 }
   mkdirSync(path.dirname(plist), { recursive: true })
@@ -149,13 +154,15 @@ async function main(): Promise<void> {
     process.exitCode = 2
     return
   }
+  const busDb = pinBus(process.env, os.homedir(), process.cwd())
   printBg(await runStart(realpathSync(process.cwd()), installedPackage(), {
     platform: process.platform,
     home: os.homedir(),
     uid: process.getuid?.() ?? 0,
     node: process.execPath,
     path: process.env.PATH ?? '',
-    busDir: pinnedBusDir(),
+    busDb,
+    busDir: busDirOf(busDb),
     launchctl: systemLaunchctl,
   }))
 }

@@ -2078,7 +2078,7 @@ alone, so a second run starts nothing twice. Logs go to that `bus/` directory.
 Then it installs the keep-alive. On macOS that is a launchd agent,
 `dev.mikoshi.factory.<repository>-<hash>.plist` in the `Library/LaunchAgents` of your home, loaded into your login
 session with `launchctl bootstrap`: it runs the factory starter in your repository with the `PATH`
-of the shell you ran the command from, at login and within 20 s of the starter exiting. An agent
+of the shell you ran the command from and `CONSTRUCT_BUS_DB` set to the bus it started on, at login and within 20 s of the starter exiting. An agent
 already installed with the same content and loaded is left as it is. Elsewhere no agent is installed,
 and after a restart of the machine you run `construct-factory` again. In the checkout of
 mikoshi-construct itself no agent is installed: its keep-alive is the agent

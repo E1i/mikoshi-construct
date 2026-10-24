@@ -8,9 +8,9 @@ import process from 'node:process'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/bus/bg.js'
-import { AGENT_LOG, agentLabel, installKeepAlive, KEEP_ALIVE_PLATFORM, LAUNCH_AGENTS, OWNER_AGENT, runStart } from '../scripts/bus/start.js'
+import { AGENT_LOG, agentLabel, installKeepAlive, KEEP_ALIVE_PLATFORM, LAUNCH_AGENTS, OWNER_AGENT, runStart, USAGE } from '../scripts/bus/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/bus/supervisor.js'
-import { busDirOf } from '../scripts/core/bus-path.js'
+import { BUS_DB_VARIABLE, busDirOf } from '../scripts/core/bus-path.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
 
@@ -53,7 +53,8 @@ function recordingLaunchctl(status = 0): { calls: string[][], run: (args: string
 }
 
 function keepAliveParts(home: string, launchctl: (args: string[]) => LaunchctlRun, platform: NodeJS.Platform = KEEP_ALIVE_PLATFORM) {
-  return { platform, home, uid: UID, node: process.execPath, path: USER_PATH, busDir: path.join(home, '.construct', 'bus'), launchctl }
+  const busDb = path.join(home, '.construct', 'bus.db')
+  return { platform, home, uid: UID, node: process.execPath, path: USER_PATH, busDb, busDir: busDirOf(busDb), launchctl }
 }
 
 function plistValue(text: string, key: string): string | undefined {
@@ -102,6 +103,7 @@ describe('the keep-alive of the start command', () => {
     expect(plistValue(text, 'Label')).toBe(label)
     expect(plistValue(text, 'WorkingDirectory')).toBe(user)
     expect(plistValue(text, 'PATH')).toBe(USER_PATH)
+    expect(plistValue(text, BUS_DB_VARIABLE)).toBe(path.join(home, '.construct', 'bus.db'))
     expect(plistValue(text, 'StandardOutPath')).toBe(path.join(home, '.construct', 'bus', AGENT_LOG))
     expect([...text.matchAll(/<array>([\s\S]*?)<\/array>/g)][0]![1]!.match(/<string>[^<]*<\/string>/g)).toEqual([`<string>${process.execPath}</string>`, `<string>${path.join(REPOSITORY, OUT_DIR, 'scripts', 'bus', 'supervisor.js')}</string>`])
     expect(text).toMatch(/<key>KeepAlive<\/key>\s*<true\/>/)
@@ -139,6 +141,16 @@ describe('the keep-alive of the start command', () => {
     expect(result.stderr.join('\n')).toContain('launchctl bootstrap')
   })
 
+  it('refuses to install a keep-alive for a user repository when it runs from source, since the agent starts the built factory', () => {
+    const home = tempRoot('factory-home-')
+    const launchctl = recordingLaunchctl()
+    const result = installKeepAlive(tempRoot('factory-user-'), null, keepAliveParts(home, launchctl.run))
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain('runs from source')
+    expect(existsSync(path.join(home, LAUNCH_AGENTS))).toBe(false)
+    expect(launchctl.calls).toEqual([])
+  })
+
   it('installs no agent where launchd does not exist and says how the factory survives there', () => {
     const home = tempRoot('factory-home-')
     const launchctl = recordingLaunchctl()
@@ -147,6 +159,13 @@ describe('the keep-alive of the start command', () => {
     expect(result.stdout.join('\n')).toContain('survives closing the terminal')
     expect(existsSync(path.join(home, LAUNCH_AGENTS))).toBe(false)
     expect(launchctl.calls).toEqual([])
+  })
+
+  it('exits 2 with its usage when given an argument, starting nothing', () => {
+    const run = spawnSync(process.execPath, ['--import', 'tsx', START_ENTRY, 'extra'], { cwd: REPOSITORY, encoding: 'utf8' })
+    expect(run.status, run.stderr).toBe(2)
+    expect(run.stderr.trim()).toBe(USAGE)
+    expect(run.stdout).toBe('')
   })
 
   it('gives two repositories of one name two agents', () => {
@@ -222,6 +241,7 @@ describe('the start command in the published package', () => {
     const text = readFileSync(plist, 'utf8')
     expect(text).toContain(`<string>${path.join(packed.installed, OUT_DIR, 'scripts', 'bus', 'supervisor.js')}</string>`)
     expect(plistValue(text, 'WorkingDirectory')).toBe(user)
+    expect(plistValue(text, BUS_DB_VARIABLE)).toBe(path.join(packed.root, 'bus.db'))
     expect(readFileSync(path.join(out, 'launchctl.argv'), 'utf8')).toContain(`bootstrap gui/${process.getuid!()} ${plist}`)
   })
 })
