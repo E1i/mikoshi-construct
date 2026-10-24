@@ -7,9 +7,9 @@ import path from 'node:path'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../src/manifest.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, MERGE_DONE } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, MERGE_DONE, POLICY_DENIED } from '../core/events.js'
 import { taskConflicts } from '../shift/overlap.js'
-import { appendEvent } from './db.js'
+import { appendEvent, OPEN_WAIT, OWNER_WAITS } from './db.js'
 import { prOf } from './identifiers.js'
 
 export const DEFAULT_LANE_COUNT = DEFAULT_LANES
@@ -18,6 +18,29 @@ export const LANE_COUNT_FIELD = 'lanes'
 const CHAIN_LANE = /^lane-(\d+)$/
 
 const ENDED_STATES = ['merged', 'closed', 'dropped']
+
+const NOT_STARTED_STATES = [null, 'queued']
+
+export const STALLED = 'stalled'
+
+export const OWNER_MERGE = 'owner_merge'
+
+const STALLED_PRS = `
+  SELECT prs.card_id, prs.pr, prs.head FROM prs
+  WHERE prs.state = 'open' AND prs.card_id IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM tasks AS moving WHERE moving.card_id = prs.card_id AND moving.state IN ('queued', 'leased'))
+    AND (
+      EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.need = 'merge' AND wait.state = '${OPEN_WAIT}' AND wait.pr = prs.pr)
+      OR EXISTS (SELECT 1 FROM tasks AS merge WHERE merge.queue = 'merge' AND merge.pr = prs.pr AND merge.head = prs.head AND merge.state = 'withdrawn')
+    )
+  ORDER BY prs.card_id
+`
+
+const LATEST_MERGE_DENIAL = `
+  SELECT payload FROM events
+  WHERE legacy = 0 AND type = '${POLICY_DENIED}' AND card_id = ? AND pr = ? AND json_valid(payload) AND json_extract(payload, '$.command') = 'merge'
+  ORDER BY id DESC LIMIT 1
+`
 
 const ADMITTED_CARDS = `
   SELECT admitted.card_id, max(admitted.id) AS admission, cards.state FROM events AS admitted
@@ -99,6 +122,38 @@ export function mainCheckoutOf(cwd: string): string {
 export function repositoryLanes(cwd: string): () => number {
   const root = mainCheckoutOf(cwd)
   return () => laneCount(root)
+}
+
+export interface Stall {
+  cardId: number
+  pr: number
+  head: string | null
+  cause: string
+  detail: string
+}
+
+interface StalledPr { card_id: number, pr: number, head: string | null }
+
+function denialOf(db: DatabaseSync, row: StalledPr): Pick<Stall, 'cause' | 'detail'> {
+  const denial = db.prepare(LATEST_MERGE_DENIAL).get(row.card_id, row.pr) as { payload: string } | undefined
+  const payload = denial === undefined ? {} : parsed(denial.payload)
+  const cause = payload.rule ?? payload.reason
+  return {
+    cause: typeof cause === 'string' ? cause : OWNER_MERGE,
+    detail: typeof payload.detail === 'string' ? payload.detail : `PR #${row.pr} waits for the owner to merge it`,
+  }
+}
+
+export function stalledCards(db: DatabaseSync): Stall[] {
+  return (db.prepare(STALLED_PRS).all() as unknown as StalledPr[]).map(row => ({ cardId: row.card_id, pr: row.pr, head: row.head, ...denialOf(db, row) }))
+}
+
+export function raiseStallAlarms(db: DatabaseSync, stalls: readonly Stall[], ts: string, actor: string): number {
+  return stalls.filter(stall => appendEvent(db, { ts, type: BOARD_ALARM, actor, cardId: stall.cardId, pr: stall.pr, head: stall.head, dedupeKey: `${BOARD_ALARM}:${STALLED}:${stall.cardId}:${stall.pr}:${stall.head}:${stall.cause}`, payload: { reason: STALLED, cause: stall.cause, detail: `card #${stall.cardId} cannot move by itself: ${stall.detail}` }, legacy: false })).length
+}
+
+export function heldByStall(card: LaneCard, holders: readonly LaneCard[]): boolean {
+  return holders.some(holder => card.task === null || holder.task === null || chainedTo(card, holder))
 }
 
 function overlaps(a: ShiftTask | null, b: ShiftTask | null): boolean {
@@ -242,7 +297,29 @@ export function relayAmended(db: DatabaseSync, cardId: number, count: number, ts
   return choice.lane !== current && assign(db, cardId, Number(latest.id), choice, count, ts, actor)
 }
 
+function relayOne(db: DatabaseSync, row: AdmittedRow, stalled: ReadonlySet<number>, count: number, ts: string, actor: string): boolean {
+  const current = currentLane(db, row.card_id)
+  if (!NOT_STARTED_STATES.includes(row.state))
+    return false
+  const card = laneCardOf(db, row.card_id)
+  const live = liveLanes(db)
+  const holders = live.filter(other => other.lane === current && stalled.has(other.cardId))
+  const moving = live.filter(other => !stalled.has(other.cardId))
+  if (holders.length === 0 || heldByStall(card, holders) || !moving.some(other => other.lane === current && other.cardId !== card.cardId))
+    return false
+  const choice = chooseLane(card, moving, count)
+  return choice.reason === 'free' && choice.lane !== current && assign(db, row.card_id, Number(row.admission), choice, count, ts, actor)
+}
+
+export function relayBehindStalls(db: DatabaseSync, stalls: readonly Stall[], count: number, ts: string, actor: string): number {
+  const stalled = new Set(stalls.map(stall => stall.cardId))
+  return stalled.size === 0 ? 0 : liveRows(db).filter(row => relayOne(db, row, stalled, count, ts, actor)).length
+}
+
 export function layLanes(db: DatabaseSync, count: number, ts: string, actor: string, amended: number | null = null): number {
   const moved = amended !== null && relayAmended(db, amended, count, ts, actor) ? 1 : 0
-  return moved + layOutLanes(db, count, ts, actor)
+  const laid = moved + layOutLanes(db, count, ts, actor)
+  const stalls = stalledCards(db)
+  raiseStallAlarms(db, stalls, ts, actor)
+  return laid + relayBehindStalls(db, stalls, count, ts, actor)
 }

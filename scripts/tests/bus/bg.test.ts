@@ -7,10 +7,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { alive, BUS_RUN_LAUNCH, launchName, PREFIX, psList, runBusBg, runningBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached } from '../../bus/bg.js'
+import { alive, BUS_RUN_LAUNCH, busInEnviron, busInPsEnvironment, instancesOf, launchName, parsePs, PREFIX, processBuses, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { startReviewWorker } from '../../bus/review-bg.js'
-import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, switchCommand } from '../../bus/supervisor.js'
+import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../bus/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
@@ -107,6 +107,14 @@ function argsOf(pid: number): string {
 
 function pidsOf(result: BgResult): number[] {
   return result.stdout.filter(line => /^\d+$/.test(line)).map(Number)
+}
+
+function ownBus(w: World): string {
+  return path.join(path.dirname(w.busDir), 'bus.db')
+}
+
+function supervisorServing(bus: string | undefined): RunningProcess {
+  return { pid: 16780, args: `node /x/node_modules/mikoshi-construct/dist/${SUPERVISOR_LAUNCH.markers[0]!.replace('.ts', '.js')}`, ...bus === undefined ? {} : { bus } }
 }
 
 describe('pnpm bus:bg', () => {
@@ -347,6 +355,89 @@ describe('pnpm bus:bg', () => {
     expect(JSON.parse(readFileSync(path.join(busDir, WORKERS_FILE), 'utf8'))).toEqual({ on: ['update'] })
     writeFileSync(path.join(busDir, WORKERS_FILE), '{"on":["deploy"]}')
     expect(() => switchedOn(busDir)).toThrow(WORKERS_FILE)
+  })
+
+  it('a supervisor of another bus does not hold this bus lock', async () => {
+    const w = world()
+    const probe = supervisorServing(path.join(tempRoot('bus-bg-probe-'), 'bus.db'))
+    const result = startDetached(SUPERVISOR_LAUNCH, w.busDir, { ...w.env, CONSTRUCT_BUS_DB: ownBus(w) }, () => [probe])
+    started.push(...pidsOf(result))
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    expect(pidsOf(result)).toHaveLength(1)
+    expect(await argvLines(w, 1)).toEqual([`--silent ${launchName(SUPERVISOR_LAUNCH)}`])
+    expect(runningInstance([probe], SUPERVISOR_LAUNCH.markers, ownBus(w))).toBeUndefined()
+  })
+
+  it('a second supervisor of the same bus is refused', () => {
+    const w = world()
+    for (const same of [supervisorServing(ownBus(w)), supervisorServing(path.join(w.busDir, '..', 'bus.db')), supervisorServing(undefined)]) {
+      const result = startDetached(SUPERVISOR_LAUNCH, w.busDir, { ...w.env, CONSTRUCT_BUS_DB: ownBus(w) }, () => [same])
+      expect(result.exitCode).toBe(1)
+      expect(result.alreadyRunning).toEqual(same)
+    }
+    expect(readArgv(w)).toEqual([])
+  })
+
+  it('a bus is read from the environment ps -E prints after the args, and from a /proc environ blob', () => {
+    const line = 'node scripts/bus/supervisor.ts --supervise CONSTRUCT_BUS_DB=/args/bus.db HOME=/h CONSTRUCT_BUS_DB=/x/bus.db PATH=/bin'
+    expect(busInPsEnvironment(line)).toBe('/x/bus.db')
+    expect(busInPsEnvironment('node scripts/bus/supervisor.ts --supervise HOME=/h XCONSTRUCT_BUS_DB=/y/bus.db')).toBeUndefined()
+    expect(busInEnviron('HOME=/h\0CONSTRUCT_BUS_DB_OLD=/y/bus.db\0CONSTRUCT_BUS_DB=/x/bus.db\0PATH=/bin\0')).toBe('/x/bus.db')
+    expect(busInEnviron('HOME=/h\0PATH=/bin\0')).toBeUndefined()
+  })
+
+  it('off linux the bus is read from ps -axEo output, and on linux from /proc environ, never the other way', () => {
+    const calls: string[][] = []
+    const output = [
+      '  101 node scripts/bus/supervisor.ts --supervise HOME=/h CONSTRUCT_BUS_DB=/x/bus.db PATH=/bin',
+      '  102 node scripts/bus/supervisor.js --supervise CONSTRUCT_BUS_DB=/y/bus.db',
+      '  103 sleep 30 HOME=/h',
+    ].join('\n')
+    const environs: number[] = []
+    const ps = (args: string[]): RunningProcess[] => {
+      calls.push(args)
+      return parsePs(output)
+    }
+    const environ = (pid: number): string => {
+      environs.push(pid)
+      return pid === 101 ? 'CONSTRUCT_BUS_DB=/z/bus.db\0' : ''
+    }
+    const listed = [{ pid: 101, args: 'a' }, { pid: 102, args: 'b' }, { pid: 103, args: 'c' }]
+    expect(withBuses(listed, processBuses({}, 'darwin', ps, environ))).toEqual([{ pid: 101, args: 'a', bus: '/x/bus.db' }, { pid: 102, args: 'b', bus: '/y/bus.db' }, { pid: 103, args: 'c' }])
+    expect(calls).toEqual([['-axEo', 'pid=,args=']])
+    expect(environs).toEqual([])
+    expect(withBuses(listed, processBuses({}, 'linux', ps, environ))).toEqual([{ pid: 101, args: 'a', bus: '/z/bus.db' }, { pid: 102, args: 'b' }, { pid: 103, args: 'c' }])
+    expect(calls).toHaveLength(1)
+    expect(environs).toEqual([101, 102, 103])
+  })
+
+  it('withBuses stamps the bus a reader found and leaves a process it found none for unchanged', () => {
+    const read = { pid: 1, args: 'a' }
+    const unread = { pid: 2, args: 'b' }
+    expect(withBuses([read, unread], () => new Map([[1, '/x/bus.db']]))).toEqual([{ ...read, bus: '/x/bus.db' }, unread])
+  })
+
+  it.runIf(process.platform === 'linux')('the bus of a real child is read from the /proc environ it was started with', async () => {
+    const bus = path.join(tempRoot('bus-bg-child-'), 'bus.db')
+    const child = spawn('sleep', ['30'], { detached: true, stdio: 'ignore', env: { ...process.env, CONSTRUCT_BUS_DB: bus } })
+    child.unref()
+    started.push(child.pid!)
+    await waitFor(() => withBuses<RunningProcess>([{ pid: child.pid!, args: 'sleep 30' }], processBuses(process.env, 'linux'))[0]!.bus === bus, () => `the bus of pid ${child.pid} read as ${bus}`, ARRIVAL_GUARD_MS)
+  })
+
+  it('a relative bus in another process environment counts as unreadable, since it was relative to that process cwd', () => {
+    const relative = { ...supervisorServing('bus.db'), pid: 1 }
+    expect(servesBus(relative, '/x/bus.db')).toBe(true)
+    expect(servesBus(relative, path.resolve('elsewhere', 'bus.db'))).toBe(true)
+    expect(servesBus({ ...relative, bus: '/y/bus.db' }, '/x/bus.db')).toBe(false)
+  })
+
+  it('the instances a stop signals are only those of its own bus', () => {
+    const own = { ...supervisorServing('/x/bus.db'), pid: 1 }
+    const unread = { ...supervisorServing(undefined), pid: 2 }
+    const probe = { ...supervisorServing('/y/bus.db'), pid: 3 }
+    expect(instancesOf([own, unread, probe], SUPERVISOR_LAUNCH.markers, '/x/bus.db')).toEqual([own, unread])
   })
 
   it('a stopped instance is signalled as a group and waited for', async () => {

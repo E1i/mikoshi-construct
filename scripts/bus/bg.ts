@@ -3,6 +3,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFi
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { BUS_DB_VARIABLE } from '../core/bus-path.js'
 import { STAMP_ENV } from './stamp.js'
 
 export const PREFIX = '[bus:bg] '
@@ -16,6 +17,9 @@ export const BUILT_MODULE = '.js'
 
 const FACTORY_SCRIPT = /^node --import tsx (scripts\/[\w/-]+)\.ts(?:\s|$)/
 const SOURCE_MARKER = /^(scripts\/[\w/-]+)\.ts(?=\s|$)/
+const PS_LINE = /^\s*(\d+)\s(.*)$/
+const BUS_ASSIGNMENT = `${BUS_DB_VARIABLE}=`
+const BUS_IN_ENVIRONMENT = new RegExp(`(?:^|\\s)${BUS_ASSIGNMENT}(\\S+)`, 'g')
 
 export interface BgResult {
   stdout: string[]
@@ -27,6 +31,7 @@ export interface BgResult {
 export interface RunningProcess {
   pid: number
   args: string
+  bus?: string
 }
 
 export type ProcessList = () => RunningProcess[]
@@ -73,17 +78,80 @@ export function carriesMarker(args: string, markers: readonly string[]): boolean
   return markers.some(marker => args.includes(marker) || args.includes(marker.replace(SOURCE_MARKER, `$1${BUILT_MODULE}`)))
 }
 
-export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
-  return () => execFileSync('ps', ['-axo', 'pid=,args='], { encoding: 'utf8', env })
+function psLines(args: string[], env: NodeJS.ProcessEnv): RunningProcess[] {
+  return parsePs(execFileSync('ps', args, { encoding: 'utf8', env }))
+}
+
+export function parsePs(output: string): RunningProcess[] {
+  return output
     .split('\n')
     .flatMap((line) => {
-      const match = /^\s*(\d+)\s(.*)$/.exec(line)
+      const match = PS_LINE.exec(line)
       return match === null ? [] : [{ pid: Number(match[1]), args: match[2]! }]
     })
 }
 
-export function runningInstance(processes: RunningProcess[], markers: readonly string[]): RunningProcess | undefined {
-  return processes.find(candidate => candidate.pid !== process.pid && carriesMarker(candidate.args, markers))
+export function busInPsEnvironment(line: string): string | undefined {
+  return [...line.matchAll(BUS_IN_ENVIRONMENT)].at(-1)?.[1]
+}
+
+export function busInEnviron(blob: string): string | undefined {
+  return blob.split('\0').find(entry => entry.startsWith(BUS_ASSIGNMENT))?.slice(BUS_ASSIGNMENT.length)
+}
+
+export type BusReader = (processes: RunningProcess[]) => ReadonlyMap<number, string>
+
+function busesOf(read: (candidate: RunningProcess) => string | undefined): BusReader {
+  return processes => new Map(processes.flatMap((candidate) => {
+    const bus = read(candidate)
+    return bus === undefined ? [] : [[candidate.pid, bus] as const]
+  }))
+}
+
+function environOf(pid: number): string {
+  try {
+    return readFileSync(`/proc/${pid}/environ`, 'utf8')
+  }
+  catch {
+    return ''
+  }
+}
+
+export type PsRunner = (args: string[]) => RunningProcess[]
+
+export function processBuses(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, ps: PsRunner = args => psLines(args, env), environ: (pid: number) => string = environOf): BusReader {
+  if (platform === 'linux')
+    return busesOf(({ pid }) => busInEnviron(environ(pid)))
+  return () => busesOf(({ args }) => busInPsEnvironment(args))(ps(['-axEo', 'pid=,args=']))
+}
+
+export function withBuses<T extends RunningProcess>(processes: T[], buses: BusReader = processBuses()): T[] {
+  const read = buses(processes)
+  return processes.map((candidate) => {
+    const bus = read.get(candidate.pid)
+    return bus === undefined ? candidate : { ...candidate, bus }
+  })
+}
+
+export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
+  return () => withBuses(psLines(['-axo', 'pid=,args='], env), processBuses(env))
+}
+
+export function thisBus(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const bus = env[BUS_DB_VARIABLE]
+  return bus === undefined || bus === '' ? undefined : bus
+}
+
+export function servesBus(candidate: RunningProcess, bus: string | undefined): boolean {
+  return bus === undefined || candidate.bus === undefined || !path.isAbsolute(candidate.bus) || path.resolve(candidate.bus) === path.resolve(bus)
+}
+
+export function instancesOf(processes: RunningProcess[], markers: readonly string[], bus: string | undefined = thisBus()): RunningProcess[] {
+  return processes.filter(candidate => candidate.pid !== process.pid && servesBus(candidate, bus) && carriesMarker(candidate.args, markers))
+}
+
+export function runningInstance(processes: RunningProcess[], markers: readonly string[], bus: string | undefined = thisBus()): RunningProcess | undefined {
+  return instancesOf(processes, markers, bus)[0]
 }
 
 export function runningBus(processes: RunningProcess[]): RunningProcess | undefined {
@@ -151,7 +219,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
   if (holder !== null)
     return { stdout: [], stderr: [`${prefix}another start (pid ${holder}) is starting ${script} (${lock}); nothing started`], exitCode: 1 }
   try {
-    const running = runningInstance(processes(), launch.markers)
+    const running = runningInstance(processes(), launch.markers, thisBus(env))
     if (running !== undefined)
       return { stdout: [], stderr: [`${prefix}${script} is already running as pid ${running.pid} (${running.args}); nothing started`], exitCode: 1, alreadyRunning: running }
     const problems = launch.preflight?.() ?? []
