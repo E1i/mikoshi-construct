@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appendEvent } from '../../bus/db.js'
+import { appendEvent, closeOwnerWait, openOwnerWait } from '../../bus/db.js'
 import { decisionsIntake } from '../../bus/decisions-import.js'
 import { recordDecision } from '../../bus/decisions.js'
 import { taskKey } from '../../bus/identifiers.js'
@@ -516,6 +516,41 @@ describe('a head that moves under the queues', () => {
 
     expect(tasksOfPr(bench, 957)).toEqual({ close: 'queued', merge: 'queued' })
     expect(taskState(bench.db, taskKey({ queue: 'merge', cardId: 1057, pr: 957, head: sha('a') })).failures).toBe(0)
+    bench.close()
+  })
+})
+
+describe('an open owner question of the card', () => {
+  it('a card with an open decision question does not merge', () => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: 958, review: 'success' })
+    const question = openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: 1058, request: 7 })
+    openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'another card', card: 1059, request: 8 })
+    openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'merge', text: 'merge it', card: 1058, pr: 958 })
+    openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'command', text: 'run it', command: 'pnpm bus:status', card: 1058 })
+    bench.tick()
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'owner_question_open', detail: expect.stringContaining(`${question} (which path?)`) as unknown }, next: 'queued' })
+    expect(eventsOf(bench.db, POLICY_DENIED)).toMatchObject([{ reason: 'owner_question_open' }])
+    expect(bench.gitHub.puts).toEqual([])
+
+    closeOwnerWait(bench.db, bench.clock.now().toISOString(), 'owner', question, 'the cheap path', 7)
+    bench.tick()
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'merged' })
+    bench.close()
+  })
+
+  it('a pull request GitHub already merged at the leased head is recorded while a decision question of its card is open', () => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: 959, review: 'success' })
+    openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: 1059, request: 7 })
+    bench.tick()
+    const lease = bench.lease()!
+    bench.gitHub.close(959, true)
+
+    expect(bench.merge(lease)).toMatchObject({ kind: 'merged' })
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
+    expect(bench.gitHub.puts).toEqual([])
     bench.close()
   })
 })
