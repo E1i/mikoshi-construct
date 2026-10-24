@@ -1,6 +1,11 @@
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "a construct manifest stores sha256 hashes of baseline files, including .claude/rules/secrets.md; frozen manifests live under tests/fixtures too"
 paths = [ '''(^|/)construct\.json$''' ]
+
+[[allowlists]]
+description = "the fake GH_TOKEN of tests/factory-off-owner-machine.test.ts, spelled as one literal in the history of main before the test built it from parts"
+regexTarget = "line"
+regexes = [ '''gho_factoryOffOwnerMachine0123456789abcdef''' ]
