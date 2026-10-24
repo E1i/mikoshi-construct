@@ -11,7 +11,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus, openOwnerWait } from '../../bus/db.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
-import { chainLaneNumber, currentLane, DEFAULT_LANE_COUNT, laneCount, laneOverlapRecorder, layLanes, liveLanes, repositoryLanes, STALLED } from '../../bus/lane-assign.js'
+import { chainLaneNumber, currentLane, DEFAULT_LANE_COUNT, laneCount, laneOverlapRecorder, layLanes, liveLanes, OWNER_MERGE, repositoryLanes, STALLED } from '../../bus/lane-assign.js'
 import { launchCandidates } from '../../bus/launch-candidates.js'
 import { LaunchNode } from '../../bus/launch-worker.js'
 import { failTask, leaseQueued } from '../../bus/lease.js'
@@ -21,6 +21,8 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, LANE_ASSIGNED, 
 
 const TS = '2026-10-22T10:00:00.000Z'
 const HEAD = 'a'.repeat(40)
+const NEW_HEAD = 'b'.repeat(40)
+const NO_COUNT_LINE = { kind: 'authority', rule: 'no_matrix_count_line', detail: 'no count line' }
 const MERGE_ACTOR = 'worker:merge:w1'
 const roots: string[] = []
 const startDir = process.cwd()
@@ -46,7 +48,7 @@ class Bench {
   readonly db: DatabaseSync
   private admissions = 0
 
-  constructor(private readonly lanes: number) {
+  constructor(readonly lanes: number) {
     this.db = openBus(path.join(tempRoot(), 'bus.db'))
   }
 
@@ -91,11 +93,24 @@ class Bench {
     return caught
   }
 
-  openPr(id: number): number {
+  openPr(id: number, head = HEAD): number {
     const pr = id + 1000
-    appendEvent(this.db, { ts: TS, type: PR_OBSERVED, actor: 'netwatch', cardId: id, pr, head: HEAD, dedupeKey: `${PR_OBSERVED}:${pr}`, payload: { card_id: id, base: 'main', head: HEAD, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }, legacy: false })
+    appendEvent(this.db, { ts: TS, type: PR_OBSERVED, actor: 'netwatch', cardId: id, pr, head, dedupeKey: `${PR_OBSERVED}:${pr}:${head}`, payload: { card_id: id, base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }, legacy: false })
     reduce(this.db)
     return pr
+  }
+
+  admitWithoutBody(id: number): this {
+    appendEvent(this.db, { ts: TS, type: CARD_ADMITTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `bodiless-${id}`, payload: { lane: null, depends: [] }, legacy: false })
+    reduce(this.db)
+    layLanes(this.db, this.lanes, TS, 'policy')
+    return this
+  }
+
+  queued(task: QueuedTask): this {
+    queueTask(this.db, TS, task)
+    reduce(this.db)
+    return this
   }
 
   deniedMerge(id: number, denial: Record<string, unknown>): this {
@@ -108,9 +123,10 @@ class Bench {
     return this
   }
 
-  awaitingOwnerMerge(id: number): this {
+  awaitingOwnerMerge(id: number, denied = true): this {
     const pr = this.openPr(id)
-    appendEvent(this.db, this.denialEvent(id, pr, { kind: 'authority', rule: 'no_shard_merge', detail: 'changes .claude/agents/x.md, which stays the owner\'s' }))
+    if (denied)
+      appendEvent(this.db, this.denialEvent(id, pr, { kind: 'authority', rule: 'no_shard_merge', detail: 'changes .claude/agents/x.md, which stays the owner\'s' }))
     openOwnerWait(this.db, TS, 'policy', { need: 'merge', text: 'merge it', card: id, pr })
     reduce(this.db)
     return this
@@ -118,6 +134,11 @@ class Bench {
 
   private denialEvent(id: number, pr: number, denial: Record<string, unknown>) {
     return { ts: TS, type: POLICY_DENIED, actor: 'policy', cardId: id, pr, head: HEAD, dedupeKey: `${POLICY_DENIED}:${id}`, payload: { command: 'merge', ...denial }, legacy: false }
+  }
+
+  stallDetails(): unknown[] {
+    return (this.db.prepare(`SELECT payload FROM events WHERE type = '${BOARD_ALARM}' AND json_extract(payload, '$.reason') = ? ORDER BY id`).all(STALLED) as { payload: string }[])
+      .map(row => (JSON.parse(row.payload) as Record<string, unknown>).detail)
   }
 
   stallAlarms(): { card: number, cause: unknown }[] {
@@ -360,7 +381,7 @@ describe('a card that cannot move by itself frees its lane', () => {
   }
 
   it('a card denied no_matrix_count_line raises an alarm and frees its lane for a card whose touches do not overlap', () => {
-    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).deniedMerge(1, { kind: 'authority', rule: 'no_matrix_count_line', detail: 'no count line' }).admit(2, 'src/a.ts').admit(3, 'src/b.ts')
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).deniedMerge(1, NO_COUNT_LINE).admit(2, 'src/a.ts').admit(3, 'src/b.ts')
     expect([bench.lane(2), bench.lane(3)]).toEqual(['lane-1', 'lane-1'])
     expect(launched(bench, 1)).toEqual([3])
     expect(bench.stallAlarms()).toEqual([{ card: 1, cause: 'no_matrix_count_line' }])
@@ -396,8 +417,80 @@ describe('a card that cannot move by itself frees its lane', () => {
   it('queued cards laid behind a stalled card are re-laid into a lane that has emptied', () => {
     const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2).admit(3, 'src/c.ts').admit(4, 'src/d.ts').admit(5, 'src/e.ts')
     expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-1', 'lane-2', 'lane-1'])
-    bench.drop(2).drop(4).deniedMerge(1, { kind: 'authority', rule: 'no_matrix_count_line', detail: 'no count line' })
+    bench.drop(2).drop(4).deniedMerge(1, NO_COUNT_LINE)
     expect(launched(bench, 2)).toEqual([3, 5])
     expect([bench.lane(3), bench.lane(5)]).toEqual(['lane-2', 'lane-1'])
+  })
+
+  it('a withdrawn merge task at a head the card has since pushed past is no stall', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).deniedMerge(1, NO_COUNT_LINE)
+    bench.openPr(1, NEW_HEAD)
+    bench.admit(3, 'src/b.ts')
+    expect(launched(bench, 1)).toEqual([])
+    expect(bench.stallAlarms()).toEqual([])
+  })
+
+  it('a withdrawn merge task beside a queued answer task of the card is no stall', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).deniedMerge(1, NO_COUNT_LINE).queued({ queue: 'answer', cardId: 1, pr: 1001, head: HEAD }).admit(3, 'src/b.ts')
+    expect(launched(bench, 1)).toEqual([])
+    expect(bench.stallAlarms()).toEqual([])
+  })
+
+  it('a stalled card with a launch task in the queue keeps its lane', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).deniedMerge(1, NO_COUNT_LINE).queued({ queue: 'launch', cardId: 1, generation: 'again' }).admit(3, 'src/b.ts')
+    expect(launched(bench, 1)).toEqual([])
+  })
+
+  it('a queued card that depends on the stalled card stays held, also when it is re-laid', () => {
+    const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2).admit(3, 'src/c.ts', [1]).admit(4, 'src/d.ts').admit(5, 'src/e.ts')
+    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-1', 'lane-2', 'lane-1'])
+    bench.drop(2).drop(4).deniedMerge(1, NO_COUNT_LINE)
+    expect(launched(bench, 2)).toEqual([5])
+    expect([bench.lane(3), bench.lane(5)]).toEqual(['lane-1', 'lane-2'])
+  })
+
+  it('a queued card without a body stays held behind a stalled card', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).deniedMerge(1, NO_COUNT_LINE).admitWithoutBody(3)
+    expect(bench.lane(3)).toBe('lane-1')
+    expect(launched(bench, 1)).toEqual([])
+  })
+
+  it('a stalled card without a body holds its lane for every queued card', () => {
+    const bench = new Bench(1).admitWithoutBody(1).start(1).deniedMerge(1, NO_COUNT_LINE).admit(3, 'src/b.ts')
+    expect(launched(bench, 1)).toEqual([])
+    expect(bench.stallAlarms()).toEqual([{ card: 1, cause: 'no_matrix_count_line' }])
+  })
+
+  it('an owner merge wait with no recorded denial names the owner merge as the cause', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).awaitingOwnerMerge(1, false).admit(3, 'src/b.ts')
+    expect(launched(bench, 1)).toEqual([3])
+    expect(bench.stallAlarms()).toEqual([{ card: 1, cause: OWNER_MERGE }])
+    expect(bench.stallDetails()).toEqual(['card #1 cannot move by itself: PR #1001 waits for the owner to merge it'])
+  })
+
+  it('a queued card whose touches overlap the stalled card is not re-laid', () => {
+    const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2).admit(3, 'src/a.ts').admit(4, 'src/d.ts').admit(5, 'src/e.ts')
+    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-1', 'lane-2', 'lane-1'])
+    bench.drop(2).drop(4).deniedMerge(1, NO_COUNT_LINE)
+    expect(launched(bench, 2)).toEqual([5])
+    expect([bench.lane(3), bench.lane(5)]).toEqual(['lane-1', 'lane-2'])
+  })
+
+  it('a queued card behind a stalled card is not re-laid when no lane is free', () => {
+    const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2)
+    for (const id of [3, 4, 5, 6, 7])
+      bench.admit(id, `src/${id}.ts`)
+    expect([3, 4, 5, 6, 7].map(id => bench.lane(id))).toEqual(['lane-1', 'lane-2', 'lane-1', 'lane-2', 'lane-1'])
+    bench.drop(4).drop(6).deniedMerge(1, NO_COUNT_LINE)
+    expect(launched(bench, 2)).toEqual([3])
+    expect([3, 5, 7].map(id => bench.lane(id))).toEqual(['lane-1', 'lane-1', 'lane-1'])
+  })
+
+  it('a queued card alone behind a stalled card keeps its lane', () => {
+    const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2).admit(3, 'src/c.ts').admit(4, 'src/d.ts')
+    expect([bench.lane(3), bench.lane(4)]).toEqual(['lane-1', 'lane-2'])
+    bench.drop(1).drop(3).deniedMerge(2, NO_COUNT_LINE)
+    expect(launched(bench, 2)).toEqual([4])
+    expect(bench.lane(4)).toBe('lane-2')
   })
 })
