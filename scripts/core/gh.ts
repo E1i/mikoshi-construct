@@ -222,6 +222,8 @@ export type CiState = 'none' | 'pending' | 'red' | 'green' | 'unknown'
 
 export const REQUIRED_CHECK = 'required'
 
+export const SECRET_SCAN_CHECK = 'Secret scan'
+
 export interface Ci {
   state: CiState
   text: string

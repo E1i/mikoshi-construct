@@ -31,6 +31,7 @@ export interface FakePull {
   draft?: boolean
   required?: 'pending' | 'success' | 'failure'
   failed?: string[]
+  running?: string[]
   review?: 'success' | 'failure'
   blockedBy?: 'review'
   body?: string
@@ -178,7 +179,8 @@ export class FakeGitHub {
       const owner = [...this.pulls.values()].find(candidate => candidate.head === checks[1])
       const required = owner?.required ?? 'pending'
       const failed = (owner?.failed ?? []).map(name => ({ name, status: 'completed', conclusion: 'failure' }))
-      return { check_runs: [{ name: 'required', status: required === 'pending' ? 'in_progress' : 'completed', conclusion: required === 'pending' ? null : required }, ...failed] }
+      const running = (owner?.running ?? []).map(name => ({ name, status: 'in_progress', conclusion: null }))
+      return { check_runs: [{ name: 'required', status: required === 'pending' ? 'in_progress' : 'completed', conclusion: required === 'pending' ? null : required }, ...failed, ...running] }
     }
     const status = /\/commits\/([0-9a-f]{40})\/status$/.exec(endpoint)
     if (status !== null) {

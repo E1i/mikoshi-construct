@@ -44,7 +44,8 @@ const MACHINE_BUS_PLACES = [/'\.construct', 'bus'/, /\.construct\/bus/, /'bus\.d
 const SUPERVISOR_ENTRY = path.join(ROOT, 'scripts/bus/supervisor.ts')
 const TSX_LOADER = pathToFileURL(path.join(ROOT, 'node_modules/tsx/dist/esm/index.mjs')).href
 const SYSTEM_PATH = [path.dirname(process.execPath), '/usr/bin', '/bin'].join(path.delimiter)
-const FAKE_TOKEN = ['gho', 'factoryOffOwnerMachine0123456789abcdef'].join('_')
+const FAKE_TOKEN = ['fake', 'gh', 'token', 'factoryOffOwnerMachine'].join('-')
+const TOKEN_LITERAL_IN_MAIN_HISTORY = ['gho', 'factoryOffOwnerMachine0123456789abcdef'].join('_')
 const GITLEAKS_GITHUB_TOKEN = /(?:gh[pousr]_[0-9a-z]{36}|github_pat_\w{82})/i
 const GITLEAKS_CONFIG = path.join(ROOT, '.gitleaks.toml')
 const TICK_MS = 1000
@@ -291,13 +292,17 @@ describe('the gh token stays with gh', () => {
   it('no test source spells a token that gitleaks reads as a GitHub token', () => {
     const spelling = filesUnder(path.join(ROOT, 'tests')).filter(file => file.endsWith('.ts') && GITLEAKS_GITHUB_TOKEN.test(readFileSync(file, 'utf8')))
     expect(spelling).toEqual([])
-    expect(FAKE_TOKEN).toMatch(GITLEAKS_GITHUB_TOKEN)
+  })
+
+  it('the fake token does not match the gitleaks GitHub token rule', () => {
+    expect(FAKE_TOKEN).not.toMatch(GITLEAKS_GITHUB_TOKEN)
+    expect(TOKEN_LITERAL_IN_MAIN_HISTORY).toMatch(GITLEAKS_GITHUB_TOKEN)
   })
 
   it('the gitleaks allowlist names only the fake token literal main already carries', () => {
     const config = readFileSync(GITLEAKS_CONFIG, 'utf8')
     const regexes = [...config.matchAll(/^regexes = \[(.*)\]$/gm)].flatMap(match => [...match[1]!.matchAll(/'''([^']*)'''/g)].map(literal => literal[1]))
-    expect(regexes).toEqual([FAKE_TOKEN])
+    expect(regexes).toEqual([TOKEN_LITERAL_IN_MAIN_HISTORY])
     expect(config).not.toMatch(/^\s*(?:commits|stopwords)\s*=/m)
     expect([...config.matchAll(/^paths = (.*)$/gm)].map(match => match[1])).toEqual([String.raw`[ '''(^|/)construct\.json$''' ]`])
   })
