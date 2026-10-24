@@ -14,7 +14,6 @@ import { classify, MorseRefusal } from '../morse/rules.js'
 
 export const REFUSAL_REASONS = {
   'stale-base': 'a',
-  'no-d76-line': 'a',
   'no-changeset': 'a',
   'no-matrix-line': 'a',
   'outside-touches': 'b',
@@ -100,7 +99,7 @@ const PR_BASE = 'origin/main'
 const SHIFTED_RANGE = `${PR_BASE}...HEAD`
 const PUBLISHED_CODE = COMPANION_TABLE.find(row => row.kind === 'published code') as CompanionRow
 const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
-const UNNAMED_REASON = 'the cheap path is held without a named reason'
+const CHEAP_DEFAULT_REASON = 'cheap holds as the default path of D-224'
 const REMOVED_LINE = /^-(?!--)(.*)$/gm
 const IMPORT_OR_BLANK = /^\s*(?:import\s.*)?$/
 
@@ -132,30 +131,27 @@ function pathReason(git: TreePrPorts['git'], worktree: string, card: TreeCard, p
     return `cheap holds by the session report's D-76 reason: ${reported}`
   if (prediction.rule === 'tests-shrunk' && removesOnlyImportsOrBlanks(git, worktree, prediction.why))
     return `cheap holds: the shrunk test files are ${prediction.why.join(', ')}, and every line the diff removes from them is an import or blank`
-  return UNNAMED_REASON
+  return CHEAP_DEFAULT_REASON
 }
 
 interface ShiftedPath {
   line: string
   files: ChangedFile[]
-  cheapAgainstLadderUnreasoned: boolean
 }
 
 function shiftedPath(git: TreePrPorts['git'], worktree: string, card: TreeCard, report: string | null): ShiftedPath {
   try {
     const files = changedFilesOf(git, worktree)
     const prediction = classify(files)
-    const reason = pathReason(git, worktree, card, prediction, report)
     return {
-      line: `Path: ${card.contour} · MORSE predicts ${prediction.verdict} by rule ${prediction.rule} (${prediction.why.join(', ')}) · ${reason}`,
+      line: `Path: ${card.contour} · MORSE predicts ${prediction.verdict} by rule ${prediction.rule} (${prediction.why.join(', ')}) · ${pathReason(git, worktree, card, prediction, report)}`,
       files,
-      cheapAgainstLadderUnreasoned: prediction.verdict === 'ladder' && reason === UNNAMED_REASON,
     }
   }
   catch (error) {
     if (!(error instanceof MorseRefusal))
       throw error
-    return { line: `Path: ${card.contour} · MORSE gave no prediction: ${error.message} · the ${card.contour} path is held without a named reason`, files: [], cheapAgainstLadderUnreasoned: false }
+    return { line: `Path: ${card.contour} · MORSE gave no prediction: ${error.message} · the ${card.contour} path is held without a named reason`, files: [] }
   }
 }
 
@@ -200,8 +196,6 @@ function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly
   const gaps: FormatGap[] = []
   if (unmatrixed !== undefined)
     gaps.push({ reason: 'no-matrix-line', lacks: `the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (architecture/code-matrix.md)`, task: 'write the code matrix of architecture/code-matrix.md and its count line ■ n □ n · n into the shift report', paths: [] })
-  if (shifted.cheapAgainstLadderUnreasoned)
-    gaps.push({ reason: 'no-d76-line', lacks: 'the D-76 reason the card holds the cheap path where MORSE predicts the ladder', task: 'write a line `Path (D-76): <why the cheap path holds>` into the shift report', paths: [] })
   if (published !== undefined && !changeset)
     gaps.push({ reason: 'no-changeset', lacks: `the changeset its change to the published ${published} requires`, task: `add a .changeset/*.md file for the change to ${published}`, paths: [] })
   if (outsideTouches.length > 0)

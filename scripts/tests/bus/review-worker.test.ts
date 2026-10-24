@@ -23,7 +23,7 @@ import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, sparingLiveLeases, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, gitHubPrBody, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, sparingLiveLeases, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
 import { BusTick } from '../../bus/run.js'
 import { CARD_ADMITTED } from '../../core/events.js'
@@ -1104,6 +1104,17 @@ describe('review worker', () => {
     vi.unstubAllEnvs()
   })
 
+  it('the reviewer reads the pull request body from GitHub, and no body where GitHub answers none', () => {
+    const answers: Record<number, { status: number, headers: Record<string, string>, body: unknown }> = { 1: { status: 200, headers: {}, body: { body: 'the body' } }, 2: { status: 200, headers: {}, body: { body: null } }, 3: { status: 404, headers: {}, body: { message: 'Not Found' } } }
+    const asked: string[] = []
+    const bodyOf = gitHubPrBody((endpoint) => {
+      asked.push(endpoint)
+      return answers[Number(endpoint.split('/').pop())]!
+    })
+
+    expect({ bodies: [1, 2, 3].map(bodyOf), asked }).toEqual({ bodies: ['the body', null, null], asked: ['repos/{owner}/{repo}/pulls/1', 'repos/{owner}/{repo}/pulls/2', 'repos/{owner}/{repo}/pulls/3'] })
+  })
+
   it('a dry run takes only a decimal pull request number', () => {
     for (const given of ['0x10', '1e3', '16.0', ' 16', '-16', '0', ''])
       expect(reviewMode(['--dry-run', given])).toMatchObject({ kind: 'refused' })
@@ -1276,7 +1287,7 @@ describe('review depth by MORSE', () => {
     expect(seen.map(each => each.plan)).toMatchObject([{ depth: 'full', why: 'MORSE predicts ladder by rule instructions', prediction: { verdict: 'ladder', rule: 'instructions' } }])
     const prompt = reviewPrompt(seen[0]!.lease, seen[0]!.plan, '/t', '/v.json')
     expect(prompt).toContain('Review the whole pull request and walk every module it touches.')
-    expect(prompt).toContain('names the reason this change takes the ladder (D-76)')
+    expect(prompt).toContain('cheap is the default path (D-224)')
     expect(events(bench.db, 'review.recorded')).toMatchObject([{ depth: 'full', review_ms: READING_MS.full }])
     bench.db.close()
   })

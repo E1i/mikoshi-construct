@@ -129,7 +129,7 @@ function depthLines(lease: Lease, plan: ReviewPlan): string[] {
   if (plan.depth === 'diff')
     return [depth, ...reReviewLines(plan.since, lease.head, plan.findings), ONE_PASS]
   const ladder = plan.prediction?.verdict === 'ladder'
-    ? [`MORSE predicts the ladder by rule ${plan.prediction.rule} (${plan.prediction.why.join(', ')}): check that the card or the pull request names the reason this change takes the ladder (D-76), and make a missing reason a finding.`]
+    ? [`MORSE predicts the ladder by rule ${plan.prediction.rule} (${plan.prediction.why.join(', ')}): cheap is the default path (D-224), so a card or pull request that names no D-76 reason is not a finding.`]
     : []
   return [depth, `Review the whole pull request and walk every module it touches.`, ...ladder, ONE_PASS]
 }
@@ -147,12 +147,24 @@ function cardLines(card: string | null): string[] {
   ]
 }
 
-export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string, card: string | null = null): string {
+function prBodyLines(prBody: string | null): string[] {
+  if (prBody === null)
+    return []
+  return [
+    'The pull request description, as GitHub held it when the review started, follows between the pull request markers; read it here, not from GitHub.',
+    '<pull-request>',
+    prBody.trimEnd(),
+    '</pull-request>',
+  ]
+}
+
+export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string, card: string | null = null, prBody: string | null = null): string {
   return [
     `[review:${lease.taskKey}]`,
     `Act as the review role defined in .claude/agents/review.md. Pull request #${lease.pr} of card #${lease.cardId} is checked out at ${tree}, at its head ${lease.head}; read it there.`,
     PREPARED_TREE_LINE,
     ...cardLines(card),
+    ...prBodyLines(prBody),
     ...depthLines(lease, plan),
     `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"]}.`,
   ].join('\n')
@@ -280,14 +292,14 @@ export class ReviewTrees {
   }
 }
 
-export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan, env: NodeJS.ProcessEnv = process.env, card: string | null = null): SpawnSessionParams & { tree: string, verdictPath: string } {
+export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan, env: NodeJS.ProcessEnv = process.env, card: string | null = null, prBody: string | null = null): SpawnSessionParams & { tree: string, verdictPath: string } {
   const tree = path.join(dir, session)
   const verdictPath = path.join(dir, `${session}.verdict.json`)
   return {
     cwd: repo,
     addDirs: [dir],
     sessionId: session,
-    prompt: reviewPrompt(lease, plan, tree, verdictPath, card),
+    prompt: reviewPrompt(lease, plan, tree, verdictPath, card, prBody),
     stdoutPath: path.join(dir, `${session}.out.jsonl`),
     stderrPath: path.join(dir, `${session}.err.log`),
     model: reviewModelOf(env),
@@ -328,10 +340,14 @@ async function beatingWhileGrowing(run: Promise<number>, transcript: string, bea
   }
 }
 
-export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS): Reviewer {
+export type PrBodyOf = (pr: number) => string | null
+
+const NO_PR_BODY: PrBodyOf = () => null
+
+export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY): Reviewer {
   return async (lease, plan, card = null) => {
     const session = randomUUID()
-    const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card)
+    const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card, lease.pr === null ? null : prBodyOf(lease.pr))
     mkdirSync(trees.dir, { recursive: true })
     trees.fetch(`pull/${lease.pr}/head`)
     const held: HeldTree = { path: tree, release: () => trees.release(tree) }
