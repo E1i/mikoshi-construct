@@ -465,6 +465,53 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  function reopened(bench: ReturnType<typeof launchBench>, cardId: number, pr: number): void {
+    bench.gitHub.open({ number: pr, head: 'b'.repeat(40), body: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —` })
+    bench.tick()
+  }
+
+  function keepsItsRun(bench: ReturnType<typeof launchBench>, cardId: number, neighbour: number): void {
+    bench.admit(neighbour, 'lane-a')
+    bench.tick()
+    expect(taskState(bench.db, launch(neighbour))).toBeUndefined()
+    readmitted(bench, cardId)
+    expect(launchableCard(bench.db, cardId)).toBeNull()
+    expect(taskState(bench.db, launch(cardId, `again-${cardId}`))).toBeUndefined()
+  }
+
+  it('a card whose pull request closed without merge and then reopened and merged keeps its run', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1320, 1120)
+    bench.gitHub.close(1120, false)
+    bench.tick()
+    reopened(bench, 1320, 1120)
+    bench.gitHub.close(1120, true)
+    bench.tick()
+    keepsItsRun(bench, 1320, 1321)
+    bench.close()
+  })
+
+  it('a card with two pull requests keeps its run while one is open after the other closed without merge', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1322, 1122)
+    bench.gitHub.open({ number: 1123, head: 'c'.repeat(40), body: `#1322 card-1322 [implement/netwatch/S/cheap/auto] · depends — · blocks —` })
+    bench.tick()
+    bench.gitHub.close(1122, false)
+    bench.tick()
+    keepsItsRun(bench, 1322, 1323)
+    bench.close()
+  })
+
+  it('a card whose pull request is reopened after a close without merge keeps its run', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1324, 1124)
+    bench.gitHub.close(1124, false)
+    bench.tick()
+    reopened(bench, 1324, 1124)
+    keepsItsRun(bench, 1324, 1325)
+    bench.close()
+  })
+
   function stoppedInTree(bench: ReturnType<typeof launchBench>, cardId: number, tree: string, contour = 'cheap'): void {
     const ts = bench.clock.now().toISOString()
     bench.admit(cardId, 'lane-a', [], contour)

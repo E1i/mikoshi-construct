@@ -110,20 +110,16 @@ interface CardLife {
   freeRow: number | null
   closed: boolean
   stoppedByFault: boolean
-  pullRequests: Map<number, PullRequestEnd>
+  closedUnmergedByPr: Map<number, boolean>
 }
 
-type PullRequestEnd = 'open' | 'closed-unmerged' | 'merged'
-
-function pullRequestEndOf(row: LifeRow): PullRequestEnd {
-  if (row.type !== PR_CLOSED)
-    return 'open'
-  return payloadOf(row).merged === false ? 'closed-unmerged' : 'merged'
+function closesUnmerged(row: LifeRow): boolean {
+  return row.type === PR_CLOSED && payloadOf(row).merged === false
 }
 
 function endedByClosedPullRequest(life: CardLife): boolean {
-  const ends = [...life.pullRequests.values()]
-  return ends.includes('closed-unmerged') && ends.every(end => end === 'closed-unmerged')
+  const closes = [...life.closedUnmergedByPr.values()]
+  return closes.length > 0 && closes.every(Boolean)
 }
 
 function runs(life: CardLife): boolean {
@@ -204,12 +200,12 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       const running = life !== undefined && runs(life)
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: taskOf(row, payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, pullRequests: running ? life.pullRequests : new Map() })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: taskOf(row, payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map() })
       continue
     }
     if (life !== undefined && PULL_REQUEST_ROWS.has(row.type)) {
-      if (row.pr !== null && life.pullRequests.get(row.pr) !== 'merged')
-        life.pullRequests.set(row.pr, pullRequestEndOf(row))
+      if (row.pr !== null)
+        life.closedUnmergedByPr.set(row.pr, closesUnmerged(row))
       continue
     }
     if (life !== undefined && row.type === TASK_REQUEUED) {
