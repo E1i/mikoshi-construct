@@ -2,6 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { openBus } from '../scripts/bus/db.js'
+import { busIntakePorts } from '../scripts/bus/intake.js'
+import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { runIntake } from '../src/commands/intake/index.js'
 import { admittedNumbers } from '../src/commands/intake/numbers.js'
 
@@ -64,6 +67,21 @@ describe('construct intake assigns a number no card already holds', () => {
     const parkingRoot = park(path.join(root, 'parking'), 90)
     const elsewhere = park(path.join(root, 'elsewhere'), 7)
     expect(assigned(root, elsewhere, parkingRoot)).toEqual([8])
+  })
+
+  it('a number the bus holds is not given though the parking lacks it', () => {
+    const root = scratch()
+    const parkingRoot = park(path.join(root, 'parking'), 10)
+    const db = openBus(path.join(root, 'bus.db'))
+    try {
+      const insert = db.prepare('INSERT INTO events (ts, type, actor, card_id, dedupe_key, payload) VALUES (?, ?, ?, ?, ?, ?)')
+      insert.run('2026-10-24T00:00:00.000Z', CARD_ADMITTED, 'intake:test', 1292, 'admitted-1292', '{}')
+      insert.run('2026-10-24T00:00:01.000Z', CARD_ADMITTED, 'intake:test', 1293, 'admitted-1293', '{}')
+      expect(assigned(root, parkingRoot, parkingRoot, busIntakePorts(db).cardStates())).toEqual([1294])
+    }
+    finally {
+      db.close()
+    }
   })
 
   it('skips a number the bus holds', () => {

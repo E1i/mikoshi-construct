@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BusCardStates } from '../../src/card/closed.js'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from '../../src/commands/intake/index.js'
 import type { BusPorts } from '../../src/program.js'
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
@@ -18,7 +19,6 @@ import { createUi } from '../../src/ui/console.js'
 import { resolveTheme } from '../../src/ui/theme.js'
 import { ForeignBusRefused } from '../core/bus-path.js'
 import { CARD_ADMITTED, CARD_MOVED } from '../core/events.js'
-import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 import { appendCardEvent, cardBodyText, laid } from './card-bodies.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from './db.js'
@@ -39,6 +39,14 @@ const INTAKE_ADMISSIONS = `
 `
 
 const ANY_ADMISSION = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? LIMIT 1`
+
+const HELD_CARDS = `
+  SELECT card_id, state FROM cards WHERE state IS NOT NULL
+  UNION ALL
+  SELECT DISTINCT card_id, NULL FROM events WHERE card_id IS NOT NULL AND card_id NOT IN (SELECT card_id FROM cards WHERE state IS NOT NULL)
+`
+
+const HELD_WITHOUT_STATE = 'held'
 
 const LATEST_ADMITTED_TEXT = `SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS sha FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_type(payload, '$.text') = 'text' ORDER BY id DESC`
 
@@ -148,8 +156,13 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
   })
 }
 
+export function busHeldCards(db: DatabaseSync): BusCardStates {
+  const rows = db.prepare(HELD_CARDS).all() as unknown as { card_id: number, state: string | null }[]
+  return new Map(rows.map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE]))
+}
+
 export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () => number): BusPorts {
-  return { cardEvents: busCardEvents(db, session, lanes), cardStates: () => busCardStates(defaultBusPath()), cardAdmissions: busCardAdmissions(db) }
+  return { cardEvents: busCardEvents(db, session, lanes), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db) }
 }
 
 export async function runBusIntake(db: DatabaseSync, argv: readonly string[], session?: string): Promise<void> {
