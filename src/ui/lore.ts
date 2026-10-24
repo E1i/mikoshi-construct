@@ -172,6 +172,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeAwaiting: (parking: string, token: string) => string
   intakeConfirmStale: string
   intakeAdmitNeedsBus: string
+  intakeDraftNeedsBus: string
   intakeDryRun: (parking: string) => string
   intakeAdmitted: (file: string, card: string, inBus: boolean) => string
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => string
@@ -534,7 +535,8 @@ export const LORE: Lore = {
   intakeAwaitingCard: (card: string) => `CARD HELD // ${card}`,
   intakeAwaiting: (parking: string, token: string) => `AWAITING CONFIRMATION // nothing parked in ${parking}; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
   intakeConfirmStale: 'CONFIRMATION STALE // --confirm names a different list of corrections than this run holds; nothing parked',
-  intakeAdmitNeedsBus: 'BUS UNREACHED // a bus runs here and this entry cannot write card.admitted to it; nothing admitted. Run pnpm intake --admit',
+  intakeAdmitNeedsBus: 'BUS UNREACHED // a bus runs here and this entry cannot write card.admitted to it; nothing admitted. Run construct-intake --admit',
+  intakeDraftNeedsBus: 'BUS UNREACHED // a bus runs here and this entry cannot write card.admitted to it; nothing parked. Run construct-intake',
   intakeDryRun: (parking: string) => `DRY RUN // nothing parked in ${parking}`,
   intakeAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `CARD ADMITTED // ${file}: ${card}; its card.admitted is in the bus`
@@ -547,7 +549,7 @@ export const LORE: Lore = {
   intakeMoveNotFound: (id: number) => `INTAKE REFUSED // NO CARD: #${id} is in no parking directory under the root`,
   intakeMoveAmbiguous: (id: number, paths: string) => `INTAKE REFUSED // AMBIGUOUS: #${id} is parked in more than one place: ${paths}`,
   intakeMoveNeedsBoth: 'INTAKE REFUSED // --move and --to go together, with no --draft, --taken or --admit',
-  intakeMoveNeedsTheBus: 'INTAKE REFUSED // NO BUS: a move is held only by the bus, and this entry has none; run pnpm intake --move; nothing moved',
+  intakeMoveNeedsTheBus: 'INTAKE REFUSED // NO BUS: a move is held only by the bus, and this entry has none; run construct-intake --move; nothing moved',
   intakeMoveTargetOutside: (to: string) => `INTAKE REFUSED // OUTSIDE: --to ${to} is not the parking root (.) or one directory directly under it; nothing moved`,
   intakeAmended: (file: string, card: string, inBus: boolean) => `CARD AMENDED // ${file}: ${card}; its text differs from the admitted one, a new ${inBus ? 'card.admitted is in the bus' : 'intake line is in the journal'}`,
   intakeAdmitUnclear: (count: number) => `${count} UNCLEAR // marked in the card; who is left as the card states it`,
@@ -921,7 +923,8 @@ export const PLAIN_LORE: Lore = {
   intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, and recorded in the ${inBus ? 'bus' : 'journal'}.`,
   intakeAwaitingCard: (card: string) => `Held: ${card}`,
   intakeAwaiting: (parking: string, token: string) => `Nothing was written to ${parking}: the corrections above wait for a person. Run again with --confirm ${token} to park the cards as shown, or with --auto-confirm to accept corrections in advance.`,
-  intakeAdmitNeedsBus: 'Not admitted: a bus exists on this machine, but this entry cannot write card.admitted to it, and task:start would refuse the card. Nothing was written; run pnpm intake --admit instead.',
+  intakeAdmitNeedsBus: 'Not admitted: a bus exists on this machine, but this entry cannot write card.admitted to it, and task:start would refuse the card. Nothing was written; run construct-intake --admit instead.',
+  intakeDraftNeedsBus: 'Not parked: a bus exists on this machine, but this entry cannot write card.admitted to it, and task:start would refuse the card. Nothing was written; run construct-intake with the same flags instead.',
   intakeConfirmStale: 'Not confirmed: --confirm names a different list of corrections than this run holds. Nothing was written; confirm the list below.',
   intakeDryRun: (parking: string) => `Dry run: nothing was written to ${parking}.`,
   intakeAdmitted: (file: string, card: string, inBus: boolean) => inBus
@@ -935,7 +938,7 @@ export const PLAIN_LORE: Lore = {
   intakeMoveNotFound: (id: number) => `Refused: #${id} is in no parking directory under the root. Nothing was written.`,
   intakeMoveAmbiguous: (id: number, paths: string) => `Refused: #${id} is parked in more than one place: ${paths}. Nothing was written.`,
   intakeMoveNeedsBoth: 'Refused: --move and --to go together, with no --draft, --taken or --admit. Nothing was written.',
-  intakeMoveNeedsTheBus: 'Refused: a move is held only by the bus, and this entry has none; run pnpm intake --move. Nothing was moved.',
+  intakeMoveNeedsTheBus: 'Refused: a move is held only by the bus, and this entry has none; run construct-intake --move. Nothing was moved.',
   intakeMoveTargetOutside: (to: string) => `Refused: --to ${to} is not the parking root (.) or one directory directly under it. Nothing was moved.`,
   intakeAmended: (file: string, card: string, inBus: boolean) => inBus
     ? `Amended ${file}: ${card}. Its card, task text or witnesses differ from what was admitted, so a new card.admitted with source amend is in the bus.`

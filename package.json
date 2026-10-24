@@ -27,6 +27,7 @@
   "bin": {
     "construct": "dist/cli.js",
     "construct-factory": "dist/scripts/bus/start.js",
+    "construct-intake": "dist/scripts/bus/intake.js",
     "miko": "dist/cli.js",
     "mikoshi-construct": "dist/cli.js"
   },

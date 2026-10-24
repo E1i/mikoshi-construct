@@ -27,8 +27,8 @@ export function cliEnv(home: string): NodeJS.ProcessEnv {
   return env
 }
 
-export async function runCli(args: string[], home: string): Promise<CliRun> {
-  const child = spawn(process.execPath, [TSX, CLI, ...args], { env: cliEnv(home), stdio: ['ignore', 'pipe', 'pipe'] })
+export async function runCli(args: string[], home: string, overrides: NodeJS.ProcessEnv = {}): Promise<CliRun> {
+  const child = spawn(process.execPath, [TSX, CLI, ...args], { env: { ...cliEnv(home), ...overrides }, stdio: ['ignore', 'pipe', 'pipe'] })
   let stdout = ''
   let stderr = ''
   child.stdout.setEncoding('utf8').on('data', (chunk: string) => {

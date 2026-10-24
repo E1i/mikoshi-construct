@@ -930,14 +930,14 @@ describe('construct intake --admit through the CLI entry', () => {
     }
   }
 
-  it('intake --admit through the CLI entry either writes card.admitted to the bus as pnpm intake does or refuses and names pnpm intake --admit, and never admits silently without the bus event', async () => {
+  it('intake --admit through the CLI entry either writes card.admitted to the bus as pnpm intake does or refuses and names construct-intake --admit, and never admits silently without the bus event', async () => {
     const w = world()
     const file = park(w, 80, CLEAN)
     openBus(busOf(w)).close()
     vi.stubEnv(BUS_DB_VARIABLE, busOf(w))
     const { exit, output } = await admitThroughEntry(w, file)
     const inBus = admittedEvents(w) > 0
-    const refusedAndNamed = exit === INTAKE_EXIT.refused && output.includes('pnpm intake --admit')
+    const refusedAndNamed = exit === INTAKE_EXIT.refused && output.includes('construct-intake --admit')
     expect(inBus || refusedAndNamed).toBe(true)
   })
 
@@ -948,7 +948,7 @@ describe('construct intake --admit through the CLI entry', () => {
     vi.stubEnv(BUS_DB_VARIABLE, busOf(w))
     const { exit, output } = await admitThroughEntry(w, file, ['--dry-run'])
     expect(exit).not.toBe(INTAKE_EXIT.refused)
-    expect(output).not.toContain('pnpm intake --admit instead')
+    expect(output).not.toContain('construct-intake --admit instead')
     expect(admittedEvents(w)).toBe(0)
   })
 
