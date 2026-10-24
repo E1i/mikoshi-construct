@@ -11,6 +11,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
@@ -20,7 +21,7 @@ import { recordDecision } from '../../bus/decisions.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
-import { busCardEvents } from '../../bus/intake.js'
+import { busCardAdmissions, busCardEvents, busHeldCards } from '../../bus/intake.js'
 import { launchableCard, launchCandidates } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
@@ -199,6 +200,33 @@ describe('the launch queue', () => {
     expect(taskState(bench.db, launch(901))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     expect(taskState(bench.db, launch(902))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     expect(bench.leaseLaunch()).toMatchObject({ taskKey: launch(901), queue: 'launch', cardId: 901, pr: null, head: null, leaseGen: 1 })
+    bench.close()
+  })
+
+  it('a waiting card becomes a launch candidate when its last dependency merges', () => {
+    const bench = launchBench()
+    bench.admit(900, 'lane-a')
+    bench.started(900)
+    bench.admit(901, 'lane-b')
+    bench.started(901)
+    const root = tempRoot()
+    const parking = path.join(root, 'parking')
+    mkdirSync(parking)
+    const file = path.join(parking, '1124.md')
+    writeFileSync(file, parkingFileText({ card: '#1124 waiting-card [implement/netwatch/S/cheap/auto] · depends #900 #901 · blocks —', branch: 'feat/waiting-card', touches: ['scripts/bus/launch-candidates.ts'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
+    const admitted = runAdmit({ file, dir: process.cwd(), dryRun: false, autoConfirm: true, parkingRoot: parking, contourMap: path.join(root, 'contour-map.json'), decisions: path.join(root, 'owner-decisions.md'), events: busCardEvents(bench.db), cardStates: () => busHeldCards(bench.db), admissions: busCardAdmissions(bench.db) })
+    expect(admitted.status).toBe('admitted')
+    expect(eventsOf(bench.db, 'card.waiting')).toEqual([{ depends: [900, 901] }])
+    const candidate = (): boolean => launchCandidates(bench.db, () => false).some(each => each.cardId === 1124)
+    const launchQueued = (): boolean => bench.db.prepare(`SELECT 1 FROM tasks WHERE queue = 'launch' AND card_id = 1124 AND state = 'queued'`).get() !== undefined
+    bench.tick()
+    expect([candidate(), launchQueued()]).toEqual([false, false])
+
+    bench.mergedPr(800)
+    expect([candidate(), launchQueued()]).toEqual([false, false])
+
+    bench.mergedPr(801)
+    expect(launchQueued()).toBe(true)
     bench.close()
   })
 
@@ -413,6 +441,102 @@ describe('the launch queue', () => {
     bench.gitHub.close(935, false)
     bench.tick()
     expect(taskState(bench.db, launch(1094))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  function launchedWithPr(bench: ReturnType<typeof launchBench>, cardId: number, pr: number): void {
+    bench.admit(cardId, 'lane-a')
+    bench.tick()
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: launch(cardId) })
+    bench.gitHub.open({ number: pr, body: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —` })
+    bench.tick()
+  }
+
+  function readmitted(bench: ReturnType<typeof launchBench>, cardId: number): void {
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:again`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `again-${cardId}` }, legacy: false })
+    bench.tick()
+  }
+
+  it('a card whose pull request closed without merge is launched again after its next admission', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1290, 1087)
+    bench.gitHub.close(1087, false)
+    bench.tick()
+    expect(launchCandidates(bench.db)).toEqual([])
+
+    readmitted(bench, 1290)
+    expect(taskState(bench.db, launch(1290, 'again-1290'))).toMatchObject({ state: 'queued' })
+    expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: launch(1290, 'again-1290') })
+    bench.close()
+  })
+
+  it('a card whose pull request is still open is not launched again by a new admission', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1229, 1064)
+
+    readmitted(bench, 1229)
+    expect(launchCandidates(bench.db)).toEqual([])
+    expect(taskState(bench.db, launch(1229, 'again-1229'))).toBeUndefined()
+    bench.close()
+  })
+
+  it('a card whose pull request closed without merge frees its lane for another card', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1277, 1110)
+    bench.admit(1278, 'lane-a')
+    bench.tick()
+    expect(taskState(bench.db, launch(1278))).toBeUndefined()
+
+    bench.gitHub.close(1110, false)
+    bench.tick()
+    expect(taskState(bench.db, launch(1278))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
+  function reopened(bench: ReturnType<typeof launchBench>, cardId: number, pr: number): void {
+    bench.gitHub.open({ number: pr, head: 'b'.repeat(40), body: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —` })
+    bench.tick()
+  }
+
+  function keepsItsRun(bench: ReturnType<typeof launchBench>, cardId: number, neighbour: number): void {
+    bench.admit(neighbour, 'lane-a')
+    bench.tick()
+    expect(taskState(bench.db, launch(neighbour))).toBeUndefined()
+    readmitted(bench, cardId)
+    expect(launchableCard(bench.db, cardId)).toBeNull()
+    expect(taskState(bench.db, launch(cardId, `again-${cardId}`))).toBeUndefined()
+  }
+
+  it('a card whose pull request closed without merge and then reopened and merged keeps its run', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1320, 1120)
+    bench.gitHub.close(1120, false)
+    bench.tick()
+    reopened(bench, 1320, 1120)
+    bench.gitHub.close(1120, true)
+    bench.tick()
+    keepsItsRun(bench, 1320, 1321)
+    bench.close()
+  })
+
+  it('a card with two pull requests keeps its run while one is open after the other closed without merge', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1322, 1122)
+    bench.gitHub.open({ number: 1123, head: 'c'.repeat(40), body: `#1322 card-1322 [implement/netwatch/S/cheap/auto] · depends — · blocks —` })
+    bench.tick()
+    bench.gitHub.close(1122, false)
+    bench.tick()
+    keepsItsRun(bench, 1322, 1323)
+    bench.close()
+  })
+
+  it('a card whose pull request is reopened after a close without merge keeps its run', () => {
+    const bench = launchBench()
+    launchedWithPr(bench, 1324, 1124)
+    bench.gitHub.close(1124, false)
+    bench.tick()
+    reopened(bench, 1324, 1124)
+    keepsItsRun(bench, 1324, 1325)
     bench.close()
   })
 

@@ -26,7 +26,7 @@ import { busIntakePorts } from '../../bus/intake.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { gitChangedPaths, ShiftCardStarter } from '../../bus/launch-starter.js'
-import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, cardDecisionCommand, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, cardDecisionCommand, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, LAUNCH_START_MINUTES, LAUNCH_UNSTARTED, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { NODE_CURSORS } from '../../bus/node.js'
@@ -1011,6 +1011,43 @@ describe('the launch node', () => {
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
   })
 
+  it('a launch lease with no card start expires with its reason and frees the slot', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 1251, 'lane-a')
+    made.tick()
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
+    leaseNext(made.db, made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
+    await once(node)
+    expect(starter.starts).toEqual([])
+
+    made.clock.advance((LAUNCH_START_MINUTES - 1) * 60_000)
+    expect(node.stopOverdue()).toEqual([])
+    expect(taskState(made.db, launchKey(1251))).toMatchObject({ state: 'leased' })
+
+    made.clock.advance(2 * 60_000)
+    expect(node.stopOverdue()).toEqual([])
+    expect(taskState(made.db, launchKey(1251))).toMatchObject({ state: 'queued', failures: 1 })
+    expect(eventsOf(made.db, TASK_FAILED)).toMatchObject([{ task_key: launchKey(1251), reason: LAUNCH_UNSTARTED, next: 'queued' }])
+    node.stopOverdue()
+    expect(eventsOf(made.db, TASK_FAILED)).toHaveLength(1)
+
+    await once(node)
+    expect(starter.starts.map(card => card.cardId)).toEqual([1251])
+  })
+
+  it('a launch lease whose card started is not expired however long it is held', async () => {
+    const made = bench()
+    admit(made, 1252, 'lane-a')
+    made.tick()
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
+    leaseNext(made.db, made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
+    startedEarlier(made, 1252)
+    made.clock.advance((LAUNCH_START_MINUTES + 1) * 60_000)
+    expect(node.expireUnstartedLeases()).toEqual([])
+    expect(taskState(made.db, launchKey(1252))).toMatchObject({ state: 'leased' })
+  })
+
   it('a silent session whose card has a pull request is not stopped by the heartbeat watchdog', async () => {
     const made = bench()
     const { node, starter } = silentSession(made, 984)
@@ -1332,6 +1369,11 @@ describe('where a launched session works', () => {
     const { launchDir } = launchPlaces('/home/x', '/repo')
     expect(path.relative('/home/x/.construct/shift', launchDir)).toBe('launch')
     expect(launchDir.startsWith(path.join('/home/x', '.construct', 'bus'))).toBe(false)
+  })
+
+  it('a factory beside a repository keeps its launch reports and logs in its own home, where detach removes them', () => {
+    const { launchDir } = launchPlaces('/home/x', '/repo', '/home/x/.construct/o--r/bus.db')
+    expect(launchDir).toBe(path.join('/home/x', '.construct', 'o--r', 'bus', 'launch'))
   })
 })
 

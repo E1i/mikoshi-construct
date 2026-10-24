@@ -1,3 +1,4 @@
+import type { FactoryBeside } from './beside.js'
 import type { SettingsHook } from './settings.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -23,6 +24,7 @@ export interface AttachRecord {
   excludeSeparator: number
   settingsHook?: SettingsHook
   lanes?: number
+  factoryBeside?: FactoryBeside
 }
 
 export function readAttachRecord(root: string): AttachRecord | null {

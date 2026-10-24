@@ -1169,7 +1169,6 @@ Every check runs before anything is written, in this order, and a refusal create
 |---|---|
 | `<dir>/.git` does not exist | `Refused: not a git repository.` |
 | `<dir>/.git` is a file (a worktree or a submodule) | `Refused: .git is a file (worktree or submodule); attach needs the .git directory.` |
-| `construct.json` exists | `Refused: this repository already carries a construct; use init or sync.` |
 | `.construct/attach.json` exists | `Refused: this repository is already attached (.construct/attach.json is here); run \`construct detach\` first.` |
 | the directory holds nothing but `.git` and the files an empty directory may hold (`README.md`, `LICENSE`, editor settings) | `Refused: this repository holds nothing to attach to.` |
 | a path attach would create already exists | `Refused: N paths attach would create already exist:`, then why and the next step, then the paths, each labelled `construct's own: byte for byte the template of <date>` or `not recognised: attach never writes over it` (see [A collision](#a-collision)) |
@@ -1189,6 +1188,23 @@ A harness command that edits files — a word ending in `:fix`, `--fix` or `--wr
 attach warns, says why a gate that fixes what it checks is a weaker gate, names the command form that
 only checks, and goes on. It reads the command as written and does not open `package.json`, so
 `pnpm run quality` whose script runs `lint:fix` is not caught.
+
+### A repository with its own construct
+
+A repository that carries its own construct — a `construct.json`, as in a clone of a constructed
+repository at one of its tags — is attached like any other. The carriers its construct already tracks
+in git are its own: attach does not write, record or exclude them, says how many it left, and detach
+never touches them. A carrier path that is on disk but not tracked is still a [collision](#a-collision).
+
+### The factory beside
+
+The factory ships in the package (`construct-factory`, `construct-intake`); what attach deploys is its
+place beside the repository: the directory `~/.construct/<repository id>/` holding an empty `bus.db`,
+where `<repository id>` is the `origin` remote's `owner--name`, or `local--<directory>-<hash>` without a
+remote. Every factory process started in the repository keeps its bus and logs there instead of the
+machine bus `~/.construct/bus.db`. attach prints it as `Factory:` and records it as `factoryBeside`.
+Nothing is deployed when that directory already exists, or when `CONSTRUCT_BUS_DB` names the bus the
+factory runs on: the factory's place is then not attach's.
 
 ### A collision
 
@@ -1323,6 +1339,7 @@ lists.
 | `settingsHook.original` | Present only when `.claude/settings.local.json` existed, untracked, before attach: `copy`, the absolute path of the pre-image attach kept, `sha256`, the hash of those bytes, and `afterSha256`, the hash of the file as attach left it. The copy is `.construct/attach/<key>/settings.local.json.orig` under the user's home directory, outside the repository, where `<key>` is the first twelve hex digits of the sha256 of the repository's real path, a dash and its directory name; the directory is `0700` and the copy `0600`. The record holds the path and the hashes, never the bytes. `detach` refuses before any write when the copy is missing, elsewhere or hashes differently; when the file is still what attach left, it writes the original bytes back instead of cutting the entry out, and then deletes the copy. |
 | `ledgerHeld` | The ladder's runtime paths (`.construct/runs.jsonl`, `.construct/steps.jsonl`, `.construct/implement-agreed.txt`, `.construct/implement-args.json`, `.construct/atlas.html`, `.construct/browser`) that were already on disk at attach. `detach` removes the untracked ones not in this list and leaves those in it. |
 | `browserHeld` | The names inside `.construct/browser` at attach, sorted. When `.construct/browser` already existed, `detach` removes only the run directories not in this list; a record without the field leaves every run directory there. |
+| `factoryBeside` | Present only when attach deployed [the factory beside](#the-factory-beside): `home`, the absolute path of the factory's directory, and `createdFrom`, the first directory attach created on the way to it. `detach` removes `home` whole and then each emptied directory up to `createdFrom`, nothing above it. |
 | `excludeSeparator` | How many newlines (`0`, `1` or `2`) attach put before its block in `.git/info/exclude`. `detach` removes the block together with exactly that many, which is what makes the file byte for byte what it was; any other value is refused. |
 
 The report ends with a trailer to copy into commits, `Attached-Construct: mikoshi-construct@<version>`,
@@ -1396,6 +1413,30 @@ in `browserHeld` and anything else in it staying. A `.claude/settings.local.json
 attach and is still what attach left gets its original bytes back, and the report says
 `restored .claude/settings.local.json: the original bytes came back, byte for byte.` instead of the
 entry line; the pre-image copy is then deleted.
+
+### Beside the repository
+
+detach also removes what the factory deployed beside the repository: the directory recorded in
+`factoryBeside`, whole, with the bus and logs the factory wrote into it, and the Engram, the
+`construct.model.json` that `construct atlas` wrote under `~/.construct/engram/<directory>-<hash>/` for
+this repository, with that directory once empty. A directory above either that attach created is
+removed too once empty, so `~/.construct` goes when attach made it. Nothing else under the home
+directory is read or removed. While a plist in the user's `Library/LaunchAgents` names the factory's directory, detach refuses
+with `factory-kept-alive` before anything is removed, listing each keep-alive with the way to unload it,
+since launchd would raise the factory into its place again; a plist there that cannot be read is listed
+too, since whether it names the factory cannot be told. The launch logs and session reports of a factory
+started beside the repository are under its directory, in `bus/launch/`, and go with it. Whether a factory process still runs is the
+supervisor's judgement, not detach's: stop the factory before detaching it.
+
+What is beside the repository is removed before anything in it. When a path there cannot be removed
+(its permissions, a process holding it), detach refuses with `beside-unremovable`, naming the path,
+with the repository and its attach record untouched; free the path and run `construct detach` again,
+which removes what is left.
+
+detach writes nothing into `.git` beyond its block in `.git/info/exclude`: no ref, reflog or `[branch]`
+section is deleted. A card the factory cut leaves its branch and its worktree record in `.git`, and
+detach leaves both to the user, whose work they may hold; `git worktree remove <tree>` and
+`git branch -D <branch>` take them out.
 
 ### The four index refusals
 
@@ -1875,8 +1916,8 @@ writes a tracked file of a repository it was not asked to own:
 
 | Repository | Engram | Page |
 |---|---|---|
-| made by `init` (`construct.json` is here) | `construct.model.json`, its `mechanics` replaced, every fact, claim and node kept | `.construct/atlas.html`, which the construct's `.gitignore` ignores |
-| attached by `attach`, with no `init` | `~/.construct/engram/<repo>-<hash>/construct.model.json` | `.construct/atlas.html`, the directory `attach` excludes in `.git/info/exclude` |
+| made by `init` (`construct.json` is here) and not attached | `construct.model.json`, its `mechanics` replaced, every fact, claim and node kept | `.construct/atlas.html`, which the construct's `.gitignore` ignores |
+| attached by `attach`, with or without its own `construct.json` | `~/.construct/engram/<repo>-<hash>/construct.model.json` | `.construct/atlas.html`, the directory `attach` excludes in `.git/info/exclude` |
 
 A repository with neither a `construct.json` from `init` nor an attach record is refused: `atlas`
 writes nothing, names `construct attach` as the way in, and exits `1`.

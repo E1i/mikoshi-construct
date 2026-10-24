@@ -3,7 +3,7 @@ import type { ShiftTask } from '../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, SESSION_HEARTBEAT, TASK_REQUEUED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../core/events.js'
 import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
@@ -23,11 +23,13 @@ const FAULT = 'fault'
 const REQUEUED_BY_REQUEST = `(type = '${TASK_REQUEUED}' AND json_extract(payload, '$.queue') = 'launch' AND json_type(payload, '$.request') = 'integer')`
 
 const CARD_LIFE = `
-  SELECT id, type, card_id, dedupe_key, payload FROM events
-  WHERE legacy = 0 AND card_id IS NOT NULL AND (type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${CARD_DROPPED}', '${GHOST_ROW}') OR ${REQUEUED_BY_REQUEST})
+  SELECT id, type, card_id, pr, dedupe_key, payload FROM events
+  WHERE legacy = 0 AND card_id IS NOT NULL AND (type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${CARD_DROPPED}', '${GHOST_ROW}', '${PR_OPENED}', '${PR_OBSERVED}', '${PR_CLOSED}') OR ${REQUEUED_BY_REQUEST})
     AND ${NOT_A_BACKFILL}
   ORDER BY id
 `
+
+const PULL_REQUEST_ROWS = new Set<string>([PR_OPENED, PR_OBSERVED, PR_CLOSED])
 
 const FALLS = `
   SELECT card_id, count(*) AS falls FROM events
@@ -36,6 +38,8 @@ const FALLS = `
 `
 
 const MERGED_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL`
+
+const PROBES_VERIFIED_BY_REPORT = `SELECT DISTINCT card_id FROM events WHERE legacy = 0 AND type = '${CARD_VERIFIED}' AND pr IS NULL AND card_id IS NOT NULL AND json_extract(payload, '$.report') IS NOT NULL`
 
 const LEGACY_MERGED_CARDS = `SELECT DISTINCT card_id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type = 'merge'`
 
@@ -79,6 +83,7 @@ interface LifeRow {
   id: number
   type: string
   card_id: number
+  pr: number | null
   dedupe_key: string
   payload: string
 }
@@ -107,6 +112,20 @@ interface CardLife {
   freeRow: number | null
   closed: boolean
   stoppedByFault: boolean
+  closedUnmergedByPr: Map<number, boolean>
+}
+
+function closesUnmerged(row: LifeRow): boolean {
+  return row.type === PR_CLOSED && payloadOf(row).merged === false
+}
+
+function endedByClosedPullRequest(life: CardLife): boolean {
+  const closes = [...life.closedUnmergedByPr.values()]
+  return closes.length > 0 && closes.every(Boolean)
+}
+
+function runs(life: CardLife): boolean {
+  return life.started && !life.closed && !endedByClosedPullRequest(life)
 }
 
 function payloadOf(row: Pick<LifeRow, 'payload'>): Record<string, unknown> {
@@ -180,10 +199,15 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
     const life = lives.get(row.card_id)
     if (row.type === CARD_ADMITTED) {
       const payload = payloadOf(row)
-      const running = life !== undefined && life.started && !life.closed
+      const running = life !== undefined && runs(life)
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: taskOf(row, payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: taskOf(row, payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map() })
+      continue
+    }
+    if (life !== undefined && PULL_REQUEST_ROWS.has(row.type)) {
+      if (row.pr !== null)
+        life.closedUnmergedByPr.set(row.pr, closesUnmerged(row))
       continue
     }
     if (life !== undefined && row.type === TASK_REQUEUED) {
@@ -276,6 +300,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const lives = withAssignedLanes(db, cardLives(db))
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
+  const cleared = new Set([...merged, ...cardSet(db, PROBES_VERIFIED_BY_REPORT)])
   const launching = cardSet(db, OPEN_LAUNCHES)
   const openPrs = cardSet(db, OPEN_PR_CARDS)
   const trees = standingTrees(db, treeLive)
@@ -288,7 +313,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const heldByStalls = new Map<string, CardLife[]>()
   const taken: ShiftTask[] = []
   for (const life of lives.values()) {
-    const running = life.started && !life.closed && !merged.has(life.cardId) && !ended.has(life.cardId)
+    const running = runs(life) && !merged.has(life.cardId) && !ended.has(life.cardId)
     if (life.lane !== null && stalled.has(life.cardId))
       heldByStalls.set(life.lane, [...(heldByStalls.get(life.lane) ?? []), life])
     else if (life.lane !== null && (running || launching.has(life.cardId)))
@@ -305,7 +330,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || heldByStall(life, heldByStalls.get(life.lane) ?? []) || !life.depends.every(card => merged.has(card)) || heldOutside(life, openPrs, trees, beating))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || heldByStall(life, heldByStalls.get(life.lane) ?? []) || !life.depends.every(card => cleared.has(card)) || heldOutside(life, openPrs, trees, beating))
       continue
     if (bodyNotFoldedYet(db, life.cardId))
       continue

@@ -21,7 +21,8 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
+import { busDirOf, machineBusPath } from '../core/bus-path.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
@@ -48,11 +49,12 @@ import { bodyNotFoldedYet } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
+import { failTask } from './lease.js'
 import { TICK_MS } from './netwatch.js'
 import { Node, prefixOf, runNode } from './node.js'
 import { busCardBodies } from './parking-reads.js'
 import { promptsDirOf, storedInput } from './prompt-store.js'
-import { COMPLETED, generationField, launchTasks, TASK_FOLDS } from './queue.js'
+import { COMPLETED, generationField, launchTasks, LEASED, TASK_FOLDS } from './queue.js'
 import { transcriptFile } from './session-journal.js'
 import { openDatabase } from './sqlite.js'
 import { stampLogOutput } from './stamp.js'
@@ -76,9 +78,14 @@ export function taskStartCommand(installed: string | null): { file: string, args
   return { file: process.execPath, args: [builtEntryOf(installed, TASK_START_SCRIPT)] }
 }
 
-export function launchPlaces(home: string, repo: string, installed: string | null = installedPackage()): StarterPlaces {
+export function launchDirOf(home: string, busPath: string): string {
+  const resolved = path.resolve(busPath)
+  return resolved === machineBusPath(home) ? path.join(path.dirname(resolved), 'shift', LAUNCH_DIR) : path.join(busDirOf(resolved), LAUNCH_DIR)
+}
+
+export function launchPlaces(home: string, repo: string, busPath: string = machineBusPath(home), installed: string | null = installedPackage()): StarterPlaces {
   return {
-    launchDir: path.join(home, '.construct', 'shift', LAUNCH_DIR),
+    launchDir: launchDirOf(home, busPath),
     claude: 'claude',
     treePr: publishedTreePr(repo, installed),
   }
@@ -151,6 +158,27 @@ const RUNNING_STARTS = latestStartsOf(RUNNING_CARD)
 
 const DROPPED_STARTS = latestStartsOf(DROPPED_CARD, `
     AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = c.card_id AND id > e.id AND legacy = 0 AND type IN ('${CARD_STOPPED}', '${CARD_SESSION_ENDED}'))`)
+
+export const LAUNCH_START_MINUTES = 10
+
+const LAUNCH_START_MS = LAUNCH_START_MINUTES * 60_000
+
+export const LAUNCH_UNSTARTED = 'launch_unstarted'
+
+const UNSTARTED_LAUNCH_LEASES = `
+  SELECT tasks.task_key, tasks.card_id, tasks.lease_gen, leased.ts AS leased_at FROM tasks
+  JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
+  WHERE tasks.queue = 'launch' AND tasks.state = '${LEASED}'
+    AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = tasks.card_id AND id > leased.id AND legacy = 0 AND type IN (${SESSION_STARTS}))
+  ORDER BY tasks.id
+`
+
+interface UnstartedLease {
+  task_key: string
+  card_id: number
+  lease_gen: number
+  leased_at: string
+}
 
 const LAUNCH_TASK_OF_CARD = `SELECT task_key, state, event_id FROM tasks WHERE queue = 'launch' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
@@ -251,6 +279,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const stopped: number[] = []
     if (this.parts.mode !== 'live')
       return stopped
+    this.expireUnstartedLeases()
     for (const start of this.db.prepare(RUNNING_STARTS).all() as unknown as RunningStart[]) {
       const card = startedCardOf(start.payload)
       if (card === null)
@@ -282,6 +311,14 @@ export class LaunchNode extends Node<LaunchStep> {
         stopped.push(start.card_id)
     }
     return stopped
+  }
+
+  expireUnstartedLeases(): string[] {
+    const now = this.parts.clock().getTime()
+    const lapsed = (this.db.prepare(UNSTARTED_LAUNCH_LEASES).all() as unknown as UnstartedLease[]).filter(row => now - Date.parse(row.leased_at) >= LAUNCH_START_MS)
+    for (const row of lapsed)
+      failTask(this.db, this.ts(), { taskKey: row.task_key, queue: 'launch', cardId: row.card_id, pr: null, head: null, leaseGen: row.lease_gen, actor: this.actor }, { reason: LAUNCH_UNSTARTED, withdraw: false })
+    return lapsed.map(row => row.task_key)
   }
 
   private endDropped(start: RunningStart, card: StartedCard): boolean {
@@ -703,7 +740,7 @@ export function launchIsolationCommand(claude: string): string[] {
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const env = process.env
-  const places = launchPlaces(os.homedir(), process.cwd())
+  const places = launchPlaces(os.homedir(), process.cwd(), busPath)
   const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
