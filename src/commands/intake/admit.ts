@@ -164,6 +164,7 @@ const DOWNGRADE_ALLOWANCE = 'разрешить понижение свидет�
 const DECISION_LINE = /^- D-[1-9]\d* · /
 const DECISION_CARDS = / · card (#[1-9]\d*(?: #[1-9]\d*)*)/
 const SUPERSEDED_BY = ' · superseded-by D-'
+const DROPPED_CARD = 'dropped'
 
 export function defaultDecisions(): string {
   return path.join(os.homedir(), '.construct', 'owner-decisions.md')
@@ -229,6 +230,18 @@ function unmergedKnown(references: readonly string[], parked: ReadonlySet<number
     const known = id !== undefined && (parked.has(Number(id)) || done.has(id) || cards?.has(id) === true)
     return known ? [Number(id)] : []
   })
+}
+
+function droppedDepends(references: readonly string[], cards: BusCardStates | undefined): number[] {
+  return references.flatMap((reference) => {
+    const id = CARD_REFERENCE.exec(reference)?.[1]
+    return id !== undefined && cards?.get(id) === DROPPED_CARD ? [Number(id)] : []
+  })
+}
+
+function dependsOnDropped(cardId: number, dropped: readonly number[]): string {
+  const named = dropped.map(id => `#${id}`).join(', ')
+  return `#${cardId} depends on ${named}, dropped in the bus and never merging, so it would wait for ever; take ${named} out of its depends`
 }
 
 function waitingEvent(cardId: number, waitingOn: readonly number[], at: Date): CardEvent {
@@ -364,7 +377,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const ended = endedCards(cards)
   const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
-    parked,
+    parked: new Set([...parked, ...[...(cards?.keys() ?? [])].map(Number)]),
     done: ended,
     merged: ended,
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
@@ -374,6 +387,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const masks = sharedCodeMaskRefusals(checked.touches, createdPaths(checked.creates), readContourMap(options.contourMap ?? defaultContourMap()))
   if (masks.length > 0)
     return { status: 'sharedCodeMask', reasons: masks }
+  const dropped = droppedDepends(checked.depends, cards)
+  if (dropped.length > 0)
+    return { status: 'refused', why: dependsOnDropped(card.id, dropped) }
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {
     id: card.id,
@@ -399,8 +415,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
     return { status: 'refused', why: reparsed.reason }
-  const waitingOn = unmergedKnown(checked.depends, parked, cards, ended)
-  if (source === ADMIT_SOURCE && waitingOn.length > 0) {
+  const waitingOn = source === ADMIT_SOURCE ? unmergedKnown(checked.depends, parked, cards, ended) : []
+  if (waitingOn.length > 0 && !options.autoConfirm && admitCorrectionsNeedPerson(admitted)) {
     if (!options.dryRun)
       options.events?.(waitingEvent(card.id, waitingOn, now()))
     return { status: 'waiting', file: options.file, card: admitted, waitingOn, inBus: base.inBus, dryRun: options.dryRun }
@@ -419,6 +435,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (busBody === null && options.events === undefined && admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   recordIntake([admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
+  if (waitingOn.length > 0)
+    options.events?.(waitingEvent(card.id, waitingOn, now()))
   return { ...base, status: 'admitted' }
 }
 
