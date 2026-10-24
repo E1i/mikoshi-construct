@@ -313,6 +313,16 @@
         }
       }
     },
+    "say": {
+      "flags": {
+        "johnny": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
     "soulkill": {
       "flags": {
         "dir": {

@@ -2,6 +2,7 @@ const BUS_CORE = '^scripts/bus/(db|reducer|sqlite|stored|identifiers)\\.ts$'
 const BUS_SERVICE = '^scripts/bus/([a-z]+)-(worker|executor|starter)\\.ts$'
 const BUS_SERVICE_OF_SAME_NAME = '^scripts/bus/$1-(worker|executor|starter)\\.ts$'
 const CORE = '^scripts/core/'
+const OWNER_CHANNEL = '^scripts/owner/channel\\.ts$'
 const FACTORY = '^(scripts/(bus|ghosts|shift|miko|decisions|lanes)/|src/commands/)'
 const FORMER_EVENT_HOMES = '^src/commands/intake/(index|move)\\.ts$'
 const LADDER = '^scripts/ghosts/'
@@ -27,7 +28,7 @@ export default {
       name: 'src-imports-no-script',
       severity: 'error',
       from: { path: '^src/' },
-      to: { path: '^scripts/', pathNot: CORE },
+      to: { path: '^scripts/', pathNot: [CORE, OWNER_CHANNEL] },
     },
     {
       name: 'core-imports-no-factory',

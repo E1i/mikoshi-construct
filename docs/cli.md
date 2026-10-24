@@ -1015,6 +1015,25 @@ run with `--card` are unchanged; outside a shift, with `CONSTRUCT_CARD` unset, n
 `refused`, `unmatched`, `noWitness` or `hardFailure`). The records under `.construct/mutations/` are
 local working state, not part of the recorded surface.
 
+## construct say
+
+The owner's channel for a decision, in the published package: the same write as the repository's
+`pnpm owner:say`. It writes one new file into `~/.construct-owner/answers/` holding `said: <ISO time>`
+and the words, and prints its path. That directory is outside every agent sandbox's `allowWrite`, so
+the owner runs the command from their own shell (in Claude Code, behind `!`). The bus accepts an
+owner decision only when its words are a whole line of a file in that directory not used yet, and
+marks the file used in the same step, so one file grants one decision.
+
+```bash
+construct say "Q14: the second path."
+```
+
+| Option | Default | What it does |
+|---|---|---|
+| `<words>` | — | The owner's words. Quote them as one argument; several words are joined with single spaces. |
+
+Exit `0` when the file was written; `2` when no words were given, and nothing is written.
+
 ## Exit codes
 
 | Code | Meaning |

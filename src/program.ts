@@ -8,6 +8,7 @@ import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
 import { busExpected, defaultBusPath } from '../scripts/core/bus-path.js'
+import { ownerChannelOf, sayToOwnerChannel } from '../scripts/owner/channel.js'
 import { printAtlas, runAtlas } from './atlas/index.js'
 import { ATTACH_EXIT, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
 import { busReaderAt } from './commands/board/bus.js'
@@ -319,6 +320,30 @@ const atlas = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
+const SAY_EXIT = { said: 0, noWords: 2 } as const
+
+const say = withKnownFlags(defineCommand({
+  meta: { name: 'say', description: 'Write the owner\'s words, with the time, as one unused answer in ~/.construct-owner/answers, the channel an owner decision is accepted from' },
+  args: {
+    plain: commonArgs.plain,
+    johnny: commonArgs.johnny,
+  },
+  run({ args }) {
+    const console = ui(args)
+    const words = args._.join(' ').trim()
+    if (words === '') {
+      console.flatline(console.lore.sayNeedsWords)
+      process.exitCode = SAY_EXIT.noWords
+      return
+    }
+    const failed = reported(console, () => {
+      console.ok(console.lore.ownerSaid(sayToOwnerChannel(ownerChannelOf(homedir()), words, new Date())))
+    })
+    if (failed !== 0)
+      process.exitCode = failed
+  },
+}), ROOT_META)
+
 const sync = withKnownFlags(defineCommand({
   meta: { name: 'sync', description: 'Classify what today\'s construct would change in this repository; --apply writes what it owns' },
   args: {
@@ -507,6 +532,7 @@ export function createMain(bus?: BusPorts) {
       atlas,
       intake,
       mutate,
+      say,
     },
   })
 }

@@ -4,7 +4,7 @@ import { onTheHarnessRoute, packageScripts, reachedByHarness } from './package-s
 const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'approve': 'lists the owner\'s approval queue and writes or revokes an approval when run by hand; its own tests are its gate',
   'board': 'a read-only print of the factory board from the cards, prs and tasks projections of bus.db, not a verdict on a change',
-  'build': 'produces the package rather than judging it',
+  'build': 'produces the package, the bundled CLI and the factory built file by file, rather than judging it; tests/package-factory.test.ts packs and starts what it builds',
   'bus:answer': 'the answer worker over bus.db, switched off unless started by hand with --on; its own tests are its gate',
   'bus:bg': 'starts bus:run, the switched-on workers and their supervisor as one detached instance each when run by hand; its own tests, on nohup and pnpm stubs and a scratch git repository, are its gate',
   'bus:close': 'the close worker over bus.db, switched off unless started by hand with --on; its own tests are its gate',
@@ -34,7 +34,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'decisions': 'prints the owner decisions in force, refusing a file that breaks the numbered record; its own tests are its gate',
   'decisions:add': 'appends one owner decision and its decision.recorded event when run by hand, restoring the file on a refusal or a failed event write; its own tests are its gate',
   'dev': 'runs the CLI from source',
-  'owner:say': 'writes one file of the owner\'s words and the time into ~/.construct-owner/answers when the owner runs it by hand; its own tests are its gate',
+  'owner:say': 'writes one file of the owner\'s words and the time into ~/.construct-owner/answers when the owner runs it by hand, as construct say does from the package; its own tests are its gate',
   'owner:command': 'writes the patch and the command the window hands the owner for a card tree into ~/.construct/probes/owner-<card> when run by hand; its own tests are its gate',
   'gate:window': 'prints the window gate of D-194 for the tree it runs in, the ci:select layers of its changes against origin/main; it judges nothing itself, and its own tests are its gate',
   'done:check': 'a step a reviewer runs on a finished ladder run; its own tests are its gate',

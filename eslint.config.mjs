@@ -20,6 +20,22 @@ const ALLOWED_INTERNAL_IMPORTS = {
   'src/cli.ts': ['program'],
 }
 
+const ALLOWED_FACTORY_IMPORTS = {
+  'src/commands': ['core/'],
+  'src/program.ts': ['core/', 'owner/channel.js'],
+}
+
+function factoryReach(target) {
+  const allowed = ALLOWED_FACTORY_IMPORTS[target] ?? []
+  const kept = allowed.map(name => name.endsWith('/') ? name : `${name}$`).map(name => name.replaceAll('.', '\\.'))
+  return {
+    regex: kept.length === 0 ? '^(?:\\.\\./)+scripts/' : `^(?:\\.\\./)+scripts/(?!${kept.join('|')})`,
+    message: allowed.length === 0
+      ? `${target.replace(/\.ts$/, '')} imports no factory module under scripts/: the factory ships as its own build`
+      : `${target.replace(/\.ts$/, '')} may reach into scripts/ only through ${allowed.join(', ')}: the factory ships as its own build`,
+  }
+}
+
 function dependencyBoundary([target, allowed]) {
   const forbidden = INTERNAL_MODULES.filter(name => !allowed.includes(name))
   const directory = target.replace(/\.ts$/, '')
@@ -32,7 +48,7 @@ function dependencyBoundary([target, allowed]) {
           message: allowed.length === 0
             ? `${directory} imports no other src module: it returns facts`
             : `${directory} may import only ${allowed.join(', ')}`,
-        }],
+        }, factoryReach(target)],
       }],
     },
   }

@@ -1,0 +1,10 @@
+Write the owner's words, with the time, as one unused answer in ~/.construct-owner/answers, the channel an owner decision is accepted from (construct say v<version>)
+
+USAGE construct say [OPTIONS] 
+
+OPTIONS
+
+   --plain    No colors, no lore (CI-friendly) (Default: false)
+  --johnny    Wake up, Netrunner. (Default: false)             
+
+
