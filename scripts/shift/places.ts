@@ -1,9 +1,12 @@
 import type { Card } from '../../src/card/grammar.js'
 import type { ExitReason } from './continuation.js'
 import path from 'node:path'
+import process from 'node:process'
+import { repoSlugOf } from '../core/bus-path.js'
 
 export const SHIFT_JOURNAL = 'shift.jsonl'
-export const REPO = 'E1i/mikoshi-construct'
+export const NO_GIT_REMOTE = 'no git remote'
+export const REPO = repoSlugOf(process.cwd()) ?? NO_GIT_REMOTE
 
 export function reportPath(dir: string, number: string): string {
   return path.join(dir, `report-${number}.md`)

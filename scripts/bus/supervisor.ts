@@ -5,11 +5,11 @@ import type { ProcessBeat } from './heartbeat.js'
 import type { HolderProcess, HolderReading, ProcessStartOf } from './lease.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { defaultBusDir } from '../core/bus-path.js'
 import { PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
 import { RUNNING_CARD } from './card-automaton.js'
@@ -977,7 +977,7 @@ function decisionsInForce(): InForceDecision[] {
 }
 
 async function main(): Promise<void> {
-  const busDir = path.join(os.homedir(), '.construct', 'bus')
+  const busDir = defaultBusDir()
   const cwd = process.cwd()
   const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath())
   const command = bgCommand(process.argv.slice(2))

@@ -1,9 +1,9 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { defaultBusDir } from '../core/bus-path.js'
 import { alive, printBg, psList, startDetached } from './bg.js'
 import { defaultBusPath, openBus } from './db.js'
 import { shadowReading } from './report.js'
@@ -66,5 +66,5 @@ export function reviewLaunch(preflight: () => string[]): DetachedLaunch {
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const preflight = (): string[] => busShadowProblems(defaultBusPath())
-  printBg(startReviewWorker(reviewLaunch(preflight), path.join(os.homedir(), '.construct', 'bus'), process.env, psList()))
+  printBg(startReviewWorker(reviewLaunch(preflight), defaultBusDir(), process.env, psList()))
 }

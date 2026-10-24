@@ -11,12 +11,12 @@ import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, realpathSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { defaultBusDir } from '../core/bus-path.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../core/events.js'
 import { realIsolationReader } from '../ports/isolation.js'
 import { HEADLESS_FLAGS } from '../ports/session.js'
@@ -33,7 +33,7 @@ import { promptsDirOf } from './prompt-store.js'
 import { answerCandidates } from './queue.js'
 import { stampLogOutput } from './stamp.js'
 
-const ANSWERS_DIR = path.join(os.homedir(), '.construct', 'bus', 'answers')
+const ANSWERS_DIR = path.join(defaultBusDir(), 'answers')
 
 export const ANSWER_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_STOPPED, CARD_ANSWERED, CARD_STARTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE] as const
 
