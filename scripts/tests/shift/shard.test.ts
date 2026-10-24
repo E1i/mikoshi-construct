@@ -1,13 +1,20 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Answerer } from '../../bus/answerer.js'
+import type { CardTreeTools } from '../../bus/card-tree.js'
 import type { BusEvent } from '../../bus/db.js'
 import type { ShardDeps } from '../../shift/shard.js'
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { activeWindowShards, expiredWindowShards } from '../../bus/shards.js'
-import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
+import { AnswerExecutor } from '../../bus/answer-executor.js'
+import { appendEvent, OPEN_WAIT, openBus, OWNER_WAITS } from '../../bus/db.js'
+import { cardDecisionCommand } from '../../bus/launch-worker.js'
+import { leaseNext } from '../../bus/lease.js'
+import { queueTask } from '../../bus/queue.js'
+import { reduce } from '../../bus/reducer.js'
+import { activeWindowShards, DECISIONS_SCOPE, expiredWindowShards } from '../../bus/shards.js'
+import { CARD_STARTED, CARD_STOPPED, QUESTION_OWNER, SHARD_DECIDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
 import { runShard, USAGE } from '../../shift/shard.js'
 
 const SHARD = '5a4d0000-0000-4000-8000-000000000650'
@@ -132,6 +139,30 @@ describe('a shard delegates one owner merge', () => {
     for (const event of expired)
       appendEvent(db, event)
     expect(expiredWindowShards(db, late, 'worker:merge:1')).toEqual([])
+    db.close()
+  })
+
+  it('a question in the owner boundary opens an owner wait instead of a shard decision', async () => {
+    const world = initWorld()
+    const db = openBus(path.join(world.handoff, 'bus.db'))
+    expect(runShard(['--window', '--hours', '2', '--scope', DECISIONS_SCOPE, '--by', 'Eli'], shardDeps(world, captured(), event => appendEvent(db, event)))).toBe(0)
+    const now = new Date('2026-10-08T09:30:00.000Z')
+    const ts = now.toISOString()
+    const worktree = path.join(world.handoff, 'mc-905')
+    mkdirSync(worktree)
+    appendEvent(db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STARTED}:905`, payload: { session: 'card-session-1', worktree, branch: 'feat/card-905', base: '1'.repeat(40) }, legacy: false })
+    appendEvent(db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:905`, payload: { reason: 'question.agent', detail: 'a question on card #905' }, legacy: false })
+    const stop = Number((db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
+    queueTask(db, ts, { queue: 'answer', cardId: 905, stop })
+    const question = 'may the owner push 03c463cd, which changes .github/workflows/ci.yml?'
+    const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: 'a'.repeat(40), after: 'a'.repeat(40), owner: question })
+    const trees: CardTreeTools = { home: world.handoff, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const executor = new AnswerExecutor({ db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const outcome = await executor.answer(leaseNext(db, ts, 'answer', 'worker:answer:worker-1')!)
+    expect(outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: expect.stringContaining('.github/workflows/ci.yml is R1') as unknown })
+    expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(SHARD_DECIDED)).toEqual({ n: 0 })
+    reduce(db)
+    expect(db.prepare(`SELECT need, command, card_id, state FROM ${OWNER_WAITS}`).all()).toEqual([{ need: 'decision', command: cardDecisionCommand(905), card_id: 905, state: OPEN_WAIT }])
     db.close()
   })
 })

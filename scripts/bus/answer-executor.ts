@@ -10,11 +10,12 @@ import { withinTouches } from '../../src/card/covering-tests.js'
 import { createdPaths } from '../../src/card/parking.js'
 import { riskOf } from '../../src/card/risk.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED } from '../core/events.js'
+import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { matchGlob } from '../shredder/glob.js'
 import { admittedScopeOf, answerSourceOf } from './answer-source.js'
 import { CardTreeGone, treeMergeOf } from './answerer.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from './card-tree.js'
-import { openBusWait } from './db.js'
+import { openBusWait, openOwnerWait } from './db.js'
 import { messageOf } from './errors.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
@@ -73,6 +74,10 @@ const MS_PER_MINUTE = 60_000
 
 function minutesSince(start: number, end: number): number {
   return Math.round((end - start) / MS_PER_MINUTE * 10) / 10
+}
+
+function ownerAnswerOf(cardId: number): string {
+  return `pnpm decisions:add --card #${cardId} "${OWNER_SOURCE} <decision>"`
 }
 
 function cardBodyOf(input: AnswerInput | undefined): { card_body_sha: string } | Record<string, never> {
@@ -206,6 +211,9 @@ export class AnswerExecutor {
     const reserved = ownersUnderAnyShard(question)
     if (reserved !== null)
       return this.stopped(lease, QUESTION_OWNER, `${question} (${reserved} stays the owner's under any shard)`, {}, scope)
+    const boundary = pathsIn(question).find(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION)
+    if (boundary !== undefined)
+      return this.ownersWait(lease, `${question} (${boundary} is ${OWNER_EVEN_UNDER_THE_DECISION} and stays the owner's under any shard)`, scope)
     const isolation: Isolation = this.parts.isolation?.() ?? { level: 'none', why: 'the answer worker reads no isolation' }
     if (isolation.level === 'none')
       return this.stopped(lease, QUESTION_OWNER, `${question} (the ${DECISIONS_SCOPE} shard ${shard.id} is refused without isolation: ${isolation.why})`, {}, scope)
@@ -227,6 +235,12 @@ export class AnswerExecutor {
   private stopped(lease: Lease, reason: string, detail: string, extra: Record<string, unknown> = {}, scope: BusEvent[] = []): AnswerOutcome {
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_STOPPED, { reason, detail, ...extra })])
     return { kind: 'stopped', taskKey: lease.taskKey, reason, detail }
+  }
+
+  private ownersWait(lease: Lease, detail: string, scope: BusEvent[]): AnswerOutcome {
+    const outcome = this.stopped(lease, QUESTION_OWNER, detail, {}, scope)
+    openOwnerWait(this.parts.db, this.ts(), lease.actor, { need: 'decision', text: `card #${lease.cardId} asks: ${detail}`, command: ownerAnswerOf(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
+    return outcome
   }
 
   private denied(lease: Lease, denial: AnswerDenial): AnswerOutcome {

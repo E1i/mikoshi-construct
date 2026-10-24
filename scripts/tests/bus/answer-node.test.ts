@@ -33,7 +33,7 @@ import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 const benches: MergeBench[] = []
 const roots: string[] = []
 const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
-const OWNER_QUESTION = 'may the card also touch architecture/owner-merges.md?'
+const OWNER_QUESTION = 'may the card also touch AGENTS.md?'
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
