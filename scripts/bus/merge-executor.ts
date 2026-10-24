@@ -11,7 +11,7 @@ import { COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED
 import { REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { changedFiles, rerunOf, upToDateRequired } from './check-catalog.js'
-import { appendEvent, openBusWait } from './db.js'
+import { appendEvent, OPEN_WAIT, openBusWait, OWNER_WAITS } from './db.js'
 import { messageOf } from './errors.js'
 import { isFullSha } from './identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from './lease.js'
@@ -25,13 +25,15 @@ import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } fro
 export const MERGE_METHOD = 'squash'
 export const MERGE_QUEUE = 'merge'
 export const STALE_HEAD_STATUS = 409
-const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE])
+export const QUESTION_OPEN = 'owner_question_open'
+const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', QUESTION_OPEN, NEEDS_UPDATE])
+const OPEN_QUESTIONS_OF_CARD = `SELECT id, text FROM ${OWNER_WAITS} WHERE need = 'decision' AND state = '${OPEN_WAIT}' AND card_id = ? ORDER BY opened_at, id`
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
 const RUNS_PAGE = 100
 const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
 
-export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof WITNESS_REASON | typeof NEEDS_UPDATE
+export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE
 
 export type MergeDenial
   = | { kind: 'technical', reason: MergeTechnicalReason, detail: string, base?: string }
@@ -105,6 +107,9 @@ export class MergeExecutor {
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
+      const asked = checked.mergedCommit === null ? this.heldByAnOpenQuestion(lease) : null
+      if (asked !== null)
+        return this.denied(lease, asked)
       const gated = checked.mergedCommit === null && witnessSubjectOf(this.parts.db, lease.cardId) !== null
       const unwitnessed = gated ? witnessDenial(this.parts.db, lease.cardId, lease.head, checked.base) : null
       if (unwitnessed !== null)
@@ -151,6 +156,14 @@ export class MergeExecutor {
     if (denial.kind !== 'authority' || !OWNER_MERGES_RULES.has(denial.rule) || lease.pr === null)
       return
     openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
+  }
+
+  private heldByAnOpenQuestion(lease: Lease): MergeDenial | null {
+    const open = this.parts.db.prepare(OPEN_QUESTIONS_OF_CARD).all(lease.cardId) as { id: string, text: string }[]
+    if (open.length === 0)
+      return null
+    const questions = open.map(wait => `${wait.id} (${wait.text})`).join(', ')
+    return { kind: 'technical', reason: QUESTION_OPEN, detail: `card #${lease.cardId} waits for the owner's answer to ${questions}; #${lease.pr} merges once it is answered` }
   }
 
   private noLongerACandidate(lease: Lease): MergeDenial | null {
