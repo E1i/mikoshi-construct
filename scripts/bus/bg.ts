@@ -79,7 +79,11 @@ export function carriesMarker(args: string, markers: readonly string[]): boolean
 }
 
 function psLines(args: string[], env: NodeJS.ProcessEnv): RunningProcess[] {
-  return execFileSync('ps', args, { encoding: 'utf8', env })
+  return parsePs(execFileSync('ps', args, { encoding: 'utf8', env }))
+}
+
+export function parsePs(output: string): RunningProcess[] {
+  return output
     .split('\n')
     .flatMap((line) => {
       const match = PS_LINE.exec(line)
@@ -113,10 +117,12 @@ function environOf(pid: number): string {
   }
 }
 
-export function processBuses(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): BusReader {
+export type PsRunner = (args: string[]) => RunningProcess[]
+
+export function processBuses(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, ps: PsRunner = args => psLines(args, env), environ: (pid: number) => string = environOf): BusReader {
   if (platform === 'linux')
-    return busesOf(({ pid }) => busInEnviron(environOf(pid)))
-  return () => busesOf(({ args }) => busInPsEnvironment(args))(psLines(['-axEo', 'pid=,args='], env))
+    return busesOf(({ pid }) => busInEnviron(environ(pid)))
+  return () => busesOf(({ args }) => busInPsEnvironment(args))(ps(['-axEo', 'pid=,args=']))
 }
 
 export function withBuses<T extends RunningProcess>(processes: T[], buses: BusReader = processBuses()): T[] {

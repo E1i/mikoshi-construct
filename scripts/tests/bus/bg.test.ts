@@ -7,7 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { alive, BUS_RUN_LAUNCH, busInEnviron, busInPsEnvironment, instancesOf, launchName, PREFIX, processBuses, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../bus/bg.js'
+import { alive, BUS_RUN_LAUNCH, busInEnviron, busInPsEnvironment, instancesOf, launchName, parsePs, PREFIX, processBuses, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../bus/bg.js'
 import { appendEvent, openBus } from '../../bus/db.js'
 import { startReviewWorker } from '../../bus/review-bg.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../bus/supervisor.js'
@@ -385,6 +385,31 @@ describe('pnpm bus:bg', () => {
     expect(busInPsEnvironment('node scripts/bus/supervisor.ts --supervise HOME=/h XCONSTRUCT_BUS_DB=/y/bus.db')).toBeUndefined()
     expect(busInEnviron('HOME=/h\0CONSTRUCT_BUS_DB_OLD=/y/bus.db\0CONSTRUCT_BUS_DB=/x/bus.db\0PATH=/bin\0')).toBe('/x/bus.db')
     expect(busInEnviron('HOME=/h\0PATH=/bin\0')).toBeUndefined()
+  })
+
+  it('off linux the bus is read from ps -axEo output, and on linux from /proc environ, never the other way', () => {
+    const calls: string[][] = []
+    const output = [
+      '  101 node scripts/bus/supervisor.ts --supervise HOME=/h CONSTRUCT_BUS_DB=/x/bus.db PATH=/bin',
+      '  102 node scripts/bus/supervisor.js --supervise CONSTRUCT_BUS_DB=/y/bus.db',
+      '  103 sleep 30 HOME=/h',
+    ].join('\n')
+    const environs: number[] = []
+    const ps = (args: string[]): RunningProcess[] => {
+      calls.push(args)
+      return parsePs(output)
+    }
+    const environ = (pid: number): string => {
+      environs.push(pid)
+      return pid === 101 ? 'CONSTRUCT_BUS_DB=/z/bus.db\0' : ''
+    }
+    const listed = [{ pid: 101, args: 'a' }, { pid: 102, args: 'b' }, { pid: 103, args: 'c' }]
+    expect(withBuses(listed, processBuses({}, 'darwin', ps, environ))).toEqual([{ pid: 101, args: 'a', bus: '/x/bus.db' }, { pid: 102, args: 'b', bus: '/y/bus.db' }, { pid: 103, args: 'c' }])
+    expect(calls).toEqual([['-axEo', 'pid=,args=']])
+    expect(environs).toEqual([])
+    expect(withBuses(listed, processBuses({}, 'linux', ps, environ))).toEqual([{ pid: 101, args: 'a', bus: '/z/bus.db' }, { pid: 102, args: 'b' }, { pid: 103, args: 'c' }])
+    expect(calls).toHaveLength(1)
+    expect(environs).toEqual([101, 102, 103])
   })
 
   it('withBuses stamps the bus a reader found and leaves a process it found none for unchanged', () => {
