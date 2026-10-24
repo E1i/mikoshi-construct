@@ -367,6 +367,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     done: ended,
     merged: ended,
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
+    root: path.resolve(options.dir),
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
   }) as [CheckedCard]
