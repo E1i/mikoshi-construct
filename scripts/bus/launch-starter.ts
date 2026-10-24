@@ -7,6 +7,7 @@ import { closeSync, mkdirSync, openSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { BUS_DB_VARIABLE } from '../core/bus-path.js'
 import { continuationBody } from '../shift/prompt.js'
 import { messageOf } from './errors.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
@@ -71,7 +72,12 @@ export function treePrCommand(repo: string): string {
 }
 
 export function launchArgv(session: { command: string, treePr: string, cardId: number, worktree: string, report: string, id: string }): string[] {
-  return ['-c', `env ${session.command} "$@" && ${session.treePr} ${session.cardId} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', '-p', '--session-id', session.id]
+  return ['-c', `env -u ${BUS_DB_VARIABLE} ${session.command} "$@" && ${session.treePr} ${session.cardId} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', '-p', '--session-id', session.id]
+}
+
+export function launchEnv(session: NodeJS.ProcessEnv, launching: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const bus = launching[BUS_DB_VARIABLE]
+  return bus === undefined || bus === '' ? session : { ...session, [BUS_DB_VARIABLE]: bus }
 }
 
 export function unreadableCard(cardId: number): string {
@@ -189,7 +195,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
         command: 'sh',
         args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardId: card.cardId, worktree, report, id: session }),
         cwd: worktree,
-        env: this.ports.envOf(card.cardId),
+        env: launchEnv(this.ports.envOf(card.cardId)),
         input: prompt,
         log: path.join(this.places.launchDir, `log-${card.cardId}.txt`),
       })

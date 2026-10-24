@@ -114,10 +114,32 @@ export function machineBusPath(home: string): string {
   return path.join(constructHome(home), BUS_FILE)
 }
 
+export class ForeignBusRefused extends Error {
+  constructor(readonly named: string, readonly own: string, readonly machine: string) {
+    super(`Refused: ${BUS_DB_VARIABLE} names ${named}, the bus of another repository; this repository's bus is ${own}, or the machine bus ${machine}. Nothing was written.`)
+  }
+}
+
+function insideDir(dir: string, file: string): boolean {
+  const relative = path.relative(dir, file)
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
+function checkedNamedBus(named: string, home: string, dir: string): string {
+  if (repositoryRoot(dir) === null)
+    return named
+  const own = path.join(repoHome(home, repoIdOf(dir)), BUS_FILE)
+  const machine = machineBusPath(home)
+  const resolved = path.resolve(named)
+  if (insideDir(constructHome(home), resolved) && resolved !== own && resolved !== machine)
+    throw new ForeignBusRefused(named, own, machine)
+  return named
+}
+
 export function busPathOf(env: NodeJS.ProcessEnv, home: string, dir: string): string {
   const named = env[BUS_DB_VARIABLE]
   if (named !== undefined && named !== '')
-    return named
+    return checkedNamedBus(named, home, dir)
   const own = path.join(repoHome(home, repoIdOf(dir)), BUS_FILE)
   const machine = machineBusPath(home)
   return !existsSync(own) && existsSync(machine) ? machine : own

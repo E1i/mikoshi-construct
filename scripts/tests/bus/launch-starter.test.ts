@@ -1,15 +1,16 @@
 import type { CardStart, StartedCard } from '../../bus/launch-executor.js'
 import type { StarterPorts } from '../../bus/launch-starter.js'
 import type { TreeFile } from '../../bus/session-journal.js'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { devNull, tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { appendEvent, openBus } from '../../bus/db.js'
-import { HTTPS_ORIGIN_ENV, ShiftCardStarter } from '../../bus/launch-starter.js'
+import { HTTPS_ORIGIN_ENV, launchArgv, launchEnv, ShiftCardStarter } from '../../bus/launch-starter.js'
 import { busCardSessions } from '../../bus/launch-worker.js'
+import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 
 const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }
@@ -126,6 +127,37 @@ function heldTree(changed: string[], overrides: Partial<StarterPorts> = {}): { s
 function refusedPaths(outcome: CardStart): string[] | undefined {
   return outcome.kind === 'refused' ? outcome.denial.paths : undefined
 }
+
+describe('the bus of a launch', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  const LAUNCHING_BUS = path.join(tmpdir(), 'launching-bus', 'bus.db')
+
+  it('the claude command of a launch runs without CONSTRUCT_BUS_DB, and tree-pr after it with the launching bus', () => {
+    const probe = (name: string): string => `sh -c 'echo "${name}=\${${BUS_DB_VARIABLE}:-unset}"' ${name}`
+    const args = launchArgv({ command: probe('claude'), treePr: probe('treepr'), cardId: CARD, worktree: TREE, report: '/r', id: SESSION })
+    const run = spawnSync('sh', args, { encoding: 'utf8', env: { ...process.env, [BUS_DB_VARIABLE]: LAUNCHING_BUS } })
+    expect(run.stdout.split('\n')).toEqual(['claude=unset', `treepr=${LAUNCHING_BUS}`, ''])
+  })
+
+  it('a launch takes the bus of the process that starts it back into the session env the card port dropped it from', () => {
+    expect(launchEnv({ PATH: '/bin' }, { [BUS_DB_VARIABLE]: LAUNCHING_BUS })).toEqual({ PATH: '/bin', [BUS_DB_VARIABLE]: LAUNCHING_BUS })
+    expect(launchEnv({ PATH: '/bin' }, {})).toEqual({ PATH: '/bin' })
+  })
+
+  it('start() spawns the launch with the launching bus though envOf names none', () => {
+    vi.stubEnv(BUS_DB_VARIABLE, LAUNCHING_BUS)
+    const envs: NodeJS.ProcessEnv[] = []
+    const held = heldTree(['notes.md'], { spawnDetached: (run) => {
+      envs.push(run.env)
+      return 4242
+    } })
+    expect(held.startQueued()).toMatchObject({ kind: 'started' })
+    expect(envs.map(env => env[BUS_DB_VARIABLE])).toEqual([LAUNCHING_BUS])
+  })
+})
 
 describe('the held tree guard reads the session journal', () => {
   it('a file the card session changed by Write or Edit, whose content matches and which the report does not name, continues in the held tree', () => {
