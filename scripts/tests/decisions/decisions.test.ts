@@ -1,5 +1,5 @@
 import type { JournalEntry } from '../../../src/card/closed.js'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -309,12 +309,15 @@ describe('a decision bound to a card is spent once the card is merged or closed'
     expect(decisionsRefusals(spendDecisions(text, card => card === 730))).toEqual([])
   })
 
-  it('reading decisions does not change the file mtime', () => {
+  it('reading the decisions writes no file', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'decisions-read-'))
     try {
       const decisions = path.join(root, 'owner-decisions.md')
-      writeFileSync(decisions, upToSpending('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730'))
-      const before = statSync(decisions).mtimeMs
+      const archive = path.join(root, 'owner-decisions.archive.md')
+      writeFileSync(decisions, upToSpending('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730', '- D-56 · 2026-10-09 — old. · decisions:add', '- D-57 · 2026-10-09 — new. · supersedes D-56 · decisions:add'))
+      writeFileSync(archive, '')
+      const snapshot = (): Array<[string, string, number]> => readdirSync(root).sort().map(name => [name, readFileSync(path.join(root, name), 'utf8'), statSync(path.join(root, name)).mtimeMs])
+      const before = snapshot()
       const out: string[] = []
       const code = runDecisionsRead([decisions], {
         home: root,
@@ -326,8 +329,8 @@ describe('a decision bound to a card is spent once the card is merged or closed'
         err: () => {},
       })
       expect(code).toBe(0)
-      expect(out.some(line => line.startsWith('- D-55'))).toBe(false)
-      expect(statSync(decisions).mtimeMs).toBe(before)
+      expect(out.some(line => line.startsWith('- D-55') || line.startsWith('- D-56'))).toBe(false)
+      expect(snapshot()).toEqual(before)
     }
     finally {
       rmSync(root, { recursive: true, force: true })
@@ -370,13 +373,15 @@ describe('a decision bound to a card is spent once the card is merged or closed'
     expect(result.out.filter(line => line.startsWith('- D-55') || line.startsWith('- D-56'))).toEqual([])
   })
 
-  it('spends before the size check, so a file over the limit only by spent decisions is read', () => {
-    const long = `${'decision '.repeat(1000)}`
-    const text = upToSpending(`- D-55 · 2026-10-09 — ${long} · card #730`)
-    expect(decisionsRefusals(text)).toHaveLength(1)
-    const result = read(text, undefined, journal({ event: 'merge', task: '730', by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' }))
-    expect(result.err).toEqual([])
-    expect(result.code).toBe(0)
+  it('a decision bound to a merged card does not count toward the size limit', () => {
+    const long = 'decision '.repeat(Math.ceil(DECISIONS_IN_FORCE_LIMIT / 'decision '.length))
+    const text = upToSpending(`- D-55 · 2026-10-09 — first ${long} · card #730`, `- D-56 · 2026-10-09 — second ${long} · card #731`)
+    expect(decisionsRefusals(text)).toEqual([expect.stringContaining(`over the limit of ${DECISIONS_IN_FORCE_LIMIT}`)])
+    const merged = journal({ event: 'merge', task: '730', by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' })
+    expect(read(text, undefined, merged, null, new Map([['731', 'closed']]))).toMatchObject({ code: 0, err: [] })
+    expect(read(text, undefined, journal(), null, new Map([['730', 'merged'], ['731', 'closed']]))).toMatchObject({ code: 0, err: [] })
+    expect(read(text, undefined, merged).code).toBe(1)
+    expect(read(text, undefined, merged, null, new Map([['731', 'running']])).code).toBe(1)
   })
 
   it('touches nothing without a journal or without D-54 in the file', () => {
