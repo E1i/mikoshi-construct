@@ -112,6 +112,21 @@ that is, and only inside a `construct:begin … construct:end` block or as a JSO
 values win. `=` leaves the file alone and reports it. An existing repository never receives example
 code, and there is no `--force`.
 
+### The tab-window hooks
+
+With the Claude Code target (`--ai claude`, the default, or `both`), init writes
+`scripts/construct/window-hooks.mjs` and registers it in `.claude/settings.json`: a `Stop` entry, a
+`PreCompact` entry and a `SessionStart` entry with the matcher `compact`. Both files are tracked, like
+the rest of `.claude/`, so every clone's sessions get the hooks. The script is the one `attach` writes to
+`.construct/window-hooks.mjs`, byte for byte (see [construct attach](#construct-attach)); the entries
+init writes pass it `--needs-construct`, so when no `construct` is on the `PATH` each hook prints one line
+on stderr and does nothing.
+
+| Path | Strategy |
+|------|----------|
+| `scripts/construct/window-hooks.mjs` | `create`: written when absent, otherwise left alone and reported with `=` |
+| `.claude/settings.json` | `merge-hooks`: written whole when absent; otherwise each of the three entries is appended to its event's list after the repository's own entries, unless an entry running the same command is already there, and every other key is kept. A file that is not a JSON object, or whose `hooks` or one of those three lists has another shape, is left alone and reported with `=`. `sync` never writes it. |
+
 ### Running init again
 
 The closing line reports two counts, because they answer two questions: how many write operations the

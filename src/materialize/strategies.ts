@@ -1,7 +1,10 @@
-export type Strategy = 'create' | 'merge-json' | 'append-block'
+import { isDeepStrictEqual } from 'node:util'
+
+export type Strategy = 'create' | 'merge-json' | 'append-block' | 'merge-hooks'
 
 const MERGE_JSON = new Set(['package.json'])
 const APPEND_BLOCK = new Set(['.gitignore', 'CLAUDE.md', 'AGENTS.md'])
+const MERGE_HOOKS = new Set(['.claude/settings.json'])
 
 export const BLOCK_BEGIN = '<!-- construct:begin -->'
 export const BLOCK_END = '<!-- construct:end -->'
@@ -9,6 +12,8 @@ const GITIGNORE_BEGIN = '# construct:begin'
 const GITIGNORE_END = '# construct:end'
 
 export function strategyFor(target: string): Strategy {
+  if (MERGE_HOOKS.has(target))
+    return 'merge-hooks'
   const basename = target.split('/').at(-1) ?? target
   if (MERGE_JSON.has(basename))
     return 'merge-json'
@@ -40,6 +45,53 @@ export function mergeJson(existing: JsonObject, incoming: JsonObject, conflicts:
       conflicts.push(at)
   }
   return result
+}
+
+export function appendHookEntry(hooks: JsonObject, event: string, entry: JsonObject): boolean {
+  const created = !(event in hooks)
+  hooks[event] = [...(Array.isArray(hooks[event]) ? hooks[event] : []), entry]
+  return created
+}
+
+function hookCommands(element: unknown): string[] {
+  if (!isJsonObject(element) || !Array.isArray(element.hooks))
+    return []
+  return element.hooks.flatMap(hook => isJsonObject(hook) && typeof hook.command === 'string' ? [hook.command] : [])
+}
+
+function parsedOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown
+  }
+  catch {
+    return null
+  }
+}
+
+export function mergeHookSettings(existing: string, incoming: string): string | null {
+  const settings = parsedOrNull(existing)
+  const produced = parsedOrNull(incoming)
+  if (!isJsonObject(settings) || !isJsonObject(produced) || !isJsonObject(produced.hooks))
+    return null
+  if ('hooks' in settings && !isJsonObject(settings.hooks))
+    return null
+  const hooks: JsonObject = isJsonObject(settings.hooks) ? structuredClone(settings.hooks) : {}
+  const events = Object.entries(produced.hooks)
+  if (events.some(([event, entries]) => !Array.isArray(entries) || (event in hooks && !Array.isArray(hooks[event]))))
+    return null
+  for (const [event, entries] of events) {
+    for (const entry of entries as unknown[]) {
+      const present = new Set((Array.isArray(hooks[event]) ? hooks[event] : []).flatMap(hookCommands))
+      if (isJsonObject(entry) && !hookCommands(entry).every(command => present.has(command)))
+        appendHookEntry(hooks, event, entry)
+    }
+  }
+  return `${JSON.stringify({ ...settings, hooks }, null, 2)}\n`
+}
+
+export function carriesHookSettings(existing: string, incoming: string): boolean {
+  const merged = mergeHookSettings(existing, incoming)
+  return merged !== null && isDeepStrictEqual(JSON.parse(merged), JSON.parse(existing))
 }
 
 const GITIGNORE_SYNTAX = new Set(['.gitignore', 'exclude'])

@@ -207,6 +207,7 @@ describe('what sync plans to write', () => {
     'create': 'architecture/principles.md',
     'merge-json': 'package.json',
     'append-block': 'AGENTS.md',
+    'merge-hooks': '.claude/settings.json',
   }
 
   function blockDocument(body: string): string {
@@ -222,7 +223,7 @@ describe('what sync plans to write', () => {
         const plan = planWrites({ classifications: [classification], present, produced })
 
         const pending = ['add', 'update', 'template-moved-on'].includes(value)
-        const writable = pending && strategy !== 'merge-json'
+        const writable = pending && strategy !== 'merge-json' && (strategy !== 'merge-hooks' || value === 'add')
         expect(isWritable(classification), `${value} ${strategy}`).toBe(writable)
         expect(plan.writes.map(write => write.target), `${value} ${strategy}`).toEqual(writable ? [target] : [])
         expect(plan.refused.map(entry => entry.target), `${value} ${strategy}`).toEqual(writable || !pending ? [] : [target])
