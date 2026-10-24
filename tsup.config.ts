@@ -10,6 +10,7 @@ const FACTORY_SCRIPT = new RegExp(`^node --import tsx (scripts/(?:${FACTORY_DIRE
 const STATIC_IMPORT = /^(?:import|export) (?!type )(?:(?:\{[^}]*\}|\* as \w+|\*|\w+(?:, \{[^}]*\})?) from )?['"](\.{1,2}\/[^'"]+)['"]/gm
 const DYNAMIC_IMPORT = /\bimport\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g
 const NAMED_SCRIPT = /(?<![\w./-])((?:scripts|src)\/[\w./-]+\.ts)\b/g
+const NAMED_FILE = /['"]((?:scripts|src)\/[\w./-]+\.\w+)['"]/g
 const BESIDE_THE_MODULE = /path\.(?:join|resolve)\(import\.meta\.dirname((?:,\s*'[^']*')*)\)/g
 const ROOT_CONSTANT = /const (\w+) = path\.(?:join|resolve)\(import\.meta\.dirname((?:,\s*'[^']*')*)\)/g
 const SEGMENT = /'([^']*)'/g
@@ -44,6 +45,10 @@ export function scriptsNamedBy(text: string): string[] {
   return [...text.matchAll(NAMED_SCRIPT)].map(([, named]) => named!).filter(named => !named.startsWith(TEST_SOURCES))
 }
 
+export function assetsNamedBy(text: string): string[] {
+  return [...text.matchAll(NAMED_FILE)].map(([, named]) => named!).filter(named => !named.endsWith(TYPESCRIPT) && !named.startsWith(TEST_SOURCES))
+}
+
 export function locatedBy(source: string, text: string): string[] {
   const here = path.dirname(source)
   const roots = [...text.matchAll(ROOT_CONSTANT)].map(([, name, segments]) => [name!, path.join(here, ...segmentsOf(segments!))] as const)
@@ -62,7 +67,7 @@ function reach(entries: readonly string[]): { sources: string[], assets: string[
       continue
     sources.add(next)
     const text = readFileSync(next, 'utf8')
-    const located = locatedBy(next, text).filter(file => existsSync(file))
+    const located = [...locatedBy(next, text), ...assetsNamedBy(text)].filter(file => existsSync(file))
     pending.push(...importsOf(next, text), ...scriptsNamedBy(text).filter(file => existsSync(file)), ...located.filter(file => file.endsWith(TYPESCRIPT)))
     for (const asset of located.filter(file => !file.endsWith(TYPESCRIPT)))
       assets.add(asset)

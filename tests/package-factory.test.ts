@@ -10,7 +10,7 @@ import { USAGE as MIKO_WATCH_USAGE } from '../scripts/miko/watch.js'
 import { ownerChannelOf, UNUSED_WORD } from '../scripts/owner/channel.js'
 import { USAGE as OWNER_SAY_USAGE, PREFIX } from '../scripts/owner/say.js'
 import { USAGE as SHARD_USAGE } from '../scripts/shift/shard.js'
-import { copyFactoryAssets, FACTORY_DIRECTORIES, factoryAssets, factoryBuild, factoryEntries, factoryGraph, importsOf, locatedBy, OUT_DIR, productBuild, scriptsNamedBy } from '../tsup.config.js'
+import { assetsNamedBy, copyFactoryAssets, FACTORY_DIRECTORIES, factoryAssets, factoryBuild, factoryEntries, factoryGraph, importsOf, locatedBy, OUT_DIR, productBuild, scriptsNamedBy } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const PACKAGE_NAME = 'mikoshi-construct'
@@ -51,6 +51,7 @@ const READ_BESIDE_THE_MODULE: Record<string, string> = {
   'scripts/ci/sandbox-trace-child.mjs': 'scripts/ci/sandbox-trace.ts',
   'scripts/ci/sandbox-failing.jsonl': 'scripts/ci/sandbox-failing.ts',
   'contract/contours': 'scripts/contract/contours.ts',
+  'scripts/core/layer-map.json': 'scripts/core/layer-map.ts',
 }
 
 interface Packed {
@@ -115,6 +116,11 @@ describe('what the factory build reaches from its entries', () => {
 
   it('follows a script the code names to spawn, and never a test source', () => {
     expect(scriptsNamedBy('const CLI = \'scripts/shift/brief-finish-cli.ts\'\nconst T = \'scripts/tests/bus/x.test.ts\'\nconst run = `pnpm exec node --import tsx scripts/ci/prepush.ts, which runs`')).toEqual(['scripts/shift/brief-finish-cli.ts', 'scripts/ci/prepush.ts'])
+  })
+
+  it('takes a quoted repository path to a file that is not a script as an asset, and never a test source', () => {
+    const text = 'export const LAYER_MAP = \'scripts/core/layer-map.json\'\nconst CLI = \'scripts/shift/brief-finish-cli.ts\'\nconst F = "scripts/tests/fixtures/x.json"\n'
+    expect(assetsNamedBy(text)).toEqual(['scripts/core/layer-map.json'])
   })
 
   it('locates a file read beside the module, directly or through a root constant, and drops the root itself and installed dependencies', () => {
