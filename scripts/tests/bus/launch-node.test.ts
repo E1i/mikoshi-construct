@@ -1333,6 +1333,11 @@ describe('where a launched session works', () => {
     expect(path.relative('/home/x/.construct/shift', launchDir)).toBe('launch')
     expect(launchDir.startsWith(path.join('/home/x', '.construct', 'bus'))).toBe(false)
   })
+
+  it('a factory beside a repository keeps its launch reports and logs in its own home, where detach removes them', () => {
+    const { launchDir } = launchPlaces('/home/x', '/repo', '/home/x/.construct/o--r/bus.db')
+    expect(launchDir).toBe(path.join('/home/x', '.construct', 'o--r', 'bus', 'launch'))
+  })
 })
 
 describe('what a launched session left behind', () => {

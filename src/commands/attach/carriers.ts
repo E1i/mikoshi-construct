@@ -65,8 +65,8 @@ export function browserEntriesHeldAtAttach(root: string): string[] {
 
 const ATTACH_GROUPS: string[] = [...ATTACH_CARRIERS.groups, ATTACH_GUARD.group]
 
-export function planCarriers(root: string, harness: AttachHarness): FileOp[] {
-  const targets = ATTACH_WRITES
+export function planCarriers(root: string, harness: AttachHarness, carriedByItsConstruct: readonly string[] = []): FileOp[] {
+  const targets = ATTACH_WRITES.filter(target => !carriedByItsConstruct.includes(target))
   const plan = planMaterialize(root, ATTACH_GROUPS, carrierVars(root, harness), { emptyTarget: false, ai: 'claude' })
   const ops = targets.flatMap(target => plan.ops.filter(op => op.target === target))
   const missing = targets.filter(target => !ops.some(op => op.target === target))
