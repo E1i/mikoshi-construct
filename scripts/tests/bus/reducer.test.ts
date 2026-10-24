@@ -589,6 +589,27 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 
+  it('a dropped card closes its open owner waits, the card.waiting kind included', () => {
+    const ts = '2026-10-09T12:00:00.000Z'
+    const db = busWith(admitted(1262))
+    const question = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1262, request: 7 })
+    appendEvent(db, event('card.dropped', { actor: 'owner', cardId: 1262, payload: { replaced_by: 1263 } }))
+    appendEvent(db, downgradeOf(1262))
+    reduce(db)
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([
+      [question, 'closed', 'card #1262 dropped'],
+      [expect.stringMatching(/^W\d+$/), 'closed', 'card #1262 dropped'],
+    ])
+    db.close()
+  })
+
+  it('a closed card closes a witness-downgrade wait that arrives after it', () => {
+    const db = busWith(admitted(1274), started(1274), opened(1274, 903), observed(903, 1274), closed(903, true), event('card.closed', { actor: 'owner', cardId: 1274, pr: 903 }), downgradeOf(1274))
+    reduce(db)
+    expect(waits(db).map(wait => [wait.card_id, wait.state, wait.answer])).toEqual([[1274, 'closed', 'card #1274 closed']])
+    db.close()
+  })
+
   it('a merged card closes its witness-downgrade wait', () => {
     const db = busWith(admitted(1216), started(1216), opened(1216, 900), observed(900, 1216), downgradeOf(1216))
     reduce(db)
