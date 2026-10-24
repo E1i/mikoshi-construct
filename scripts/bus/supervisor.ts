@@ -11,7 +11,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus } from '../core/bus-path.js'
-import { PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
+import { CARD_CONTINUED, CARD_STARTED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
 import { RUNNING_CARD } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
@@ -692,6 +692,20 @@ export function judgeSilent(beats: readonly ProcessBeat[], nowMs: number, expect
   return beats.filter(beat => expected(beat.process) && !beatsLive(beat.ts, nowMs) && nowMs - Date.parse(beat.ts) <= JUDGED_HORIZON_MS).map(beat => ({ process: beat.process, lastBeat: beat.ts, silentMs: nowMs - Date.parse(beat.ts) }))
 }
 
+const CARD_LIFE_STARTS = `
+  SELECT '${CARD_PROCESS}' || card_id AS name, max(ts) AS ts FROM events
+  WHERE type IN ('${CARD_STARTED}', '${CARD_CONTINUED}') AND legacy = 0 AND card_id IS NOT NULL
+  GROUP BY card_id
+`
+
+export function currentLifeBeats(db: DatabaseSync, beats: readonly ProcessBeat[]): ProcessBeat[] {
+  const lifeStarts = new Map((db.prepare(CARD_LIFE_STARTS).all() as { name: string, ts: string }[]).map(row => [row.name, row.ts]))
+  return beats.map((beat) => {
+    const lifeStart = lifeStarts.get(beat.process)
+    return lifeStart !== undefined && lifeStart > beat.ts ? { process: beat.process, ts: lifeStart } : beat
+  })
+}
+
 export function recordJudged(db: DatabaseSync, ts: string, judgement: Judgement, limitMs = SILENT_MS): boolean {
   return appendEvent(db, { ts, type: PROCESS_JUDGED, actor: JUDGE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_JUDGED}:${judgement.process}:${judgement.lastBeat}`, payload: { process: judgement.process, verdict: 'silent', last_beat: judgement.lastBeat, silent_ms: judgement.silentMs, limit_ms: limitMs }, legacy: false })
 }
@@ -731,7 +745,7 @@ export class LivenessJudge {
         this.lastBeat = nowMs
       }
       const lines: string[] = []
-      const silent = judgeSilent(lastProcessBeats(this.db), nowMs, this.expected())
+      const silent = judgeSilent(currentLifeBeats(this.db, lastProcessBeats(this.db)), nowMs, this.expected())
       for (const name of this.restartedAt.keys()) {
         if (!silent.some(judgement => judgement.process === name))
           this.restartedAt.delete(name)

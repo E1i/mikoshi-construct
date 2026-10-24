@@ -269,6 +269,19 @@ function diffAgainstBase(card: CardSession): string | null {
   }
 }
 
+export type TreeMerge = { kind: 'none' } | { kind: 'mid-merge', files: string[] } | { kind: 'unreadable', why: string }
+
+export function treeMergeOf(card: CardSession): TreeMerge {
+  try {
+    const mergeHead = path.resolve(card.worktree, git(card.worktree, ['rev-parse', '--git-path', 'MERGE_HEAD']).trim())
+    const unmerged = git(card.worktree, ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(file => file !== '')
+    return existsSync(mergeHead) || unmerged.length > 0 ? { kind: 'mid-merge', files: unmerged } : { kind: 'none' }
+  }
+  catch (error) {
+    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
+  }
+}
+
 function contextWarnOfEddies(): number | null {
   const warn = realExitReadings({}, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
   return warn === UNKNOWN ? null : warn

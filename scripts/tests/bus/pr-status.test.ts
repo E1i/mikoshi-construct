@@ -280,6 +280,24 @@ describe('the PR status check the bus sets', () => {
     expect(again.calls).toEqual([])
   })
 
+  it('a short lock on the bus does not break the status step', () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-pr-status-')), 'bus.db')
+    const db = openBus(file)
+    expect(setStepStatuses(db, recorder().post, () => NOW)).toEqual([])
+    const worker = openBus(file)
+    pullRequest(db, HEAD, 'open')
+    step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
+    step(db, 'merge.done', HEAD, { commit: 'd'.repeat(40), rule: 'auto' }, 'worker:merge:s3')
+    const writingMeanwhile: GitHubPost = (endpoint, fields) => {
+      step(worker, 'test.meanwhile', null, { endpoint, fields })
+      return { status: 201, headers: {}, body: null }
+    }
+    expect(setStepStatuses(db, writingMeanwhile, () => NOW).map(status => status.step)).toEqual(['review', 'merged'])
+    expect(count(db, PR_STATUS_SET)).toBe(2)
+    worker.close()
+    db.close()
+  })
+
   it('a status GitHub refuses for now, a 5xx, is not recorded, so the cursor stays and the next run posts it again', () => {
     const db = bus()
     pullRequest(db, HEAD, 'open')
