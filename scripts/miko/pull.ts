@@ -27,7 +27,7 @@ export function runMikoPull(deps: MikoPullDeps): number {
   const blocked = sandboxUnwritable(incoming)
   if (blocked.length > 0) {
     const tree = deps.git(['rev-parse', '--show-toplevel']).trim()
-    deps.err(`${PREFIX}${blocked.length} incoming path(s) under ${SANDBOX_UNWRITABLE_PREFIX} the window's sandbox cannot write, nothing pulled; the owner pulls the main tree: ${ownerPullCommand(tree)}`)
+    deps.err(`${PREFIX}${blocked.length} incoming path(s) under ${SANDBOX_UNWRITABLE_PREFIX} the window's sandbox cannot write (${blocked.join(', ')}), nothing pulled; the owner pulls the main tree: ${ownerPullCommand(tree)}`)
     return 1
   }
   deps.out(deps.git(['pull', '--ff-only']).trimEnd())
