@@ -1,5 +1,5 @@
 import type { Meter } from './meter.js'
-import { REQUIRED_CHECK } from '../core/gh.js'
+import { REQUIRED_CHECK, SECRET_SCAN_CHECK } from '../core/gh.js'
 import { REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from './identifiers.js'
 
@@ -96,7 +96,14 @@ function ciOfRuns(runs: CheckRun[]): CiReading {
   const required = runs.find(run => run.name === REQUIRED_CHECK)
   if (required === undefined || required.status !== 'completed')
     return 'pending'
-  return required.conclusion === 'success' ? 'green' : 'red'
+  if (required.conclusion !== 'success')
+    return 'red'
+  const secretScan = runs.find(run => run.name === SECRET_SCAN_CHECK)
+  if (secretScan === undefined)
+    return 'green'
+  if (secretScan.status !== 'completed')
+    return 'pending'
+  return FAILED_CONCLUSIONS.has(secretScan.conclusion ?? '') ? 'red' : 'green'
 }
 
 function failedChecksOf(runs: CheckRun[]): string[] {
