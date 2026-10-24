@@ -10,7 +10,7 @@ import { originalCopyPath } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE } from './record.js'
 import { carriesGuardEntry, readSettings, SETTINGS_FILE, settingsExist } from './settings.js'
 
-export type AttachRefusalReason = 'no-git' | 'linked-git' | 'constructed' | 'attached' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'settings-original' | 'original-pending' | 'cursor' | 'not-a-command'
+export type AttachRefusalReason = 'no-git' | 'linked-git' | 'attached' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'settings-original' | 'original-pending' | 'cursor' | 'not-a-command'
 
 export interface AttachRefusal {
   reason: AttachRefusalReason
@@ -60,14 +60,12 @@ function originalPendingRefusal(root: string): AttachRefusal | null {
   return refusal('original-pending', [copy])
 }
 
-export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | null {
+export function refusalFor(root: string, flags: AttachFlags, carriedByItsConstruct: readonly string[] = []): AttachRefusal | null {
   const git = path.join(root, '.git')
   if (!existsSync(git))
     return refusal('no-git')
   if (!statSync(git).isDirectory())
     return refusal('linked-git')
-  if (existsSync(path.join(root, 'construct.json')))
-    return refusal('constructed')
   if (existsSync(path.join(root, ATTACH_RECORD_FILE)))
     return refusal('attached')
   const pending = originalPendingRefusal(root)
@@ -75,7 +73,7 @@ export function refusalFor(root: string, flags: AttachFlags): AttachRefusal | nu
     return pending
   if (isEmptyDir(root, [ATTACH_LEDGER_DIR]))
     return refusal('nothing-to-attach')
-  const colliding = ATTACH_WRITES.filter(target => existsSync(path.join(root, target)))
+  const colliding = ATTACH_WRITES.filter(target => !carriedByItsConstruct.includes(target) && existsSync(path.join(root, target)))
   if (colliding.length > 0)
     return { ...refusal('collision', colliding), collision: collisionReading(root, colliding, flags) }
   const settings = settingsRefusal(root)
