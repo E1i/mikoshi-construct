@@ -23,7 +23,6 @@ import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { busDirOf, machineBusPath } from '../core/bus-path.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
-import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { commandWords, realIsolationReader } from '../ports/isolation.js'
@@ -56,6 +55,7 @@ import { busCardBodies } from './parking-reads.js'
 import { promptsDirOf, storedInput } from './prompt-store.js'
 import { COMPLETED, generationField, launchTasks, LEASED, TASK_FOLDS } from './queue.js'
 import { transcriptFile } from './session-journal.js'
+import { cardDecisionCommand } from './shards.js'
 import { openDatabase } from './sqlite.js'
 import { stampLogOutput } from './stamp.js'
 import { storedByKey } from './stored.js'
@@ -219,10 +219,6 @@ const QUESTION_TEXT = /^question:[ \t]*(\S.*)$/gm
 
 function reportQuestions(report: string | null): string[] {
   return report === null ? [] : [...report.matchAll(QUESTION_TEXT)].map(found => found[1].trim())
-}
-
-export function cardDecisionCommand(cardId: number): string {
-  return `pnpm decisions:add --card #${cardId} "${OWNER_SOURCE} <decision>"`
 }
 
 const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`

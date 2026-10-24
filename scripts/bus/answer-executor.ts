@@ -10,7 +10,6 @@ import { withinTouches } from '../../src/card/covering-tests.js'
 import { createdPaths } from '../../src/card/parking.js'
 import { riskOf } from '../../src/card/risk.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED } from '../core/events.js'
-import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { matchGlob } from '../shredder/glob.js'
 import { admittedScopeOf, answerSourceOf } from './answer-source.js'
 import { CardTreeGone, treeMergeOf } from './answerer.js'
@@ -20,7 +19,7 @@ import { messageOf } from './errors.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
 import { sha256, storedInput } from './prompt-store.js'
-import { activeDecisionsShard, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from './shards.js'
+import { activeDecisionsShard, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { ownerGlobs } from './widening.js'
 
@@ -74,10 +73,6 @@ const MS_PER_MINUTE = 60_000
 
 function minutesSince(start: number, end: number): number {
   return Math.round((end - start) / MS_PER_MINUTE * 10) / 10
-}
-
-function ownerAnswerOf(cardId: number): string {
-  return `pnpm decisions:add --card #${cardId} "${OWNER_SOURCE} <decision>"`
 }
 
 function cardBodyOf(input: AnswerInput | undefined): { card_body_sha: string } | Record<string, never> {
@@ -238,7 +233,7 @@ export class AnswerExecutor {
   }
 
   private ownersStop(lease: Lease, detail: string, scope: BusEvent[] = []): AnswerOutcome {
-    const ask = { need: 'decision' as const, text: `card #${lease.cardId} asks: ${detail}`, command: ownerAnswerOf(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
+    const ask = { need: 'decision' as const, text: `card #${lease.cardId} asks: ${detail}`, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
     return this.stopped(lease, QUESTION_OWNER, detail, {}, scope, db => openBusWait(db, this.ts(), lease.actor, ask))
   }
 

@@ -23,6 +23,7 @@ import { inboxText, ownerInbox } from '../../bus/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, queueTask } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
+import { cardDecisionCommand } from '../../bus/shards.js'
 import { Rejection } from '../../bus/stored.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_REQUEUED } from '../../core/events.js'
 import { sha } from './github-fake.js'
@@ -296,6 +297,7 @@ describe('the answer queue', () => {
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining('scripts/construct/implement.workflow is an owner path') })
     expect(bench.tools.runs).toHaveLength(0)
     expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([914])
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED).at(-1)).toEqual({ id: 'Q2', need: 'decision', text: 'card #914 asks: scripts/construct/implement.workflow is an owner path: the ladder must know the answer queue', command: cardDecisionCommand(914), card: 914 })
     bench.close()
   })
 

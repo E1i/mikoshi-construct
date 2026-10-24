@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { InForceDecision } from './decisions.js'
 import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from '../core/events.js'
-import { lapsed, termOf } from '../decisions/decisions.js'
+import { lapsed, OWNER_SOURCE, termOf } from '../decisions/decisions.js'
 import { inForceDecisions } from './decisions.js'
 
 export const WINDOW_SHARD_HOURS = 6
@@ -62,6 +62,10 @@ export function activeDecisionsShard(db: DatabaseSync, now: Date): WindowShard |
 
 export function ownersUnderAnyShard(question: string): string | null {
   return Object.entries(OWNERS_UNDER_ANY_SHARD).find(([, words]) => words.test(question))?.[0] ?? null
+}
+
+export function cardDecisionCommand(cardId: number): string {
+  return `pnpm decisions:add --card #${cardId} "${OWNER_SOURCE} <decision>"`
 }
 
 export function windowShardEnded(type: typeof SHARD_REVOKED | typeof SHARD_EXPIRED, actor: string, id: string, now: Date): BusEvent {
