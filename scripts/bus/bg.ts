@@ -87,35 +87,48 @@ function psLines(args: string[], env: NodeJS.ProcessEnv): RunningProcess[] {
     })
 }
 
-function busesFromPs(env: NodeJS.ProcessEnv): Map<number, string> {
-  return new Map(psLines(['-axEo', 'pid=,args='], env).flatMap(({ pid, args }) => {
-    const bus = [...args.matchAll(BUS_IN_ENVIRONMENT)].at(-1)?.[1]
-    return bus === undefined ? [] : [[pid, bus] as const]
+export function busInPsEnvironment(line: string): string | undefined {
+  return [...line.matchAll(BUS_IN_ENVIRONMENT)].at(-1)?.[1]
+}
+
+export function busInEnviron(blob: string): string | undefined {
+  return blob.split('\0').find(entry => entry.startsWith(BUS_ASSIGNMENT))?.slice(BUS_ASSIGNMENT.length)
+}
+
+export type BusReader = (processes: RunningProcess[]) => ReadonlyMap<number, string>
+
+function busesOf(read: (candidate: RunningProcess) => string | undefined): BusReader {
+  return processes => new Map(processes.flatMap((candidate) => {
+    const bus = read(candidate)
+    return bus === undefined ? [] : [[candidate.pid, bus] as const]
   }))
 }
 
-function busesFromProc(processes: RunningProcess[]): Map<number, string> {
-  return new Map(processes.flatMap(({ pid }) => {
-    try {
-      const bus = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').find(entry => entry.startsWith(BUS_ASSIGNMENT))?.slice(BUS_ASSIGNMENT.length)
-      return bus === undefined ? [] : [[pid, bus] as const]
-    }
-    catch {
-      return []
-    }
-  }))
+function environOf(pid: number): string {
+  try {
+    return readFileSync(`/proc/${pid}/environ`, 'utf8')
+  }
+  catch {
+    return ''
+  }
 }
 
-export function withBuses<T extends RunningProcess>(processes: T[], env: NodeJS.ProcessEnv = process.env): T[] {
-  const buses = process.platform === 'linux' ? busesFromProc(processes) : busesFromPs(env)
+export function processBuses(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): BusReader {
+  if (platform === 'linux')
+    return busesOf(({ pid }) => busInEnviron(environOf(pid)))
+  return () => busesOf(({ args }) => busInPsEnvironment(args))(psLines(['-axEo', 'pid=,args='], env))
+}
+
+export function withBuses<T extends RunningProcess>(processes: T[], buses: BusReader = processBuses()): T[] {
+  const read = buses(processes)
   return processes.map((candidate) => {
-    const bus = buses.get(candidate.pid)
+    const bus = read.get(candidate.pid)
     return bus === undefined ? candidate : { ...candidate, bus }
   })
 }
 
 export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
-  return () => withBuses(psLines(['-axo', 'pid=,args='], env), env)
+  return () => withBuses(psLines(['-axo', 'pid=,args='], env), processBuses(env))
 }
 
 export function thisBus(env: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -124,7 +137,7 @@ export function thisBus(env: NodeJS.ProcessEnv = process.env): string | undefine
 }
 
 export function servesBus(candidate: RunningProcess, bus: string | undefined): boolean {
-  return bus === undefined || candidate.bus === undefined || path.resolve(candidate.bus) === path.resolve(bus)
+  return bus === undefined || candidate.bus === undefined || !path.isAbsolute(candidate.bus) || path.resolve(candidate.bus) === path.resolve(bus)
 }
 
 export function instancesOf(processes: RunningProcess[], markers: readonly string[], bus: string | undefined = thisBus()): RunningProcess[] {
