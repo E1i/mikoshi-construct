@@ -29,6 +29,9 @@ const SHRUNK_TEST = 'scripts/tests/shift/x.test.ts'
 const CARD_TAIL = '· depends — · blocks —'
 const OPENED = `Opened by the shift from the card's worktree and branch after its session ended.`
 
+const ASSERTION_REMOVED = `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -9 +8,0 @@\n-    expect(code).toBe(0)\n`
+const SHRUNK_BY_DEFAULT = `Path: cheap · MORSE predicts ladder by rule tests-shrunk (${SHRUNK_TEST}) · cheap holds as the default path of D-224`
+
 const PATH_LINES: Record<string, { diff: ShiftedDiff, cardBody?: string, line: string }> = {
   'tests shrunk on a cheap card with no assertion removed': {
     diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 4, deletions: 1 }, { path: 'scripts/shift/x.ts', additions: 2, deletions: 0 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -3 +3,4 @@\n-import { a } from './a.js'\n+import { a, b } from './a.js'\n` },
@@ -47,6 +50,22 @@ const PATH_LINES: Record<string, { diff: ShiftedDiff, cardBody?: string, line: s
     cardBody: 'Do x.\nPath (D-76): cheap, one guard line the witness covers',
     line: `Path: cheap · MORSE predicts ladder by rule doubt (no test beside: scripts/shift/x.ts) · cheap holds by the card's D-76 reason: cheap, one guard line the witness covers`,
   },
+  'scripts on a cheap card that names no D-76 reason': {
+    diff: { contour: 'cheap', files: [{ path: 'scripts/shift/x.ts', additions: 1, deletions: 0 }], patch: '' },
+    line: `Path: cheap · MORSE predicts ladder by rule doubt (no test beside: scripts/shift/x.ts) · cheap holds as the default path of D-224`,
+  },
+  'tests shrunk on a cheap card with an assertion removed': {
+    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: ASSERTION_REMOVED },
+    line: SHRUNK_BY_DEFAULT,
+  },
+  'tests shrunk on a cheap card by a removed expectation-table row': {
+    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -20 +19,0 @@\n-  'src on a cheap card': { diff: d, line: 'x' },\n` },
+    line: SHRUNK_BY_DEFAULT,
+  },
+  'tests shrunk on a cheap card by a skipped test': {
+    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 1, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -30 +30 @@\n-  it('x', () => {\n+  it.skip('x', () => {\n` },
+    line: SHRUNK_BY_DEFAULT,
+  },
   'docs only on a cheap card': {
     diff: { contour: 'cheap', files: [{ path: 'docs/x.md', additions: 1, deletions: 0 }], patch: '' },
     line: `Path: cheap · MORSE predicts cheap by rule docs-only (docs/x.md) · the card's contour and MORSE agree`,
@@ -58,9 +77,7 @@ const PATH_LINES: Record<string, { diff: ShiftedDiff, cardBody?: string, line: s
 }
 
 const MATRIX_GAP = (file: string): string => `the code matrix count line ■ n □ n · n its change to ${file} requires (architecture/code-matrix.md)`
-const D76_GAP = 'the D-76 reason the card holds the cheap path where MORSE predicts the ladder'
 const CHANGESET_GAP = (file: string): string => `the changeset its change to the published ${file} requires`
-const ASSERTION_REMOVED = `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -9 +8,0 @@\n-    expect(code).toBe(0)\n`
 
 const FORMAT_GAPS: Record<string, { diff: ShiftedDiff, gaps: string[] }> = {
   'src on a ladder card without a changeset': {
@@ -81,19 +98,7 @@ const FORMAT_GAPS: Record<string, { diff: ShiftedDiff, gaps: string[] }> = {
   },
   'src on a cheap card': {
     diff: { contour: 'cheap', files: [{ path: 'src/x.ts', additions: 1, deletions: 0 }], patch: '' },
-    gaps: [MATRIX_GAP('src/x.ts'), D76_GAP, CHANGESET_GAP('src/x.ts')],
-  },
-  'tests shrunk on a cheap card with an assertion removed': {
-    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: ASSERTION_REMOVED },
-    gaps: [D76_GAP],
-  },
-  'tests shrunk on a cheap card by a removed expectation-table row': {
-    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 0, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -20 +19,0 @@\n-  'src on a cheap card': { diff: d, line: 'x' },\n` },
-    gaps: [D76_GAP],
-  },
-  'tests shrunk on a cheap card by a skipped test': {
-    diff: { contour: 'cheap', files: [{ path: SHRUNK_TEST, additions: 1, deletions: 1 }], patch: `--- a/${SHRUNK_TEST}\n+++ b/${SHRUNK_TEST}\n@@ -30 +30 @@\n-  it('x', () => {\n+  it.skip('x', () => {\n` },
-    gaps: [D76_GAP],
+    gaps: [MATRIX_GAP('src/x.ts'), CHANGESET_GAP('src/x.ts')],
   },
 }
 
@@ -287,7 +292,7 @@ describe('tree-pr for a finished card session', () => {
     expect(observed).toEqual(Object.fromEntries(Object.entries(PATH_LINES).map(([name, { line }]) => [name, { code: 0, lines: [`${PREFIX}card #951: PR #901`], bodies: [`<card>\n\n${line}\n\n${OPENED}`] }])))
   })
 
-  it('tree-pr returns to its session a body without the matrix count line, the D-76 path reason or the changeset its change requires', () => {
+  it('tree-pr returns to its session a body without the matrix count line or the changeset its change requires', () => {
     const observed = Object.fromEntries(Object.entries(FORMAT_GAPS).map(([name, { diff }]) => {
       const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
       roots.push(root)

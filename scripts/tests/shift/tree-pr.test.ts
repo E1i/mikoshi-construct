@@ -405,7 +405,6 @@ function diffGit(state: DiffState): TreePrPorts['git'] {
 
 const SCRIPT = 'scripts/shift/x.ts'
 const TOUCHES = [SCRIPT, 'src/x.ts', 'src/y.ts', '.changeset/**']
-const D76_LINE = 'Path (D-76): cheap, one guard line the witness covers\n'
 const MATRIX_LINE = '■ 3 □ 1 · 6\n'
 
 function reportIn(prompt: string): string {
@@ -422,15 +421,10 @@ describe('a refusal the session can fix returns the card to it once', () => {
     return { code, bus, events: refusalsOf(bus.busPath, 951) }
   }
 
-  it('no D-76 line: the card returns to its session, the pull request opens after the fix, no fault', () => {
-    const prompts: string[] = []
-    const { code, events } = settled('cheap', { files: [{ path: SCRIPT }] }, (_cardId, _worktree, prompt) => {
-      prompts.push(prompt)
-      writeFileSync(reportIn(prompt), D76_LINE)
-      return true
-    })
+  it('a cheap card without a D-76 line gets no no-d76-line gap', () => {
+    const { code, events } = settled('cheap', { files: [{ path: SCRIPT }] }, untouchable)
 
-    expect({ code, events, prompts: prompts.map(prompt => prompt.includes('write a line `Path (D-76): <why the cheap path holds>` into the shift report')) }).toEqual({ code: 0, events: [RETURNED('a:no-d76-line'), PR], prompts: [true] })
+    expect({ code, events }).toEqual({ code: 0, events: [PR] })
   })
 
   it('a test outside touches is a wait for the window and the session leaves touches unchanged', () => {
@@ -461,26 +455,25 @@ describe('a refusal the session can fix returns the card to it once', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-return-'))
     roots.push(root)
     const bus = launchedBus(root, [951, 952])
-    const ports = busPorts(bus, cardText('cheap', TOUCHES))
-    const code = runTreePr(['951', root], { ...ports, git: diffGit({ files: [{ path: SCRIPT }] }), gh: openingGh(), resume: () => {
+    const ports = busPorts(bus, cardText('ladder', TOUCHES))
+    const code = runTreePr(['951', root], { ...ports, git: diffGit({ files: [{ path: 'src/x.ts' }] }), gh: openingGh(), resume: () => {
       returns += 1
       ports.stopped(952, 'gh pr create printed no pull request URL', 'c:no-pr-url')
       return true
     } }, () => {})
 
-    expect({ code, events: refusalsOf(bus.busPath, 951), other: refusalsOf(bus.busPath, 952), returns }).toEqual({ code: 1, events: [RETURNED('a:no-d76-line'), WAITED('a:no-d76-line')], other: [{ type: CARD_STOPPED, reason: 'fault', code: 'c:no-pr-url' }], returns: 1 })
+    expect({ code, events: refusalsOf(bus.busPath, 951), other: refusalsOf(bus.busPath, 952), returns }).toEqual({ code: 1, events: [RETURNED('a:no-changeset+no-matrix-line'), WAITED('a:no-changeset+no-matrix-line')], other: [{ type: CARD_STOPPED, reason: 'fault', code: 'c:no-pr-url' }], returns: 1 })
   })
 
   it('two different reasons in a row each get their own return', () => {
-    const state: DiffState = { files: [{ path: SCRIPT }] }
+    const state: DiffState = { files: [{ path: '.changeset/x.md', status: 'A' }, { path: 'src/x.ts' }] }
     const fixes = [
       (report: string) => {
-        writeFileSync(report, D76_LINE)
-        state.files = [{ path: SCRIPT }, { path: 'src/x.ts' }]
+        writeFileSync(report, MATRIX_LINE)
+        state.files = [{ path: 'src/x.ts' }]
       },
-      (report: string) => {
-        writeFileSync(report, `${D76_LINE}\n${MATRIX_LINE}`)
-        state.files = [{ path: '.changeset/x.md', status: 'A' }, { path: SCRIPT }, { path: 'src/x.ts' }]
+      () => {
+        state.files = [{ path: '.changeset/x.md', status: 'A' }, { path: 'src/x.ts' }]
       },
     ]
     const { code, events } = settled('cheap', state, (_cardId, _worktree, prompt) => {
@@ -488,7 +481,7 @@ describe('a refusal the session can fix returns the card to it once', () => {
       return true
     })
 
-    expect({ code, events, unused: fixes.length }).toEqual({ code: 0, events: [RETURNED('a:no-d76-line'), RETURNED('a:no-changeset+no-matrix-line'), PR], unused: 0 })
+    expect({ code, events, unused: fixes.length }).toEqual({ code: 0, events: [RETURNED('a:no-matrix-line'), RETURNED('a:no-changeset'), PR], unused: 0 })
   })
 
   it('a class c refusal stops the card as before', () => {

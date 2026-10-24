@@ -343,6 +343,40 @@ describe('reviewer', () => {
     }
   })
 
+  it('a cheap card without a D-76 line gets no D-76 finding', () => {
+    const card = '#1050 x [implement/netwatch/S/cheap/auto] · depends — · blocks —\n\nDo x.'
+    const prompt = reviewPrompt(lease, fullReview('MORSE predicts ladder by rule instructions', { verdict: 'ladder', rule: 'instructions', why: ['.claude/agents/review.md'] }), '/tmp/t', '/tmp/v.json', card)
+
+    expect(prompt).toContain('cheap is the default path (D-224), so a card or pull request that names no D-76 reason is not a finding.')
+    expect(prompt).not.toContain('make a missing reason a finding')
+  })
+
+  it('the review prompt carries the pull request body', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-body-'))
+    try {
+      const body = `#1050 x [implement/netwatch/S/cheap/auto] · depends — · blocks —\n\nPath: cheap · MORSE predicts ladder by rule doubt (x) · cheap holds as the default path of D-224\n`
+      const asked: number[] = []
+      let given = ''
+      const passing = async (params: SpawnSessionParams): Promise<number> => {
+        given = params.prompt
+        writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+        return 0
+      }
+      const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
+
+      await claudeReviewer(trees, passing, () => {}, 50, (pr) => {
+        asked.push(pr)
+        return body
+      })(lease, full, 'the card text')
+
+      expect({ asked, body: given.includes(`<pull-request>\n${body.trimEnd()}\n</pull-request>`), card: given.includes('<card>\nthe card text\n</card>') }).toEqual({ asked: [950], body: true, card: true })
+      expect(reviewPrompt(lease, full, '/tmp/t', '/tmp/v.json')).not.toContain('<pull-request>')
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('the reviewer instruction names no install, symlink or git archive workaround', () => {
     const prompt = reviewPrompt(lease, full, '/tmp/t', '/tmp/v.json')
     const role = readFileSync(path.join(process.cwd(), '.claude', 'agents', 'review.md'), 'utf8')

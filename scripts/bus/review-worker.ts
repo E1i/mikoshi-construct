@@ -12,7 +12,7 @@ import type { QueuedTask } from './queue.js'
 import type { ReadSet } from './report.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { ExecutorParts, Step } from './review-executor.js'
-import type { HeldTree, LeftoverTree, Review, Reviewer, SessionPulse, TreeTools } from './reviewer.js'
+import type { HeldTree, LeftoverTree, PrBodyOf, Review, Reviewer, SessionPulse, TreeTools } from './reviewer.js'
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
@@ -43,7 +43,7 @@ import { promptsDirOf } from './prompt-store.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from './queue.js'
 import { shadowReading } from './report.js'
 import { planned, recordLeftovers, ReviewExecutor } from './review-executor.js'
-import { claudeReviewer, GIT_TREE_TOOLS, PREFIX, ReviewFailed, ReviewTrees } from './reviewer.js'
+import { claudeReviewer, GIT_TREE_TOOLS, PREFIX, REVIEW_BEAT_MS, ReviewFailed, ReviewTrees } from './reviewer.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
 import { openDatabase } from './sqlite.js'
 import { stampLogOutput } from './stamp.js'
@@ -267,6 +267,14 @@ export function sparingLiveLeases(busPath: string, tools: TreeTools = GIT_TREE_T
   }
 }
 
+export function gitHubPrBody(gitHub: GitHub): PrBodyOf {
+  return (pr) => {
+    const response = gitHub(`repos/{owner}/{repo}/pulls/${pr}`)
+    const body = response.status === 200 ? (response.body as { body?: unknown }).body : null
+    return typeof body === 'string' ? body : null
+  }
+}
+
 export function dryRunLease(gitHub: GitHub, pr: number, cardBodyOf: CardBodyOf = NO_CARD_BODY): Lease {
   const response = gitHub(`repos/{owner}/{repo}/pulls/${pr}`)
   if (response.status !== 200)
@@ -414,7 +422,7 @@ async function main(): Promise<number> {
     busPath,
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
-    reviewer: claudeReviewer(trees, spawnSession, busReviewPulse(busPath, () => new Date())),
+    reviewer: claudeReviewer(trees, spawnSession, busReviewPulse(busPath, () => new Date()), REVIEW_BEAT_MS, gitHubPrBody(ghApi(cwd))),
     plan: gitReviewPlanner(cwd, MORSE_JOURNAL, busCardBodies(busPath)),
     session: randomUUID(),
     slots: slotsOf('review', process.env),
