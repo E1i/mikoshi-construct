@@ -1,6 +1,7 @@
 import type { Kind } from '../../card/grammar.js'
 import type { DraftCard, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
+import path from 'node:path'
 import { runsLine } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry } from '../../card/parking.js'
@@ -15,6 +16,15 @@ export const CARD_REFERENCE = /^#(\d+)$/
 const BACKTICKED = /`([^`]+)`/g
 const MOVING_REF = /\borigin\/main\b/
 const TEST_NAME_ARGUMENT = /(?:^|\s)(?:-t|--testNamePattern)(?:=|\s+)(?:'([^']*)'|"((?:[^"\\]|\\.)*)"|(\S+))/g
+const PROSE_STEP = /→|->|\b(?:PR body|by hand|manually)\b/i
+const HOME_REFERENCE = /^~(?:\/|$)|\$\{?HOME\b/
+const ARGUMENT_PREFIX = /^(?:[\w-]+=|\d*[<>]+&?|['"(])+/
+const TRAILING_QUOTES = /['")]+$/
+const DEVICE_ROOT = '/dev/'
+const OUTPUT_REDIRECT = /(?:\d|&)?>>?\s*\S+/g
+const INFORMATION_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help'])
+const CURRENT_DIRECTORY_PREFIX = /^\.\//
+const TREE_READING_COMMANDS = new Set(['pnpm', 'npm', 'npx', 'yarn', 'node', 'git', 'vitest', 'tsx', 'tsc', 'eslint'])
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
 
 const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
@@ -361,17 +371,59 @@ function bashSyntaxUnclear(witness: string): UnclearField[] {
   })
 }
 
+function proseUnclear(witness: string): UnclearField[] {
+  const step = PROSE_STEP.exec(witness.replace(BACKTICKED, ''))?.[0]
+  return step === undefined ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" is written as prose: '${step}' is a step no command runs; a witness is a command and its exit` }]
+}
+
+function argumentsOf(command: string): string[] {
+  const read = command.replace(TEST_NAME_ARGUMENT, ' ').replace(OUTPUT_REDIRECT, ' ')
+  const word = commandWord(read)
+  const words = read.trim().split(/\s+/)
+  return words.filter((_, index) => index !== words.indexOf(word ?? '')).map(token => token.replace(ARGUMENT_PREFIX, '').replace(TRAILING_QUOTES, '')).filter(token => token !== '')
+}
+
+function outsidePath(command: string): string | undefined {
+  const word = commandWord(command)
+  if (word !== undefined && HOME_REFERENCE.test(word))
+    return word
+  return argumentsOf(command).find(token => HOME_REFERENCE.test(token) || (path.isAbsolute(token) && !token.startsWith(DEVICE_ROOT)))
+}
+
+function outsidePathsUnclear(commands: readonly string[], witness: string): UnclearField[] {
+  return commands.flatMap((command) => {
+    const outside = outsidePath(command)
+    return outside === undefined ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" names ${outside}, a path outside the worktree the witness runs in; the tree under test cannot change it, so the witness cannot be red on the base` }]
+  })
+}
+
+function readsTheTree(command: string, repository: RepositoryFacts): boolean {
+  const word = commandWord(command) ?? ''
+  const named = argumentsOf(command)
+  if (TREE_READING_COMMANDS.has(word))
+    return named.length === 0 || named.some(token => !INFORMATION_FLAGS.has(token))
+  const paths = word.includes('/') ? [word, ...named] : named
+  return paths.some(token => !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token) && repository.exists(token.replace(CURRENT_DIRECTORY_PREFIX, '')))
+}
+
+function headIndependentUnclear(commands: readonly string[], witness: string, repository: RepositoryFacts): UnclearField[] {
+  return commands.some(command => readsTheTree(command, repository)) ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" reads nothing the tree under test can change; its result does not depend on the head` }]
+}
+
 function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): UnclearField[] {
   return card.witnesses.flatMap((witness) => {
-    const words = [...witness.matchAll(BACKTICKED)].flatMap(match => commandWord(match[1]!) || [])
+    const commands = [...witness.matchAll(BACKTICKED)].map(match => match[1]!).filter(command => (commandWord(command) ?? '') !== '')
+    const words = commands.map(command => commandWord(command)!)
     if (words.length === 0)
       return [{ field: 'witnesses', reason: `'${witness.trim()}' names no command; a witness is run by a command` }]
+    const unresolved = [...new Set(words)].filter(word => !repository.commandResolves(word))
     return [
-      ...[...new Set(words)]
-        .filter(word => !repository.commandResolves(word))
-        .map(word => ({ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` })),
+      ...unresolved.map(word => ({ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` })),
       ...movingRefsUnclear(witness),
       ...bashSyntaxUnclear(witness),
+      ...proseUnclear(witness),
+      ...outsidePathsUnclear(commands, witness),
+      ...(unresolved.length === 0 ? headIndependentUnclear(commands, witness, repository) : []),
     ]
   })
 }

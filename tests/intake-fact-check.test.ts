@@ -97,7 +97,7 @@ function printed(result: IntakeResult): string {
 }
 
 function draftCard(fields: Partial<DraftCard> = {}): DraftCard {
-  return { name: 'check-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['scripts/a.ts'], task: TASK, witnesses: ['`true` passes'], depends: [], blocks: [], creates: [], unclear: [], ...fields }
+  return { name: 'check-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['scripts/a.ts'], task: TASK, witnesses: ['`test -f scripts/a.ts` passes'], depends: [], blocks: [], creates: [], unclear: [], ...fields }
 }
 
 function facts(overrides: Partial<CheckFacts> = {}): CheckFacts {
@@ -218,7 +218,7 @@ describe('intake fact check', () => {
   })
 
   it('the real intake admits a witness that passes bash -n', () => {
-    const witness = '`echo \'terminated\'` exits 0'
+    const witness = '`test -f \'src/a.ts\'` exits 0'
     const dir = repository(['src/a.ts'])
     const { result, parking } = intake([card({ witnesses: [witness] })], { dir })
     expect(written(result, parking, 2)).not.toContain('unclear:')
@@ -227,15 +227,77 @@ describe('intake fact check', () => {
     expect(readFileSync(parked, 'utf8')).not.toContain('unclear:')
   })
 
+  it('a witness written as prose is refused', () => {
+    const witness = 'empty directory → `pnpm dev init --yes --preset node-backend` → `pnpm install` → `pnpm run quality` is green, output in the PR body'
+    const [checked] = checkDraft([draftCard({ witnesses: [witness, '`pnpm run quality` is green'] })], [2], facts())
+    expect(checked!.unclear.map(entry => entry.reason)).toEqual([`witness "${witness}" is written as prose: '→' is a step no command runs; a witness is a command and its exit`])
+  })
+
+  function outside(witness: string, named: string): string {
+    return `witness "${witness}" names ${named}, a path outside the worktree the witness runs in; the tree under test cannot change it, so the witness cannot be red on the base`
+  }
+
+  function headIndependent(witness: string): string {
+    return `witness "${witness}" reads nothing the tree under test can change; its result does not depend on the head`
+  }
+
+  it('a witness naming a path outside the repository is refused', () => {
+    const witnesses = ['`test -f ~/.construct/probes/report.md` exits 0', '`grep -q done $HOME/notes.md` exits 0', '`grep -q done /etc/hosts` exits 0', '`grep -q done src/a.ts >/dev/null` exits 0']
+    const [checked] = checkDraft([draftCard({ witnesses })], [2], facts({ repository: repositoryFacts({ exists: relative => relative === 'src/a.ts' || relative === 'scripts/a.ts' }) }))
+    expect(checked!.unclear.map(entry => entry.reason)).toEqual([
+      outside(witnesses[0]!, '~/.construct/probes/report.md'),
+      headIndependent(witnesses[0]!),
+      outside(witnesses[1]!, '$HOME/notes.md'),
+      headIndependent(witnesses[1]!),
+      outside(witnesses[2]!, '/etc/hosts'),
+      headIndependent(witnesses[2]!),
+    ])
+  })
+
+  it('an absolute path into the checkout intake reads is refused at intake and at admit alike, since the witness runs in another worktree', () => {
+    const dir = repository(['src/a.ts'])
+    const absolute = path.join(dir, 'src/a.ts')
+    const witness = `\`grep -q done ${absolute}\` exits 0`
+    const reason = `unclear: witnesses — ${outside(witness, absolute)}`
+    const { result, parking } = intake([card({ witnesses: [witness] })], { dir })
+    expect(written(result, parking, 2)).toContain(reason)
+    const { status, parked } = admitParked(dir, 'src/a.ts', witness)
+    expect(status).toBe('admitted')
+    expect(readFileSync(parked, 'utf8')).toContain(reason)
+  })
+
+  it('a test-name pattern or an output redirect target that looks absolute is no path the witness reads', () => {
+    const repo = repositoryFacts({ exists: relative => relative === 'scripts/a.ts' || relative === 'tests/api.test.ts' })
+    const witnesses = ['`pnpm exec vitest run tests/api.test.ts -t \'/api/users\'` exits 0', '`pnpm exec vitest run tests/api.test.ts --testNamePattern=/api/users` exits 0', '`grep -c done tests/api.test.ts > /tmp/out` exits 0', '`grep -c done tests/api.test.ts 2>/tmp/err` exits 0']
+    const [checked] = checkDraft([draftCard({ witnesses })], [2], facts({ repository: repo }))
+    expect(checked!.unclear).toEqual([])
+  })
+
+  it('a witness that does not depend on the head is refused', () => {
+    const repo = repositoryFacts({ exists: relative => ['src/a.ts', 'scripts/a.ts', 'scripts/run.sh'].includes(relative) })
+    const refused = ['`true` exits 0', '`echo done` exits 0', '`node -v` exits 0', '`git --version` exits 0', '`pnpm --version` exits 0']
+    const kept = ['`test -f src/a.ts` exits 0', '`./scripts/run.sh` exits 0', '`pnpm run quality` is green', '`git diff --quiet HEAD` exits 0', '`tsc` exits 0']
+    const [checked] = checkDraft([draftCard({ witnesses: [...refused, ...kept] })], [2], facts({ repository: repo }))
+    expect(checked!.unclear.map(entry => entry.reason)).toEqual(refused.map(headIndependent))
+  })
+
+  it('the real admit refuses a witness that reads a home file', () => {
+    const dir = repository(['src/a.ts'])
+    const witness = '`test -f ~/.construct/probes/report.md` exits 0'
+    const { status, parked } = admitParked(dir, 'src/a.ts', witness)
+    expect(status).toBe('admitted')
+    expect(readFileSync(parked, 'utf8')).toContain(`unclear: witnesses — ${outside(witness, '~/.construct/probes/report.md')}`)
+  })
+
   it('checks every backticked command of a witness and names the second one when it does not resolve', () => {
     const repo = repositoryFacts({ commandResolves: word => word === 'pnpm' })
     const [checked] = checkDraft([draftCard({ witnesses: ['`pnpm run quality` passes, then `nosuchtool --flag` fails'] })], [2], facts({ repository: repo }))
     expect(checked!.unclear.map(entry => entry.reason)).toEqual(['\'nosuchtool\' is not on PATH and is no file of the repository'])
   })
 
-  it('gives a witness running `/usr/bin/env true` no unclear line', () => {
+  it('gives a witness running `/usr/bin/env test` no unclear line', () => {
     const dir = repository(['src/a.ts'])
-    const [checked] = checkDraft([draftCard({ witnesses: ['`/usr/bin/env true` exits 0'] })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
+    const [checked] = checkDraft([draftCard({ witnesses: ['`/usr/bin/env test -f src/a.ts` exits 0'] })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
     expect(checked!.unclear).toEqual([])
   })
 
@@ -445,7 +507,7 @@ describe('directoryFacts walk', () => {
   it('gives a witness naming /usr/bin/env no unclear line and still marks a missing absolute path unclear', () => {
     const dir = repository(['src/a.ts'])
     const missing = path.join(dir, 'no/such/tool')
-    const [checked] = checkDraft([draftCard({ witnesses: ['`/usr/bin/env node -v` passes', `\`${missing} --flag\` fails`] })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
+    const [checked] = checkDraft([draftCard({ witnesses: ['`/usr/bin/env test -f src/a.ts` passes', `\`${missing} --flag\` fails`] })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
     expect(checked!.unclear.map(entry => entry.reason)).toEqual([`'${missing}' is not on PATH and is no file of the repository`])
   })
 })

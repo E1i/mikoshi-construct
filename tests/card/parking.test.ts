@@ -60,7 +60,7 @@ describe('one creates parse for the shift guard and intake', () => {
   const FRESH = 'scripts/ghosts/worktree-home.ts'
 
   function intakeAccepts(entry: string): boolean {
-    const draft = parseDraft(JSON.stringify({ cards: [{ name: 'fresh', kind: 'implement', milestone: 'ghosts', size: 'S', touches: [FRESH], creates: [entry], task: 'Do it.', witnesses: ['`true` passes'] }] }))
+    const draft = parseDraft(JSON.stringify({ cards: [{ name: 'fresh', kind: 'implement', milestone: 'ghosts', size: 'S', touches: [FRESH], creates: [entry], task: 'Do it.', witnesses: ['`pnpm run quality` passes'] }] }))
     if (draft.kind === 'refused')
       return false
     const repository = { exists: () => false, pathsNamed: () => [], commandResolves: () => true, testsCovering: () => [] }
