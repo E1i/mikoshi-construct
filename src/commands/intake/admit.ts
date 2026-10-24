@@ -159,6 +159,7 @@ export type AdmitResult
     | { status: 'ownerWait', file: string, card: SlicedCard, downgrades: string[], inBus: boolean, dryRun: boolean }
 
 const RED_ON_MAIN = /[;,]?\s*red on main/i
+const ANY_FORM_OF_FAILING_ON_MAIN = /(?:\s*[;,—–-])?\s*(?:red|non-zero) on main/i
 const DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетеля'
 const DECISION_LINE = /^- D-[1-9]\d* · /
 const DECISION_CARDS = / · card (#[1-9]\d*(?: #[1-9]\d*)*)/
@@ -173,7 +174,7 @@ export function downgradeAction(cardId: number, witness: string): string {
 }
 
 function witnessCore(witness: string): string {
-  return witness.replace(RED_ON_MAIN, '').trim()
+  return witness.replace(ANY_FORM_OF_FAILING_ON_MAIN, '').trim()
 }
 
 export function witnessDowngrades(previous: readonly string[], next: readonly string[]): string[] {
