@@ -8,7 +8,7 @@ import { taskConflicts } from '../shift/overlap.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { prOf } from './identifiers.js'
-import { currentLane } from './lane-assign.js'
+import { currentLane, heldByStall, stalledCards } from './lane-assign.js'
 import { namesQueueLive } from './live-decision.js'
 import { beatsLive } from './liveness-sites.js'
 
@@ -283,11 +283,15 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const ended = cardSet(db, ENDED_CARDS)
   const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
+  const stalled = new Set(stalledCards(db).map(stall => stall.cardId))
   const busy = new Set<string>()
+  const heldByStalls = new Map<string, CardLife[]>()
   const taken: ShiftTask[] = []
   for (const life of lives.values()) {
     const running = life.started && !life.closed && !merged.has(life.cardId) && !ended.has(life.cardId)
-    if (life.lane !== null && (running || launching.has(life.cardId)))
+    if (life.lane !== null && running && !launching.has(life.cardId) && stalled.has(life.cardId))
+      heldByStalls.set(life.lane, [...(heldByStalls.get(life.lane) ?? []), life])
+    else if (life.lane !== null && (running || launching.has(life.cardId)))
       busy.add(life.lane)
     if ((running || launching.has(life.cardId)) && life.task !== null)
       taken.push(life.task)
@@ -301,7 +305,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || !life.depends.every(card => merged.has(card)) || heldOutside(life, openPrs, trees, beating))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || heldByStall(life, heldByStalls.get(life.lane) ?? []) || !life.depends.every(card => merged.has(card)) || heldOutside(life, openPrs, trees, beating))
       continue
     if (bodyNotFoldedYet(db, life.cardId))
       continue

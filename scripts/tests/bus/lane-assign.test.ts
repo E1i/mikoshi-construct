@@ -8,15 +8,20 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendEvent, openBus } from '../../bus/db.js'
+import { appendEvent, openBus, openOwnerWait } from '../../bus/db.js'
+import { taskKey } from '../../bus/identifiers.js'
 import { busCardEvents, busIntakePorts } from '../../bus/intake.js'
-import { chainLaneNumber, currentLane, DEFAULT_LANE_COUNT, laneCount, laneOverlapRecorder, layLanes, liveLanes, repositoryLanes } from '../../bus/lane-assign.js'
+import { chainLaneNumber, currentLane, DEFAULT_LANE_COUNT, laneCount, laneOverlapRecorder, layLanes, liveLanes, repositoryLanes, STALLED } from '../../bus/lane-assign.js'
 import { launchCandidates } from '../../bus/launch-candidates.js'
 import { LaunchNode } from '../../bus/launch-worker.js'
+import { failTask, leaseQueued } from '../../bus/lease.js'
+import { queueTask } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, LANE_ASSIGNED, LANE_OVERLAP } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED, PR_OBSERVED } from '../../core/events.js'
 
 const TS = '2026-10-22T10:00:00.000Z'
+const HEAD = 'a'.repeat(40)
+const MERGE_ACTOR = 'worker:merge:w1'
 const roots: string[] = []
 const startDir = process.cwd()
 
@@ -84,6 +89,42 @@ class Bench {
     const caught: number[] = []
     launchCandidates(this.db, () => false, Date.now, cardId => caught.push(cardId))
     return caught
+  }
+
+  openPr(id: number): number {
+    const pr = id + 1000
+    appendEvent(this.db, { ts: TS, type: PR_OBSERVED, actor: 'netwatch', cardId: id, pr, head: HEAD, dedupeKey: `${PR_OBSERVED}:${pr}`, payload: { card_id: id, base: 'main', head: HEAD, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }, legacy: false })
+    reduce(this.db)
+    return pr
+  }
+
+  deniedMerge(id: number, denial: Record<string, unknown>): this {
+    const pr = this.openPr(id)
+    const task = { queue: 'merge' as const, cardId: id, pr, head: HEAD }
+    queueTask(this.db, TS, task)
+    const lease = leaseQueued(this.db, TS, taskKey(task), MERGE_ACTOR)!
+    failTask(this.db, TS, lease, { reason: String(denial.rule ?? denial.reason), withdraw: true }, [this.denialEvent(id, pr, denial)])
+    reduce(this.db)
+    return this
+  }
+
+  awaitingOwnerMerge(id: number): this {
+    const pr = this.openPr(id)
+    appendEvent(this.db, this.denialEvent(id, pr, { kind: 'authority', rule: 'no_shard_merge', detail: 'changes .claude/agents/x.md, which stays the owner\'s' }))
+    openOwnerWait(this.db, TS, 'policy', { need: 'merge', text: 'merge it', card: id, pr })
+    reduce(this.db)
+    return this
+  }
+
+  private denialEvent(id: number, pr: number, denial: Record<string, unknown>) {
+    return { ts: TS, type: POLICY_DENIED, actor: 'policy', cardId: id, pr, head: HEAD, dedupeKey: `${POLICY_DENIED}:${id}`, payload: { command: 'merge', ...denial }, legacy: false }
+  }
+
+  stallAlarms(): { card: number, cause: unknown }[] {
+    return (this.db.prepare(`SELECT card_id, payload FROM events WHERE type = '${BOARD_ALARM}' ORDER BY id`).all() as { card_id: number, payload: string }[])
+      .map(row => ({ card: row.card_id, payload: JSON.parse(row.payload) as Record<string, unknown> }))
+      .filter(alarm => alarm.payload.reason === STALLED)
+      .map(alarm => ({ card: alarm.card, cause: alarm.payload.cause }))
   }
 
   count(type: string): number {
@@ -310,5 +351,53 @@ describe('a lane is a chain written by lane.assigned', () => {
     expect(lanes()).toBe(2)
     writeFileSync(path.join(repo, 'construct.json'), JSON.stringify({ lanes: 4 }))
     expect(lanes()).toBe(4)
+  })
+})
+
+describe('a card that cannot move by itself frees its lane', () => {
+  function launched(bench: Bench, lanes: number): number[] {
+    return launchNode(bench.db, () => lanes).laid().map(task => task.cardId)
+  }
+
+  it('a card denied no_matrix_count_line raises an alarm and frees its lane for a card whose touches do not overlap', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).deniedMerge(1, { kind: 'authority', rule: 'no_matrix_count_line', detail: 'no count line' }).admit(2, 'src/a.ts').admit(3, 'src/b.ts')
+    expect([bench.lane(2), bench.lane(3)]).toEqual(['lane-1', 'lane-1'])
+    expect(launched(bench, 1)).toEqual([3])
+    expect(bench.stallAlarms()).toEqual([{ card: 1, cause: 'no_matrix_count_line' }])
+  })
+
+  it('a card whose PR only the owner merges frees its lane for a card whose touches do not overlap', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).awaitingOwnerMerge(1).admit(2, 'src/a.ts').admit(3, 'src/b.ts')
+    expect(launched(bench, 1)).toEqual([3])
+    expect(bench.stallAlarms()).toEqual([{ card: 1, cause: 'no_shard_merge' }])
+  })
+
+  it('a technical merge denial raises an alarm and frees its lane for a card whose touches do not overlap', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).deniedMerge(1, { kind: 'technical', reason: 'witness', detail: 'no witness.recorded' }).admit(2, 'src/a.ts').admit(3, 'src/b.ts')
+    expect(launched(bench, 1)).toEqual([3])
+    expect(bench.stallAlarms()).toEqual([{ card: 1, cause: 'witness' }])
+  })
+
+  it('a card that is still moving keeps its lane and raises no alarm', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1)
+    bench.openPr(1)
+    bench.admit(3, 'src/b.ts')
+    expect(launched(bench, 1)).toEqual([])
+    expect(bench.stallAlarms()).toEqual([])
+  })
+
+  it('the stall alarm is raised once however often the lanes are laid', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).deniedMerge(1, { kind: 'technical', reason: 'witness', detail: 'no witness.recorded' })
+    launched(bench, 1)
+    launched(bench, 1)
+    expect(bench.stallAlarms()).toHaveLength(1)
+  })
+
+  it('queued cards laid behind a stalled card are re-laid into a lane that has emptied', () => {
+    const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2).admit(3, 'src/c.ts').admit(4, 'src/d.ts').admit(5, 'src/e.ts')
+    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-1', 'lane-2', 'lane-1'])
+    bench.drop(2).drop(4).deniedMerge(1, { kind: 'authority', rule: 'no_matrix_count_line', detail: 'no count line' })
+    expect(launched(bench, 2)).toEqual([3, 5])
+    expect([bench.lane(3), bench.lane(5)]).toEqual(['lane-2', 'lane-1'])
   })
 })
