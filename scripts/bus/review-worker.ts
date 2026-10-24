@@ -16,11 +16,11 @@ import type { HeldTree, LeftoverTree, Review, Reviewer, SessionPulse, TreeTools 
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { defaultBusDir } from '../core/bus-path.js'
 import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { GhFailed, PROCESS_GH_PORT } from '../core/gh.js'
 import { ghStatusPublisher } from '../ports/github-status.js'
@@ -29,7 +29,7 @@ import { HEADLESS_FLAGS, spawnSession } from '../ports/session.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
-import { keepDryRun } from './dry-run-record.js'
+import { dryRunReviewsDir, keepDryRun } from './dry-run-record.js'
 import { ghApi, ghApiPatch, ghApiPost } from './github.js'
 import { busSessionPulse, measureSession } from './heartbeat.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
@@ -54,8 +54,8 @@ export type { Step }
 
 export const DRY_RUN_FLAG = '--dry-run'
 export const DRY_RUN_ACTOR = 'worker:review:dry-run'
-const BUS_DIR = path.join(os.homedir(), '.construct', 'bus')
-const MORSE_JOURNAL = path.join(os.homedir(), '.construct', 'bus', 'morse.jsonl')
+const BUS_DIR = defaultBusDir()
+const MORSE_JOURNAL = path.join(BUS_DIR, 'morse.jsonl')
 
 export const REVIEW_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_ADMITTED, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED, TASK_EXPIRED] as const
 
@@ -204,7 +204,7 @@ export function reviewMode(argv: string[]): ReviewMode {
 }
 
 export function reviewsDir(busDir: string, mode: ReviewMode): string {
-  return path.join(busDir, mode.kind === 'dry-run' ? 'dry-run-reviews' : 'reviews')
+  return mode.kind === 'dry-run' ? dryRunReviewsDir(busDir) : path.join(busDir, 'reviews')
 }
 
 export type CardBodyOf = (cardId: number) => string | null

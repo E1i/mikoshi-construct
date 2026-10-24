@@ -10,6 +10,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { busDirOf, pinBus } from '../core/bus-path.js'
 import { PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { carriesMarker, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached } from './bg.js'
 import { RUNNING_CARD } from './card-automaton.js'
@@ -976,20 +977,20 @@ function decisionsInForce(): InForceDecision[] {
   }
 }
 
-export function defaultBusDir(): string {
-  return path.join(os.homedir(), '.construct', 'bus')
+export function pinnedBusDir(): string {
+  return busDirOf(pinBus(process.env, os.homedir(), process.cwd()))
 }
 
 const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath())
 
-export async function startBus(busDir: string = defaultBusDir(), processes: ProcessList = psList()): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), processes: ProcessList = psList()): Promise<BgResult> {
   const judged = await restartSilentSupervisorOnBus(busDir, processes)
   const started = runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], process.env, processes, startReviewWorker)
   return { ...started, stdout: [...judged, ...started.stdout] }
 }
 
 async function main(): Promise<void> {
-  const busDir = defaultBusDir()
+  const busDir = pinnedBusDir()
   const cwd = process.cwd()
   const command = bgCommand(process.argv.slice(2))
   if (command.kind === 'supervise') {

@@ -5,11 +5,10 @@ import type { DeadChain, RestartOutcome } from './restart-executor.js'
 import type { RoleReturned, RoleToOwner } from './role.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { defaultBusDir } from '../core/bus-path.js'
 import { REAL_PROCESSES } from './chain-process.js'
 import { defaultBusPath, openBus } from './db.js'
 import { ownStart } from './heartbeat.js'
@@ -131,7 +130,7 @@ export function launchSwitchedOn(busDir: string): boolean {
 }
 
 async function main(): Promise<number> {
-  const busDir = path.join(os.homedir(), '.construct', 'bus')
+  const busDir = defaultBusDir()
   return runRestartWorker(process.argv.slice(2), { busPath: defaultBusPath(), processes: REAL_PROCESSES, launchSwitchedOn: () => launchSwitchedOn(busDir), session: randomUUID(), pause: sleep })
 }
 

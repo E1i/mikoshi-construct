@@ -7,7 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { builtEntryOf, installedPackage, printBg } from './bg.js'
-import { defaultBusDir, startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
+import { pinnedBusDir, startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
 
 export const START_PREFIX = '[factory:start] '
 export const OWNER_AGENT = 'dev.mikoshi.bus'
@@ -155,7 +155,7 @@ async function main(): Promise<void> {
     uid: process.getuid?.() ?? 0,
     node: process.execPath,
     path: process.env.PATH ?? '',
-    busDir: defaultBusDir(),
+    busDir: pinnedBusDir(),
     launchctl: systemLaunchctl,
   }))
 }
