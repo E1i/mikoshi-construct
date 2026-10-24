@@ -1419,8 +1419,9 @@ entry line; the pre-image copy is then deleted.
 detach also removes what the factory deployed beside the repository: the directory recorded in
 `factoryBeside`, whole, with the bus and logs the factory wrote into it, and the Engram, the
 `construct.model.json` that `construct atlas` wrote under `~/.construct/engram/<directory>-<hash>/` for
-this repository, with that directory once empty. Nothing else under the home directory is read or
-removed. While a plist in the user's `Library/LaunchAgents` names the factory's directory, detach refuses
+this repository, with that directory once empty. A directory above either that attach created is
+removed too once empty, so `~/.construct` goes when attach made it. Nothing else under the home
+directory is read or removed. While a plist in the user's `Library/LaunchAgents` names the factory's directory, detach refuses
 with `factory-kept-alive` before anything is removed, listing each keep-alive with the way to unload it,
 since launchd would raise the factory into its place again. Whether a factory process still runs is the
 supervisor's judgement, not detach's: stop the factory before detaching it.

@@ -124,9 +124,9 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   if (original != null)
     dropOriginal(original.copy)
   closeRecord(root, record, exclude)
+  const engram = removeEngram(root, record.factoryBeside)
   const factory = removeFactoryBeside(record.factoryBeside)
-  const engram = removeEngram(root)
-  const removed = [...(settingsDeleted ? [SETTINGS_FILE] : []), ...removal.removed, ...factory, ...engram.removed]
+  const removed = [...(settingsDeleted ? [SETTINGS_FILE] : []), ...removal.removed, ...engram.removed, ...factory]
   const leftBehind = [...removal.leftBehind, ...engram.leftBehind]
   for (const target of removed)
     ui.line(`  ${ui.theme.dim('-')} ${target}`)

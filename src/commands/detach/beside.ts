@@ -30,7 +30,7 @@ function removeUpTo(directory: string, top: string): string[] {
   const removed: string[] = []
   let current = path.dirname(directory)
   const stop = path.dirname(top)
-  while (current !== stop && current.startsWith(top) && existsSync(current) && readdirSync(current).length === 0) {
+  while (current !== stop && (current === top || current.startsWith(`${top}${path.sep}`)) && existsSync(current) && readdirSync(current).length === 0) {
     rmdirSync(current)
     removed.push(current)
     current = path.dirname(current)
@@ -50,7 +50,7 @@ export interface EngramRemoval {
   leftBehind: string[]
 }
 
-export function removeEngram(root: string, home: string = homedir()): EngramRemoval {
+export function removeEngram(root: string, beside: FactoryBeside | undefined, home: string = homedir()): EngramRemoval {
   const file = engramFile(root, { attached: true, home })
   if (!existsSync(file))
     return { removed: [], leftBehind: [] }
@@ -60,5 +60,6 @@ export function removeEngram(root: string, home: string = homedir()): EngramRemo
   if (left.length > 0)
     return { removed: [file], leftBehind: left.map(entry => path.join(directory, entry)) }
   rmdirSync(directory)
-  return { removed: [file, directory], leftBehind: [] }
+  const emptiedAbove = beside == null ? [] : removeUpTo(directory, beside.createdFrom)
+  return { removed: [file, directory, ...emptiedAbove], leftBehind: [] }
 }

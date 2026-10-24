@@ -166,6 +166,28 @@ describe('detach removes what the factory deployed beside the repository and not
     expect(existsSync(home())).toBe(true)
   })
 
+  it('leaves no emptied Engram directory under the construct home attach created', async () => {
+    const dir = cloneCarryingItsOwnConstruct()
+
+    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    writeEngram(dir, { attached: true, home: home() })
+    runDetach(ui, { dir })
+
+    expect(existsSync(path.join(home(), '.construct'))).toBe(false)
+  })
+
+  it('keeps the Engram directory a construct home attach did not create already held', async () => {
+    const dir = cloneCarryingItsOwnConstruct()
+    const engramRoot = path.join(home(), '.construct', 'engram')
+    mkdirSync(engramRoot, { recursive: true })
+
+    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    writeEngram(dir, { attached: true, home: home() })
+    runDetach(ui, { dir })
+
+    expect(existsSync(engramRoot)).toBe(true)
+  })
+
   it('refuses while a keep-alive names the factory home, and removes nothing', async () => {
     const dir = cloneCarryingItsOwnConstruct()
     await runAttach(ui, { dir, harness: HARNESS, yes: true })
