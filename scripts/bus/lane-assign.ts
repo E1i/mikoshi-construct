@@ -47,6 +47,7 @@ const ADMITTED_CARDS = `
   LEFT JOIN cards ON cards.card_id = admitted.card_id
   WHERE admitted.legacy = 0 AND admitted.type = '${CARD_ADMITTED}' AND admitted.card_id IS NOT NULL
   GROUP BY admitted.card_id
+  HAVING coalesce((SELECT max(dropped.id) FROM events AS dropped WHERE dropped.legacy = 0 AND dropped.type = '${CARD_DROPPED}' AND dropped.card_id = admitted.card_id), 0) < max(admitted.id)
   ORDER BY admitted.card_id
 `
 
