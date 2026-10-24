@@ -165,6 +165,21 @@ function foldEndingTheWaitsOfAnEndedCard(db: DatabaseSync, event: StoredEvent): 
   closeWaitsOfAnEndedCard(db, event.card_id, event.id)
 }
 
+function checkTheChildrenADropNames(event: StoredEvent): void {
+  const { children, reason } = payloadOf(event)
+  if (children === undefined)
+    return
+  if (!Array.isArray(children) || children.length === 0 || children.some(child => typeof child !== 'number' || cardIdOf(child) === null || child === event.card_id))
+    reject('children is not a list of card numbers other than the dropped card')
+  if (filled(reason) === null)
+    reject('a drop naming children names no reason')
+}
+
+function foldDropNamingItsChildren(db: DatabaseSync, event: StoredEvent): void {
+  checkTheChildrenADropNames(event)
+  foldEndingTheWaitsOfAnEndedCard(db, event)
+}
+
 function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
   const payload = payloadOf(event)
   if (!isFullSha(payload.sha))
@@ -389,7 +404,7 @@ const REDUCERS: Record<string, Fold> = {
   [MERGE_DONE]: foldEndingTheWaitsOfAnEndedCard,
   [CARD_CLOSED]: foldEndingTheWaitsOfAnEndedCard,
   [CARD_MOVED]: foldEndingTheWaitsOfAnEndedCard,
-  [CARD_DROPPED]: foldEndingTheWaitsOfAnEndedCard,
+  [CARD_DROPPED]: foldDropNamingItsChildren,
   [CARD_ADMITTED]: foldAdmittedWithBody,
 }
 
