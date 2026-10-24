@@ -16,6 +16,7 @@ import { NODE_CURSORS } from '../../bus/node.js'
 import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../bus/queue.js'
 import { UpdateNode } from '../../bus/update-worker.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
+import { SECRET_SCAN_CHECK } from '../../core/gh.js'
 import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -204,6 +205,30 @@ describe('the merge node', () => {
     expect(node.found({ pr: 971 })).toEqual([mergeKey(971)])
     expect(node.found({ cardId: 1070 })).toEqual([mergeKey(970)])
     expect(node.found({ pr: 970, cardId: 1071 })).toEqual([])
+  })
+
+  it('a red Secret scan beside a green required check is not green to the merge node', () => {
+    const made = bench()
+    made.gitHub.open({ number: 970, review: 'success', failed: [SECRET_SCAN_CHECK] })
+    made.tick()
+    expect(nodeOf(made).found()).toEqual([])
+    expect(derivedKeys(made)).toEqual([])
+
+    made.gitHub.open({ number: 970, review: 'success', failed: ['Dependency audit'] })
+    made.tick()
+    expect(nodeOf(made).found()).toEqual([mergeKey(970)])
+  })
+
+  it('a Secret scan still running beside a green required check is not green to the merge node', () => {
+    const made = bench()
+    made.gitHub.open({ number: 970, review: 'success', running: [SECRET_SCAN_CHECK] })
+    made.tick()
+    expect(nodeOf(made).found()).toEqual([])
+    expect(derivedKeys(made)).toEqual([])
+
+    made.gitHub.open({ number: 970, review: 'success' })
+    made.tick()
+    expect(nodeOf(made).found()).toEqual([mergeKey(970)])
   })
 
   it('finds no pull request past the round limit without a decision, and finds it once the owner decision names its head', () => {
