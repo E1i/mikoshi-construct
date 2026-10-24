@@ -123,6 +123,12 @@ export function busPathOf(env: NodeJS.ProcessEnv, home: string, dir: string): st
   return !existsSync(own) && existsSync(machine) ? machine : own
 }
 
+export function pinBus(env: NodeJS.ProcessEnv, home: string, dir: string): string {
+  const busPath = busPathOf(env, home, dir)
+  env[BUS_DB_VARIABLE] = busPath
+  return busPath
+}
+
 export function busDirOf(busPath: string): string {
   return path.join(path.dirname(busPath), BUS_DIR)
 }

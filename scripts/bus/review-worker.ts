@@ -29,7 +29,7 @@ import { HEADLESS_FLAGS, spawnSession } from '../ports/session.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
-import { keepDryRun } from './dry-run-record.js'
+import { dryRunReviewsDir, keepDryRun } from './dry-run-record.js'
 import { ghApi, ghApiPatch, ghApiPost } from './github.js'
 import { busSessionPulse, measureSession } from './heartbeat.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
@@ -204,7 +204,7 @@ export function reviewMode(argv: string[]): ReviewMode {
 }
 
 export function reviewsDir(busDir: string, mode: ReviewMode): string {
-  return path.join(busDir, mode.kind === 'dry-run' ? 'dry-run-reviews' : 'reviews')
+  return mode.kind === 'dry-run' ? dryRunReviewsDir(busDir) : path.join(busDir, 'reviews')
 }
 
 export type CardBodyOf = (cardId: number) => string | null

@@ -1,17 +1,21 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { boardProjection } from '../scripts/bus/board-page.js'
 import { BOARD_FILE } from '../scripts/bus/board.js'
 import { appendEvent, openBus } from '../scripts/bus/db.js'
+import { keepDryRun } from '../scripts/bus/dry-run-record.js'
+import { reviewsDir } from '../scripts/bus/review-worker.js'
 import { gitCode, recordStarted, switchCommand } from '../scripts/bus/supervisor.js'
-import { BUS_DB_VARIABLE, busDirOf, busPathOf, machineBusPath, repoIdOf, repoSlugOf, repoSlugOfUrl } from '../scripts/core/bus-path.js'
+import { realRequestTools } from '../scripts/bus/window-request-tools.js'
+import { switchedOn } from '../scripts/bus/workers.js'
+import { BUS_DB_VARIABLE, busDirOf, busPathOf, machineBusPath, pinBus, repoIdOf, repoSlugOf, repoSlugOfUrl } from '../scripts/core/bus-path.js'
 import { CARD_ADMITTED } from '../scripts/core/events.js'
-import { NO_GIT_REMOTE, REPO } from '../scripts/shift/places.js'
+import { ghInRepositoryOf, noGitRemoteReason } from '../scripts/shift/places.js'
 import { busReaderAt } from '../src/commands/board/bus.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -29,11 +33,17 @@ const FACTORY_FILES = [
   'scripts/bus/review-bg.ts',
   'scripts/bus/review-worker.ts',
   'scripts/bus/launch-worker.ts',
+  'scripts/bus/window-request-tools.ts',
+  'scripts/ghosts/task-close.ts',
   'src/commands/board/bus.ts',
   'src/commands/board/index.ts',
   'src/program.ts',
 ]
-const OWNER_NAMES = [/E1i/, /projects\/mikoshi-construct/, /'projects', 'mikoshi-construct'/, /homedir\(\), '\.construct', 'bus'/]
+const OWNER_NAMES = [/E1i/, /projects\/mikoshi-construct/, /'projects', 'mikoshi-construct'/]
+const MACHINE_BUS_PLACES = [/'\.construct', 'bus'/, /\.construct\/bus/, /'bus\.db'/, /'dry-run-reviews'/]
+const SUPERVISOR_ENTRY = path.join(ROOT, 'scripts/bus/supervisor.ts')
+const TSX_LOADER = pathToFileURL(path.join(ROOT, 'node_modules/tsx/dist/esm/index.mjs')).href
+const SYSTEM_PATH = [path.dirname(process.execPath), '/usr/bin', '/bin'].join(path.delimiter)
 const FAKE_TOKEN = 'gho_factoryOffOwnerMachine0123456789abcdef'
 const TICK_MS = 1000
 const NOW = new Date('2026-10-24T12:00:00.000Z')
@@ -111,8 +121,27 @@ describe('the repository comes from the git remote of the current repository', (
     expect(repoIdOf(tree)).toBe(repoIdOf(repo))
   })
 
-  it('takes the shift repository from this checkout, not a constant', () => {
-    expect(REPO).toBe(repoSlugOf(process.cwd()) ?? NO_GIT_REMOTE)
+  it('points gh at the repository the remote of the given directory names', () => {
+    const repo = foreignRepo(scratch, 'git@github.com:acme/widgets.git')
+    const calls: string[][] = []
+    const gh = ghInRepositoryOf(repo, (args) => {
+      calls.push(args)
+      return { kind: 'ran', stdout: '{}', attempts: 1 }
+    })
+    expect(gh(['pr', 'view', '7', '--json', 'body']).kind).toBe('ran')
+    expect(calls).toEqual([['pr', 'view', '7', '--json', 'body', '-R', 'acme/widgets']])
+  })
+
+  it('refuses to call gh with a clear reason where no git remote names the repository', () => {
+    const repo = foreignRepo(scratch, null)
+    const calls: string[][] = []
+    const read = ghInRepositoryOf(repo, (args) => {
+      calls.push(args)
+      return { kind: 'ran', stdout: '{}', attempts: 1 }
+    })(['issue', 'list'])
+    expect(read).toMatchObject({ kind: 'failed', reason: noGitRemoteReason(repo) })
+    expect(noGitRemoteReason(repo)).toContain('no git remote')
+    expect(calls).toEqual([])
   })
 
   it('gives a repository without a remote a local id of its own', () => {
@@ -158,6 +187,52 @@ describe('per-repository bus home', () => {
     expect(busPathOf(env, home, repo)).toBe(path.join(home, '.construct', 'acme--widgets', 'bus.db'))
   })
 
+  it('finds the same bus from a subdirectory of a worktree as from the clone', () => {
+    const repo = foreignRepo(scratch, 'git@github.com:acme/widgets.git')
+    const tree = path.join(scratch, 'tree')
+    git(repo, 'worktree', 'add', '-q', tree)
+    const deep = path.join(tree, 'scripts', 'bus')
+    mkdirSync(deep, { recursive: true })
+    expect(busPathOf(env, home, deep)).toBe(busPathOf(env, home, repo))
+  })
+
+  it('a bus pinned by the supervisor holds for a worker started outside any repository', () => {
+    const repo = foreignRepo(scratch, 'git@github.com:acme/widgets.git')
+    const outside = path.join(scratch, 'outside')
+    mkdirSync(outside)
+    const pinned: NodeJS.ProcessEnv = {}
+    const busPath = pinBus(pinned, home, repo)
+    expect(busPath).toBe(path.join(home, '.construct', 'acme--widgets', 'bus.db'))
+    expect(busPathOf(env, home, outside)).not.toBe(busPath)
+    expect(busPathOf(pinned, home, outside)).toBe(busPath)
+  })
+
+  it('the supervisor started in a subdirectory of the repository switches the workers of its bus', () => {
+    const repo = foreignRepo(scratch, 'git@github.com:acme/widgets.git')
+    const deep = path.join(repo, 'scripts')
+    mkdirSync(deep)
+    const run = spawnSync(process.execPath, ['--import', TSX_LOADER, SUPERVISOR_ENTRY, '--on', 'review'], { cwd: deep, env: { HOME: home, PATH: SYSTEM_PATH, TMPDIR: tmpdir() }, encoding: 'utf8' })
+    expect(run.status, run.stderr).toBe(0)
+    expect(switchedOn(path.join(home, '.construct', 'acme--widgets', 'bus'))).toEqual(['review'])
+  })
+
+  it('the window request reads a dry run where the review worker of the same bus keeps it', () => {
+    const repo = foreignRepo(scratch, 'git@github.com:acme/widgets.git')
+    const busPath = busPathOf(env, home, repo)
+    admitCard(busPath, 4)
+    const dir = reviewsDir(busDirOf(busPath), { kind: 'dry-run', pr: 12 })
+    mkdirSync(dir, { recursive: true })
+    const record = { pr: 12, head: 'a'.repeat(40) }
+    keepDryRun(dir)('session-1', record)
+    const db = openBus(busPath)
+    try {
+      expect(realRequestTools(db, busPath, repo, env, home).dryRunOf('session-1')).toEqual(record)
+    }
+    finally {
+      db.close()
+    }
+  })
+
   it(`lets ${BUS_DB_VARIABLE} name the bus outright`, () => {
     const repo = foreignRepo(scratch, 'git@github.com:acme/widgets.git')
     expect(busPathOf({ [BUS_DB_VARIABLE]: path.join(scratch, 'named.db') }, home, repo)).toBe(path.join(scratch, 'named.db'))
@@ -165,6 +240,23 @@ describe('per-repository bus home', () => {
 })
 
 describe('the gh token stays with gh', () => {
+  it('the launchd job starts the bus in the factory checkout with no token, and names the variable it lacks', () => {
+    const shellLine = [...readFileSync(PLIST, 'utf8').matchAll(/<string>([^<]*)<\/string>/g)].map(match => match[1]!).at(-1)!.replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&amp;', '&')
+    const factory = path.join(scratch, 'factory')
+    const bin = path.join(home, '.local', 'bin')
+    mkdirSync(factory)
+    mkdirSync(bin, { recursive: true })
+    const calls = path.join(scratch, 'calls')
+    writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\necho "$(pwd) $* token=\${GH_TOKEN:-none}" >> "${calls}"\n`, { mode: 0o755 })
+    const started = spawnSync('/bin/sh', ['-c', shellLine], { env: { HOME: home, CONSTRUCT_FACTORY_DIR: factory }, encoding: 'utf8' })
+    expect(started.status).toBe(0)
+    expect(readFileSync(calls, 'utf8')).toBe(`${factory} --silent bus:bg token=none\n`)
+
+    const unset = spawnSync('/bin/sh', ['-c', shellLine], { env: { HOME: home }, encoding: 'utf8' })
+    expect(unset.status).not.toBe(0)
+    expect(readFileSync(path.join(home, '.construct', 'dev.mikoshi.bus.log'), 'utf8')).toContain('CONSTRUCT_FACTORY_DIR')
+  })
+
   it('the token of the current gh appears in no file under the construct home and in no bus event', () => {
     const plist = readFileSync(PLIST, 'utf8')
     expect(plist).not.toMatch(/GH_TOKEN|gh auth token/)
@@ -199,5 +291,10 @@ describe('factory sources', () => {
   it('no factory source names E1i or the owner checkout path', () => {
     const named = FACTORY_FILES.filter(file => OWNER_NAMES.some(name => name.test(readFileSync(path.join(ROOT, file), 'utf8'))))
     expect(named).toEqual([])
+  })
+
+  it('no factory source but the bus path module builds a bus place of its own, so the rest of home is owner tooling', () => {
+    const building = FACTORY_FILES.filter(file => file !== 'scripts/core/bus-path.ts' && MACHINE_BUS_PLACES.some(place => place.test(readFileSync(path.join(ROOT, file), 'utf8'))))
+    expect(building).toEqual([])
   })
 })

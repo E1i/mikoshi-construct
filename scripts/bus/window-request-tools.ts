@@ -2,12 +2,12 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardTask, RequestTools } from './window-requests.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
+import { busDirOf } from '../core/bus-path.js'
 import { runDecisionsAdd } from '../decisions/add.js'
 import { taskWorktree, worktreeHome } from '../ports/worktree-home.js'
 import { cardSessionOf } from './answer-source.js'
 import { recordDecision } from './decisions.js'
-import { dryRunIn } from './dry-run-record.js'
+import { dryRunIn, dryRunReviewsDir } from './dry-run-record.js'
 import { ghApi, ghApiPatch } from './github.js'
 import { PrCloser } from './pr-close.js'
 
@@ -42,7 +42,7 @@ function causeHoldsIn(db: DatabaseSync, repo: string): (task: CardTask) => strin
   }
 }
 
-export function realRequestTools(db: DatabaseSync, repo: string, env: NodeJS.ProcessEnv, home: string): RequestTools {
+export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv, home: string): RequestTools {
   const closer = new PrCloser(db, ghApi(repo), ghApiPatch(repo), () => new Date())
   return {
     treeOf: cardId => taskWorktree(worktreeHome(env), String(cardId)),
@@ -50,7 +50,7 @@ export function realRequestTools(db: DatabaseSync, repo: string, env: NodeJS.Pro
     cutTree: (branch, cardLine) => {
       execFileSync('pnpm', ['--silent', 'task:start', branch, '--card', cardLine], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     },
-    dryRunOf: dryRunIn(path.join(home, '.construct', 'bus', 'dry-run-reviews')),
+    dryRunOf: dryRunIn(dryRunReviewsDir(busDirOf(busPath))),
     addDecision: decisionsAdder(db, home, () => new Date()),
     causeHolds: causeHoldsIn(db, repo),
     closePr: request => closer.close(request),
