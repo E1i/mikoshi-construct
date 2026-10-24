@@ -1423,8 +1423,15 @@ this repository, with that directory once empty. A directory above either that a
 removed too once empty, so `~/.construct` goes when attach made it. Nothing else under the home
 directory is read or removed. While a plist in the user's `Library/LaunchAgents` names the factory's directory, detach refuses
 with `factory-kept-alive` before anything is removed, listing each keep-alive with the way to unload it,
-since launchd would raise the factory into its place again. Whether a factory process still runs is the
+since launchd would raise the factory into its place again; a plist there that cannot be read is listed
+too, since whether it names the factory cannot be told. The launch logs and session reports of a factory
+started beside the repository are under its directory, in `bus/launch/`, and go with it. Whether a factory process still runs is the
 supervisor's judgement, not detach's: stop the factory before detaching it.
+
+detach writes nothing into `.git` beyond its block in `.git/info/exclude`: no ref, reflog or `[branch]`
+section is deleted. A card the factory cut leaves its branch and its worktree record in `.git`, and
+detach leaves both to the user, whose work they may hold; `git worktree remove <tree>` and
+`git branch -D <branch>` take them out.
 
 ### The four index refusals
 
@@ -1904,8 +1911,8 @@ writes a tracked file of a repository it was not asked to own:
 
 | Repository | Engram | Page |
 |---|---|---|
-| made by `init` (`construct.json` is here) | `construct.model.json`, its `mechanics` replaced, every fact, claim and node kept | `.construct/atlas.html`, which the construct's `.gitignore` ignores |
-| attached by `attach`, with no `init` | `~/.construct/engram/<repo>-<hash>/construct.model.json` | `.construct/atlas.html`, the directory `attach` excludes in `.git/info/exclude` |
+| made by `init` (`construct.json` is here) and not attached | `construct.model.json`, its `mechanics` replaced, every fact, claim and node kept | `.construct/atlas.html`, which the construct's `.gitignore` ignores |
+| attached by `attach`, with or without its own `construct.json` | `~/.construct/engram/<repo>-<hash>/construct.model.json` | `.construct/atlas.html`, the directory `attach` excludes in `.git/info/exclude` |
 
 A repository with neither a `construct.json` from `init` nor an attach record is refused: `atlas`
 writes nothing, names `construct attach` as the way in, and exits `1`.

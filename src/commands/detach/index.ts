@@ -8,7 +8,7 @@ import { planExcludeRemoval, readExcludeBlockPaths } from '../attach/exclude.js'
 import { dropOriginal } from '../attach/original.js'
 import { ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, readAttachRecord } from '../attach/record.js'
 import { classifyEntry, isSettingsHook, SETTINGS_FILE } from '../attach/settings.js'
-import { keepAliveNaming, removeEngram, removeFactoryBeside } from './beside.js'
+import { keepAlivesHolding, removeEngram, removeFactoryBeside } from './beside.js'
 import { classifyRecordedFiles, ofKind } from './classify.js'
 import { readTrackedPaths } from './index-reader.js'
 import { closeRecord, removeAttached } from './remove.js'
@@ -111,9 +111,9 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   const kept = original == null ? null : checkOriginal(original)
   if (original != null && kept?.kind !== 'matched')
     return refused(ui, 'original-copy', [original.copy])
-  const keptAlive = keepAliveNaming(record.factoryBeside)
+  const keptAlive = keepAlivesHolding(record.factoryBeside)
   if (keptAlive.length > 0)
-    return refused(ui, 'factory-kept-alive', keptAlive.map(ui.lore.detachFactoryKeepAlive))
+    return refused(ui, 'factory-kept-alive', keptAlive.map(({ plist, unreadable }) => unreadable ? ui.lore.detachFactoryKeepAliveUnreadable(plist) : ui.lore.detachFactoryKeepAlive(plist)))
   const runtime = classifyRuntime(record, reading.tracked, readRuntimeListing(root))
 
   const entryLabel = ui.lore.detachSettingsEntry

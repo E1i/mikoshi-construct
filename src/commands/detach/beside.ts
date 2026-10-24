@@ -16,14 +16,30 @@ function entriesOf(directory: string): string[] {
   }
 }
 
-export function keepAliveNaming(beside: FactoryBeside | undefined, home: string = homedir()): string[] {
+function textOf(file: string): string | null {
+  try {
+    return readFileSync(file, 'utf8')
+  }
+  catch {
+    return null
+  }
+}
+
+export interface KeepAlive {
+  plist: string
+  unreadable: boolean
+}
+
+export function keepAlivesHolding(beside: FactoryBeside | undefined, home: string = homedir()): KeepAlive[] {
   if (beside == null)
     return []
   const agents = path.join(home, KEEP_ALIVE_DIR)
   return entriesOf(agents)
     .filter(entry => KEEP_ALIVE_FILE.test(entry))
     .map(entry => path.join(agents, entry))
-    .filter(file => readFileSync(file, 'utf8').includes(`${beside.home}${path.sep}`))
+    .map(plist => ({ plist, text: textOf(plist) }))
+    .filter(({ text }) => text == null || text.includes(`${beside.home}${path.sep}`))
+    .map(({ plist, text }) => ({ plist, unreadable: text == null }))
 }
 
 function removeUpTo(directory: string, top: string): string[] {
