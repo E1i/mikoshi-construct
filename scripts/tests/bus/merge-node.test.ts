@@ -219,6 +219,18 @@ describe('the merge node', () => {
     expect(nodeOf(made).found()).toEqual([mergeKey(970)])
   })
 
+  it('a Secret scan still running beside a green required check is not green to the merge node', () => {
+    const made = bench()
+    made.gitHub.open({ number: 970, review: 'success', running: [SECRET_SCAN_CHECK] })
+    made.tick()
+    expect(nodeOf(made).found()).toEqual([])
+    expect(derivedKeys(made)).toEqual([])
+
+    made.gitHub.open({ number: 970, review: 'success' })
+    made.tick()
+    expect(nodeOf(made).found()).toEqual([mergeKey(970)])
+  })
+
   it('finds no pull request past the round limit without a decision, and finds it once the owner decision names its head', () => {
     const made = bench()
     made.gitHub.open({ number: 970, head: sha('a'), review: 'failure' })
