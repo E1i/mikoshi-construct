@@ -8,6 +8,7 @@ import { planExcludeRemoval, readExcludeBlockPaths } from '../attach/exclude.js'
 import { dropOriginal } from '../attach/original.js'
 import { ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, readAttachRecord } from '../attach/record.js'
 import { classifyEntry, isSettingsHook, SETTINGS_FILE } from '../attach/settings.js'
+import { keepAliveNaming, removeEngram, removeFactoryBeside } from './beside.js'
 import { classifyRecordedFiles, ofKind } from './classify.js'
 import { readTrackedPaths } from './index-reader.js'
 import { closeRecord, removeAttached } from './remove.js'
@@ -21,7 +22,7 @@ export interface DetachOptions {
   dir: string
 }
 
-export type DetachRefusalReason = 'orphan-block' | 'record-version' | 'record-ahead' | 'hook-record' | 'separator' | 'separator-mismatch' | 'changed' | 'settings-unreadable' | 'original-copy' | IndexUnreadable
+export type DetachRefusalReason = 'orphan-block' | 'record-version' | 'record-ahead' | 'hook-record' | 'separator' | 'separator-mismatch' | 'changed' | 'settings-unreadable' | 'original-copy' | 'factory-kept-alive' | IndexUnreadable
 
 export interface DetachResult {
   status: 'done' | 'nothing-attached' | 'refused'
@@ -42,6 +43,7 @@ const REFUSAL_LINE: Record<DetachRefusalReason, (lore: Lore, paths: string[]) =>
   'hook-record': lore => lore.detachRefusedHookRecord,
   'settings-unreadable': lore => lore.detachRefusedSettingsUnreadable,
   'original-copy': lore => lore.detachRefusedOriginalCopy,
+  'factory-kept-alive': lore => lore.detachRefusedFactoryKeptAlive,
   'separator': lore => lore.detachRefusedSeparator,
   'separator-mismatch': lore => lore.detachRefusedSeparatorMismatch,
   'changed': (lore, paths) => lore.detachRefusedChanged(paths.length),
@@ -109,6 +111,9 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   const kept = original == null ? null : checkOriginal(original)
   if (original != null && kept?.kind !== 'matched')
     return refused(ui, 'original-copy', [original.copy])
+  const keptAlive = keepAliveNaming(record.factoryBeside)
+  if (keptAlive.length > 0)
+    return refused(ui, 'factory-kept-alive', keptAlive.map(ui.lore.detachFactoryKeepAlive))
   const runtime = classifyRuntime(record, reading.tracked, readRuntimeListing(root))
 
   const entryLabel = ui.lore.detachSettingsEntry
@@ -119,8 +124,10 @@ export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
   if (original != null)
     dropOriginal(original.copy)
   closeRecord(root, record, exclude)
-  const removed = settingsDeleted ? [SETTINGS_FILE, ...removal.removed] : removal.removed
-  const { leftBehind } = removal
+  const factory = removeFactoryBeside(record.factoryBeside)
+  const engram = removeEngram(root)
+  const removed = [...(settingsDeleted ? [SETTINGS_FILE] : []), ...removal.removed, ...factory, ...engram.removed]
+  const leftBehind = [...removal.leftBehind, ...engram.leftBehind]
   for (const target of removed)
     ui.line(`  ${ui.theme.dim('-')} ${target}`)
   if (entryCutOut)

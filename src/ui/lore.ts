@@ -207,7 +207,6 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachConfirm: string
   attachRefusedNoGit: string
   attachRefusedLinkedGit: string
-  attachRefusedConstructed: string
   attachRefusedAttached: string
   attachRefusedNothingToAttach: string
   attachRefusedCollision: (paths: string[]) => string
@@ -230,6 +229,8 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachTrailer: (version: string) => string
   attachPullRequest: (version: string) => string
   attachThen: string
+  attachItsConstructCarries: (count: number) => string
+  attachFactoryBeside: (home: string) => string
   attachDetach: string
   attachGuard: string
   attachLedgerExcluded: string
@@ -242,6 +243,8 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   detachRefusedHookRecord: string
   detachRefusedSettingsUnreadable: string
   detachRefusedOriginalCopy: string
+  detachRefusedFactoryKeptAlive: string
+  detachFactoryKeepAlive: (plist: string) => string
   detachSettingsEntry: string
   detachEntryRemoved: (file: string) => string
   detachOriginalRestored: (file: string) => string
@@ -579,7 +582,6 @@ export const LORE: Lore = {
   attachConfirm: 'Jack in?',
   attachRefusedNoGit: 'BREACH FAILED // NO NET: not a git repository',
   attachRefusedLinkedGit: 'BREACH FAILED // LINKED NET: .git is a file',
-  attachRefusedConstructed: 'BREACH FAILED // ALREADY CONSTRUCTED: construct.json is here',
   attachRefusedAttached: 'BREACH FAILED // ALREADY ATTACHED: .construct/attach.json is here; run construct detach first',
   attachRefusedNothingToAttach: 'BREACH FAILED // NO TARGET: nothing here to jack into',
   attachRefusedCollision: (paths: string[]) => `BREACH FAILED // COLLISION: ${paths.length} path${paths.length === 1 ? '' : 's'} already exist${paths.length === 1 ? 's' : ''}`,
@@ -643,6 +645,8 @@ export const LORE: Lore = {
   attachTrailer: (version: string) => `Attached-Construct: mikoshi-construct@${version}`,
   attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
   attachThen: 'claude \u2192 /plan <feature>',
+  attachItsConstructCarries: (count: number) => `${count} carrier${count === 1 ? '' : 's'} this repository's own construct already tracks stay${count === 1 ? 's' : ''} its own: not written, not recorded, not touched by detach.`,
+  attachFactoryBeside: (home: string) => `${home} \u2014 the factory's place beside this repository; run construct-factory here to start it; stop the factory before construct detach, which removes it`,
   attachDetach: 'construct detach',
   attachGuard: 'the agent is refused git commit, push, merge, rebase and tag here; construct detach removes the guard',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
@@ -654,6 +658,8 @@ export const LORE: Lore = {
   detachRefusedChanged: (count: number) => `BREACH FAILED // CARRIER REWRITTEN: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record`,
   detachRefusedHookRecord: 'BREACH FAILED // HOOK RECORD UNREADABLE: settingsHook in .construct/attach.json is missing or does not name .claude/settings.local.json, so what attach put there cannot be told; nothing was removed',
   detachRefusedSettingsUnreadable: 'BREACH FAILED // SETTINGS UNREADABLE: .claude/settings.local.json no longer parses as a settings file, so the guard entry cannot be taken out of it; nothing was removed',
+  detachRefusedFactoryKeptAlive: 'BREACH FAILED // FACTORY KEPT ALIVE: a keep-alive still names the factory beside this repository and would raise it again; unload and delete it, then run construct detach again; nothing was removed',
+  detachFactoryKeepAlive: (plist: string) => `keep-alive ${plist}: launchctl bootout gui/$(id -u) ${plist}, then delete the file`,
   detachRefusedOriginalCopy: 'BREACH FAILED // PRE-IMAGE LOST: the copy of .claude/settings.local.json that attach kept is missing, is not the file attach read, or is not where attach keeps it; nothing was changed, the copy stays as the witness',
   detachSettingsEntry: '.claude/settings.local.json commit guard entry',
   detachEntryRemoved: (file: string) => `guard entry cut out of ${file}; the file stays`,
@@ -970,7 +976,6 @@ export const PLAIN_LORE: Lore = {
   attachConfirm: 'Attach these files?',
   attachRefusedNoGit: 'Refused: not a git repository.',
   attachRefusedLinkedGit: 'Refused: .git is a file (worktree or submodule); attach needs the .git directory.',
-  attachRefusedConstructed: 'Refused: this repository already carries a construct; use init or sync.',
   attachRefusedAttached: 'Refused: this repository is already attached (.construct/attach.json is here); run `construct detach` first.',
   attachRefusedNothingToAttach: 'Refused: this repository holds nothing to attach to.',
   attachRefusedCollision: (paths: string[]) => `Refused: ${paths.length} path${paths.length === 1 ? '' : 's'} attach would create already exist${paths.length === 1 ? 's' : ''}:`,
@@ -1034,6 +1039,8 @@ export const PLAIN_LORE: Lore = {
   attachTrailer: (version: string) => `Attached-Construct: mikoshi-construct@${version}`,
   attachPullRequest: (version: string) => `This work was done under mikoshi-construct attach v${version}: the agent commands were attached temporarily and left no tracked change.`,
   attachThen: 'claude \u2192 /plan <feature>',
+  attachItsConstructCarries: (count: number) => `${count} carrier${count === 1 ? '' : 's'} this repository's own construct already tracks stay${count === 1 ? 's' : ''} its own: not written, not recorded, not touched by detach.`,
+  attachFactoryBeside: (home: string) => `${home} \u2014 the factory's place beside this repository; run construct-factory here to start it; stop the factory before construct detach, which removes it`,
   attachDetach: 'construct detach',
   attachGuard: 'the agent is refused git commit, push, merge, rebase and tag here; construct detach removes the guard.',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
@@ -1045,6 +1052,8 @@ export const PLAIN_LORE: Lore = {
   detachRefusedChanged: (count: number) => `Refused: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record; nothing was removed:`,
   detachRefusedHookRecord: 'Refused: settingsHook in .construct/attach.json is missing or does not name .claude/settings.local.json, so what attach put there cannot be told; nothing was removed.',
   detachRefusedSettingsUnreadable: 'Refused: .claude/settings.local.json no longer parses as a settings file, so the guard entry cannot be taken out of it; nothing was removed.',
+  detachRefusedFactoryKeptAlive: 'Refused: a keep-alive still names the factory beside this repository, and launchd would raise the factory into its place again after detach removed it; unload and delete it, then run `construct detach` again. Nothing was removed:',
+  detachFactoryKeepAlive: (plist: string) => `keep-alive ${plist}: launchctl bootout gui/$(id -u) ${plist}, then delete the file`,
   detachRefusedOriginalCopy: 'Refused: the copy of .claude/settings.local.json that attach kept is missing, is not the file attach read, or is not where attach keeps copies, so the original bytes cannot be restored; nothing was changed and the copy stays as it is:',
   detachSettingsEntry: '.claude/settings.local.json commit guard entry',
   detachEntryRemoved: (file: string) => `removed the commit guard entry from ${file}; the file stays.`,
