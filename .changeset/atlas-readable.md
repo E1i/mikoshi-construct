@@ -1,5 +1,0 @@
----
-"mikoshi-construct": minor
----
-
-cli: a `construct atlas` source link opens in an editor or on the remote instead of as a raw file. Set `"atlas": { "open": "vscode" }` in `construct.json` (or `cursor`, `zed`, `idea`, or a template such as `vscode://file/{abs}:{line}`) and the map opens each file at its line in that editor; the absolute root is worked out in the browser from where the page lies, so no path of the machine is written into the page. Without a template, a GitHub or GitLab remote gives `{remote}/blob/{sha}/{path}#L{line}`, read from the repository's git files with no `git` process; with neither, the link stays relative as before. The docs page opens with a summary of parts and bound files, shows each part in order with what it does, its links and its code folded as a folder tree, and folds the code no part claims into a folder tree with the one command that binds it, `/construct-discover`. With no part in the Engram yet, the docs page builds its parts from the packages and directories the code declares; with no model at all it says so and names the command that starts one
