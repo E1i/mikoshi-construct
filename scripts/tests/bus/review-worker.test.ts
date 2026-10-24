@@ -20,6 +20,7 @@ import { importJournal } from '../../bus/import.js'
 import { ownerInbox } from '../../bus/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, RENEW_MS, renewLease, StaleLease } from '../../bus/lease.js'
 import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
+import { keyOf, queueTaskWithin, reviewCandidates } from '../../bus/queue.js'
 import { authorSessions } from '../../bus/record-verdict.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
 import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
@@ -450,6 +451,35 @@ describe('review worker', () => {
     expect(prompts[0]).toContain(`<card>\n${card.trimEnd()}\n</card>`)
     expect(prompts[0]).toContain('do not read the card from GitHub')
     expect(prompts[0]).not.toContain('pull request description')
+    db.close()
+  })
+
+  it('a review prompt carries the card body its task key names', async () => {
+    const { db, gitHub, clock, tick, worker } = setUp()
+    const older = '#1067 a-card-amended [implement/netwatch/S/cheap/auto] · depends — · blocks —\n\nThe body before the amend.\n'
+    const newer = '#1067 a-card-amended [implement/netwatch/S/cheap/auto] · depends — · blocks —\n\nThe body after the amend.\n'
+    const admit = (text: string, bodySha: string): void => {
+      appendEvent(db, { ts: clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 1067, pr: null, head: null, dedupeKey: `admitted-1067-${bodySha}`, payload: { card: 1067, lane: 'lane-1', text, textSha: textSha(text), bodySha }, legacy: false })
+    }
+    admit(older, 'aaaa1111bbbb2222')
+    gitHub.open({ number: 967 })
+    tick()
+    admit(newer, 'cccc3333dddd4444')
+    const ts = clock.now().toISOString()
+    const amended = reviewCandidates(db, ts).find(candidate => candidate.pr === 967)!
+    queueTaskWithin(db, ts, amended)
+    const prompts: string[] = []
+    const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-keyed-card'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {
+      prompts.push(params.prompt)
+      throw new Error('stop after the spawn')
+    })
+
+    await worker(reviewer).stepOn(keyOf(amended))
+
+    expect(keyOf(amended)).toMatch(/:card-body-cccc3333dddd4444$/)
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain(`<card>\n${newer.trimEnd()}\n</card>`)
+    expect(prompts[0]).not.toContain('The body before the amend.')
     db.close()
   })
 
