@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
@@ -21,6 +21,7 @@ const roots: string[] = []
 const groups: number[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const pgid of groups.splice(0)) {
     try {
       process.kill(-pgid, 'SIGKILL')
@@ -103,6 +104,7 @@ function launchWorld(claudeExit: number, report = '') {
   const claude = script(path.join(root, 'claude-stub.sh'), `#!/bin/sh\ncat > /dev/null\nprintf 'green\\n' > x.txt\n${writeReport}exit ${claudeExit}\n`)
 
   const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'shift', 'tree-pr-cli.ts'))}`
+  vi.stubEnv(BUS_DB_VARIABLE, busPath)
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, [BUS_DB_VARIABLE]: busPath }
   const starter = new ShiftCardStarter(
     { launchDir, claude, treePr },
