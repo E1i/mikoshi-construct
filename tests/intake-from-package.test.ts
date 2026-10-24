@@ -19,6 +19,7 @@ const PACKED_BESIDE_THE_BUILD = ['package.json', 'README.md', 'LICENSE', 'templa
 const PACK_TIMEOUT_MS = 300_000
 const STARTED_WITHIN_MS = 60_000
 const SYSTEM_BIN_DIRS = ['/usr/bin', '/bin', '/usr/sbin', '/sbin']
+const LINUX_SANDBOX_BINS = ['bwrap', 'socat']
 const CARD_ID = 1
 const DRAFT = { cards: [{ name: 'open-question', kind: 'implement', milestone: 'netwatch', size: 'S', contour: 'cheap', decision: 'auto', touches: ['architecture/open-questions.md'], task: 'Add one open question to architecture/open-questions.md.', witnesses: ['`grep -q probe architecture/open-questions.md` exits 0'] }] }
 
@@ -100,6 +101,8 @@ beforeAll(async () => {
   writeFileSync(path.join(home, '.claude', 'settings.json'), `${JSON.stringify({ sandbox: { enabled: true } })}\n`)
   stub(bin, 'claude', `printf '%s\\t%s\\n' "$PWD" "$*" >> '${calls}'`)
   stub(bin, 'pnpm', 'exit 0')
+  for (const name of LINUX_SANDBOX_BINS)
+    stub(bin, name, 'exit 0')
   stub(bin, 'ps', 'while [ $# -gt 0 ]; do [ "$1" = -p ] && { echo "$2"; exit 0; }; shift; done; exit 0')
   const bus = path.join(root, 'bus.db')
   const env = { PATH: [bin, path.join(prefix, 'bin'), path.dirname(process.execPath), ...SYSTEM_BIN_DIRS].join(path.delimiter), HOME: home, CONSTRUCT_BUS_DB: bus, CONSTRUCT_WORKTREE_HOME: path.join(root, 'worktrees') }

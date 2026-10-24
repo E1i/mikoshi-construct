@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { runCli } from './cli-process.js'
 
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
@@ -164,19 +164,14 @@ describe.concurrent('every command exits with the code it exits with today, as a
     expect(await run(w, 'soulkill', '--json')).toBe(0)
   })
 
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
   it('intake: written 0, dry run 0, refused 1, awaiting confirmation 2, waiting on a depends 3', async () => {
     const w = world()
     const draft = path.join(w.home, 'draft.json')
     const taken = path.join(w.home, 'taken.txt')
     const parking = path.join(w.home, 'parking')
-    vi.stubEnv('CONSTRUCT_BUS_DB', path.join(w.home, 'no-bus.db'))
     writeFileSync(draft, JSON.stringify({ cards: [{ name: 'one-card', kind: 'implement', milestone: 'runner', size: 'S', who: 'shift', touches: ['src/a.ts'], task: 'Do one thing.', witnesses: ['it is done'] }] }))
     writeFileSync(taken, '1 2\n')
-    const intake = async (...args: string[]): Promise<number | null> => (await runCli(['intake', '--parking', parking, ...args], w.home)).status
+    const intake = async (...args: string[]): Promise<number | null> => (await runCli(['intake', '--parking', parking, ...args], w.home, { CONSTRUCT_BUS_DB: path.join(w.home, 'no-bus.db') })).status
     expect(await intake('--draft', draft, '--taken', taken, '--dryRun')).toBe(0)
     expect(await intake('--draft', draft, '--taken', taken)).toBe(0)
     expect(await intake('--draft', draft)).toBe(1)
