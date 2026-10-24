@@ -26,6 +26,7 @@
   ],
   "bin": {
     "construct": "dist/cli.js",
+    "construct-factory": "dist/scripts/bus/start.js",
     "miko": "dist/cli.js",
     "mikoshi-construct": "dist/cli.js"
   },
@@ -75,6 +76,7 @@
     "docs:pending": "node --import tsx scripts/docs/build-pending.ts",
     "docs:preview": "vitepress preview docs",
     "done:check": "node --import tsx scripts/done/check.ts",
+    "factory:start": "node --import tsx scripts/bus/start.ts",
     "ghosts:cleanup": "node --import tsx scripts/ghosts/cleanup.ts",
     "ghosts:expect-sample": "node --import tsx scripts/ghosts/expect-sample.ts",
     "task:close": "node --import tsx scripts/ghosts/task-close.ts",

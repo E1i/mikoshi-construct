@@ -2,6 +2,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { STAMP_ENV } from './stamp.js'
 
 export const PREFIX = '[bus:bg] '
@@ -10,6 +11,11 @@ export const START_LOCK = 'bus-bg.lock'
 export const START_LOCK_LIMIT_MS = 10 * 60 * 1000
 export const RUN_SCRIPT = 'bus:run'
 export const BUS_RUN_MARKERS = ['scripts/bus/run.ts', `--silent ${RUN_SCRIPT}`] as const
+export const BUILD_DIR = 'dist'
+export const BUILT_MODULE = '.js'
+
+const FACTORY_SCRIPT = /^node --import tsx (scripts\/[\w/-]+)\.ts(?:\s|$)/
+const SOURCE_MARKER = /^(scripts\/[\w/-]+)\.ts(?=\s|$)/
 
 export interface BgResult {
   stdout: string[]
@@ -45,8 +51,26 @@ export const BUS_RUN_LAUNCH: DetachedLaunch = {
   log: SHADOW_LOG,
 }
 
-export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH): string[] {
-  return ['nohup', 'pnpm', '--silent', launch.script, ...launch.args]
+export function installedPackage(moduleUrl: string = import.meta.url): string | null {
+  return moduleUrl.endsWith(BUILT_MODULE) ? fileURLToPath(new URL('../../../', moduleUrl)) : null
+}
+
+export function builtEntryOf(root: string, script: string): string {
+  const scripts = (JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }).scripts ?? {}
+  const source = FACTORY_SCRIPT.exec(scripts[script] ?? '')?.[1]
+  if (source === undefined)
+    throw new Error(`${PREFIX}the package.json of ${root} names no factory entry for ${script}`)
+  return path.join(root, BUILD_DIR, `${source}${BUILT_MODULE}`)
+}
+
+export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH, installed: string | null = installedPackage()): string[] {
+  if (installed === null)
+    return ['nohup', 'pnpm', '--silent', launch.script, ...launch.args]
+  return ['nohup', process.execPath, builtEntryOf(installed, launch.script), ...launch.args]
+}
+
+export function carriesMarker(args: string, markers: readonly string[]): boolean {
+  return markers.some(marker => args.includes(marker) || args.includes(marker.replace(SOURCE_MARKER, `$1${BUILT_MODULE}`)))
 }
 
 export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
@@ -59,7 +83,7 @@ export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
 }
 
 export function runningInstance(processes: RunningProcess[], markers: readonly string[]): RunningProcess | undefined {
-  return processes.find(candidate => candidate.pid !== process.pid && markers.some(marker => candidate.args.includes(marker)))
+  return processes.find(candidate => candidate.pid !== process.pid && carriesMarker(candidate.args, markers))
 }
 
 export function runningBus(processes: RunningProcess[]): RunningProcess | undefined {
@@ -143,7 +167,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
         return { stdout: [], stderr: [`${prefix}${command} did not start`], exitCode: 1 }
       if (launch.instanceFile !== undefined)
         writeFileSync(path.join(busDir, launch.instanceFile), `${child.pid}\n`)
-      return { stdout: [String(child.pid), `${prefix}pnpm ${[script, ...launch.args].join(' ')} · log ${log}`], stderr: [], exitCode: 0 }
+      return { stdout: [String(child.pid), `${prefix}${args.join(' ')} · log ${log}`], stderr: [], exitCode: 0 }
     }
     finally {
       closeSync(fd)

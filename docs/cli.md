@@ -2060,6 +2060,37 @@ the move still holds; a card none of whose admissions carries a `bodySha` is not
 One refused card refuses the whole draft and nothing is written. Exit `0` when the cards were written
 or printed, `1` when the draft was refused, `2` when corrections wait for a person's confirmation.
 
+## construct-factory
+
+A bin of its own beside `construct`, not a subcommand: the CLI starts no process, and this command
+is the factory's entry, `dist/scripts/bus/start.js`. Run it in the root of your repository.
+
+```bash
+construct-factory
+```
+
+It starts the factory in the background: `bus:run` and the workers switched on in
+`~/.construct/bus/workers.json`, each as `node` on its built file in the installed package, and the
+supervisor that keeps them running, each detached so it survives closing the terminal. A process
+already running is left alone, so a second run starts nothing twice. Logs go to
+`~/.construct/bus/`.
+
+Then it installs the keep-alive. On macOS that is a launchd agent,
+`dev.mikoshi.factory.<repository>-<hash>.plist` in the `Library/LaunchAgents` of your home, loaded into your login
+session with `launchctl bootstrap`: it runs the factory starter in your repository with the `PATH`
+of the shell you ran the command from, at login and within 20 s of the starter exiting. An agent
+already installed with the same content and loaded is left as it is. Elsewhere no agent is installed,
+and after a restart of the machine you run `construct-factory` again. In the checkout of
+mikoshi-construct itself no agent is installed: its keep-alive is the agent
+`scripts/bus/launchd/dev.mikoshi.bus.plist`, which its owner installs by hand. From that checkout
+the same command is `pnpm factory:start`, and it starts each process as `pnpm --silent <script>`.
+
+To remove the agent: `launchctl bootout gui/$(id -u)/<label>` and delete its file.
+
+Exit `0` when the factory was started or was already running and the keep-alive is in place or does
+not apply; `1` when a process did not start or `launchctl` refused the agent, naming which; `2` when
+an argument was given.
+
 ## Exit codes
 
 | Code | Meaning |
