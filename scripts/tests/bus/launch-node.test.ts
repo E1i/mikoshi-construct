@@ -550,6 +550,24 @@ describe('the launch node', () => {
     expect(taskState(made.db, launchKey(1302))).toMatchObject({ state: 'queued' })
   })
 
+  it('a requeue the bus rejects is answered as refused, not done', async () => {
+    const made = bench()
+    admit(made, 1303, 'lane-a')
+    made.tick()
+    await once(new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed }))
+    made.tick()
+    expect(taskState(made.db, launchKey(1303))).toMatchObject({ state: 'completed' })
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: BOARD_ALARM, actor: 'policy', cardId: 1303, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:by-hand-1303`, payload: { task_key: launchKey(1303), reason: 'fault', detail: 'by hand' }, legacy: false })
+    const refuse = (): never => {
+      throw new Error('a requeue of a launch uses no tree tool')
+    }
+    requestFromWindow(made.db, made.clock.now().toISOString(), 'test', { kind: 'requeue', task_key: launchKey(1303) })
+    const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }
+    expect(new WindowRequests(made.db, made.clock.now, tools).run()).toMatchObject([{ kind: 'refused', detail: `${launchKey(1303)} stays completed: the bus rejected its task.requeued` }])
+    made.tick()
+    expect(taskState(made.db, launchKey(1303))).toMatchObject({ state: 'completed' })
+  })
+
   async function endedWithReport(cardId: number, report: string): Promise<{ made: MergeBench, node: ProbedLaunchNode }> {
     const made = bench()
     admit(made, cardId, 'lane-a')
