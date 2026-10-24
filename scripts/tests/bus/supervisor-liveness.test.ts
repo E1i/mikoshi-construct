@@ -1183,6 +1183,36 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     db.close()
   })
 
+  it('a new life is not judged silent by the last beat of the previous one', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-new-life-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const cardId = 1273
+    const NEW_LIFE_MS = 382 * 60_000
+    const started = (ms: number, session: string): void => {
+      appendEvent(db, { ts: at(ms), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${session}`, payload: { session, worktree: root, branch: `feat/card-${cardId}`, base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
+    }
+    appendEvent(db, { ts: at(0), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { card: `#${cardId} part [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
+    started(0, 's-old')
+    recordHeartbeat(db, at(0), { card: cardId, pr: null, head: null, step: 'launch', session: 's-old', lease: null })
+    started(NEW_LIFE_MS, 's-new')
+    reduce(db)
+    expect(db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId)).toEqual({ state: RUNNING_CARD })
+    const clock = { now: BEAT_AT + NEW_LIFE_MS + 10_000 }
+    const judge = new LivenessJudge(db, () => clock.now, () => expectedRunning(db, []))
+
+    expect(await judge.step()).toEqual([])
+    recordHeartbeat(db, at(NEW_LIFE_MS + 20_000), { card: cardId, pr: null, head: null, step: 'launch', session: 's-new', lease: null })
+    clock.now = BEAT_AT + NEW_LIFE_MS + SILENT_MS
+    expect(await judge.step()).toEqual([])
+    expect(judgedRows(db)).toEqual([])
+
+    clock.now = BEAT_AT + NEW_LIFE_MS + 20_000 + SILENT_MS + 1
+    await judge.step()
+    expect(judgedRows(db).map(row => row.payload.last_beat)).toEqual([at(NEW_LIFE_MS + 20_000)])
+    db.close()
+  })
+
   it('a process that beats again and falls silent a second time gets a second process.judged row', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-twice-'))
     roots.push(root)
