@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendBlock, appendBlockWith, discoveryTags, mergeJson, preserveDiscovery, removeBlock, strategyFor, substituteBlock } from '../src/materialize/strategies.js'
+import { appendBlock, appendBlockWith, discoveryTags, mergeHookSettings, mergeJson, preserveDiscovery, removeBlock, strategyFor, substituteBlock } from '../src/materialize/strategies.js'
 
 describe('strategyFor', () => {
   it('routes manifests, agent files and gitignore to their strategies', () => {
@@ -7,6 +7,42 @@ describe('strategyFor', () => {
     expect(strategyFor('CLAUDE.md')).toBe('append-block')
     expect(strategyFor('.gitignore')).toBe('append-block')
     expect(strategyFor('src/app.ts')).toBe('create')
+  })
+
+  it('merges hooks only into the Claude Code project settings, not any settings.json', () => {
+    expect(strategyFor('.claude/settings.json')).toBe('merge-hooks')
+    expect(strategyFor('.vscode/settings.json')).toBe('create')
+    expect(strategyFor('.claude/settings.local.json')).toBe('create')
+  })
+})
+
+describe('mergeHookSettings', () => {
+  const stop = { hooks: [{ type: 'command', command: 'node hook.mjs stop' }] }
+  const incoming = JSON.stringify({ hooks: { Stop: [stop] } })
+
+  it('appends an entry after the repository\'s own entries for the same event and keeps every other key', () => {
+    const own = { model: 'x', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo own' }] }] } }
+    expect(JSON.parse(mergeHookSettings(JSON.stringify(own), incoming)!)).toEqual({ model: 'x', hooks: { Stop: [own.hooks.Stop[0], stop] } })
+  })
+
+  it('creates the hooks object when the settings have none', () => {
+    expect(JSON.parse(mergeHookSettings('{"model":"x"}', incoming)!)).toEqual({ model: 'x', hooks: { Stop: [stop] } })
+  })
+
+  it('does not add an entry whose commands are already there', () => {
+    const merged = mergeHookSettings(incoming, incoming)!
+    expect(JSON.parse(merged)).toEqual({ hooks: { Stop: [stop] } })
+  })
+
+  it('adds an entry when the present entries carry only some of its commands', () => {
+    const pair = { hooks: [{ type: 'command', command: 'node hook.mjs stop' }, { type: 'command', command: 'node hook.mjs journal' }] }
+    const merged = mergeHookSettings(incoming, JSON.stringify({ hooks: { Stop: [pair] } }))!
+    expect(JSON.parse(merged)).toEqual({ hooks: { Stop: [stop, pair] } })
+  })
+
+  it('refuses settings that are not JSON, not an object, or carry hooks of another shape', () => {
+    for (const existing of ['{ nope', '[]', '{"hooks":[]}', '{"hooks":{"Stop":{}}}'])
+      expect(mergeHookSettings(existing, incoming), existing).toBeNull()
   })
 })
 
