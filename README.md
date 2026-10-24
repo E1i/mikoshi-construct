@@ -163,6 +163,7 @@ with a named check, not a second fix.
 | `construct mutate` | Apply a brief's named wrong implementation (`mutate apply --from <file> --id <id>`), then restore it from its copy and judge the Vitest report the runner hands over (`mutate judge --id <id> --report <file>`); runs no test itself |
 | `construct say` | The owner's words into `~/.construct-owner/answers/`, the one channel the factory accepts an owner decision from; run by the owner, outside any agent sandbox |
 | `construct-factory` | Its own bin: starts the factory (the bus and its supervisor) in the background for the repository it runs in, from the installed package, and on macOS installs a launchd agent that keeps it alive |
+| `construct-intake` | Its own bin: `construct intake` with every admit, slice and move recorded on the repository's bus, from the installed package; with a bus present, `construct intake` refuses to park and names it |
 | `construct intake` | Turn the cards the `intake` skill sliced from a retelling into parking cards: the next free numbers, unclear fields marked, every card checked by the parking grammar before it is written (`--draft`, `--taken`, `--parking`, `--dry-run`) |
 
 `--plain` turns off colours and lore for CI. `--johnny` — wake up, Netrunner. The full reference,

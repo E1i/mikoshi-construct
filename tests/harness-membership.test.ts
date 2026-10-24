@@ -44,7 +44,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'task:start': 'cuts a task\'s worktree from its card and writes its journal start line when run by hand; its own tests are its gate',
   'task:close': 'appends a task\'s closing journal line when run by hand; its own tests are its gate',
   'shard': 'appends the owner\'s shard line to the journal when run by hand; its own tests are its gate',
-  'intake': 'construct intake with its card events written to the bus when run by hand; its own tests are its gate',
+  'intake': 'construct intake with its card events written to the bus when run by hand, as construct-intake does from the package; its own tests and tests/intake-from-package.test.ts are its gate',
   'mutate': 'construct mutate with its mutation-judged line written to the bus when run by hand; its own tests are its gate',
   'handoff:check': 'a hand-run check of a handoff file; its own tests are its gate',
   'handoff:write': 'the only writer of a handoff file, run by hand or by a session; its own tests are its gate',
