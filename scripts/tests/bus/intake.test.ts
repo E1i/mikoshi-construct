@@ -1,8 +1,11 @@
 import type { CardEvent } from '../../../src/commands/intake/index.js'
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { runMain } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
@@ -15,6 +18,7 @@ import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
 import { importJournalFile } from '../../bus/import.js'
 import { busCardEvents, busIntakePorts, parkedCardNumbers } from '../../bus/intake.js'
 import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
+import { busPathOf, ForeignBusRefused, machineBusPath, repoHome, repoIdOf } from '../../core/bus-path.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, FACTORY_MODE, LANE_ASSIGNED } from '../../core/events.js'
 
 const NOW = new Date('2026-10-12T16:00:00.000Z')
@@ -477,5 +481,34 @@ describe('the numbers parked cards hold', () => {
 
     expect(parkedCardNumbers(parking)().sort((a, b) => a - b)).toEqual([90, 1300])
     expect(() => parkedCardNumbers(path.join(parking, 'missing'))()).toThrow('cannot be read, so no card number is allocated')
+  })
+})
+
+describe('the bus the built intake opens', () => {
+  const INTAKE = fileURLToPath(new URL('../../bus/intake.ts', import.meta.url))
+
+  function repositoryWorld(): World {
+    const w = world()
+    mkdirSync(path.join(w.repo, '.git'))
+    return w
+  }
+
+  it('intake refuses a bus path of another repository with a reason, and opens no bus there', () => {
+    const w = repositoryWorld()
+    const home = path.join(w.root, 'home')
+    const foreign = path.join(home, '.construct', 'other--repository', 'bus.db')
+    const run = spawnSync(process.execPath, ['--import', import.meta.resolve('tsx'), INTAKE, '--admit', park(w, 'lane-1')], { cwd: w.repo, encoding: 'utf8', env: { ...process.env, HOME: home, [BUS_DB_VARIABLE]: foreign } })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain(`Refused: ${BUS_DB_VARIABLE} names ${foreign}, the bus of another repository`)
+    expect(existsSync(foreign)).toBe(false)
+  })
+
+  it('takes a named bus outside the construct home, the machine bus and the repository\'s own bus', () => {
+    const w = repositoryWorld()
+    const home = path.join(w.root, 'home')
+    const own = path.join(repoHome(home, repoIdOf(w.repo)), 'bus.db')
+    for (const named of [w.bus, machineBusPath(home), own])
+      expect(busPathOf({ [BUS_DB_VARIABLE]: named }, home, w.repo)).toBe(named)
+    expect(() => busPathOf({ [BUS_DB_VARIABLE]: path.join(home, '.construct', 'other--repository', 'bus.db') }, home, w.repo)).toThrow(ForeignBusRefused)
   })
 })

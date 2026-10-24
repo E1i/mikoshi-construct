@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import process from 'node:process'
+import { BUS_DB_VARIABLE } from '../core/bus-path.js'
 
 export const REVIEW_PERMISSION_MODE = 'auto'
 
@@ -77,8 +78,11 @@ export function withoutCard(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 export function sessionEnv(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv {
-  const env = { ...witnessEnv(base), CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }
-  return card === undefined ? env : { ...env, [CARD_VARIABLE]: String(card) }
+  const env: NodeJS.ProcessEnv = { ...witnessEnv(base), CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }
+  if (card === undefined)
+    return env
+  const { [BUS_DB_VARIABLE]: _ownersBus, ...cardEnv } = env
+  return { ...cardEnv, [CARD_VARIABLE]: String(card) }
 }
 
 export interface SpawnSessionParams {

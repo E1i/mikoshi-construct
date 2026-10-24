@@ -16,6 +16,7 @@ import { parkingTree } from '../../src/commands/intake/parking-tree.js'
 import { createMain } from '../../src/program.js'
 import { createUi } from '../../src/ui/console.js'
 import { resolveTheme } from '../../src/ui/theme.js'
+import { ForeignBusRefused } from '../core/bus-path.js'
 import { CARD_ADMITTED, CARD_MOVED } from '../core/events.js'
 import { busCardStates } from '../ghosts/tasks.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
@@ -161,8 +162,24 @@ export async function runBusIntake(db: DatabaseSync, argv: readonly string[], se
   await runMain(createMain(busIntakePorts(db, session)), { rawArgs: [INTAKE_SUBCOMMAND, ...argv] })
 }
 
+function intakeBusPath(): string | null {
+  try {
+    return defaultBusPath()
+  }
+  catch (error) {
+    if (!(error instanceof ForeignBusRefused))
+      throw error
+    process.stderr.write(`${error.message}\n`)
+    process.exitCode = 1
+    return null
+  }
+}
+
 async function main(): Promise<void> {
-  const db = openBus(defaultBusPath())
+  const busPath = intakeBusPath()
+  if (busPath === null)
+    return
+  const db = openBus(busPath)
   try {
     await runBusIntake(db, process.argv.slice(2), process.env[SESSION_VARIABLE] || undefined)
   }

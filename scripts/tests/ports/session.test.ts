@@ -62,6 +62,12 @@ describe('sessionEnv', () => {
   it('names the card in the session environment', () => {
     expect(sessionEnv({ PATH: '/bin' }, 629)).toEqual({ PATH: '/bin', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0', NO_COLOR: '1', CONSTRUCT_CARD: '629' })
   })
+
+  it('a card session starts without CONSTRUCT_BUS_DB, so it does not inherit the bus that launched it', () => {
+    const launcher = { PATH: '/bin', CONSTRUCT_BUS_DB: path.join(tmpdir(), 'launcher-bus', 'bus.db') }
+    expect(sessionEnv(launcher, 1295)).not.toHaveProperty('CONSTRUCT_BUS_DB')
+    expect(sessionEnv(launcher)).toHaveProperty('CONSTRUCT_BUS_DB', launcher.CONSTRUCT_BUS_DB)
+  })
 })
 
 describe('sessionEnv witness environment', () => {
