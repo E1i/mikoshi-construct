@@ -1,0 +1,102 @@
+import type { FactoryBeside } from '../attach/beside.js'
+import { existsSync, readdirSync, readFileSync, rmdirSync, rmSync } from 'node:fs'
+import { homedir } from 'node:os'
+import path from 'node:path'
+import { engramFile } from '../../model/discovery.js'
+
+const KEEP_ALIVE_DIR = path.join('Library', 'LaunchAgents')
+const KEEP_ALIVE_FILE = /\.plist$/
+
+function entriesOf(directory: string): string[] {
+  try {
+    return readdirSync(directory)
+  }
+  catch {
+    return []
+  }
+}
+
+function textOf(file: string): string | null {
+  try {
+    return readFileSync(file, 'utf8')
+  }
+  catch {
+    return null
+  }
+}
+
+export interface KeepAlive {
+  plist: string
+  unreadable: boolean
+}
+
+export function keepAlivesHolding(beside: FactoryBeside | undefined, home: string = homedir()): KeepAlive[] {
+  if (beside == null)
+    return []
+  const agents = path.join(home, KEEP_ALIVE_DIR)
+  return entriesOf(agents)
+    .filter(entry => KEEP_ALIVE_FILE.test(entry))
+    .map(entry => path.join(agents, entry))
+    .map(plist => ({ plist, text: textOf(plist) }))
+    .filter(({ text }) => text == null || text.includes(`${beside.home}${path.sep}`))
+    .map(({ plist, text }) => ({ plist, unreadable: text == null }))
+}
+
+function removeUpTo(directory: string, top: string): string[] {
+  const removed: string[] = []
+  let current = path.dirname(directory)
+  const stop = path.dirname(top)
+  while (current !== stop && (current === top || current.startsWith(`${top}${path.sep}`)) && existsSync(current) && readdirSync(current).length === 0) {
+    rmdirSync(current)
+    removed.push(current)
+    current = path.dirname(current)
+  }
+  return removed
+}
+
+export function removeFactoryBeside(beside: FactoryBeside | undefined): string[] {
+  if (beside == null || !existsSync(beside.home))
+    return []
+  rmSync(beside.home, { recursive: true })
+  return [beside.home, ...removeUpTo(beside.home, beside.createdFrom)]
+}
+
+export interface EngramRemoval {
+  removed: string[]
+  leftBehind: string[]
+}
+
+export function removeEngram(root: string, beside: FactoryBeside | undefined, home: string = homedir()): EngramRemoval {
+  const file = engramFile(root, { attached: true, home })
+  if (!existsSync(file))
+    return { removed: [], leftBehind: [] }
+  rmSync(file)
+  const directory = path.dirname(file)
+  const left = readdirSync(directory)
+  if (left.length > 0)
+    return { removed: [file], leftBehind: left.map(entry => path.join(directory, entry)) }
+  rmdirSync(directory)
+  const emptiedAbove = beside == null ? [] : removeUpTo(directory, beside.createdFrom)
+  return { removed: [file, directory, ...emptiedAbove], leftBehind: [] }
+}
+
+export interface BesideUnremovable {
+  unremovable: string
+}
+
+function failedPath(error: unknown, fallback: string): string {
+  if (error instanceof Error && 'path' in error && typeof error.path === 'string')
+    return 'code' in error && typeof error.code === 'string' ? `${error.path} (${error.code})` : error.path
+  return fallback
+}
+
+export function removeBeside(root: string, beside: FactoryBeside | undefined, home: string = homedir()): EngramRemoval | BesideUnremovable {
+  try {
+    const engram = removeEngram(root, beside, home)
+    const factory = removeFactoryBeside(beside)
+    return { removed: [...engram.removed, ...factory], leftBehind: engram.leftBehind }
+  }
+  catch (error) {
+    return { unremovable: failedPath(error, beside?.home ?? engramFile(root, { attached: true, home })) }
+  }
+}

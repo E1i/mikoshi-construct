@@ -53,7 +53,7 @@ export function runAtlas(options: AtlasOptions): AtlasWritten {
   const constructed = detectExisting(root).constructJson
   if (!constructed && !options.attached)
     throw new AtlasRefusedUnconstructed()
-  const engram = writeEngram(root, { attached: !constructed, home: options.home })
+  const engram = writeEngram(root, { attached: options.attached || !constructed, home: options.home })
   const model = readModel(path.dirname(engram))
   if (model == null)
     throw new Error(`${engram} was written and cannot be read back`)

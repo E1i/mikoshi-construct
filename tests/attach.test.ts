@@ -192,7 +192,6 @@ const REFUSALS: RefusalCase[] = [
     rmSync(path.join(dir, '.git'), { recursive: true })
     writeFileSync(path.join(dir, '.git'), 'gitdir: ../elsewhere/.git/worktrees/one\n')
   } },
-  { name: 'construct.json is here', refusal: 'constructed', reason: PLAIN_LORE.attachRefusedConstructed, arrange: dir => writeFileSync(path.join(dir, 'construct.json'), '{}\n') },
   { name: 'an empty directory', refusal: 'nothing-to-attach', reason: PLAIN_LORE.attachRefusedNothingToAttach, arrange: (dir) => {
     for (const entry of readdirSync(dir).filter(entry => entry !== '.git'))
       rmSync(path.join(dir, entry), { recursive: true })
@@ -225,7 +224,7 @@ const LEDGER_DIRECTORY_CASES: { name: string, arrange: (dir: string) => void, re
     writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{}\n')
     writeFileSync(path.join(dir, 'README.md'), '# only\n')
   } },
-  { name: 'construct.json beside an empty .construct/ and nothing else', refusal: 'constructed', arrange: (dir) => {
+  { name: 'construct.json beside an empty .construct/ and nothing else', refusal: undefined, arrange: (dir) => {
     mkdirSync(path.join(dir, '.construct'))
     writeFileSync(path.join(dir, 'construct.json'), '{}\n')
   } },
@@ -286,7 +285,7 @@ const ATTACHED_RECORD_CASES: { name: string, arrange: (dir: string) => Promise<v
     mkdirSync(path.join(dir, '.construct'))
     writeFileSync(path.join(dir, ATTACH_RECORD_FILE), '{}\n')
   } },
-  { name: 'the record and construct.json', refusal: 'constructed', arrange: async (dir) => {
+  { name: 'the record and construct.json', refusal: 'attached', arrange: async (dir) => {
     await attachedAlready(dir, true)
     writeFileSync(path.join(dir, 'construct.json'), '{}\n')
   } },

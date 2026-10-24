@@ -98,7 +98,7 @@ export function statusFields(status: StepStatus): Record<string, string> {
   return { state: status.state, context: STATUS_CONTEXT, description: `${STATUS_CONTEXT}: ${status.step}` }
 }
 
-const STEPS_AFTER = `SELECT id, type, pr, head, payload FROM events WHERE legacy = 0 AND id > ? AND type IN (${STEP_EVENTS.map(() => '?').join(', ')}) ORDER BY id`
+const NEXT_STEP_AFTER = `SELECT id, type, pr, head, payload FROM events WHERE legacy = 0 AND id > ? AND type IN (${STEP_EVENTS.map(() => '?').join(', ')}) ORDER BY id LIMIT 1`
 const OPEN_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open'`
 
 function cursorOf(db: DatabaseSync): number {
@@ -116,9 +116,8 @@ function isOnOpenHead(db: DatabaseSync, status: StepStatus): boolean {
 
 export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[] {
   const set: StepStatus[] = []
-  for (const event of db.prepare(STEPS_AFTER).iterate(cursorOf(db), ...STEP_EVENTS) as Iterable<StepEvent>) {
-    if (set.length >= batch)
-      break
+  const nextStep = db.prepare(NEXT_STEP_AFTER)
+  for (let event = nextStep.get(cursorOf(db), ...STEP_EVENTS) as StepEvent | undefined; event !== undefined && set.length < batch; event = nextStep.get(event.id, ...STEP_EVENTS) as StepEvent | undefined) {
     const status = stepStatusOf(withPrHead(db, event))
     if (status === null || !isOnOpenHead(db, status)) {
       moveCursor(db, event.id)

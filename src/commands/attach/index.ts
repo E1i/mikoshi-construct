@@ -12,7 +12,9 @@ import { DEFAULT_LANES, sha256 } from '../../manifest.js'
 import { AI_TARGETS } from '../../presets/index.js'
 import { parseLaneCount } from '../../ui/prompts.js'
 import { VERSION } from '../../version.js'
+import { deployFactoryBeside } from './beside.js'
 import { browserEntriesHeldAtAttach, directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
+import { carriersItsConstructTracks } from './constructed.js'
 import { writeExcludeBlock } from './exclude.js'
 import { fileEditingMarks, harnessCandidates, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
@@ -59,7 +61,6 @@ export const ATTACH_EXIT: Record<AttachResult['status'], number> = {
 const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefusal) => string | Notice> = {
   'no-git': lore => lore.attachRefusedNoGit,
   'linked-git': lore => lore.attachRefusedLinkedGit,
-  'constructed': lore => lore.attachRefusedConstructed,
   'attached': lore => lore.attachRefusedAttached,
   'nothing-to-attach': lore => lore.attachRefusedNothingToAttach,
   'collision': (lore, { paths, collision }) => {
@@ -148,7 +149,8 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     throw new Error(`unknown AI target "${options.ai}" (claude | cursor | both)`)
   const lanesGiven = options.lanes == null ? undefined : parseLaneCount(options.lanes)
 
-  const refusal = refusalFor(root, options)
+  const carriedByItsConstruct = carriersItsConstructTracks(root)
+  const refusal = refusalFor(root, options, carriedByItsConstruct)
   if (refusal != null)
     return refused(ui, refusal)
 
@@ -171,11 +173,13 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   if (lanes == null)
     return aborted()
 
-  const ops = [...planCarriers(root, harness), ...planWindowHooks()]
+  const ops = [...planCarriers(root, harness, carriedByItsConstruct), ...planWindowHooks()]
   const targets = ops.map(op => op.target)
   for (const target of targets)
     ui.line(`  ${ui.theme.ok('+')} ${target}`)
   ui.line(`  ${ui.lore.attachSettingsPlan(readSettings(root).kind === 'absent')}`)
+  if (carriedByItsConstruct.length > 0)
+    ui.line(`  ${ui.lore.attachItsConstructCarries(carriedByItsConstruct.length)}`)
   ui.line()
 
   if (interactive != null && (await interactive.confirm(ui.lore.attachConfirm)) !== true)
@@ -207,6 +211,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     const reason = installed.kind === 'guarded' ? 'collision' : 'settings-unreadable'
     return refused(ui, { reason, paths: [SETTINGS_FILE], rolledBack: true }, rollback)
   }
+  const factoryBeside = deployFactoryBeside(root)
   writeAttachRecord(root, {
     recordVersion: ATTACH_RECORD_VERSION,
     construct: VERSION,
@@ -221,12 +226,14 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     browserHeld,
     settingsHook: kept == null ? installed.hook : { ...installed.hook, original: { copy: kept.copy, sha256: kept.sha256, afterSha256: installed.afterSha256 } },
     lanes,
+    factoryBeside,
   })
 
   ui.ok(ui.lore.attached)
   ui.tree([
     ['Trailer', ui.lore.attachTrailer(VERSION)],
     ['Pull request', ui.lore.attachPullRequest(VERSION)],
+    ...(factoryBeside == null ? [] : [['Factory', ui.lore.attachFactoryBeside(factoryBeside.home)] as [string, string]]),
     ['Then', ui.lore.attachThen],
     ['Guard', ui.lore.attachGuard],
     ['Detach', ui.lore.attachDetach],

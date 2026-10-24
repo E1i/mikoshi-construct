@@ -21,6 +21,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { busDirOf, machineBusPath } from '../core/bus-path.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { OWNER_SOURCE } from '../decisions/decisions.js'
 import { ghostLinesText } from '../ghosts/journal.js'
@@ -76,9 +77,14 @@ export function taskStartCommand(installed: string | null): { file: string, args
   return { file: process.execPath, args: [builtEntryOf(installed, TASK_START_SCRIPT)] }
 }
 
-export function launchPlaces(home: string, repo: string, installed: string | null = installedPackage()): StarterPlaces {
+export function launchDirOf(home: string, busPath: string): string {
+  const resolved = path.resolve(busPath)
+  return resolved === machineBusPath(home) ? path.join(path.dirname(resolved), 'shift', LAUNCH_DIR) : path.join(busDirOf(resolved), LAUNCH_DIR)
+}
+
+export function launchPlaces(home: string, repo: string, busPath: string = machineBusPath(home), installed: string | null = installedPackage()): StarterPlaces {
   return {
-    launchDir: path.join(home, '.construct', 'shift', LAUNCH_DIR),
+    launchDir: launchDirOf(home, busPath),
     claude: 'claude',
     treePr: publishedTreePr(repo, installed),
   }
@@ -703,7 +709,7 @@ export function launchIsolationCommand(claude: string): string[] {
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const env = process.env
-  const places = launchPlaces(os.homedir(), process.cwd())
+  const places = launchPlaces(os.homedir(), process.cwd(), busPath)
   const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
