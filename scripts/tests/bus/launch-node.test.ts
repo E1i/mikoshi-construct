@@ -32,7 +32,8 @@ import { TICK_MS } from '../../bus/netwatch.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { keyOf, launchTasks, queueTask } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
-import { CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
+import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
 import { HANDOFF_FIELDS } from '../../ghosts/handoff-check.js'
 import { recordGhostLine } from '../../ghosts/journal.js'
@@ -525,6 +526,46 @@ describe('the launch node', () => {
     made.tick()
     expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 1077`).get()).toEqual({ state: STOPPED_CARD })
     expect(launchRows(made, 1077)).toBe(1)
+  })
+
+  it('a fault stop raises a board alarm that lets requeue through', async () => {
+    const made = bench()
+    admit(made, 1302, 'lane-a')
+    made.tick()
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, isolation: sandboxed })
+    await once(node)
+    made.tick()
+
+    expect(node.stopOverdue()).toEqual([1302])
+    expect(eventsOf(made.db, BOARD_ALARM)).toEqual([{ task_key: launchKey(1302), reason: 'fault', detail: noPullRequestDetail(1302, 's-1302', null) }])
+    made.tick()
+    const refuse = (): never => {
+      throw new Error('a requeue of a launch uses no tree tool')
+    }
+    requestFromWindow(made.db, made.clock.now().toISOString(), 'test', { kind: 'requeue', task_key: launchKey(1302) })
+    const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }
+    expect(new WindowRequests(made.db, made.clock.now, tools).run()).toMatchObject([{ kind: 'done' }])
+    made.tick()
+    expect(taskState(made.db, launchKey(1302))).toMatchObject({ state: 'queued' })
+  })
+
+  it('a requeue the bus rejects is answered as refused, not done', async () => {
+    const made = bench()
+    admit(made, 1303, 'lane-a')
+    made.tick()
+    await once(new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed }))
+    made.tick()
+    expect(taskState(made.db, launchKey(1303))).toMatchObject({ state: 'completed' })
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: BOARD_ALARM, actor: 'policy', cardId: 1303, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:by-hand-1303`, payload: { task_key: launchKey(1303), reason: 'fault', detail: 'by hand' }, legacy: false })
+    const refuse = (): never => {
+      throw new Error('a requeue of a launch uses no tree tool')
+    }
+    requestFromWindow(made.db, made.clock.now().toISOString(), 'test', { kind: 'requeue', task_key: launchKey(1303) })
+    const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }
+    expect(new WindowRequests(made.db, made.clock.now, tools).run()).toMatchObject([{ kind: 'refused', detail: `${launchKey(1303)} stays completed: the bus rejected its task.requeued` }])
+    made.tick()
+    expect(taskState(made.db, launchKey(1303))).toMatchObject({ state: 'completed' })
   })
 
   async function endedWithReport(cardId: number, report: string): Promise<{ made: MergeBench, node: ProbedLaunchNode }> {

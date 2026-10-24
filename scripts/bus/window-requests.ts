@@ -332,6 +332,9 @@ export class WindowRequests {
     catch (error) {
       return { done: false, why: messageOf(error) }
     }
+    const after = this.db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string }
+    if (after.state !== QUEUED)
+      return { done: false, why: `${key} stays ${after.state}: the bus rejected its ${TASK_REQUEUED}` }
     return { done: true, why: `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}` }
   }
 

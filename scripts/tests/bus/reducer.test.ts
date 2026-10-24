@@ -9,8 +9,10 @@ import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } fro
 import { recordDecision } from '../../bus/decisions.js'
 import { cardIdOfDescription } from '../../bus/identifiers.js'
 import { allowLiveCommand } from '../../bus/live-decision.js'
+import { proofMechanismWaitText } from '../../bus/queue.js'
 import { DIRTY_ROWS, projectionDump, reduce, REDUCE_BATCH, reducedThrough, SNAPSHOT } from '../../bus/reducer.js'
 import { WATERMARKS } from '../../bus/watermark.js'
+import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
 import { CARD_WAITING, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { ghostLines } from '../../ghosts/journal.js'
 import { recordFall } from '../../ghosts/supervise.js'
@@ -586,11 +588,49 @@ describe('the reducer of the owner_waits projection', () => {
 
   it('a merge.done with no pr.closed closes the owner waits of its card', () => {
     const db = busWith(admitted(1264), started(1264), opened(1264, 901))
-    const wait = openWaitOn(db, 1264, 9)
+    const wait = openOwnerWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'command', text: 'run the release check', command: 'pnpm release:verify', card: 1264, request: 9 })
     reduce(db)
     appendEvent(db, event('merge.done', { actor: 'worker:merge:s1', cardId: 1264, pr: 901, head: HEAD, payload: { commit: MAIN, rule: 'auto' } }))
     reduce(db)
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[wait, 'closed', 'card #1264 merged']])
+    db.close()
+  })
+
+  it('a merge does not close an open decision question of its card', () => {
+    const db = busWith(admitted(1274), started(1274), opened(1274, 903), observed(903, 1274))
+    const question = openWaitOn(db, 1274, 13)
+    reduce(db)
+    appendEvent(db, closed(903, true))
+    appendEvent(db, event('merge.done', { actor: 'worker:merge:s1', cardId: 1274, pr: 903, head: HEAD, payload: { commit: MAIN, rule: 'auto' } }))
+    reduce(db)
+    expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[question, 'open', null]])
+    appendEvent(db, event('card.closed', { actor: 'owner', cardId: 1274, pr: 903 }))
+    reduce(db)
+    expect(waits(db).map(each => [each.id, each.state])).toEqual([[question, 'closed']])
+    db.close()
+  })
+
+  it('a done owner.wait.close closes the W wait', () => {
+    const db = busWith(admitted(1280), downgradeOf(1280))
+    reduce(db)
+    const id = waits(db)[0]!.id as string
+    expect(id).toMatch(/^W\d+$/)
+    const refuse = (): never => {
+      throw new Error('closing a wait uses no tool')
+    }
+    requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the downgrade is withdrawn' })
+    const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
+    expect(new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools).run()).toMatchObject([{ kind: 'done' }])
+    expect(reduce(db).rejected).toBe(0)
+    expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[id, 'closed', 'the downgrade is withdrawn']])
+    db.close()
+  })
+
+  it('a check the proof mechanism wait is opened, not rejected', () => {
+    const db = newBus()
+    const id = openOwnerWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'decision', text: proofMechanismWaitText(1290, 904, HEAD), card: 1290, pr: 904 })
+    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(waits(db)).toEqual([{ id, need: 'decision', command: null, card_id: 1290, pr: 904, state: 'open', answer: null }])
     db.close()
   })
 

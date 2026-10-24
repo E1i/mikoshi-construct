@@ -25,6 +25,7 @@ export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', ca
 export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION]
 
 const DOWNGRADE_WAIT_PREFIX = 'W'
+const DOWNGRADE_WAIT_ID = new RegExp(`^${DOWNGRADE_WAIT_PREFIX}\\d+$`)
 const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
 const CI = new Set(['pending', 'green', 'red'])
 
@@ -154,7 +155,8 @@ function closeWaitsOfAnEndedCard(db: DatabaseSync, cardId: number | null, eventI
   const state = (db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state ?? null
   if (!ENDED_CARD_STATES.has(state))
     return
-  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ?`)
+  const sparingItsQuestions = state === MERGED_CARD ? ` AND NOT (need = 'decision' AND id NOT LIKE '${DOWNGRADE_WAIT_PREFIX}%')` : ''
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ?${sparingItsQuestions}`)
     .run(`card #${cardId} ${state}`, eventId, cardId)
 }
 
@@ -209,7 +211,9 @@ function optional<T>(payload: Record<string, unknown>, field: string, read: (val
 }
 
 function busNamesTheAction(need: string, command: string | null, pr: number | null): boolean {
-  return need === 'merge' ? pr !== null : command !== null
+  if (need === 'merge')
+    return pr !== null
+  return command !== null || (need === 'decision' && pr !== null)
 }
 
 function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent): void {
@@ -232,7 +236,7 @@ function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent): void {
 
 function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
   const payload = payloadOf(event)
-  const id = typeof payload.id === 'string' && WAIT_ID.test(payload.id) ? payload.id : reject('id is not Q<N>')
+  const id = typeof payload.id === 'string' && (WAIT_ID.test(payload.id) || DOWNGRADE_WAIT_ID.test(payload.id)) ? payload.id : reject(`id is not Q<N> or ${DOWNGRADE_WAIT_PREFIX}<N>`)
   const answer = filled(payload.answer) ?? reject('answer is empty')
   const wait = db.prepare('SELECT state FROM owner_waits WHERE id = ?').get(id) as { state: string } | undefined
   if (wait === undefined)
