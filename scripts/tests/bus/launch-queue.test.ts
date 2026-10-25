@@ -265,6 +265,7 @@ describe('the launch queue', () => {
 
     expect(taskState(bench.db, launch(915))).toBeUndefined()
     expect(launchableCard(bench.db, 915)).toBeNull()
+    expect(launchCandidates(bench.db, () => false).map(each => each.cardId)).not.toContain(915)
     expect(taskState(bench.db, launch(916))).toMatchObject({ state: 'queued' })
     bench.close()
   })
