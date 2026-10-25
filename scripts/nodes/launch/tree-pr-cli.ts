@@ -12,7 +12,7 @@ import { cardContract } from '../../intake/card-contract.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { sessionEnv } from '../../ports/session.js'
 import { cardSessionOf } from '../answer/answer-source.js'
-import { CARD_PERMISSION_MODE } from './launch-starter.js'
+import { CARD_MCP_FLAGS, CARD_PERMISSION_MODE } from './launch-starter.js'
 import { refusalOf, shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift:tree-pr] '
@@ -150,7 +150,7 @@ export function claudeResume(busPath: string, claude = 'claude', ceilingMs = RET
     }
     if (session === undefined)
       return false
-    const run = spawnSync(claude, ['--permission-mode', CARD_PERMISSION_MODE, '-p', '--resume', session, prompt], { cwd: worktree, env: sessionEnv(process.env, cardId), stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
+    const run = spawnSync(claude, ['--permission-mode', CARD_PERMISSION_MODE, ...CARD_MCP_FLAGS, '-p', '--resume', session, prompt], { cwd: worktree, env: sessionEnv(process.env, cardId), stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
     return run.error === undefined && run.status === 0
   }
 }
