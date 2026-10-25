@@ -1,14 +1,23 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
+import type { Node, NodeStep } from '../../core/node.js'
 import { once } from 'node:events'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { Worker } from 'node:worker_threads'
-import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, BUSY_TIMEOUT_MS, inTransaction, openBus } from '../../core/db.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { appendEvent, BUSY_TIMEOUT_MS, CACHE_KIB, inTransaction, openBus } from '../../core/db.js'
 import { FACTORY_FOLDERS } from '../../core/factory-paths.js'
 import { cardIdOf, isActor, taskKey } from '../../core/identifiers.js'
+import { CloseNode } from '../../nodes/close/close-worker.js'
+import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { MergeNode } from '../../nodes/merge/merge-worker.js'
+import { ReviewNode } from '../../nodes/review/review-worker.js'
+import { UpdateNode } from '../../nodes/update/update-worker.js'
+import { WitnessNode } from '../../nodes/witness/witness-worker.js'
+import { TICK_MS } from '../../ports/netwatch.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const WAIT_ON_MAIN_MS = 5000
@@ -30,6 +39,7 @@ const SQLITE_LOADER = 'scripts/core/sqlite.ts'
 const OPENED_BEFORE_THE_CONTOURS = ['scripts/window/eddies-measure.ts', 'scripts/window/watch-store.ts']
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -53,6 +63,30 @@ function observed(overrides: Partial<BusEvent> = {}): BusEvent {
     legacy: false,
     ...overrides,
   }
+}
+
+function plansOf(db: DatabaseSync, sql: string): string[] {
+  return db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all().map(row => String(row.detail))
+}
+
+function scansEvents(db: DatabaseSync, sql: string): boolean {
+  const names = new Set(['events', ...[...sql.matchAll(/\bevents AS (\w+)/g)].map(found => found[1])])
+  return plansOf(db, sql).some(detail => /^SCAN (\w+)/.exec(detail) !== null && names.has(/^SCAN (\w+)/.exec(detail)![1]))
+}
+
+type QuietNode = (db: DatabaseSync, clock: () => Date) => { node: Node<NodeStep>, prototype: object }
+
+function shadowParts(db: DatabaseSync, clock: () => Date): never {
+  return { db, clock, session: 'idle', mode: 'shadow', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), lanes: () => 2 } as never
+}
+
+const QUIET_NODES: Record<string, QuietNode> = {
+  launch: (db, clock) => ({ node: new LaunchNode({ ...shadowParts(db, clock) as object, mode: 'live' } as never), prototype: LaunchNode.prototype }),
+  review: (db, clock) => ({ node: new ReviewNode(shadowParts(db, clock)), prototype: ReviewNode.prototype }),
+  merge: (db, clock) => ({ node: new MergeNode(shadowParts(db, clock)), prototype: MergeNode.prototype }),
+  update: (db, clock) => ({ node: new UpdateNode(shadowParts(db, clock)), prototype: UpdateNode.prototype }),
+  close: (db, clock) => ({ node: new CloseNode(shadowParts(db, clock)), prototype: CloseNode.prototype }),
+  witness: (db, clock) => ({ node: new WitnessNode(shadowParts(db, clock)), prototype: WitnessNode.prototype }),
 }
 
 describe('bus.db', () => {
@@ -126,6 +160,54 @@ describe('bus.db', () => {
     await holderDone
     db.close()
   }, LOCK_HELD_MS * 3)
+
+  it('the last event of a type and the events of a card are read through an index', () => {
+    const db = newBus()
+    const lastOfType = plansOf(db, `SELECT id FROM events WHERE type = ? ORDER BY id DESC LIMIT 1`)
+    const ofCard = plansOf(db, `SELECT id FROM events WHERE card_id = ? AND id > ? LIMIT 1`)
+    expect(lastOfType).toEqual([expect.stringMatching(/^SEARCH events USING (COVERING )?INDEX events_by_type \(type=\?\)$/)])
+    expect(ofCard).toEqual([expect.stringMatching(/^SEARCH events USING (COVERING )?INDEX events_by_card \(card_id=\? AND id>\?\)$/)])
+    expect(db.prepare('PRAGMA cache_size').get()).toEqual({ cache_size: -CACHE_KIB })
+    db.close()
+  })
+
+  it.each(Object.keys(QUIET_NODES))('a tick with no new events runs no query that scans events, and the %s node still computes its candidates on it', async (kind) => {
+    const db = newBus()
+    let now = Date.parse('2026-10-09T12:00:00.000Z')
+    const clock = (): Date => new Date(now)
+    for (let index = 0; index < 50; index++)
+      appendEvent(db, observed({ cardId: 700 + index, pr: 700 + index, dedupeKey: `pr:${700 + index}:abc` }))
+    const { node, prototype } = QUIET_NODES[kind]!(db, clock)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(prototype as unknown as { before: () => void }, 'before').mockImplementation(() => {})
+    const candidates = vi.spyOn(prototype as unknown as { candidates: () => unknown }, 'candidates')
+    const controller = new AbortController()
+    const queries = new Set<string>()
+    const prepare = db.prepare.bind(db)
+    let pauses = 0
+    let candidatesBefore = 0
+    const pause = async (): Promise<void> => {
+      if (node instanceof LaunchNode)
+        node.stopOverdue()
+      pauses += 1
+      if (pauses === 1) {
+        now += TICK_MS
+        candidatesBefore = candidates.mock.calls.length
+        db.prepare = (sql: string) => {
+          queries.add(sql)
+          return prepare(sql)
+        }
+        return
+      }
+      db.prepare = prepare
+      controller.abort()
+    }
+    await node.run({ pause, signal: controller.signal })
+    expect(candidatesBefore).toBeGreaterThan(0)
+    expect(candidates.mock.calls.length).toBeGreaterThan(candidatesBefore)
+    expect([...queries].filter(sql => scansEvents(db, sql))).toEqual([])
+    db.close()
+  })
 
   it('every bus database open under the factory contours passes the busy timeout', () => {
     const lines = FACTORY_FOLDERS.sharedCode
