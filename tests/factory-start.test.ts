@@ -14,7 +14,7 @@ import { BUS_DB_VARIABLE, busDirOf } from '../scripts/core/bus-path.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
-import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/supervisor/bg.js'
+import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { AGENT_LOG, agentLabel, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { liveWorkers, MODE_WORKERS, modeOf, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
@@ -258,6 +258,19 @@ describe('the keep-alive of the start command', () => {
 
   it('gives two repositories of one name two agents', () => {
     expect(agentLabel('/a/shop')).not.toBe(agentLabel('/b/shop'))
+  })
+})
+
+describe('the exit code of the start command', () => {
+  it('a start that started nothing for its own bus exits non-zero', async () => {
+    const parts = keepAliveParts(tempRoot('factory-home-'), recordingLaunchctl().run, 'linux')
+    const unreadBusRun = () => [{ pid: 4242, args: `node /x/${OUT_DIR}/scripts/supervisor/run.js` }]
+    const startOverOwnBus = async () => runBusBg(parts.busDir, [BUS_RUN_LAUNCH], { [BUS_DB_VARIABLE]: parts.busDb }, unreadBusRun)
+
+    const result = await runStart(tempRoot('factory-user-'), REPOSITORY, parts, startOverOwnBus)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain(`started nothing for ${parts.busDb}`)
   })
 })
 

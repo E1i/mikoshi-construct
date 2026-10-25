@@ -70,6 +70,10 @@ export function isOwnerCheckout(repository: string): boolean {
   return existsSync(path.join(repository, OWNER_AGENT_FILE))
 }
 
+export function factoryBusOf(env: NodeJS.ProcessEnv, home: string, repository: string): string {
+  return pinBus(env, home, repository, isOwnerCheckout(repository))
+}
+
 export function agentLabel(repository: string): string {
   const name = path.basename(repository).toLowerCase().replaceAll(/[^a-z0-9-]+/g, '-')
   return `${AGENT_PREFIX}${name}-${createHash('sha256').update(repository).digest('hex').slice(0, REPOSITORY_HASH_LENGTH)}`
@@ -332,7 +336,7 @@ async function main(): Promise<void> {
     process.exitCode = 2
     return
   }
-  const busDb = pinBus(process.env, os.homedir(), process.cwd())
+  const busDb = factoryBusOf(process.env, os.homedir(), process.cwd())
   if (command.kind !== 'start') {
     printBg(runMode(command, {
       busDir: busDirOf(busDb),

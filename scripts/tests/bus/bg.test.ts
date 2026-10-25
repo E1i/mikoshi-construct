@@ -7,9 +7,11 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { busDirOf, machineBusPath } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { alive, BUS_RUN_LAUNCH, busInEnviron, busInPsEnvironment, instancesOf, launchName, parsePs, PREFIX, processBuses, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { startReviewWorker } from '../../supervisor/review-bg.js'
+import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../supervisor/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
@@ -111,6 +113,14 @@ function pidsOf(result: BgResult): number[] {
 
 function ownBus(w: World): string {
   return path.join(path.dirname(w.busDir), 'bus.db')
+}
+
+function overMachineBus(w: World): { machine: string, own: string } {
+  const home = tempRoot('bus-bg-home-')
+  const machine = machineBusPath(home)
+  mkdirSync(path.dirname(machine), { recursive: true })
+  writeFileSync(machine, '')
+  return { machine, own: factoryBusOf(w.env, home, tempRoot('bus-bg-clone-')) }
 }
 
 function supervisorServing(bus: string | undefined): RunningProcess {
@@ -377,6 +387,47 @@ describe('pnpm bus:bg', () => {
       expect(result.alreadyRunning).toEqual(same)
     }
     expect(readArgv(w)).toEqual([])
+  })
+
+  it('with a factory running over bus A, a start over bus B starts every process of B', async () => {
+    const w = world()
+    const { machine, own } = overMachineBus(w)
+    expect(own).not.toBe(machine)
+    const busDir = busDirOf(own)
+    switchWorker(busDir, 'review', true)
+    const launches = wantedLaunches(busDir, NO_PREFLIGHT)
+    const factoryOfA = launches.map((launch, index) => ({ pid: 4242 + index, args: `node /x/node_modules/tsx/dist/cli.mjs ${launch.markers[0]}`, bus: machine }))
+    const result = runBusBg(busDir, launches, w.env, () => [...w.processes(), ...factoryOfA], startReviewWorker)
+    started.push(...pidsOf(result))
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    expect(pidsOf(result)).toHaveLength(launches.length)
+    await argvLines(w, launches.length)
+    expect(w.processes().map(candidate => candidate.bus)).toEqual(launches.map(() => own))
+  })
+
+  it('a start over bus B takes no start lock of bus A', () => {
+    const w = world()
+    const { machine, own } = overMachineBus(w)
+    const lockOfA = path.join(busDirOf(machine), START_LOCK)
+    mkdirSync(path.dirname(lockOfA), { recursive: true })
+    writeFileSync(lockOfA, `${detachedSleep()}\n`)
+    const result = runBusBg(busDirOf(own), [BUS_RUN_LAUNCH], w.env, w.processes)
+    started.push(...pidsOf(result))
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    expect(pidsOf(result)).toHaveLength(1)
+    expect(existsSync(lockOfA)).toBe(true)
+  })
+
+  it('a running process whose bus could not be read is left alone but not counted, so a start that found only such exits 1', () => {
+    const w = world()
+    const unread: ProcessList = () => [{ pid: 4242, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/supervisor/run.ts' }]
+    const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], { ...w.env, CONSTRUCT_BUS_DB: ownBus(w) }, unread)
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toEqual([`${PREFIX}bus:run is running as pid 4242, whose bus could not be read as ${ownBus(w)}; left alone and not counted as running for it`])
+    expect(result.stderr).toEqual([`${PREFIX}started nothing for ${ownBus(w)} and found nothing of it running; its factory is not up`])
+    expect(w.processes()).toEqual([])
   })
 
   it('a bus is read from the environment ps -E prints after the args, and from a /proc environ blob', () => {

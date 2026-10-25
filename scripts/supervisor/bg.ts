@@ -147,6 +147,10 @@ export function servesBus(candidate: RunningProcess, bus: string | undefined): b
   return bus === undefined || candidate.bus === undefined || !path.isAbsolute(candidate.bus) || path.resolve(candidate.bus) === path.resolve(bus)
 }
 
+export function provenOnBus(candidate: RunningProcess, bus: string | undefined): boolean {
+  return bus === undefined || (candidate.bus !== undefined && path.isAbsolute(candidate.bus) && path.resolve(candidate.bus) === path.resolve(bus))
+}
+
 export function instancesOf(processes: RunningProcess[], markers: readonly string[], bus: string | undefined = thisBus()): RunningProcess[] {
   return processes.filter(candidate => candidate.pid !== process.pid && servesBus(candidate, bus) && carriesMarker(candidate.args, markers))
 }
@@ -253,15 +257,26 @@ export function launchName(launch: DetachedLaunch): string {
 
 export function runBusBg(busDir: string, launches: DetachedLaunch[], env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env), start: (launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList) => BgResult = startDetached): BgResult {
   const result: BgResult = { stdout: [], stderr: [], exitCode: 0 }
+  const bus = thisBus(env)
+  let up = 0
   for (const launch of launches) {
     const started = start(launch, busDir, env, processes)
     if (started.alreadyRunning !== undefined) {
-      result.stdout.push(`${PREFIX}${launchName(launch)} is already running as pid ${started.alreadyRunning.pid}; left alone`)
+      const proven = provenOnBus(started.alreadyRunning, bus)
+      up += proven ? 1 : 0
+      result.stdout.push(proven
+        ? `${PREFIX}${launchName(launch)} is already running as pid ${started.alreadyRunning.pid}; left alone`
+        : `${PREFIX}${launchName(launch)} is running as pid ${started.alreadyRunning.pid}, whose bus could not be read as ${bus}; left alone and not counted as running for it`)
       continue
     }
+    up += started.exitCode === 0 ? 1 : 0
     result.stdout.push(...started.stdout)
     result.stderr.push(...started.stderr)
     result.exitCode = Math.max(result.exitCode, started.exitCode)
+  }
+  if (launches.length > 0 && up === 0 && result.exitCode === 0) {
+    result.stderr.push(`${PREFIX}started nothing for ${bus ?? busDir} and found nothing of it running; its factory is not up`)
+    result.exitCode = 1
   }
   return result
 }

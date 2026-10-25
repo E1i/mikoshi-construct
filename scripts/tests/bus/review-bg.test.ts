@@ -164,6 +164,18 @@ describe('pnpm bus:review:bg', () => {
     started.push(Number(third.stdout[0]))
   })
 
+  it('a recorded review worker of another bus does not hold this bus', () => {
+    const w = world()
+    mkdirSync(w.busDir, { recursive: true })
+    writeFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), '4343\n')
+    const ofAnotherBus: ProcessList = () => [{ pid: 4343, args: `node /x/node_modules/tsx/dist/cli.mjs ${REVIEW_WORKER_MARKERS[0]}`, bus: path.join(tmpdir(), 'another', 'bus.db') }]
+    const result = startReviewWorker(reviewLaunch(clean), w.busDir, { ...w.env, CONSTRUCT_BUS_DB: path.join(path.dirname(w.busDir), 'bus.db') }, ofAnotherBus)
+    started.push(Number(result.stdout[0]))
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    expect(result.alreadyRunning).toBeUndefined()
+  })
+
   it('an unclean shadow is refused before anything starts', async () => {
     const w = world()
     const problems = ['prs vs GitHub: #947 open on GitHub, missing here', 'replay byte-diff: differs']
