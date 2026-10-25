@@ -12,7 +12,7 @@ import { ownStart, recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { slotsOf } from '../supervisor/scheduler.js'
 import { lastEventId } from '../window/operator-work.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
-import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_LEASED } from './events.js'
+import { NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
 import { drainOpen, expireLeases, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask } from './lease.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
 import { STORED_COLUMNS } from './stored.js'
@@ -124,10 +124,6 @@ const CHANGED_SINCE = `
   SELECT 1 FROM events WHERE id > ? AND actor IS NOT ? AND (card_id = ? OR pr = ?) LIMIT 1
 `
 
-const WRITTEN_BY_OTHERS_SINCE = `
-  SELECT 1 FROM events WHERE id > ? AND actor IS NOT ? AND substr(dedupe_key, 1, ?) IS NOT ? LIMIT 1
-`
-
 export const DERIVE_EVERY_TICKS = 5
 
 export const DATABASE_LOCKED = 'database is locked'
@@ -219,7 +215,6 @@ export abstract class Node<S extends NodeStep> {
   private startedAt: string | null = null
   private startRecorded = false
   private ticksUntilDerive = 0
-  private tickedThrough: number | null = null
 
   constructor(readonly kind: NodeKind, protected readonly parts: NodeParts) {
     this.actor = `worker:${kind}:${parts.session}`
@@ -376,13 +371,6 @@ export abstract class Node<S extends NodeStep> {
 
   private tick(): void {
     const through = lastEventId(this.db)
-    if (through === this.tickedThrough) {
-      inTransaction(this.db, () => {
-        this.beat()
-        this.tickedThrough = this.quietThrough(through)
-      })
-      return
-    }
     const cursor = this.cursor()
     const found = this.candidates()
     const derives = this.ticksUntilDerive === 0
@@ -390,26 +378,15 @@ export abstract class Node<S extends NodeStep> {
     const equivalence = derived === null ? null : equivalenceOf(found.map(keyOf), derived.map(keyOf))
     inTransaction(this.db, () => {
       const standing = this.cursor() === cursor ? found.filter(task => this.stillStands(task, through)) : []
-      this.beat()
+      recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind), { queue: this.kind, slots: this.slots })
       for (const task of standing)
         this.record(task, 'tick', through)
       if (equivalence !== null) {
         const ts = this.ts()
         appendEvent(this.db, { ts, type: NODE_EQUIVALENCE, actor: this.actor, cardId: null, pr: null, head: null, dedupeKey: `${NODE_EQUIVALENCE}:${this.kind}:${this.actor}:${through}:${ts}`, payload: { ...equivalence, event_id: through }, legacy: false })
       }
-      this.tickedThrough = this.quietThrough(through)
     })
     this.ticksUntilDerive = derives ? DERIVE_EVERY_TICKS - 1 : this.ticksUntilDerive - 1
-  }
-
-  private beat(): void {
-    recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind), { queue: this.kind, slots: this.slots })
-  }
-
-  private quietThrough(through: number): number {
-    const ownBeat = `${PROCESS_HEARTBEAT}:${nodeProcess(this.kind)}:`
-    const othersWrote = this.db.prepare(WRITTEN_BY_OTHERS_SINCE).get(through, this.actor, ownBeat.length, ownBeat) !== undefined
-    return othersWrote ? through : lastEventId(this.db)
   }
 
   protected executes(): boolean {

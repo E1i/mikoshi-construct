@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appendEvent, openBus, watchLocks } from '../../core/db.js'
+import { openBus, watchLocks } from '../../core/db.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED } from '../../core/events.js'
 import { completeTask } from '../../core/lease.js'
 import { DATABASE_LOCKED, DERIVE_EVERY_TICKS, Node, nodeProcess } from '../../core/node.js'
@@ -86,12 +86,11 @@ class ScanningNode extends Node<NodeStep> {
   }
 }
 
-async function ticks(node: Node<NodeStep>, clock: Clock, count: number, between: () => unknown = () => {}): Promise<void> {
+async function ticks(node: Node<NodeStep>, clock: Clock, count: number): Promise<void> {
   const controller = new AbortController()
   let done = 0
   await node.run({
     pause: async () => {
-      between()
       clock.advance(TICK_MS)
       if (++done === count)
         controller.abort()
@@ -172,15 +171,14 @@ describe('a node tick and the write lock', () => {
     expect(payloadsOf(db, PROCESS_HEARTBEAT)).toHaveLength(1)
   })
 
-  it('equivalence events are still written on ticks that see an event another writer appended', async () => {
+  it('equivalence events are still written', async () => {
     const db = openBus(busFile())
     const clock = new Clock()
     const node = new ScanningNode(db, clock)
     node.found = [task(970), task(971)]
     node.derived = [task(971), task(972)]
     const tickCount = DERIVE_EVERY_TICKS + 1
-    let written = 0
-    await ticks(node, clock, tickCount, () => appendEvent(db, { ts: clock.now().toISOString(), type: 'probe.filler', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `probe.filler:between-${written++}`, payload: {}, legacy: false }))
+    await ticks(node, clock, tickCount)
 
     expect(payloadsOf(db, PROCESS_HEARTBEAT)).toHaveLength(tickCount)
     expect(payloadsOf(db, NODE_EQUIVALENCE).map(({ event_id: _id, ...rest }) => rest)).toEqual([

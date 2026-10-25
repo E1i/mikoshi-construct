@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
-import type { CardStarter } from '../../nodes/launch/launch-executor.js'
+import type { Node, NodeStep } from '../../core/node.js'
 import { once } from 'node:events'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +11,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, BUSY_TIMEOUT_MS, CACHE_KIB, inTransaction, openBus } from '../../core/db.js'
 import { FACTORY_FOLDERS } from '../../core/factory-paths.js'
 import { cardIdOf, isActor, taskKey } from '../../core/identifiers.js'
+import { CloseNode } from '../../nodes/close/close-worker.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { MergeNode } from '../../nodes/merge/merge-worker.js'
+import { ReviewNode } from '../../nodes/review/review-worker.js'
+import { UpdateNode } from '../../nodes/update/update-worker.js'
+import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -67,6 +72,21 @@ function plansOf(db: DatabaseSync, sql: string): string[] {
 function scansEvents(db: DatabaseSync, sql: string): boolean {
   const names = new Set(['events', ...[...sql.matchAll(/\bevents AS (\w+)/g)].map(found => found[1])])
   return plansOf(db, sql).some(detail => /^SCAN (\w+)/.exec(detail) !== null && names.has(/^SCAN (\w+)/.exec(detail)![1]))
+}
+
+type QuietNode = (db: DatabaseSync, clock: () => Date) => { node: Node<NodeStep>, prototype: object }
+
+function shadowParts(db: DatabaseSync, clock: () => Date): never {
+  return { db, clock, session: 'idle', mode: 'shadow', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), lanes: () => 2 } as never
+}
+
+const QUIET_NODES: Record<string, QuietNode> = {
+  launch: (db, clock) => ({ node: new LaunchNode({ ...shadowParts(db, clock) as object, mode: 'live' } as never), prototype: LaunchNode.prototype }),
+  review: (db, clock) => ({ node: new ReviewNode(shadowParts(db, clock)), prototype: ReviewNode.prototype }),
+  merge: (db, clock) => ({ node: new MergeNode(shadowParts(db, clock)), prototype: MergeNode.prototype }),
+  update: (db, clock) => ({ node: new UpdateNode(shadowParts(db, clock)), prototype: UpdateNode.prototype }),
+  close: (db, clock) => ({ node: new CloseNode(shadowParts(db, clock)), prototype: CloseNode.prototype }),
+  witness: (db, clock) => ({ node: new WitnessNode(shadowParts(db, clock)), prototype: WitnessNode.prototype }),
 }
 
 describe('bus.db', () => {
@@ -151,23 +171,24 @@ describe('bus.db', () => {
     db.close()
   })
 
-  it('a tick with no new events runs no query that scans events', async () => {
+  it.each(Object.keys(QUIET_NODES))('a tick with no new events runs no query that scans events, and the %s node still computes its candidates on it', async (kind) => {
     const db = newBus()
     let now = Date.parse('2026-10-09T12:00:00.000Z')
     const clock = (): Date => new Date(now)
     for (let index = 0; index < 50; index++)
       appendEvent(db, observed({ cardId: 700 + index, pr: 700 + index, dedupeKey: `pr:${700 + index}:abc` }))
-    const starter = { start: () => ({ kind: 'refused', denial: { kind: 'technical', reason: 'test', detail: 'no start' } }), stop: () => {} } as unknown as CardStarter
-    const node = new LaunchNode({ db, starter, clock, session: 'idle', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), lanes: () => 2 })
+    const { node, prototype } = QUIET_NODES[kind]!(db, clock)
     vi.spyOn(console, 'log').mockImplementation(() => {})
-    const candidates = vi.spyOn(LaunchNode.prototype as unknown as { candidates: () => unknown }, 'candidates')
+    vi.spyOn(prototype as unknown as { before: () => void }, 'before').mockImplementation(() => {})
+    const candidates = vi.spyOn(prototype as unknown as { candidates: () => unknown }, 'candidates')
     const controller = new AbortController()
     const queries = new Set<string>()
     const prepare = db.prepare.bind(db)
     let pauses = 0
     let candidatesBefore = 0
     const pause = async (): Promise<void> => {
-      node.stopOverdue()
+      if (node instanceof LaunchNode)
+        node.stopOverdue()
       pauses += 1
       if (pauses === 1) {
         now += TICK_MS
@@ -183,8 +204,7 @@ describe('bus.db', () => {
     }
     await node.run({ pause, signal: controller.signal })
     expect(candidatesBefore).toBeGreaterThan(0)
-    expect(candidates.mock.calls.length).toBe(candidatesBefore)
-    expect([...queries].some(sql => sql.includes('process.heartbeat') || sql.includes('INSERT INTO events'))).toBe(true)
+    expect(candidates.mock.calls.length).toBeGreaterThan(candidatesBefore)
     expect([...queries].filter(sql => scansEvents(db, sql))).toEqual([])
     db.close()
   })
