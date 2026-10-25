@@ -86,7 +86,7 @@ describe('construct atlas in a repository construct init made', () => {
   it('writes the engram into its construct.model.json and the page under .construct, which git ignores', async () => {
     const dir = await initRepository()
     const written = atlasOf(dir)
-    expect(written).toEqual({ engram: path.join(dir, MODEL_FILE), page: path.join(dir, '.construct', 'atlas.html') })
+    expect(written).toEqual({ engram: path.join(dir, MODEL_FILE), page: path.join(dir, '.construct', 'atlas.html'), interpreted: false })
     const model = parseModel(readFileSync(written.engram, 'utf8'), MODEL_FILE)
     expect(model.mechanics?.components.some(component => component.path === 'src/app.ts')).toBe(true)
     const html = readFileSync(written.page, 'utf8')
@@ -148,6 +148,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
     expect(written).toEqual({
       engram: path.join(home(), ENGRAM_HOME_DIR, engramDirectoryName(dir), MODEL_FILE),
       page: path.join(dir, '.construct', 'atlas.html'),
+      interpreted: false,
     })
     expect(existsSync(path.join(dir, MODEL_FILE))).toBe(false)
     expect(git(dir, 'status', '--porcelain')).toBe('')
@@ -433,8 +434,33 @@ describe('the editor template a construct.json open names', () => {
 describe('printAtlas', () => {
   it('names the page it wrote and exits 0', () => {
     const lines: string[] = []
-    const plain = createUi(resolveTheme({ plain: true }), line => lines.push(line))
-    expect(printAtlas(plain, { engram: '/e/construct.model.json', page: '/p/atlas.html' })).toBe(ATLAS_EXIT.written)
-    expect(lines.join('\n')).toContain('/p/atlas.html')
+    const plain = createUi(resolveTheme({ plain: true }), line => lines.push(line.trimEnd()))
+    expect(printAtlas(plain, { engram: '/e/construct.model.json', page: '/p/atlas.html', interpreted: true })).toBe(ATLAS_EXIT.written)
+    expect(lines).toEqual([PLAIN_LORE.atlasPageWritten('/p/atlas.html')])
+  })
+
+  it('an atlas with nothing interpreted names /construct-atlas and /construct-discover first', async () => {
+    const dir = await initRepository()
+    const lines: string[] = []
+    const plain = createUi(resolveTheme({ plain: true }), line => lines.push(line.trimEnd()))
+    const written = atlasOf(dir)
+    expect(written.interpreted).toBe(false)
+    expect(printAtlas(plain, written)).toBe(ATLAS_EXIT.written)
+    expect(lines[0]).toContain('/construct-atlas')
+    expect(lines[0]).toContain('/construct-discover')
+    expect(lines[1]).toBe(PLAIN_LORE.atlasPageWritten(written.page))
+  })
+
+  it('an atlas with an interpreted part prints only the page it wrote', async () => {
+    const dir = await initRepository()
+    const model = JSON.parse(readFileSync(path.join(dir, MODEL_FILE), 'utf8')) as Record<string, unknown>
+    const interpretation = { authoredBy: 'discovery', components: [{ id: 'orders', contour: 'core', name: 'Orders', purpose: 'Takes the orders', files: ['src'] }] }
+    writeFileSync(path.join(dir, MODEL_FILE), `${JSON.stringify({ ...model, interpretation }, null, 2)}\n`)
+    const lines: string[] = []
+    const plain = createUi(resolveTheme({ plain: true }), line => lines.push(line.trimEnd()))
+    const written = atlasOf(dir)
+    expect(written.interpreted).toBe(true)
+    printAtlas(plain, written)
+    expect(lines).toEqual([PLAIN_LORE.atlasPageWritten(written.page)])
   })
 })

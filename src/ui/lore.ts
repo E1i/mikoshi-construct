@@ -153,6 +153,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   recordClaimNotBorn: (claimId: string, doesNotHold: readonly [string, ...string[]]) => string
   recordAhead: (record: string, field: string, found: number, understood: number) => string
   modelIsWrittenByInit: string
+  atlasNothingInterpreted: string
   atlasPageWritten: (target: string) => string
   atlasRefusedUnconstructed: string
   intakeRefusedAdmitWithDraft: string
@@ -522,6 +523,7 @@ export const LORE: Lore = {
   recordClaimNotBorn: (claimId: string, [first, ...rest]: readonly [string, ...string[]]) => `ENGRAM WITHHELD: ${claimId} was not recorded \u2014 ${first} does not carry what this preset expects${andMore(rest)}, so nothing is claimed about it here.`,
   recordAhead: (record: string, field: string, found: number, understood: number) => `RELIC FROM A LATER BUILD: ${record} declares ${field} ${found}, and this binary reads ${understood}. Nothing was read and nothing was written \u2014 upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'ENGRAM UNWRITTEN: one is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
+  atlasNothingInterpreted: 'NO PART NAMED IN THE ENGRAM YET: run /construct-atlas, or /construct-discover and then this again, and the agent names the parts; until then the picture shows the parts the code itself declares.',
   atlasPageWritten: (target: string) => `PICTURE COMMITTED TO GLASS: ${target} \u2014 one file, no network, open it from disk.`,
   atlasRefusedUnconstructed: 'ATLAS REFUSED // NO CONSTRUCT HERE: neither a construct.json from `construct init` nor an attach record. Jack in first (`construct attach`), then run this again; nothing was written.',
   intakeRefusedAdmitWithDraft: 'INTAKE REFUSED // ONE DOOR: --admit takes a card already parked; --draft and --taken slice new ones, never in the same run',
@@ -916,6 +918,7 @@ export const PLAIN_LORE: Lore = {
   recordClaimNotBorn: (claimId: string, [first, ...rest]: readonly [string, ...string[]]) => `Did not record the claim ${claimId}: ${first} does not carry what this preset expects${andMore(rest)}, so nothing is claimed about it here.`,
   recordAhead: (record: string, field: string, found: number, understood: number) => `${record} declares ${field} ${found}, and this binary understands ${understood}. Nothing was read and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'One is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
+  atlasNothingInterpreted: 'No part is named in the model yet: run /construct-atlas, or /construct-discover and then this again, and the agent names the parts; until then the picture shows the parts the code itself declares.',
   atlasPageWritten: (target: string) => `Wrote ${target}: one self-contained file, no network, open it from disk.`,
   atlasRefusedUnconstructed: 'Refused: this repository has neither a construct.json from `construct init` nor an attach record. Run `construct attach` first, then run this again; nothing was written.',
   intakeRefusedAdmitWithDraft: 'Refused: --admit takes a card already parked, and --draft with --taken slices new ones; run them separately. Nothing was written.',
