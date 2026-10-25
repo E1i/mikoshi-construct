@@ -180,7 +180,7 @@ describe.concurrent('every command exits with the code it exits with today, as a
     expect(await intake('--draft', corrected, '--taken', taken)).toBe(2)
     writeFileSync(path.join(parking, '8.md'), 'card: #8 depended-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/depended-card\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the first thing.\n')
     const waiting = path.join(parking, '9.md')
-    writeFileSync(waiting, 'card: #9 waiting-card [implement/runner/S/cheap/owner] · depends #8 · blocks —\nbranch: feat/waiting-card\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo a third thing.\n')
+    writeFileSync(waiting, 'card: #9 waiting-card [implement/runner/S/cheap/owner] · depends #8 · blocks —\nbranch: feat/waiting-card\ntouches: program.ts\ncontinue: stop\nwho: shift\n\nDo a third thing.\n')
     expect(await intake('--admit', waiting)).toBe(3)
   })
 

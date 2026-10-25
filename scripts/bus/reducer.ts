@@ -275,6 +275,7 @@ function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent): void {
     reject('a witness downgrade names no action for the owner')
   db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, 'decision', ?, NULL, ?, NULL, '${OPEN_WAIT}', NULL, ?, ?)`)
     .run(downgradeWaitId(event.id), actions.join('; '), cardId, event.ts, event.id)
+  closeWaitsOfAnEndedCard(db, cardId, event.id)
 }
 
 const QUEUE_NAME = /^[\w-]+$/

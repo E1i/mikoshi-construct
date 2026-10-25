@@ -19,7 +19,7 @@ import { messageOf } from './errors.js'
 import { assertHeld, completeTask, failTask, StaleLease } from './lease.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from './policy.js'
 import { sha256, storedInput } from './prompt-store.js'
-import { activeDecisionsShard, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from './shards.js'
+import { activeDecisionsShard, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from './shards.js'
 import { MAIN_BRANCH } from './snapshot.js'
 import { ownerGlobs } from './widening.js'
 
@@ -113,7 +113,7 @@ export class AnswerExecutor {
         const globs = ownerGlobs(this.parts.ownerMerges())
         const ownerPath = source.widen.paths.find(file => globs.some(glob => matchGlob(glob, file)))
         if (ownerPath !== undefined)
-          return this.stopped(lease, QUESTION_OWNER, `${ownerPath} is an owner path: ${source.detail}`)
+          return this.ownersStop(lease, `${ownerPath} is an owner path: ${source.detail}`)
         const scope = admittedScopeOf(this.parts.db, lease.cardId)
         const created = createdPaths(scope?.creates ?? [])
         const uncovered = source.widen.paths.filter(file => scope === null || !(withinTouches(file, scope.touches) || created.includes(file)))
@@ -202,13 +202,16 @@ export class AnswerExecutor {
       return this.stopped(lease, QUESTION_AGENT, question, {}, scope)
     const shard = activeDecisionsShard(this.parts.db, this.parts.clock())
     if (shard === null || reservationOf(lease.cardId, question))
-      return this.stopped(lease, QUESTION_OWNER, question, {}, scope)
+      return this.ownersStop(lease, question, scope)
     const reserved = ownersUnderAnyShard(question)
     if (reserved !== null)
-      return this.stopped(lease, QUESTION_OWNER, `${question} (${reserved} stays the owner's under any shard)`, {}, scope)
+      return this.ownersStop(lease, `${question} (${reserved} stays the owner's under any shard)`, scope)
+    const boundary = pathsIn(question).find(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION)
+    if (boundary !== undefined)
+      return this.ownersStop(lease, `${question} (${boundary} is ${OWNER_EVEN_UNDER_THE_DECISION} and stays the owner's under any shard)`, scope)
     const isolation: Isolation = this.parts.isolation?.() ?? { level: 'none', why: 'the answer worker reads no isolation' }
     if (isolation.level === 'none')
-      return this.stopped(lease, QUESTION_OWNER, `${question} (the ${DECISIONS_SCOPE} shard ${shard.id} is refused without isolation: ${isolation.why})`, {}, scope)
+      return this.ownersStop(lease, `${question} (the ${DECISIONS_SCOPE} shard ${shard.id} is refused without isolation: ${isolation.why})`, scope)
     const ground = `window shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until}) under ${isolation.level} isolation`
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS })])
     return { kind: 'decided', taskKey: lease.taskKey, shard: shard.id, question }
@@ -224,9 +227,14 @@ export class AnswerExecutor {
     return pathsIn(question).some(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION || globs.some(glob => matchGlob(glob, file)))
   }
 
-  private stopped(lease: Lease, reason: string, detail: string, extra: Record<string, unknown> = {}, scope: BusEvent[] = []): AnswerOutcome {
-    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_STOPPED, { reason, detail, ...extra })])
+  private stopped(lease: Lease, reason: string, detail: string, extra: Record<string, unknown> = {}, scope: BusEvent[] = [], inTheSameCommit: (db: DatabaseSync) => void = () => {}): AnswerOutcome {
+    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_STOPPED, { reason, detail, ...extra })], inTheSameCommit)
     return { kind: 'stopped', taskKey: lease.taskKey, reason, detail }
+  }
+
+  private ownersStop(lease: Lease, detail: string, scope: BusEvent[] = []): AnswerOutcome {
+    const ask = { need: 'decision' as const, text: `card #${lease.cardId} asks: ${detail}`, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
+    return this.stopped(lease, QUESTION_OWNER, detail, {}, scope, db => openBusWait(db, this.ts(), lease.actor, ask))
   }
 
   private denied(lease: Lease, denial: AnswerDenial): AnswerOutcome {

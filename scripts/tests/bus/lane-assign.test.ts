@@ -18,7 +18,7 @@ import { LaunchNode } from '../../bus/launch-worker.js'
 import { failTask, leaseQueued } from '../../bus/lease.js'
 import { queueTask, supersedeTask } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED, PR_CLOSED, PR_OBSERVED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED, PR_CLOSED, PR_OBSERVED } from '../../core/events.js'
 
 const TS = '2026-10-22T10:00:00.000Z'
 const HEAD = 'a'.repeat(40)
@@ -282,6 +282,17 @@ describe('a lane is a chain written by lane.assigned', () => {
   it('an emptied lane gives its number to the next independent card', () => {
     const bench = new Bench(3).admit(1, 'src/a.ts').admit(2, 'src/b.ts').drop(1).admit(3, 'src/c.ts')
     expect([bench.lane(1), bench.lane(2), bench.lane(3)]).toEqual([null, 'lane-2', 'lane-1'])
+  })
+
+  it('a dropped card is assigned no lane by its earlier admission', () => {
+    const bench = new Bench(3).admit(1, 'src/a.ts').start(1)
+    appendEvent(bench.db, { ts: TS, type: CARD_DROPPED, actor: 'policy', cardId: 1, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:1`, payload: {}, legacy: false })
+    appendEvent(bench.db, { ts: TS, type: CARD_STOPPED, actor: 'worker:launch:w1', cardId: 1, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:1`, payload: { reason: 'fault', detail: 'session-end' }, legacy: false })
+    expect(layLanes(bench.db, 3, TS, 'policy')).toBe(0)
+    expect(bench.count(LANE_ASSIGNED)).toBe(1)
+    expect(bench.lane(1)).toBeNull()
+    bench.admit(1, 'src/a.ts')
+    expect(bench.lane(1)).toBe('lane-1')
   })
 
   it('an amend that adds an overlap moves the card into that card lane', () => {

@@ -11,6 +11,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
 import { parkingLane } from '../../bus/admissions.js'
 import { ARCHIVE_DIR } from '../../bus/card-archive.js'
@@ -20,7 +21,7 @@ import { recordDecision } from '../../bus/decisions.js'
 import { recordHeartbeat } from '../../bus/heartbeat.js'
 import { taskKey } from '../../bus/identifiers.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
-import { busCardEvents } from '../../bus/intake.js'
+import { busCardAdmissions, busCardEvents, busHeldCards } from '../../bus/intake.js'
 import { launchableCard, launchCandidates } from '../../bus/launch-candidates.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
@@ -199,6 +200,33 @@ describe('the launch queue', () => {
     expect(taskState(bench.db, launch(901))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     expect(taskState(bench.db, launch(902))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     expect(bench.leaseLaunch()).toMatchObject({ taskKey: launch(901), queue: 'launch', cardId: 901, pr: null, head: null, leaseGen: 1 })
+    bench.close()
+  })
+
+  it('a waiting card becomes a launch candidate when its last dependency merges', () => {
+    const bench = launchBench()
+    bench.admit(900, 'lane-a')
+    bench.started(900)
+    bench.admit(901, 'lane-b')
+    bench.started(901)
+    const root = tempRoot()
+    const parking = path.join(root, 'parking')
+    mkdirSync(parking)
+    const file = path.join(parking, '1124.md')
+    writeFileSync(file, parkingFileText({ card: '#1124 waiting-card [implement/netwatch/S/cheap/auto] · depends #900 #901 · blocks —', branch: 'feat/waiting-card', touches: ['scripts/bus/launch-candidates.ts'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
+    const admitted = runAdmit({ file, dir: process.cwd(), dryRun: false, autoConfirm: true, parkingRoot: parking, contourMap: path.join(root, 'contour-map.json'), decisions: path.join(root, 'owner-decisions.md'), events: busCardEvents(bench.db), cardStates: () => busHeldCards(bench.db), admissions: busCardAdmissions(bench.db) })
+    expect(admitted.status).toBe('admitted')
+    expect(eventsOf(bench.db, 'card.waiting')).toEqual([{ depends: [900, 901] }])
+    const candidate = (): boolean => launchCandidates(bench.db, () => false).some(each => each.cardId === 1124)
+    const launchQueued = (): boolean => bench.db.prepare(`SELECT 1 FROM tasks WHERE queue = 'launch' AND card_id = 1124 AND state = 'queued'`).get() !== undefined
+    bench.tick()
+    expect([candidate(), launchQueued()]).toEqual([false, false])
+
+    bench.mergedPr(800)
+    expect([candidate(), launchQueued()]).toEqual([false, false])
+
+    bench.mergedPr(801)
+    expect(launchQueued()).toBe(true)
     bench.close()
   })
 

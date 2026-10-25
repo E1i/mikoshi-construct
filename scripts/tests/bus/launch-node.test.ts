@@ -26,12 +26,13 @@ import { busIntakePorts } from '../../bus/intake.js'
 import { LadderCardStarter } from '../../bus/ladder-starter.js'
 import { LaunchExecutor } from '../../bus/launch-executor.js'
 import { gitChangedPaths, ShiftCardStarter } from '../../bus/launch-starter.js'
-import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, cardDecisionCommand, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
+import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, LAUNCH_START_MINUTES, LAUNCH_UNSTARTED, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP } from '../../bus/launch-worker.js'
 import { leaseNext } from '../../bus/lease.js'
 import { TICK_MS } from '../../bus/netwatch.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { keyOf, launchTasks, queueTask } from '../../bus/queue.js'
 import { reduce } from '../../bus/reducer.js'
+import { cardDecisionCommand } from '../../bus/shards.js'
 import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
 import { approvalSha256, canonicalImplementText } from '../../ghosts/approval.js'
@@ -1009,6 +1010,43 @@ describe('the launch node', () => {
     made.tick()
     expect(made.db.prepare(`SELECT card_id, state FROM cards WHERE card_id IN (986, 987) ORDER BY card_id`).all()).toEqual([{ card_id: 986, state: DROPPED_CARD }, { card_id: 987, state: DROPPED_CARD }])
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+  })
+
+  it('a launch lease with no card start expires with its reason and frees the slot', async () => {
+    const made = bench()
+    const starter = new FakeStarter()
+    admit(made, 1251, 'lane-a')
+    made.tick()
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
+    leaseNext(made.db, made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
+    await once(node)
+    expect(starter.starts).toEqual([])
+
+    made.clock.advance((LAUNCH_START_MINUTES - 1) * 60_000)
+    expect(node.stopOverdue()).toEqual([])
+    expect(taskState(made.db, launchKey(1251))).toMatchObject({ state: 'leased' })
+
+    made.clock.advance(2 * 60_000)
+    expect(node.stopOverdue()).toEqual([])
+    expect(taskState(made.db, launchKey(1251))).toMatchObject({ state: 'queued', failures: 1 })
+    expect(eventsOf(made.db, TASK_FAILED)).toMatchObject([{ task_key: launchKey(1251), reason: LAUNCH_UNSTARTED, next: 'queued' }])
+    node.stopOverdue()
+    expect(eventsOf(made.db, TASK_FAILED)).toHaveLength(1)
+
+    await once(node)
+    expect(starter.starts.map(card => card.cardId)).toEqual([1251])
+  })
+
+  it('a launch lease whose card started is not expired however long it is held', async () => {
+    const made = bench()
+    admit(made, 1252, 'lane-a')
+    made.tick()
+    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
+    leaseNext(made.db, made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
+    startedEarlier(made, 1252)
+    made.clock.advance((LAUNCH_START_MINUTES + 1) * 60_000)
+    expect(node.expireUnstartedLeases()).toEqual([])
+    expect(taskState(made.db, launchKey(1252))).toMatchObject({ state: 'leased' })
   })
 
   it('a silent session whose card has a pull request is not stopped by the heartbeat watchdog', async () => {

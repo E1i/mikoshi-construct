@@ -389,7 +389,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED)).toHaveLength(1)
   })
 
-  it('the ports pnpm intake builds read the bus\'s card states, so --admit drops a depends the bus ended and waits on one the bus runs, though a journal names it merged', async () => {
+  it('the ports pnpm intake builds read the bus\'s card states, so --admit drops a depends the bus ended and admits a card carrying one the bus runs with a card.waiting naming it, though a journal names it merged', async () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     const lane = path.join(w.parking, '')
@@ -415,7 +415,7 @@ describe('pnpm intake writes card events to bus.db', () => {
     finally {
       db.close()
     }
-    expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED).map(event => (event.payload as { card: string }).card)).toEqual([card(91, '—')])
+    expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED).map(event => (event.payload as { card: string }).card)).toEqual([card(91, '—'), card(92, '#81')])
     expect(cardEvents(w).filter(event => event.type === CARD_WAITING).map(event => [event.cardId, event.payload])).toEqual([[92, { depends: [81] }]])
   })
 })
