@@ -137,14 +137,14 @@ describe('the bus of a launch', () => {
 
   it('the claude command of a launch runs without CONSTRUCT_BUS_DB, and tree-pr after it with the launching bus', () => {
     const probe = (name: string): string => `sh -c 'echo "${name}=\${${BUS_DB_VARIABLE}:-unset}"' ${name}`
-    const args = launchArgv({ command: probe('claude'), treePr: probe('treepr'), cardId: CARD, worktree: TREE, report: '/r', id: SESSION })
+    const args = launchArgv({ command: probe('claude'), treePr: probe('treepr'), cardId: CARD, worktree: TREE, report: '/r', exit: '/dev/null', id: SESSION })
     const run = spawnSync('sh', args, { encoding: 'utf8', env: { ...process.env, [BUS_DB_VARIABLE]: LAUNCHING_BUS } })
     expect(run.stdout.split('\n')).toEqual(['claude=unset', `treepr=${LAUNCHING_BUS}`, ''])
   })
 
   it('a card session starts with --strict-mcp-config, so no MCP server of the owner\'s user config starts in it', () => {
     const probe = `sh -c 'printf "%s\\n" "$@"' claude`
-    const args = launchArgv({ command: probe, treePr: 'true', cardId: CARD, worktree: TREE, report: '/r', id: SESSION })
+    const args = launchArgv({ command: probe, treePr: 'true', cardId: CARD, worktree: TREE, report: '/r', exit: '/dev/null', id: SESSION })
     const run = spawnSync('sh', args, { encoding: 'utf8' })
     expect(run.stdout.split('\n')).toEqual(['--strict-mcp-config', '-p', '--session-id', SESSION, ''])
   })

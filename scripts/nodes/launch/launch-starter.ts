@@ -10,8 +10,10 @@ import { parseParkingFile } from '../../../src/card/parking.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
+import { exitCodePath, treeReportPath } from '../../core/places.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 import { continuationBody } from './prompt.js'
+import { restoreReport } from './report-collect.js'
 import { journalDoubt, parseSessionJournal } from './session-journal.js'
 
 export interface DetachedSpawn {
@@ -74,8 +76,8 @@ export function treePrCommand(repo: string): string {
   return `pnpm --dir ${shellWord(repo)} --silent exec tsx ${FACTORY_RUNTIME.shiftTreePr}`
 }
 
-export function launchArgv(session: { command: string, treePr: string, cardId: number, worktree: string, report: string, id: string }): string[] {
-  return ['-c', `env -u ${BUS_DB_VARIABLE} ${session.command} "$@" && ${session.treePr} ${session.cardId} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', ...CARD_MCP_FLAGS, '-p', '--session-id', session.id]
+export function launchArgv(session: { command: string, treePr: string, cardId: number, worktree: string, report: string, exit: string, id: string }): string[] {
+  return ['-c', `env -u ${BUS_DB_VARIABLE} ${session.command} "$@"; code=$?; printf '%s\\n' "$code" > ${shellWord(session.exit)}; [ "$code" -eq 0 ] || exit "$code"; ${session.treePr} ${session.cardId} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', ...CARD_MCP_FLAGS, '-p', '--session-id', session.id]
 }
 
 export function launchEnv(session: NodeJS.ProcessEnv, launching: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
@@ -86,6 +88,8 @@ export function launchEnv(session: NodeJS.ProcessEnv, launching: NodeJS.ProcessE
 export function unreadableCard(cardId: number): string {
   return `the bus holds no card body of card #${cardId}`
 }
+
+const TREE_REPORT = treeReportPath('')
 
 const PATH_DELIMITERS = /[\s`'"(),;<>[\]{}]+/
 
@@ -123,13 +127,16 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     const refusal = this.unnamedChanges(card.cardId, held.worktree, session)
     if (refusal !== null)
       return refusal
-    return this.session(card, () => ({ worktree: held.worktree, base: held.base ?? this.ports.base(held.worktree), body: continuationBody }))
+    return this.session(card, () => {
+      restoreReport(this.reportOf(card.cardId), held.worktree)
+      return { worktree: held.worktree, base: held.base ?? this.ports.base(held.worktree), body: continuationBody }
+    })
   }
 
   private unnamedChanges(cardId: number, worktree: string, ended: string | undefined): CardStart | null {
     try {
       const named = pathTokens(this.ports.readReport(this.reportOf(cardId)) ?? '')
-      const unnamed = this.ports.changedPaths(worktree).filter(changed => !named.has(changed))
+      const unnamed = this.ports.changedPaths(worktree).filter(changed => !named.has(changed) && changed !== TREE_REPORT)
       if (unnamed.length === 0)
         return null
       const sessions = [...new Set([...this.ports.cardSessions(cardId), ...(ended === undefined ? [] : [ended])])]
@@ -192,11 +199,11 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     try {
       const { worktree, base, body } = treeOf(task)
       const session = this.ports.uuid()
-      const report = this.reportOf(card.cardId)
-      const prompt = this.ports.prompt({ ...task, body: body(task, { worktree, report }) }, { worktree, report })
+      const places = { worktree, report: treeReportPath(worktree) }
+      const prompt = this.ports.prompt({ ...task, body: body(task, places) }, places)
       const pid = this.ports.spawnDetached({
         command: 'sh',
-        args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardId: card.cardId, worktree, report, id: session }),
+        args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardId: card.cardId, worktree, report: this.reportOf(card.cardId), exit: exitCodePath(this.places.launchDir, String(card.cardId)), id: session }),
         cwd: worktree,
         env: launchEnv(this.ports.envOf(card.cardId)),
         input: prompt,

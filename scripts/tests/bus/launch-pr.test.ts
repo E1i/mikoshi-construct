@@ -8,6 +8,7 @@ import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
+import { treeReportPath } from '../../core/places.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from '../../nodes/launch/launch-starter.js'
@@ -66,7 +67,7 @@ async function exited(pid: number): Promise<void> {
   await waitFor(() => !alive(pid), () => `process ${pid} to exit`, ARRIVAL_GUARD_MS)
 }
 
-function launchWorld(claudeExit: number, report = '') {
+function launchWorld(claudeExit: number, report = claudeExit === 0 ? 'result: done' : '') {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-pr-'))
   roots.push(root)
   const origin = path.join(root, 'origin.git')
@@ -100,7 +101,7 @@ function launchWorld(claudeExit: number, report = '') {
   const ghArgs = path.join(root, 'gh-args.txt')
   script(path.join(bin, 'gh'), `#!/bin/sh\nif [ "$1 $2" = "pr list" ]; then echo '[]'; exit 0; fi\nif [ "$1 $2" = "pr create" ]; then printf '%s\\n' "$@" > '${ghArgs}.tmp'; mv '${ghArgs}.tmp' '${ghArgs}'; echo https://github.com/x/y/pull/77; exit 0; fi\nexit 1\n`)
   const launchDir = path.join(root, 'launch')
-  const writeReport = report === '' ? '' : `printf '%s\\n' ${shellWord(report)} > ${shellWord(path.join(launchDir, `report-${CARD_ID}.md`))}\n`
+  const writeReport = report === '' ? '' : `mkdir -p .construct\nprintf '%s\\n' ${shellWord(report)} > ${shellWord(treeReportPath(worktree))}\n`
   const claude = script(path.join(root, 'claude-stub.sh'), `#!/bin/sh\ncat > /dev/null\nprintf 'green\\n' > x.txt\n${writeReport}exit ${claudeExit}\n`)
 
   const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'nodes', 'launch', 'tree-pr-cli.ts'))}`

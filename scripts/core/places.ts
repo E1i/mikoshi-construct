@@ -21,6 +21,14 @@ export function reportPath(dir: string, number: string): string {
   return path.join(dir, `report-${number}.md`)
 }
 
+export function exitCodePath(dir: string, number: string): string {
+  return path.join(dir, `exit-${number}.txt`)
+}
+
+export function treeReportPath(worktree: string): string {
+  return path.join(worktree, '.construct', 'report.md')
+}
+
 export function logPath(dir: string, number: string, restart = 0): string {
   return path.join(dir, restart === 0 ? `log-${number}.txt` : `log-${number}.${restart}.txt`)
 }
