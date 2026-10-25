@@ -15,6 +15,7 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-24.04
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7
         with:
@@ -28,6 +29,7 @@ jobs:
   dependencies:
     name: Dependency audit
     runs-on: ubuntu-24.04
+    timeout-minutes: 3
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7

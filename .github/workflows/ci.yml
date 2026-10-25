@@ -56,6 +56,7 @@ permissions:
 jobs:
   changes:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       fast-path: ${{ steps.classify.outputs.fast-path }}
       full: ${{ steps.select.outputs.full || 'true' }}
@@ -86,6 +87,7 @@ jobs:
 
   checks:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -102,6 +104,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -119,6 +122,7 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -137,6 +141,7 @@ jobs:
   vitest:
     needs: changes
     runs-on: ubuntu-24.04
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:
@@ -164,6 +169,7 @@ jobs:
   sandbox-list:
     needs: changes
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -177,6 +183,7 @@ jobs:
 
   docs:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -191,6 +198,7 @@ jobs:
 
   package:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -210,6 +218,7 @@ jobs:
 
   contract-bump:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
@@ -232,6 +241,7 @@ jobs:
     needs: [changes, package]
     if: needs.changes.outputs.fast-path != 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -310,6 +320,7 @@ jobs:
     needs: [changes, checks, lint, typecheck, vitest, sandbox-list, docs, package, contract-bump, acceptance]
     if: always()
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
