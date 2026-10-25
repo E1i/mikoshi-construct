@@ -1,15 +1,26 @@
 import type { Witness } from '../bus/witnesses.js'
+import { FACTORY_FORMER_FOLDERS, inScopes, scopeOf } from '../core/factory-paths.js'
 import { GHOSTS_FILES, readGhostsFiles } from '../shredder/reader.js'
 
 export { movingRefRefusal } from '../../src/commands/intake/check.js'
 
 export type ShowAt = (file: string) => string | null
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function ghostsFileForm(entry: string): string {
+  const scope = scopeOf(entry)
+  return scope.endsWith('/') ? `${escapeRegExp(scope)}[\\w.-]+\\.\\w+` : escapeRegExp(scope)
+}
+
 const INVARIANT_WITNESS = /^(.*?) — witness: `([^`]+)`$/
-const GHOSTS_FILE = /^scripts\/ghosts\/[\w./-]+\.\w+$/
+const FILE_EXTENSION = /\.\w+$/
 const IMMUTABLE_PATH = /^[\w.@+-]+(?:\/[\w.@+-]+)*\/?$/
-const GHOSTS_FILE_IN_TEXT = /scripts\/ghosts\/[\w.-]+\.\w+/g
-const GHOSTS_FILE_CREATED_IN_TEXT = /(scripts\/ghosts\/[\w.-]+\.\w+)`? \(creates, (?:ghosts|plain)\)/g
+const GHOSTS_FILE_FORMS = FACTORY_FORMER_FOLDERS.ghosts.map(ghostsFileForm).join('|')
+const GHOSTS_FILE_IN_TEXT = new RegExp(`(?:${GHOSTS_FILE_FORMS})`, 'g')
+const GHOSTS_FILE_CREATED_IN_TEXT = new RegExp(`(${GHOSTS_FILE_FORMS})\`? \\(creates, (?:ghosts|plain)\\)`, 'g')
 const GENERATORS = [
   { path: 'templates/attach/earlier-carriers.json', command: 'pnpm exec tsx scripts/attach/earlier-carriers.ts' },
   { path: 'contract/surface.json', command: 'pnpm contract:update' },
@@ -55,7 +66,7 @@ export function ghostsFilesRefusal(show: ShowAt, design: string, changed: string
   const named = [...design.matchAll(GHOSTS_FILE_IN_TEXT)].map(found => found[0])
   const declaredCreated = new Set([...design.matchAll(GHOSTS_FILE_CREATED_IN_TEXT)].map(found => found[1]!))
   const files = [...new Set([...named, ...changed])]
-  const ghostsFiles = files.filter(file => GHOSTS_FILE.test(file) && (changed.includes(file) || (show(file) === null && !declaredCreated.has(file))))
+  const ghostsFiles = files.filter(file => inScopes(file, FACTORY_FORMER_FOLDERS.ghosts) && FILE_EXTENSION.test(file) && (changed.includes(file) || (show(file) === null && !declaredCreated.has(file))))
   return classificationRefusals(ghostsFilesText, ghostsFiles)[0] ?? null
 }
 

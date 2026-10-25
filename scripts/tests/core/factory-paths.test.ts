@@ -5,14 +5,13 @@ import { describe, expect, it } from 'vitest'
 import { builtEntryOf } from '../../bus/bg.js'
 import { SUPERVISOR_LAUNCH } from '../../bus/supervisor.js'
 import { busLaunches } from '../../bus/workers.js'
-import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_PATH_EXCLUSIONS, FACTORY_PATH_ROOTS, FACTORY_ROOT, FACTORY_RUNTIME, FACTORY_WORKERS } from '../../core/factory-paths.js'
+import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_PATH_EXCLUSIONS, FACTORY_PATH_ROOTS, FACTORY_ROOT, FACTORY_RUNTIME, FACTORY_WORKERS, inScopes, scopeOf } from '../../core/factory-paths.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const REGISTRY = 'scripts/core/factory-paths.ts'
 const FACTORY_SOURCE_ROOTS = [FACTORY_ROOT, 'src']
 const FACTORY_SOURCE_FILES = ['tsup.config.ts']
 const NOT_YET_MIGRATED = [
-  'src/card/complexity.ts',
   'src/commands/intake/admit.ts',
   'scripts/shift/overlap.ts',
 ]
@@ -67,7 +66,7 @@ function segmentPattern(file: string): RegExp {
 
 function registryPaths(): string[] {
   const folders = Object.entries(FACTORY_FOLDERS).flatMap(([id, values]) => id === 'entries' ? values.map(name => `${FACTORY_ROOT}/${name}`) : values)
-  return [...new Set([...Object.values(FACTORY_RUNTIME), ...Object.values(FACTORY_WORKERS), ...Object.values(FACTORY_NAMED), ...folders])]
+  return [...new Set([...Object.values(FACTORY_RUNTIME), ...Object.values(FACTORY_WORKERS), ...Object.values(FACTORY_NAMED), ...folders, ...Object.values(FACTORY_FORMER_FOLDERS).flat()])]
 }
 
 function pathsNamedIn(carrier: string, text: string): string[] {
@@ -117,6 +116,17 @@ describe('the factory path registry', () => {
     expect(spawned.filter(({ source }) => source === undefined || !existsSync(path.join(REPO_ROOT, source)))).toEqual([])
     expect(spawned.filter(({ launch, source }) => !launch.markers.some(marker => marker.startsWith(`${source} `) || marker === source))).toEqual([])
     expect(spawned.filter(({ source, built }) => path.relative(path.join(REPO_ROOT, 'dist'), built).replace(/\.js$/, '.ts') !== source)).toEqual([])
+  })
+
+  it('a folder entry scopes everything under it and a file entry scopes only itself', () => {
+    expect(scopeOf('scripts/ladder')).toBe('scripts/ladder/')
+    expect(scopeOf('scripts/ladder/session.ts')).toBe('scripts/ladder/session.ts')
+    const entries = ['scripts/shift', 'scripts/ladder/session.ts']
+    expect(inScopes('scripts/shift/bg.ts', entries)).toBe(true)
+    expect(inScopes('scripts/ladder/session.ts', entries)).toBe(true)
+    expect(inScopes('scripts/ladder/session.test.ts', entries)).toBe(false)
+    expect(inScopes('scripts/shifted.ts', entries)).toBe(false)
+    expect(inScopes('scripts/shift', entries)).toBe(false)
   })
 
   it('every excluded class matches a tracked file', () => {

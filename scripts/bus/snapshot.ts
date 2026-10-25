@@ -1,12 +1,12 @@
 import type { Meter } from './meter.js'
-import { FACTORY_FOLDERS } from '../core/factory-paths.js'
+import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { REQUIRED_CHECK, SECRET_SCAN_CHECK } from '../core/gh.js'
 import { REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from './identifiers.js'
 
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
-export const MECHANICS_PATHS = [`${FACTORY_FOLDERS.shift[0]}/`]
+export const MECHANICS_PATHS = FACTORY_FORMER_FOLDERS.shift
 
 export type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'
 export type CiReading = 'pending' | 'green' | 'red'
@@ -155,7 +155,7 @@ function closedPrOf(pull: Pull): ClosedPr {
 }
 
 export function touchesMechanics(files: string[]): boolean {
-  return files.some(file => MECHANICS_PATHS.some(mechanics => mechanics.endsWith('/') ? file.startsWith(mechanics) : file === mechanics))
+  return files.some(file => inScopes(file, MECHANICS_PATHS))
 }
 
 function filenames(body: unknown): string[] {

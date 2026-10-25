@@ -1,3 +1,5 @@
+import path from 'node:path'
+
 export const FACTORY_ROOT = 'scripts'
 
 export const FACTORY_RUNTIME = {
@@ -58,15 +60,26 @@ export const FACTORY_NAMED = {
   ownerMergesTest: 'scripts/tests/shredder/owner-merges.test.ts',
 } as const
 
-export const FACTORY_FOLDERS = {
-  entries: ['bus', 'decisions', 'ghosts', 'miko', 'owner', 'shift'],
+export const FACTORY_FORMER_FOLDERS = {
   bus: ['scripts/bus'],
   ghosts: ['scripts/ghosts'],
   shift: ['scripts/shift'],
+} as const satisfies Record<string, readonly string[]>
+
+export const FACTORY_FOLDERS = {
+  entries: ['bus', 'decisions', 'ghosts', 'miko', 'owner', 'shift'],
   busTests: ['scripts/tests/bus'],
   tests: ['scripts/tests'],
   sharedCode: ['scripts/bus', 'scripts/core', 'scripts/ports', 'scripts/ghosts', 'scripts/shift', 'scripts/decisions'],
 } as const satisfies Record<string, readonly string[]>
+
+export function scopeOf(entry: string): string {
+  return path.posix.extname(entry) === '' ? `${entry}/` : entry
+}
+
+export function inScopes(file: string, entries: readonly string[]): boolean {
+  return entries.map(scopeOf).some(scope => scope.endsWith('/') ? file.startsWith(scope) : file === scope)
+}
 
 export const FACTORY_PATH_ROOTS = [FACTORY_ROOT] as const
 

@@ -3,7 +3,7 @@ import type { ParkedTask } from '../../src/card/parking.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import { mergedTasks } from '../../src/card/closed.js'
 import { SHIFT_WHO } from '../../src/card/parking.js'
-import { FACTORY_FOLDERS } from '../core/factory-paths.js'
+import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { declaredGhostsFile, GHOSTS_FILES } from '../shredder/reader.js'
 import { taskConflicts } from './overlap.js'
 
@@ -41,8 +41,6 @@ function byPriorityThenId(a: ParkedTask, b: ParkedTask): number {
   return Number(b.priority !== null) - Number(a.priority !== null) || Number(a.task.id) - Number(b.task.id)
 }
 
-const GHOSTS_DIR = `${FACTORY_FOLDERS.ghosts[0]}/`
-
 export type Created = (file: string) => boolean
 
 function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt>, created: Created, failedCards: ReadonlySet<string>): string | null {
@@ -60,7 +58,7 @@ function leftReason(parked: ParkedTask, done: ReadonlySet<string>, merged: Reado
   if (open.length > 0)
     return `depends ${open.map(id => `#${id}`).join(', ')} not merged`
   const declared = new Set(parked.creates.flatMap(entry => declaredGhostsFile(entry)?.file ?? []))
-  const unclassified = parked.task.touches.find(file => file.startsWith(GHOSTS_DIR) && !file.includes('*') && !declared.has(file) && created(file))
+  const unclassified = parked.task.touches.find(file => inScopes(file, FACTORY_FORMER_FOLDERS.ghosts) && !file.includes('*') && !declared.has(file) && created(file))
   if (unclassified !== undefined)
     return `classify ${unclassified} in ${GHOSTS_FILES}, or declare it in creates: with its kind`
   return null
