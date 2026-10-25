@@ -372,7 +372,7 @@ report, cleans the tree, and journals `event:superseded`; the tree and branch st
 `pnpm ghosts:hash` prints the approval line only after a preflight, run in the repository it is started in
 against `origin/main` fetched once and pinned: the build accepts the text; no witness names `origin/main`;
 a Design that names a generated path says the implementer runs its generator without asking; every file
-under `scripts/ghosts/**` the brief names or the sketch adds has its row in
+under `scripts/ladder/**` the brief names or the sketch adds has its row in
 [ghosts-files.md](ghosts-files.md);
 the sketch changes no Immutable path; then, in a clean worktree of the pinned base with nothing laid over
 it, every Acceptance witness runs verbatim and exits nonzero for a reason other than a missing command,
@@ -425,7 +425,7 @@ skips one turns `pnpm run quality` red after it pushed (#681, 2026-10-08):
 
 ```text
 Register every file you add in every registry that lists its kind, in the same commit:
-- a new scripts/ghosts/** file: its row in architecture/ghosts-files.md with the kind ghosts or plain, the kind
+- a new scripts/ladder/** file: its row in architecture/ghosts-files.md with the kind ghosts or plain, the kind
   the card declares in creates:; name the kind in the final message;
 - a new package.json script: its row in CONTRIBUTING.md § Scripts, and, when the harness does not run it, its entry
   in OUTSIDE_THE_HARNESS in tests/harness-membership.test.ts.
