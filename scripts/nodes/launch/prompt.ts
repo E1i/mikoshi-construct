@@ -1,6 +1,6 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { ShiftGate } from '../../../src/manifest.js'
-import { HANDOFF_FIELDS } from '../../window/handoff-check.js'
+import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { CONTINUE_PROMPT } from './continuation.js'
 
 const PROBE_SKILL = '.claude/skills/probe/SKILL.md'

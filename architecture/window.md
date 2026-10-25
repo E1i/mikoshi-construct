@@ -31,7 +31,7 @@ records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.cl
 `task` whose `task:start` line in `ghosts.jsonl` carries the session, and has no `task` when none does. The merge half is
 not enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
 
-At the Eddies warn the window writes its handoff with the fields `scripts/window/handoff-check.ts` lists, one labelled line
+At the Eddies warn the window writes its handoff with the fields `scripts/core/handoff-fields.ts` lists, one labelled line
 or heading each, and runs `pnpm handoff:check <file>`. A handoff that fails is not a handoff, and the next window does not
 start from it. The handoff does not grow and does not retell the queue: it holds exactly one STOP section, at most
 `HANDOFF_LIMIT` bytes, UTF-8, by one measure in `handoff:check` and `handoff:write` (a refusal names the largest field), a `queue:` of card numbers only (`#N`, in an order the

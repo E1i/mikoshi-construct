@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { parseTaskFile } from '../../../src/card/task-file.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { PREPUSH_COMMAND } from '../../ci/prepush.js'
+import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { renderPrompt } from '../../nodes/launch/prompt.js'
-import { HANDOFF_FIELDS } from '../../window/handoff-check.js'
 
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../nodes/launch/header.md'), 'utf8')
 const OWN_GATE = readShiftGate(path.join(import.meta.dirname, '../../..'))

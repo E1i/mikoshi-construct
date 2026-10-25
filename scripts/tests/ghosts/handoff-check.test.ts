@@ -2,7 +2,8 @@ import { Buffer } from 'node:buffer'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { HANDOFF_FIELDS, HANDOFF_LIMIT, handoffRefusals, missingFields, NEXT_TASK_LIMIT, reportRefusals, runHandoffCheck, STATIC_FIELDS } from '../../window/handoff-check.js'
+import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
+import { HANDOFF_LIMIT, handoffRefusals, missingFields, NEXT_TASK_LIMIT, reportRefusals, runHandoffCheck, STATIC_FIELDS } from '../../window/handoff-check.js'
 
 function completeHandoff(except: string[] = []): string {
   return HANDOFF_FIELDS.filter(field => !except.includes(field.id)).map(field => `${field.label}: ${field.id} value`).join('\n')
@@ -172,6 +173,7 @@ describe('handoff-check', () => {
     const doc = readFileSync(path.join(import.meta.dirname, '../../../architecture/window.md'), 'utf8')
     expect(doc).toContain('pnpm handoff:check')
     expect(doc).toContain('scripts/window/handoff-check.ts')
+    expect(doc).toContain('scripts/core/handoff-fields.ts')
     for (const field of HANDOFF_FIELDS.filter(field => field.label.includes(' ')))
       expect(doc).not.toContain(`${field.label}:`)
   })
