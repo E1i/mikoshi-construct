@@ -286,6 +286,20 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect(CONTINUE_PROMPT).toContain('без pnpm miko:exit')
   })
 
+  it('window.md names pnpm intake --export as the way to amend a card with no parking file', () => {
+    const paragraphs = readFileSync(WINDOW_DOC, 'utf8').split('\n\n')
+    const localDecision = paragraphs.find(paragraph => paragraph.includes('- A parked card changes only through'))
+    const door = paragraphs.find(paragraph => paragraph.includes('`task:start` passes the card through the intake'))
+    for (const text of [localDecision, door]) {
+      expect(text).toContain('`pnpm intake --export \'#N\'`')
+      expect(text).toContain('`pnpm intake --admit <draft>`')
+      expect(text).toContain('`<parking>/<id>.md`')
+      expect(text).toMatch(/only when that file exists/)
+    }
+    const skill = readFileSync(path.join(REPO_ROOT, 'templates', 'ai', 'claude', '_claude', 'skills', 'intake', 'SKILL.md'), 'utf8')
+    expect(skill).toContain('take its body with `pnpm intake --export \'#N\'`, edit it in a draft\noutside the repository and hand it in with `pnpm intake --admit <draft>`')
+  })
+
   it('on STATUS: OWNER the CONTINUE_PROMPT asks the owner in the window and waits in the same session', () => {
     expect(CONTINUE_PROMPT).toContain('прочитай ~/.construct/handoff/miko.md;')
     expect(CONTINUE_PROMPT).toContain('если OWNER — задай вопрос владельцу в окне и жди ответа в этой же сессии')
