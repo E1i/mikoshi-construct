@@ -384,7 +384,14 @@ describe('the session a refusal returns the card to', () => {
     const { ran, seen } = resumed(`printf '%s\\n' "$PWD" "$${CARD_VARIABLE}" "$NO_COLOR" "$@" > SEEN`, 10_000)
 
     const [cwd, card, noColor, ...argv] = readFileSync(seen, 'utf8').trim().split('\n')
-    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
+    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '--strict-mcp-config', '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
+  })
+
+  it('a resumed card session starts with --strict-mcp-config, so no MCP server of the owner\'s user config starts in it', () => {
+    const { ran, seen } = resumed(`printf '%s\\n' "$@" > SEEN`, 10_000)
+
+    const argv = readFileSync(seen, 'utf8').trim().split('\n')
+    expect({ ran, strict: argv.slice(0, argv.indexOf('--resume')).includes('--strict-mcp-config') }).toEqual({ ran: true, strict: true })
   })
 
   it('a returned session that hangs past its ceiling is ended and reads as not run to its end', () => {

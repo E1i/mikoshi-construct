@@ -142,6 +142,13 @@ describe('the bus of a launch', () => {
     expect(run.stdout.split('\n')).toEqual(['claude=unset', `treepr=${LAUNCHING_BUS}`, ''])
   })
 
+  it('a card session starts with --strict-mcp-config, so no MCP server of the owner\'s user config starts in it', () => {
+    const probe = `sh -c 'printf "%s\\n" "$@"' claude`
+    const args = launchArgv({ command: probe, treePr: 'true', cardId: CARD, worktree: TREE, report: '/r', id: SESSION })
+    const run = spawnSync('sh', args, { encoding: 'utf8' })
+    expect(run.stdout.split('\n')).toEqual(['--strict-mcp-config', '-p', '--session-id', SESSION, ''])
+  })
+
   it('a launch takes the bus of the process that starts it back into the session env the card port dropped it from', () => {
     expect(launchEnv({ PATH: '/bin' }, { [BUS_DB_VARIABLE]: LAUNCHING_BUS })).toEqual({ PATH: '/bin', [BUS_DB_VARIABLE]: LAUNCHING_BUS })
     expect(launchEnv({ PATH: '/bin' }, {})).toEqual({ PATH: '/bin' })
