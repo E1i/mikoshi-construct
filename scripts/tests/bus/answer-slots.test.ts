@@ -13,7 +13,7 @@ import { expireLeases, LEASE_MS, RENEW_MS } from '../../bus/lease.js'
 import { queueTask } from '../../bus/queue.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../bus/scheduler.js'
 import { openDatabase } from '../../bus/sqlite.js'
-import { CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
+import { CARD_STARTED, CARD_STOPPED, REVIEW_RECORDED } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -137,6 +137,7 @@ describe('answer slots', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     bench.asked(1090)
     bench.gitHub.open({ number: 990, review: 'failure' })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1090, pr: 990, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:990`, payload: { head: sha('a'), verdict: 'changes', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
     bench.asked(901)
     bench.tick()
     queueTask(bench.db, bench.clock.now().toISOString(), { queue: 'answer', cardId: 1090, pr: 990, head: sha('a') })
