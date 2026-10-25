@@ -17,7 +17,7 @@ import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/supervisor/bg.js'
 import { AGENT_LOG, agentLabel, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
-import { liveWorkers, MODE_WORKERS, modeOf, switchedOn, switchWorker, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
+import { liveWorkers, MODE_WORKERS, modeOf, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
 
@@ -264,6 +264,7 @@ describe('the keep-alive of the start command', () => {
 const SHARD_ID = 'shard-1'
 const NOW = new Date('2026-10-25T12:00:00.000Z')
 const WINDOW_WORKERS = ['review', 'launch', 'answer', 'witness']
+const TERM_END = '2026-10-25T20:00:00.000Z'
 
 interface ModeBench {
   parts: ModeParts
@@ -335,6 +336,71 @@ describe('the modes of the factory', () => {
     expect(bench.events.map(event => [event.type, event.payload])).toEqual([[SHARD_ISSUED, { id: SHARD_ID, by: said, run: null, window: true, scope: 'merge', until: '2026-10-25T20:00:00.000Z' }]])
     expect(existsSync(`${said}${USED_WORD}`)).toBe(true)
     expect(runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), modeBench().parts).exitCode).toBe(1)
+  })
+
+  it('the supervisor returns Miko to WINDOW on its first tick past the GHOST PROTOCOL term', () => {
+    const bench = modeBench()
+    sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+    runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+    const scripts = (now: Date) => wantedLaunches(bench.parts.busDir, () => [], [], now).map(launch => launch.script)
+
+    expect(termEndOf(bench.parts.busDir)).toBe(TERM_END)
+    expect(scripts(new Date('2026-10-25T19:59:59.000Z'))).toContain('bus:merge')
+    expect(modeOf(bench.parts.busDir)).toBe('ghost-protocol')
+
+    expect(scripts(new Date(TERM_END))).not.toContain('bus:merge')
+    expect(modeOf(bench.parts.busDir)).toBe('window')
+    expect(switchedOn(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+    expect(termEndOf(bench.parts.busDir)).toBeNull()
+  })
+
+  it('the mode is read from the workers switched on, so an on/off switch after a mode switch leaves no stale label', () => {
+    const bench = modeBench()
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+    switchWorker(bench.parts.busDir, 'merge', true)
+    expect(modeOf(bench.parts.busDir)).toBeNull()
+    switchWorker(bench.parts.busDir, 'merge', false)
+    expect(modeOf(bench.parts.busDir)).toBe('window')
+    expect(Object.keys(JSON.parse(readFileSync(path.join(bench.parts.busDir, WORKERS_FILE), 'utf8')) as object)).not.toContain('mode')
+  })
+
+  it('a GHOST PROTOCOL switch that cannot write its workers revokes its shard and leaves the owner word unused', () => {
+    const bench = modeBench()
+    const said = sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+    writeFileSync(bench.parts.busDir, 'not a directory')
+
+    const result = runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain('was not switched')
+    expect(bench.events.map(event => event.type)).toEqual([SHARD_ISSUED, SHARD_REVOKED])
+    expect(existsSync(said)).toBe(true)
+  })
+
+  it('a WINDOW switch that cannot write its workers revokes no shard', () => {
+    const bench = modeBench([{ id: SHARD_ID, by: 'owner', scope: 'merge', until: TERM_END }])
+    writeFileSync(bench.parts.busDir, 'not a directory')
+
+    const result = runMode(modeCommand('--mode', 'window'), bench.parts)
+
+    expect(result.exitCode).toBe(1)
+    expect(bench.events).toEqual([])
+  })
+
+  it('a corrupt workers.json is named in every switch, and a live switch on it leaves the owner word unused', () => {
+    const bench = modeBench()
+    mkdirSync(bench.parts.busDir, { recursive: true })
+    const file = path.join(bench.parts.busDir, WORKERS_FILE)
+    writeFileSync(file, '{"on": [')
+    const said = sayToOwnerChannel(bench.channel, 'allow-live launch', NOW)
+
+    expect(() => switchWorker(bench.parts.busDir, 'merge', true)).toThrow(file)
+    expect(() => modeOf(bench.parts.busDir)).toThrow(file)
+    const live = runMode(modeCommand('--live', 'launch'), bench.parts)
+    expect(live.exitCode).toBe(1)
+    expect(live.stderr.join('\n')).toContain(file)
+    expect(existsSync(said)).toBe(true)
+    expect(runMode(modeCommand('--shadow', 'launch'), bench.parts).stderr.join('\n')).toContain(file)
   })
 
   it('an owner word for another term opens no GHOST PROTOCOL', () => {

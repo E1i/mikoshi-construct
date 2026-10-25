@@ -215,13 +215,35 @@ function fateOf(release: () => boolean, file: string): string {
   return release() ? 'left unused' : `stays used though nothing was switched; the owner renames ${file}${USED_WORD} back to ${path.basename(file)}`
 }
 
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function failed(lines: string[]): BgResult {
+  return { stdout: [], stderr: lines.map(line => `${START_PREFIX}${line}`), exitCode: 1 }
+}
+
 function windowMode(parts: ModeParts): BgResult {
+  let on: BusWorker[]
+  try {
+    on = switchMode(parts.busDir, DEFAULT_MODE)
+  }
+  catch (error) {
+    return failed([`${DEFAULT_MODE} was not switched, so no shard was revoked: ${messageOf(error)}`])
+  }
   const now = parts.now()
-  const revoked = parts.activeWindows(now).map((shard) => {
-    parts.record(windowShardEnded(SHARD_REVOKED, MODE_ACTOR, shard.id, now))
-    return `${START_PREFIX}shard ${shard.id} revoked: in ${DEFAULT_MODE} a human merges`
-  })
-  return { stdout: [...revoked, switchedTo(DEFAULT_MODE, switchMode(parts.busDir, DEFAULT_MODE))], stderr: [], exitCode: 0 }
+  const stdout = [switchedTo(DEFAULT_MODE, on)]
+  const stderr: string[] = []
+  for (const shard of parts.activeWindows(now)) {
+    try {
+      parts.record(windowShardEnded(SHARD_REVOKED, MODE_ACTOR, shard.id, now))
+      stdout.push(`${START_PREFIX}shard ${shard.id} revoked: in ${DEFAULT_MODE} a human merges`)
+    }
+    catch (error) {
+      stderr.push(`${START_PREFIX}merge is off, but shard ${shard.id} was not revoked (${messageOf(error)}); it ends at its term`)
+    }
+  }
+  return { stdout, stderr, exitCode: stderr.length === 0 ? 0 : 1 }
 }
 
 function ghostProtocol(parts: ModeParts, hours: number): BgResult {
@@ -236,20 +258,50 @@ function ghostProtocol(parts: ModeParts, hours: number): BgResult {
     parts.record({ ts: now.toISOString(), type: SHARD_ISSUED, actor: MODE_SHARD_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:${id}`, payload: { id, by: word.file, run: null, window: true, scope: MODE_SHARD_SCOPE, until }, legacy: false })
   }
   catch (error) {
-    return { stdout: [], stderr: [`${START_PREFIX}the shard was not recorded in the bus (${error instanceof Error ? error.message : String(error)}); owner word ${word.file} ${fateOf(word.release, word.file)}`], exitCode: 1 }
+    return failed([`the shard was not recorded in the bus (${messageOf(error)}); owner word ${word.file} ${fateOf(word.release, word.file)}`])
   }
-  return { stdout: [`${START_PREFIX}shard ${id} issued by the owner word ${word.file}, scope ${MODE_SHARD_SCOPE}, until ${until}`, switchedTo(FACTORY_MODES[1], switchMode(parts.busDir, FACTORY_MODES[1])), `${START_PREFIX}${START_BIN} ${MODE_FLAG} ${DEFAULT_MODE} returns to ${DEFAULT_MODE} and revokes the shard`], stderr: [], exitCode: 0 }
+  let on: BusWorker[]
+  try {
+    on = switchMode(parts.busDir, FACTORY_MODES[1], until)
+  }
+  catch (error) {
+    const revoked = (() => {
+      try {
+        parts.record(windowShardEnded(SHARD_REVOKED, MODE_ACTOR, id, now))
+        return `shard ${id} revoked`
+      }
+      catch (revokeError) {
+        return `shard ${id} was not revoked (${messageOf(revokeError)}) and ends at its term`
+      }
+    })()
+    return failed([`${FACTORY_MODES[1]} was not switched: ${messageOf(error)}; ${revoked}; owner word ${word.file} ${fateOf(word.release, word.file)}`])
+  }
+  return { stdout: [`${START_PREFIX}shard ${id} issued by the owner word ${word.file}, scope ${MODE_SHARD_SCOPE}, until ${until}`, switchedTo(FACTORY_MODES[1], on), `${START_PREFIX}at ${until} the supervisor returns the factory to ${DEFAULT_MODE} on its next tick; ${START_BIN} ${MODE_FLAG} ${DEFAULT_MODE} returns sooner and revokes the shard`], stderr: [], exitCode: 0 }
+}
+
+function detecting(now: BusWorker[]): BgResult {
+  return { stdout: [`${START_PREFIX}detecting live: ${now.join(', ') || 'none'}; every other worker detects in shadow, and a worker already running changes mode when it is switched off and on`], stderr: [], exitCode: 0 }
 }
 
 function queueSwitch(parts: ModeParts, worker: BusWorker, live: boolean): BgResult {
-  const detecting = (now: BusWorker[]): BgResult => ({ stdout: [`${START_PREFIX}detecting live: ${now.join(', ') || 'none'}; every other worker detects in shadow, and a worker already running changes mode when it is switched off and on`], stderr: [], exitCode: 0 })
-  if (!live)
-    return detecting(switchDetection(parts.busDir, worker, false))
+  if (!live) {
+    try {
+      return detecting(switchDetection(parts.busDir, worker, false))
+    }
+    catch (error) {
+      return failed([`${worker} was not switched to shadow: ${messageOf(error)}`])
+    }
+  }
   const words = allowLiveText(worker)
   const word = consumeOwnerWord(parts.channel, words)
   if (word === null)
     return refusedWithoutWord(words, `${START_BIN} ${LIVE_SWITCH} ${worker}`, `the ${worker} queue goes live only on the owner's word`)
-  return detecting(switchDetection(parts.busDir, worker, true))
+  try {
+    return detecting(switchDetection(parts.busDir, worker, true))
+  }
+  catch (error) {
+    return failed([`${worker} was not switched live: ${messageOf(error)}; owner word ${word.file} ${fateOf(word.release, word.file)}`])
+  }
 }
 
 export function runMode(command: Exclude<StartCommand, { kind: 'start' }>, parts: ModeParts): BgResult {
