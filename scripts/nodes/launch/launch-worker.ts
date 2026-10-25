@@ -66,7 +66,7 @@ export const LAUNCH_DIR = 'launch'
 
 const TASK_START_SCRIPT = 'task:start'
 export const TREE_PR_ENTRY = FACTORY_RUNTIME.shiftTreePr.replace(/\.ts$/, '')
-export const HEADER_FILE = path.join(import.meta.dirname, '..', '..', FACTORY_RUNTIME.shiftHeader)
+export const HEADER_FILE = path.join(import.meta.dirname, '..', '..', '..', FACTORY_RUNTIME.shiftHeader)
 
 export function publishedTreePr(repo: string, installed: string | null): string {
   if (installed === null)

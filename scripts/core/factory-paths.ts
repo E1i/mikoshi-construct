@@ -61,16 +61,44 @@ export const FACTORY_NAMED = {
 } as const
 
 export const FACTORY_FORMER_FOLDERS = {
-  bus: ['scripts/bus'],
-  ghosts: ['scripts/ghosts'],
-  shift: ['scripts/shift'],
+  ghosts: [
+    'scripts/ladder',
+    'scripts/core/entry.ts',
+    'scripts/core/every.ts',
+    'scripts/core/journal.ts',
+    'scripts/core/tasks.ts',
+    'scripts/nodes/close/task-close.ts',
+    'scripts/nodes/close/task-merged.ts',
+    'scripts/nodes/update/review-carry.ts',
+    'scripts/ports/task-start.ts',
+    'scripts/window/handoff-check.ts',
+  ],
+  shift: [
+    'scripts/core/places.ts',
+    'scripts/intake/parking.ts',
+    'scripts/ladder/brief-finish-cli.ts',
+    'scripts/ladder/brief-finish.ts',
+    'scripts/ladder/ladder.ts',
+    'scripts/nodes/launch/continuation.ts',
+    'scripts/nodes/launch/header.md',
+    'scripts/nodes/launch/overlap.ts',
+    'scripts/nodes/launch/prompt.ts',
+    'scripts/nodes/launch/tree-pr-cli.ts',
+    'scripts/nodes/launch/tree-pr.ts',
+    'scripts/policy/shard.ts',
+    'scripts/window/day-archive.ts',
+    'scripts/window/handoff-write.ts',
+    'scripts/window/operator-boundary.ts',
+    'scripts/window/owner-command.ts',
+    'scripts/window/role-bus.ts',
+  ],
 } as const satisfies Record<string, readonly string[]>
 
 export const FACTORY_FOLDERS = {
-  entries: ['bus', 'decisions', 'ghosts', 'miko', 'owner', 'shift'],
+  entries: ['cli', 'core', 'intake', 'ladder', 'nodes', 'owner', 'policy', 'ports', 'supervisor', 'window'],
   busTests: ['scripts/tests/bus'],
   tests: ['scripts/tests'],
-  sharedCode: ['scripts/bus', 'scripts/core', 'scripts/ports', 'scripts/ghosts', 'scripts/shift', 'scripts/decisions'],
+  sharedCode: ['scripts/cli', 'scripts/core', 'scripts/intake', 'scripts/ladder', 'scripts/nodes', 'scripts/policy', 'scripts/ports', 'scripts/supervisor', 'scripts/window'],
 } as const satisfies Record<string, readonly string[]>
 
 export function scopeOf(entry: string): string {
