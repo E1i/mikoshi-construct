@@ -598,5 +598,10 @@
     "target": ".claude/skills/intake/SKILL.md",
     "sha256": "6ed52ce2ebd71efc5ce6676949664690a82b9f7a0c3816fa82f1a75c98db6fc4",
     "date": "2026-10-24"
+  },
+  {
+    "target": ".claude/skills/intake/SKILL.md",
+    "sha256": "ad918c4aeddb98c24bf5cb997d72ef1ca39a8cd30c997485af461d058a797937",
+    "date": "2026-10-25"
   }
 ]
