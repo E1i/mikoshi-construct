@@ -12,7 +12,20 @@ import { reviewLaunch } from './review-bg.js'
 export const WORKERS_FILE = 'workers.json'
 export const WORKERS = ['review', 'merge', 'update', 'launch', 'restart', 'answer', 'close', 'witness'] as const
 
+export const FACTORY_MODES = ['window', 'ghost-protocol'] as const
+export const DEFAULT_MODE = 'window'
+
 export type BusWorker = typeof WORKERS[number]
+export type FactoryMode = typeof FACTORY_MODES[number]
+
+export const MODE_WORKERS: Readonly<Record<FactoryMode, readonly BusWorker[]>> = {
+  'window': ['review', 'launch', 'answer', 'witness'],
+  'ghost-protocol': WORKERS,
+}
+
+export function isFactoryMode(name: string): name is FactoryMode {
+  return (FACTORY_MODES as readonly string[]).includes(name)
+}
 
 export function isBusWorker(name: string): name is BusWorker {
   return (WORKERS as readonly string[]).includes(name)
@@ -34,29 +47,71 @@ export function workerLaunches(reviewPreflight: () => string[]): Record<BusWorke
   return { review: reviewLaunch(reviewPreflight), merge: queueWorkerLaunch('merge'), update: queueWorkerLaunch('update'), launch: queueWorkerLaunch('launch'), restart: queueWorkerLaunch('restart'), answer: queueWorkerLaunch('answer'), close: queueWorkerLaunch('close'), witness: queueWorkerLaunch('witness') }
 }
 
-export function switchedOn(busDir: string): BusWorker[] {
+function workersRecord(busDir: string): Record<string, unknown> | null {
   const file = path.join(busDir, WORKERS_FILE)
   if (!existsSync(file))
+    return null
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+  }
+  catch (error) {
+    throw new Error(`${file} is not JSON (${error instanceof Error ? error.message : String(error)})`)
+  }
+}
+
+export function switchedOn(busDir: string): BusWorker[] {
+  const record = workersRecord(busDir)
+  if (record === null)
     return []
-  const on = (JSON.parse(readFileSync(file, 'utf8')) as { on?: unknown }).on
+  const on = record.on
   if (!Array.isArray(on) || !on.every(name => typeof name === 'string' && isBusWorker(name)))
-    throw new Error(`${file} is not {"on": [${WORKERS.map(worker => `"${worker}"`).join(', ')}]}`)
+    throw new Error(`${path.join(busDir, WORKERS_FILE)} is not {"on": [${WORKERS.map(worker => `"${worker}"`).join(', ')}]}`)
   return WORKERS.filter(worker => on.includes(worker))
 }
 
 export function liveWorkers(busDir: string): BusWorker[] {
-  const file = path.join(busDir, WORKERS_FILE)
-  if (!existsSync(file))
-    return []
-  const live = (JSON.parse(readFileSync(file, 'utf8')) as { live?: unknown }).live ?? []
+  const live = workersRecord(busDir)?.live ?? []
   if (!Array.isArray(live) || !live.every(name => typeof name === 'string' && isBusWorker(name)))
-    throw new Error(`${file} has a "live" that is not a list of ${WORKERS.map(worker => `"${worker}"`).join(', ')}`)
+    throw new Error(`${path.join(busDir, WORKERS_FILE)} has a "live" that is not a list of ${WORKERS.map(worker => `"${worker}"`).join(', ')}`)
   return WORKERS.filter(worker => live.includes(worker))
 }
 
-function writeWorkers(busDir: string, on: BusWorker[], live: BusWorker[]): void {
+export function termEndOf(busDir: string): string | null {
+  const until = workersRecord(busDir)?.until
+  return typeof until === 'string' ? until : null
+}
+
+export function modeOf(busDir: string): FactoryMode | null {
+  if (workersRecord(busDir) === null)
+    return null
+  const on = switchedOn(busDir)
+  return FACTORY_MODES.find(mode => MODE_WORKERS[mode].length === on.length && MODE_WORKERS[mode].every(worker => on.includes(worker))) ?? null
+}
+
+function writeWorkers(busDir: string, on: BusWorker[], live: BusWorker[], until: string | null = termEndOf(busDir)): void {
   mkdirSync(busDir, { recursive: true })
-  writeFileSync(path.join(busDir, WORKERS_FILE), `${JSON.stringify(live.length === 0 ? { on } : { on, live })}\n`)
+  writeFileSync(path.join(busDir, WORKERS_FILE), `${JSON.stringify({ on, ...(live.length === 0 ? {} : { live }), ...(until === null ? {} : { until }) })}\n`)
+}
+
+export function switchMode(busDir: string, mode: FactoryMode, until: string | null = null): BusWorker[] {
+  const on = WORKERS.filter(worker => MODE_WORKERS[mode].includes(worker))
+  writeWorkers(busDir, on, liveWorkers(busDir), until)
+  return on
+}
+
+export function startingMode(busDir: string): FactoryMode | null {
+  if (existsSync(path.join(busDir, WORKERS_FILE)))
+    return null
+  switchMode(busDir, DEFAULT_MODE)
+  return DEFAULT_MODE
+}
+
+export function returnToWindowAtTermEnd(busDir: string, now: Date): boolean {
+  const until = termEndOf(busDir)
+  if (until === null || Date.parse(until) > now.getTime())
+    return false
+  switchMode(busDir, DEFAULT_MODE)
+  return true
 }
 
 export function switchWorker(busDir: string, worker: BusWorker, on: boolean): BusWorker[] {
@@ -73,7 +128,8 @@ export function switchDetection(busDir: string, worker: BusWorker, live: boolean
   return next
 }
 
-export function wantedLaunches(busDir: string, reviewPreflight: () => string[], decisions: readonly InForceDecision[] = []): DetachedLaunch[] {
+export function wantedLaunches(busDir: string, reviewPreflight: () => string[], decisions: readonly InForceDecision[] = [], now: Date = new Date()): DetachedLaunch[] {
+  returnToWindowAtTermEnd(busDir, now)
   const launches = workerLaunches(reviewPreflight)
   const live = [...liveWorkers(busDir), ...(liveDecisionOf(decisions, 'launch') === null ? [] : ['launch' as const])]
   return [BUS_RUN_LAUNCH, ...switchedOn(busDir).map(worker => live.includes(worker) ? { ...launches[worker], args: [...launches[worker].args, LIVE_FLAG] } : launches[worker])]
