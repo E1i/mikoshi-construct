@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf, machineBusPath } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { alive, BUS_RUN_LAUNCH, busInEnviron, busInPsEnvironment, instancesOf, launchName, parsePs, PREFIX, processBuses, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
+import { alive, BUS_FLAG, BUS_RUN_LAUNCH, busInArgs, instancesOf, launchName, PREFIX, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
@@ -375,7 +375,7 @@ describe('pnpm bus:bg', () => {
     expect(result.stderr).toEqual([])
     expect(result.exitCode).toBe(0)
     expect(pidsOf(result)).toHaveLength(1)
-    expect(await argvLines(w, 1)).toEqual([`--silent ${launchName(SUPERVISOR_LAUNCH)}`])
+    expect(await argvLines(w, 1)).toEqual([`--silent ${launchName(SUPERVISOR_LAUNCH)} ${BUS_FLAG} ${ownBus(w)}`])
     expect(runningInstance([probe], SUPERVISOR_LAUNCH.markers, ownBus(w))).toBeUndefined()
   })
 
@@ -430,54 +430,19 @@ describe('pnpm bus:bg', () => {
     expect(w.processes()).toEqual([])
   })
 
-  it('a bus is read from the environment ps -E prints after the args, and from a /proc environ blob', () => {
-    const line = 'node scripts/supervisor/supervisor.ts --supervise CONSTRUCT_BUS_DB=/args/bus.db HOME=/h CONSTRUCT_BUS_DB=/x/bus.db PATH=/bin'
-    expect(busInPsEnvironment(line)).toBe('/x/bus.db')
-    expect(busInPsEnvironment('node scripts/supervisor/supervisor.ts --supervise HOME=/h XCONSTRUCT_BUS_DB=/y/bus.db')).toBeUndefined()
-    expect(busInEnviron('HOME=/h\0CONSTRUCT_BUS_DB_OLD=/y/bus.db\0CONSTRUCT_BUS_DB=/x/bus.db\0PATH=/bin\0')).toBe('/x/bus.db')
-    expect(busInEnviron('HOME=/h\0PATH=/bin\0')).toBeUndefined()
+  it('a bus is read from the last --bus argument of a command line, never from an assignment in it', () => {
+    expect(busInArgs('node dist/scripts/supervisor/supervisor.js --supervise --bus /args/bus.db --bus /x/bus.db')).toBe('/x/bus.db')
+    expect(busInArgs('node scripts/supervisor/supervisor.ts --supervise CONSTRUCT_BUS_DB=/y/bus.db')).toBeUndefined()
+    expect(busInArgs('node scripts/supervisor/supervisor.ts --supervise --busy /y/bus.db')).toBeUndefined()
   })
 
-  it('off linux the bus is read from ps -axEo output, and on linux from /proc environ, never the other way', () => {
-    const calls: string[][] = []
-    const output = [
-      '  101 node scripts/supervisor/supervisor.ts --supervise HOME=/h CONSTRUCT_BUS_DB=/x/bus.db PATH=/bin',
-      '  102 node scripts/bus/supervisor.js --supervise CONSTRUCT_BUS_DB=/y/bus.db',
-      '  103 sleep 30 HOME=/h',
-    ].join('\n')
-    const environs: number[] = []
-    const ps = (args: string[]): RunningProcess[] => {
-      calls.push(args)
-      return parsePs(output)
-    }
-    const environ = (pid: number): string => {
-      environs.push(pid)
-      return pid === 101 ? 'CONSTRUCT_BUS_DB=/z/bus.db\0' : ''
-    }
-    const listed = [{ pid: 101, args: 'a' }, { pid: 102, args: 'b' }, { pid: 103, args: 'c' }]
-    expect(withBuses(listed, processBuses({}, 'darwin', ps, environ))).toEqual([{ pid: 101, args: 'a', bus: '/x/bus.db' }, { pid: 102, args: 'b', bus: '/y/bus.db' }, { pid: 103, args: 'c' }])
-    expect(calls).toEqual([['-axEo', 'pid=,args=']])
-    expect(environs).toEqual([])
-    expect(withBuses(listed, processBuses({}, 'linux', ps, environ))).toEqual([{ pid: 101, args: 'a', bus: '/z/bus.db' }, { pid: 102, args: 'b' }, { pid: 103, args: 'c' }])
-    expect(calls).toHaveLength(1)
-    expect(environs).toEqual([101, 102, 103])
+  it('withBuses stamps the bus a command line carries and leaves one that carries none unchanged', () => {
+    const read = { pid: 1, args: `node dist/scripts/supervisor/run.js ${BUS_FLAG} /x/bus.db` }
+    const unread = { pid: 2, args: 'node dist/scripts/supervisor/run.js' }
+    expect(withBuses([read, unread])).toEqual([{ ...read, bus: '/x/bus.db' }, unread])
   })
 
-  it('withBuses stamps the bus a reader found and leaves a process it found none for unchanged', () => {
-    const read = { pid: 1, args: 'a' }
-    const unread = { pid: 2, args: 'b' }
-    expect(withBuses([read, unread], () => new Map([[1, '/x/bus.db']]))).toEqual([{ ...read, bus: '/x/bus.db' }, unread])
-  })
-
-  it.runIf(process.platform === 'linux')('the bus of a real child is read from the /proc environ it was started with', async () => {
-    const bus = path.join(tempRoot('bus-bg-child-'), 'bus.db')
-    const child = spawn('sleep', ['30'], { detached: true, stdio: 'ignore', env: { ...process.env, CONSTRUCT_BUS_DB: bus } })
-    child.unref()
-    started.push(child.pid!)
-    await waitFor(() => withBuses<RunningProcess>([{ pid: child.pid!, args: 'sleep 30' }], processBuses(process.env, 'linux'))[0]!.bus === bus, () => `the bus of pid ${child.pid} read as ${bus}`, ARRIVAL_GUARD_MS)
-  })
-
-  it('a relative bus in another process environment counts as unreadable, since it was relative to that process cwd', () => {
+  it('a relative bus on another process command line counts as unreadable, since it was relative to that process cwd', () => {
     const relative = { ...supervisorServing('bus.db'), pid: 1 }
     expect(servesBus(relative, '/x/bus.db')).toBe(true)
     expect(servesBus(relative, path.resolve('elsewhere', 'bus.db'))).toBe(true)

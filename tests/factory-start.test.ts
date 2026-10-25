@@ -14,7 +14,7 @@ import { BUS_DB_VARIABLE, busDirOf, repoIdOf } from '../scripts/core/bus-path.js
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
-import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
+import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { liveWorkers, MODE_WORKERS, modeOf, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
@@ -146,6 +146,11 @@ describe('a factory process is launched as the package it runs from', () => {
     const installed = installedPackage(`file://${path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'bg.js')}`)
     expect(installed).toBe(`${REPOSITORY}/`)
     expect(launchArgv(SUPERVISOR_LAUNCH, installed)).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG])
+  })
+
+  it('carries the absolute path of its bus as --bus after its own args, so ps reads the bus from the command line', () => {
+    expect(launchArgv(BUS_RUN_LAUNCH, null, 'bus.db')).toEqual(['nohup', 'pnpm', '--silent', BUS_RUN_LAUNCH.script, BUS_FLAG, path.resolve('bus.db')])
+    expect(launchArgv(SUPERVISOR_LAUNCH, `${REPOSITORY}/`, '/x/bus.db')).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG, BUS_FLAG, '/x/bus.db'])
   })
 
   it('refuses a script the package names no factory entry for, rather than starting something else', () => {
@@ -542,7 +547,9 @@ describe('the start command in the published package', () => {
     expect(launched).toHaveLength(FRESH_LAUNCHES.length)
     expect(launched.filter(line => line.includes('pnpm'))).toEqual([])
     const built = (source: string): string => path.join(packed.installed, OUT_DIR, 'scripts', 'supervisor', source)
-    const targets = launched.map(line => line.slice(line.indexOf(' ') + 1))
+    const busArgument = ` ${BUS_FLAG} ${path.join(packed.root, 'bus.db')}`
+    expect(launched.filter(line => !line.endsWith(busArgument))).toEqual([])
+    const targets = launched.map(line => line.slice(line.indexOf(' ') + 1, -busArgument.length))
     expect(targets).toContain(built('run.js'))
     expect(targets).toContain(`${built('supervisor.js')} ${SUPERVISE_FLAG}`)
     expect(targets.map(target => path.basename(target.split(' ')[0]!)).sort()).toEqual([...FRESH_LAUNCHES].sort())

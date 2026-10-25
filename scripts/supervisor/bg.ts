@@ -19,8 +19,8 @@ export const BUILT_MODULE = '.js'
 const FACTORY_SCRIPT = /^node --import tsx (scripts\/[\w/-]+)\.ts(?:\s|$)/
 const SOURCE_MARKER = /^(scripts\/[\w/-]+)\.ts(?=\s|$)/
 const PS_LINE = /^\s*(\d+)\s(.*)$/
-const BUS_ASSIGNMENT = `${BUS_DB_VARIABLE}=`
-const BUS_IN_ENVIRONMENT = new RegExp(`(?:^|\\s)${BUS_ASSIGNMENT}(\\S+)`, 'g')
+export const BUS_FLAG = '--bus'
+const BUS_IN_ARGS = new RegExp(`(?:^|\\s)${BUS_FLAG}\\s+(\\S+)`, 'g')
 
 export interface BgResult {
   stdout: string[]
@@ -69,10 +69,11 @@ export function builtEntryOf(root: string, script: string): string {
   return path.join(root, BUILD_DIR, `${source}${BUILT_MODULE}`)
 }
 
-export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH, installed: string | null = installedPackage()): string[] {
+export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH, installed: string | null = installedPackage(), bus?: string): string[] {
+  const args = bus === undefined ? launch.args : [...launch.args, BUS_FLAG, path.resolve(bus)]
   if (installed === null)
-    return ['nohup', 'pnpm', '--silent', launch.script, ...launch.args]
-  return ['nohup', process.execPath, builtEntryOf(installed, launch.script), ...launch.args]
+    return ['nohup', 'pnpm', '--silent', launch.script, ...args]
+  return ['nohup', process.execPath, builtEntryOf(installed, launch.script), ...args]
 }
 
 export function carriesMarker(args: string, markers: readonly string[]): boolean {
@@ -83,7 +84,7 @@ function psLines(args: string[], env: NodeJS.ProcessEnv): RunningProcess[] {
   return parsePs(execFileSync('ps', args, { encoding: 'utf8', env }))
 }
 
-export function parsePs(output: string): RunningProcess[] {
+function parsePs(output: string): RunningProcess[] {
   return output
     .split('\n')
     .flatMap((line) => {
@@ -92,50 +93,19 @@ export function parsePs(output: string): RunningProcess[] {
     })
 }
 
-export function busInPsEnvironment(line: string): string | undefined {
-  return [...line.matchAll(BUS_IN_ENVIRONMENT)].at(-1)?.[1]
+export function busInArgs(args: string): string | undefined {
+  return [...args.matchAll(BUS_IN_ARGS)].at(-1)?.[1]
 }
 
-export function busInEnviron(blob: string): string | undefined {
-  return blob.split('\0').find(entry => entry.startsWith(BUS_ASSIGNMENT))?.slice(BUS_ASSIGNMENT.length)
-}
-
-export type BusReader = (processes: RunningProcess[]) => ReadonlyMap<number, string>
-
-function busesOf(read: (candidate: RunningProcess) => string | undefined): BusReader {
-  return processes => new Map(processes.flatMap((candidate) => {
-    const bus = read(candidate)
-    return bus === undefined ? [] : [[candidate.pid, bus] as const]
-  }))
-}
-
-function environOf(pid: number): string {
-  try {
-    return readFileSync(`/proc/${pid}/environ`, 'utf8')
-  }
-  catch {
-    return ''
-  }
-}
-
-export type PsRunner = (args: string[]) => RunningProcess[]
-
-export function processBuses(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, ps: PsRunner = args => psLines(args, env), environ: (pid: number) => string = environOf): BusReader {
-  if (platform === 'linux')
-    return busesOf(({ pid }) => busInEnviron(environ(pid)))
-  return () => busesOf(({ args }) => busInPsEnvironment(args))(ps(['-axEo', 'pid=,args=']))
-}
-
-export function withBuses<T extends RunningProcess>(processes: T[], buses: BusReader = processBuses()): T[] {
-  const read = buses(processes)
+export function withBuses<T extends RunningProcess>(processes: T[]): T[] {
   return processes.map((candidate) => {
-    const bus = read.get(candidate.pid)
+    const bus = busInArgs(candidate.args)
     return bus === undefined ? candidate : { ...candidate, bus }
   })
 }
 
 export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
-  return () => withBuses(psLines(['-axo', 'pid=,args='], env), processBuses(env))
+  return () => withBuses(psLines(['-axo', 'pid=,args='], env))
 }
 
 export function thisBus(env: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -230,7 +200,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
     const problems = launch.preflight?.() ?? []
     if (problems.length > 0)
       return { stdout: [], stderr: [`${prefix}refused to start ${script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 }
-    const [command, ...args] = launchArgv(launch)
+    const [command, ...args] = launchArgv(launch, installedPackage(), thisBus(env))
     const fd = openSync(log, 'a')
     try {
       const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env: { ...env, [STAMP_ENV]: '1' } })
