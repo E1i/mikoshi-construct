@@ -1,5 +1,5 @@
 import type { AnswerOutcome } from '../../bus/answer-executor.js'
-import type { AnswerRun, TreeMerge } from '../../bus/answerer.js'
+import type { Answerer, AnswerRequest, AnswerRun, TreeMerge } from '../../bus/answerer.js'
 import type { CardTreeTools } from '../../bus/card-tree.js'
 import type { Queue } from '../../bus/identifiers.js'
 import type { Lease } from '../../bus/lease.js'
@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { AnswerExecutor } from '../../bus/answer-executor.js'
 import { answerSourceOf, NO_RECORDED_SESSION } from '../../bus/answer-source.js'
-import { runAnswerWorker } from '../../bus/answer-worker.js'
+import { AnswerNode, runAnswerWorker, VERDICT_NOT_RECORDED } from '../../bus/answer-worker.js'
 import { claudeAnswerer, ownerQuestionPath, projectDirOf, treeMergeOf } from '../../bus/answerer.js'
 import { readBoard } from '../../bus/board.js'
 import { appendEvent } from '../../bus/db.js'
@@ -23,8 +23,9 @@ import { inboxText, ownerInbox } from '../../bus/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
 import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, queueTask } from '../../bus/queue.js'
 import { projectionDump, reduce } from '../../bus/reducer.js'
+import { cardDecisionCommand } from '../../bus/shards.js'
 import { Rejection } from '../../bus/stored.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_REQUEUED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_RELEASED, TASK_REQUEUED } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -220,6 +221,39 @@ describe('the answer queue', () => {
     bench.close()
   })
 
+  it('an answer leased before its verdict is recorded does not answer an older verdict', async () => {
+    const bench = answerBench()
+    bench.started(1096)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1096, pr: 996, head: sha('b'), dedupeKey: `${REVIEW_RECORDED}:996:older`, payload: { head: sha('b'), verdict: 'changes', reviewer_session: 'reviewer-1', findings: ['the finding of the older verdict'] }, legacy: false })
+    bench.gitHub.open({ number: 996, review: 'failure' })
+    bench.tick()
+    const sources: AnswerRequest['source'][] = []
+    const answerer = vi.fn<Answerer>(async (request) => {
+      sources.push(request.source)
+      return { session: CARD_SESSION, resumed: true, before: sha('a'), after: PUSHED, owner: null }
+    })
+    const trees: CardTreeTools = { home: bench.home, exists: existsSync, branchOf: pr => `feat/card-${pr + 100}`, recreate: () => {}, bringTo: () => {} }
+    const node = new AnswerNode({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {}, trees })
+    const once = async (): Promise<void> => {
+      const controller = new AbortController()
+      await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    }
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await once()
+
+    expect(answerer).not.toHaveBeenCalled()
+    expect(eventsOf(bench.db, TASK_RELEASED)).toEqual([expect.objectContaining({ task_key: answer(1096, 996, sha('a')), reason: VERDICT_NOT_RECORDED })])
+    expect(taskState(bench.db, answer(1096, 996, sha('a')))).toMatchObject({ state: 'queued', failures: 0 })
+
+    bench.reviewed(996, ['the finding of the verdict on this head'])
+    bench.tick()
+    await once()
+
+    expect(sources).toEqual([expect.objectContaining({ kind: 'changes', findings: ['the finding of the verdict on this head'] })])
+    bench.close()
+  })
+
   const admitBody = (bench: ReturnType<typeof answerBench>, cardId: number, bodySha: string): void => {
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${bodySha}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}-${bodySha}`, bodySha }, legacy: false })
   }
@@ -296,6 +330,7 @@ describe('the answer queue', () => {
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining('scripts/construct/implement.workflow is an owner path') })
     expect(bench.tools.runs).toHaveLength(0)
     expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([914])
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED).at(-1)).toEqual({ id: 'Q2', need: 'decision', text: 'card #914 asks: scripts/construct/implement.workflow is an owner path: the ladder must know the answer queue', command: cardDecisionCommand(914), card: 914 })
     bench.close()
   })
 

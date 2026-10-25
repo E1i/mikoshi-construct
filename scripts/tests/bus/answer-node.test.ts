@@ -24,16 +24,17 @@ import { busSessionPulse, lastHeartbeat } from '../../bus/heartbeat.js'
 import { failTask, leaseNext } from '../../bus/lease.js'
 import { NODE_CURSORS } from '../../bus/node.js'
 import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../bus/queue.js'
-import { DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_PR_RESERVATION } from '../../bus/shards.js'
+import { cardDecisionCommand, DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_PR_RESERVATION } from '../../bus/shards.js'
 import { PREPUSH_COMMAND } from '../../ci/prepush.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_DENIED, SHARD_DECIDED, SHARD_ISSUED, TASK_ENQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, POLICY_DENIED, SHARD_DECIDED, SHARD_ISSUED, TASK_ENQUEUED } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 
 const benches: MergeBench[] = []
 const roots: string[] = []
 const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
-const OWNER_QUESTION = 'may the card also touch architecture/owner-merges.md?'
+const OWNER_QUESTION = 'may the card also touch AGENTS.md?'
+const R1_QUESTION = 'may the card also touch architecture/owner-merges.md?'
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -176,6 +177,10 @@ async function askedUnderShard(made: MergeBench, question: string, isolation?: I
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ db: made.db, answerer: askingAnswerer(question), ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation })
   return executor.answer(lease())
+}
+
+function ownerWaitOf(detail: string): Record<string, unknown> {
+  return { id: expect.stringMatching(/^Q\d+$/) as unknown, need: 'decision', text: `card #905 asks: ${detail}`, command: cardDecisionCommand(905), card: 905 }
 }
 
 const KEPT_BY_THE_OWNER: Record<string, string[]> = {
@@ -513,6 +518,7 @@ describe('the answer node', () => {
       const outcome = await askedUnderShard(made, OWNER_QUESTION, isolation)
       expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining(`the ${DECISIONS_SCOPE} shard ws-1 is refused without isolation`) as unknown })
       expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+      expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([ownerWaitOf((outcome as { detail: string }).detail)])
     }
   })
 
@@ -521,6 +527,7 @@ describe('the answer node', () => {
       const made = bench()
       expect(await askedUnderShard(made, OWNER_QUESTION, PARTIAL, shard)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: OWNER_QUESTION })
       expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+      expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([ownerWaitOf(OWNER_QUESTION)])
     }
   })
 
@@ -529,6 +536,7 @@ describe('the answer node', () => {
     const question = `${OWNER_QUESTION} #905 reserved`
     expect(await askedUnderShard(made, question, PARTIAL)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: question })
     expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([ownerWaitOf(question)])
   })
 
   it('the version pull request, the npm stage and security-invariants stay the owner\'s under any shard', async () => {
@@ -539,8 +547,26 @@ describe('the answer node', () => {
         const question = `${OWNER_QUESTION} ${ask}`
         expect(await askedUnderShard(made, question, PARTIAL)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: `${question} (${reservation} stays the owner's under any shard)` })
         expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+        expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([ownerWaitOf(`${question} (${reservation} stays the owner's under any shard)`)])
       }
     }
+  })
+
+  it('a question naming an R1 owner file stops with an owner wait under a decisions shard, and a repeat opens no second wait', async () => {
+    const made = bench()
+    const detail = `${R1_QUESTION} (architecture/owner-merges.md is R1 and stays the owner's under any shard)`
+    expect(await askedUnderShard(made, R1_QUESTION, PARTIAL)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail })
+    made.clock.advance(1_000)
+    expect(await askedUnderShard(made, R1_QUESTION, PARTIAL)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail })
+    expect(eventsOf(made.db, CARD_STOPPED).filter(stop => stop.reason === 'question.owner')).toHaveLength(2)
+    expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([ownerWaitOf(detail)])
+  })
+
+  it('a decided question opens no owner wait', async () => {
+    const made = bench()
+    expect(await askedUnderShard(made, OWNER_QUESTION, PARTIAL)).toMatchObject({ kind: 'decided' })
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
   })
 
   it('the answer worker hands its isolation reader to the node and logs the question it decided under the shard', async () => {

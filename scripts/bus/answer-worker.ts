@@ -6,7 +6,7 @@ import type { Answerer, CardText } from './answerer.js'
 import type { CardTreeTools } from './card-tree.js'
 import type { BusEvent } from './db.js'
 import type { AfterFailure, Lease, LeaseOrder } from './lease.js'
-import type { DetectionMode, Scope } from './node.js'
+import type { DetectionMode, Scope, WaitStep } from './node.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { randomUUID } from 'node:crypto'
@@ -21,11 +21,13 @@ import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS
 import { realIsolationReader } from '../ports/isolation.js'
 import { HEADLESS_FLAGS } from '../ports/session.js'
 import { AnswerExecutor } from './answer-executor.js'
+import { answerSourceOf } from './answer-source.js'
 import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
 import { cardContract, NOT_MINE, notMine } from './card-contract.js'
 import { defaultBusPath } from './db.js'
 import { messageOf } from './errors.js'
 import { assertHeld, failTask, queuedCards, StaleLease } from './lease.js'
+import { TICK_MS } from './netwatch.js'
 import { Node, runNode } from './node.js'
 import { busCardBodies } from './parking-reads.js'
 import { OWNER_MERGES } from './policy.js'
@@ -58,7 +60,11 @@ export interface NotMineDenial {
   detail: string
 }
 
-export type AnswerStep = AnswerOutcome | { kind: 'denied', taskKey: string, denial: NotMineDenial, next: AfterFailure } | { kind: 'faulted', taskKey: string, detail: string }
+export const VERDICT_NOT_RECORDED = 'verdict_not_recorded'
+
+const CHANGES_RECORDED_ON_HEAD = `SELECT 1 FROM events WHERE type = '${REVIEW_RECORDED}' AND card_id = ? AND head = ? AND json_extract(payload, '$.verdict') = 'changes' LIMIT 1`
+
+export type AnswerStep = AnswerOutcome | WaitStep | { kind: 'denied', taskKey: string, denial: NotMineDenial, next: AfterFailure } | { kind: 'faulted', taskKey: string, detail: string }
 
 export interface AnswerNodeParts {
   db: DatabaseSync
@@ -126,9 +132,17 @@ export class AnswerNode extends Node<AnswerStep> {
     }
   }
 
+  private verdictNotRecordedYet(lease: Lease): boolean {
+    return answerSourceOf(this.db, lease)?.kind === 'changes' && this.db.prepare(CHANGES_RECORDED_ON_HEAD).get(lease.cardId, lease.head) === undefined
+  }
+
+  private waitingForTheVerdict(lease: Lease): AnswerStep | null {
+    return this.verdictNotRecordedYet(lease) ? this.waitOn(lease, VERDICT_NOT_RECORDED, new Date(this.answerParts.clock().getTime() + TICK_MS).toISOString()) : null
+  }
+
   protected async handle(lease: Lease): Promise<AnswerStep> {
     try {
-      return this.withdrawnIfNotMine(lease) ?? await this.executor.answer(lease)
+      return this.withdrawnIfNotMine(lease) ?? this.waitingForTheVerdict(lease) ?? await this.executor.answer(lease)
     }
     catch (error) {
       const detail = messageOf(error)

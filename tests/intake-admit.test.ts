@@ -7,9 +7,10 @@ import path from 'node:path'
 import { runCommand } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cardBodyText, WINDOW_LANE } from '../scripts/bus/card-bodies.js'
-import { BUS_DB_VARIABLE, openBus } from '../scripts/bus/db.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus } from '../scripts/bus/db.js'
 import { recordDecision } from '../scripts/bus/decisions.js'
 import { busCardAdmissions, busCardEvents } from '../scripts/bus/intake.js'
+import { launchCandidates } from '../scripts/bus/launch-candidates.js'
 import { reduce } from '../scripts/bus/reducer.js'
 import { runTaskStart } from '../scripts/ghosts/task-start.js'
 import { downgradeAction, printAdmit, runAdmit, witnessDowngrades } from '../src/commands/intake/admit.js'
@@ -329,27 +330,19 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(taskStart(w, STALE)).toBe(1)
   })
 
-  it('a card whose depends are not merged is not admitted and stays in the queue as blocked with a waiting on #N event', () => {
+  it('a card whose depends are not merged is admitted carrying them, with a waiting on #N event beside its card.admitted', () => {
     const w = world()
     park(w, 80, CLEAN)
     const file = park(w, 82, WAITING)
     const before = readFileSync(file, 'utf8')
 
-    const waiting = admit(w, file)
-    expect(waiting).toMatchObject({ status: 'waiting', waitingOn: [80], inBus: true })
-    const { lines, exit } = printed(waiting)
-    expect(exit).toBe(INTAKE_EXIT.waiting)
-    expect(lines.join('')).toContain(`Not admitted yet ${file}: ${WAITING}. It depends on #80, not merged yet`)
+    const admitted = admit(w, file)
+    expect(admitted).toMatchObject({ status: 'admitted', inBus: true })
+    expect(printed(admitted).exit).toBe(INTAKE_EXIT.admitted)
     expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(admittedEvents(w)).toBe(0)
+    expect(admittedPayloads(w)).toEqual([expect.objectContaining({ card: WAITING, depends: [80] })])
     expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [80] }])
-    expect(taskStart(w, WAITING)).toBe(1)
 
-    mergedInBus(w, '80')
-    const held = admit(w, file)
-    expect(held.status).toBe('awaiting')
-    const token = held.status === 'awaiting' ? held.token : ''
-    expect(admit(w, file, { confirm: token }).status).toBe('admitted')
     expect(admittedEvents(w)).toBe(1)
   })
 
@@ -357,9 +350,9 @@ describe('construct intake --admit takes a card parked before the intake door', 
     const w = world()
     park(w, 80, CLEAN)
     const file = park(w, 82, WAITING)
-    const waiting = admit(w, file, { events: undefined })
-    expect(waiting).toMatchObject({ status: 'waiting', inBus: false })
-    expect(printed(waiting).lines.join('')).toContain('no bus is wired to this run, so nothing was written')
+    const admitted = admit(w, file, { events: undefined })
+    expect(admitted).toMatchObject({ status: 'admitted', inBus: false })
+    expect(printed(admitted).lines.join('')).toContain('no bus is wired to this run, so no card.admitted was written')
     expect(payloadsOf(w, 'card.waiting')).toEqual([])
 
     expect(admit(w, file, { events: undefined, admissions: recorded(WAITING, { bodySha: 'an earlier body' }) }).status).toBe('admitted')
@@ -391,37 +384,66 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(payloadsOf(w, 'card.waiting')).toEqual([])
   })
 
-  it('a dry run of a first admission with an unmerged depends reports the wait and writes nothing', () => {
+  it('a dry run of a first admission with an unmerged depends writes nothing', () => {
     const w = world()
     park(w, 80, CLEAN)
     const file = park(w, 82, WAITING)
     const before = readFileSync(file, 'utf8')
     const dry = admit(w, file, { dryRun: true })
-    expect(dry).toMatchObject({ status: 'waiting', waitingOn: [80], dryRun: true })
-    const { lines, exit } = printed(dry)
-    expect(exit).toBe(INTAKE_EXIT.waiting)
-    expect(lines.join('')).toContain('so --admit would leave it parked and write a card.waiting. Nothing was written.')
+    expect(dry).toMatchObject({ status: 'dryRun', card: { line: WAITING } })
+    expect(printed(dry).exit).toBe(INTAKE_EXIT.dryRun)
     expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(admittedEvents(w)).toBe(0)
     expect(payloadsOf(w, 'card.waiting')).toEqual([])
   })
 
-  it('a depends known only to the bus waits while the bus runs it, and not once the bus ended it', () => {
-    const admitWithBusState = (state: string): AdmitResult => {
+  it('a depends known only to the bus is carried while the bus runs it, and not once the bus ended it', () => {
+    const admitWithBusState = (state: string): { result: AdmitResult, waits: Record<string, unknown>[] } => {
       const w = world()
-      return admit(w, park(w, 82, WAITING.replace('depends #80', 'depends #77')), { cardStates: () => new Map([['77', state]]) })
+      const result = admit(w, park(w, 82, WAITING.replace('depends #80', 'depends #77')), { cardStates: () => new Map([['77', state]]) })
+      return { result, waits: payloadsOf(w, 'card.waiting') }
     }
-    expect(admitWithBusState('running')).toMatchObject({ status: 'waiting', waitingOn: [77] })
+    expect(admitWithBusState('running')).toMatchObject({ result: { status: 'admitted', card: { unclear: [] } }, waits: [{ depends: [77] }] })
     for (const ended of ['merged', 'closed'])
-      expect(admitWithBusState(ended), ended).toMatchObject({ status: 'awaiting', card: { unclear: [] } })
+      expect(admitWithBusState(ended), ended).toMatchObject({ result: { status: 'awaiting', card: { unclear: [] } }, waits: [] })
   })
 
-  it('a waiting card with no bus wired prints the no-bus wait and exits 3', () => {
+  it('a depends on a dropped card is refused by name at admission', () => {
     const w = world()
-    park(w, 80, CLEAN)
-    const file = park(w, 82, WAITING)
-    const { lines, exit } = printed(admit(w, file, { events: undefined }))
-    expect(exit).toBe(INTAKE_EXIT.waiting)
-    expect(lines.join('')).toContain(`Not admitted yet ${file}: ${WAITING}. It depends on #80, not merged yet, so it stays parked; no bus is wired to this run`)
+    const file = park(w, 1206, WAITING.replace('#82 waiting-card', '#1206 after-dropped').replace('depends #80', 'depends #1205'))
+    const refused = admit(w, file, { cardStates: () => new Map([['1205', 'dropped']]) })
+    expect(refused).toEqual({ status: 'refused', why: '#1206 depends on #1205, dropped in the bus and never merging, so it would wait for ever; take #1205 out of its depends' })
+    expect(printed(refused).exit).toBe(INTAKE_EXIT.refused)
+    expect(admittedEvents(w)).toBe(0)
+    expect(payloadsOf(w, 'card.waiting')).toEqual([])
+  })
+
+  it('a depends on a probe clears on its card.verified with a report', () => {
+    const w = world()
+    const line = WAITING.replace('#82 waiting-card', '#1234 after-probe').replace('depends #80', 'depends #1233')
+    mkdirSync(path.join(w.parking, 'lane-61'), { recursive: true })
+    const file = path.join(w.parking, 'lane-61', '1234.md')
+    writeFileSync(file, `card: ${line}\nbranch: feat/after-probe\ntouches: src/board/**\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+    expect(admitThroughBus(w, file, { cardStates: () => new Map([['1233', 'stopped']]) })).toMatchObject({ status: 'admitted', card: { line } })
+    const candidates = (): number[] => {
+      const db = openBus(busOf(w))
+      try {
+        return launchCandidates(db, () => false).map(candidate => candidate.cardId)
+      }
+      finally {
+        db.close()
+      }
+    }
+    expect(candidates()).toEqual([])
+
+    const db = openBus(busOf(w))
+    try {
+      appendEvent(db, { ts: AFTER_THE_CUTOFF.toISOString(), type: 'card.verified', actor: 'worker:task-close:window', cardId: 1233, pr: null, head: null, dedupeKey: 'card.verified:1233:probe', payload: { path: 'cheap', verification: 'measurement', report: '/probes/k-lock/report.md' }, legacy: false })
+    }
+    finally {
+      db.close()
+    }
+    expect(candidates()).toEqual([1234])
   })
 
   it('a dry run of a corrected card with an unmerged depends exits 3 and prints no token', () => {
@@ -853,11 +875,8 @@ describe('construct intake --admit across the lanes of the parking', () => {
     parkIn(w, 'lane-1', 43, '#43 other [implement/runner/S/cheap/owner] · depends — · blocks —')
     const line = '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks #43'
     const file = parkIn(w, 'lane-2', 58, line)
-    expect(admit(w, file)).toMatchObject({ status: 'waiting', waitingOn: [53], card: { line, unclear: [] } })
-
-    mergedInBus(w, '53')
-    expect(admit(w, file)).toMatchObject({ status: 'awaiting', card: { unclear: [] } })
-    expect(admit(w, file, { autoConfirm: true })).toMatchObject({ status: 'admitted', card: { unclear: [] } })
+    expect(admit(w, file)).toMatchObject({ status: 'admitted', card: { line, unclear: [] } })
+    expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [53] }])
     expect(latestText(w, file)).not.toContain('unclear:')
   })
 

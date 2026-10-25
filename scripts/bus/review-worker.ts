@@ -20,6 +20,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { textSha } from '../../src/card/text-sha.js'
 import { defaultBusDir } from '../core/bus-path.js'
 import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
 import { GhFailed, PROCESS_GH_PORT } from '../core/gh.js'
@@ -32,7 +33,7 @@ import { recordForeignDivergences } from './divergence-alarm.js'
 import { dryRunReviewsDir, keepDryRun } from './dry-run-record.js'
 import { ghApi, ghApiPatch, ghApiPost } from './github.js'
 import { busSessionPulse, measureSession } from './heartbeat.js'
-import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, taskKey } from './identifiers.js'
+import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { parkedCardNumbers } from './intake.js'
 import { expireLeases, leaseNext, leaseQueued } from './lease.js'
 import { CHECK_MS, TICK_MS } from './netwatch.js'
@@ -86,6 +87,24 @@ function inScope(task: QueuedTask, scope: Scope): boolean {
   return (scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId)
 }
 
+const ADMITTED_TEXT_OF_A_BODY = `
+  SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS text_sha FROM events
+  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_extract(payload, '$.bodySha') = ? AND json_type(payload, '$.text') = 'text'
+  ORDER BY id DESC LIMIT 1
+`
+
+export function cardBodyOfKey(db: DatabaseSync, lease: Lease, held: string | null): string | null {
+  const named = reviewInputOfKey(lease.taskKey)?.cardBody ?? null
+  if (named === null)
+    return held
+  const admitted = db.prepare(ADMITTED_TEXT_OF_A_BODY).get(lease.cardId, named) as { text: string, text_sha: unknown } | undefined
+  return admitted !== undefined && admitted.text_sha === textSha(admitted.text) ? admitted.text : null
+}
+
+function readingTheKeyedBody<P extends ExecutorParts>(parts: P): P {
+  return { ...parts, reviewer: (lease, plan, card) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null)) }
+}
+
 export interface ReviewNodeParts extends ExecutorParts {
   session: string
   mode: DetectionMode
@@ -97,7 +116,7 @@ export class ReviewNode extends Node<Step> {
 
   constructor(private readonly reviewParts: ReviewNodeParts) {
     super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env })
-    this.executor = new ReviewExecutor(reviewParts)
+    this.executor = new ReviewExecutor(readingTheKeyedBody(reviewParts))
     this.subscribe(REVIEW_ON, scopeOf)
   }
 
@@ -143,7 +162,7 @@ export class ReviewWorker {
 
   constructor(private readonly parts: WorkerParts) {
     this.actor = `worker:review:${parts.session}`
-    this.executor = new ReviewExecutor(parts)
+    this.executor = new ReviewExecutor(readingTheKeyedBody(parts))
   }
 
   private ts(): string {
