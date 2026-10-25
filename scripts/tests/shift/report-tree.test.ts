@@ -13,14 +13,14 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { exitCodePath, reportPath, treeReportPath } from '../../core/places.js'
 import { launchArgv } from '../../nodes/launch/launch-starter.js'
-import { LaunchNode, reportCollector } from '../../nodes/launch/launch-worker.js'
+import { LaunchNode, reportCollector, reportSince } from '../../nodes/launch/launch-worker.js'
 import { collectReport, REPORT_MISSING, restoreReport } from '../../nodes/launch/report-collect.js'
 import { busCardReturned, busCardStopped, busCardWaited, busLastRefusal, busPrOpened, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 951
 const OPENED_PR = 954
-const REPORT_TEXT = `#${CARD} x\nresult: done\nPR #${OPENED_PR}\nverification: run\n`
+const REPORT_TEXT = `#${CARD} x\nresult: done\nPR #${OPENED_PR}\nverification: run\nfinding: F-a-fixture-finding the fixture saw\nquestion: may the fixture keep x?\n`
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const roots: string[] = []
@@ -116,15 +116,19 @@ function treePrIn(tree: CardTree): { code: number, stops: { code?: string, detai
 }
 
 describe('the shift report lives in the card tree and the bus collects it', () => {
-  it('(a) a session that exits 0 records its exit code, and the pull request opens with the report saved and never committed, with no .gitignore', () => {
+  it('(a) a session that exits 0 records its exit code, the pull request opens with the report never committed and no .gitignore, and its finding and question lines are read from the bus after the tree is gone', () => {
     const tree = cardTree()
 
     const ran = session(tree, WRITES_REPORT)
     const pr = treePrIn(tree)
 
     const committed = git(tree.worktree, ['show', '--name-only', '--format=', 'origin/feat/x']).trim().split('\n')
-    expect({ ran, pr, committed, gitignore: existsSync(path.join(tree.worktree, '.gitignore')), saved: readFileSync(reportPath(tree.launchDir, String(CARD)), 'utf8'), inTree: existsSync(treeReportPath(tree.worktree)) })
-      .toEqual({ ran: { code: 0, treePrRan: true, exit: '0' }, pr: { code: 0, stops: [], opened: [OPENED_PR] }, committed: ['docs/x.md'], gitignore: false, saved: REPORT_TEXT, inTree: false })
+    const gitignore = existsSync(path.join(tree.worktree, '.gitignore'))
+    const inTree = existsSync(treeReportPath(tree.worktree))
+    rmSync(tree.worktree, { recursive: true, force: true })
+    const read = reportSince(tree.launchDir)({ cardId: CARD, ts: '2026-10-09T12:00:00.000Z' }) ?? ''
+    expect({ ran, pr, committed, gitignore, inTree, saved: read, lines: read.split('\n').filter(line => /^(?:finding|question):/.test(line)) })
+      .toEqual({ ran: { code: 0, treePrRan: true, exit: '0' }, pr: { code: 0, stops: [], opened: [OPENED_PR] }, committed: ['docs/x.md'], gitignore: false, inTree: false, saved: REPORT_TEXT, lines: ['finding: F-a-fixture-finding the fixture saw', 'question: may the fixture keep x?'] })
   })
 
   it('(b) a session that exits non-zero runs no tree-pr, records its code, and its report is still collected out of the tree', () => {
