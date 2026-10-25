@@ -146,7 +146,10 @@ its directory until discovery names it. The key is optional and part of `modelVe
 
 ## Where an Engram is written
 
-A repository made by `construct init` keeps its Engram in its own `construct.model.json`. An attached
+A repository made by `construct init` keeps its Engram in its own tracked `construct.model.json`, all
+but `mechanics`, which go into `.construct/mechanics.json` as `{ "modelVersion", "mechanics" }`: the
+construct's `.gitignore` ignores that directory, and discovery writes the same mechanics for one commit,
+so a fresh checkout rebuilds them on its first `construct atlas`. An attached
 repository's Engram is written outside the target tree, at
 `~/.construct/engram/<repo>-<hash>/construct.model.json`, `<repo>` the target directory's name and
 `<hash>` the first 12 hex digits of the sha256 of the real path of its root, so two repositories that

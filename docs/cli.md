@@ -1916,7 +1916,7 @@ writes a tracked file of a repository it was not asked to own:
 
 | Repository | Engram | Page |
 |---|---|---|
-| made by `init` (`construct.json` is here) and not attached | `construct.model.json`, its `mechanics` replaced, every fact, claim and node kept | `.construct/atlas.html`, which the construct's `.gitignore` ignores |
+| made by `init` (`construct.json` is here) and not attached | `mechanics` in `.construct/mechanics.json`, which the construct's `.gitignore` ignores; the tracked `construct.model.json` keeps every fact, claim, hypothesis, node and `interpretation`, and carries no `mechanics` | `.construct/atlas.html`, which the construct's `.gitignore` ignores |
 | attached by `attach`, with or without its own `construct.json` | `~/.construct/engram/<repo>-<hash>/construct.model.json` | `.construct/atlas.html`, the directory `attach` excludes in `.git/info/exclude` |
 
 A repository with neither a `construct.json` from `init` nor an attach record is refused: `atlas`

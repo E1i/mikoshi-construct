@@ -6,9 +6,10 @@ import { describe, expect, it } from 'vitest'
 import { runAttach } from '../src/commands/attach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { readTrackedFiles } from '../src/detect/git.js'
-import { discoverMechanics, ENGRAM_HOME_DIR, engramDirectoryName, writeEngram } from '../src/model/discovery.js'
+import { discoverMechanics, ENGRAM_HOME_DIR, engramDirectoryName, readEngram, writeEngram } from '../src/model/discovery.js'
 import { scanModule } from '../src/model/scan.js'
-import { MODEL_FILE, MODEL_VERSION, parseModel } from '../src/model/schema.js'
+import { MECHANICS_FILE, MODEL_FILE, MODEL_VERSION, parseMechanicsDocument, parseModel } from '../src/model/schema.js'
+import { RecordAheadOfReader } from '../src/record-ahead.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { useIsolatedHome } from './isolated-home.js'
@@ -261,18 +262,39 @@ describe('discovery writes what it found in the code into the Engram', () => {
     expect(engramDirectoryName(link)).toBe(engramDirectoryName(dir))
   })
 
-  it('writes the engram of an init repository into its own construct.model.json and keeps its facts and claims', async () => {
+  async function initRepository(): Promise<string> {
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-discovery-init-'))
     await runInit(ui, { dir, yes: true, dryRun: false, preset: 'node-backend', ai: 'claude' })
     git(dir, 'init', '-q')
     git(dir, 'add', '-A')
     git(dir, 'commit', '-qm', 'init')
+    return dir
+  }
+
+  it('writes the engram of an init repository into its own construct.model.json, keeps its facts and claims, and puts the mechanics under .construct', async () => {
+    const dir = await initRepository()
     const before = parseModel(readFileSync(path.join(dir, MODEL_FILE), 'utf8'), MODEL_FILE)
-    const file = writeEngram(dir, { attached: false, home: home() })
+    const place = { attached: false, home: home() }
+    const file = writeEngram(dir, place)
     expect(file).toBe(path.join(dir, MODEL_FILE))
     const after = parseModel(readFileSync(file, 'utf8'), MODEL_FILE)
-    expect([after.facts, after.claims]).toEqual([before.facts, before.claims])
-    expect(after.mechanics?.components.some(component => component.path === 'src/app.ts')).toBe(true)
+    expect([after.facts, after.claims, after.mechanics]).toEqual([before.facts, before.claims, undefined])
+    const mechanics = parseMechanicsDocument(readFileSync(path.join(dir, MECHANICS_FILE), 'utf8'), MECHANICS_FILE)
+    expect(mechanics.components.some(component => component.path === 'src/app.ts')).toBe(true)
+    expect(readEngram(dir, place)?.mechanics).toEqual(mechanics)
+  })
+
+  it('drops the mechanics an earlier build wrote into the tracked construct.model.json of an init repository', async () => {
+    const dir = await initRepository()
+    const model = JSON.parse(readFileSync(path.join(dir, MODEL_FILE), 'utf8')) as Record<string, unknown>
+    writeFileSync(path.join(dir, MODEL_FILE), `${JSON.stringify({ ...model, mechanics: discoverMechanics(dir) }, null, 2)}\n`)
+    writeEngram(dir, { attached: false, home: home() })
+    expect(parseModel(readFileSync(path.join(dir, MODEL_FILE), 'utf8'), MODEL_FILE).mechanics).toBeUndefined()
+  })
+
+  it('refuses a mechanics document a later build wrote', () => {
+    const later = JSON.stringify({ modelVersion: MODEL_VERSION + 1, mechanics: {} })
+    expect(() => parseMechanicsDocument(later, MECHANICS_FILE)).toThrow(RecordAheadOfReader)
   })
 })
 

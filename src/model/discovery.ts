@@ -4,7 +4,7 @@ import type { SpecifierTargets } from './imports/specifiers.js'
 import type { ModuleReading } from './scan.js'
 import type { CommandSource, Component, Mechanics, Relation, RepositoryModel } from './schema.js'
 import { createHash } from 'node:crypto'
-import { lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { readHead, readTrackedFiles } from '../detect/git.js'
 import { fileChannels } from './channels.js'
@@ -13,7 +13,7 @@ import { discoverEntries } from './entries/index.js'
 import { importReaderFor } from './imports/index.js'
 import { readPathAliases } from './imports/path-aliases.js'
 import { readWorkspaces } from './imports/workspaces.js'
-import { MODEL_FILE, MODEL_VERSION } from './schema.js'
+import { MECHANICS_FILE, MODEL_FILE, MODEL_VERSION, parseMechanicsDocument } from './schema.js'
 import { readModel, writeModel } from './write.js'
 
 export interface GitReadings {
@@ -176,11 +176,43 @@ function emptyModel(): RepositoryModel {
   return { modelVersion: MODEL_VERSION, facts: [], claims: [], hypotheses: [], stages: [], nodes: [], links: [] }
 }
 
+function withoutMechanics(model: RepositoryModel): RepositoryModel {
+  const tracked = { ...model }
+  delete tracked.mechanics
+  return tracked
+}
+
+function writeMechanics(root: string, mechanics: Mechanics): void {
+  const file = path.join(path.resolve(root), MECHANICS_FILE)
+  const source = `${JSON.stringify({ modelVersion: MODEL_VERSION, mechanics }, null, 2)}\n`
+  parseMechanicsDocument(source, MECHANICS_FILE)
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, source)
+}
+
+function readMechanics(root: string): Mechanics | null {
+  const file = path.join(path.resolve(root), MECHANICS_FILE)
+  return existsSync(file) ? parseMechanicsDocument(readFileSync(file, 'utf8'), MECHANICS_FILE) : null
+}
+
 export function writeEngram(root: string, place: EngramPlace, mechanics: Mechanics = discoverMechanics(root)): string {
   const file = engramFile(root, place)
   const directory = path.dirname(file)
   mkdirSync(directory, { recursive: true })
-  const existing = readModel(directory) ?? emptyModel()
-  writeModel(directory, { ...existing, modelVersion: MODEL_VERSION, mechanics })
+  const existing = { ...withoutMechanics(readModel(directory) ?? emptyModel()), modelVersion: MODEL_VERSION }
+  if (place.attached) {
+    writeModel(directory, { ...existing, mechanics })
+    return file
+  }
+  writeModel(directory, existing)
+  writeMechanics(root, mechanics)
   return file
+}
+
+export function readEngram(root: string, place: EngramPlace): RepositoryModel | null {
+  const model = readModel(path.dirname(engramFile(root, place)))
+  if (model == null || place.attached)
+    return model
+  const mechanics = readMechanics(root)
+  return mechanics == null ? withoutMechanics(model) : { ...model, mechanics }
 }
