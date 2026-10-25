@@ -14,9 +14,15 @@ import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { OWNER_MERGES } from '../../policy/policy.js'
 import { runShard, USAGE } from '../../policy/shard.js'
 import { activeWindowShards, cardDecisionCommand, DECISIONS_SCOPE, expiredWindowShards } from '../../policy/shards.js'
+import { readOwnerMergeKinds } from '../../policy/shredder/reader.js'
+import { OWNER_BOUNDARIES } from '../../window/handoff-write.js'
 
+const REPO = path.resolve(import.meta.dirname, '../../..')
+const WINDOW_DOC = 'architecture/window.md'
+const SHARD_RULE_OPENING = 'Under an active shard'
 const SHARD = '5a4d0000-0000-4000-8000-000000000650'
 
 interface World {
@@ -183,5 +189,19 @@ describe('a shard delegates one owner merge', () => {
     expect(decided.outcome).toMatchObject({ kind: 'decided', shard: SHARD, question: windowOwn })
     expect(decided.decided).toBe(1)
     expect(decided.waits).toEqual([])
+  })
+})
+
+describe('the window under a shard', () => {
+  it('window.md names the owner boundaries under a shard and says R1 does not widen them', () => {
+    const rule = readFileSync(path.join(REPO, WINDOW_DOC), 'utf8').split(/\n\s*\n/).find(paragraph => paragraph.startsWith(SHARD_RULE_OPENING))
+    expect(rule).toBeDefined()
+    const kinds = readOwnerMergeKinds(readFileSync(path.join(REPO, OWNER_MERGES), 'utf8')).map(kind => kind.kind)
+    expect(kinds.length).toBeGreaterThan(0)
+    for (const name of [...OWNER_BOUNDARIES, ...kinds])
+      expect(rule).toContain(`\`${name}\``)
+    expect(rule).toContain('version pull request')
+    expect(rule).toContain('npm')
+    expect(rule).toContain('R1 does not widen these boundaries')
   })
 })
