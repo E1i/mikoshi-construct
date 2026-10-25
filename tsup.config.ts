@@ -2,11 +2,14 @@ import type { Options } from 'tsup'
 import { cpSync, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { defineConfig } from 'tsup'
+import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, FACTORY_RUNTIME } from './scripts/core/factory-paths.js'
 
 export const OUT_DIR = 'dist'
-export const FACTORY_DIRECTORIES = ['bus', 'decisions', 'ghosts', 'miko', 'owner', 'shift'] as const
+export const FACTORY_DIRECTORIES = FACTORY_FOLDERS.entries
 
-const FACTORY_SCRIPT = new RegExp(`^node --import tsx (scripts/(?:${FACTORY_DIRECTORIES.join('|')})/[\\w-]+\\.ts)(?:\\s|$)`)
+const FACTORY_SCRIPT = new RegExp(`^node --import tsx (${FACTORY_ROOT}/(?:${FACTORY_DIRECTORIES.join('|')})(?:/[\\w-]+)*/[\\w-]+\\.ts)(?:\\s|$)`)
+const RUNTIME_ASSETS = Object.values(FACTORY_RUNTIME).filter(file => !file.endsWith('.ts'))
+const RUNTIME_SOURCES = Object.values(FACTORY_RUNTIME).filter(file => file.endsWith('.ts'))
 const STATIC_IMPORT = /^(?:import|export) (?!type )(?:(?:\{[^}]*\}|\* as \w+|\*|\w+(?:, \{[^}]*\})?) from )?['"](\.{1,2}\/[^'"]+)['"]/gm
 const DYNAMIC_IMPORT = /\bimport\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g
 const NAMED_SCRIPT = /(?<![\w./-])((?:scripts|src)\/[\w./-]+\.ts)\b/g
@@ -14,7 +17,7 @@ const NAMED_FILE = /['"]((?:scripts|src)\/[\w./-]+\.\w+)['"]/g
 const BESIDE_THE_MODULE = /path\.(?:join|resolve)\(import\.meta\.dirname((?:,\s*'[^']*')*)\)/g
 const ROOT_CONSTANT = /const (\w+) = path\.(?:join|resolve)\(import\.meta\.dirname((?:,\s*'[^']*')*)\)/g
 const SEGMENT = /'([^']*)'/g
-const TEST_SOURCES = 'scripts/tests/'
+const TEST_SOURCES = `${FACTORY_FOLDERS.tests[0]}/`
 const INSTALLED_DEPENDENCIES = 'node_modules/'
 const TYPESCRIPT = '.ts'
 const ROOT_FILES_ONLY = '!*/**'
@@ -61,14 +64,15 @@ export function locatedBy(source: string, text: string): string[] {
 function reach(entries: readonly string[]): { sources: string[], assets: string[] } {
   const sources = new Set<string>()
   const assets = new Set<string>()
-  const pending = [...entries]
+  const pending = [...entries, ...RUNTIME_SOURCES]
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
     if (sources.has(next))
       continue
     sources.add(next)
     const text = readFileSync(next, 'utf8')
-    const located = [...locatedBy(next, text), ...assetsNamedBy(text)].filter(file => existsSync(file))
-    pending.push(...importsOf(next, text), ...scriptsNamedBy(text).filter(file => existsSync(file)), ...located.filter(file => file.endsWith(TYPESCRIPT)))
+    const registry = next === FACTORY_NAMED.factoryRegistry
+    const located = [...locatedBy(next, text), ...(registry ? [] : assetsNamedBy(text))].filter(file => existsSync(file))
+    pending.push(...importsOf(next, text), ...(registry ? [] : scriptsNamedBy(text).filter(file => existsSync(file))), ...located.filter(file => file.endsWith(TYPESCRIPT)))
     for (const asset of located.filter(file => !file.endsWith(TYPESCRIPT)))
       assets.add(asset)
   }
@@ -80,7 +84,7 @@ export function factoryGraph(entries: readonly string[] = factoryEntries()): str
 }
 
 export function factoryAssets(entries: readonly string[] = factoryEntries()): string[] {
-  return reach(entries).assets
+  return [...new Set([...reach(entries).assets, ...RUNTIME_ASSETS.filter(file => existsSync(file))])].sort()
 }
 
 export function copyFactoryAssets(outDir: string): void {

@@ -21,6 +21,7 @@ const ALLOWED_INTERNAL_IMPORTS = {
 }
 
 const ALLOWED_FACTORY_IMPORTS = {
+  'src/card': ['core/factory-paths.js'],
   'src/commands': ['core/'],
   'src/program.ts': ['core/', 'owner/channel.js'],
 }

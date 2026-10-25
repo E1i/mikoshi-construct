@@ -12,6 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus } from '../core/bus-path.js'
 import { CARD_CONTINUED, CARD_STARTED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
+import { FACTORY_NAMED, FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
 import { RUNNING_CARD } from './card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from './db.js'
@@ -44,7 +45,7 @@ export const SUPERVISOR_LAUNCH: DetachedLaunch = {
   prefix: PREFIX,
   script: 'bus:bg',
   args: [SUPERVISE_FLAG],
-  markers: [`scripts/bus/supervisor.ts ${SUPERVISE_FLAG}`, `--silent bus:bg ${SUPERVISE_FLAG}`],
+  markers: [`${FACTORY_RUNTIME.busSupervisor} ${SUPERVISE_FLAG}`, `--silent bus:bg ${SUPERVISE_FLAG}`],
   instanceFile: SUPERVISOR_INSTANCE_FILE,
   startLock: 'bus-bg-supervise.lock',
   log: 'supervisor.log',
@@ -77,7 +78,7 @@ export interface BusCode {
 
 export const LOCAL_MAIN_REF = 'refs/heads/main'
 
-export const SHARED_BUS_CODE: readonly string[] = ['scripts/bus/db.ts', 'scripts/bus/node.ts', 'scripts/bus/lease.ts', 'scripts/bus/queue.ts', 'scripts/bus/reducer.ts']
+export const SHARED_BUS_CODE: readonly string[] = [FACTORY_NAMED.busDatabase, FACTORY_NAMED.busNode, FACTORY_NAMED.busLease, FACTORY_NAMED.busQueue, FACTORY_NAMED.busReducer]
 
 const RELATIVE_IMPORT = /\b(?:import|export)\s[^'"]*?\sfrom\s*'(\.{1,2}\/[^']+)'|\bimport\s*'(\.{1,2}\/[^']+)'/g
 

@@ -8,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
+import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { continuationBody } from '../shift/prompt.js'
 import { messageOf } from './errors.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
@@ -68,7 +69,7 @@ export function shellWord(text: string): string {
 }
 
 export function treePrCommand(repo: string): string {
-  return `pnpm --dir ${shellWord(repo)} --silent exec tsx scripts/shift/tree-pr-cli.ts`
+  return `pnpm --dir ${shellWord(repo)} --silent exec tsx ${FACTORY_RUNTIME.shiftTreePr}`
 }
 
 export function launchArgv(session: { command: string, treePr: string, cardId: number, worktree: string, report: string, id: string }): string[] {

@@ -1,3 +1,4 @@
+import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT } from '../../scripts/core/factory-paths.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 
 export const RISK_LEVELS = ['R1', 'R2', 'R3', 'R4'] as const
@@ -32,10 +33,10 @@ const CORE: readonly (readonly [string, string])[] = [
   ['.claude/skills/implement', LADDER],
   ['.claude/agents', LADDER],
   ['scripts/construct', LADDER],
-  ['scripts/ghosts/approval.ts', LADDER],
-  ['scripts/ghosts/hash.ts', LADDER],
-  ['scripts/ghosts/launch.ts', LADDER],
-  ['scripts/ghosts/approve.ts', APPROVAL_RULES],
+  [FACTORY_NAMED.ghostsApproval, LADDER],
+  [FACTORY_NAMED.ghostsHashing, LADDER],
+  [FACTORY_NAMED.ghostsLaunch, LADDER],
+  [FACTORY_NAMED.ghostsApprove, APPROVAL_RULES],
   ['architecture/decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md', APPROVAL_RULES],
   ['architecture/decisions/0058-morse-approves-a-brief-of-every-risk.md', APPROVAL_RULES],
   ['templates/ai/claude/_claude/skills/implement', LADDER],
@@ -58,19 +59,19 @@ const CORE: readonly (readonly [string, string])[] = [
   ['architecture/composition', ALWAYS_HIGH],
   ['eslint.config.mjs', ALWAYS_HIGH],
   ['architecture/owner-merges.md', ALWAYS_HIGH],
-  ['scripts/bus/queue.ts', FACTORY],
-  ['scripts/bus/admissions.ts', FACTORY],
-  ['scripts/bus/close-executor.ts', FACTORY],
-  ['scripts/bus/merge-executor.ts', FACTORY],
-  ['scripts/bus/round-limit-decision.ts', FACTORY],
-  ['scripts/bus/update-done.ts', FACTORY],
+  [FACTORY_NAMED.busQueue, FACTORY],
+  [FACTORY_NAMED.busAdmissions, FACTORY],
+  [FACTORY_NAMED.busCloseExecutor, FACTORY],
+  [FACTORY_NAMED.busMergeExecutor, FACTORY],
+  [FACTORY_NAMED.busRoundLimitDecision, FACTORY],
+  [FACTORY_NAMED.busUpdateDone, FACTORY],
 ]
 const HIGH: readonly (readonly [string, string])[] = [
   ['contract', CONTRACT],
   ['src/detect', CONTRACT],
   ['src/model/schema.ts', CONTRACT],
-  ['scripts/ghosts', FACTORY],
-  ['scripts/shift', FACTORY],
+  [FACTORY_FOLDERS.ghosts[0], FACTORY],
+  [FACTORY_FOLDERS.shift[0], FACTORY],
 ]
 const LOW_ROOTS = ['docs', 'architecture', 'tests', '.changeset', '.construct', 'scripts']
 const GATE_SCRIPTS = ['scripts/composition', 'scripts/model', 'scripts/privacy', 'scripts/docs']
@@ -86,7 +87,7 @@ const TWINS: readonly (readonly [string, string])[] = [
 ]
 const ACCOMPANYING = ['tests', '.changeset']
 const WITNESS_ROOTS: readonly (readonly [string, string | null])[] = [
-  ['scripts/tests', 'scripts'],
+  [FACTORY_FOLDERS.tests[0], FACTORY_ROOT],
   ['tests', null],
 ]
 const MODULE_INDEX = 'index'

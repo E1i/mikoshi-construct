@@ -4,11 +4,12 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { CARD_CLOSED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, REVIEW_RECORDED, UPDATE_DONE } from '../core/events.js'
+import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { defaultBusPath, openBus } from './db.js'
 
 export const PREFIX = '[bus:window] '
 export const COMPLETION_OF = { merge: MERGE_DONE, update: UPDATE_DONE, close: CARD_CLOSED, review: REVIEW_RECORDED } as const
-export const USAGE = `usage: pnpm exec tsx scripts/bus/window.ts <${Object.keys(COMPLETION_OF).join('|')}>`
+export const USAGE = `usage: pnpm exec tsx ${FACTORY_RUNTIME.busWindow} <${Object.keys(COMPLETION_OF).join('|')}>`
 
 const DETECTED_OUTCOMES = new Set(['already', 'queued'])
 const DETECTED_VIA = 'event'

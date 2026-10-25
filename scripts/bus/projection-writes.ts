@@ -1,13 +1,14 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
+import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT } from '../core/factory-paths.js'
 import { PROJECTION_KEYS } from './reducer.js'
 
-export const KNOWN_WRITES = 'scripts/bus/projection-writes.known.json'
-export const REDUCER_ENTRIES: readonly string[] = ['scripts/bus/reducer.ts#reduce', 'scripts/bus/watermark.ts#reduceProjection']
+export const KNOWN_WRITES = FACTORY_NAMED.knownProjectionWrites
+export const REDUCER_ENTRIES: readonly string[] = [`${FACTORY_NAMED.busReducer}#reduce`, `${FACTORY_NAMED.busWatermark}#reduceProjection`]
 
-const SCANNED_ROOT = 'scripts'
-const UNSCANNED = 'scripts/tests/'
+const SCANNED_ROOT = FACTORY_ROOT
+const UNSCANNED = `${FACTORY_FOLDERS.tests[0]}/`
 const FOLD_MAP_TYPE = 'Record<string, Fold>'
 const MODULE_UNIT = '<module>'
 const SQL_WRITE = /\b(INSERT(?:\s+OR\s+[A-Z]+)?\s+INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)\s+(\w+)/g

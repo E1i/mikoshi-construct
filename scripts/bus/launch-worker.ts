@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { busDirOf, machineBusPath } from '../core/bus-path.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../core/events.js'
+import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { ghostLinesText } from '../ghosts/journal.js'
 import { reviewOf } from '../ghosts/verdict.js'
 import { commandWords, realIsolationReader } from '../ports/isolation.js'
@@ -64,7 +65,8 @@ export const PREFIX = prefixOf('launch')
 export const LAUNCH_DIR = 'launch'
 
 const TASK_START_SCRIPT = 'task:start'
-export const TREE_PR_ENTRY = 'scripts/shift/tree-pr-cli'
+export const TREE_PR_ENTRY = FACTORY_RUNTIME.shiftTreePr.replace(/\.ts$/, '')
+export const HEADER_FILE = path.join(import.meta.dirname, '..', '..', FACTORY_RUNTIME.shiftHeader)
 
 export function publishedTreePr(repo: string, installed: string | null): string {
   if (installed === null)
@@ -737,7 +739,7 @@ async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const env = process.env
   const places = launchPlaces(os.homedir(), process.cwd(), busPath)
-  const header = readFileSync(path.join(import.meta.dirname, '..', 'shift', 'header.md'), 'utf8')
+  const header = readFileSync(HEADER_FILE, 'utf8')
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(handoffDir(env), process.cwd(), env, busPath))

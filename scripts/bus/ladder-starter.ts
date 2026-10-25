@@ -3,6 +3,7 @@ import type { CardStart, CardStarter, LaunchedCard, LaunchTechnicalReason, Queue
 import type { StarterPlaces, StarterPorts } from './launch-starter.js'
 import path from 'node:path'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { messageOf } from './errors.js'
 import { technical } from './launch-executor.js'
 import { cardCommand, shellWord, unreadableCard } from './launch-starter.js'
@@ -43,7 +44,7 @@ interface Chain {
   input: string
 }
 
-const BRIEF_FINISH_CLI = 'scripts/shift/brief-finish-cli.ts'
+export const BRIEF_FINISH_CLI = FACTORY_RUNTIME.shiftBriefFinish
 const ANSWER_YES = `printf 'yes\\n'`
 
 function pnpmScript(places: LadderPlaces, args: string[]): string {

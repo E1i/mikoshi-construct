@@ -7,12 +7,13 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BUS_DB_VARIABLE, busDirOf, pinBus } from '../core/bus-path.js'
+import { FACTORY_NAMED } from '../core/factory-paths.js'
 import { builtEntryOf, installedPackage, printBg } from './bg.js'
 import { startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
 
 export const START_PREFIX = '[factory:start] '
 export const OWNER_AGENT = 'dev.mikoshi.bus'
-export const OWNER_AGENT_FILE = path.join('scripts', 'bus', 'launchd', `${OWNER_AGENT}.plist`)
+export const OWNER_AGENT_FILE = path.join(FACTORY_NAMED.launchdDirectory, `${OWNER_AGENT}.plist`)
 export const AGENT_PREFIX = 'dev.mikoshi.factory.'
 export const KEEP_ALIVE_PLATFORM = 'darwin'
 export const LAUNCH_AGENTS = path.join('Library', 'LaunchAgents')

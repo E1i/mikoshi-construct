@@ -2,6 +2,7 @@ import type { DetachedLaunch } from './bg.js'
 import type { InForceDecision } from './decisions.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { BUS_RUN_LAUNCH, PREFIX } from './bg.js'
 import { liveDecisionOf } from './live-decision.js'
 import { LIVE_FLAG } from './node.js'
@@ -23,7 +24,7 @@ function queueWorkerLaunch(worker: Exclude<BusWorker, 'review'>): DetachedLaunch
     prefix: PREFIX,
     script,
     args: [SWITCH_FLAG],
-    markers: [`scripts/bus/${worker}-worker.ts ${SWITCH_FLAG}`, `--silent ${script} ${SWITCH_FLAG}`],
+    markers: [`${FACTORY_WORKERS[worker]} ${SWITCH_FLAG}`, `--silent ${script} ${SWITCH_FLAG}`],
     startLock: `bus-${worker}-bg.lock`,
     log: `${worker}.log`,
   }

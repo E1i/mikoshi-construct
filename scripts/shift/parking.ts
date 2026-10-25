@@ -3,6 +3,7 @@ import type { ParkedTask } from '../../src/card/parking.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import { mergedTasks } from '../../src/card/closed.js'
 import { SHIFT_WHO } from '../../src/card/parking.js'
+import { FACTORY_FOLDERS } from '../core/factory-paths.js'
 import { declaredGhostsFile, GHOSTS_FILES } from '../shredder/reader.js'
 import { taskConflicts } from './overlap.js'
 
@@ -40,7 +41,7 @@ function byPriorityThenId(a: ParkedTask, b: ParkedTask): number {
   return Number(b.priority !== null) - Number(a.priority !== null) || Number(a.task.id) - Number(b.task.id)
 }
 
-const GHOSTS_DIR = 'scripts/ghosts/'
+const GHOSTS_DIR = `${FACTORY_FOLDERS.ghosts[0]}/`
 
 export type Created = (file: string) => boolean
 
