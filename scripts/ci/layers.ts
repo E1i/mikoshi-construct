@@ -7,8 +7,8 @@ import { scansATree } from './tree-scanners.js'
 
 export { isTest }
 
-export const BUS_CORE = /^scripts\/bus\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
-export const BUS_SERVICE = /^scripts\/bus\/([a-z]+)-(?:worker|executor|starter)\.ts$/
+export const BUS_CORE = /^scripts\/core\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
+export const BUS_SERVICE = /^scripts\/(?:nodes\/[a-z]+|ladder)\/([a-z]+)-(?:worker|executor|starter)\.ts$/
 export const BUS_SHARED: readonly string[] = [
   FACTORY_NAMED.busDatabase,
   FACTORY_NAMED.busErrors,

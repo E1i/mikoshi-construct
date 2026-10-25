@@ -1,17 +1,41 @@
-const BUS_CORE = '^scripts/bus/(db|reducer|sqlite|stored|identifiers)\\.ts$'
-const BUS_SERVICE = '^scripts/bus/([a-z]+)-(worker|executor|starter)\\.ts$'
-const BUS_SERVICE_OF_SAME_NAME = '^scripts/bus/$1-(worker|executor|starter)\\.ts$'
-const CORE = '^scripts/core/'
-const OWNER_CHANNEL = '^scripts/owner/channel\\.ts$'
-const FACTORY = '^(scripts/(bus|ghosts|shift|miko|decisions|lanes)/|src/commands/)'
+const BUS_CORE = '^scripts/core/(db|reducer|sqlite|stored|identifiers)\\.ts$'
+const BUS_SERVICE = '^scripts/(?:nodes/[a-z]+|ladder)/([a-z]+)-(worker|executor|starter)\\.ts$'
+const NODE = '^scripts/nodes/([^/]+)/'
+const SAME_NODE = '^scripts/nodes/$1/'
+const CORE_FILES_SRC_MAY_IMPORT = ['bus-path', 'eddies', 'events', 'factory-paths', 'gh-callers', 'handoff-dir', 'layer-map', 'merge-event', 'verification']
+const SRC_MAY_IMPORT = [`^scripts/core/(${CORE_FILES_SRC_MAY_IMPORT.join('|')})\\.ts$`, '^scripts/owner/channel\\.ts$']
+const COMMANDS = '^(scripts/owner/|src/commands/)'
 const FORMER_EVENT_HOMES = '^src/commands/intake/(index|move)\\.ts$'
-const LADDER = '^scripts/ghosts/'
-const LADDER_STARTER = '^scripts/ladder/ladder-starter\\.ts$'
-const PORTS = '^scripts/ports/'
-const PORT_CALLERS = '^scripts/(bus|ghosts|shift|miko)/'
+const LADDER = ['^scripts/ladder/', '^scripts/done/']
+
+const CONTOURS = [
+  { name: 'core', rank: 0, paths: ['^scripts/core/'] },
+  { name: 'ports', rank: 1, paths: ['^scripts/ports/'] },
+  { name: 'policy', rank: 2, paths: ['^scripts/policy/'] },
+  { name: 'nodes', rank: 3, paths: ['^scripts/nodes/'] },
+  { name: 'supervisor', rank: 4, paths: ['^scripts/supervisor/'] },
+  { name: 'window', rank: 4, paths: ['^scripts/window/'] },
+  { name: 'intake', rank: 4, paths: ['^scripts/intake/', '^src/card/', '^src/commands/intake/'] },
+  { name: 'cli', rank: 5, paths: ['^scripts/cli/', '^src/commands/(board|cost)/', '^scripts/morse/cli\\.ts$'] },
+]
+
+const LADDER_IMPORTERS = CONTOURS.filter(contour => contour.name !== 'cli')
+const FACTORY_SCRIPTS = CONTOURS.flatMap(contour => contour.paths).filter(path => path.startsWith('^scripts/'))
+
+function pathsRightOf(contour) {
+  return CONTOURS.filter(other => other.rank > contour.rank).flatMap(other => other.paths)
+}
+
+const nothingToTheRight = CONTOURS.filter(contour => pathsRightOf(contour).length > 0).map(contour => ({
+  name: `${contour.name}-imports-nothing-to-its-right`,
+  severity: 'error',
+  from: { path: contour.paths },
+  to: { path: pathsRightOf(contour) },
+}))
 
 export default {
   forbidden: [
+    ...nothingToTheRight,
     {
       name: 'bus-core-imports-no-service',
       severity: 'error',
@@ -19,39 +43,39 @@ export default {
       to: { path: BUS_SERVICE },
     },
     {
-      name: 'bus-services-import-no-other-service',
+      name: 'ladder-imports-only-core-and-ports',
       severity: 'error',
-      from: { path: BUS_SERVICE },
-      to: { path: BUS_SERVICE, pathNot: BUS_SERVICE_OF_SAME_NAME },
+      from: { path: LADDER },
+      to: { path: CONTOURS.filter(contour => contour.rank > 1).flatMap(contour => contour.paths) },
+    },
+    {
+      name: 'no-factory-contour-imports-ladder',
+      severity: 'error',
+      from: { path: LADDER_IMPORTERS.flatMap(contour => contour.paths) },
+      to: { path: LADDER },
+    },
+    {
+      name: 'nodes-import-no-other-node',
+      severity: 'error',
+      from: { path: NODE },
+      to: { path: '^scripts/nodes/', pathNot: SAME_NODE },
     },
     {
       name: 'src-imports-no-script',
       severity: 'error',
       from: { path: '^src/' },
-      to: { path: '^scripts/', pathNot: [CORE, OWNER_CHANNEL] },
+      to: { path: '^scripts/', pathNot: SRC_MAY_IMPORT },
     },
     {
       name: 'core-imports-no-factory',
       severity: 'error',
-      from: { path: CORE },
-      to: { path: FACTORY },
+      from: { path: '^scripts/core/' },
+      to: { path: COMMANDS },
     },
     {
-      name: 'bus-imports-no-ladder',
+      name: 'takes-event-names-from-core',
       severity: 'error',
-      from: { path: '^scripts/bus/', pathNot: LADDER_STARTER },
-      to: { path: LADDER },
-    },
-    {
-      name: 'ports-import-no-caller',
-      severity: 'error',
-      from: { path: PORTS },
-      to: { path: PORT_CALLERS },
-    },
-    {
-      name: 'bus-takes-event-names-from-core',
-      severity: 'error',
-      from: { path: '^scripts/bus/' },
+      from: { path: FACTORY_SCRIPTS },
       to: { path: FORMER_EVENT_HOMES, dependencyTypesNot: ['type-only'] },
     },
     {
