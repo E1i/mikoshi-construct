@@ -1,6 +1,6 @@
-# Files of the former scripts/ghosts
+# Files of the former ghosts folder
 
-Every file under `scripts/ladder/**` and every other file of the former `scripts/ghosts/` has one row here, and its kind is `ghosts` or `plain`. `ghosts` is the Ghost
+Every file under `scripts/ladder/**` and every other file of the former ghosts folder (`FACTORY_FORMER_FOLDERS.ghosts`) has one row here, and its kind is `ghosts` or `plain`. `ghosts` is the Ghost
 launcher and every file whose output the ladder, an approval, a merge or a security decision trusts; `plain` is a
 file that only reads or prints. `scripts/intake/parking.ts` and the preflight's P4
 (`scripts/ladder/preflight-static.ts`) read this table, and no other file holds a copy. A card that creates a file

@@ -103,7 +103,7 @@ function launchWorld(claudeExit: number, report = '') {
   const writeReport = report === '' ? '' : `printf '%s\\n' ${shellWord(report)} > ${shellWord(path.join(launchDir, `report-${CARD_ID}.md`))}\n`
   const claude = script(path.join(root, 'claude-stub.sh'), `#!/bin/sh\ncat > /dev/null\nprintf 'green\\n' > x.txt\n${writeReport}exit ${claudeExit}\n`)
 
-  const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'shift', 'tree-pr-cli.ts'))}`
+  const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'nodes', 'launch', 'tree-pr-cli.ts'))}`
   vi.stubEnv(BUS_DB_VARIABLE, busPath)
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` }
   const starter = new ShiftCardStarter(
