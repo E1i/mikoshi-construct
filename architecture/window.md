@@ -210,6 +210,14 @@ A pull request that changes `src/` or `templates/` ends its description with the
 `■ n □ n · n`; the window does not arm auto-merge on one without that line. A pull request that changes only `scripts/`
 needs none.
 
+Under an active shard the window itself decides and merges everything except the owner's boundaries of
+[architecture/owner-merges.md](owner-merges.md), the version pull request and the npm publish, and goes to the owner only
+with those. A pull request of a kind whose «merges under a shard» is `no` — `release`, `release-workflow`, `workflows`,
+`security-invariants` — stays the owner's; one of `own-instructions`, `agent-permissions` or `new-write-path` merges under
+the shard. A handoff stops with `STATUS: OWNER` only at a named boundary — `version-pr`, `owner-merged-kind`,
+`missing-right`, `owner-question` — and under a decisions shard only at `version-pr`. R1 in intake is a risk class, not an
+owner boundary: R1 does not widen these boundaries.
+
 Independent branches are cut in parallel by default (`/plan`). A branch the window cuts is a conventional-commit prefix
 over a factual slug (`fix/ledger-cause`); lore goes into titles and changesets, never into branch names, and the
 launcher names a Ghost's branch itself. A change under `templates/`, or one that changes what the published CLI does
