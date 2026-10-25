@@ -32,6 +32,7 @@ export interface AtlasOptions {
 export interface AtlasWritten {
   engram: string
   page: string
+  interpreted: boolean
 }
 
 export class AtlasRefusedUnconstructed extends Error {
@@ -65,10 +66,12 @@ export function runAtlas(options: AtlasOptions): AtlasWritten {
   writeFileSync(page, renderAtlas(input, MODEL_FILE, rootFrom(page, root), modeFiles))
   if (modeFiles != null)
     writeFileSync(path.join(path.dirname(page), modeFiles.docs), renderAtlasDocs(input, MODEL_FILE, rootFrom(page, root), modeFiles))
-  return { engram, page }
+  return { engram, page, interpreted: (model.interpretation?.components.length ?? 0) > 0 }
 }
 
 export function printAtlas(ui: Ui, written: AtlasWritten): number {
+  if (!written.interpreted)
+    ui.line(ui.lore.atlasNothingInterpreted)
   ui.line(ui.lore.atlasPageWritten(written.page))
   return ATLAS_EXIT.written
 }

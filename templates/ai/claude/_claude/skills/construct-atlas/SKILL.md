@@ -1,0 +1,21 @@
+---
+name: construct-atlas
+description: Build the Atlas of this repository with its parts named — run construct discovery, which writes the interpretation into the Engram, then construct atlas, which renders the page from it.
+user-invocable: true
+argument-hint: [area to (re)discover, or empty for everything]
+---
+
+The Atlas is the view of the Engram, `construct.model.json`. `construct atlas` alone draws the parts the code
+itself declares; the parts a reader would name come from discovery, which writes them under the Engram's
+`interpretation` key. This skill runs the two in order.
+
+1. Run `/construct-discover $ARGUMENTS` to its end. Its step on contours and components runs `construct atlas`,
+   writes the components it can stand behind under `interpretation`, and writes nothing under `mechanics`.
+2. Run `construct atlas` (or `npx mikoshi-construct atlas`) from the repository root. It rewrites `mechanics`,
+   keeps `interpretation`, and writes one self-contained page, `.construct/atlas.html` by default.
+3. Report the page it names and how many components `interpretation` holds. If the first line of its output
+   says no part is named yet, discovery wrote no component: say which contours it could not place and why,
+   instead of reporting the Atlas as interpreted.
+
+Write nothing outside what `/construct-discover` and `construct atlas` write. If either refuses, report its
+refusal as it printed it and stop.
