@@ -12,6 +12,7 @@ export const BUSY_TIMEOUT_MS = 30_000
 export const CARD_BLOCKS = 'card_blocks'
 
 const IN_MEMORY = ':memory:'
+export const CACHE_KIB = 262_144
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
@@ -31,6 +32,8 @@ CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events
 BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events
 BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+CREATE INDEX IF NOT EXISTS events_by_type ON events (type, id);
+CREATE INDEX IF NOT EXISTS events_by_card ON events (card_id, id);
 CREATE TABLE IF NOT EXISTS cards (
   card_id INTEGER PRIMARY KEY,
   state TEXT,
@@ -186,7 +189,7 @@ function blocksOfCardLine(line: unknown): string | null {
 export function openBus(file: string): DatabaseSync {
   mkdirSync(path.dirname(file), { recursive: true })
   const db = openDatabase(file, { timeout: BUSY_TIMEOUT_MS })
-  db.exec(`PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;`)
+  db.exec(`PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -${CACHE_KIB};`)
   db.exec(SCHEMA)
   addMissingColumns(db)
   db.function(CARD_BLOCKS, { deterministic: true }, blocksOfCardLine)

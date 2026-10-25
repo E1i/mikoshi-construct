@@ -870,7 +870,7 @@ describe('the launch queue', () => {
 
     expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
     const [args, card] = (await written(stub.argsFile)).trim().split('\n')
-    expect(args).toBe('--permission-mode dontAsk -p --session-id session-934')
+    expect(args).toBe('--permission-mode dontAsk --strict-mcp-config -p --session-id session-934')
     expect(card).toBe('card=934')
     bench.close()
   })

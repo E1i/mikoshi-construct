@@ -2145,9 +2145,43 @@ the same command is `pnpm factory:start`, and it starts each process as `pnpm --
 
 To remove the agent: `launchctl bootout gui/$(id -u)/<label>` and delete its file.
 
+### Modes
+
+The factory runs in one of two modes, and the same command switches between them by writing
+`bus/workers.json`; the supervisor starts what is switched on and stops what is switched off on its
+next tick.
+
+```bash
+construct-factory --mode window
+construct-factory --mode ghost-protocol [--hours <n>]
+construct-factory --live <worker>
+construct-factory --shadow <worker>
+```
+
+- **WINDOW**, the default. A factory whose `bus/workers.json` does not exist yet starts in it:
+  `review`, `launch`, `answer` and `witness` are switched on, `merge` is off, and a human merges.
+  Switching back to it needs no owner word, and it revokes the window shard GHOST PROTOCOL issued.
+- **GHOST PROTOCOL**. Every worker is switched on, and the merge worker merges under the owner's
+  window shard. The switch needs an unused owner word carrying the shard's term,
+  `ghost-protocol <n>h` (`6h` without `--hours`), written with [`construct say`](#construct-say). It
+  uses that word, records a window shard of scope `merge` until the term ends, and switches; when
+  `bus/workers.json` cannot be written it revokes that shard and leaves the word unused. Without
+  the word it switches nothing, exits `1` and prints the ready command,
+  `construct say "ghost-protocol 6h" && construct-factory --mode ghost-protocol`. At the end of
+  the term the supervisor switches the factory back to WINDOW on its next tick, with no command.
+
+The mode is read from the workers switched on, not stored beside them: a set that matches neither
+mode, after switching one worker on or off by hand, is no mode. In both modes the launch worker
+lays the lanes `construct.json` names; the modes differ in which workers run, not in the lane count.
+
+A worker's queue goes live the same way: `--live <worker>` needs an unused owner word
+`allow-live <worker>` from `construct say`, and `--shadow <worker>` returns it to shadow without one.
+
 Exit `0` when the factory was started or was already running and the keep-alive is in place or does
-not apply; `1` when a process did not start or `launchctl` refused the agent, naming which; `2` when
-an argument was given.
+not apply, or when the mode or queue was switched; `1` when a process did not start, `launchctl`
+refused the agent, a switch found no unused owner word, or `bus/workers.json` could not be read or
+written, naming which; `2` when an argument is not
+one of the forms above.
 
 ## Exit codes
 
