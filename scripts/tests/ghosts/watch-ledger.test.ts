@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readLedgerStage } from '../../ghosts/watch-ledger.js'
+import { readLedgerStage } from '../../ladder/watch-ledger.js'
 
 function runsPath(): { dir: string, runs: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-watch-ledger-'))

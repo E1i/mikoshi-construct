@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { knownWriteSites, projectionWriteSites, repositorySources, sortedSites, staleSites, unrecordedSites } from '../../bus/projection-writes.js'
+import { knownWriteSites, projectionWriteSites, repositorySources, sortedSites, staleSites, unrecordedSites } from '../../core/projection-writes.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
@@ -35,24 +35,24 @@ describe('the projection tables are written by the reducer, and every other writ
   })
 
   it('a new chains or cards write outside the reducer fails', () => {
-    const chained = projectionWriteSites(withExtra('scripts/bus/chain.ts', `export function sneakChain(db, event) {\n  CHAIN_FOLDS[event.type](db, event)\n}`))
+    const chained = projectionWriteSites(withExtra('scripts/core/chain.ts', `export function sneakChain(db, event) {\n  CHAIN_FOLDS[event.type](db, event)\n}`))
     expect(unrecordedSites(chained, known)).toEqual([
-      { file: 'scripts/bus/chain.ts', unit: 'sneakChain', table: 'chains', operation: 'delete' },
-      { file: 'scripts/bus/chain.ts', unit: 'sneakChain', table: 'chains', operation: 'insert' },
+      { file: 'scripts/core/chain.ts', unit: 'sneakChain', table: 'chains', operation: 'delete' },
+      { file: 'scripts/core/chain.ts', unit: 'sneakChain', table: 'chains', operation: 'insert' },
     ])
 
-    const carded = projectionWriteSites(withExtra('scripts/bus/lease.ts', `import { CARD_FOLDS } from './card-automaton.js'\nexport function sneakCard(db, event) {\n  CARD_FOLDS[event.type](db, event)\n}`))
-    expect(unrecordedSites(carded, known)).toEqual([{ file: 'scripts/bus/lease.ts', unit: 'sneakCard', table: 'cards', operation: 'insert' }])
+    const carded = projectionWriteSites(withExtra('scripts/core/lease.ts', `import { CARD_FOLDS } from './card-automaton.js'\nexport function sneakCard(db, event) {\n  CARD_FOLDS[event.type](db, event)\n}`))
+    expect(unrecordedSites(carded, known)).toEqual([{ file: 'scripts/core/lease.ts', unit: 'sneakCard', table: 'cards', operation: 'insert' }])
   })
 
   it('a new write into a projection table outside the reducer fails, even in a file that holds folds', () => {
-    const raw = projectionWriteSites(withExtra('scripts/bus/queue.ts', `export function sneak(db) {\n  db.prepare('UPDATE tasks SET state = ? WHERE task_key = ?').run('queued', 'k')\n}`))
-    expect(unrecordedSites(raw, known)).toEqual([{ file: 'scripts/bus/queue.ts', unit: 'sneak', table: 'tasks', operation: 'update' }])
+    const raw = projectionWriteSites(withExtra('scripts/core/queue.ts', `export function sneak(db) {\n  db.prepare('UPDATE tasks SET state = ? WHERE task_key = ?').run('queued', 'k')\n}`))
+    expect(unrecordedSites(raw, known)).toEqual([{ file: 'scripts/core/queue.ts', unit: 'sneak', table: 'tasks', operation: 'update' }])
 
-    const folded = projectionWriteSites(withExtra('scripts/bus/queue.ts', `export function sneakFold(db, event) {\n  TASKS_FOLDS[event.type](db, event)\n}`))
+    const folded = projectionWriteSites(withExtra('scripts/core/queue.ts', `export function sneakFold(db, event) {\n  TASKS_FOLDS[event.type](db, event)\n}`))
     expect(unrecordedSites(folded, known)).toEqual([
-      { file: 'scripts/bus/queue.ts', unit: 'sneakFold', table: 'tasks', operation: 'insert' },
-      { file: 'scripts/bus/queue.ts', unit: 'sneakFold', table: 'tasks', operation: 'update' },
+      { file: 'scripts/core/queue.ts', unit: 'sneakFold', table: 'tasks', operation: 'insert' },
+      { file: 'scripts/core/queue.ts', unit: 'sneakFold', table: 'tasks', operation: 'update' },
     ])
   })
 
@@ -64,7 +64,7 @@ describe('the projection tables are written by the reducer, and every other writ
   })
 
   it('a recorded site that no longer exists fails, so the list only shrinks', () => {
-    const gone = { file: 'scripts/bus/role.ts', unit: 'folded', table: 'roles', operation: 'update' } as const
+    const gone = { file: 'scripts/nodes/restart/role.ts', unit: 'folded', table: 'roles', operation: 'update' } as const
     expect(staleSites(found, [...known, gone])).toEqual([gone])
   })
 })

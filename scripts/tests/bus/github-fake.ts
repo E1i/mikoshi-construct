@@ -1,4 +1,4 @@
-import type { GhResponse, GitHub, GitHubPut } from '../../bus/github.js'
+import type { GhResponse, GitHub, GitHubPut } from '../../ports/github.js'
 import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
 import { Buffer } from 'node:buffer'
 import { readFileSync } from 'node:fs'

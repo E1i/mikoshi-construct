@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ENTRY_RESULT as FACTORY_ENTRY_RESULT } from '../scripts/ghosts/entry.js'
+import { ENTRY_RESULT as FACTORY_ENTRY_RESULT } from '../scripts/core/entry.js'
 import { PLAIN_STYLE, renderSignal, SIGNAL_FIELDS } from '../src/ui/signal.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')

@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { SUPERVISE_FLAG } from '../../bus/supervisor.js'
+import { SUPERVISE_FLAG } from '../../supervisor/supervisor.js'
 import { scanText } from '../../privacy/scan.js'
 
-const PLIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../bus/launchd/dev.mikoshi.bus.plist')
+const PLIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../supervisor/launchd/dev.mikoshi.bus.plist')
 const RAISED_WITHIN_S = 30
 
 type PlistValue = boolean | number | string | string[]

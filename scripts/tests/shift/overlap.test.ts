@@ -2,7 +2,7 @@ import type { ShiftTask } from '../../../src/card/task-file.js'
 import { describe, expect, it } from 'vitest'
 import { COVERING_REASON, runsLine } from '../../../src/card/covering-tests.js'
 import { parseCard } from '../../../src/card/grammar.js'
-import { openPrWarnings, relation, taskConflicts } from '../../shift/overlap.js'
+import { openPrWarnings, relation, taskConflicts } from '../../nodes/launch/overlap.js'
 
 const CARD = parseCard('#1 overlap [implement/ghosts/S/cheap/auto] · depends — · blocks —')
 

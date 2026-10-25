@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ownerPullCommand, realMikoPullDeps, runMikoPull } from '../../miko/pull.js'
+import { ownerPullCommand, realMikoPullDeps, runMikoPull } from '../../window/pull.js'
 
 const IDENTITY = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false']
 const roots: string[] = []

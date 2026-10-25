@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { execGh, stdoutOrThrow } from '../core/gh.js'
+import { execGh, stdoutOrThrow } from '../ports/gh.js'
 
 export const SECURITY_INVARIANTS_FILE = 'architecture/security-invariants.md'
 export const UNCHANGED = 'без изменений'

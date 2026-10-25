@@ -1,22 +1,22 @@
-import type { CheckTest } from '../../bus/check-catalog.js'
-import type { MergeNodeParts } from '../../bus/merge-worker.js'
-import type { DetectionMode, Scope } from '../../bus/node.js'
+import type { CheckTest } from '../../cli/check-catalog.js'
+import type { MergeNodeParts } from '../../nodes/merge/merge-worker.js'
+import type { DetectionMode, Scope } from '../../core/node.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { DROPPED_LANE } from '../../bus/card-automaton.js'
-import { RERUN_VARIABLE, writeCatalog } from '../../bus/check-catalog.js'
-import { appendEvent } from '../../bus/db.js'
-import { recordDecision } from '../../bus/decisions.js'
-import { completeTask, leaseNext } from '../../bus/lease.js'
-import { allowLiveCommand } from '../../bus/live-decision.js'
-import { MERGE_QUEUE, MergeExecutor } from '../../bus/merge-executor.js'
-import { MergeNode } from '../../bus/merge-worker.js'
-import { NODE_CURSORS } from '../../bus/node.js'
-import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../bus/queue.js'
-import { UpdateNode } from '../../bus/update-worker.js'
+import { DROPPED_LANE } from '../../core/card-automaton.js'
+import { RERUN_VARIABLE, writeCatalog } from '../../cli/check-catalog.js'
+import { appendEvent } from '../../core/db.js'
+import { recordDecision } from '../../policy/decisions.js'
+import { completeTask, leaseNext } from '../../core/lease.js'
+import { allowLiveCommand } from '../../policy/live-decision.js'
+import { MERGE_QUEUE, MergeExecutor } from '../../nodes/merge/merge-executor.js'
+import { MergeNode } from '../../nodes/merge/merge-worker.js'
+import { NODE_CURSORS } from '../../core/node.js'
+import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
+import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
-import { SECRET_SCAN_CHECK } from '../../core/gh.js'
+import { SECRET_SCAN_CHECK } from '../../ports/gh.js'
 import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -74,7 +74,7 @@ interface Moved {
   commitsBeyondTheCompare?: number
 }
 
-const PR_FILES = ['scripts/bus/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/merge-rerun.md']
+const PR_FILES = ['scripts/nodes/merge/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/merge-rerun.md']
 
 const A_MATRIX_COUNT_LINE = '■ 4 □ 1 · 1'
 
@@ -566,7 +566,7 @@ describe('the re-run mode of the merge node', () => {
 
   it('by layers, a change of main in a layer of the pull request updates it onto main and does not merge the old head', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/bus/db.ts'] })
+    mainMovedUnder(made, { mainFiles: ['scripts/core/db.ts'] })
 
     expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
     expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ command: 'merge', reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
@@ -574,7 +574,7 @@ describe('the re-run mode of the merge node', () => {
 
   it('by layers, a clean pull request whose layers main changed is sent to the update node on a host that does not require an up-to-date branch', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/bus/db.ts'], mergeable: 'clean' })
+    mainMovedUnder(made, { mainFiles: ['scripts/core/db.ts'], mergeable: 'clean' })
 
     expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
   })
@@ -588,7 +588,7 @@ describe('the re-run mode of the merge node', () => {
 
   it('by layers, a clean pull request on a host that requires an up-to-date branch merges as now', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/bus/db.ts'], mergeable: 'clean', upToDateRequired: true })
+    mainMovedUnder(made, { mainFiles: ['scripts/core/db.ts'], mergeable: 'clean', upToDateRequired: true })
 
     expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([MERGED_THE_LEASED_HEAD])
   })
@@ -623,7 +623,7 @@ describe('what by layers reads of main and of the pull request', () => {
 
   it('by layers, a file main renamed out of a layer of the pull request counts that layer', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['src/db.ts'], mainRenamedFrom: { 'src/db.ts': 'scripts/bus/db.ts' } })
+    mainMovedUnder(made, { mainFiles: ['src/db.ts'], mainRenamedFrom: { 'src/db.ts': 'scripts/core/db.ts' } })
 
     expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
     expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
@@ -631,7 +631,7 @@ describe('what by layers reads of main and of the pull request', () => {
 
   it('by layers, a file the pull request renamed out of a layer main changed counts that layer', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/bus/reducer.ts'], prFiles: ['src/db.ts'], prRenamedFrom: { 'src/db.ts': 'scripts/bus/db.ts' } })
+    mainMovedUnder(made, { mainFiles: ['scripts/core/reducer.ts'], prFiles: ['src/db.ts'], prRenamedFrom: { 'src/db.ts': 'scripts/core/db.ts' } })
 
     expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
     expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
@@ -639,7 +639,7 @@ describe('what by layers reads of main and of the pull request', () => {
 
   it('by layers, the same pull request without the rename merges without a re-run', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/bus/reducer.ts'], prFiles: ['src/db.ts'] })
+    mainMovedUnder(made, { mainFiles: ['scripts/core/reducer.ts'], prFiles: ['src/db.ts'] })
 
     expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([`merge ${sha('a')}`])
   })

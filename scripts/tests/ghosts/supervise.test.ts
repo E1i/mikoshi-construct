@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cardFellEvent, fallEvent, resultPathOf, sessionParams, supervisorSpawnOptions } from '../../ghosts/supervise.js'
+import { cardFellEvent, fallEvent, resultPathOf, sessionParams, supervisorSpawnOptions } from '../../ladder/supervise.js'
 
 describe('supervisorSpawnOptions', () => {
   it('w2: starts the supervisor in a process group of its own, with no stdin from the window', () => {

@@ -1,6 +1,6 @@
 import type { BusFacts } from '../../../src/commands/board/bus.js'
 import type { BusSeed, SeedEvent } from '../../../tests/board/bus-fixture.js'
-import type { BoardData, BoardFiles } from '../../bus/board-page.js'
+import type { BoardData, BoardFiles } from '../../cli/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -15,12 +15,12 @@ import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, ITEM_PROGRESS_ORDER, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../bus/board-page.js'
-import { BOARD_FILE, FRESH_MS } from '../../bus/board.js'
-import { defaultBusPath } from '../../bus/db.js'
-import { TICK_MS } from '../../bus/netwatch.js'
-import { nodeProcess } from '../../bus/node.js'
-import { slotsOf as slotsOfKind, slotsVariable } from '../../bus/scheduler.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, ITEM_PROGRESS_ORDER, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { BOARD_FILE, FRESH_MS } from '../../window/board.js'
+import { defaultBusPath } from '../../core/db.js'
+import { TICK_MS } from '../../ports/netwatch.js'
+import { nodeProcess } from '../../core/node.js'
+import { slotsOf as slotsOfKind, slotsVariable } from '../../supervisor/scheduler.js'
 import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const roots: string[] = []
@@ -276,7 +276,7 @@ describe('board.html', () => {
   const SECOND_CARD_TEXT = [
     'card: #861 second [implement/netwatch/S/cheap/owner] · depends — · blocks —',
     'branch: feat/second',
-    'touches: scripts/bus/board-page.ts',
+    'touches: scripts/cli/board-page.ts',
     'continue: stop',
     'who: shift',
     '',
@@ -463,7 +463,7 @@ describe('board.html', () => {
     expect(html).toContain('<span class="edd-k">ctx</span>')
     expect(html).toContain('<span class="edd-v">120k')
     expect(html).not.toContain('240k')
-    const source = readFileSync(path.resolve(import.meta.dirname, '../../bus/board-page.ts'), 'utf8')
+    const source = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page.ts'), 'utf8')
     expect(source).toContain('cardGauges(db)')
     expect(source).not.toContain('SESSION_HEARTBEAT')
     expect(source).not.toMatch(/FROM events/)

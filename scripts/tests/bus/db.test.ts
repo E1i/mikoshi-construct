@@ -1,4 +1,4 @@
-import type { BusEvent } from '../../bus/db.js'
+import type { BusEvent } from '../../core/db.js'
 import { once } from 'node:events'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -6,8 +6,8 @@ import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, BUSY_TIMEOUT_MS, inTransaction, openBus } from '../../bus/db.js'
-import { cardIdOf, isActor, taskKey } from '../../bus/identifiers.js'
+import { appendEvent, BUSY_TIMEOUT_MS, inTransaction, openBus } from '../../core/db.js'
+import { cardIdOf, isActor, taskKey } from '../../core/identifiers.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const WAIT_ON_MAIN_MS = 5000

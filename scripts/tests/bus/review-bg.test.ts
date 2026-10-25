@@ -1,15 +1,15 @@
-import type { ProcessList } from '../../bus/bg.js'
+import type { ProcessList } from '../../supervisor/bg.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { psList, runningBus, runningInstance, startDetached } from '../../bus/bg.js'
-import { openBus } from '../../bus/db.js'
-import { NetWatch } from '../../bus/netwatch.js'
-import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../bus/review-bg.js'
-import { BusTick } from '../../bus/run.js'
+import { psList, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
+import { openBus } from '../../core/db.js'
+import { NetWatch } from '../../ports/netwatch.js'
+import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../supervisor/review-bg.js'
+import { BusTick } from '../../supervisor/run.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -139,7 +139,7 @@ describe('pnpm bus:review:bg', () => {
     expect(second.stderr.join('\n')).toContain(`pid ${pid}`)
     expect(readFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), 'utf8').trim()).toBe(pid)
 
-    const byHand: ProcessList = () => [{ pid: 4343, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/bus/review-worker.ts --on' }]
+    const byHand: ProcessList = () => [{ pid: 4343, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/nodes/review/review-worker.ts --on' }]
     const third = startDetached(reviewLaunch(clean), w.busDir, w.env, byHand)
     expect(third.exitCode).toBe(1)
     expect(third.stderr.join('\n')).toContain('pid 4343')
@@ -208,7 +208,7 @@ describe('pnpm bus:review:bg', () => {
   it('a running dry run is not taken for the review worker', async () => {
     const w = world()
     const dryRuns = [
-      { pid: 4444, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/bus/review-worker.ts --dry-run 717' },
+      { pid: 4444, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/nodes/review/review-worker.ts --dry-run 717' },
       { pid: 4445, args: 'node pnpm.cjs --silent bus:review --dry-run 717' },
     ]
     expect(runningInstance(dryRuns, REVIEW_WORKER_MARKERS)).toBeUndefined()
@@ -217,7 +217,7 @@ describe('pnpm bus:review:bg', () => {
     started.push(Number(result.stdout[0]))
     expect(result.stdout[0]).toBe(await stubPid(w, result.stdout[0]))
 
-    const worker = { pid: 4343, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/bus/review-worker.ts --on' }
+    const worker = { pid: 4343, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/nodes/review/review-worker.ts --on' }
     const refused = startDetached(reviewLaunch(clean), w.busDir, w.env, () => [...dryRuns, worker])
     expect(refused.exitCode).toBe(1)
     expect(refused.stderr.join('\n')).toContain('pid 4343')

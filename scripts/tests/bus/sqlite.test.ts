@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SQLITE_EXPERIMENTAL_WARNING } from '../../bus/sqlite.js'
+import { SQLITE_EXPERIMENTAL_WARNING } from '../../core/sqlite.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const SCRIPTS = path.join(REPO_ROOT, 'scripts')

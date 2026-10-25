@@ -7,10 +7,10 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { FACTORY_NAMED } from '../scripts/core/factory-paths.js'
-import { USAGE as MIKO_WATCH_USAGE } from '../scripts/miko/watch.js'
+import { USAGE as MIKO_WATCH_USAGE } from '../scripts/window/watch.js'
 import { ownerChannelOf, UNUSED_WORD } from '../scripts/owner/channel.js'
 import { USAGE as OWNER_SAY_USAGE, PREFIX } from '../scripts/owner/say.js'
-import { USAGE as SHARD_USAGE } from '../scripts/shift/shard.js'
+import { USAGE as SHARD_USAGE } from '../scripts/policy/shard.js'
 import { assetsNamedBy, copyFactoryAssets, FACTORY_DIRECTORIES, factoryAssets, factoryBuild, factoryEntries, factoryGraph, importsOf, locatedBy, OUT_DIR, productBuild, scriptsNamedBy } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
@@ -29,28 +29,28 @@ const SCRIPT_PATH_IN_BUILT_CODE = /(?<![\w./-])((?:scripts|src)\/[\w./-]+\.ts)\b
 const BUNDLER_SOURCE_COMMENT = /^\s*\/\/ .*$/gm
 
 const STARTS: Record<string, { args: string[], exit: number, prints: string }> = {
-  'scripts/bus/reducer.ts': { args: [], exit: 0, prints: 'applied 0, rejected 0' },
-  'scripts/decisions/read.ts': { args: [], exit: 1, prints: '[decisions] no decisions at' },
-  'scripts/ghosts/role.ts': { args: ['review', '--task', 't1'], exit: 0, prints: 'local: launch the review agent for t1' },
-  'scripts/miko/watch.ts': { args: ['--bogus'], exit: 2, prints: MIKO_WATCH_USAGE },
+  'scripts/core/reducer.ts': { args: [], exit: 0, prints: 'applied 0, rejected 0' },
+  'scripts/policy/decisions/read.ts': { args: [], exit: 1, prints: '[decisions] no decisions at' },
+  'scripts/ladder/role.ts': { args: ['review', '--task', 't1'], exit: 0, prints: 'local: launch the review agent for t1' },
+  'scripts/window/watch.ts': { args: ['--bogus'], exit: 2, prints: MIKO_WATCH_USAGE },
   'scripts/owner/say.ts': { args: [], exit: 2, prints: OWNER_SAY_USAGE },
-  'scripts/shift/shard.ts': { args: [], exit: 1, prints: SHARD_USAGE },
+  'scripts/policy/shard.ts': { args: [], exit: 1, prints: SHARD_USAGE },
 }
 
 const SPAWNED_BY_THE_FACTORY: Record<string, string> = {
-  'scripts/shift/brief-finish-cli.ts': 'scripts/bus/ladder-starter.ts',
-  'scripts/shift/tree-pr-cli.ts': 'scripts/bus/launch-starter.ts',
-  'scripts/attach/earlier-carriers.ts': 'scripts/bus/witnesses.ts',
-  'scripts/ci/prepush.ts': 'scripts/bus/answerer.ts',
+  'scripts/ladder/brief-finish-cli.ts': 'scripts/ladder/ladder-starter.ts',
+  'scripts/nodes/launch/tree-pr-cli.ts': 'scripts/nodes/launch/launch-starter.ts',
+  'scripts/attach/earlier-carriers.ts': 'scripts/ports/witnesses.ts',
+  'scripts/ci/prepush.ts': 'scripts/nodes/answer/answerer.ts',
   'scripts/ci/sandbox-trace.ts': 'scripts/ci/sandbox-liveness.ts',
 }
 
 const NAMED_BUT_NEVER_RUN_BY_THE_FACTORY: string[] = [FACTORY_NAMED.ghCallers]
 
 const READ_BESIDE_THE_MODULE: Record<string, string> = {
-  'scripts/shift/header.md': 'scripts/bus/launch-worker.ts',
-  'scripts/construct/check-acceptance.mjs': 'scripts/ghosts/hash.ts',
-  '.claude/hooks/eddies-measure.mjs': 'scripts/miko/eddies-measure.ts',
+  'scripts/nodes/launch/header.md': 'scripts/nodes/launch/launch-worker.ts',
+  'scripts/construct/check-acceptance.mjs': 'scripts/ladder/hash.ts',
+  '.claude/hooks/eddies-measure.mjs': 'scripts/window/eddies-measure.ts',
   'scripts/ci/sandbox-trace-child.mjs': 'scripts/ci/sandbox-trace.ts',
   'scripts/ci/sandbox-failing.jsonl': 'scripts/ci/sandbox-failing.ts',
   'contract/contours': 'scripts/contract/contours.ts',
@@ -118,11 +118,11 @@ describe('what the factory build reaches from its entries', () => {
   })
 
   it('follows a script the code names to spawn, and never a test source', () => {
-    expect(scriptsNamedBy('const CLI = \'scripts/shift/brief-finish-cli.ts\'\nconst T = \'scripts/tests/bus/x.test.ts\'\nconst run = `pnpm exec node --import tsx scripts/ci/prepush.ts, which runs`')).toEqual(['scripts/shift/brief-finish-cli.ts', 'scripts/ci/prepush.ts'])
+    expect(scriptsNamedBy('const CLI = \'scripts/ladder/brief-finish-cli.ts\'\nconst T = \'scripts/tests/bus/x.test.ts\'\nconst run = `pnpm exec node --import tsx scripts/ci/prepush.ts, which runs`')).toEqual(['scripts/ladder/brief-finish-cli.ts', 'scripts/ci/prepush.ts'])
   })
 
   it('takes a quoted repository path to a file that is not a script as an asset, and never a test source', () => {
-    const text = 'export const LAYER_MAP = \'scripts/core/layer-map.json\'\nconst CLI = \'scripts/shift/brief-finish-cli.ts\'\nconst F = "scripts/tests/fixtures/x.json"\n'
+    const text = 'export const LAYER_MAP = \'scripts/core/layer-map.json\'\nconst CLI = \'scripts/ladder/brief-finish-cli.ts\'\nconst F = "scripts/tests/fixtures/x.json"\n'
     expect(assetsNamedBy(text)).toEqual(['scripts/core/layer-map.json'])
   })
 
@@ -133,7 +133,7 @@ describe('what the factory build reaches from its entries', () => {
       'const HOOK = path.join(REPO_ROOT, \'.claude\', \'hooks\', \'eddies-measure.mjs\')',
       'const CRUISER = path.join(REPO_ROOT, \'node_modules\', \'dependency-cruiser\', \'bin\', \'dependency-cruiser.mjs\')',
     ].join('\n')
-    expect(locatedBy('scripts/bus/x.ts', text).sort()).toEqual(['.claude/hooks/eddies-measure.mjs', 'scripts/shift/header.md'])
+    expect(locatedBy('scripts/bus/x.ts', text).sort()).toEqual(['.claude/hooks/eddies-measure.mjs', 'scripts/nodes/launch/header.md'])
   })
 
   it('has an entry started from the package for every factory directory, and every started entry is a factory entry', () => {

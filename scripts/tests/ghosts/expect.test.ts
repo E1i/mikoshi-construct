@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from '../../ghosts/expect.js'
+import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from '../../ladder/expect.js'
 
 const SHA = '0123456789abcdef0123456789abcdef01234567'
 const DASH = String.fromCharCode(8212)

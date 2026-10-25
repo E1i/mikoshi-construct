@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/watch-fixtures/world.sh')
-const WATCH = path.join(REPO_ROOT, 'scripts/ghosts/watch.ts')
+const WATCH = path.join(REPO_ROOT, 'scripts/ladder/watch.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 
 const createdWorlds: string[] = []

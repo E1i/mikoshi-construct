@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { relation, taskConflicts } from '../scripts/shift/overlap.js'
-import { choose } from '../scripts/shift/parking.js'
+import { relation, taskConflicts } from '../scripts/nodes/launch/overlap.js'
+import { choose } from '../scripts/intake/parking.js'
 import { CHARACTERS_PER_TOKEN, SESSION_READING_TOKENS, splitSignal } from '../src/card/complexity.js'
 import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
 import { SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
@@ -43,7 +43,7 @@ const WITNESS_CARDS: Record<string, { touches: string[], split: boolean, signals
       'src/model/**',
       'src/card/grammar.ts',
       'src/card/closed.ts',
-      'scripts/shift/places.ts',
+      'scripts/core/places.ts',
       'scripts/shift/shift.ts',
       'scripts/shift/report.ts',
       'src/program.ts',
@@ -152,8 +152,8 @@ describe('the split signal reads the 04–05.10 cards as the owner did', () => {
   })
 
   it('more than two unclear fields is a signal of its own', () => {
-    expect(splitSignal({ touches: ['scripts/ghosts/launch.ts'], unclear: 3 }).split).toBe(true)
-    expect(splitSignal({ touches: ['scripts/ghosts/launch.ts'], unclear: 2 }).split).toBe(false)
+    expect(splitSignal({ touches: ['scripts/ladder/launch.ts'], unclear: 3 }).split).toBe(true)
+    expect(splitSignal({ touches: ['scripts/ladder/launch.ts'], unclear: 2 }).split).toBe(false)
   })
 
   it('a glob over the mechanism the task runs on reaches it', () => {
@@ -202,7 +202,7 @@ describe('intake writes the slicing principle into a card the signal splits', ()
   }
 
   it('a card made from a confirmed R1 slice is not held for slicing again', () => {
-    const r1Slice = ['scripts/ghosts/hash.ts', 'scripts/ghosts/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/tests/bus/queue.test.ts', 'scripts/tests/bus/round-limit-decision.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ghosts/launch.ts', '.changeset/**']
+    const r1Slice = ['scripts/ladder/hash.ts', 'scripts/ladder/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/core/queue.ts', 'scripts/policy/round-limit-decision.ts', 'scripts/tests/bus/queue.test.ts', 'scripts/tests/bus/round-limit-decision.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ladder/launch.ts', '.changeset/**']
     const [card] = sliced(intake(scratch(), [draftCard('owner-loop-r1', r1Slice)]))
     expect(card!.text.split('\n').filter(line => line.startsWith(SEAM_PREFIX))).toHaveLength(1)
     expect(card!.slices).toEqual([])

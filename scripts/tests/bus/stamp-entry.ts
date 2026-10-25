@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { stampLogOutput } from '../../bus/stamp.js'
+import { stampLogOutput } from '../../supervisor/stamp.js'
 
 stampLogOutput()
 console.log('first line')

@@ -1,7 +1,7 @@
 import type { RunStep } from '../../../src/commands/cost/index.js'
 import type { SubagentRecord } from '../../../src/commands/cost/turns.js'
 import { describe, expect, it } from 'vitest'
-import { formatContour, ladderSample } from '../../ghosts/expect-sample.js'
+import { formatContour, ladderSample } from '../../ladder/expect-sample.js'
 
 const DASH = String.fromCharCode(8212)
 const APPROX = String.fromCharCode(8776)

@@ -1,27 +1,27 @@
-import type { MergeWorkerParts } from '../../bus/merge-worker.js'
-import type { DetectionMode, NodeStep } from '../../bus/node.js'
-import type { UpdateOutcome } from '../../bus/update-executor.js'
-import type { ShardDeps } from '../../shift/shard.js'
+import type { MergeWorkerParts } from '../../nodes/merge/merge-worker.js'
+import type { DetectionMode, NodeStep } from '../../core/node.js'
+import type { UpdateOutcome } from '../../nodes/update/update-executor.js'
+import type { ShardDeps } from '../../policy/shard.js'
 import type { FakePull } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appendEvent, closeOwnerWait, openOwnerWait } from '../../bus/db.js'
-import { decisionsIntake } from '../../bus/decisions-import.js'
-import { recordDecision } from '../../bus/decisions.js'
-import { taskKey } from '../../bus/identifiers.js'
-import { ownerInbox } from '../../bus/inbox.js'
-import { failTask, leaseNext, leaseQueued } from '../../bus/lease.js'
-import { firstLiveVerdict, MergeNode, NoLiveVerdict, runMergeWorker } from '../../bus/merge-worker.js'
-import { FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
-import { projectionDump, reduce } from '../../bus/reducer.js'
-import { DRY_RUN_ACTOR } from '../../bus/review-worker.js'
-import { activeWindowShards, decisionsInForceAt, unspentShard } from '../../bus/shards.js'
-import { UpdateExecutor } from '../../bus/update-executor.js'
+import { appendEvent, closeOwnerWait, openOwnerWait } from '../../core/db.js'
+import { decisionsIntake } from '../../policy/decisions-import.js'
+import { recordDecision } from '../../policy/decisions.js'
+import { taskKey } from '../../core/identifiers.js'
+import { ownerInbox } from '../../core/inbox.js'
+import { failTask, leaseNext, leaseQueued } from '../../core/lease.js'
+import { firstLiveVerdict, MergeNode, NoLiveVerdict, runMergeWorker } from '../../nodes/merge/merge-worker.js'
+import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
+import { projectionDump, reduce } from '../../core/reducer.js'
+import { DRY_RUN_ACTOR } from '../../nodes/review/review-worker.js'
+import { activeWindowShards, decisionsInForceAt, unspentShard } from '../../policy/shards.js'
+import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, MERGE_DONE, POLICY_DENIED, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_USED } from '../../core/events.js'
-import { runShard } from '../../shift/shard.js'
+import { runShard } from '../../policy/shard.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -99,7 +99,7 @@ const UPDATED_HEAD = sha('d')
 
 function decidedAndBehind(): MergeBench & { update: () => UpdateOutcome } {
   const bench = liveBench()
-  bench.gitHub.open({ number: ROUND_LIMITED_PR, head: DECIDED_HEAD, review: 'failure', mergeable_state: 'behind', files: ['scripts/bus/queue.ts'] })
+  bench.gitHub.open({ number: ROUND_LIMITED_PR, head: DECIDED_HEAD, review: 'failure', mergeable_state: 'behind', files: ['scripts/core/queue.ts'] })
   spendReviewRounds(bench, ROUND_LIMITED_PR, DECIDED_HEAD)
   recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 168, text: `[owner] allow-merge PR #${ROUND_LIMITED_PR} at ${DECIDED_HEAD} past the round limit`, cards: [] })
   bench.tick()
@@ -123,14 +123,14 @@ describe('an allow-merge across an update-branch', () => {
 
   it('a new commit that changes code voids the allow-merge', () => {
     const changedByTheUpdate = decidedAndBehind()
-    changedByTheUpdate.gitHub.updatedPatches = { 'scripts/bus/queue.ts': '@@ -1,2 +1,2 @@ a line main also changed' }
+    changedByTheUpdate.gitHub.updatedPatches = { 'scripts/core/queue.ts': '@@ -1,2 +1,2 @@ a line main also changed' }
     expect(changedByTheUpdate.update()).toMatchObject({ kind: 'updated', to: UPDATED_HEAD, carry: { clean: false } })
     changedByTheUpdate.tick()
     expect(changedByTheUpdate.lease()).toBeNull()
     changedByTheUpdate.close()
 
     const pushed = decidedAndBehind()
-    pushed.gitHub.open({ number: ROUND_LIMITED_PR, head: sha('e'), review: 'failure', files: ['scripts/bus/queue.ts'] })
+    pushed.gitHub.open({ number: ROUND_LIMITED_PR, head: sha('e'), review: 'failure', files: ['scripts/core/queue.ts'] })
     pushed.tick()
     expect(pushed.lease()).toBeNull()
     pushed.close()
@@ -221,7 +221,7 @@ describe('the merge worker', () => {
   it('under a 6 h merge shard the bus merges an R1 owner PR', async () => {
     const bench = liveBench()
     recorded(bench, 'worker:review:reviewer-1')
-    ownerPulls(bench, [{ number: 726, files: ['scripts/bus/queue.ts'] }])
+    ownerPulls(bench, [{ number: 726, files: ['scripts/core/queue.ts'] }])
     bench.tick()
     const worker = mergeNode(bench)
     expect(await step(worker)).toMatchObject({ kind: 'denied', denial: { kind: 'authority' }, next: 'withdrawn' })
@@ -240,13 +240,13 @@ describe('the merge worker', () => {
     const bench = liveBench()
     recorded(bench, 'worker:review:reviewer-1')
     expect(runShard(['--window', '--by', 'Eli'], shardDeps(bench, 'shard-window'))).toBe(0)
-    ownerPulls(bench, [{ number: 725, files: ['scripts/bus/queue.ts'] }])
+    ownerPulls(bench, [{ number: 725, files: ['scripts/core/queue.ts'] }])
     bench.tick()
     const worker = mergeNode(bench)
     expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'owner_under_shard' })
 
     bench.clock.advance(6 * 60 * 60_000)
-    ownerPulls(bench, [{ number: 726, files: ['scripts/bus/queue.ts'] }])
+    ownerPulls(bench, [{ number: 726, files: ['scripts/core/queue.ts'] }])
     bench.tick()
     expect(await step(worker)).toMatchObject({ kind: 'denied', denial: { kind: 'authority' }, next: 'withdrawn' })
     expect(bench.gitHub.puts).toHaveLength(1)
@@ -260,7 +260,7 @@ describe('the merge worker', () => {
     expect(runShard(['--window', '--scope', 'merge+decisions', '--by', 'Eli'], shardDeps(bench, 'shard-window'))).toBe(0)
     expect(runShard(['--pr', '726', '--by', 'Eli'], shardDeps(bench, 'shard-726'))).toBe(0)
     ownerPulls(bench, [
-      { number: 725, files: ['scripts/bus/queue.ts'] },
+      { number: 725, files: ['scripts/core/queue.ts'] },
       { number: 726, ref: 'changeset-release/main', files: ['package.json'] },
     ])
     bench.tick()
@@ -277,7 +277,7 @@ describe('the merge worker', () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
     ownerPulls(bench, [
-      { number: 980, files: ['scripts/ghosts/approve.ts'] },
+      { number: 980, files: ['scripts/ladder/approve.ts'] },
       { number: 982, files: ['.claude/agents/review.md'] },
     ])
     for (const pr of [980, 982])
@@ -313,7 +313,7 @@ describe('the merge worker', () => {
   it('after its until, the same shard --under D-N gets policy.denied authority', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
-    ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
+    ownerPulls(bench, [{ number: 980, files: ['scripts/ladder/approve.ts'] }])
     expect(shardUnderD82(bench, 980)).toBe(0)
     bench.clock.ms = UNTIL_MS
     bench.tick()
@@ -332,7 +332,7 @@ describe('the merge worker', () => {
     for (const unread of ['until 2026-10-09T13:00Z.', '(until 2026-10-09T13:00Z)']) {
       const bench = delegatedBench(D82.replace('until 2026-10-09T13:00Z', unread))
       recorded(bench, 'worker:review:reviewer-1')
-      ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
+      ownerPulls(bench, [{ number: 980, files: ['scripts/ladder/approve.ts'] }])
       bench.tick()
       const out: string[] = []
       expect(runShard(['--pr', '980', '--under', 'D-82', '--by', 'Eli'], shardDeps(bench, 'shard-unread', out))).toBe(1)
@@ -346,7 +346,7 @@ describe('the merge worker', () => {
   it('a corrupted until after a passed import takes the authority away: a shard --under that D-N gets policy.denied authority', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
-    ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
+    ownerPulls(bench, [{ number: 980, files: ['scripts/ladder/approve.ts'] }])
     bench.tick()
     expect(decisionsInForceAt(bench.db, bench.clock.now()).map(decision => decision.decisionId)).toEqual([82])
     expect(shardUnderD82(bench, 980)).toBe(0)
@@ -363,7 +363,7 @@ describe('the merge worker', () => {
   it('a merge under an active delegation after an authority refusal goes through the bus executor and writes merge.done', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
-    ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
+    ownerPulls(bench, [{ number: 980, files: ['scripts/ladder/approve.ts'] }])
     bench.tick()
     const worker = mergeNode(bench)
     expect(await step(worker)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' }, next: 'withdrawn' })
@@ -379,7 +379,7 @@ describe('the merge worker', () => {
   it('a merge task withdrawn on authority is requeued once by a shard naming its card or pull request, and a second authority refusal does not bring it back', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
-    ownerPulls(bench, [{ number: 980, files: ['scripts/ghosts/approve.ts'] }])
+    ownerPulls(bench, [{ number: 980, files: ['scripts/ladder/approve.ts'] }])
     bench.tick()
     const worker = mergeNode(bench)
     expect(await step(worker)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })

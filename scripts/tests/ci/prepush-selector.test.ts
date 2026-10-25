@@ -113,15 +113,15 @@ describe('the session pre-push runs the CI selector over the session diff', () =
   it('a diff on a shared bus file selects every test under scripts/tests/bus', () => {
     expect(BUS_SHARED).toEqual(importedByMostNodeKinds())
     const graph: Graph = new Map([
-      ['scripts/bus/queue.ts', []],
-      ['scripts/bus/merge-worker.ts', []],
-      ['scripts/tests/bus/merge-worker.test.ts', ['scripts/bus/merge-worker.ts']],
+      ['scripts/core/queue.ts', []],
+      ['scripts/nodes/merge/merge-worker.ts', []],
+      ['scripts/tests/bus/merge-worker.test.ts', ['scripts/nodes/merge/merge-worker.ts']],
       ['scripts/tests/bus/board.test.ts', []],
       ['scripts/tests/notes/print.test.ts', []],
     ])
-    const run = selectRun(['scripts/bus/queue.ts'], graph, () => '')
+    const run = selectRun(['scripts/core/queue.ts'], graph, () => '')
     expect(run).toEqual({ kind: 'layers', layers: ['bus'], tests: ['scripts/tests/bus/board.test.ts', 'scripts/tests/bus/merge-worker.test.ts'] })
-    expect(selectRun(['scripts/bus/merge-worker.ts'], graph, () => '')).toEqual({ kind: 'layers', layers: ['bus:merge'], tests: ['scripts/tests/bus/merge-worker.test.ts'] })
+    expect(selectRun(['scripts/nodes/merge/merge-worker.ts'], graph, () => '')).toEqual({ kind: 'layers', layers: ['bus:merge'], tests: ['scripts/tests/bus/merge-worker.test.ts'] })
   })
 
   it('a red local test leaves the push undone', () => {

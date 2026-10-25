@@ -125,18 +125,18 @@ describe('construct intake --admit derives the decision from architecture/owner-
   })
 
   it('an R1 card on the approval rules is owner by its owner-merges row', () => {
-    const w = world(['scripts/ghosts/approve.ts'])
-    expect(riskOf('scripts/ghosts/approve.ts').level).toBe('R1')
-    const file = park(w, 85, 'auto', 'scripts/ghosts/approve.ts')
+    const w = world(['scripts/ladder/approve.ts'])
+    expect(riskOf('scripts/ladder/approve.ts').level).toBe('R1')
+    const file = park(w, 85, 'auto', 'scripts/ladder/approve.ts')
     expect(admit(w, file, { autoConfirm: true }).status).toBe('admitted')
     expect(cardOf(file)).toContain('/owner]')
-    expect(readFileSync(file, 'utf8')).toContain('scripts/ghosts/approve.ts meets scripts/ghosts/approve.ts of architecture/owner-merges.md, owner by risk R1')
+    expect(readFileSync(file, 'utf8')).toContain('scripts/ladder/approve.ts meets scripts/ladder/approve.ts of architecture/owner-merges.md, owner by risk R1')
   })
 
   it('every approval-rules path is R1', () => {
     const { byRisk } = ownerPathsOf(readFileSync(OWNER_MERGES, 'utf8'))
     const globs = byRisk.filter(row => row.level === 'R1').flatMap(row => row.globs)
-    expect(globs).toContain('scripts/ghosts/approve.ts')
+    expect(globs).toContain('scripts/ladder/approve.ts')
     expect(globs.filter(glob => riskOf(glob).level !== 'R1')).toEqual([])
   })
 

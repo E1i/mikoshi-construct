@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { ProcessTable } from '../../bus/chain-process.js'
-import type { CardStart, CardStarter, LaunchOutcome, QueuedCard, StartedCard } from '../../bus/launch-executor.js'
-import type { StarterPlaces, StarterPorts } from '../../bus/launch-starter.js'
-import type { Lease } from '../../bus/lease.js'
+import type { ProcessTable } from '../../nodes/restart/chain-process.js'
+import type { CardStart, CardStarter, LaunchOutcome, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
+import type { StarterPlaces, StarterPorts } from '../../nodes/launch/launch-starter.js'
+import type { Lease } from '../../core/lease.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,31 +13,31 @@ import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
-import { parkingLane } from '../../bus/admissions.js'
-import { ARCHIVE_DIR } from '../../bus/card-archive.js'
-import { cardBodyText } from '../../bus/card-bodies.js'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { recordDecision } from '../../bus/decisions.js'
-import { recordHeartbeat } from '../../bus/heartbeat.js'
-import { taskKey } from '../../bus/identifiers.js'
-import { importJournal, importJournalFile, legacyEventOf } from '../../bus/import.js'
-import { busCardAdmissions, busCardEvents, busHeldCards } from '../../bus/intake.js'
-import { launchableCard, launchCandidates } from '../../bus/launch-candidates.js'
-import { LaunchExecutor } from '../../bus/launch-executor.js'
-import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
-import { withdrawLegacyLaunchTasks } from '../../bus/launch-withdraw.js'
-import { busStarterPorts, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../bus/launch-worker.js'
-import { leaseNext } from '../../bus/lease.js'
-import { SILENT_MS } from '../../bus/liveness-sites.js'
-import { busCardBodies } from '../../bus/parking-reads.js'
-import { FAILURES_TO_STOP } from '../../bus/queue.js'
-import { reduce } from '../../bus/reducer.js'
-import { requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
-import { busLaunches } from '../../bus/workers.js'
+import { parkingLane } from '../../intake/admissions.js'
+import { ARCHIVE_DIR } from '../../intake/card-archive.js'
+import { cardBodyText } from '../../core/card-bodies.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { recordDecision } from '../../policy/decisions.js'
+import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { taskKey } from '../../core/identifiers.js'
+import { importJournal, importJournalFile, legacyEventOf } from '../../intake/import.js'
+import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
+import { launchableCard, launchCandidates } from '../../nodes/launch/launch-candidates.js'
+import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
+import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../nodes/launch/launch-starter.js'
+import { withdrawLegacyLaunchTasks } from '../../nodes/launch/launch-withdraw.js'
+import { busStarterPorts, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { leaseNext } from '../../core/lease.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { busCardBodies } from '../../intake/parking-reads.js'
+import { FAILURES_TO_STOP } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
+import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
+import { busLaunches } from '../../supervisor/workers.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GHOST_ROW } from '../../core/events.js'
 import { sessionEnv } from '../../ports/session.js'
-import { taskConflicts } from '../../shift/overlap.js'
-import { renderPrompt } from '../../shift/prompt.js'
+import { taskConflicts } from '../../nodes/launch/overlap.js'
+import { renderPrompt } from '../../nodes/launch/prompt.js'
 import { waitFor } from '../wait-for.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -213,7 +213,7 @@ describe('the launch queue', () => {
     const parking = path.join(root, 'parking')
     mkdirSync(parking)
     const file = path.join(parking, '1124.md')
-    writeFileSync(file, parkingFileText({ card: '#1124 waiting-card [implement/netwatch/S/cheap/auto] · depends #900 #901 · blocks —', branch: 'feat/waiting-card', touches: ['scripts/bus/launch-candidates.ts'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
+    writeFileSync(file, parkingFileText({ card: '#1124 waiting-card [implement/netwatch/S/cheap/auto] · depends #900 #901 · blocks —', branch: 'feat/waiting-card', touches: ['scripts/nodes/launch/launch-candidates.ts'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
     const admitted = runAdmit({ file, dir: process.cwd(), dryRun: false, autoConfirm: true, parkingRoot: parking, contourMap: path.join(root, 'contour-map.json'), decisions: path.join(root, 'owner-decisions.md'), events: busCardEvents(bench.db), cardStates: () => busHeldCards(bench.db), admissions: busCardAdmissions(bench.db) })
     expect(admitted.status).toBe('admitted')
     expect(eventsOf(bench.db, 'card.waiting')).toEqual([{ depends: [900, 901] }])
@@ -255,12 +255,12 @@ describe('the launch queue', () => {
 
   it('the launch node does not take two cards of different lanes with overlapping touches', () => {
     const bench = launchBench()
-    bench.admitTouching(920, 'lane-a', ['scripts/bus/queue.ts', '.changeset/**'])
+    bench.admitTouching(920, 'lane-a', ['scripts/core/queue.ts', '.changeset/**'])
     bench.admitTouching(921, 'lane-b', ['scripts/bus/**', '.changeset/**'])
-    bench.admitTouching(922, 'lane-c', ['scripts/bus/lease.ts', '.changeset/**'])
+    bench.admitTouching(922, 'lane-c', ['scripts/core/lease.ts', '.changeset/**'])
     bench.admitTouching(923, 'lane-d', ['scripts/miko/**'])
     bench.started(923)
-    bench.admitTouching(924, 'lane-e', ['scripts/miko/watch.ts'])
+    bench.admitTouching(924, 'lane-e', ['scripts/window/watch.ts'])
     bench.admitTouching(925, 'lane-f', ['scripts/ci/update-branch.ts', '.changeset/**'])
     bench.tick()
 
@@ -290,11 +290,11 @@ describe('the launch queue', () => {
 
   it('a dropped card that had started holds neither its lane nor its touches', () => {
     const bench = launchBench()
-    bench.admitTouching(889, 'lane-a', ['scripts/bus/queue.ts', 'scripts/bus/answer-worker.ts'])
+    bench.admitTouching(889, 'lane-a', ['scripts/core/queue.ts', 'scripts/nodes/answer/answer-worker.ts'])
     bench.started(889)
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_MOVED, actor: 'policy', cardId: 889, pr: null, head: null, dedupeKey: `${CARD_MOVED}:889:dropped`, payload: { lane: 'dropped' }, legacy: false })
-    bench.admitTouching(1112, 'lane-b', ['scripts/bus/answer-worker.ts', '.changeset/**'])
-    bench.admitTouching(1113, 'lane-a', ['scripts/miko/watch.ts'])
+    bench.admitTouching(1112, 'lane-b', ['scripts/nodes/answer/answer-worker.ts', '.changeset/**'])
+    bench.admitTouching(1113, 'lane-a', ['scripts/window/watch.ts'])
     bench.tick()
 
     expect(taskState(bench.db, launch(1112))).toMatchObject({ state: 'queued' })
@@ -307,12 +307,12 @@ describe('the launch queue', () => {
     const drop = (cardId: number): void => {
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_DROPPED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${cardId}`, payload: { lane: 'dropped' }, legacy: false })
     }
-    bench.admitTouching(1170, 'lane-a', ['scripts/bus/queue.ts'])
+    bench.admitTouching(1170, 'lane-a', ['scripts/core/queue.ts'])
     bench.started(1170)
     drop(1170)
-    bench.admitTouching(1171, 'lane-c', ['scripts/bus/lease.ts'])
+    bench.admitTouching(1171, 'lane-c', ['scripts/core/lease.ts'])
     drop(1171)
-    bench.admitTouching(1172, 'lane-a', ['scripts/bus/queue.ts', '.changeset/**'])
+    bench.admitTouching(1172, 'lane-a', ['scripts/core/queue.ts', '.changeset/**'])
     bench.tick()
 
     expect(taskState(bench.db, launch(1170))).toBeUndefined()
@@ -323,7 +323,7 @@ describe('the launch queue', () => {
 
   it('a card started, dropped and admitted again is a launch candidate and its old run holds neither lane nor touches', () => {
     const bench = launchBench()
-    const touches = ['scripts/bus/launch-candidates.ts']
+    const touches = ['scripts/nodes/launch/launch-candidates.ts']
     const readmit = (cardId: number, lane: string, cardTouches: string[], depends: number[]): void => {
       const text = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: cardTouches, continue: 'stop', who: 'shift', body: 'Do the card.' })
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:again`, payload: { lane, decision: 'auto', contour: 'cheap', depends, admission: `${admission(cardId)}-again`, text }, legacy: false })
@@ -340,10 +340,10 @@ describe('the launch queue', () => {
     bench.tick()
     expect(taskState(bench.db, launch(1219))).toMatchObject({ state: 'queued' })
 
-    bench.admitTouching(1214, 'lane-b', ['scripts/miko/watch.ts'])
+    bench.admitTouching(1214, 'lane-b', ['scripts/window/watch.ts'])
     bench.started(1214)
     drop(1214)
-    readmit(1214, 'lane-b', ['scripts/miko/watch.ts'], [])
+    readmit(1214, 'lane-b', ['scripts/window/watch.ts'], [])
     bench.tick()
     expect(taskState(bench.db, launch(1214, `${admission(1214)}-again`))).toMatchObject({ state: 'queued' })
     bench.close()
@@ -370,9 +370,9 @@ describe('the launch queue', () => {
     const slice = (name: string, touches: string[]): Record<string, unknown> => ({ name, kind: 'implement', milestone: 'operator', size: 'M', contour: 'cheap', decision: 'auto', who: 'shift', touches, task: `The ${name} part of card A.`, witnesses: ['`pnpm run quality` is green'] })
     const draft = path.join(root, 'draft.json')
     writeFileSync(draft, JSON.stringify({ cards: [
-      slice('owner-loop-r1', ['scripts/ghosts/hash.ts', 'scripts/ghosts/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/bus/queue.ts', 'scripts/tests/bus/merge-queue.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ghosts/launch.ts', '.changeset/**']),
-      slice('owner-loop-r3', ['scripts/bus/inbox.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts', 'scripts/bus/merge-executor.ts', 'scripts/bus/answerer.ts', 'scripts/bus/lease.ts', 'scripts/miko/watch.ts', 'scripts/bus/launch-worker.ts', '.changeset/**']),
-      slice('owner-loop-item-3', ['scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts', '.changeset/**']),
+      slice('owner-loop-r1', ['scripts/ladder/hash.ts', 'scripts/ladder/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/core/queue.ts', 'scripts/tests/bus/merge-queue.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ladder/launch.ts', '.changeset/**']),
+      slice('owner-loop-r3', ['scripts/core/inbox.ts', 'scripts/policy/round-limit-decision.ts', 'scripts/nodes/update/update-done.ts', 'scripts/nodes/merge/merge-executor.ts', 'scripts/nodes/answer/answerer.ts', 'scripts/core/lease.ts', 'scripts/window/watch.ts', 'scripts/nodes/launch/launch-worker.ts', '.changeset/**']),
+      slice('owner-loop-item-3', ['scripts/core/queue.ts', 'scripts/policy/round-limit-decision.ts', '.changeset/**']),
     ] }))
     const refuse = (): never => {
       throw new Error('a mode request uses no tool')
@@ -639,7 +639,7 @@ describe('the launch queue', () => {
   })
 
   it('a held tree with an unnamed changed path is stopped, not continued', () => {
-    const held = heldTreeStarter(1136, ['notes.md', 'scripts/bus/report.ts'], 'result: stopped at a boundary\nnotes.md holds the half-written plan\n')
+    const held = heldTreeStarter(1136, ['notes.md', 'scripts/core/report.ts'], 'result: stopped at a boundary\nnotes.md holds the half-written plan\n')
     const bench = launchBench(held.starter)
     const tree = path.join(tempRoot(), 'mc-1136')
     mkdirSync(tree)
@@ -648,17 +648,17 @@ describe('the launch queue', () => {
 
     const outcome = bench.launch(bench.leaseLaunch()!)
 
-    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'held_tree_changed', paths: ['scripts/bus/report.ts'] }, next: 'withdrawn' })
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'held_tree_changed', paths: ['scripts/core/report.ts'] }, next: 'withdrawn' })
     expect(held.cuts).toEqual([])
     expect(held.spawned).toEqual([])
-    expect(eventsOf(bench.db, CARD_STOPPED).at(-1)).toMatchObject({ reason: 'fault', paths: ['scripts/bus/report.ts'] })
+    expect(eventsOf(bench.db, CARD_STOPPED).at(-1)).toMatchObject({ reason: 'fault', paths: ['scripts/core/report.ts'] })
     bench.tick()
     expect(launchCandidates(bench.db)).toEqual([])
     bench.close()
   })
 
   it('a changed path is named only as a whole path, never inside a longer one', () => {
-    const held = heldTreeStarter(1137, ['report.ts', 'a.ts'], 'result: stopped at a boundary\nleft `scripts/bus/report.ts` and data.ts as they were\n')
+    const held = heldTreeStarter(1137, ['report.ts', 'a.ts'], 'result: stopped at a boundary\nleft `scripts/core/report.ts` and data.ts as they were\n')
     const bench = launchBench(held.starter)
     const tree = path.join(tempRoot(), 'mc-1137')
     mkdirSync(tree)
@@ -667,7 +667,7 @@ describe('the launch queue', () => {
 
     expect(bench.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'denied', denial: { reason: 'held_tree_changed', paths: ['report.ts', 'a.ts'] } })
     expect(held.spawned).toEqual([])
-    expect([...pathTokens('see `scripts/bus/report.ts`, (notes.md). and "a b.ts":')]).toEqual(['see', 'scripts/bus/report.ts', 'notes.md', 'and', 'a', 'b.ts'])
+    expect([...pathTokens('see `scripts/core/report.ts`, (notes.md). and "a b.ts":')]).toEqual(['see', 'scripts/core/report.ts', 'notes.md', 'and', 'a', 'b.ts'])
     bench.close()
   })
 

@@ -16,7 +16,7 @@ describe('the GitHub API is called through one port, and every other caller is r
     expect(known).toEqual([...known].sort())
     expect(sources.has(GH_PORT)).toBe(true)
     expect(found).not.toContain(GH_PORT)
-    expect(found).not.toContain('scripts/bus/github.ts')
+    expect(found).not.toContain('scripts/ports/github.ts')
   })
 
   it('no GitHub caller outside the port and the registry is empty', () => {

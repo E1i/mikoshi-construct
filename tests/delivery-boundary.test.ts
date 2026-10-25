@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { build } from 'tsup'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE } from '../scripts/bus/db.js'
+import { BUS_DB_VARIABLE } from '../scripts/core/db.js'
 import { productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
@@ -70,13 +70,13 @@ describe('the product boundary of dist/cli.js', () => {
       'src/b.ts': { imports: [{ path: SPAWN_MODULE, kind: STATIC_IMPORT, external: true }, { path: BUS_STORE_MODULE, kind: STATIC_IMPORT, external: true }] },
       [BUS_STORE_READER]: { imports: [{ path: BUS_STORE_MODULE, kind: STATIC_IMPORT, external: true }] },
       [SPAWN_CARRIERS[0]]: { imports: [{ path: SPAWN_MODULE, kind: STATIC_IMPORT, external: true }] },
-      'scripts/bus/db.ts': { imports: [] },
+      'scripts/core/db.ts': { imports: [] },
     })).toEqual([
       'src/a.ts: dynamic-import of ./b.js',
       'src/a.ts: require-call of node:fs',
       `src/b.ts: ${BUS_STORE_MODULE} outside ${BUS_STORE_READER}`,
       `src/b.ts: ${SPAWN_MODULE} outside the spawn carriers`,
-      'scripts/bus/db.ts: bus code in the product',
+      'scripts/core/db.ts: bus code in the product',
     ])
   })
 

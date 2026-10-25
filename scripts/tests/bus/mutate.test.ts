@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mutationJudgedLine } from '../../../src/commands/mutate/journal.js'
-import { ghostJournalOf } from '../../bus/check-catalog.js'
-import { openBus } from '../../bus/db.js'
-import { busMutationJudged } from '../../bus/mutate.js'
+import { ghostJournalOf } from '../../cli/check-catalog.js'
+import { openBus } from '../../core/db.js'
+import { busMutationJudged } from '../../cli/mutate.js'
 
 const roots: string[] = []
 

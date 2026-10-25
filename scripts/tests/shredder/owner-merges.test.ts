@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ownerMerges } from '../../shredder/authority.js'
-import { GHOSTS_FILES, readGhostsFiles, readOwnerMergeKinds } from '../../shredder/reader.js'
+import { ownerMerges } from '../../policy/shredder/authority.js'
+import { GHOSTS_FILES, readGhostsFiles, readOwnerMergeKinds } from '../../policy/shredder/reader.js'
 
 const root = path.resolve(import.meta.dirname, '../../..')
 const ownerMergesText = readFileSync(path.join(root, 'architecture/owner-merges.md'), 'utf8')
@@ -50,13 +50,13 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     { files: ['.github/workflows/ci.yml'], ownerMerged: true },
     { files: ['architecture/security-invariants.md'], ownerMerged: true },
     { files: ['architecture/owner-merges.md'], ownerMerged: true },
-    { files: ['scripts/ghosts/launch.ts'], ownerMerged: false },
+    { files: ['scripts/ladder/launch.ts'], ownerMerged: false },
     { files: ['scripts/ghosts/worktree-home.ts'], ownerMerged: false },
-    { files: ['scripts/shift/header.md'], ownerMerged: false },
+    { files: ['scripts/nodes/launch/header.md'], ownerMerged: false },
     { files: ['scripts/shift/merge.ts'], ownerMerged: false },
-    { files: ['scripts/shredder/reader.ts'], ownerMerged: false },
-    { files: ['scripts/shredder/authority.ts'], ownerMerged: false },
-    { files: ['scripts/shredder/glob.ts'], ownerMerged: false },
+    { files: ['scripts/policy/shredder/reader.ts'], ownerMerged: false },
+    { files: ['scripts/policy/shredder/authority.ts'], ownerMerged: false },
+    { files: ['scripts/policy/shredder/glob.ts'], ownerMerged: false },
   ])('$files → ownerMerged $ownerMerged', ({ files, ownerMerged }) => {
     expect(ownerMerges(files, kinds).ownerMerged).toBe(ownerMerged)
   })

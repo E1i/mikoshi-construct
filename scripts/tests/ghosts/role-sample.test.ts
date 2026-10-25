@@ -1,6 +1,6 @@
 import type { SubagentRecord } from '../../../src/commands/cost/turns.js'
 import { describe, expect, it } from 'vitest'
-import { roleExpects, roleRuns } from '../../ghosts/role-sample.js'
+import { roleExpects, roleRuns } from '../../ladder/role-sample.js'
 
 function minuteAt(minute: number): string {
   return `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`

@@ -1,9 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Lease } from '../../bus/lease.js'
-import type { DepthSources, ReviewDepth, ReviewPlan, ReviewPlanner } from '../../bus/review-depth.js'
-import type { ReviewRun } from '../../bus/review-worker.js'
-import type { LeftoverTree, Reviewer, TreeTools } from '../../bus/reviewer.js'
-import type { ChangedFile } from '../../morse/rules.js'
+import type { Lease } from '../../core/lease.js'
+import type { DepthSources, ReviewDepth, ReviewPlan, ReviewPlanner } from '../../nodes/review/review-depth.js'
+import type { ReviewRun } from '../../nodes/review/review-worker.js'
+import type { LeftoverTree, Reviewer, TreeTools } from '../../nodes/review/reviewer.js'
+import type { ChangedFile } from '../../policy/morse/rules.js'
 import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { SpawnSessionParams } from '../../ports/session.js'
@@ -13,23 +13,23 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { recordHeartbeat } from '../../bus/heartbeat.js'
-import { prBodySha, taskKey } from '../../bus/identifiers.js'
-import { importJournal } from '../../bus/import.js'
-import { ownerInbox } from '../../bus/inbox.js'
-import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, RENEW_MS, renewLease, StaleLease } from '../../bus/lease.js'
-import { NetWatch, TICK_MS } from '../../bus/netwatch.js'
-import { keyOf, queueTaskWithin, reviewCandidates } from '../../bus/queue.js'
-import { authorSessions } from '../../bus/record-verdict.js'
-import { projectionDump, reduce } from '../../bus/reducer.js'
-import { fullReview, planReview, withinTouches } from '../../bus/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, gitHubPrBody, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, sparingLiveLeases, startReviewWorkers, stepLine, TREE_LEFT } from '../../bus/review-worker.js'
-import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../bus/reviewer.js'
-import { BusTick } from '../../bus/run.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { prBodySha, taskKey } from '../../core/identifiers.js'
+import { importJournal } from '../../intake/import.js'
+import { ownerInbox } from '../../core/inbox.js'
+import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, RENEW_MS, renewLease, StaleLease } from '../../core/lease.js'
+import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { keyOf, queueTaskWithin, reviewCandidates } from '../../core/queue.js'
+import { authorSessions } from '../../nodes/review/record-verdict.js'
+import { projectionDump, reduce } from '../../core/reducer.js'
+import { fullReview, planReview, withinTouches } from '../../nodes/review/review-depth.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, gitHubPrBody, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, sparingLiveLeases, startReviewWorkers, stepLine, TREE_LEFT } from '../../nodes/review/review-worker.js'
+import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../nodes/review/reviewer.js'
+import { BusTick } from '../../supervisor/run.js'
 import { CARD_ADMITTED } from '../../core/events.js'
-import { GhBudgetWindow, GhFailed, ghPort } from '../../core/gh.js'
-import { classify } from '../../morse/rules.js'
+import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
+import { classify } from '../../policy/morse/rules.js'
 import { HEADLESS_FLAGS, REVIEW_PERMISSION_MODE, sessionArgv } from '../../ports/session.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -1301,7 +1301,7 @@ describe('review depth by MORSE', () => {
   })
 
   it('a ladder PR by any rule but instructions gets the diff review', async () => {
-    const { bench, world, seen } = await reviewOnce(962, [edited('scripts/bus/queue.ts'), edited('scripts/tests/bus/queue.test.ts', 4, 0)], ['scripts/bus/**', 'scripts/tests/bus/**'], 'depth')
+    const { bench, world, seen } = await reviewOnce(962, [edited('scripts/core/queue.ts'), edited('scripts/tests/bus/queue.test.ts', 4, 0)], ['scripts/bus/**', 'scripts/tests/bus/**'], 'depth')
 
     expect(world.predictions).toEqual([{ task: review(962), verdict: 'ladder', rule: 'doubt' }])
     expect(seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts ladder by rule doubt, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [] }])
@@ -1311,7 +1311,7 @@ describe('review depth by MORSE', () => {
   })
 
   it('an instructions PR gets the full review', async () => {
-    const { bench, world, seen } = await reviewOnce(970, [edited('.claude/agents/review.md'), edited('scripts/bus/queue.ts')], ['.claude/agents/review.md', 'scripts/bus/**'], 'depth')
+    const { bench, world, seen } = await reviewOnce(970, [edited('.claude/agents/review.md'), edited('scripts/core/queue.ts')], ['.claude/agents/review.md', 'scripts/bus/**'], 'depth')
 
     expect(world.predictions).toEqual([{ task: review(970), verdict: 'ladder', rule: 'instructions' }])
     expect(seen.map(each => each.plan)).toMatchObject([{ depth: 'full', why: 'MORSE predicts ladder by rule instructions', prediction: { verdict: 'ladder', rule: 'instructions' } }])
@@ -1387,8 +1387,8 @@ describe('review depth by MORSE', () => {
   it('a PR whose earlier review was superseded gets a first review, not a re-review', async () => {
     const bench = setUp()
     const world = new DepthWorld()
-      .change(MERGE_BASE, sha('b'), [edited('scripts/bus/queue.ts')])
-      .change(sha('a'), sha('b'), [edited('scripts/bus/queue.ts')])
+      .change(MERGE_BASE, sha('b'), [edited('scripts/core/queue.ts')])
+      .change(sha('a'), sha('b'), [edited('scripts/core/queue.ts')])
       .card(1067, ['scripts/bus/**'])
     const seen: Seen[] = []
     bench.gitHub.open({ number: 967 })

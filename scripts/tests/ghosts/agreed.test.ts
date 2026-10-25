@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { AGREED_TEXT_PATH, writeAgreedText } from '../../ghosts/agreed.js'
+import { AGREED_TEXT_PATH, writeAgreedText } from '../../ladder/agreed.js'
 
 describe('writeAgreedText', () => {
   it('writes the approved text byte for byte where the implement skill builds its args from, creating .construct', () => {

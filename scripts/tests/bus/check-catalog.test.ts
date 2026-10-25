@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildCatalog, kindOf, overlapWithMain, readBriefs, RERUN_VARIABLE, rerunModeOf, writeCatalog } from '../../bus/check-catalog.js'
-import { openDatabase } from '../../bus/sqlite.js'
+import { buildCatalog, kindOf, overlapWithMain, readBriefs, RERUN_VARIABLE, rerunModeOf, writeCatalog } from '../../cli/check-catalog.js'
+import { openDatabase } from '../../core/sqlite.js'
 
 const roots: string[] = []
 
@@ -20,15 +20,15 @@ function scratch(): string {
 }
 
 const GRAPH: Graph = new Map([
-  ['scripts/bus/merge-worker.ts', []],
-  ['scripts/tests/bus/merge-worker.test.ts', ['scripts/bus/merge-worker.ts']],
-  ['scripts/tests/bus/merge-worker.e2e.test.ts', ['scripts/bus/merge-worker.ts']],
+  ['scripts/nodes/merge/merge-worker.ts', []],
+  ['scripts/tests/bus/merge-worker.test.ts', ['scripts/nodes/merge/merge-worker.ts']],
+  ['scripts/tests/bus/merge-worker.e2e.test.ts', ['scripts/nodes/merge/merge-worker.ts']],
 ])
 
 const BRIEF = [
   'prose',
-  'M1 | scripts/bus/merge-worker.ts | find: `a` → `b` | red: scripts/tests/bus/merge-worker.test.ts › merges',
-  'M2 | scripts/bus/merge-worker.ts | edit: drop the guard | red: green',
+  'M1 | scripts/nodes/merge/merge-worker.ts | find: `a` → `b` | red: scripts/tests/bus/merge-worker.test.ts › merges',
+  'M2 | scripts/nodes/merge/merge-worker.ts | edit: drop the guard | red: green',
   'M3 | broken',
 ].join('\n')
 
@@ -61,11 +61,11 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     const graph: Graph = new Map([
       ['scripts/morse/cli.ts', []],
       ['scripts/tests/morse/cli.test.ts', []],
-      ['scripts/ghosts/launch.ts', []],
+      ['scripts/ladder/launch.ts', []],
       ['scripts/tests/ghosts/helper.ts', []],
       ['scripts/tests/ghosts/watch.test.ts', ['scripts/tests/ghosts/helper.ts']],
     ])
-    const text = (test: string) => test === 'scripts/tests/morse/cli.test.ts' ? 'execFileSync(tsx, [\'scripts/morse/cli.ts\'])' : test === 'scripts/tests/ghosts/helper.ts' ? 'spawn(\'scripts/ghosts/launch.ts\')' : ''
+    const text = (test: string) => test === 'scripts/tests/morse/cli.test.ts' ? 'execFileSync(tsx, [\'scripts/morse/cli.ts\'])' : test === 'scripts/tests/ghosts/helper.ts' ? 'spawn(\'scripts/ladder/launch.ts\')' : ''
     const layers = Object.fromEntries(buildCatalog({ ...sources(), graph, testText: text, cards: [] }).tests.map(row => [row.test, row.layer]))
     expect(layers).toEqual({ 'scripts/tests/morse/cli.test.ts': 'morse', 'scripts/tests/ghosts/watch.test.ts': 'ghosts' })
   })
@@ -145,8 +145,8 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
   it('records each well-formed brief mutation with its killing test and its judged outcome, and skips a malformed line', () => {
     const { mutations } = buildCatalog(sources())
     expect(mutations).toEqual([
-      { card: 7, id: 'M1', operator: 'a → b', file: 'scripts/bus/merge-worker.ts', layer: 'bus:merge', killedBy: 'scripts/tests/bus/merge-worker.test.ts', judged: 'killed', find: 'a', replacement: 'b' },
-      { card: 7, id: 'M2', operator: 'drop the guard', file: 'scripts/bus/merge-worker.ts', layer: 'bus:merge', killedBy: null, judged: null, find: null, replacement: null },
+      { card: 7, id: 'M1', operator: 'a → b', file: 'scripts/nodes/merge/merge-worker.ts', layer: 'bus:merge', killedBy: 'scripts/tests/bus/merge-worker.test.ts', judged: 'killed', find: 'a', replacement: 'b' },
+      { card: 7, id: 'M2', operator: 'drop the guard', file: 'scripts/nodes/merge/merge-worker.ts', layer: 'bus:merge', killedBy: null, judged: null, find: null, replacement: null },
     ])
   })
 
@@ -193,7 +193,7 @@ describe('the overlap of main\'s changes since the base with the layers of a pul
     ], mutations: [] })
     return db
   }
-  const PR = ['scripts/bus/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/a.md']
+  const PR = ['scripts/nodes/merge/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/a.md']
 
   it('finds none when main has not moved or moved only in a changeset, and none when no layer and no test is shared', () => {
     const db = cataloged()
@@ -204,8 +204,8 @@ describe('the overlap of main\'s changes since the base with the layers of a pul
 
   it('names the shared layer, or the test that runs for a layer of each side', () => {
     const db = cataloged()
-    expect(overlapWithMain(db, PR, ['scripts/bus/db.ts'])).toBe('main changed the layer bus-core since the base')
-    expect(overlapWithMain(db, PR, ['scripts/bus/update-worker.ts'])).toBe('scripts/tests/bus/shared.test.ts runs for a layer of the pull request and a layer main changed')
+    expect(overlapWithMain(db, PR, ['scripts/core/db.ts'])).toBe('main changed the layer bus-core since the base')
+    expect(overlapWithMain(db, PR, ['scripts/nodes/update/update-worker.ts'])).toBe('scripts/tests/bus/shared.test.ts runs for a layer of the pull request and a layer main changed')
   })
 
   it('counts a file no layer holds, a test the catalog does not place, or an empty catalog as an overlap', () => {

@@ -1,5 +1,5 @@
-import type { GhPort } from '../core/gh.js'
-import { PROCESS_GH_PORT, readGhJson } from '../core/gh.js'
+import type { GhPort } from '../ports/gh.js'
+import { PROCESS_GH_PORT, readGhJson } from '../ports/gh.js'
 import { STAGE_ARTIFACT } from './stage.js'
 
 export interface RunIdentity {

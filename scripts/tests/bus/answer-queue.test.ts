@@ -1,30 +1,30 @@
-import type { AnswerOutcome } from '../../bus/answer-executor.js'
-import type { Answerer, AnswerRequest, AnswerRun, TreeMerge } from '../../bus/answerer.js'
-import type { CardTreeTools } from '../../bus/card-tree.js'
-import type { Queue } from '../../bus/identifiers.js'
-import type { Lease } from '../../bus/lease.js'
-import type { StoredEvent } from '../../bus/stored.js'
+import type { AnswerOutcome } from '../../nodes/answer/answer-executor.js'
+import type { Answerer, AnswerRequest, AnswerRun, TreeMerge } from '../../nodes/answer/answerer.js'
+import type { CardTreeTools } from '../../ports/card-tree.js'
+import type { Queue } from '../../core/identifiers.js'
+import type { Lease } from '../../core/lease.js'
+import type { StoredEvent } from '../../core/stored.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { AnswerExecutor } from '../../bus/answer-executor.js'
-import { answerSourceOf, NO_RECORDED_SESSION } from '../../bus/answer-source.js'
-import { AnswerNode, runAnswerWorker, VERDICT_NOT_RECORDED } from '../../bus/answer-worker.js'
-import { claudeAnswerer, ownerQuestionPath, projectDirOf, treeMergeOf } from '../../bus/answerer.js'
-import { readBoard } from '../../bus/board.js'
-import { appendEvent } from '../../bus/db.js'
-import { recordDecision } from '../../bus/decisions.js'
-import { taskKey } from '../../bus/identifiers.js'
-import { importJournal } from '../../bus/import.js'
-import { inboxText, ownerInbox } from '../../bus/inbox.js'
-import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, queueTask } from '../../bus/queue.js'
-import { projectionDump, reduce } from '../../bus/reducer.js'
-import { cardDecisionCommand } from '../../bus/shards.js'
-import { Rejection } from '../../bus/stored.js'
+import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { answerSourceOf, NO_RECORDED_SESSION } from '../../nodes/answer/answer-source.js'
+import { AnswerNode, runAnswerWorker, VERDICT_NOT_RECORDED } from '../../nodes/answer/answer-worker.js'
+import { claudeAnswerer, ownerQuestionPath, projectDirOf, treeMergeOf } from '../../nodes/answer/answerer.js'
+import { readBoard } from '../../window/board.js'
+import { appendEvent } from '../../core/db.js'
+import { recordDecision } from '../../policy/decisions.js'
+import { taskKey } from '../../core/identifiers.js'
+import { importJournal } from '../../intake/import.js'
+import { inboxText, ownerInbox } from '../../core/inbox.js'
+import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../core/lease.js'
+import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, queueTask } from '../../core/queue.js'
+import { projectionDump, reduce } from '../../core/reducer.js'
+import { cardDecisionCommand } from '../../policy/shards.js'
+import { Rejection } from '../../core/stored.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_RELEASED, TASK_REQUEUED } from '../../core/events.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -209,15 +209,15 @@ describe('the answer queue', () => {
     const bench = answerBench()
     bench.started(1095)
     bench.gitHub.open({ number: 995, review: 'failure' })
-    bench.reviewed(995, ['the lease is not renewed while the session runs', 'scripts/bus/queue.ts has no test for the owner stop'])
+    bench.reviewed(995, ['the lease is not renewed while the session runs', 'scripts/core/queue.ts has no test for the owner stop'])
     bench.tick()
     const lease = bench.leaseAnswer()!
 
-    expect(answerSourceOf(bench.db, lease)).toMatchObject({ kind: 'changes', findings: ['the lease is not renewed while the session runs', 'scripts/bus/queue.ts has no test for the owner stop'] })
+    expect(answerSourceOf(bench.db, lease)).toMatchObject({ kind: 'changes', findings: ['the lease is not renewed while the session runs', 'scripts/core/queue.ts has no test for the owner stop'] })
     await bench.answer(lease)
     const prompt = bench.tools.runs[0]!.argv.at(-1)!
     expect(prompt).toContain('- the lease is not renewed while the session runs')
-    expect(prompt).toContain('- scripts/bus/queue.ts has no test for the owner stop')
+    expect(prompt).toContain('- scripts/core/queue.ts has no test for the owner stop')
     bench.close()
   })
 
@@ -257,10 +257,10 @@ describe('the answer queue', () => {
   const admitBody = (bench: ReturnType<typeof answerBench>, cardId: number, bodySha: string): void => {
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${bodySha}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}-${bodySha}`, bodySha }, legacy: false })
   }
-  const WIDEN = ['scripts/bus/lease.ts', 'scripts/tests/bus/lease.test.ts']
+  const WIDEN = ['scripts/core/lease.ts', 'scripts/tests/bus/lease.test.ts']
   const askToWiden = (bench: ReturnType<typeof answerBench>, cardId: number): void => {
     bench.started(cardId)
-    bench.stopped(cardId, { reason: 'question.agent', detail: 'the lease query must admit a card with no pull request', widen: WIDEN, touches: ['scripts/bus/queue.ts'] })
+    bench.stopped(cardId, { reason: 'question.agent', detail: 'the lease query must admit a card with no pull request', widen: WIDEN, touches: ['scripts/core/queue.ts'] })
   }
   const answerTaskCount = (bench: ReturnType<typeof answerBench>): number => Number((bench.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'answer'`).get() as { n: number }).n)
 
@@ -289,7 +289,7 @@ describe('the answer queue', () => {
     const bench = answerBench()
     askToWiden(bench, 911)
     bench.tick()
-    const admission = admitCard(bench, 911, ['scripts/bus/queue.ts', ...WIDEN], 'cccc3333')
+    const admission = admitCard(bench, 911, ['scripts/core/queue.ts', ...WIDEN], 'cccc3333')
     bench.tick()
 
     const lease = bench.leaseAnswer()!
@@ -305,7 +305,7 @@ describe('the answer queue', () => {
     const bench = answerBench()
     askToWiden(bench, 913)
     bench.tick()
-    admitCard(bench, 913, ['scripts/bus/queue.ts', 'scripts/bus/lease.ts'], 'eeee5555')
+    admitCard(bench, 913, ['scripts/core/queue.ts', 'scripts/core/lease.ts'], 'eeee5555')
     bench.tick()
 
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.agent', detail: expect.stringContaining('scripts/tests/bus/lease.test.ts not in the touches or creates the card was admitted with') })
@@ -322,9 +322,9 @@ describe('the answer queue', () => {
   it('a widen onto an owner path stops as question.owner even after the amend', async () => {
     const bench = answerBench()
     bench.started(914)
-    bench.stopped(914, { reason: 'question.agent', detail: 'the ladder must know the answer queue', widen: ['scripts/construct/implement.workflow'], touches: ['scripts/bus/queue.ts'] })
+    bench.stopped(914, { reason: 'question.agent', detail: 'the ladder must know the answer queue', widen: ['scripts/construct/implement.workflow'], touches: ['scripts/core/queue.ts'] })
     bench.tick()
-    admitCard(bench, 914, ['scripts/bus/queue.ts', 'scripts/construct/implement.workflow'], 'ffff6666')
+    admitCard(bench, 914, ['scripts/core/queue.ts', 'scripts/construct/implement.workflow'], 'ffff6666')
     bench.tick()
 
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining('scripts/construct/implement.workflow is an owner path') })
@@ -1013,7 +1013,7 @@ describe('the answer executor', () => {
     const ownerPath = 'the finding asks for a change to contract/factory-permissions.json'
     const reserved = (cardId: number): string => `card #${cardId} reserved by the owner: may the answer go on?`
     const questions: Record<number, string> = {
-      1120: 'may the card also touch scripts/bus/lease.ts, scripts/tests/bus/lease.test.ts and package.json?',
+      1120: 'may the card also touch scripts/core/lease.ts, scripts/tests/bus/lease.test.ts and package.json?',
       1121: 'the finding needs src/materialize/plan.ts.',
       1122: ownerPath,
       1123: reserved(1123),
@@ -1021,7 +1021,7 @@ describe('the answer executor', () => {
       1125: ownerPath,
       1126: 'may the card also touch AGENTS.md?',
       1127: 'the finding needs eslint.config.mjs',
-      1128: 'may the card also touch scripts/bus/lease.ts?',
+      1128: 'may the card also touch scripts/core/lease.ts?',
     }
     const delegated = [1124, 1125, 1127, 1128]
     const cards = Object.keys(questions).map(Number)
@@ -1092,12 +1092,12 @@ describe('the answer executor', () => {
     bench.started(1132)
     bench.gitHub.open({ number: 1032, head: PUSHED, review: 'success', mergeable_state: 'dirty' })
     bench.tick()
-    bench.tools.merge = { kind: 'mid-merge', files: ['scripts/bus/queue.ts', 'package.json'] }
+    bench.tools.merge = { kind: 'mid-merge', files: ['scripts/core/queue.ts', 'package.json'] }
     bench.tools.heads = [PUSHED, sha('f')]
 
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: answer(1132, 1032, PUSHED), head: sha('f') })
     const prompt = bench.tools.runs[0]!.argv.at(-1)!
-    expect(prompt).toContain(`its tree ${bench.treeOf(1132)} stands mid-merge with scripts/bus/queue.ts, package.json unmerged: finish that merge where it stands`)
+    expect(prompt).toContain(`its tree ${bench.treeOf(1132)} stands mid-merge with scripts/core/queue.ts, package.json unmerged: finish that merge where it stands`)
     expect(prompt).toContain('never git merge --abort, git reset or a new merge over it')
     expect(prompt).not.toContain(`merge origin/main into the branch`)
     expect(bench.tools.published).toEqual([{ branch: 'feat/card-1132', commitMessage: expect.stringContaining('on PR #1032') }])

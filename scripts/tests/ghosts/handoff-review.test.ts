@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readHandoff } from '../../ghosts/handoff.js'
+import { readHandoff } from '../../ladder/handoff.js'
 
 const SHA = 'a'.repeat(64)
 const HEAD = 'c8c5d980643d31e43849b49688bef8ae84191f77'

@@ -1,11 +1,11 @@
-import type { OwnerCommandPorts } from '../../shift/owner-command.js'
+import type { OwnerCommandPorts } from '../../window/owner-command.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { COMMAND_FILE, ownerCommand, PATCH_FILE, probeDirOf, runOwnerCommand } from '../../shift/owner-command.js'
+import { COMMAND_FILE, ownerCommand, PATCH_FILE, probeDirOf, runOwnerCommand } from '../../window/owner-command.js'
 
 const CARD = 4242
 const TOUCHES = ['scripts/shift/x.ts', 'scripts/tests/shift/**']

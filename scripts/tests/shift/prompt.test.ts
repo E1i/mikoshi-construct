@@ -3,9 +3,9 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseTaskFile } from '../../../src/card/task-file.js'
 import { PREPUSH_COMMAND } from '../../ci/prepush.js'
-import { renderPrompt } from '../../shift/prompt.js'
+import { renderPrompt } from '../../nodes/launch/prompt.js'
 
-const HEADER = readFileSync(path.join(import.meta.dirname, '../../shift/header.md'), 'utf8')
+const HEADER = readFileSync(path.join(import.meta.dirname, '../../nodes/launch/header.md'), 'utf8')
 const PLACES = { worktree: '/tmp/tree', report: '/tmp/report.md' }
 const PROBE_LINE = 'Прочитай .claude/skills/probe/SKILL.md целиком и работай по нему'
 

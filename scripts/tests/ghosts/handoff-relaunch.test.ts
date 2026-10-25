@@ -2,7 +2,7 @@ import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readHandoff } from '../../ghosts/handoff.js'
+import { readHandoff } from '../../ladder/handoff.js'
 
 const BASIC = path.join(import.meta.dirname, 'handoff-basic')
 const RELAUNCH = { repo: 'repo', status: 'status.md', out: '.', tasks: [{ id: 'alpha-2b', brief: 'brief-alpha.md', card: '#102 alpha-2 [implement/ghosts/S/ladder/owner] · depends — · blocks —' }] }

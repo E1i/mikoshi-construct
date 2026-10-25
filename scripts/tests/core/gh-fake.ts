@@ -1,4 +1,4 @@
-import type { GhCall, GhCaller, GhRead } from '../../core/gh.js'
+import type { GhCall, GhCaller, GhRead } from '../../ports/gh.js'
 
 export function ran(stdout: string): GhCall {
   return { kind: 'ran', stdout, attempts: 1 }

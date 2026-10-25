@@ -1,4 +1,4 @@
-import type { TreeCard, TreePrPorts } from '../../shift/tree-pr.js'
+import type { TreeCard, TreePrPorts } from '../../nodes/launch/tree-pr.js'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
-import { shiftTreeCard, treePr } from '../../shift/tree-pr.js'
+import { shiftTreeCard, treePr } from '../../nodes/launch/tree-pr.js'
 
 const roots: string[] = []
 
@@ -21,14 +21,14 @@ const CARD: TreeCard = {
   commitMessage: 'review-worker (#1128)',
   cardLine: '#1128 review-worker [implement/netwatch/S/ladder/auto] · depends — · blocks —',
   contour: 'ladder',
-  touches: ['scripts/bus/review-worker.ts'],
+  touches: ['scripts/nodes/review/review-worker.ts'],
   runs: [],
   namedPathReason: null,
 }
 
 const BASE: Record<string, string> = {
-  'scripts/bus/review-worker.ts': 'export function runReviewWorker(): number {\n  return 1\n}\n',
-  'scripts/bus/merge-worker.ts': 'export function runMergeWorker(): number {\n  return 1\n}\n',
+  'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker(): number {\n  return 1\n}\n',
+  'scripts/nodes/merge/merge-worker.ts': 'export function runMergeWorker(): number {\n  return 1\n}\n',
   'scripts/tests/bus/review-worker.test.ts': 'import { runReviewWorker } from \'../../bus/review-worker.js\'\n\nexport const ran = runReviewWorker()\n',
   'scripts/shift/shift.ts': 'export function runShift(): number {\n  return 1\n}\n',
   'tests/decisions-read-through-reader.test.ts': 'export const scanned = \'scripts/shift\'\n',
@@ -82,14 +82,14 @@ describe('the shift gate lets the tests that cover the touched files follow the 
   it('an edit of a covering test outside touches does not stop the card', () => {
     const worktree = cardTree()
     write(worktree, {
-      'scripts/bus/review-worker.ts': 'export function runReviewWorker(): number {\n  return 2\n}\n',
+      'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker(): number {\n  return 2\n}\n',
       'scripts/tests/bus/review-worker.test.ts': 'import { runReviewWorker } from \'../../bus/review-worker.js\'\n\nexport const ran = runReviewWorker() + 1\n',
     })
     expect(treePr(ports(), CARD, worktree, null)).toEqual({ kind: 'pr', number: '954' })
   })
 
   it('an edit of a test the card runs outside touches does not stop the card, and the same edit of a test it neither runs nor covers does', () => {
-    const edit = { 'scripts/bus/review-worker.ts': 'export function runReviewWorker(): number {\n  return 2\n}\n', 'scripts/tests/bus/merge-worker.test.ts': 'export const ran = 1\n' }
+    const edit = { 'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker(): number {\n  return 2\n}\n', 'scripts/tests/bus/merge-worker.test.ts': 'export const ran = 1\n' }
     const running = cardTree()
     write(running, edit)
     expect(treePr(ports(), { ...CARD, runs: ['scripts/tests/bus/merge-worker.test.ts'] }, running, null)).toEqual({ kind: 'pr', number: '954' })
@@ -100,9 +100,9 @@ describe('the shift gate lets the tests that cover the touched files follow the 
 
   it('a Runs: entry that names code, not a test, lets no code change outside the touches', () => {
     const worktree = cardTree()
-    write(worktree, { 'scripts/bus/merge-worker.ts': 'export function runMergeWorker(): number {\n  return 2\n}\n' })
-    const result = treePr(ports(), { ...CARD, runs: ['scripts/bus/merge-worker.ts', 'scripts/bus/**'] }, worktree, null)
-    expect(result.kind === 'problem' && result.why).toContain('the card\'s touches for scripts/bus/merge-worker.ts')
+    write(worktree, { 'scripts/nodes/merge/merge-worker.ts': 'export function runMergeWorker(): number {\n  return 2\n}\n' })
+    const result = treePr(ports(), { ...CARD, runs: ['scripts/nodes/merge/merge-worker.ts', 'scripts/bus/**'] }, worktree, null)
+    expect(result.kind === 'problem' && result.why).toContain('the card\'s touches for scripts/nodes/merge/merge-worker.ts')
   })
 
   it('a card read from its parking file runs what its Runs: line names', () => {
@@ -113,12 +113,12 @@ describe('the shift gate lets the tests that cover the touched files follow the 
   it('an edit of code outside touches still stops the card', () => {
     const worktree = cardTree()
     write(worktree, {
-      'scripts/bus/review-worker.ts': 'export function runReviewWorker(): number {\n  return 2\n}\n',
-      'scripts/bus/merge-worker.ts': 'export function runMergeWorker(): number {\n  return 2\n}\n',
+      'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker(): number {\n  return 2\n}\n',
+      'scripts/nodes/merge/merge-worker.ts': 'export function runMergeWorker(): number {\n  return 2\n}\n',
     })
     const result = treePr(ports(), CARD, worktree, null)
     expect(result.kind).toBe('problem')
-    expect(result.kind === 'problem' && result.why).toContain('the card\'s touches for scripts/bus/merge-worker.ts, which it changes outside them')
+    expect(result.kind === 'problem' && result.why).toContain('the card\'s touches for scripts/nodes/merge/merge-worker.ts, which it changes outside them')
   })
   it('an edit of a test that scans the tree of a touched file outside touches does not stop the card', () => {
     const worktree = cardTree()

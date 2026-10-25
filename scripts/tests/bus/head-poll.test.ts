@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pollHead } from '../../bus/head-poll.js'
+import { pollHead } from '../../nodes/update/head-poll.js'
 
 function reader(answers: (string | undefined | Error)[], log: string[]): () => string | undefined {
   return () => {

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { sleep } from '../ghosts/every.js'
+import { sleep } from '../core/every.js'
 
 export const LOCK_DIR_VARIABLE = 'CONSTRUCT_QUALITY_LOCK_DIR'
 export const HELD_VARIABLE = 'CONSTRUCT_QUALITY_LOCK_HELD'

@@ -1,4 +1,4 @@
-import type { Preflight } from '../../ghosts/preflight.js'
+import type { Preflight } from '../../ladder/preflight.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -8,17 +8,17 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { reduce } from '../../bus/reducer.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { reduce } from '../../core/reducer.js'
 import { CARD_ADMITTED } from '../../core/events.js'
-import { approvalSha256, approvedHashPath, checkApproval } from '../../ghosts/approval.js'
-import { approvalLine, checkAcceptanceBuild, hashBrief, NO_WITNESS_FILES, PREFLIGHT_EVENT, rememberedPreflight, resolveApprover, witnessFilesDigest } from '../../ghosts/hash.js'
-import { ghostLines, recordGhostLine } from '../../ghosts/journal.js'
+import { approvalSha256, approvedHashPath, checkApproval } from '../../ladder/approval.js'
+import { approvalLine, checkAcceptanceBuild, hashBrief, NO_WITNESS_FILES, PREFLIGHT_EVENT, rememberedPreflight, resolveApprover, witnessFilesDigest } from '../../ladder/hash.js'
+import { ghostLines, recordGhostLine } from '../../core/journal.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const HASH = path.join(REPO_ROOT, 'scripts/ghosts/hash.ts')
-const MORSE_APPROVE = path.join(REPO_ROOT, 'scripts/ghosts/morse-approve.ts')
+const HASH = path.join(REPO_ROOT, 'scripts/ladder/hash.ts')
+const MORSE_APPROVE = path.join(REPO_ROOT, 'scripts/ladder/morse-approve.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const NOW = new Date(2026, 9, 4, 12)
 const APPROVER = 'Approver One'

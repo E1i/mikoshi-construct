@@ -1,4 +1,4 @@
-import type { TreeTools } from '../../bus/reviewer.js'
+import type { TreeTools } from '../../nodes/review/reviewer.js'
 import type { SpawnSessionParams } from '../../ports/session.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
-import { fullReview } from '../../bus/review-depth.js'
-import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../bus/reviewer.js'
+import { fullReview } from '../../nodes/review/review-depth.js'
+import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, PREPARE_TREE, PREPARED_TREE_LINE, prepareEnv, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { sessionArgv, SessionCeilingReached } from '../../ports/session.js'
 import { sha } from './github-fake.js'
 
@@ -266,7 +266,7 @@ describe('reviewer', () => {
       const own = await run(transcript({ name: 'Bash', input: { command: 'rm a.txt b.txt' } }))
       expect(own).toMatchObject({ verdict: 'changes', tree: { mutated: ['a.txt', 'b.txt'] } })
 
-      const mutation = await run(transcript({ name: 'Bash', input: { command: 'construct mutate apply scripts/bus/reviewer.ts' } }))
+      const mutation = await run(transcript({ name: 'Bash', input: { command: 'construct mutate apply scripts/nodes/review/reviewer.ts' } }))
       expect(mutation).toMatchObject({ verdict: 'changes' })
     }
     finally {
@@ -287,7 +287,7 @@ describe('reviewer', () => {
     'cmd 2>err.log': true,
     'cmd &> all.log': true,
     'rm a.txt': true,
-    'construct mutate apply scripts/bus/reviewer.ts': true,
+    'construct mutate apply scripts/nodes/review/reviewer.ts': true,
     'npx mikoshi-construct mutate judge': true,
     'pnpm composition:render': true,
     'pnpm run model:render': true,

@@ -2,12 +2,12 @@ import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE } from '../../bus/db.js'
-import { ghostLines } from '../../ghosts/journal.js'
+import { BUS_DB_VARIABLE } from '../../core/db.js'
+import { ghostLines } from '../../core/journal.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
-const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
+const LAUNCH = path.join(REPO_ROOT, 'scripts/ladder/launch.ts')
 const CARD = 902
 
 const created: string[] = []

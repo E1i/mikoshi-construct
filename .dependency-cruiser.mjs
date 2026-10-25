@@ -6,7 +6,7 @@ const OWNER_CHANNEL = '^scripts/owner/channel\\.ts$'
 const FACTORY = '^(scripts/(bus|ghosts|shift|miko|decisions|lanes)/|src/commands/)'
 const FORMER_EVENT_HOMES = '^src/commands/intake/(index|move)\\.ts$'
 const LADDER = '^scripts/ghosts/'
-const LADDER_STARTER = '^scripts/bus/ladder-starter\\.ts$'
+const LADDER_STARTER = '^scripts/ladder/ladder-starter\\.ts$'
 const PORTS = '^scripts/ports/'
 const PORT_CALLERS = '^scripts/(bus|ghosts|shift|miko)/'
 

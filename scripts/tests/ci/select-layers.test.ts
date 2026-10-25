@@ -6,14 +6,14 @@ import { BUS_CORE as CORE_PATTERN, layerOf, selectRun, BUS_SERVICE as SERVICE_PA
 import { changedPathsOf, outputLines, pathsOf, reportedRun, runSummary, windowLines } from '../../ci/select.js'
 
 const GRAPH: Graph = new Map([
-  ['scripts/bus/db.ts', []],
-  ['scripts/bus/merge-worker.ts', ['scripts/bus/db.ts']],
-  ['scripts/bus/review-worker.ts', ['scripts/bus/db.ts']],
-  ['scripts/ghosts/launch.ts', ['scripts/bus/db.ts']],
+  ['scripts/core/db.ts', []],
+  ['scripts/nodes/merge/merge-worker.ts', ['scripts/core/db.ts']],
+  ['scripts/nodes/review/review-worker.ts', ['scripts/core/db.ts']],
+  ['scripts/ladder/launch.ts', ['scripts/core/db.ts']],
   ['scripts/notes/print.ts', []],
-  ['scripts/tests/bus/merge-worker.test.ts', ['scripts/bus/merge-worker.ts']],
-  ['scripts/tests/bus/review-worker.test.ts', ['scripts/bus/review-worker.ts']],
-  ['scripts/tests/ghosts/launch.test.ts', ['scripts/ghosts/launch.ts']],
+  ['scripts/tests/bus/merge-worker.test.ts', ['scripts/nodes/merge/merge-worker.ts']],
+  ['scripts/tests/bus/review-worker.test.ts', ['scripts/nodes/review/review-worker.ts']],
+  ['scripts/tests/ghosts/launch.test.ts', ['scripts/ladder/launch.ts']],
   ['scripts/tests/notes/spawn.test.ts', []],
 ])
 
@@ -26,13 +26,13 @@ function layersRun(changed: string[], testText: (test: string) => string = () =>
 
 describe('the checks a change reaches follow the layers of the dependency graph', () => {
   it('a change in a service runs that service\'s layer and not the others', () => {
-    const run = layersRun(['scripts/bus/merge-worker.ts'])
+    const run = layersRun(['scripts/nodes/merge/merge-worker.ts'])
     expect(run.layers).toEqual(['bus:merge'])
     expect(run.tests).toEqual(['scripts/tests/bus/merge-worker.test.ts'])
   })
 
   it('a change in the core runs the core and every dependent layer', () => {
-    const run = layersRun(['scripts/bus/db.ts'])
+    const run = layersRun(['scripts/core/db.ts'])
     expect(run.layers).toEqual(['bus-core', 'bus:merge', 'bus:review', 'ghosts'])
     expect(run.tests).toEqual([
       'scripts/tests/bus/merge-worker.test.ts',
@@ -50,7 +50,7 @@ describe('the checks a change reaches follow the layers of the dependency graph'
   it('a change to the test infrastructure every test runs under takes the full run', () => {
     const graph: Graph = new Map([...GRAPH, ['scripts/scratch/vitest-bus.ts', []], ['scripts/ci/shard.ts', []]])
     for (const file of ['vitest.config.ts', 'vitest-workspace.ts', 'scripts/scratch/vitest-setup.ts', 'scripts/scratch/vitest-bus.ts', 'scripts/ci/shard.ts', 'scripts/ci/test-weights.json'])
-      expect(selectRun([file, 'scripts/bus/merge-worker.ts'], graph, () => '').kind).toBe('full')
+      expect(selectRun([file, 'scripts/nodes/merge/merge-worker.ts'], graph, () => '').kind).toBe('full')
   })
 
   it('a test that spawns a changed script is selected though it imports nothing', () => {
@@ -60,7 +60,7 @@ describe('the checks a change reaches follow the layers of the dependency graph'
 
   it('a test that walks the scripts or src tree is selected by a change it neither imports nor names', () => {
     const scan = '[\'scripts\', \'src\'].flatMap(root => readdirSync(path.join(REPO_ROOT, root), { recursive: true }))'
-    const run = layersRun(['scripts/bus/merge-worker.ts'], test => test === 'scripts/tests/notes/spawn.test.ts' ? scan : '')
+    const run = layersRun(['scripts/nodes/merge/merge-worker.ts'], test => test === 'scripts/tests/notes/spawn.test.ts' ? scan : '')
     expect(run.tests).toEqual(['scripts/tests/bus/merge-worker.test.ts', 'scripts/tests/notes/spawn.test.ts'])
   })
 
@@ -95,12 +95,12 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(selectRun(['src/ui/lore.ts'], graph, () => '')).toMatchObject({ kind: 'layers', tests: ['tests/delivery-boundary.test.ts'] })
   })
 
-  it('a change in scripts/ghosts/launch.ts selects scripts/tests/shredder/owner-merges.test.ts, which lists the directory', () => {
+  it('a change in scripts/ladder/launch.ts selects scripts/tests/shredder/owner-merges.test.ts, which lists the directory', () => {
     const graph: Graph = new Map([
-      ['scripts/ghosts/launch.ts', []],
+      ['scripts/ladder/launch.ts', []],
       ['scripts/tests/shredder/owner-merges.test.ts', []],
     ])
-    expect(selectRun(['scripts/ghosts/launch.ts'], graph, () => '')).toMatchObject({ kind: 'layers', tests: ['scripts/tests/shredder/owner-merges.test.ts'] })
+    expect(selectRun(['scripts/ladder/launch.ts'], graph, () => '')).toMatchObject({ kind: 'layers', tests: ['scripts/tests/shredder/owner-merges.test.ts'] })
   })
 
   it('a test that names a changed script only by its file name is selected', () => {
@@ -137,7 +137,7 @@ describe('the window gate of D-194 takes the CI selection by layers', () => {
   })
 
   it('the window gate adds the package.json readers to the layers the rest of the change reaches', () => {
-    expect(windowGate(['package.json', 'scripts/bus/merge-worker.ts'], graph, () => '')).toEqual({
+    expect(windowGate(['package.json', 'scripts/nodes/merge/merge-worker.ts'], graph, () => '')).toEqual({
       kind: 'layers',
       layers: ['bus:merge'],
       tests: ['scripts/tests/bus/merge-worker.test.ts', 'tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts'],
@@ -151,7 +151,7 @@ describe('the window gate of D-194 takes the CI selection by layers', () => {
   })
 
   it('the window gate is the CI selection for a change without package.json', () => {
-    for (const changed of [['scripts/bus/db.ts'], ['docs/index.md'], []])
+    for (const changed of [['scripts/core/db.ts'], ['docs/index.md'], []])
       expect(windowGate(changed, graph, () => '')).toEqual(selectRun(changed, graph, () => ''))
   })
 
@@ -212,16 +212,16 @@ const BUS_SERVICE = configPattern('BUS_SERVICE')
 
 describe('the layer patterns of the selector are the ones of the dependency-cruiser config', () => {
   const samples = [
-    'scripts/bus/db.ts',
-    'scripts/bus/reducer.ts',
-    'scripts/bus/sqlite.ts',
-    'scripts/bus/stored.ts',
-    'scripts/bus/identifiers.ts',
-    'scripts/bus/merge-worker.ts',
-    'scripts/bus/review-executor.ts',
-    'scripts/bus/ladder-starter.ts',
-    'scripts/bus/check-catalog.ts',
-    'scripts/bus/review-bg.ts',
+    'scripts/core/db.ts',
+    'scripts/core/reducer.ts',
+    'scripts/core/sqlite.ts',
+    'scripts/core/stored.ts',
+    'scripts/core/identifiers.ts',
+    'scripts/nodes/merge/merge-worker.ts',
+    'scripts/nodes/review/review-executor.ts',
+    'scripts/ladder/ladder-starter.ts',
+    'scripts/cli/check-catalog.ts',
+    'scripts/supervisor/review-bg.ts',
     'scripts/ci/layers.ts',
   ]
 

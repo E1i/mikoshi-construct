@@ -1,15 +1,15 @@
-import type { BgResult, DetachedLaunch, RunningProcess } from '../../bus/bg.js'
-import type { BusCode } from '../../bus/supervisor.js'
+import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
+import type { BusCode } from '../../supervisor/supervisor.js'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { launchName } from '../../bus/bg.js'
-import { reviewLaunch } from '../../bus/review-bg.js'
-import { BusSupervisor, entryOf, gitCode, importClosure, LOCAL_MAIN_REF, SUPERVISOR_LAUNCH } from '../../bus/supervisor.js'
-import { busLaunches, workerLaunches } from '../../bus/workers.js'
+import { launchName } from '../../supervisor/bg.js'
+import { reviewLaunch } from '../../supervisor/review-bg.js'
+import { BusSupervisor, entryOf, gitCode, importClosure, LOCAL_MAIN_REF, SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
+import { busLaunches, workerLaunches } from '../../supervisor/workers.js'
 
 const OLD_MAIN = 'a'.repeat(40)
 const NEW_MAIN = 'b'.repeat(40)
-const SHARED_FILE = 'scripts/bus/db.ts'
+const SHARED_FILE = 'scripts/core/db.ts'
 
 describe('the supervisor follows the local main ref', () => {
   it('a moved local main ref restarts the bus with no GitHub call', async () => {
@@ -100,11 +100,11 @@ describe('the code a bus process runs', () => {
   it('the shared bus code is in the code of every node, and one node\'s worker is not in another\'s', () => {
     const { answer, close } = workerLaunches(() => [])
     for (const launch of [...busLaunches(() => []), SUPERVISOR_LAUNCH]) {
-      for (const shared of ['scripts/bus/db.ts', 'scripts/bus/node.ts', 'scripts/bus/lease.ts', 'scripts/bus/queue.ts', 'scripts/bus/reducer.ts'])
+      for (const shared of ['scripts/core/db.ts', 'scripts/core/node.ts', 'scripts/core/lease.ts', 'scripts/core/queue.ts', 'scripts/core/reducer.ts'])
         expect(runsOf(launch)).toContain(shared)
     }
     for (const launch of Object.values(workerLaunches(() => [])))
-      expect(runsOf(launch)).toContain('scripts/bus/node.ts')
+      expect(runsOf(launch)).toContain('scripts/core/node.ts')
     expect(runsOf(close)).not.toContain(entryOf(answer))
     expect(runsOf(answer)).not.toContain(entryOf(close))
   })

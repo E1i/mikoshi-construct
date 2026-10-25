@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { carryLedgerLines, carryStepCacheLines, countLedgerLines, MALFORMED_LEDGER_LINE, readLadderOutcome } from '../../ghosts/ledger.js'
+import { carryLedgerLines, carryStepCacheLines, countLedgerLines, MALFORMED_LEDGER_LINE, readLadderOutcome } from '../../ladder/ledger.js'
 
 function runsPath(): { dir: string, runs: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-ledger-'))

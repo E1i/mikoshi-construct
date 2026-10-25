@@ -33,15 +33,15 @@ const LEVEL_OF_PATH: Record<string, string> = {
   'tests/**': 'R4',
   'scripts/shredder/classify.ts': 'R4',
   'scripts/ghosts': 'R2',
-  'scripts/ghosts/verdict.ts': 'R2',
-  'scripts/ghosts/task-close.ts': 'R2',
+  'scripts/ladder/verdict.ts': 'R2',
+  'scripts/nodes/close/task-close.ts': 'R2',
   'scripts/shift': 'R2',
   'scripts/shift/merge.ts': 'R2',
-  'scripts/bus/queue.ts': 'R1',
+  'scripts/core/queue.ts': 'R1',
   'scripts/bus/executor.ts': 'R4',
-  'scripts/ghosts/approval.ts': 'R1',
-  'scripts/ghosts/hash.ts': 'R1',
-  'scripts/ghosts/launch.ts': 'R1',
+  'scripts/ladder/approval.ts': 'R1',
+  'scripts/ladder/hash.ts': 'R1',
+  'scripts/ladder/launch.ts': 'R1',
   'scripts/ghosts/**': 'R1',
   'src/presets/index.ts': 'R1',
   'scripts/attach/earlier-carriers.ts': 'R1',
@@ -119,7 +119,7 @@ describe('a path AGENTS.md names always high or a publish reads R1, never R3 or 
   })
 })
 
-it.each(['scripts/bus/queue.ts', 'scripts/bus/admissions.ts', 'scripts/bus/close-executor.ts', 'scripts/bus/merge-executor.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts'])('the bus core files read as core, not R4 through the scripts root: %s', (touch) => {
+it.each(['scripts/core/queue.ts', 'scripts/intake/admissions.ts', 'scripts/nodes/close/close-executor.ts', 'scripts/nodes/merge/merge-executor.ts', 'scripts/policy/round-limit-decision.ts', 'scripts/nodes/update/update-done.ts'])('the bus core files read as core, not R4 through the scripts root: %s', (touch) => {
   expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('the factory mechanism') })
 })
 
@@ -243,10 +243,10 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
   })
 
   it('a test file goes to the slice of the code it imports, not of a shared directory name', () => {
-    const reading = riskReading(['scripts/bus/queue.ts', 'scripts/bus/answerer.ts', 'scripts/tests/bus/answerer.test.ts', 'scripts/tests/bus/queue.test.ts'], false)
+    const reading = riskReading(['scripts/core/queue.ts', 'scripts/nodes/answer/answerer.ts', 'scripts/tests/bus/answerer.test.ts', 'scripts/tests/bus/queue.test.ts'], false)
     expect(reading.slices.map(slice => [slice.level, slice.touches])).toEqual([
-      ['R1', ['scripts/bus/queue.ts', 'scripts/tests/bus/queue.test.ts']],
-      ['R4', ['scripts/bus/answerer.ts', 'scripts/tests/bus/answerer.test.ts']],
+      ['R1', ['scripts/core/queue.ts', 'scripts/tests/bus/queue.test.ts']],
+      ['R4', ['scripts/nodes/answer/answerer.ts', 'scripts/tests/bus/answerer.test.ts']],
     ])
   })
 

@@ -1,5 +1,5 @@
 import type { SpawnSyncReturns } from 'node:child_process'
-import type { LaunchctlRun } from '../scripts/bus/start.js'
+import type { LaunchctlRun } from '../scripts/supervisor/start.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,9 +8,9 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/bus/bg.js'
-import { AGENT_LOG, agentLabel, installKeepAlive, KEEP_ALIVE_PLATFORM, LAUNCH_AGENTS, OWNER_AGENT, runStart, USAGE } from '../scripts/bus/start.js'
-import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/bus/supervisor.js'
+import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/supervisor/bg.js'
+import { AGENT_LOG, agentLabel, installKeepAlive, KEEP_ALIVE_PLATFORM, LAUNCH_AGENTS, OWNER_AGENT, runStart, USAGE } from '../scripts/supervisor/start.js'
+import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { BUS_DB_VARIABLE, busDirOf } from '../scripts/core/bus-path.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
@@ -18,7 +18,7 @@ import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const PACKAGE_NAME = 'mikoshi-construct'
 const START_BIN = 'construct-factory'
-const START_ENTRY = 'scripts/bus/start.ts'
+const START_ENTRY = 'scripts/supervisor/start.ts'
 const PACKED_BESIDE_THE_BUILD = ['package.json', 'README.md', 'LICENSE', 'templates']
 const PACK_TIMEOUT_MS = 300_000
 const LAUNCHED_WITHIN_MS = 10_000
@@ -144,7 +144,7 @@ describe('a factory process is launched as the package it runs from', () => {
 
   it('knows a running instance by its built file as well as by its source file', () => {
     expect(carriesMarker(`node /x/${OUT_DIR}/scripts/bus/supervisor.js ${SUPERVISE_FLAG}`, SUPERVISOR_LAUNCH.markers)).toBe(true)
-    expect(carriesMarker(`node --import tsx scripts/bus/supervisor.ts ${SUPERVISE_FLAG}`, SUPERVISOR_LAUNCH.markers)).toBe(true)
+    expect(carriesMarker(`node --import tsx scripts/supervisor/supervisor.ts ${SUPERVISE_FLAG}`, SUPERVISOR_LAUNCH.markers)).toBe(true)
     expect(carriesMarker(`node /x/${OUT_DIR}/scripts/bus/supervisor.js`, SUPERVISOR_LAUNCH.markers)).toBe(false)
     expect(carriesMarker(`node /x/${OUT_DIR}/scripts/bus/run.js`, BUS_RUN_LAUNCH.markers)).toBe(true)
   })

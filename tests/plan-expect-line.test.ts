@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { canonicalImplementText } from '../scripts/ghosts/approval.js'
-import { parseExpect } from '../scripts/ghosts/expect.js'
+import { canonicalImplementText } from '../scripts/ladder/approval.js'
+import { parseExpect } from '../scripts/ladder/expect.js'
 import { runCli } from './cli-process.js'
 
 const ROOT = path.resolve(import.meta.dirname, '..')

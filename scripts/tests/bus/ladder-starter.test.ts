@@ -1,11 +1,11 @@
-import type { LadderStep, LadderSteps } from '../../bus/ladder-starter.js'
-import type { DetachedSpawn, StarterPorts } from '../../bus/launch-starter.js'
+import type { LadderStep, LadderSteps } from '../../ladder/ladder-starter.js'
+import type { DetachedSpawn, StarterPorts } from '../../nodes/launch/launch-starter.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { LadderCardStarter } from '../../bus/ladder-starter.js'
+import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 
 const CARD = 9401
 const roots: string[] = []
@@ -87,7 +87,7 @@ describe('the ladder starter chains', () => {
     expect(run.cwd).toBe('/trees/cut')
     expect(run.args.slice(2)).toEqual(['shift', '-p', '--session-id', 'sess-1'])
     const script = run.args[1]!
-    expect(script).toBe(`env claude --permission-mode dontAsk "$@" && pnpm --dir '/repo' --silent exec tsx 'scripts/shift/brief-finish-cli.ts' '${CARD}' '/trees/cut' '/handoff/brief.md' && pnpm --dir '/repo' --silent 'ghosts:hash' '/handoff/brief.md' '--by' 'morse' '--card' '${CARD}' && printf 'yes\\n' | pnpm --dir '/repo' --silent 'ghosts:launch' '--tasks' '/handoff/tasks.json'`)
+    expect(script).toBe(`env claude --permission-mode dontAsk "$@" && pnpm --dir '/repo' --silent exec tsx 'scripts/ladder/brief-finish-cli.ts' '${CARD}' '/trees/cut' '/handoff/brief.md' && pnpm --dir '/repo' --silent 'ghosts:hash' '/handoff/brief.md' '--by' 'morse' '--card' '${CARD}' && printf 'yes\\n' | pnpm --dir '/repo' --silent 'ghosts:launch' '--tasks' '/handoff/tasks.json'`)
     expect(run.input).toContain('body of the brief step')
     expect(start).toMatchObject({ card: { input: { prompt: run.input } } })
   })

@@ -50,7 +50,7 @@ function world(): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-masks-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
-  for (const file of ['scripts/bus/db.ts', 'scripts/bus/queue.ts', 'scripts/tests/bus/queue.test.ts', 'scripts/core/eddies.ts']) {
+  for (const file of ['scripts/core/db.ts', 'scripts/core/queue.ts', 'scripts/tests/bus/queue.test.ts', 'scripts/core/eddies.ts']) {
     mkdirSync(path.dirname(path.join(repo, file)), { recursive: true })
     writeFileSync(path.join(repo, file), '')
   }
@@ -87,17 +87,17 @@ describe('intake refuses a ** mask over shared factory code', () => {
     expect(exit).toBe(INTAKE_EXIT.refused)
     expect(lines.join('')).toContain(PLAIN_LORE.intakeRefusedSharedCodeMask)
     expect(lines.join('')).toContain('\'scripts/bus/**\'')
-    expect(lines.join('')).toContain('scripts/bus/db.ts, scripts/bus/queue.ts')
+    expect(lines.join('')).toContain('scripts/core/db.ts, scripts/core/queue.ts')
   })
 
   it('the same card with concrete files under scripts/bus is admitted', () => {
     const w = world()
-    expect(admit(w, park(w, 'scripts/bus/db.ts, scripts/bus/queue.ts')).status).toBe('admitted')
+    expect(admit(w, park(w, 'scripts/core/db.ts, scripts/core/queue.ts')).status).toBe('admitted')
   })
 
   it('a mask over scripts/tests is admitted', () => {
     const w = world()
-    expect(admit(w, park(w, 'scripts/bus/queue.ts, scripts/tests/**, .changeset/**')).status).toBe('admitted')
+    expect(admit(w, park(w, 'scripts/core/queue.ts, scripts/tests/**, .changeset/**')).status).toBe('admitted')
   })
 
   it('a mask over a new directory named in creates is admitted', () => {
@@ -121,7 +121,7 @@ describe('intake refuses a ** mask over shared factory code', () => {
 
   it('proposes only the files the contour map lists under the masked directory', () => {
     expect(contourMapFiles(CONTOUR_MAP, 'scripts/core')).toEqual(['scripts/core/eddies.ts'])
-    expect(contourMapFiles(CONTOUR_MAP, 'scripts')).toEqual(['scripts/bus/db.ts', 'scripts/bus/queue.ts', 'scripts/core/eddies.ts'])
+    expect(contourMapFiles(CONTOUR_MAP, 'scripts')).toEqual(['scripts/core/db.ts', 'scripts/core/queue.ts', 'scripts/core/eddies.ts'])
   })
 
   it('every shared directory is one this repository has', () => {

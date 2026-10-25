@@ -1,7 +1,7 @@
 id: bus
 title: bus tick composition
 description: >-
-  `composeBusTick` in `scripts/bus/run.ts` is the composition root of the bus loop `pnpm bus:run` keeps
+  `composeBusTick` in `scripts/supervisor/run.ts` is the composition root of the bus loop `pnpm bus:run` keeps
   alive. Each tick NetWatch polls GitHub and writes what it observed; a poll that was skipped or refused
   ends the tick there. A ticked poll runs the rest in sequence on the one `bus.db`: the owner decisions
   import, the window requests, the reducer and the queues it derives. Then, unless `pr-status.off` sits
@@ -25,35 +25,35 @@ boundaries:
 nodes:
   - id: root
     label: composeBusTick · the loop pnpm bus:run keeps alive
-    path: scripts/bus/run.ts
+    path: scripts/supervisor/run.ts
     boundary: entry
   - id: netwatch
     label: NetWatch.poll → the observed events · a skipped poll ends the tick
-    path: scripts/bus/netwatch.ts
+    path: scripts/ports/netwatch.ts
     boundary: observe
   - id: decisions
     label: decisionsIntake · the owner decisions import
-    path: scripts/bus/decisions-import.ts
+    path: scripts/policy/decisions-import.ts
     boundary: fold
   - id: requests
     label: WindowRequests.run · the window requests
-    path: scripts/bus/window-requests.ts
+    path: scripts/window/window-requests.ts
     boundary: fold
   - id: reduce
     label: reduce → reducer.reduced
-    path: scripts/bus/reducer.ts
+    path: scripts/core/reducer.ts
     boundary: fold
   - id: queues
     label: deriveQueues · superseded and queued tasks
-    path: scripts/bus/queue.ts
+    path: scripts/core/queue.ts
     boundary: fold
   - id: statuses
     label: 'setStepStatuses → gh api POST statuses/<head> · mikoshi: <step> · open PR, current head, STATUS_BATCH a tick'
-    path: scripts/bus/pr-status.ts
+    path: scripts/ports/pr-status.ts
     boundary: report
   - id: board
     label: boardProjection · the board file
-    path: scripts/bus/board-page.ts
+    path: scripts/cli/board-page.ts
     boundary: report
 edges:
   - {from: root, to: netwatch, kind: sequence}

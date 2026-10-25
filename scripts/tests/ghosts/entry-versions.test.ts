@@ -1,10 +1,10 @@
-import type { TaskCloseDeps } from '../../ghosts/task-close.js'
+import type { TaskCloseDeps } from '../../nodes/close/task-close.js'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { entryOf } from '../../ghosts/entry.js'
-import { runTaskClose } from '../../ghosts/task-close.js'
+import { entryOf } from '../../core/entry.js'
+import { runTaskClose } from '../../nodes/close/task-close.js'
 import { read } from '../core/gh-fake.js'
 import { journalInBus } from './card-started-bus.js'
 

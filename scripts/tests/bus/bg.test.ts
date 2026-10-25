@@ -1,5 +1,5 @@
-import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../bus/bg.js'
-import type { BusCode } from '../../bus/supervisor.js'
+import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../supervisor/bg.js'
+import type { BusCode } from '../../supervisor/supervisor.js'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,11 +7,11 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { alive, BUS_RUN_LAUNCH, busInEnviron, busInPsEnvironment, instancesOf, launchName, parsePs, PREFIX, processBuses, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../bus/bg.js'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { startReviewWorker } from '../../bus/review-bg.js'
-import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../bus/supervisor.js'
-import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../bus/workers.js'
+import { alive, BUS_RUN_LAUNCH, busInEnviron, busInPsEnvironment, instancesOf, launchName, parsePs, PREFIX, processBuses, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { startReviewWorker } from '../../supervisor/review-bg.js'
+import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
+import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../supervisor/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
 
@@ -168,7 +168,7 @@ describe('pnpm bus:bg', () => {
 
   it('a bus:run started by hand, with no instance file, is left alone and named', async () => {
     const w = world()
-    const byHand: ProcessList = () => [{ pid: 4242, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/bus/run.ts' }]
+    const byHand: ProcessList = () => [{ pid: 4242, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/supervisor/run.ts' }]
     const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, byHand)
     expect(result.exitCode).toBe(0)
     expect(result.stdout.join('\n')).toContain('pid 4242')
@@ -257,7 +257,7 @@ describe('pnpm bus:bg', () => {
 
   it('a running bus is recognised by its script, not by any mention of bus:run', () => {
     expect(runningBus([{ pid: 11, args: 'rg bus:run scripts' }])).toBeUndefined()
-    expect(runningBus([{ pid: 12, args: 'node tsx/dist/cli.mjs scripts/bus/run.ts' }])?.pid).toBe(12)
+    expect(runningBus([{ pid: 12, args: 'node tsx/dist/cli.mjs scripts/supervisor/run.ts' }])?.pid).toBe(12)
     expect(runningBus([{ pid: 13, args: 'node pnpm.cjs --silent bus:run' }])?.pid).toBe(13)
   })
 
@@ -265,7 +265,7 @@ describe('pnpm bus:bg', () => {
     const w = world()
     switchWorker(w.busDir, 'review', true)
     switchWorker(w.busDir, 'merge', true)
-    const mergeByHand: RunningProcess = { pid: 4242, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/bus/merge-worker.ts --on' }
+    const mergeByHand: RunningProcess = { pid: 4242, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/nodes/merge/merge-worker.ts --on' }
     const processes: ProcessList = () => [...w.processes(), mergeByHand]
     const first = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT), w.env, processes)
     started.push(...pidsOf(first))
@@ -380,9 +380,9 @@ describe('pnpm bus:bg', () => {
   })
 
   it('a bus is read from the environment ps -E prints after the args, and from a /proc environ blob', () => {
-    const line = 'node scripts/bus/supervisor.ts --supervise CONSTRUCT_BUS_DB=/args/bus.db HOME=/h CONSTRUCT_BUS_DB=/x/bus.db PATH=/bin'
+    const line = 'node scripts/supervisor/supervisor.ts --supervise CONSTRUCT_BUS_DB=/args/bus.db HOME=/h CONSTRUCT_BUS_DB=/x/bus.db PATH=/bin'
     expect(busInPsEnvironment(line)).toBe('/x/bus.db')
-    expect(busInPsEnvironment('node scripts/bus/supervisor.ts --supervise HOME=/h XCONSTRUCT_BUS_DB=/y/bus.db')).toBeUndefined()
+    expect(busInPsEnvironment('node scripts/supervisor/supervisor.ts --supervise HOME=/h XCONSTRUCT_BUS_DB=/y/bus.db')).toBeUndefined()
     expect(busInEnviron('HOME=/h\0CONSTRUCT_BUS_DB_OLD=/y/bus.db\0CONSTRUCT_BUS_DB=/x/bus.db\0PATH=/bin\0')).toBe('/x/bus.db')
     expect(busInEnviron('HOME=/h\0PATH=/bin\0')).toBeUndefined()
   })
@@ -390,7 +390,7 @@ describe('pnpm bus:bg', () => {
   it('off linux the bus is read from ps -axEo output, and on linux from /proc environ, never the other way', () => {
     const calls: string[][] = []
     const output = [
-      '  101 node scripts/bus/supervisor.ts --supervise HOME=/h CONSTRUCT_BUS_DB=/x/bus.db PATH=/bin',
+      '  101 node scripts/supervisor/supervisor.ts --supervise HOME=/h CONSTRUCT_BUS_DB=/x/bus.db PATH=/bin',
       '  102 node scripts/bus/supervisor.js --supervise CONSTRUCT_BUS_DB=/y/bus.db',
       '  103 sleep 30 HOME=/h',
     ].join('\n')
@@ -453,9 +453,9 @@ interface Repo {
   commit: (file: string) => string
 }
 
-const ENTRIES = ['scripts/bus/supervisor.ts', ...busLaunches(() => []).map(launch => entryOf(launch)!)]
+const ENTRIES = ['scripts/supervisor/supervisor.ts', ...busLaunches(() => []).map(launch => entryOf(launch)!)]
 const SHARED_IMPORTS = `import './db.js'\nimport { LEASE_MS } from './lease.js'\nexport * from './queue.js'\n`
-const SHARED_FILE = 'scripts/bus/db.ts'
+const SHARED_FILE = 'scripts/core/db.ts'
 
 function repo(): Repo {
   const dir = tempRoot('bus-bg-code-')
@@ -472,9 +472,9 @@ function repo(): Repo {
     git('commit', '--quiet', '-m', file)
     return git('rev-parse', 'HEAD')
   }
-  for (const file of [...ENTRIES, 'scripts/bus/db.ts', 'scripts/bus/lease.ts'])
+  for (const file of [...ENTRIES, 'scripts/core/db.ts', 'scripts/core/lease.ts'])
     write(file)
-  commit('scripts/bus/queue.ts')
+  commit('scripts/core/queue.ts')
   return { dir, commit }
 }
 
@@ -569,7 +569,7 @@ describe('bus:bg --supervise', () => {
     switchWorker(busDir, 'merge', true)
     const s = supervised(r, busDir, RUNNING)
     expect(await s.supervisor.step()).toEqual([`${PREFIX}bus:update --on is switched off and was running as pid 103; stopped it`, `${FREED_LINE} bus:update --on`])
-    const next = r.commit('scripts/bus/queue.ts')
+    const next = r.commit('scripts/core/queue.ts')
     s.advance(next)
     const lines = await s.supervisor.step()
     expect(s.stopped).toEqual([103, 101, 102])
@@ -589,7 +589,7 @@ describe('bus:bg --supervise', () => {
     expect((await s.supervisor.step()).join('\n')).toContain('the restart waits')
     expect(await s.supervisor.step()).toEqual([])
     expect(s.starts).toEqual([])
-    const next = r.commit('scripts/bus/lease.ts')
+    const next = r.commit('scripts/core/lease.ts')
     s.advance(next)
     await s.supervisor.step()
     expect(s.stopped).toEqual([101])
@@ -659,7 +659,7 @@ describe('bus:bg --supervise', () => {
     switchWorker(busDir, 'close', true)
     const running = [...RUNNING.slice(0, 1), { pid: 104, args: 'node pnpm.cjs --silent bus:answer --on' }, { pid: 105, args: 'node pnpm.cjs --silent bus:close --on' }]
     const s = supervised(r, busDir, running)
-    const next = r.commit('scripts/bus/answer-worker.ts')
+    const next = r.commit('scripts/nodes/answer/answer-worker.ts')
     s.advance(next)
     const lines = await s.supervisor.step()
     expect(s.stopped).toEqual([104])
@@ -681,10 +681,10 @@ describe('bus:bg --supervise', () => {
     expect(await s.supervisor.step()).toEqual([`${PREFIX}main advanced to ${next} with no change to the code a bus process runs; nothing restarted`])
     expect(s.stopped).toEqual([])
     expect(s.starts).toEqual([])
-    const unreached = r.commit('scripts/bus/board.ts')
+    const unreached = r.commit('scripts/window/board.ts')
     s.advance(unreached)
     expect(await s.supervisor.step()).toEqual([`${PREFIX}main advanced to ${unreached} with no change to the code a bus process runs; nothing restarted`])
-    const later = r.commit('scripts/bus/db.ts')
+    const later = r.commit('scripts/core/db.ts')
     s.advance(later)
     await s.supervisor.step()
     expect(s.stopped).toEqual([101, 102, 103])
@@ -696,7 +696,7 @@ describe('bus:bg --supervise', () => {
     mkdirSync(busDir, { recursive: true })
     writeFileSync(path.join(busDir, WORKERS_FILE), '{"on":["merge",]}')
     const s = supervised(r, busDir, RUNNING.slice(0, 2))
-    const next = r.commit('scripts/bus/queue.ts')
+    const next = r.commit('scripts/core/queue.ts')
     s.advance(next)
     const failed = await s.supervisor.step()
     expect(failed).toHaveLength(1)
@@ -715,7 +715,7 @@ describe('bus:bg --supervise', () => {
     const busDir = path.join(tempRoot('bus-bg-sup-'), 'bus')
     switchWorker(busDir, 'review', true)
     const s = supervised(r, busDir, RUNNING.slice(0, 2), gitCode(r.dir), () => [GITHUB_MISMATCH, OLD_REDUCER_DIFF])
-    const next = r.commit('scripts/bus/queue.ts')
+    const next = r.commit('scripts/core/queue.ts')
     s.advance(next)
     const lines = await s.supervisor.step()
     expect(s.stopped).toEqual([101, 102])
@@ -731,7 +731,7 @@ describe('bus:bg --supervise', () => {
     switchWorker(busDir, 'review', true)
     const lingering: RunningProcess = { pid: 202, args: 'node pnpm.cjs --silent bus:review --on' }
     const s = supervised(r, busDir, RUNNING.slice(0, 2), gitCode(r.dir), NO_PREFLIGHT, launch => launch.script === 'bus:review' ? { stdout: [], stderr: [`${PREFIX}bus:review is already running as pid 202`], exitCode: 1, alreadyRunning: lingering } : null)
-    const next = r.commit('scripts/bus/queue.ts')
+    const next = r.commit('scripts/core/queue.ts')
     s.advance(next)
     const lines = await s.supervisor.step()
     expect(lines[0]).toBe(`${PREFIX}main advanced to ${next} with a change to the code every bus process runs; restarting every running bus process on ${next}`)
@@ -752,7 +752,7 @@ describe('bus:bg --supervise', () => {
       },
     }
     const s = supervised(r, busDir, RUNNING.slice(0, 1), flaky)
-    const next = r.commit('scripts/bus/lease.ts')
+    const next = r.commit('scripts/core/lease.ts')
     s.advance(next)
     expect(await s.supervisor.step()).toEqual([`${PREFIX}supervisor step failed: git diff exited 128; main.advanced to ${next} stays pending and is retried on the next tick`])
     expect(s.stopped).toEqual([])

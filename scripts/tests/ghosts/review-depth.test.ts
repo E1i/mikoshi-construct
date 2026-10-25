@@ -1,12 +1,12 @@
 import type { Card } from '../../../src/card/grammar.js'
-import type { DepthSources } from '../../bus/review-depth.js'
+import type { DepthSources } from '../../nodes/review/review-depth.js'
 import { describe, expect, it } from 'vitest'
 import { parseCard } from '../../../src/card/grammar.js'
 import { RISK_LEVELS } from '../../../src/card/risk.js'
-import { REVIEW_DEPTHS as BUS_REVIEW_DEPTHS, FULL_DEPTH_RULE, planReview } from '../../bus/review-depth.js'
-import { REVIEW_DEPTHS, reviewDepth, reviewOf } from '../../ghosts/verdict.js'
-import { classify } from '../../morse/rules.js'
-import { isLadder, reviewBody } from '../../shift/ladder.js'
+import { REVIEW_DEPTHS as BUS_REVIEW_DEPTHS, FULL_DEPTH_RULE, planReview } from '../../nodes/review/review-depth.js'
+import { REVIEW_DEPTHS, reviewDepth, reviewOf } from '../../ladder/verdict.js'
+import { classify } from '../../policy/morse/rules.js'
+import { isLadder, reviewBody } from '../../ladder/ladder.js'
 
 function cardOf(line: string): Card {
   const parsed = parseCard(line)
@@ -71,7 +71,7 @@ describe('bus review depth follows the MORSE instructions rule', () => {
   it.each([
     { paths: ['docs/cli.md'], rule: 'docs-only' },
     { paths: ['src/atlas/index.ts'], rule: 'src' },
-    { paths: ['scripts/bus/queue.ts'], rule: 'doubt' },
+    { paths: ['scripts/core/queue.ts'], rule: 'doubt' },
   ])('a bus review with no MORSE instructions rule runs at diff depth ($rule)', ({ paths, rule }) => {
     const plan = planReview(lease, null, sourcesOf(paths, paths))
     expect(plan).toEqual({ depth: 'diff', round: 'first', why: expect.stringContaining(`by rule ${rule}`), since: BASE, touchFindings: [] })

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { isSessionAlive, listProcesses, processField } from '../../ghosts/watch-process.js'
+import { isSessionAlive, listProcesses, processField } from '../../ladder/watch-process.js'
 
 const originalPath = process.env.PATH
 

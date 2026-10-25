@@ -2,9 +2,9 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { builtEntryOf } from '../../bus/bg.js'
-import { SUPERVISOR_LAUNCH } from '../../bus/supervisor.js'
-import { busLaunches } from '../../bus/workers.js'
+import { builtEntryOf } from '../../supervisor/bg.js'
+import { SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
+import { busLaunches } from '../../supervisor/workers.js'
 import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_PATH_EXCLUSIONS, FACTORY_PATH_ROOTS, FACTORY_ROOT, FACTORY_RUNTIME, FACTORY_WORKERS, inScopes, scopeOf } from '../../core/factory-paths.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
@@ -13,7 +13,7 @@ const FACTORY_SOURCE_ROOTS = [FACTORY_ROOT, 'src']
 const FACTORY_SOURCE_FILES = ['tsup.config.ts']
 const NOT_YET_MIGRATED = [
   'src/commands/intake/admit.ts',
-  'scripts/shift/overlap.ts',
+  'scripts/nodes/launch/overlap.ts',
 ]
 const HOOK_SCRIPT = /\.claude\/hooks\/[\w-]+\.mjs/g
 const FACTORY_SCRIPT = /^node --import tsx (\S+\.ts)(?:\s|$)/
@@ -84,7 +84,7 @@ describe('the factory path registry', () => {
     const named = registryPaths().filter(file => file !== FACTORY_ROOT)
     const sources = tracked().filter(file => file.endsWith('.ts') && file !== REGISTRY && !NOT_YET_MIGRATED.includes(file) && !excluded(file)
       && (FACTORY_SOURCE_FILES.includes(file) || FACTORY_SOURCE_ROOTS.some(root => file.startsWith(`${root}/`))))
-    expect(sources).toContain('scripts/bus/bg.ts')
+    expect(sources).toContain('scripts/supervisor/bg.ts')
     expect(NOT_YET_MIGRATED.every(file => existsSync(path.join(REPO_ROOT, file)))).toBe(true)
     const patterns = named.flatMap(file => [file, file.replace(/\.\w+$/, '')].map(form => literalPattern(form)).concat(segmentPattern(file)))
     expect(sources.flatMap((source) => {

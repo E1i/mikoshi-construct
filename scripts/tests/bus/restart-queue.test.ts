@@ -1,24 +1,24 @@
-import type { ProcessTable } from '../../bus/chain-process.js'
-import type { ChainObservation } from '../../bus/chain.js'
-import type { Lease } from '../../bus/lease.js'
-import type { RoleStop } from '../../bus/role.js'
+import type { ProcessTable } from '../../nodes/restart/chain-process.js'
+import type { ChainObservation } from '../../core/chain.js'
+import type { Lease } from '../../core/lease.js'
+import type { RoleStop } from '../../nodes/restart/role.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { observeChain } from '../../bus/chain.js'
-import { appendEvent } from '../../bus/db.js'
-import { taskKey } from '../../bus/identifiers.js'
-import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { projectionDump, reduce } from '../../bus/reducer.js'
-import { RestartExecutor } from '../../bus/restart-executor.js'
-import { launchSwitchedOn, restartStepLine, RestartWorker, runRestartWorker } from '../../bus/restart-worker.js'
-import { observeRoleStop } from '../../bus/role.js'
-import { requestFromWindow } from '../../bus/window-requests.js'
-import { switchWorker } from '../../bus/workers.js'
+import { observeChain } from '../../core/chain.js'
+import { appendEvent } from '../../core/db.js'
+import { taskKey } from '../../core/identifiers.js'
+import { expireLeases, LEASE_MS, leaseNext } from '../../core/lease.js'
+import { projectionDump, reduce } from '../../core/reducer.js'
+import { RestartExecutor } from '../../nodes/restart/restart-executor.js'
+import { launchSwitchedOn, restartStepLine, RestartWorker, runRestartWorker } from '../../nodes/restart/restart-worker.js'
+import { observeRoleStop } from '../../nodes/restart/role.js'
+import { requestFromWindow } from '../../window/window-requests.js'
+import { switchWorker } from '../../supervisor/workers.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
-import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
+import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
 import { MAIN_1, MAIN_2 } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -95,7 +95,7 @@ describe('the restart queue', () => {
   it('a merge outside scripts/shift does not enter restart', () => {
     const bench = restartBench()
     bench.observe()
-    bench.advanceMain(['scripts/bus/queue.ts', 'package.json', '.claude/agents/review.md', 'scripts/shifted.ts'])
+    bench.advanceMain(['scripts/core/queue.ts', 'package.json', '.claude/agents/review.md', 'scripts/shifted.ts'])
     bench.tick()
 
     expect(eventsOf(bench.db, 'main.advanced').at(-1)).toEqual({ sha: MAIN_2, touches_mechanics: false })

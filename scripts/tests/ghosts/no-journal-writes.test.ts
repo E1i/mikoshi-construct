@@ -1,22 +1,22 @@
-import type { TaskCloseDeps } from '../../ghosts/task-close.js'
+import type { TaskCloseDeps } from '../../nodes/close/task-close.js'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
-import { rememberedPreflight } from '../../ghosts/hash.js'
-import { recordFall } from '../../ghosts/supervise.js'
-import { runTaskClose } from '../../ghosts/task-close.js'
-import { recordDisposition } from '../../ghosts/verdict.js'
+import { BUS_DB_VARIABLE, openBus } from '../../core/db.js'
+import { rememberedPreflight } from '../../ladder/hash.js'
+import { recordFall } from '../../ladder/supervise.js'
+import { runTaskClose } from '../../nodes/close/task-close.js'
+import { recordDisposition } from '../../ladder/verdict.js'
 import { read } from '../core/gh-fake.js'
 import { journalInBus } from './card-started-bus.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const NOW = new Date('2026-10-21T09:00:00.000Z')
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
+const LAUNCH = path.join(REPO_ROOT, 'scripts/ladder/launch.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 
 const busOf = ownBusPerTest()

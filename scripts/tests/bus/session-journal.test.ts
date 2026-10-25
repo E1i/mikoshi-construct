@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { journalDoubt, parseSessionJournal, transcriptFile } from '../../bus/session-journal.js'
+import { journalDoubt, parseSessionJournal, transcriptFile } from '../../nodes/launch/session-journal.js'
 
 const TREE = '/trees/mc-7'
 const T0 = Date.parse('2026-10-22T10:00:00.000Z')

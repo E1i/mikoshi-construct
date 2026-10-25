@@ -5,43 +5,43 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { boardProjection } from '../scripts/bus/board-page.js'
-import { BOARD_FILE } from '../scripts/bus/board.js'
-import { appendEvent, openBus } from '../scripts/bus/db.js'
-import { keepDryRun } from '../scripts/bus/dry-run-record.js'
-import { reviewsDir } from '../scripts/bus/review-worker.js'
-import { gitCode, recordStarted, switchCommand } from '../scripts/bus/supervisor.js'
-import { realRequestTools } from '../scripts/bus/window-request-tools.js'
-import { switchedOn } from '../scripts/bus/workers.js'
+import { boardProjection } from '../scripts/cli/board-page.js'
+import { BOARD_FILE } from '../scripts/window/board.js'
+import { appendEvent, openBus } from '../scripts/core/db.js'
+import { keepDryRun } from '../scripts/nodes/review/dry-run-record.js'
+import { reviewsDir } from '../scripts/nodes/review/review-worker.js'
+import { gitCode, recordStarted, switchCommand } from '../scripts/supervisor/supervisor.js'
+import { realRequestTools } from '../scripts/window/window-request-tools.js'
+import { switchedOn } from '../scripts/supervisor/workers.js'
 import { BUS_DB_VARIABLE, busDirOf, busPathOf, machineBusPath, pinBus, repoIdOf, repoSlugOf, repoSlugOfUrl } from '../scripts/core/bus-path.js'
 import { CARD_ADMITTED } from '../scripts/core/events.js'
-import { ghInRepositoryOf, noGitRemoteReason } from '../scripts/shift/places.js'
+import { ghInRepositoryOf, noGitRemoteReason } from '../scripts/core/places.js'
 import { busReaderAt } from '../src/commands/board/bus.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const PLIST = path.join(ROOT, 'scripts/bus/launchd/dev.mikoshi.bus.plist')
+const PLIST = path.join(ROOT, 'scripts/supervisor/launchd/dev.mikoshi.bus.plist')
 const FACTORY_FILES = [
   'scripts/core/bus-path.ts',
-  'scripts/shift/places.ts',
-  'scripts/bus/launchd/dev.mikoshi.bus.plist',
-  'scripts/bus/board-page.ts',
-  'scripts/bus/run.ts',
-  'scripts/bus/supervisor.ts',
-  'scripts/bus/answer-worker.ts',
-  'scripts/bus/close-worker.ts',
-  'scripts/bus/restart-worker.ts',
-  'scripts/bus/review-bg.ts',
-  'scripts/bus/review-worker.ts',
-  'scripts/bus/launch-worker.ts',
-  'scripts/bus/window-request-tools.ts',
-  'scripts/ghosts/task-close.ts',
+  'scripts/core/places.ts',
+  'scripts/supervisor/launchd/dev.mikoshi.bus.plist',
+  'scripts/cli/board-page.ts',
+  'scripts/supervisor/run.ts',
+  'scripts/supervisor/supervisor.ts',
+  'scripts/nodes/answer/answer-worker.ts',
+  'scripts/nodes/close/close-worker.ts',
+  'scripts/nodes/restart/restart-worker.ts',
+  'scripts/supervisor/review-bg.ts',
+  'scripts/nodes/review/review-worker.ts',
+  'scripts/nodes/launch/launch-worker.ts',
+  'scripts/window/window-request-tools.ts',
+  'scripts/nodes/close/task-close.ts',
   'src/commands/board/bus.ts',
   'src/commands/board/index.ts',
   'src/program.ts',
 ]
 const OWNER_NAMES = [/E1i/, /projects\/mikoshi-construct/, /'projects', 'mikoshi-construct'/]
 const MACHINE_BUS_PLACES = [/'\.construct', 'bus'/, /\.construct\/bus/, /'bus\.db'/, /'dry-run-reviews'/]
-const SUPERVISOR_ENTRY = path.join(ROOT, 'scripts/bus/supervisor.ts')
+const SUPERVISOR_ENTRY = path.join(ROOT, 'scripts/supervisor/supervisor.ts')
 const TSX_LOADER = pathToFileURL(path.join(ROOT, 'node_modules/tsx/dist/esm/index.mjs')).href
 const SYSTEM_PATH = [path.dirname(process.execPath), '/usr/bin', '/bin'].join(path.delimiter)
 const FAKE_TOKEN = ['fake', 'gh', 'token', 'factoryOffOwnerMachine'].join('-')

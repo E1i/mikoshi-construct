@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { knownLivenessSites, LIVENESS_JUDGE, livenessSites, livenessSources, sortedLivenessSites, staleLivenessSites, unrecordedLivenessSites } from '../../bus/liveness-sites.js'
+import { knownLivenessSites, LIVENESS_JUDGE, livenessSites, livenessSources, sortedLivenessSites, staleLivenessSites, unrecordedLivenessSites } from '../../supervisor/liveness-sites.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
@@ -22,11 +22,11 @@ describe('only the supervisor judges liveness, and every other ps, pid file and 
   })
 
   it('a new ps, pid file or kill outside the supervisor fails, and the supervisor itself is no site', () => {
-    const sneaked = livenessSites(withExtra('scripts/bus/merge-worker.ts', `const own = execFileSync('ps', ['-p', '1'])\nconst file = 'merge.pid'\nprocess.kill(1, 0)`))
+    const sneaked = livenessSites(withExtra('scripts/nodes/merge/merge-worker.ts', `const own = execFileSync('ps', ['-p', '1'])\nconst file = 'merge.pid'\nprocess.kill(1, 0)`))
     expect(unrecordedLivenessSites(sneaked, known)).toEqual([
-      { file: 'scripts/bus/merge-worker.ts', kind: 'kill' },
-      { file: 'scripts/bus/merge-worker.ts', kind: 'pid-file' },
-      { file: 'scripts/bus/merge-worker.ts', kind: 'ps' },
+      { file: 'scripts/nodes/merge/merge-worker.ts', kind: 'kill' },
+      { file: 'scripts/nodes/merge/merge-worker.ts', kind: 'pid-file' },
+      { file: 'scripts/nodes/merge/merge-worker.ts', kind: 'ps' },
     ])
     expect(unrecordedLivenessSites(livenessSites(withExtra(LIVENESS_JUDGE, `process.kill(1, 0)`)), known)).toEqual([])
   })
@@ -51,7 +51,7 @@ describe('only the supervisor judges liveness, and every other ps, pid file and 
   })
 
   it('a recorded site that is gone fails, so the list only shrinks', () => {
-    const gone = { file: 'scripts/bus/netwatch.ts', kind: 'ps' } as const
+    const gone = { file: 'scripts/ports/netwatch.ts', kind: 'ps' } as const
     expect(staleLivenessSites(found, [...known, gone])).toEqual([gone])
   })
 })

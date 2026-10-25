@@ -1,8 +1,8 @@
-import type { GhPortOptions, GhSpawned } from '../../core/gh.js'
+import type { GhPortOptions, GhSpawned } from '../../ports/gh.js'
 import { readdirSync } from 'node:fs'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { execGh, GH_TIMEOUT_SECONDS, GhBudgetWindow, GhFailed, ghPort, ghRunner, GhTimedOut, readGhJson, stdoutOrThrow } from '../../core/gh.js'
+import { execGh, GH_TIMEOUT_SECONDS, GhBudgetWindow, GhFailed, ghPort, ghRunner, GhTimedOut, readGhJson, stdoutOrThrow } from '../../ports/gh.js'
 
 const ok = (stdout: string): GhSpawned => ({ status: 0, stdout, stderr: '' })
 const http = (code: number): GhSpawned => ({ status: 1, stdout: '', stderr: `gh: Server said no (HTTP ${code})` })

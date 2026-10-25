@@ -1,13 +1,13 @@
 import type { FakeRun } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
 import { describe, expect, it } from 'vitest'
-import { recordDecision } from '../../bus/decisions.js'
-import { taskKey } from '../../bus/identifiers.js'
-import { importJournal } from '../../bus/import.js'
-import { ownerInbox } from '../../bus/inbox.js'
-import { assertHeld, completeTask, expireLeases, failTask, LEASE_MS, leaseNext, leaseQueued, StaleLease } from '../../bus/lease.js'
-import { FAILURES_TO_STOP, queueTask } from '../../bus/queue.js'
-import { projectionDump, reduce } from '../../bus/reducer.js'
+import { recordDecision } from '../../policy/decisions.js'
+import { taskKey } from '../../core/identifiers.js'
+import { importJournal } from '../../intake/import.js'
+import { ownerInbox } from '../../core/inbox.js'
+import { assertHeld, completeTask, expireLeases, failTask, LEASE_MS, leaseNext, leaseQueued, StaleLease } from '../../core/lease.js'
+import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
+import { projectionDump, reduce } from '../../core/reducer.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -391,7 +391,7 @@ describe('the merge executor', () => {
   })
 
   it('an owner-path PR with an owner decision gets merge.done', () => {
-    for (const pull of [{ number: 991, files: ['scripts/ghosts/approve.ts'] }, { number: 992, body: cardBody(992, 'owner') }]) {
+    for (const pull of [{ number: 991, files: ['scripts/ladder/approve.ts'] }, { number: 992, body: cardBody(992, 'owner') }]) {
       const bench = liveBench()
       bench.gitHub.open({ review: 'failure', ...pull })
       spendReviewRounds(bench, pull.number, sha('a'))
@@ -464,7 +464,7 @@ describe('the merge executor', () => {
     blocked.close()
 
     const ownerPath = liveBench()
-    ownerPath.gitHub.open({ number: 995, review: 'success', files: ['scripts/ghosts/approve.ts'] })
+    ownerPath.gitHub.open({ number: 995, review: 'success', files: ['scripts/ladder/approve.ts'] })
     ownerPath.tick()
 
     expect(ownerPath.merge(ownerPath.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'owner_by_risk' } })

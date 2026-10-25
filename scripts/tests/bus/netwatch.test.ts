@@ -2,14 +2,14 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { RUN_SCRIPT } from '../../bus/bg.js'
-import { openBus } from '../../bus/db.js'
-import { parseIncluded } from '../../bus/github.js'
-import { lastProcessBeats } from '../../bus/heartbeat.js'
-import { prBodySha } from '../../bus/identifiers.js'
-import { NetWatch, NETWATCH_SCRIPT, TICK_MS, WAKE_GAP_MS } from '../../bus/netwatch.js'
-import { reduce } from '../../bus/reducer.js'
-import { touchesMechanics } from '../../bus/snapshot.js'
+import { RUN_SCRIPT } from '../../supervisor/bg.js'
+import { openBus } from '../../core/db.js'
+import { parseIncluded } from '../../ports/github.js'
+import { lastProcessBeats } from '../../supervisor/heartbeat.js'
+import { prBodySha } from '../../core/identifiers.js'
+import { NetWatch, NETWATCH_SCRIPT, TICK_MS, WAKE_GAP_MS } from '../../ports/netwatch.js'
+import { reduce } from '../../core/reducer.js'
+import { touchesMechanics } from '../../ports/snapshot.js'
 import { PROCESS_HEARTBEAT } from '../../core/events.js'
 import { cardBody, Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, MERGER, REPO, sha } from './github-fake.js'
 
@@ -258,7 +258,7 @@ describe('netwatch', () => {
     expect(touchesMechanics(['scripts/shift/shift.ts'])).toBe(true)
     expect(touchesMechanics(['README.md', 'scripts/shift/bg.ts'])).toBe(true)
     expect(touchesMechanics(['.claude/agents/review.md'])).toBe(false)
-    expect(touchesMechanics(['package.json', 'scripts/bus/queue.ts', 'scripts/shifted.ts'])).toBe(false)
+    expect(touchesMechanics(['package.json', 'scripts/core/queue.ts', 'scripts/shifted.ts'])).toBe(false)
     expect(touchesMechanics(['src/program.ts', 'docs/package.json'])).toBe(false)
   })
 

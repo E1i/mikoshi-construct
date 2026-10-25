@@ -1,6 +1,6 @@
 import type { ParkedTask } from '../../src/card/parking.js'
 import { describe, expect, it } from 'vitest'
-import { declaredGhostsFile } from '../../scripts/shredder/reader.js'
+import { declaredGhostsFile } from '../../scripts/policy/shredder/reader.js'
 import { parkingFileText, parseCreatesEntry, parseParkingFile } from '../../src/card/parking.js'
 import { checkDraft } from '../../src/commands/intake/check.js'
 import { parseDraft } from '../../src/commands/intake/draft.js'

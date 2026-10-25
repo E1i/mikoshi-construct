@@ -8,10 +8,10 @@ import { countsTowardSteps } from '../../../src/commands/cost/expect.js'
 import { readStepCache } from '../../../src/commands/cost/index.js'
 import { parseLedgerLine } from '../../../src/commands/cost/ledger.js'
 import { runCli } from '../../../tests/cli-process.js'
-import * as expectSample from '../../ghosts/expect-sample.js'
+import * as expectSample from '../../ladder/expect-sample.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const EXPECT_SAMPLE = path.join(REPO_ROOT, 'scripts/ghosts/expect-sample.ts')
+const EXPECT_SAMPLE = path.join(REPO_ROOT, 'scripts/ladder/expect-sample.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const SOURCE = '.construct/runs.jsonl'
 

@@ -1,11 +1,11 @@
-import type { Attempt } from '../../ghosts/handoff.js'
+import type { Attempt } from '../../ladder/handoff.js'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { closedTasks, mergedTasks } from '../../../src/card/closed.js'
 import { readCheapTasks } from '../../../src/commands/cost/cheap.js'
-import { readHandoff } from '../../ghosts/handoff.js'
+import { readHandoff } from '../../ladder/handoff.js'
 
 const CARD = { id: 7, name: 'n', kind: 'implement', milestone: 'ghosts', size: 'S', contour: 'cheap', decision: 'owner', depends: [], blocks: [], line: 'l' }
 const START = { event: 'path', task: '7', path: 'cheap', started: '2026-10-04T08:00:00.000Z', worktree: '/w', branch: 'b', card: CARD, ts: '2026-10-04T08:00:00.000Z' }

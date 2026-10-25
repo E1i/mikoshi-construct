@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ENTRY_RESULT, entryLine, entryOf } from '../../ghosts/entry.js'
+import { ENTRY_RESULT, entryLine, entryOf } from '../../core/entry.js'
 
 const SIGNAL = { CONTRACT: 'c', EXPECT: 'e', ACTION: 'a', RESULT: ENTRY_RESULT }
 

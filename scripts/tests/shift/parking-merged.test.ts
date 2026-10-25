@@ -2,7 +2,7 @@ import type { ParkedTask } from '../../../src/card/parking.js'
 import { describe, expect, it } from 'vitest'
 import { mergedTasks } from '../../../src/card/closed.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { choose } from '../../shift/parking.js'
+import { choose } from '../../intake/parking.js'
 
 function parked(id: number, depends: string): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [implement/ghosts/S/cheap/owner] · depends ${depends} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: shift\n\ndo ${id}\n`)

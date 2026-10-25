@@ -4,13 +4,13 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runMove } from '../../../src/commands/intake/move.js'
-import { realAnswererTools } from '../../bus/answerer.js'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { gitDepthSources } from '../../bus/depth-sources.js'
-import { busIntakePorts } from '../../bus/intake.js'
-import { busCardBodies, busParkedDepends } from '../../bus/parking-reads.js'
-import { launchTasks, queueTask } from '../../bus/queue.js'
-import { reduce } from '../../bus/reducer.js'
+import { realAnswererTools } from '../../nodes/answer/answerer.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { gitDepthSources } from '../../nodes/review/depth-sources.js'
+import { busIntakePorts } from '../../intake/intake.js'
+import { busCardBodies, busParkedDepends } from '../../intake/parking-reads.js'
+import { launchTasks, queueTask } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -22,11 +22,11 @@ const INTAKE_SIDE = new Set([
   'src/commands/intake/index.ts',
   'src/commands/intake/admit.ts',
   'src/commands/intake/move.ts',
-  'scripts/bus/intake.ts',
-  'scripts/bus/admissions.ts',
-  'scripts/bus/card-archive.ts',
-  'scripts/bus/close-worker.ts',
-  'scripts/bus/import.ts',
+  'scripts/intake/intake.ts',
+  'scripts/intake/admissions.ts',
+  'scripts/intake/card-archive.ts',
+  'scripts/nodes/close/close-worker.ts',
+  'scripts/intake/import.ts',
 ])
 
 const PARKING_DIRECTORY_READS = [

@@ -1,7 +1,7 @@
 import type { ParkedTask } from '../../../src/card/parking.js'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { choose, failedCards, latestStops, standingStops } from '../../shift/parking.js'
+import { choose, failedCards, latestStops, standingStops } from '../../intake/parking.js'
 
 function parked(id: number, kind = 'implement/runner/S/cheap/auto', who = 'shift', depends = '—'): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [${kind}] · depends ${depends} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: ${who}\n\ndo ${id}\n`)

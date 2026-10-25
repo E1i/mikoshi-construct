@@ -1,11 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { LockReading } from '../../bus/db.js'
+import type { LockReading } from '../../core/db.js'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { inTransaction, lockLogger, locksLogOf, openBus, watchLocks } from '../../bus/db.js'
+import { inTransaction, lockLogger, locksLogOf, openBus, watchLocks } from '../../core/db.js'
 
 const roots: string[] = []
 
