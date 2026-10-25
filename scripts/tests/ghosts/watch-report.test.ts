@@ -2,7 +2,7 @@ import { mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { lastToolName, reportAgeField, reportAgeSeconds } from '../../ghosts/watch-report.js'
+import { lastToolName, reportAgeField, reportAgeSeconds } from '../../ladder/watch-report.js'
 
 function reportPath(): { dir: string, report: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-watch-report-'))

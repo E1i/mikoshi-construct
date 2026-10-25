@@ -1,5 +1,5 @@
 import type { SpawnSyncReturns } from 'node:child_process'
-import type { LaunchctlRun } from '../scripts/bus/start.js'
+import type { LaunchctlRun } from '../scripts/supervisor/start.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,17 +8,17 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/bus/bg.js'
-import { AGENT_LOG, agentLabel, installKeepAlive, KEEP_ALIVE_PLATFORM, LAUNCH_AGENTS, OWNER_AGENT, runStart, USAGE } from '../scripts/bus/start.js'
-import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/bus/supervisor.js'
 import { BUS_DB_VARIABLE, busDirOf } from '../scripts/core/bus-path.js'
+import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/supervisor/bg.js'
+import { AGENT_LOG, agentLabel, installKeepAlive, KEEP_ALIVE_PLATFORM, LAUNCH_AGENTS, OWNER_AGENT, runStart, USAGE } from '../scripts/supervisor/start.js'
+import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const PACKAGE_NAME = 'mikoshi-construct'
 const START_BIN = 'construct-factory'
-const START_ENTRY = 'scripts/bus/start.ts'
+const START_ENTRY = 'scripts/supervisor/start.ts'
 const PACKED_BESIDE_THE_BUILD = ['package.json', 'README.md', 'LICENSE', 'templates']
 const PACK_TIMEOUT_MS = 300_000
 const LAUNCHED_WITHIN_MS = 10_000
@@ -131,11 +131,11 @@ describe('the construct-factory spawn boundary', () => {
 
 describe('a factory process is launched as the package it runs from', () => {
   it('runs a worker as pnpm --silent <script> in this checkout and as node on its built file from an installed package', () => {
-    expect(installedPackage(`file://${path.join(REPOSITORY, 'scripts', 'bus', 'bg.ts')}`)).toBeNull()
+    expect(installedPackage(`file://${path.join(REPOSITORY, 'scripts', 'supervisor', 'bg.ts')}`)).toBeNull()
     expect(launchArgv(BUS_RUN_LAUNCH, null)).toEqual(['nohup', 'pnpm', '--silent', BUS_RUN_LAUNCH.script])
-    const installed = installedPackage(`file://${path.join(REPOSITORY, OUT_DIR, 'scripts', 'bus', 'bg.js')}`)
+    const installed = installedPackage(`file://${path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'bg.js')}`)
     expect(installed).toBe(`${REPOSITORY}/`)
-    expect(launchArgv(SUPERVISOR_LAUNCH, installed)).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'bus', 'supervisor.js'), SUPERVISE_FLAG])
+    expect(launchArgv(SUPERVISOR_LAUNCH, installed)).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG])
   })
 
   it('refuses a script the package names no factory entry for, rather than starting something else', () => {
@@ -143,10 +143,10 @@ describe('a factory process is launched as the package it runs from', () => {
   })
 
   it('knows a running instance by its built file as well as by its source file', () => {
-    expect(carriesMarker(`node /x/${OUT_DIR}/scripts/bus/supervisor.js ${SUPERVISE_FLAG}`, SUPERVISOR_LAUNCH.markers)).toBe(true)
-    expect(carriesMarker(`node --import tsx scripts/bus/supervisor.ts ${SUPERVISE_FLAG}`, SUPERVISOR_LAUNCH.markers)).toBe(true)
-    expect(carriesMarker(`node /x/${OUT_DIR}/scripts/bus/supervisor.js`, SUPERVISOR_LAUNCH.markers)).toBe(false)
-    expect(carriesMarker(`node /x/${OUT_DIR}/scripts/bus/run.js`, BUS_RUN_LAUNCH.markers)).toBe(true)
+    expect(carriesMarker(`node /x/${OUT_DIR}/scripts/supervisor/supervisor.js ${SUPERVISE_FLAG}`, SUPERVISOR_LAUNCH.markers)).toBe(true)
+    expect(carriesMarker(`node --import tsx scripts/supervisor/supervisor.ts ${SUPERVISE_FLAG}`, SUPERVISOR_LAUNCH.markers)).toBe(true)
+    expect(carriesMarker(`node /x/${OUT_DIR}/scripts/supervisor/supervisor.js`, SUPERVISOR_LAUNCH.markers)).toBe(false)
+    expect(carriesMarker(`node /x/${OUT_DIR}/scripts/supervisor/run.js`, BUS_RUN_LAUNCH.markers)).toBe(true)
   })
 })
 
@@ -173,7 +173,7 @@ describe('the keep-alive of the start command', () => {
     expect(plistValue(text, 'PATH')).toBe(USER_PATH)
     expect(plistValue(text, BUS_DB_VARIABLE)).toBe(path.join(home, '.construct', 'bus.db'))
     expect(plistValue(text, 'StandardOutPath')).toBe(path.join(home, '.construct', 'bus', AGENT_LOG))
-    expect([...text.matchAll(/<array>([\s\S]*?)<\/array>/g)][0]![1]!.match(/<string>[^<]*<\/string>/g)).toEqual([`<string>${process.execPath}</string>`, `<string>${path.join(REPOSITORY, OUT_DIR, 'scripts', 'bus', 'supervisor.js')}</string>`])
+    expect([...text.matchAll(/<array>([\s\S]*?)<\/array>/g)][0]![1]!.match(/<string>[^<]*<\/string>/g)).toEqual([`<string>${process.execPath}</string>`, `<string>${path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js')}</string>`])
     expect(text).toMatch(/<key>KeepAlive<\/key>\s*<true\/>/)
     expect(text).toMatch(/<key>RunAtLoad<\/key>\s*<true\/>/)
     expect(text).not.toContain(OWNER_AGENT)
@@ -301,7 +301,7 @@ describe('the start command in the published package', () => {
     const launched = launchedLines()
     expect(launched).toHaveLength(2)
     expect(launched.filter(line => line.includes('pnpm'))).toEqual([])
-    const built = (source: string): string => path.join(packed.installed, OUT_DIR, 'scripts', 'bus', source)
+    const built = (source: string): string => path.join(packed.installed, OUT_DIR, 'scripts', 'supervisor', source)
     expect(launched.map(line => line.slice(line.indexOf(' ') + 1)).sort()).toEqual([built('run.js'), `${built('supervisor.js')} ${SUPERVISE_FLAG}`].sort())
     expect(existsSync(path.join(busDirOf(path.join(packed.root, 'bus.db')), SUPERVISOR_LAUNCH.instanceFile!))).toBe(true)
   })
@@ -331,7 +331,7 @@ describe('the start command in the published package', () => {
   it.runIf(process.platform === KEEP_ALIVE_PLATFORM)('the published command loads a keep-alive that reruns the installed starter in the user repository', () => {
     const plist = path.join(home, LAUNCH_AGENTS, `${agentLabel(user)}.plist`)
     const text = readFileSync(plist, 'utf8')
-    expect(text).toContain(`<string>${path.join(packed.installed, OUT_DIR, 'scripts', 'bus', 'supervisor.js')}</string>`)
+    expect(text).toContain(`<string>${path.join(packed.installed, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js')}</string>`)
     expect(plistValue(text, 'WorkingDirectory')).toBe(user)
     expect(plistValue(text, BUS_DB_VARIABLE)).toBe(path.join(packed.root, 'bus.db'))
     expect(readFileSync(path.join(out, 'launchctl.argv'), 'utf8')).toContain(`bootstrap gui/${process.getuid!()} ${plist}`)

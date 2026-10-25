@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { gitDepthSources } from '../../bus/depth-sources.js'
+import { gitDepthSources } from '../../nodes/review/depth-sources.js'
 
 const roots: string[] = []
 
@@ -35,7 +35,7 @@ describe('git depth sources', () => {
     const journal = path.join(root, 'morse.jsonl')
     mkdirSync(repo)
     git(repo, ['init', '--quiet', '-b', 'main'])
-    const main = commit(repo, { 'docs/guide.md': 'one\n', 'scripts/bus/queue.ts': 'export {}\n' })
+    const main = commit(repo, { 'docs/guide.md': 'one\n', 'scripts/core/queue.ts': 'export {}\n' })
     git(repo, ['update-ref', 'refs/remotes/origin/main', main])
     git(repo, ['checkout', '--quiet', '-b', 'feature'])
     const first = commit(repo, { 'docs/guide.md': 'one\ntwo\n' })

@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { ladderSample } from '../../ghosts/expect-sample.js'
+import { ladderSample } from '../../ladder/expect-sample.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const EXPECT_SAMPLE = path.join(REPO_ROOT, 'scripts/ghosts/expect-sample.ts')
+const EXPECT_SAMPLE = path.join(REPO_ROOT, 'scripts/ladder/expect-sample.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const SHA = '0123456789abcdef0123456789abcdef01234567'
 const SIX = [1, 2, 3, 4, 5, 6]

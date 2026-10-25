@@ -1,135 +1,23 @@
 [
   {
     "type": "dependency",
-    "from": "scripts/bus/answer-worker.ts",
-    "to": "scripts/ghosts/handoff-check.ts",
-    "unresolvedTo": "../ghosts/handoff-check.js",
+    "from": "scripts/core/card-bodies.ts",
+    "to": "src/commands/intake/admit.ts",
+    "unresolvedTo": "../../src/commands/intake/admit.js",
     "dependencyTypes": [
       "local",
       "import"
     ],
     "rule": {
       "severity": "error",
-      "name": "bus-imports-no-ladder"
+      "name": "core-imports-no-factory"
     }
   },
   {
     "type": "dependency",
-    "from": "scripts/bus/close-executor.ts",
-    "to": "scripts/ghosts/task-merged.ts",
-    "unresolvedTo": "../ghosts/task-merged.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-imports-no-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/close-worker.ts",
-    "to": "scripts/ghosts/task-close.ts",
-    "unresolvedTo": "../ghosts/task-close.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-imports-no-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/close-worker.ts",
-    "to": "scripts/ghosts/task-merged.ts",
-    "unresolvedTo": "../ghosts/task-merged.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-imports-no-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/import.ts",
-    "to": "scripts/ghosts/handoff-check.ts",
-    "unresolvedTo": "../ghosts/handoff-check.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-imports-no-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/intake.ts",
-    "to": "scripts/ghosts/tasks.ts",
-    "unresolvedTo": "../ghosts/tasks.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-imports-no-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/launch-worker.ts",
-    "to": "scripts/ghosts/handoff-check.ts",
-    "unresolvedTo": "../ghosts/handoff-check.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-imports-no-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/launch-worker.ts",
-    "to": "scripts/ghosts/journal.ts",
-    "unresolvedTo": "../ghosts/journal.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-imports-no-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/launch-worker.ts",
-    "to": "scripts/ghosts/verdict.ts",
-    "unresolvedTo": "../ghosts/verdict.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-imports-no-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/legacy-history.ts",
-    "to": "scripts/ghosts/approval.ts",
-    "unresolvedTo": "../ghosts/approval.js",
+    "from": "scripts/core/card-bodies.ts",
+    "to": "src/commands/intake/index.ts",
+    "unresolvedTo": "../../src/commands/intake/index.js",
     "dependencyTypes": [
       "local",
       "type-only",
@@ -137,119 +25,2813 @@
     ],
     "rule": {
       "severity": "error",
-      "name": "bus-imports-no-ladder"
+      "name": "core-imports-no-factory"
     }
   },
   {
     "type": "dependency",
-    "from": "scripts/bus/review-worker.ts",
-    "to": "scripts/ghosts/handoff-check.ts",
-    "unresolvedTo": "../ghosts/handoff-check.js",
+    "from": "scripts/core/queue.ts",
+    "to": "src/commands/intake/admit.ts",
+    "unresolvedTo": "../../src/commands/intake/admit.js",
     "dependencyTypes": [
       "local",
       "import"
     ],
     "rule": {
       "severity": "error",
-      "name": "bus-imports-no-ladder"
+      "name": "core-imports-no-factory"
     }
   },
   {
     "type": "dependency",
-    "from": "scripts/bus/ladder-starter.ts",
-    "to": "scripts/bus/launch-executor.ts",
-    "unresolvedTo": "./launch-executor.js",
+    "from": "scripts/core/card-bodies.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../src/card/parking.js",
     "dependencyTypes": [
       "local",
       "import"
     ],
     "rule": {
       "severity": "error",
-      "name": "bus-services-import-no-other-service"
+      "name": "core-imports-nothing-to-its-right"
     }
   },
   {
     "type": "dependency",
-    "from": "scripts/bus/ladder-starter.ts",
-    "to": "scripts/bus/launch-starter.ts",
-    "unresolvedTo": "./launch-starter.js",
+    "from": "scripts/core/card-bodies.ts",
+    "to": "src/card/text-sha.ts",
+    "unresolvedTo": "../../src/card/text-sha.js",
     "dependencyTypes": [
       "local",
       "import"
     ],
     "rule": {
       "severity": "error",
-      "name": "bus-services-import-no-other-service"
+      "name": "core-imports-nothing-to-its-right"
     }
   },
   {
     "type": "dependency",
-    "from": "scripts/bus/launch-worker.ts",
-    "to": "scripts/bus/ladder-starter.ts",
-    "unresolvedTo": "./ladder-starter.js",
+    "from": "scripts/core/card-bodies.ts",
+    "to": "src/commands/intake/admit.ts",
+    "unresolvedTo": "../../src/commands/intake/admit.js",
     "dependencyTypes": [
       "local",
       "import"
     ],
     "rule": {
       "severity": "error",
-      "name": "bus-services-import-no-other-service"
+      "name": "core-imports-nothing-to-its-right"
     }
   },
   {
     "type": "dependency",
-    "from": "scripts/bus/merge-worker.ts",
-    "to": "scripts/bus/review-worker.ts",
-    "unresolvedTo": "./review-worker.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-services-import-no-other-service"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/restart-worker.ts",
-    "to": "scripts/bus/review-worker.ts",
-    "unresolvedTo": "./review-worker.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-services-import-no-other-service"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/update-worker.ts",
-    "to": "scripts/bus/merge-worker.ts",
-    "unresolvedTo": "./merge-worker.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "bus-services-import-no-other-service"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/bus/backfill.ts",
+    "from": "scripts/core/card-bodies.ts",
     "to": "src/commands/intake/index.ts",
     "unresolvedTo": "../../src/commands/intake/index.js",
     "dependencyTypes": [
       "local",
+      "type-only",
       "import"
     ],
     "rule": {
       "severity": "error",
-      "name": "bus-takes-event-names-from-core"
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/db.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/lease.ts",
+    "to": "scripts/ports/meter.ts",
+    "unresolvedTo": "../ports/meter.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/lease.ts",
+    "to": "scripts/supervisor/liveness-sites.ts",
+    "unresolvedTo": "../supervisor/liveness-sites.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/legacy-history.ts",
+    "to": "src/card/closed.ts",
+    "unresolvedTo": "../../src/card/closed.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/node.ts",
+    "to": "scripts/ports/meter.ts",
+    "unresolvedTo": "../ports/meter.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/node.ts",
+    "to": "scripts/ports/netwatch.ts",
+    "unresolvedTo": "../ports/netwatch.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/node.ts",
+    "to": "scripts/supervisor/heartbeat.ts",
+    "unresolvedTo": "../supervisor/heartbeat.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/node.ts",
+    "to": "scripts/supervisor/scheduler.ts",
+    "unresolvedTo": "../supervisor/scheduler.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/node.ts",
+    "to": "scripts/window/operator-work.ts",
+    "unresolvedTo": "../window/operator-work.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/observations.ts",
+    "to": "scripts/ports/snapshot.ts",
+    "unresolvedTo": "../ports/snapshot.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/places.ts",
+    "to": "scripts/nodes/launch/continuation.ts",
+    "unresolvedTo": "../nodes/launch/continuation.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/places.ts",
+    "to": "scripts/ports/gh.ts",
+    "unresolvedTo": "../ports/gh.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/places.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/queue.ts",
+    "to": "scripts/cli/check-catalog.ts",
+    "unresolvedTo": "../cli/check-catalog.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/queue.ts",
+    "to": "scripts/nodes/launch/launch-candidates.ts",
+    "unresolvedTo": "../nodes/launch/launch-candidates.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/queue.ts",
+    "to": "scripts/nodes/update/update-done.ts",
+    "unresolvedTo": "../nodes/update/update-done.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/queue.ts",
+    "to": "scripts/policy/round-limit-decision.ts",
+    "unresolvedTo": "../policy/round-limit-decision.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/queue.ts",
+    "to": "scripts/policy/shards.ts",
+    "unresolvedTo": "../policy/shards.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/queue.ts",
+    "to": "scripts/ports/snapshot.ts",
+    "unresolvedTo": "../ports/snapshot.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/queue.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/queue.ts",
+    "to": "src/commands/intake/admit.ts",
+    "unresolvedTo": "../../src/commands/intake/admit.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/reducer.ts",
+    "to": "scripts/nodes/restart/role.ts",
+    "unresolvedTo": "../nodes/restart/role.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/reducer.ts",
+    "to": "scripts/policy/decisions.ts",
+    "unresolvedTo": "../policy/decisions.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/reducer.ts",
+    "to": "scripts/policy/live-decision.ts",
+    "unresolvedTo": "../policy/live-decision.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/reducer.ts",
+    "to": "scripts/policy/round-limit-decision.ts",
+    "unresolvedTo": "../policy/round-limit-decision.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/tasks.ts",
+    "to": "src/card/closed.ts",
+    "unresolvedTo": "../../src/card/closed.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/tasks.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/approval.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/approve.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/approve.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/approve.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/approve.ts",
+    "to": "src/card/risk.ts",
+    "unresolvedTo": "../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/brief-finish-cli.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/brief-finish-cli.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/brief-finish.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/cleanup.ts",
+    "to": "src/commands/cost/ledger.ts",
+    "unresolvedTo": "../../src/commands/cost/ledger.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/cleanup.ts",
+    "to": "src/commands/cost/step-cache.ts",
+    "unresolvedTo": "../../src/commands/cost/step-cache.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/expect-sample.ts",
+    "to": "src/commands/cost/expect.ts",
+    "unresolvedTo": "../../src/commands/cost/expect.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/expect-sample.ts",
+    "to": "src/commands/cost/index.ts",
+    "unresolvedTo": "../../src/commands/cost/index.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/expect-sample.ts",
+    "to": "src/commands/cost/ledger.ts",
+    "unresolvedTo": "../../src/commands/cost/ledger.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/expect-sample.ts",
+    "to": "src/commands/cost/turns.ts",
+    "unresolvedTo": "../../src/commands/cost/turns.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/expect.ts",
+    "to": "src/commands/cost/index.ts",
+    "unresolvedTo": "../../src/commands/cost/index.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/handoff.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/hash.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/hash.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/hash.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/hash.ts",
+    "to": "src/card/risk.ts",
+    "unresolvedTo": "../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/hash.ts",
+    "to": "src/commands/intake/slice.ts",
+    "unresolvedTo": "../../src/commands/intake/slice.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/ladder-starter.ts",
+    "to": "scripts/nodes/launch/launch-executor.ts",
+    "unresolvedTo": "../nodes/launch/launch-executor.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/ladder-starter.ts",
+    "to": "scripts/nodes/launch/launch-starter.ts",
+    "unresolvedTo": "../nodes/launch/launch-starter.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/ladder-starter.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/ladder-starter.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/ladder.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/ladder.ts",
+    "to": "src/card/risk.ts",
+    "unresolvedTo": "../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/ledger.ts",
+    "to": "src/commands/cost/ledger.ts",
+    "unresolvedTo": "../../src/commands/cost/ledger.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/morse-approve.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/preflight-static.ts",
+    "to": "scripts/policy/shredder/reader.ts",
+    "unresolvedTo": "../policy/shredder/reader.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/preflight-static.ts",
+    "to": "src/commands/intake/check.ts",
+    "unresolvedTo": "../../src/commands/intake/check.js",
+    "dependencyTypes": [
+      "local",
+      "export"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/role-sample.ts",
+    "to": "src/commands/cost/expect.ts",
+    "unresolvedTo": "../../src/commands/cost/expect.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/role-sample.ts",
+    "to": "src/commands/cost/sample.ts",
+    "unresolvedTo": "../../src/commands/cost/sample.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/role-sample.ts",
+    "to": "src/commands/cost/turns.ts",
+    "unresolvedTo": "../../src/commands/cost/turns.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/role-sample.ts",
+    "to": "src/commands/cost/usage.ts",
+    "unresolvedTo": "../../src/commands/cost/usage.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/supervise.ts",
+    "to": "src/commands/cost/ledger.ts",
+    "unresolvedTo": "../../src/commands/cost/ledger.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/verdict.ts",
+    "to": "scripts/nodes/update/review-carry.ts",
+    "unresolvedTo": "../nodes/update/review-carry.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/verdict.ts",
+    "to": "src/card/risk.ts",
+    "unresolvedTo": "../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ladder/watch-ledger.ts",
+    "to": "src/commands/cost/ledger.ts",
+    "unresolvedTo": "../../src/commands/cost/ledger.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ladder-imports-only-core-and-ports"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/journal.ts",
+    "to": "scripts/ladder/approval.ts",
+    "unresolvedTo": "../ladder/approval.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-factory-contour-imports-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/journal.ts",
+    "to": "scripts/ladder/expect.ts",
+    "unresolvedTo": "../ladder/expect.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-factory-contour-imports-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/journal.ts",
+    "to": "scripts/ladder/ledger.ts",
+    "unresolvedTo": "../ladder/ledger.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-factory-contour-imports-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/core/legacy-history.ts",
+    "to": "scripts/ladder/approval.ts",
+    "unresolvedTo": "../ladder/approval.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-factory-contour-imports-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/ladder/ladder-starter.ts",
+    "unresolvedTo": "../../ladder/ladder-starter.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-factory-contour-imports-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/ladder/ladder.ts",
+    "unresolvedTo": "../../ladder/ladder.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-factory-contour-imports-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/ladder/verdict.ts",
+    "unresolvedTo": "../../ladder/verdict.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-factory-contour-imports-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/update/review-carry.ts",
+    "to": "scripts/ladder/sketch.ts",
+    "unresolvedTo": "../../ladder/sketch.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-factory-contour-imports-ladder"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answerer.ts",
+    "to": "scripts/nodes/launch/tree-pr.ts",
+    "unresolvedTo": "../launch/tree-pr.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/close-executor.ts",
+    "to": "scripts/nodes/answer/answer-source.ts",
+    "unresolvedTo": "../answer/answer-source.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/ended-card-trees.ts",
+    "to": "scripts/nodes/answer/answer-source.ts",
+    "unresolvedTo": "../answer/answer-source.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/ended-card-trees.ts",
+    "to": "scripts/nodes/review/review-worker.ts",
+    "unresolvedTo": "../review/review-worker.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/nodes/restart/chain-process.ts",
+    "unresolvedTo": "../restart/chain-process.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/tree-pr-cli.ts",
+    "to": "scripts/nodes/answer/answer-source.ts",
+    "unresolvedTo": "../answer/answer-source.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/merge/merge-executor.ts",
+    "to": "scripts/nodes/review/record-verdict.ts",
+    "unresolvedTo": "../review/record-verdict.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/merge/merge-worker.ts",
+    "to": "scripts/nodes/review/review-worker.ts",
+    "unresolvedTo": "../review/review-worker.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/restart/restart-worker.ts",
+    "to": "scripts/nodes/review/review-worker.ts",
+    "unresolvedTo": "../review/review-worker.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/update/update-executor.ts",
+    "to": "scripts/nodes/review/record-verdict.ts",
+    "unresolvedTo": "../review/record-verdict.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/update/update-worker.ts",
+    "to": "scripts/nodes/merge/merge-worker.ts",
+    "unresolvedTo": "../merge/merge-worker.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-import-no-other-node"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answer-executor.ts",
+    "to": "src/card/covering-tests.ts",
+    "unresolvedTo": "../../../src/card/covering-tests.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answer-executor.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answer-executor.ts",
+    "to": "src/card/risk.ts",
+    "unresolvedTo": "../../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answer-worker.ts",
+    "to": "scripts/intake/card-contract.ts",
+    "unresolvedTo": "../../intake/card-contract.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answer-worker.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answer-worker.ts",
+    "to": "scripts/supervisor/stamp.ts",
+    "unresolvedTo": "../../supervisor/stamp.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answer-worker.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answerer.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answerer.ts",
+    "to": "scripts/supervisor/heartbeat.ts",
+    "unresolvedTo": "../../supervisor/heartbeat.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/answer/answerer.ts",
+    "to": "scripts/window/eddies-measure.ts",
+    "unresolvedTo": "../../window/eddies-measure.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/close-executor.ts",
+    "to": "scripts/intake/card-archive.ts",
+    "unresolvedTo": "../../intake/card-archive.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/close-executor.ts",
+    "to": "scripts/intake/card-contract.ts",
+    "unresolvedTo": "../../intake/card-contract.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/close-worker.ts",
+    "to": "scripts/supervisor/stamp.ts",
+    "unresolvedTo": "../../supervisor/stamp.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/task-close.ts",
+    "to": "src/card/closed.ts",
+    "unresolvedTo": "../../../src/card/closed.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/task-close.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/task-close.ts",
+    "to": "src/commands/cost/cheap.ts",
+    "unresolvedTo": "../../../src/commands/cost/cheap.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/task-close.ts",
+    "to": "src/commands/cost/claude-code.ts",
+    "unresolvedTo": "../../../src/commands/cost/claude-code.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/task-close.ts",
+    "to": "src/commands/cost/expect.ts",
+    "unresolvedTo": "../../../src/commands/cost/expect.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/close/task-merged.ts",
+    "to": "src/card/closed.ts",
+    "unresolvedTo": "../../../src/card/closed.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/continuation.ts",
+    "to": "scripts/window/handoff-check.ts",
+    "unresolvedTo": "../../window/handoff-check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/continuation.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/lane-assign.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/lane-assign.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-candidates.ts",
+    "to": "scripts/supervisor/liveness-sites.ts",
+    "unresolvedTo": "../../supervisor/liveness-sites.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-candidates.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-candidates.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-candidates.ts",
+    "to": "src/card/text-sha.ts",
+    "unresolvedTo": "../../../src/card/text-sha.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-starter.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-starter.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/intake/import.ts",
+    "unresolvedTo": "../../intake/import.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/supervisor/bg.ts",
+    "unresolvedTo": "../../supervisor/bg.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/supervisor/heartbeat.ts",
+    "unresolvedTo": "../../supervisor/heartbeat.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/supervisor/stamp.ts",
+    "unresolvedTo": "../../supervisor/stamp.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/overlap.ts",
+    "to": "src/card/covering-tests.ts",
+    "unresolvedTo": "../../../src/card/covering-tests.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/overlap.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/prompt.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/tree-pr-cli.ts",
+    "to": "scripts/intake/card-contract.ts",
+    "unresolvedTo": "../../intake/card-contract.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/tree-pr-cli.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/tree-pr.ts",
+    "to": "src/card/covering-tests.ts",
+    "unresolvedTo": "../../../src/card/covering-tests.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/tree-pr.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/tree-pr.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/tree-pr.ts",
+    "to": "src/commands/intake/check.ts",
+    "unresolvedTo": "../../../src/commands/intake/check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/merge/merge-executor.ts",
+    "to": "scripts/cli/check-catalog.ts",
+    "unresolvedTo": "../../cli/check-catalog.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/merge/merge-executor.ts",
+    "to": "scripts/intake/card-contract.ts",
+    "unresolvedTo": "../../intake/card-contract.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/merge/merge-worker.ts",
+    "to": "scripts/cli/check-catalog.ts",
+    "unresolvedTo": "../../cli/check-catalog.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/merge/merge-worker.ts",
+    "to": "scripts/supervisor/stamp.ts",
+    "unresolvedTo": "../../supervisor/stamp.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/restart/restart-worker.ts",
+    "to": "scripts/supervisor/heartbeat.ts",
+    "unresolvedTo": "../../supervisor/heartbeat.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/restart/restart-worker.ts",
+    "to": "scripts/supervisor/stamp.ts",
+    "unresolvedTo": "../../supervisor/stamp.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/restart/restart-worker.ts",
+    "to": "scripts/supervisor/workers.ts",
+    "unresolvedTo": "../../supervisor/workers.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/restart/role.ts",
+    "to": "scripts/window/window-heartbeat.ts",
+    "unresolvedTo": "../../window/window-heartbeat.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/restart/role.ts",
+    "to": "scripts/window/window-requests.ts",
+    "unresolvedTo": "../../window/window-requests.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/depth-sources.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/depth-sources.ts",
+    "to": "src/card/covering-tests.ts",
+    "unresolvedTo": "../../../src/card/covering-tests.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/depth-sources.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/pr-close.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/pr-close.ts",
+    "to": "src/card/text-sha.ts",
+    "unresolvedTo": "../../../src/card/text-sha.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/pr-close.ts",
+    "to": "src/commands/intake/confirm.ts",
+    "unresolvedTo": "../../../src/commands/intake/confirm.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/pr-close.ts",
+    "to": "src/commands/intake/index.ts",
+    "unresolvedTo": "../../../src/commands/intake/index.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/pr-close.ts",
+    "to": "src/commands/intake/numbers.ts",
+    "unresolvedTo": "../../../src/commands/intake/numbers.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/review-depth.ts",
+    "to": "src/card/covering-tests.ts",
+    "unresolvedTo": "../../../src/card/covering-tests.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/review-depth.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/review-worker.ts",
+    "to": "scripts/intake/intake.ts",
+    "unresolvedTo": "../../intake/intake.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/review-worker.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/review-worker.ts",
+    "to": "scripts/supervisor/heartbeat.ts",
+    "unresolvedTo": "../../supervisor/heartbeat.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/review-worker.ts",
+    "to": "scripts/supervisor/scheduler.ts",
+    "unresolvedTo": "../../supervisor/scheduler.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/review-worker.ts",
+    "to": "scripts/supervisor/stamp.ts",
+    "unresolvedTo": "../../supervisor/stamp.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/review/review-worker.ts",
+    "to": "src/card/text-sha.ts",
+    "unresolvedTo": "../../../src/card/text-sha.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/update/update-executor.ts",
+    "to": "scripts/cli/check-catalog.ts",
+    "unresolvedTo": "../../cli/check-catalog.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/update/update-executor.ts",
+    "to": "scripts/intake/card-contract.ts",
+    "unresolvedTo": "../../intake/card-contract.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/update/update-worker.ts",
+    "to": "scripts/cli/check-catalog.ts",
+    "unresolvedTo": "../../cli/check-catalog.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/update/update-worker.ts",
+    "to": "scripts/supervisor/stamp.ts",
+    "unresolvedTo": "../../supervisor/stamp.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/witness/witness-worker.ts",
+    "to": "scripts/supervisor/stamp.ts",
+    "unresolvedTo": "../../supervisor/stamp.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/decisions/add.ts",
+    "to": "scripts/window/window-requests.ts",
+    "unresolvedTo": "../../window/window-requests.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/decisions/read.ts",
+    "to": "src/card/closed.ts",
+    "unresolvedTo": "../../../src/card/closed.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/morse/rules.ts",
+    "to": "src/card/risk.ts",
+    "unresolvedTo": "../../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/policy.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/policy.ts",
+    "to": "src/card/risk.ts",
+    "unresolvedTo": "../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/policy.ts",
+    "to": "src/commands/intake/admit.ts",
+    "unresolvedTo": "../../src/commands/intake/admit.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/policy.ts",
+    "to": "src/commands/intake/check.ts",
+    "unresolvedTo": "../../src/commands/intake/check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/round-limit-decision.ts",
+    "to": "scripts/intake/admissions.ts",
+    "unresolvedTo": "../intake/admissions.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/round-limit-decision.ts",
+    "to": "scripts/nodes/update/update-done.ts",
+    "unresolvedTo": "../nodes/update/update-done.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/round-limit-decision.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/round-limit-decision.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/round-limit-decision.ts",
+    "to": "src/card/risk.ts",
+    "unresolvedTo": "../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/round-limit-decision.ts",
+    "to": "src/commands/intake/admit.ts",
+    "unresolvedTo": "../../src/commands/intake/admit.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/round-limit-decision.ts",
+    "to": "src/commands/intake/slice.ts",
+    "unresolvedTo": "../../src/commands/intake/slice.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/shredder/reader.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/widening.ts",
+    "to": "src/commands/intake/check.ts",
+    "unresolvedTo": "../../src/commands/intake/check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/card-tree.ts",
+    "to": "scripts/nodes/answer/answer-source.ts",
+    "unresolvedTo": "../nodes/answer/answer-source.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/diff.ts",
+    "to": "scripts/policy/morse/rules.ts",
+    "unresolvedTo": "../policy/morse/rules.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/isolation.ts",
+    "to": "src/commands/intake/command-word.ts",
+    "unresolvedTo": "../../src/commands/intake/command-word.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/netwatch.ts",
+    "to": "scripts/supervisor/bg.ts",
+    "unresolvedTo": "../supervisor/bg.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/netwatch.ts",
+    "to": "scripts/supervisor/heartbeat.ts",
+    "unresolvedTo": "../supervisor/heartbeat.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/pr-status.ts",
+    "to": "scripts/window/operator-work.ts",
+    "unresolvedTo": "../window/operator-work.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/task-start.ts",
+    "to": "scripts/intake/parking-reads.ts",
+    "unresolvedTo": "../intake/parking-reads.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/task-start.ts",
+    "to": "scripts/supervisor/scheduler.ts",
+    "unresolvedTo": "../supervisor/scheduler.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/task-start.ts",
+    "to": "scripts/window/window-prs.ts",
+    "unresolvedTo": "../window/window-prs.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/task-start.ts",
+    "to": "src/card/closed.ts",
+    "unresolvedTo": "../../src/card/closed.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/task-start.ts",
+    "to": "src/card/grammar.ts",
+    "unresolvedTo": "../../src/card/grammar.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/task-start.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/task-start.ts",
+    "to": "src/card/risk.ts",
+    "unresolvedTo": "../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/task-start.ts",
+    "to": "src/commands/cost/index.ts",
+    "unresolvedTo": "../../src/commands/cost/index.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/task-start.ts",
+    "to": "src/commands/intake/confirm.ts",
+    "unresolvedTo": "../../src/commands/intake/confirm.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/supervisor/run.ts",
+    "to": "scripts/cli/board-page.ts",
+    "unresolvedTo": "../cli/board-page.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "supervisor-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/window/board.ts",
+    "to": "src/commands/board/goal.ts",
+    "unresolvedTo": "../../src/commands/board/goal.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "window-imports-nothing-to-its-right"
     }
   }
 ]

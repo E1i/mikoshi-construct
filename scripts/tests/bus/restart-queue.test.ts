@@ -1,24 +1,24 @@
-import type { ProcessTable } from '../../bus/chain-process.js'
-import type { ChainObservation } from '../../bus/chain.js'
-import type { Lease } from '../../bus/lease.js'
-import type { RoleStop } from '../../bus/role.js'
+import type { ChainObservation } from '../../core/chain.js'
+import type { Lease } from '../../core/lease.js'
+import type { ProcessTable } from '../../nodes/restart/chain-process.js'
+import type { RoleStop } from '../../nodes/restart/role.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { observeChain } from '../../bus/chain.js'
-import { appendEvent } from '../../bus/db.js'
-import { taskKey } from '../../bus/identifiers.js'
-import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { projectionDump, reduce } from '../../bus/reducer.js'
-import { RestartExecutor } from '../../bus/restart-executor.js'
-import { launchSwitchedOn, restartStepLine, RestartWorker, runRestartWorker } from '../../bus/restart-worker.js'
-import { observeRoleStop } from '../../bus/role.js'
-import { requestFromWindow } from '../../bus/window-requests.js'
-import { switchWorker } from '../../bus/workers.js'
+import { observeChain } from '../../core/chain.js'
+import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
-import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
+import { taskKey } from '../../core/identifiers.js'
+import { expireLeases, LEASE_MS, leaseNext } from '../../core/lease.js'
+import { projectionDump, reduce } from '../../core/reducer.js'
+import { RestartExecutor } from '../../nodes/restart/restart-executor.js'
+import { launchSwitchedOn, restartStepLine, RestartWorker, runRestartWorker } from '../../nodes/restart/restart-worker.js'
+import { observeRoleStop } from '../../nodes/restart/role.js'
+import { switchWorker } from '../../supervisor/workers.js'
+import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
+import { requestFromWindow } from '../../window/window-requests.js'
 import { MAIN_1, MAIN_2 } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -79,11 +79,11 @@ function restartTasks(bench: ReturnType<typeof mergeBench>): unknown[] {
 }
 
 describe('the restart queue', () => {
-  it('a merge into scripts/shift sets touches_mechanics and enters restart for a chain on the old sha', () => {
+  it('a merge into a file of the former scripts/shift sets touches_mechanics and enters restart for a chain on the old sha', () => {
     const bench = restartBench()
     bench.observe()
     bench.observe({ dir: '/shift/lane-2', cardId: 810, sha: MAIN_2 })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
 
     expect(eventsOf(bench.db, 'main.advanced').at(-1)).toEqual({ sha: MAIN_2, touches_mechanics: true })
@@ -92,10 +92,10 @@ describe('the restart queue', () => {
     bench.close()
   })
 
-  it('a merge outside scripts/shift does not enter restart', () => {
+  it('a merge outside the former scripts/shift does not enter restart', () => {
     const bench = restartBench()
     bench.observe()
-    bench.advanceMain(['scripts/bus/queue.ts', 'package.json', '.claude/agents/review.md', 'scripts/shifted.ts'])
+    bench.advanceMain(['scripts/core/queue.ts', 'package.json', '.claude/agents/review.md', 'scripts/ladder.ts'])
     bench.tick()
 
     expect(eventsOf(bench.db, 'main.advanced').at(-1)).toEqual({ sha: MAIN_2, touches_mechanics: false })
@@ -107,7 +107,7 @@ describe('the restart queue', () => {
   it('the restart waits for the task boundary and records both shas', () => {
     const bench = restartBench()
     bench.observe({ boundary: false, leader: LEADER })
-    bench.advanceMain(['scripts/shift/bg.ts'])
+    bench.advanceMain(['scripts/ladder/brief-finish.ts'])
     bench.tick()
 
     expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'waiting', taskKey: restart(), dir: DIR, why: 'not_at_boundary' })
@@ -133,7 +133,7 @@ describe('the restart queue', () => {
   it('a restart with a stale lease_gen is refused and writes nothing', () => {
     const bench = restartBench()
     bench.observe()
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     const old = bench.leaseRestart('worker:restart:old')!
     bench.clock.advance(LEASE_MS + 1)
@@ -151,7 +151,7 @@ describe('the restart queue', () => {
   it('a chain that left its boundary after the projection was read is not restarted', () => {
     const bench = restartBench()
     bench.observe({ leader: LEADER })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     const commandLine = bench.processes.commandLine
     let left = false
@@ -173,7 +173,7 @@ describe('the restart queue', () => {
   it('the boundary stop holds the write lock while the group is signalled, so the chain cannot leave its boundary mid-stop', () => {
     const bench = restartBench()
     bench.observe({ leader: LEADER })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     const other = new DatabaseSync(bench.busPath)
     other.exec('PRAGMA busy_timeout = 0')
@@ -206,7 +206,7 @@ describe('the restart queue', () => {
     const bench = restartBench()
     bench.observe({ cardId: 812, state: 'waiting', boundary: true, waitingOn: [809], leader: LEADER })
     expect(bench.db.prepare('SELECT card_id, state, boundary FROM chains WHERE dir = ?').get(DIR)).toEqual({ card_id: 812, state: 'waiting', boundary: 1 })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     expect(bench.restart(bench.leaseRestart()!)).toMatchObject({ kind: 'handed', dir: DIR, cardId: 812 })
     expect(bench.signalled).toEqual([LEADER])
@@ -229,7 +229,7 @@ describe('the restart queue', () => {
   it('a stop that fails is a technical denial and the task goes back to the queue', () => {
     const bench = restartBench()
     bench.observe({ leader: LEADER })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     bench.processes.signalGroup = () => {
       throw new Error('kill EPERM')
@@ -317,7 +317,7 @@ describe('the restart worker', () => {
   it('takes the restart queue and is idle once it is empty', () => {
     const bench = restartBench()
     bench.observe({ leader: LEADER })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     const worker = bench.worker()
 
@@ -352,7 +352,7 @@ describe('a dead chain', () => {
   it('a dead chain of a closed card is stopped and its restart task withdrawn', () => {
     const bench = restartBench()
     bench.observe({ boundary: false })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     closedCard(bench, CARD)
     bench.die(4242)
@@ -373,7 +373,7 @@ describe('a dead chain', () => {
   it('a dead chain of an open card is observed fault', () => {
     const bench = restartBench()
     bench.observe({ boundary: false })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     bench.die(4242)
 
@@ -386,7 +386,7 @@ describe('a dead chain', () => {
   it('while launch is switched off a dead chain is not restarted and no lease loops', () => {
     const bench = restartBench()
     bench.observe({ boundary: false })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     bench.die(4242)
     const worker = bench.worker()
@@ -406,7 +406,7 @@ describe('a dead chain', () => {
     const bench = restartBench()
     bench.observe({ boundary: false, leader: 4242 })
     bench.observe({ dir: '/shift/lane-2', cardId: 810, pid: 4343, leader: null, boundary: false })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     bench.reuse(4242)
     bench.reuse(4343)
@@ -424,7 +424,7 @@ describe('a dead chain', () => {
     bench.switchLaunch(() => launchSwitchedOn(busDir))
     switchWorker(busDir, 'launch', true)
     bench.observe({ boundary: false })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
     bench.die(4242)
 
@@ -439,7 +439,7 @@ describe('a dead chain', () => {
     const bench = restartBench()
     bench.switchLaunch(() => true)
     bench.observe({ boundary: false })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
 
     expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'waiting', taskKey: restart(), dir: DIR, why: 'not_at_boundary' })
@@ -498,7 +498,7 @@ describe('a dead chain', () => {
     const bench = restartBench()
     bench.observe({ dir: '/shift/lane-0', state: 'stopped' })
     bench.observe({ boundary: false })
-    bench.advanceMain(['scripts/shift/shift.ts'])
+    bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
 
     expect(bench.restart(bench.leaseRestart()!)).toEqual({ kind: 'waiting', taskKey: restart(), dir: DIR, why: 'not_at_boundary' })

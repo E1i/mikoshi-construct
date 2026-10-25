@@ -54,12 +54,12 @@ describe('intake puts the tests that cover the touched files into runs, not touc
 
   it('a card that changes the fields of the card.answered event runs scripts/tests/bus/answer-queue.test.ts', () => {
     const w = world({
-      'scripts/bus/inbox.ts': 'export const CARD_ANSWERED = \'card.answered\'\n',
-      'scripts/bus/answer-executor.ts': 'import { CARD_ANSWERED } from \'./inbox.js\'\n\nexport const answered = { type: CARD_ANSWERED }\n',
-      'scripts/tests/bus/answer-queue.test.ts': 'import { AnswerExecutor } from \'../../bus/answer-executor.js\'\nimport { CARD_ANSWERED } from \'../../bus/inbox.js\'\n',
-    }, ['scripts/bus/answer-executor.ts'])
+      'scripts/core/inbox.ts': 'export const CARD_ANSWERED = \'card.answered\'\n',
+      'scripts/nodes/answer/answer-executor.ts': 'import { CARD_ANSWERED } from \'../../core/inbox.js\'\n\nexport const answered = { type: CARD_ANSWERED }\n',
+      'scripts/tests/bus/answer-queue.test.ts': 'import { AnswerExecutor } from \'../../nodes/answer/answer-executor.js\'\nimport { CARD_ANSWERED } from \'../../core/inbox.js\'\n',
+    }, ['scripts/nodes/answer/answer-executor.ts'])
     expect(intake(w).status).toBe('written')
-    expect(parked(w)).toEqual({ touches: ['scripts/bus/answer-executor.ts'], runs: ['scripts/tests/bus/answer-queue.test.ts'] })
+    expect(parked(w)).toEqual({ touches: ['scripts/nodes/answer/answer-executor.ts'], runs: ['scripts/tests/bus/answer-queue.test.ts'] })
   })
 
   it('a card that changes src/card/risk.ts runs tests/intake-confirm-gate.test.ts and tests/intake-split-signal.test.ts', () => {
@@ -76,24 +76,24 @@ describe('intake puts the tests that cover the touched files into runs, not touc
     expect(parked(w)).toEqual({ touches: ['src/card/risk.ts'], runs: ['tests/intake-confirm-gate.test.ts', 'tests/intake-split-signal.test.ts'] })
   })
 
-  it('a card that changes scripts/bus/review-worker.ts runs scripts/tests/bus/review-worker.test.ts without a person', () => {
+  it('a card that changes scripts/nodes/review/review-worker.ts runs scripts/tests/bus/review-worker.test.ts without a person', () => {
     const w = world({
-      'scripts/bus/review-worker.ts': 'export function runReviewWorker() {}\n',
-      'scripts/tests/bus/review-worker.test.ts': 'import {\n  runReviewWorker,\n} from \'../../bus/review-worker.js\'\n',
-      'scripts/tests/bus/merge-worker.test.ts': 'import { runMergeWorker } from \'../../bus/merge-worker.js\'\n',
-      'scripts/bus/merge-worker.ts': 'export function runMergeWorker() {}\n',
-    }, ['scripts/bus/review-worker.ts'])
+      'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker() {}\n',
+      'scripts/tests/bus/review-worker.test.ts': 'import {\n  runReviewWorker,\n} from \'../../nodes/review/review-worker.js\'\n',
+      'scripts/tests/bus/merge-worker.test.ts': 'import { runMergeWorker } from \'../../nodes/merge/merge-worker.js\'\n',
+      'scripts/nodes/merge/merge-worker.ts': 'export function runMergeWorker() {}\n',
+    }, ['scripts/nodes/review/review-worker.ts'])
     const bus: CardEvent[] = []
     expect(intake(w, event => bus.push(event)).status).toBe('written')
-    expect(parked(w, bus)).toEqual({ touches: ['scripts/bus/review-worker.ts'], runs: ['scripts/tests/bus/review-worker.test.ts'] })
+    expect(parked(w, bus)).toEqual({ touches: ['scripts/nodes/review/review-worker.ts'], runs: ['scripts/tests/bus/review-worker.test.ts'] })
     expect(bus).toMatchObject([{ cardId: 13, payload: { confirmation: 'none' } }])
   })
 
   it('covering tests do not count toward the touches signal of the complexity seam', () => {
-    const tests = Object.fromEntries(Array.from({ length: 8 }, (_, at) => [`scripts/tests/shift/part-${at}/covering.test.ts`, 'import { runShift } from \'../../../shift/shift.js\'\n']))
-    const w = world({ 'scripts/shift/shift.ts': 'export function runShift() {}\n', ...tests }, ['scripts/shift/shift.ts'])
+    const tests = Object.fromEntries(Array.from({ length: 8 }, (_, at) => [`scripts/tests/shift/part-${at}/covering.test.ts`, 'import { runShift } from \'../../../ladder/ladder.js\'\n']))
+    const w = world({ 'scripts/ladder/ladder.ts': 'export function runShift() {}\n', ...tests }, ['scripts/ladder/ladder.ts'])
     expect(intake(w).status).toBe('written')
-    expect(parked(w)).toEqual({ touches: ['scripts/shift/shift.ts'], runs: Object.keys(tests) })
+    expect(parked(w)).toEqual({ touches: ['scripts/ladder/ladder.ts'], runs: Object.keys(tests) })
     expect(readFileSync(path.join(w.parking, '13.md'), 'utf8')).not.toContain('seam: ')
   })
 
@@ -107,9 +107,9 @@ describe('intake puts the tests that cover the touched files into runs, not touc
   })
 
   it('a directory holding more than six covering tests is run as one mask', () => {
-    const tests = Object.fromEntries(Array.from({ length: 7 }, (_, at) => [`scripts/tests/bus/covering-${at}.test.ts`, 'import { runReviewWorker } from \'../../bus/review-worker.js\'\n']))
-    const w = world({ 'scripts/bus/review-worker.ts': 'export function runReviewWorker() {}\n', 'scripts/tests/ci/one.test.ts': 'import \'../../bus/review-worker.js\'\n', ...tests }, ['scripts/bus/review-worker.ts'])
+    const tests = Object.fromEntries(Array.from({ length: 7 }, (_, at) => [`scripts/tests/bus/covering-${at}.test.ts`, 'import { runReviewWorker } from \'../../nodes/review/review-worker.js\'\n']))
+    const w = world({ 'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker() {}\n', 'scripts/tests/ci/one.test.ts': 'import \'../../nodes/review/review-worker.js\'\n', ...tests }, ['scripts/nodes/review/review-worker.ts'])
     expect(intake(w).status).toBe('written')
-    expect(parked(w)).toEqual({ touches: ['scripts/bus/review-worker.ts'], runs: ['scripts/tests/bus/**', 'scripts/tests/ci/one.test.ts'] })
+    expect(parked(w)).toEqual({ touches: ['scripts/nodes/review/review-worker.ts'], runs: ['scripts/tests/bus/**', 'scripts/tests/ci/one.test.ts'] })
   })
 })

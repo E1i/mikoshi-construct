@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
-import { openBus } from '../../bus/db.js'
-import { recordWindowSubagent, runWindowSubagent, windowSubagentCall } from '../../miko/window-subagents.js'
+import { openBus } from '../../core/db.js'
+import { recordWindowSubagent, runWindowSubagent, windowSubagentCall } from '../../window/window-subagents.js'
 
 const AT = new Date('2026-10-19T10:00:00.000Z')
 const roots: string[] = []

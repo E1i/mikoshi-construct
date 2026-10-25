@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openBus } from '../../bus/db.js'
-import { BUDGET_SPENT_STATUS, ghApi } from '../../bus/github.js'
-import { DEFAULT_RETRY_AFTER_S, GitHubFailed, Meter, RateLimited } from '../../bus/meter.js'
-import { NetWatch } from '../../bus/netwatch.js'
-import { GhBudgetWindow, ghPort } from '../../core/gh.js'
+import { openBus } from '../../core/db.js'
+import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
+import { BUDGET_SPENT_STATUS, ghApi } from '../../ports/github.js'
+import { DEFAULT_RETRY_AFTER_S, GitHubFailed, Meter, RateLimited } from '../../ports/meter.js'
+import { NetWatch } from '../../ports/netwatch.js'
 
 const roots: string[] = []
 

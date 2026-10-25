@@ -66,21 +66,27 @@ const NOTES_GRAPH: Graph = new Map([
 ])
 const SCANNER_TEXT = 'readdirSync(path.join(ROOT, \'scripts\'))'
 
-const BUS_DIR = 'scripts/bus'
-const BUS_IMPORT = /from '\.\/([\w-]+)\.js'/g
+const NODES_DIR = 'scripts/nodes'
+const LADDER_DIR = 'scripts/ladder'
+const CORE_FILES_OUTSIDE_THE_FORMER_BUS = /^scripts\/core\/(?:bus-path|eddies|events|factory-paths|gh-callers|handoff-dir|layer-map|merge-event|verification)\.ts$/
+const RELATIVE_IMPORT = /from '(\.{1,2}\/[\w./-]+)\.js'/g
+
+function nodeFiles(): string[] {
+  const folders = [LADDER_DIR, ...readdirSync(path.join(REPO_ROOT, NODES_DIR)).map(name => `${NODES_DIR}/${name}`)]
+  return folders.flatMap(folder => readdirSync(path.join(REPO_ROOT, folder), { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => `${folder}/${entry.name}`)).filter(file => BUS_SERVICE.test(file))
+}
 
 function importedByMostNodeKinds(): string[] {
-  const nodes = readdirSync(path.join(REPO_ROOT, BUS_DIR)).map(file => `${BUS_DIR}/${file}`).filter(file => BUS_SERVICE.test(file))
   const kinds = new Map<string, Set<string>>()
-  for (const node of nodes) {
+  for (const node of nodeFiles()) {
     const kind = BUS_SERVICE.exec(node)![1]!
     const imports = kinds.get(kind) ?? new Set<string>()
-    for (const [, name] of readFileSync(path.join(REPO_ROOT, node), 'utf8').matchAll(BUS_IMPORT))
-      imports.add(`${BUS_DIR}/${name}.ts`)
+    for (const [, specifier] of readFileSync(path.join(REPO_ROOT, node), 'utf8').matchAll(RELATIVE_IMPORT))
+      imports.add(`${path.posix.join(path.posix.dirname(node), specifier!)}.ts`)
     kinds.set(kind, imports)
   }
   const modules = [...new Set([...kinds.values()].flatMap(imports => [...imports]))]
-  return modules.filter(module => [...kinds.values()].filter(imports => imports.has(module)).length * 2 > kinds.size).sort()
+  return modules.filter(module => !CORE_FILES_OUTSIDE_THE_FORMER_BUS.test(module)).filter(module => [...kinds.values()].filter(imports => imports.has(module)).length * 2 > kinds.size).sort()
 }
 
 const LISTED: SandboxFailing[] = [
@@ -111,17 +117,17 @@ describe('the session pre-push runs the CI selector over the session diff', () =
   })
 
   it('a diff on a shared bus file selects every test under scripts/tests/bus', () => {
-    expect(BUS_SHARED).toEqual(importedByMostNodeKinds())
+    expect([...BUS_SHARED].sort()).toEqual(importedByMostNodeKinds())
     const graph: Graph = new Map([
-      ['scripts/bus/queue.ts', []],
-      ['scripts/bus/merge-worker.ts', []],
-      ['scripts/tests/bus/merge-worker.test.ts', ['scripts/bus/merge-worker.ts']],
+      ['scripts/core/queue.ts', []],
+      ['scripts/nodes/merge/merge-worker.ts', []],
+      ['scripts/tests/bus/merge-worker.test.ts', ['scripts/nodes/merge/merge-worker.ts']],
       ['scripts/tests/bus/board.test.ts', []],
       ['scripts/tests/notes/print.test.ts', []],
     ])
-    const run = selectRun(['scripts/bus/queue.ts'], graph, () => '')
+    const run = selectRun(['scripts/core/queue.ts'], graph, () => '')
     expect(run).toEqual({ kind: 'layers', layers: ['bus'], tests: ['scripts/tests/bus/board.test.ts', 'scripts/tests/bus/merge-worker.test.ts'] })
-    expect(selectRun(['scripts/bus/merge-worker.ts'], graph, () => '')).toEqual({ kind: 'layers', layers: ['bus:merge'], tests: ['scripts/tests/bus/merge-worker.test.ts'] })
+    expect(selectRun(['scripts/nodes/merge/merge-worker.ts'], graph, () => '')).toEqual({ kind: 'layers', layers: ['bus:merge'], tests: ['scripts/tests/bus/merge-worker.test.ts'] })
   })
 
   it('a red local test leaves the push undone', () => {

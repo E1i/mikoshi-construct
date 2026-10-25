@@ -2,15 +2,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { RUN_SCRIPT } from '../../bus/bg.js'
-import { openBus } from '../../bus/db.js'
-import { parseIncluded } from '../../bus/github.js'
-import { lastProcessBeats } from '../../bus/heartbeat.js'
-import { prBodySha } from '../../bus/identifiers.js'
-import { NetWatch, NETWATCH_SCRIPT, TICK_MS, WAKE_GAP_MS } from '../../bus/netwatch.js'
-import { reduce } from '../../bus/reducer.js'
-import { touchesMechanics } from '../../bus/snapshot.js'
+import { openBus } from '../../core/db.js'
 import { PROCESS_HEARTBEAT } from '../../core/events.js'
+import { prBodySha } from '../../core/identifiers.js'
+import { reduce } from '../../core/reducer.js'
+import { parseIncluded } from '../../ports/github.js'
+import { NetWatch, NETWATCH_SCRIPT, TICK_MS, WAKE_GAP_MS } from '../../ports/netwatch.js'
+import { touchesMechanics } from '../../ports/snapshot.js'
+import { RUN_SCRIPT } from '../../supervisor/bg.js'
+import { lastProcessBeats } from '../../supervisor/heartbeat.js'
 import { cardBody, Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, MERGER, REPO, sha } from './github-fake.js'
 
 const roots: string[] = []
@@ -127,7 +127,7 @@ describe('netwatch', () => {
     const { db, gitHub, clock, netWatch } = setUp()
     gitHub.open({ number: 902, required: 'pending' })
     gitHub.open({ number: 903 })
-    gitHub.mainFiles = { [MAIN_1]: ['README.md'], [MAIN_2]: ['scripts/shift/shift.ts'], [MAIN_3]: ['docs/index.md'] }
+    gitHub.mainFiles = { [MAIN_1]: ['README.md'], [MAIN_2]: ['scripts/ladder/ladder.ts'], [MAIN_3]: ['docs/index.md'] }
     netWatch.poll()
 
     gitHub.failing = true
@@ -254,11 +254,11 @@ describe('netwatch', () => {
     db.close()
   })
 
-  it('main touches the mechanics exactly when a changed path is under scripts/shift', () => {
-    expect(touchesMechanics(['scripts/shift/shift.ts'])).toBe(true)
-    expect(touchesMechanics(['README.md', 'scripts/shift/bg.ts'])).toBe(true)
+  it('main touches the mechanics exactly when a changed path is in the former shift folder', () => {
+    expect(touchesMechanics(['scripts/ladder/ladder.ts'])).toBe(true)
+    expect(touchesMechanics(['README.md', 'scripts/nodes/launch/prompt.ts'])).toBe(true)
     expect(touchesMechanics(['.claude/agents/review.md'])).toBe(false)
-    expect(touchesMechanics(['package.json', 'scripts/bus/queue.ts', 'scripts/shifted.ts'])).toBe(false)
+    expect(touchesMechanics(['package.json', 'scripts/core/queue.ts', 'scripts/shifted.ts'])).toBe(false)
     expect(touchesMechanics(['src/program.ts', 'docs/package.json'])).toBe(false)
   })
 

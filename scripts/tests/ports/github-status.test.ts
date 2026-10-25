@@ -1,6 +1,6 @@
-import type { GhSpawned } from '../../core/gh.js'
+import type { GhSpawned } from '../../ports/gh.js'
 import { describe, expect, it } from 'vitest'
-import { GhBudgetWindow, GhFailed, ghPort } from '../../core/gh.js'
+import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
 import { ghStatusPublisher, REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 
 function recordingPort(spawned: GhSpawned): { port: ReturnType<typeof ghPort>, calls: { args: string[], cwd: string | undefined }[] } {

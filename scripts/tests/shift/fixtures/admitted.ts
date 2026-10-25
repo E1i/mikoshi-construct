@@ -1,5 +1,5 @@
 import { parseCard } from '../../../../src/card/grammar.js'
-import { appendEvent, openBus } from '../../../bus/db.js'
+import { appendEvent, openBus } from '../../../core/db.js'
 
 export function admitCards(bus: string, lines: string[]): void {
   const db = openBus(bus)

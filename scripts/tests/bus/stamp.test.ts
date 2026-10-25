@@ -4,9 +4,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { Writable } from 'node:stream'
 import { describe, expect, it } from 'vitest'
-import { LineStamper, STAMP_ENV, stampLogOutput, stampStream } from '../../bus/stamp.js'
-import { SUPERVISOR_LAUNCH } from '../../bus/supervisor.js'
-import { busLaunches } from '../../bus/workers.js'
+import { LineStamper, STAMP_ENV, stampLogOutput, stampStream } from '../../supervisor/stamp.js'
+import { SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
+import { busLaunches } from '../../supervisor/workers.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const PACKAGE_SCRIPTS = (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
@@ -76,7 +76,7 @@ describe('the bus log stamper', () => {
 
   it.each(DETACHED_SCRIPTS)('the entry behind %s imports stampLogOutput and calls it', (script) => {
     const source = entryOf(script)
-    expect(source).toMatch(/^import \{ stampLogOutput \} from '\.\/stamp\.js'$/m)
+    expect(source).toMatch(/^import \{ stampLogOutput \} from '(?:\.\/|\.\.\/\.\.\/supervisor\/)stamp\.js'$/m)
     expect(source).toMatch(/^\s+stampLogOutput\(\)$/m)
   })
 })

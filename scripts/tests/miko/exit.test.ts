@@ -1,20 +1,20 @@
-import type { RoleStop, WindowEnd } from '../../bus/role.js'
-import type { ExitLine, ExitReadings } from '../../miko/eddies-measure.js'
-import type { MikoExitDeps } from '../../miko/exit.js'
+import type { RoleStop, WindowEnd } from '../../nodes/restart/role.js'
+import type { ExitLine, ExitReadings } from '../../window/eddies-measure.js'
+import type { MikoExitDeps } from '../../window/exit.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../miko/exit.js'
-import { mikoHandoff } from '../../miko/loop.js'
-import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../miko/tab.js'
+import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
+import { ancestors, exitDecision, FRESH_MS, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
+import { mikoHandoff } from '../../window/loop.js'
+import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
-const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
-const EXIT = path.join(REPO_ROOT, 'scripts', 'miko', 'exit.ts')
+const LOOP = path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
+const EXIT = path.join(REPO_ROOT, 'scripts', 'window', 'exit.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
@@ -100,7 +100,7 @@ const AT_CONTEXT: ExitReadings = { ...BELOW, context: CONTEXT_WARN }
 const AT_SPEND_WARN: ExitReadings = { ...BELOW, spent: SPEND_WARN }
 const AT_SPEND: ExitReadings = { ...BELOW, spent: LIMITS.sessionSpend }
 
-const underLoop = parsePs('  1     0 /sbin/launchd\n 10     1 node tsx scripts/miko/loop.ts\n 12    10 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
+const underLoop = parsePs('  1     0 /sbin/launchd\n 10     1 node tsx scripts/window/loop.ts\n 12    10 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
 const outsideLoop = parsePs('  1     0 /sbin/launchd\n 12     1 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
 
 interface Outcome {
@@ -174,7 +174,7 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
 
 describe('exitDecision reads the stop reason, the process chain and the age of miko.md', () => {
   const now = 1_000_000_000
-  const loop = { pid: 10, ppid: 1, args: 'node /x/node_modules/tsx/dist/cli.mjs /x/scripts/miko/loop.ts' }
+  const loop = { pid: 10, ppid: 1, args: 'node /x/node_modules/tsx/dist/cli.mjs /x/scripts/window/loop.ts' }
   const shell = { pid: 11, ppid: 10, args: 'sh -c claude --permission-mode auto "$@" miko' }
   const claude = { pid: 12, ppid: 11, args: 'claude --permission-mode auto' }
   const zsh = { pid: 13, ppid: 12, args: '/bin/zsh -c -l eval pnpm miko:exit' }
@@ -379,7 +379,7 @@ describe('under the pnpm miko loop miko:exit asks the loop to end the session an
 
 describe('under the loop variables there is one path whatever the process table shows', () => {
   const env = { MIKO_LOOP_PID: '10', MIKO_EXIT_REQUEST: '/h/miko-exit.request' }
-  const claudeAbove = parsePs(' 10 1 node tsx scripts/miko/loop.ts\n 12 10 claude\n 13 12 zsh\n 14 13 claude\n 15 14 node exit.ts\n')
+  const claudeAbove = parsePs(' 10 1 node tsx scripts/window/loop.ts\n 12 10 claude\n 13 12 zsh\n 14 13 claude\n 15 14 node exit.ts\n')
 
   it('the request file is the loop variable whenever the loop pid is set, and absent otherwise', () => {
     expect(loopRequestOf(env)).toBe(env.MIKO_EXIT_REQUEST)
@@ -389,7 +389,7 @@ describe('under the loop variables there is one path whatever the process table 
 
   it('the request names the nearest claude above the caller, which outlives the caller, and nothing when ps fails or no claude is found', () => {
     expect(sessionClaudeOf(() => claudeAbove, 15)).toBe(14)
-    expect(sessionClaudeOf(() => parsePs(' 10 1 node tsx scripts/miko/loop.ts\n 15 10 node exit.ts\n'), 15)).toBeUndefined()
+    expect(sessionClaudeOf(() => parsePs(' 10 1 node tsx scripts/window/loop.ts\n 15 10 node exit.ts\n'), 15)).toBeUndefined()
     expect(sessionClaudeOf(() => {
       throw Object.assign(new Error('spawnSync ps EPERM'), { code: 'EPERM' })
     }, 15)).toBeUndefined()

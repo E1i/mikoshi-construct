@@ -1,24 +1,24 @@
-import type { PauseEnd, SessionEnd, Status } from '../../miko/loop.js'
+import type { PauseEnd, SessionEnd, Status } from '../../window/loop.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openBus } from '../../bus/db.js'
-import { lastProcessBeats, recordProcessHeartbeat } from '../../bus/heartbeat.js'
-import { SILENT_MS } from '../../bus/liveness-sites.js'
-import { reduce } from '../../bus/reducer.js'
-import { observeRoleStop, roleToOwner } from '../../bus/role.js'
+import { openBus } from '../../core/db.js'
 import { PROCESS_ENDED, PROCESS_REFUSED, ROLE_RETURNED } from '../../core/events.js'
-import { HANDOFF_FIELDS, STATE_LABELS } from '../../ghosts/handoff-check.js'
-import { parsePs } from '../../miko/exit.js'
-import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../miko/loop.js'
+import { reduce } from '../../core/reducer.js'
+import { observeRoleStop, roleToOwner } from '../../nodes/restart/role.js'
 import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
+import { lastProcessBeats, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { parsePs } from '../../window/exit.js'
+import { HANDOFF_FIELDS, STATE_LABELS } from '../../window/handoff-check.js'
+import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
-const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
+const LOOP = path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
 const KEY_PRESS_GAP_MS = 300
 const READY_DEADLINE_MS = 15_000
 const PAUSE_LINE = 'next session in'
@@ -37,17 +37,17 @@ case "$1" in
   deaf) trap '' INT; echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"; exec sleep 2 ;;
   hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"; exec sleep 30 ;;
   threshold)
-    node --disable-warning=ExperimentalWarning --import tsx scripts/shift/handoff-write.ts "$HOME/.construct/handoff/miko.md" "$STUB_DIR/draft.md" >> "$STUB_DIR/threshold.log" 2>&1
-    node --disable-warning=ExperimentalWarning --import tsx scripts/miko/exit.ts >> "$STUB_DIR/threshold.log" 2>&1
+    node --disable-warning=ExperimentalWarning --import tsx scripts/window/handoff-write.ts "$HOME/.construct/handoff/miko.md" "$STUB_DIR/draft.md" >> "$STUB_DIR/threshold.log" 2>&1
+    node --disable-warning=ExperimentalWarning --import tsx scripts/window/exit.ts >> "$STUB_DIR/threshold.log" 2>&1
     exec sleep 30 ;;
   write)
-    node --disable-warning=ExperimentalWarning --import tsx scripts/shift/handoff-write.ts "$HOME/.construct/handoff/miko.md" "$STUB_DIR/draft.md" >> "$STUB_DIR/threshold.log" 2>&1
+    node --disable-warning=ExperimentalWarning --import tsx scripts/window/handoff-write.ts "$HOME/.construct/handoff/miko.md" "$STUB_DIR/draft.md" >> "$STUB_DIR/threshold.log" 2>&1
     : > "$STUB_DIR/survived"
     exit 0 ;;
   done)
     echo 'STATUS: DONE' > "$HOME/.construct/handoff/miko.md"
     touch -t 200001010000 "$HOME/.construct/handoff/miko.md"
-    node --disable-warning=ExperimentalWarning --import tsx scripts/miko/exit.ts >> "$STUB_DIR/threshold.log" 2>&1
+    node --disable-warning=ExperimentalWarning --import tsx scripts/window/exit.ts >> "$STUB_DIR/threshold.log" 2>&1
     exec sleep 30 ;;
 esac
 exit 0
@@ -622,7 +622,7 @@ describe('the loop owns the end of a session: a request file asks it to end the 
   })
 
   describe('an exit request ends the session only from a pid that descends from the claude the loop started', () => {
-    const table = parsePs(' 10 1 node tsx scripts/miko/loop.ts\n 11 10 claude\n 12 11 zsh\n 13 12 node exit.ts\n 20 1 zsh\n 21 20 claude\n 22 21 node exit.ts\n')
+    const table = parsePs(' 10 1 node tsx scripts/window/loop.ts\n 11 10 claude\n 12 11 zsh\n 13 12 node exit.ts\n 20 1 zsh\n 21 20 claude\n 22 21 node exit.ts\n')
 
     it('ends it for a pid under the session', () => {
       expect(requestEndsSession(table, 13, 11)).toBe(true)

@@ -1,20 +1,20 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { RunningProcess } from '../../bus/bg.js'
-import type { HolderProcess, HolderStart, Lease } from '../../bus/lease.js'
+import type { HolderProcess, HolderStart, Lease } from '../../core/lease.js'
+import type { RunningProcess } from '../../supervisor/bg.js'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { launchName, PREFIX } from '../../bus/bg.js'
-import { openBus } from '../../bus/db.js'
-import { ownStart } from '../../bus/heartbeat.js'
-import { completeTask, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leaseNext, leaseQueued, leaseWhileFree, recordWorkerStarted, releaseTask, renewLease, SAME_START_MS, StaleLease, WORKER_HUNG } from '../../bus/lease.js'
-import { SILENT_MS } from '../../bus/liveness-sites.js'
-import { busDrain, BusSupervisor, freeLeasesOf, LivenessJudge, lstartToIso, psStartOf } from '../../bus/supervisor.js'
-import { workerLaunches } from '../../bus/workers.js'
+import { openBus } from '../../core/db.js'
 import { BOARD_ALARM, TASK_EXPIRED, WORKER_STARTED } from '../../core/events.js'
+import { completeTask, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leaseNext, leaseQueued, leaseWhileFree, recordWorkerStarted, releaseTask, renewLease, SAME_START_MS, StaleLease, WORKER_HUNG } from '../../core/lease.js'
+import { launchName, PREFIX } from '../../supervisor/bg.js'
+import { ownStart } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { busDrain, BusSupervisor, freeLeasesOf, LivenessJudge, lstartToIso, psStartOf } from '../../supervisor/supervisor.js'
+import { workerLaunches } from '../../supervisor/workers.js'
 import { sha } from './github-fake.js'
 
 const roots: string[] = []
@@ -32,7 +32,7 @@ const DEAD_PID = 4242
 const NEW_PID = 4343
 const OLD_MAIN = sha('1')
 const NEW_MAIN = sha('2')
-const SHARED_FILE = 'scripts/bus/db.ts'
+const SHARED_FILE = 'scripts/core/db.ts'
 
 interface Bench {
   db: DatabaseSync

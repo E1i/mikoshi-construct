@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readContourSchema, violations } from '../../contract/contours.js'
-import { ghostLines, recordGhostLine } from '../../ghosts/journal.js'
-import { checkDisposition, checkVerdict, fetchVerdictFromRef, recordDisposition, recordVerdict, reviewStatus } from '../../ghosts/verdict.js'
+import { ghostLines, recordGhostLine } from '../../core/journal.js'
+import { checkDisposition, checkVerdict, fetchVerdictFromRef, recordDisposition, recordVerdict, reviewStatus } from '../../ladder/verdict.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const busOf = ownBusPerTest()

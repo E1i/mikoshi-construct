@@ -1,5 +1,5 @@
-import type { BuildRunner, MorseApproval } from '../../ghosts/hash.js'
-import type { Preflight } from '../../ghosts/preflight.js'
+import type { BuildRunner, MorseApproval } from '../../ladder/hash.js'
+import type { Preflight } from '../../ladder/preflight.js'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,18 +8,18 @@ import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
-import { busCardBodies } from '../../bus/parking-reads.js'
-import { reduce } from '../../bus/reducer.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
-import { approverOf, revokeEvent } from '../../ghosts/approval.js'
-import { hashBrief, morseApprove } from '../../ghosts/hash.js'
-import { ghostLines, recordGhostLine } from '../../ghosts/journal.js'
+import { ghostLines, recordGhostLine } from '../../core/journal.js'
+import { reduce } from '../../core/reducer.js'
+import { busCardBodies } from '../../intake/parking-reads.js'
+import { approverOf, revokeEvent } from '../../ladder/approval.js'
+import { hashBrief, morseApprove } from '../../ladder/hash.js'
 import { busWithCardStarted } from './card-started-bus.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const HASH = path.join(REPO_ROOT, 'scripts/ghosts/hash.ts')
+const HASH = path.join(REPO_ROOT, 'scripts/ladder/hash.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const NOW = new Date(2026, 9, 4, 12)
 const CARD = 901
@@ -136,7 +136,7 @@ describe('the MORSE gate in process', () => {
   })
 
   it('an R1 brief is approved when R4 and R1 touches are mixed', async () => {
-    await expectApproved(scenario({ touches: 'docs/page.md, scripts/ghosts/launch.ts' }), 'R1')
+    await expectApproved(scenario({ touches: 'docs/page.md, scripts/ladder/launch.ts' }), 'R1')
   })
 
   it('an R1 brief whose hard preflight is red is refused and writes nothing', async () => {

@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { openBus } from '../../bus/db.js'
-import { FOREIGN_DIVERGENCE, recordForeignDivergences } from '../../bus/divergence-alarm.js'
+import { openBus } from '../../core/db.js'
 import { BOARD_ALARM, BOARD_ALARM_CLEARED } from '../../core/events.js'
+import { FOREIGN_DIVERGENCE, recordForeignDivergences } from '../../nodes/review/divergence-alarm.js'
 
 const ACTOR = 'worker:review:node-1'
 const TS = '2026-10-20T11:00:00.000Z'

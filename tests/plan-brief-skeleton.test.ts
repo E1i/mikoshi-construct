@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { canonicalImplementText } from '../scripts/ghosts/approval.js'
-import { parseSketch } from '../scripts/ghosts/sketch.js'
+import { canonicalImplementText } from '../scripts/ladder/approval.js'
+import { parseSketch } from '../scripts/ladder/sketch.js'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const SCRIPT = path.join(ROOT, 'scripts/construct/check-acceptance.mjs')

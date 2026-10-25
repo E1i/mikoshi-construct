@@ -9,7 +9,7 @@ export const RELAYED_SCRIPTS = ['pre-compact']
 const RELAY_TIMEOUT_MS = 25_000
 
 export function relayArgv(root, script) {
-  return ['--import', 'tsx', path.join(root, 'scripts', 'miko', `${script}.ts`)]
+  return ['--import', 'tsx', path.join(root, 'scripts', 'window', `${script}.ts`)]
 }
 
 async function readStdin() {

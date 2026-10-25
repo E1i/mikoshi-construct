@@ -5,9 +5,9 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mergedTasks } from '../../../src/card/closed.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { busCardStates } from '../../ghosts/tasks.js'
-import { choose, dependencyWaits, leftSummary, nextInPipeline, queueText, waitingLine } from '../../shift/parking.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { busCardStates } from '../../core/tasks.js'
+import { choose, dependencyWaits, leftSummary, nextInPipeline, queueText, waitingLine } from '../../intake/parking.js'
 
 function parked(id: number, header: string, extra = ''): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [implement/ghosts/S/cheap/owner] · depends ${extra || '—'} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\n${header}\n\ndo ${id}\n`)

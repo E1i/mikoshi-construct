@@ -5,11 +5,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { build } from 'tsup'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE } from '../scripts/bus/db.js'
+import { BUS_DB_VARIABLE } from '../scripts/core/db.js'
 import { productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
-const BUS_SOURCE = 'scripts/bus/'
+const FACTORY_SOURCE = 'scripts/'
+const SHARED_WITH_THE_PRODUCT = ['scripts/owner/channel.ts', 'scripts/core/bus-path.ts', 'scripts/core/events.ts', 'scripts/core/factory-paths.ts']
 const BUS_STORE_MODULE = 'node:sqlite'
 const BUS_STORE_READER = 'src/commands/cost/bus.ts'
 const SPAWN_MODULE = 'node:child_process'
@@ -56,7 +57,7 @@ async function buildProduct(outDir: string): Promise<ProductBundle> {
 
 function boundaryCrossings(inputs: BundleInputs): string[] {
   return Object.entries(inputs).flatMap(([input, { imports }]) => [
-    ...(input.startsWith(BUS_SOURCE) ? [`${input}: bus code in the product`] : []),
+    ...(input.startsWith(FACTORY_SOURCE) && !SHARED_WITH_THE_PRODUCT.includes(input) ? [`${input}: bus code in the product`] : []),
     ...imports.filter(found => found.kind !== STATIC_IMPORT).map(found => `${input}: ${found.kind} of ${found.path}`),
     ...imports.filter(found => found.path === BUS_STORE_MODULE && input !== BUS_STORE_READER).map(() => `${input}: ${BUS_STORE_MODULE} outside ${BUS_STORE_READER}`),
     ...imports.filter(found => found.path === SPAWN_MODULE && !SPAWN_CARRIERS.includes(input)).map(() => `${input}: ${SPAWN_MODULE} outside the spawn carriers`),
@@ -70,13 +71,13 @@ describe('the product boundary of dist/cli.js', () => {
       'src/b.ts': { imports: [{ path: SPAWN_MODULE, kind: STATIC_IMPORT, external: true }, { path: BUS_STORE_MODULE, kind: STATIC_IMPORT, external: true }] },
       [BUS_STORE_READER]: { imports: [{ path: BUS_STORE_MODULE, kind: STATIC_IMPORT, external: true }] },
       [SPAWN_CARRIERS[0]]: { imports: [{ path: SPAWN_MODULE, kind: STATIC_IMPORT, external: true }] },
-      'scripts/bus/db.ts': { imports: [] },
+      'scripts/core/db.ts': { imports: [] },
     })).toEqual([
       'src/a.ts: dynamic-import of ./b.js',
       'src/a.ts: require-call of node:fs',
       `src/b.ts: ${BUS_STORE_MODULE} outside ${BUS_STORE_READER}`,
       `src/b.ts: ${SPAWN_MODULE} outside the spawn carriers`,
-      'scripts/bus/db.ts: bus code in the product',
+      'scripts/core/db.ts: bus code in the product',
     ])
   })
 

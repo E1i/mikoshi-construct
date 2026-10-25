@@ -1,16 +1,16 @@
-import type { TaskStartDeps } from '../../ghosts/task-start.js'
+import type { TaskStartDeps } from '../../ports/task-start.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { bodySha, bodyShaWithoutTouches } from '../../../src/commands/intake/confirm.js'
-import { BACKFILL_SOURCE } from '../../bus/backfill-source.js'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { slotsOf } from '../../bus/scheduler.js'
+import { BACKFILL_SOURCE } from '../../core/backfill-source.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '../../core/events.js'
-import { runTaskStart } from '../../ghosts/task-start.js'
+import { runTaskStart } from '../../ports/task-start.js'
 import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ports/worktree-home.js'
+import { slotsOf } from '../../supervisor/scheduler.js'
 import { journalInBus } from './card-started-bus.js'
 
 const BACKFILL_ACTOR = 'worker:backfill:window'
@@ -600,7 +600,7 @@ function bodiesIn(dir: string): (cardId: number) => string | null {
 }
 
 describe('the card.started carries the card who and risk read from the card body at start', () => {
-  const RISK = 'R2 — high: a contract or a recorded shape that others read changes; a review reads it — the factory mechanism: scripts/ghosts/task-start.ts'
+  const RISK = 'R2 — high: a contract or a recorded shape that others read changes; a review reads it — the factory mechanism: scripts/ports/task-start.ts'
 
   function parked(world: World, line: string, body: string, who = 'shift'): TaskStartDeps {
     const dir = path.join(world.root, 'parking')

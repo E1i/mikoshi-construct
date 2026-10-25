@@ -4,18 +4,18 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { RAISED_VARIABLE } from '../../bus/role.js'
-import { recordWindowHeartbeat, WINDOW_BEAT_MS } from '../../bus/window-heartbeat.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
-import { MIKO_HANDOFF_NAME } from '../../miko/loop.js'
-import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../miko/tab.js'
-import { lastWindowBeat, LIVE_WATCH, NO_LIVE_WATCH, NOT_A_WINDOW, realTurnWatchDeps, runTurnWatch, TAB_CONTINUE, TAB_STOPS, watchIsLive } from '../../miko/turn-watch.js'
+import { RAISED_VARIABLE } from '../../nodes/restart/role.js'
 import { WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
+import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
+import { lastWindowBeat, LIVE_WATCH, NO_LIVE_WATCH, NOT_A_WINDOW, realTurnWatchDeps, runTurnWatch, TAB_CONTINUE, TAB_STOPS, watchIsLive } from '../../window/turn-watch.js'
+import { recordWindowHeartbeat, WINDOW_BEAT_MS } from '../../window/window-heartbeat.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
-const TURN_WATCH = path.join(REPO_ROOT, 'scripts', 'miko', 'turn-watch.ts')
+const TURN_WATCH = path.join(REPO_ROOT, 'scripts', 'window', 'turn-watch.ts')
 const NOW = Date.parse('2026-10-21T10:00:00.000Z')
 const roots: string[] = []
 

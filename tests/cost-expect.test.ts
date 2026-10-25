@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeF
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseExpect } from '../scripts/ghosts/expect.js'
+import { parseExpect } from '../scripts/ladder/expect.js'
 import { countsTowardSteps, formatRoleExpect } from '../src/commands/cost/expect.js'
 import { parseLedgerLine } from '../src/commands/cost/ledger.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'

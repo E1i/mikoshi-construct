@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { legacyEventOf } from '../../bus/import.js'
-import { legacyHistory } from '../../bus/legacy-history.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { legacyHistory } from '../../core/legacy-history.js'
+import { legacyEventOf } from '../../intake/import.js'
 
 let dir: string
 let db: DatabaseSync

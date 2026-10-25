@@ -18,8 +18,8 @@ description: >-
   `construct cost --expect` is a branch of the entry: `costExpect` reads the ledger and the step cache
   only, writes nothing, and calls neither `reconcile` nor the runtime resolution, so the forecast
   does not depend on the runtime: a run the step cache does not hold yet is split from the session
-  files in memory and never appended. `expect.ts` is the one calculation `scripts/ghosts`
-  also calls.
+  files in memory and never appended. `expect.ts` is the one calculation the files of the
+  former ghosts folder (`FACTORY_FORMER_FOLDERS.ghosts`) also call.
 doc: architecture/cost.md
 boundaries:
   - id: entry

@@ -4,8 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { taskConflicts } from '../scripts/shift/overlap.js'
-import { choose } from '../scripts/shift/parking.js'
+import { choose } from '../scripts/intake/parking.js'
+import { taskConflicts } from '../scripts/nodes/launch/overlap.js'
 import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
 import { TASK_FILE } from '../src/card/task-file.js'
 import { INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from '../src/commands/intake/index.js'
@@ -150,7 +150,7 @@ describe('intake marks what the retelling left unclear and guesses nothing silen
 })
 
 describe('intake keeps the who of the draft for a seamed card a person kept whole', () => {
-  const seamed = { name: 'kept-whole', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['scripts/shift/shift.ts', 'src/model/schema.ts', 'src/detect/index.ts', 'docs/cli.md', 'tests/a.test.ts', 'tests/b.test.ts', '.changeset/**'], task: 'Journal the verdict for the card.', witnesses: ['`pnpm test` prints the journaled verdict'] }
+  const seamed = { name: 'kept-whole', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['scripts/ladder/ladder.ts', 'src/model/schema.ts', 'src/detect/index.ts', 'docs/cli.md', 'tests/a.test.ts', 'tests/b.test.ts', '.changeset/**'], task: 'Journal the verdict for the card.', witnesses: ['`pnpm test` prints the journaled verdict'] }
   const reason = 'the owner kept it whole on 2026-10-06'
 
   it('a seamed card without whole is held for the window', () => {

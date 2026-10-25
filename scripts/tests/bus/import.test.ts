@@ -2,10 +2,10 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { openBus } from '../../bus/db.js'
-import { importJournal, importJournalFile } from '../../bus/import.js'
-import { composeBusTick } from '../../bus/run.js'
+import { openBus } from '../../core/db.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
+import { importJournal, importJournalFile } from '../../intake/import.js'
+import { composeBusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 
 const HEAD = '29342d7559e14412b73d1d5d6dd216363cfc07c0'

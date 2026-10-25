@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runOnTree, testTargetOf } from '../../bus/witnesses.js'
+import { runOnTree, testTargetOf } from '../../ports/witnesses.js'
 import { realShell, withWorktree } from '../../ports/worktree.js'
 
 const roots: string[] = []

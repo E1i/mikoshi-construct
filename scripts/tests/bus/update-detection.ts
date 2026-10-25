@@ -1,8 +1,8 @@
-import type { Scope } from '../../bus/node.js'
-import type { StoredEvent } from '../../bus/stored.js'
+import type { Scope } from '../../core/node.js'
+import type { StoredEvent } from '../../core/stored.js'
 import type { MergeBench } from './merge-bench.js'
-import { STORED_COLUMNS } from '../../bus/stored.js'
-import { UpdateNode } from '../../bus/update-worker.js'
+import { STORED_COLUMNS } from '../../core/stored.js'
+import { UpdateNode } from '../../nodes/update/update-worker.js'
 
 class DetectingUpdateNode extends UpdateNode {
   detect(scope?: Scope): void {

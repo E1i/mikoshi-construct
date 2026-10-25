@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { appendExitLine, exitLineOf, GAUGES_UNREAD, NO_TRANSCRIPT, projectRoot, realExitReadings, sessionGauges, UNKNOWN, UNREAD } from '../../miko/eddies-measure.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { appendExitLine, exitLineOf, GAUGES_UNREAD, NO_TRANSCRIPT, projectRoot, realExitReadings, sessionGauges, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
 
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }

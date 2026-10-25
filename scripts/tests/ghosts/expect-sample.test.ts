@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { formatTokens, ladderSample, renderSample } from '../../ghosts/expect-sample.js'
-import { parseExpect } from '../../ghosts/expect.js'
+import { formatTokens, ladderSample, renderSample } from '../../ladder/expect-sample.js'
+import { parseExpect } from '../../ladder/expect.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const EXPECT_SAMPLE = path.join(REPO_ROOT, 'scripts/ghosts/expect-sample.ts')
+const EXPECT_SAMPLE = path.join(REPO_ROOT, 'scripts/ladder/expect-sample.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const DASH = String.fromCharCode(8212)
 const APPROX = String.fromCharCode(8776)

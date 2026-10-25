@@ -1749,7 +1749,7 @@ session and node with the step its task is at, the check matrix of each pull req
 with the slots in use; the bus records no slot capacity), and a footer naming the agents at work, the last
 failure (a card that fell or lost its session) and the review queue. A worker is alive when the bus
 recorded an event for it in the last 2 minutes, so the board needs no `ps` and runs in the window's
-sandbox. A window subagent is recorded with `pnpm exec tsx scripts/miko/window-subagents.ts --session <id>
+sandbox. A window subagent is recorded with `pnpm exec tsx scripts/window/window-subagents.ts --session <id>
 --role <role> --task <#card> --phase <started|ended>`, and drops out after 12 hours with no end.
 `--geek`, `--prs` and a `--stale` other than `4` show the raw sections of the earlier board in place of
 the screen, so none of them is silently dropped.
@@ -1969,7 +1969,7 @@ Each card of the draft takes `name`, `kind`, `milestone`, `size`, `touches`, `ta
 none of which has a default, and optionally `contour`, `decision`, `branch`, `who`, `continue`,
 `depends`, `blocks`, `creates` (the `touches` entries the change makes, so they are not expected to
 exist; an entry is `<path>` or `<path> (<kind>)`, the kind `ghosts` or `plain`, which the shift reads
-for a new file under `scripts/ghosts/` in place of a row in `architecture/ghosts-files.md`; an entry
+for a new file under `scripts/ladder/` in place of a row in `architecture/ghosts-files.md`; an entry
 of any other form is refused, and `--admit` marks it `unclear:`), `number` and `unclear` (a list of `{ "field", "reason" }`). `depends` and `blocks` name
 another card of the draft by its `name` or an existing card as `#<id>`; a card another one depends on
 gets the matching `blocks` entry.
@@ -2013,8 +2013,8 @@ has no bus and records nothing beyond the parked file. A bus-wired run writes no
 **Too big to take whole.** Before a card is parked, intake counts four signals of complexity from its
 `touches` and its `unclear:` lines: more than 6 `touches` entries or more than 2 areas (mechanism,
 agent prompts, templates and attach carriers, documents, generated files; `tests/**` and
-`.changeset/**` belong to none); a path of the mechanism the task itself runs on (`scripts/ghosts`,
-`scripts/shift`, `implement.workflow`, `check-acceptance.mjs`, the `harness` agent); a generated file
+`.changeset/**` belong to none); a path of the mechanism the task itself runs on (a file of the
+former ghosts or shift folder, `FACTORY_FORMER_FOLDERS`, `implement.workflow`, `check-acceptance.mjs`, the `harness` agent); a generated file
 (`contract/surface.json`, `templates/attach/earlier-carriers.json`) together with one of its sources;
 more than 2 `unclear:` lines. Two signals or more split the card: it gets a
 `seam: complexity — <every signal that fired> — <the slicing principle>` line, one
@@ -2104,7 +2104,7 @@ or printed, `1` when the draft was refused, `2` when corrections wait for a pers
 ## construct-intake
 
 A bin of its own beside `construct`: `construct intake` with its card events wired to the repository's
-bus, `dist/scripts/bus/intake.js`. It takes the same flags, writes the same parking cards, and records
+bus, `dist/scripts/intake/intake.js`. It takes the same flags, writes the same parking cards, and records
 every admit, slice and move on the bus `construct-factory` runs over (`~/.construct/<repo-id>/`, or
 the one `CONSTRUCT_BUS_DB` names), so the factory can launch the card.
 
@@ -2121,7 +2121,7 @@ exits `1`. `--dry-run` still prints. From the checkout of mikoshi-construct itse
 ## construct-factory
 
 A bin of its own beside `construct`, not a subcommand: the CLI starts no process, and this command
-is the factory's entry, `dist/scripts/bus/start.js`. Run it in the root of your repository.
+is the factory's entry, `dist/scripts/supervisor/start.js`. Run it in the root of your repository.
 
 ```bash
 construct-factory
@@ -2140,7 +2140,7 @@ of the shell you ran the command from and `CONSTRUCT_BUS_DB` set to the bus it s
 already installed with the same content and loaded is left as it is. Elsewhere no agent is installed,
 and after a restart of the machine you run `construct-factory` again. In the checkout of
 mikoshi-construct itself no agent is installed: its keep-alive is the agent
-`scripts/bus/launchd/dev.mikoshi.bus.plist`, which its owner installs by hand. From that checkout
+`scripts/supervisor/launchd/dev.mikoshi.bus.plist`, which its owner installs by hand. From that checkout
 the same command is `pnpm factory:start`, and it starts each process as `pnpm --silent <script>`.
 
 To remove the agent: `launchctl bootout gui/$(id -u)/<label>` and delete its file.

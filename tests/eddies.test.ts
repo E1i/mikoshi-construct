@@ -4,8 +4,8 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readd
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MIKO_HANDOFF_NAME } from '../scripts/miko/loop.js'
-import { CONTINUE_PROMPT } from '../scripts/shift/continuation.js'
+import { CONTINUE_PROMPT } from '../scripts/nodes/launch/continuation.js'
+import { MIKO_HANDOFF_NAME } from '../scripts/window/loop.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../.claude/hooks/eddies.mjs')
 const SESSION = 'sess-eddies'
@@ -107,7 +107,7 @@ const WARN_ACTION = 'finish the current step, save (milestone commit / handoff),
 
 function continueLine(s: Scratch): string {
   const handoff = path.join(s.handoff, MIKO_HANDOFF_NAME)
-  return `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\neddies: then end this session with pnpm miko:exit — the exit rule of scripts/miko/exit.ts holds at this context warn; under the pnpm miko loop the next session starts from the handoff\neddies: to continue in a new window — cd '${s.root}' && pnpm miko\n`
+  return `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\neddies: then end this session with pnpm miko:exit — the exit rule of scripts/window/exit.ts holds at this context warn; under the pnpm miko loop the next session starts from the handoff\neddies: to continue in a new window — cd '${s.root}' && pnpm miko\n`
 }
 
 function cardContinueLine(s: Scratch): string {

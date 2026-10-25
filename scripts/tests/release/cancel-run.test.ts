@@ -1,6 +1,6 @@
-import type { GhSpawned } from '../../core/gh.js'
+import type { GhSpawned } from '../../ports/gh.js'
 import { describe, expect, it } from 'vitest'
-import { GhBudgetWindow, ghPort } from '../../core/gh.js'
+import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
 import { downloadStageRecord, requestCancel, runIdentityFrom } from '../../release/cancel-run.js'
 
 const RUN = { repository: 'E1i/mikoshi-construct', runId: '42' }

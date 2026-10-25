@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ghostRowSessionId, upsertGhostRow, writingRow } from '../../ghosts/status.js'
+import { ghostRowSessionId, upsertGhostRow, writingRow } from '../../ladder/status.js'
 
 const STATUS = `| window | tree | state | sha | task start | waits for | updated |
 |---|---|---|---|---|---|---|

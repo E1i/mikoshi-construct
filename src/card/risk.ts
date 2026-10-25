@@ -1,4 +1,4 @@
-import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT } from '../../scripts/core/factory-paths.js'
+import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT } from '../../scripts/core/factory-paths.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 
 export const RISK_LEVELS = ['R1', 'R2', 'R3', 'R4'] as const
@@ -70,8 +70,7 @@ const HIGH: readonly (readonly [string, string])[] = [
   ['contract', CONTRACT],
   ['src/detect', CONTRACT],
   ['src/model/schema.ts', CONTRACT],
-  [FACTORY_FOLDERS.ghosts[0], FACTORY],
-  [FACTORY_FOLDERS.shift[0], FACTORY],
+  ...[...FACTORY_FORMER_FOLDERS.ghosts, ...FACTORY_FORMER_FOLDERS.shift].map(root => [root, FACTORY] as const),
 ]
 const LOW_ROOTS = ['docs', 'architecture', 'tests', '.changeset', '.construct', 'scripts']
 const GATE_SCRIPTS = ['scripts/composition', 'scripts/model', 'scripts/privacy', 'scripts/docs']

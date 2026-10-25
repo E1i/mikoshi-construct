@@ -1,7 +1,7 @@
 import type { ParkedTask } from '../../../src/card/parking.js'
 import { describe, expect, it } from 'vitest'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { choose, failedCards, latestStops, standingStops } from '../../shift/parking.js'
+import { choose, failedCards, latestStops, standingStops } from '../../intake/parking.js'
 
 function parked(id: number, kind = 'implement/runner/S/cheap/auto', who = 'shift', depends = '—'): ParkedTask {
   const parsed = parseParkingFile(`${id}.md`, `card: #${id} task-${id} [${kind}] · depends ${depends} · blocks —\nbranch: feat/${id}\ntouches: scripts/${id}/**\nwho: ${who}\n\ndo ${id}\n`)
@@ -61,7 +61,7 @@ describe('the stop journal readers', () => {
   })
 })
 
-describe('choose with a created scripts/ghosts file', () => {
+describe('choose with a created scripts/ladder file', () => {
   const touching = (file: string, creates?: string): ParkedTask => {
     const parsed = parseParkingFile('1.md', `card: #1 task-1 [implement/runner/S/cheap/auto] · depends — · blocks —\nbranch: feat/1\ntouches: ${file}\n${creates === undefined ? '' : `creates: ${creates}\n`}who: shift\n\ndo 1\n`)
     if (parsed.kind === 'refused')
@@ -69,18 +69,18 @@ describe('choose with a created scripts/ghosts file', () => {
     return parsed.parked
   }
 
-  it('an unclassified new file under scripts/ghosts makes the guard refuse', () => {
-    const refused = { id: '1', reason: 'classify scripts/ghosts/new.ts in architecture/ghosts-files.md, or declare it in creates: with its kind' }
-    expect(choose([touching('scripts/ghosts/new.ts')], new Set(), new Set(), new Map(), () => true).left).toEqual([refused])
-    expect(choose([touching('scripts/ghosts/new.ts', 'scripts/ghosts/new.ts')], new Set(), new Set(), new Map(), () => true).left).toEqual([refused])
-    expect(choose([touching('scripts/ghosts/new.ts', 'scripts/ghosts/new.ts (owner)')], new Set(), new Set(), new Map(), () => true).left).toEqual([refused])
+  it('an unclassified new file under scripts/ladder makes the guard refuse', () => {
+    const refused = { id: '1', reason: 'classify scripts/ladder/new.ts in architecture/ghosts-files.md, or declare it in creates: with its kind' }
+    expect(choose([touching('scripts/ladder/new.ts')], new Set(), new Set(), new Map(), () => true).left).toEqual([refused])
+    expect(choose([touching('scripts/ladder/new.ts', 'scripts/ladder/new.ts')], new Set(), new Set(), new Map(), () => true).left).toEqual([refused])
+    expect(choose([touching('scripts/ladder/new.ts', 'scripts/ladder/new.ts (owner)')], new Set(), new Set(), new Map(), () => true).left).toEqual([refused])
     for (const kind of ['ghosts', 'plain'])
-      expect(choose([touching('scripts/ghosts/new.ts', `scripts/ghosts/new.ts (${kind})`)], new Set(), new Set(), new Map(), () => true).chosen).toHaveLength(1)
+      expect(choose([touching('scripts/ladder/new.ts', `scripts/ladder/new.ts (${kind})`)], new Set(), new Set(), new Map(), () => true).chosen).toHaveLength(1)
   })
 
-  it('a card whose scripts/ghosts file exists, or a file elsewhere, is taken', () => {
-    expect(choose([touching('scripts/ghosts/old.ts')], new Set(), new Set(), new Map(), () => false).chosen).toHaveLength(1)
-    expect(choose([touching('scripts/shift/new.ts')], new Set(), new Set(), new Map(), () => true).chosen).toHaveLength(1)
+  it('a card whose scripts/ladder file exists, or a file elsewhere, is taken', () => {
+    expect(choose([touching('scripts/ladder/old.ts')], new Set(), new Set(), new Map(), () => false).chosen).toHaveLength(1)
+    expect(choose([touching('scripts/window/new.ts')], new Set(), new Set(), new Map(), () => true).chosen).toHaveLength(1)
   })
 })
 

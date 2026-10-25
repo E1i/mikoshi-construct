@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { legacyEventOf } from '../../bus/import.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STARTED } from '../../core/events.js'
+import { legacyEventOf } from '../../intake/import.js'
 
 export function journalInBus(busPath: string, journal: readonly string[]): void {
   const db = openBus(busPath)

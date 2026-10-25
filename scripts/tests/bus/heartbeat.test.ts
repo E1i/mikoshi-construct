@@ -1,9 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { LockReading } from '../../bus/db.js'
-import type { HeldLease } from '../../bus/heartbeat.js'
-import type { Lease } from '../../bus/lease.js'
-import type { ReviewPlan } from '../../bus/review-depth.js'
-import type { SessionGauges } from '../../miko/eddies-measure.js'
+import type { LockReading } from '../../core/db.js'
+import type { Lease } from '../../core/lease.js'
+import type { ReviewPlan } from '../../nodes/review/review-depth.js'
+import type { HeldLease } from '../../supervisor/heartbeat.js'
+import type { SessionGauges } from '../../window/eddies-measure.js'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,19 +11,19 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { AnswerNode } from '../../bus/answer-worker.js'
-import { cardFields } from '../../bus/card-contract.js'
-import { CloseNode } from '../../bus/close-worker.js'
-import { openBus, watchLocks } from '../../bus/db.js'
-import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../bus/heartbeat.js'
-import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease } from '../../bus/lease.js'
-import { MergeNode } from '../../bus/merge-worker.js'
-import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../bus/review-worker.js'
-import { reviewSession } from '../../bus/reviewer.js'
-import { UpdateNode } from '../../bus/update-worker.js'
+import { openBus, watchLocks } from '../../core/db.js'
 import { SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
-import { NO_TRANSCRIPT, sessionGauges } from '../../miko/eddies-measure.js'
+import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease } from '../../core/lease.js'
+import { cardFields } from '../../intake/card-contract.js'
+import { AnswerNode } from '../../nodes/answer/answer-worker.js'
+import { CloseNode } from '../../nodes/close/close-worker.js'
+import { MergeNode } from '../../nodes/merge/merge-worker.js'
+import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../nodes/review/review-worker.js'
+import { reviewSession } from '../../nodes/review/reviewer.js'
+import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
+import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../supervisor/heartbeat.js'
+import { NO_TRANSCRIPT, sessionGauges } from '../../window/eddies-measure.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -309,10 +309,10 @@ async function hook(): Promise<HeartbeatHook> {
 function fakeProject(): { root: string, marker: string } {
   const root = mkdtempSync(path.join(tmpdir(), 'heartbeat-hook-'))
   roots.push(root)
-  mkdirSync(path.join(root, 'scripts', 'bus'), { recursive: true })
+  mkdirSync(path.join(root, 'scripts', 'supervisor'), { recursive: true })
   symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(root, 'node_modules'))
   const marker = path.join(root, 'beat')
-  writeFileSync(path.join(root, 'scripts', 'bus', 'heartbeat.ts'), `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(marker)}, process.argv[2] ?? '')\n`)
+  writeFileSync(path.join(root, 'scripts', 'supervisor', 'heartbeat.ts'), `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(marker)}, process.argv[2] ?? '')\n`)
   return { root, marker }
 }
 
@@ -327,7 +327,7 @@ function runHook(root: string, card: string | undefined, input: object): void {
 describe('the PostToolUse hook starts the heartbeat CLI only in a session of a card', () => {
   it('heartbeatArgv runs the heartbeat CLI of the project under tsx with the session id', async () => {
     const { heartbeatArgv } = await hook()
-    expect(heartbeatArgv('/repo', 'session-1')).toEqual(['--import', 'tsx', path.join('/repo', 'scripts', 'bus', 'heartbeat.ts'), 'session-1'])
+    expect(heartbeatArgv('/repo', 'session-1')).toEqual(['--import', 'tsx', path.join('/repo', 'scripts', 'supervisor', 'heartbeat.ts'), 'session-1'])
   })
 
   it('sessionOf takes a plain session_id from the hook input and nothing else', async () => {

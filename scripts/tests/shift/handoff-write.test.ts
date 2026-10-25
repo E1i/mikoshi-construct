@@ -1,6 +1,6 @@
-import type { WindowShard } from '../../bus/shards.js'
-import type { ExitReadings } from '../../miko/eddies-measure.js'
-import type { HandoffState, MergedReading, PrState, StateReading } from '../../shift/handoff-write.js'
+import type { WindowShard } from '../../policy/shards.js'
+import type { ExitReadings } from '../../window/eddies-measure.js'
+import type { HandoffState, MergedReading, PrState, StateReading } from '../../window/handoff-write.js'
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -9,16 +9,16 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { keyOf, queueTask } from '../../bus/queue.js'
-import { COMPLETION_OF } from '../../bus/window.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { NODE_DETECTED } from '../../core/events.js'
-import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../ghosts/handoff-check.js'
-import { UNREAD } from '../../miko/eddies-measure.js'
-import { stopReasonOf } from '../../miko/exit.js'
-import { statusOf } from '../../miko/loop.js'
-import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../shift/day-archive.js'
-import { busMerged, nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../shift/handoff-write.js'
+import { keyOf, queueTask } from '../../core/queue.js'
+import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../window/day-archive.js'
+import { UNREAD } from '../../window/eddies-measure.js'
+import { stopReasonOf } from '../../window/exit.js'
+import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../window/handoff-check.js'
+import { busMerged, nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../window/handoff-write.js'
+import { statusOf } from '../../window/loop.js'
+import { COMPLETION_OF } from '../../window/window.js'
 
 const roots: string[] = []
 const UNBOUNDED_OWNER_STATUSES = [
@@ -40,7 +40,7 @@ const BUS_STATE: HandoffState = {
   lanes: [{ lane: 'lane-1', card: 648, state: 'running', since: null }, { lane: 'lane-2', card: null, state: null, since: null }],
   execution: [{ card: 648, pr: null, stage: 'writing', since: null, review: null, markers: [] }, { card: 640, pr: 701, stage: 'awaiting merge', since: null, review: null, markers: [] }],
 }
-const HANDOFF_WRITE = fileURLToPath(new URL('../../shift/handoff-write.ts', import.meta.url))
+const HANDOFF_WRITE = fileURLToPath(new URL('../../window/handoff-write.ts', import.meta.url))
 const NOW = new Date('2026-10-17T10:00:00.000Z')
 const NO_MERGES: MergedReading = { kind: 'read', cards: [], merges: 0, updates: 0 }
 const BELOW_WARN: ExitReadings = { ...UNREAD, context: 10, contextWarn: 100, spent: 1, spendWarn: 100 }
@@ -406,8 +406,8 @@ describe('handoff:write', () => {
   it('handoff:write does not import miko:exit', () => {
     const source = readFileSync(HANDOFF_WRITE, 'utf8')
     expect(source).not.toMatch(/\b(?:runMikoExit|realMikoExitDeps|exitDecision)\b/)
-    expect(source.match(/from ['"]\.\.\/miko\/exit(?:\.js)?['"]/g)).toEqual(['from \'../miko/exit.js\''])
-    expect(source).toMatch(/import \{ stopReasonOf \} from '\.\.\/miko\/exit\.js'/)
+    expect(source.match(/from ['"]\.\/exit(?:\.js)?['"]/g)).toEqual(['from \'./exit.js\''])
+    expect(source).toMatch(/import \{ stopReasonOf \} from '\.\/exit\.js'/)
   })
 
   it('generates the STOP heading, merged today and the stop reason, and refuses them in the draft', () => {

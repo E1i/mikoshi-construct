@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { canonicalImplementText, sha256Hex } from '../scripts/ghosts/approval.js'
+import { canonicalImplementText, sha256Hex } from '../scripts/ladder/approval.js'
 
 const SCRIPT = path.resolve(import.meta.dirname, '..', 'scripts/construct/check-acceptance.mjs')
 

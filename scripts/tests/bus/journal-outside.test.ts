@@ -5,15 +5,15 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { JOURNAL_HISTORY_ENDS } from '../../../src/card/closed.js'
 import { admittedRecord, recordIntake } from '../../../src/commands/intake/index.js'
-import { ghostJournalOf } from '../../bus/check-catalog.js'
-import { appendEvent, openBus } from '../../bus/db.js'
+import { ghostJournalOf } from '../../cli/check-catalog.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { GHOST_LINE, REVIEW_RECORDED, SHARD_ISSUED } from '../../core/events.js'
-import { runShard } from '../../shift/shard.js'
+import { runShard } from '../../policy/shard.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const JOURNAL_NAMES = /ghosts\.jsonl|GHOST_JOURNAL|journalOf\(/
-const READERS = ['scripts/decisions/read.ts', 'scripts/decisions/add.ts', 'scripts/miko/watch.ts', 'scripts/shift/parking.ts', 'scripts/bus/check-catalog.ts']
-const WRITERS = ['scripts/done/check.ts', 'scripts/shift/shard.ts', 'src/commands/mutate/journal.ts', 'src/commands/intake/index.ts']
+const READERS = ['scripts/policy/decisions/read.ts', 'scripts/policy/decisions/add.ts', 'scripts/window/watch.ts', 'scripts/intake/parking.ts', 'scripts/cli/check-catalog.ts']
+const WRITERS = ['scripts/done/check.ts', 'scripts/policy/shard.ts', 'src/commands/mutate/journal.ts', 'src/commands/intake/index.ts']
 const FILE_APPENDS = /appendFileSync/
 const AFTER_THE_CUTOFF = new Date(Date.parse(JOURNAL_HISTORY_ENDS) + 86_400_000)
 
@@ -38,7 +38,7 @@ describe('the readers and writers of ghosts.jsonl outside the ladder use the bus
   it('decisions, watch, parking and check-catalog read the bus and not ghosts.jsonl', () => {
     for (const reader of READERS)
       expect(source(reader), reader).not.toMatch(JOURNAL_NAMES)
-    expect(source('scripts/bus/check-catalog.ts')).not.toMatch(/from '\.\.\/ghosts\//)
+    expect(source('scripts/cli/check-catalog.ts')).not.toMatch(/from '\.\.\/ghosts\//)
 
     const db = openBus(path.join(scratch(), 'bus.db'))
     try {
@@ -90,8 +90,8 @@ describe('the readers and writers of ghosts.jsonl outside the ladder use the bus
     expect(existsSync(path.join(REPO_ROOT, 'scripts/tests/ghosts/cloud-start.test.ts'))).toBe(false)
     expect(Object.keys(JSON.parse(source('scripts/ci/test-weights.json')) as Record<string, number>)).not.toContain('scripts/tests/ghosts/cloud-start.test.ts')
     expect(source('architecture/ghosts-files.md')).not.toContain('cloud-start')
-    expect(source('scripts/ghosts/task-close.ts')).not.toContain('cloud-start')
-    expect(existsSync(path.join(REPO_ROOT, 'scripts/ghosts/verdict.ts'))).toBe(true)
-    expect(source('architecture/ghosts-files.md')).toContain('| `scripts/ghosts/verdict.ts` | ghosts |')
+    expect(source('scripts/nodes/close/task-close.ts')).not.toContain('cloud-start')
+    expect(existsSync(path.join(REPO_ROOT, 'scripts/ladder/verdict.ts'))).toBe(true)
+    expect(source('architecture/ghosts-files.md')).toContain('| `scripts/ladder/verdict.ts` | ghosts |')
   })
 })

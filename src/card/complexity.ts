@@ -1,4 +1,5 @@
 import type { SliceSources } from './slice-depends.js'
+import { FACTORY_FORMER_FOLDERS } from '../../scripts/core/factory-paths.js'
 import { GENERATED_WITH, groupsOf, riskReading, SEAM_PREFIX, sliceLine } from './risk.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 
@@ -13,8 +14,8 @@ export const CHARACTERS_PER_TOKEN = 4
 const SESSION_READING_CHARACTERS = SESSION_READING_TOKENS * CHARACTERS_PER_TOKEN
 const VOLUME_LABEL = 'volume'
 const MECHANISM_A_TASK_RUNS_ON = [
-  'scripts/ghosts',
-  'scripts/shift',
+  ...FACTORY_FORMER_FOLDERS.ghosts,
+  ...FACTORY_FORMER_FOLDERS.shift,
   'scripts/construct/implement.workflow',
   'scripts/construct/check-acceptance.mjs',
   '.claude/agents/harness.md',

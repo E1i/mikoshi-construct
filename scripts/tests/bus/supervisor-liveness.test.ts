@@ -1,6 +1,6 @@
-import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../bus/bg.js'
-import type { InForceDecision } from '../../bus/decisions.js'
-import type { BusCode, MainAdvance, SupervisingParts } from '../../bus/supervisor.js'
+import type { InForceDecision } from '../../policy/decisions.js'
+import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../supervisor/bg.js'
+import type { BusCode, MainAdvance, SupervisingParts } from '../../supervisor/supervisor.js'
 import { once } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,26 +9,26 @@ import { performance } from 'node:perf_hooks'
 import process from 'node:process'
 import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../bus/bg.js'
-import { RUNNING_CARD } from '../../bus/card-automaton.js'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { ghApi } from '../../bus/github.js'
-import { CARD_PROCESS, lastProcessBeats, recordHeartbeat, recordProcessHeartbeat, WINDOW_PROCESS } from '../../bus/heartbeat.js'
-import { RESTART_MISSED } from '../../bus/inbox.js'
-import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLease } from '../../bus/lease.js'
-import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../bus/liveness-sites.js'
-import { Meter } from '../../bus/meter.js'
-import { CHECK_MS } from '../../bus/netwatch.js'
-import { reduce } from '../../bus/reducer.js'
-import { reviewLaunch } from '../../bus/review-bg.js'
-import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, entryOf, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, restartSilentSupervisor, startingBaseline, stillSilent, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, SUPERVISOR_SILENT_MS, WorkerKeeper } from '../../bus/supervisor.js'
-import { recordWindowHeartbeat } from '../../bus/window-heartbeat.js'
-import { busLaunches, switchWorker, wantedLaunches, workerLaunches } from '../../bus/workers.js'
+import { RUNNING_CARD } from '../../core/card-automaton.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
-import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../core/gh.js'
+import { RESTART_MISSED } from '../../core/inbox.js'
+import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLease } from '../../core/lease.js'
+import { reduce } from '../../core/reducer.js'
+import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../ports/gh.js'
+import { ghApi } from '../../ports/github.js'
+import { Meter } from '../../ports/meter.js'
+import { CHECK_MS } from '../../ports/netwatch.js'
+import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../supervisor/bg.js'
+import { CARD_PROCESS, lastProcessBeats, recordHeartbeat, recordProcessHeartbeat, WINDOW_PROCESS } from '../../supervisor/heartbeat.js'
+import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { reviewLaunch } from '../../supervisor/review-bg.js'
+import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, entryOf, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, restartSilentSupervisor, startingBaseline, stillSilent, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, SUPERVISOR_SILENT_MS, WorkerKeeper } from '../../supervisor/supervisor.js'
+import { busLaunches, switchWorker, wantedLaunches, workerLaunches } from '../../supervisor/workers.js'
+import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
-const SHARED_FILE = 'scripts/bus/db.ts'
+const SHARED_FILE = 'scripts/core/db.ts'
 const SHARED_CODE: ReadonlySet<string> = new Set([SHARED_FILE])
 const WRITE_LOCK_MS = 5000
 const LOCKED_AT = '2026-10-21T12:00:00.000Z'
@@ -1086,7 +1086,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
   })
 
   it('the replacement does not see its own supervisor as already running', () => {
-    const own = [{ pid: 500, group: 500, args: SUPERVISOR_ARGS }, { pid: 501, group: 500, args: 'node tsx scripts/bus/supervisor.ts --supervise' }]
+    const own = [{ pid: 500, group: 500, args: SUPERVISOR_ARGS }, { pid: 501, group: 500, args: 'node tsx scripts/supervisor/supervisor.ts --supervise' }]
     const other = { pid: 700, group: 700, args: 'node pnpm.cjs --silent bus:run' }
     expect(runningInstance(outsideGroup([...own, other], 500), SUPERVISOR_LAUNCH.markers)).toBeUndefined()
     expect(outsideGroup([...own, other], 500)).toEqual([{ pid: 700, args: other.args }])

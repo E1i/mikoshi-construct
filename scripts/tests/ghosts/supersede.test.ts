@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lastRunSketch, patchPath, shortSketch, sketchSuperseded } from '../../ghosts/supersede.js'
+import { lastRunSketch, patchPath, shortSketch, sketchSuperseded } from '../../ladder/supersede.js'
 
 describe('supersede', () => {
   it('treats null and none as equal', () => {

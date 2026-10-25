@@ -2,8 +2,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { approvalOf, journalEvents, revocationOf, revokeEvent } from '../../ghosts/approval.js'
-import { ghostLines, ghostLinesText, journalText, recordGhostLine, taskLine } from '../../ghosts/journal.js'
+import { ghostLines, ghostLinesText, journalText, recordGhostLine, taskLine } from '../../core/journal.js'
+import { approvalOf, journalEvents, revocationOf, revokeEvent } from '../../ladder/approval.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const BASE_ENTRY = {

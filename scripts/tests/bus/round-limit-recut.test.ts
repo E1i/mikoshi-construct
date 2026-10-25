@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { GhResponse, GitHub, GitHubPut } from '../../bus/github.js'
-import type { CardAdmit, RecutOutcome } from '../../bus/pr-close.js'
+import type { CardAdmit, RecutOutcome } from '../../nodes/review/pr-close.js'
+import type { GhResponse, GitHub, GitHubPut } from '../../ports/github.js'
 import type { MergeBench } from './merge-bench.js'
 import os from 'node:os'
 import path from 'node:path'
@@ -10,15 +10,15 @@ import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { goalOf } from '../../../src/commands/board/goal.js'
 import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
-import { appendCardEvent, WINDOW_LANE } from '../../bus/card-bodies.js'
-import { appendEvent } from '../../bus/db.js'
-import { parkedCardNumbers } from '../../bus/intake.js'
-import { RoundLimitRecutter } from '../../bus/pr-close.js'
-import { changesRoundsOf, RECUT_GRACE_MS } from '../../bus/queue.js'
-import { fullReview } from '../../bus/review-depth.js'
-import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../bus/review-worker.js'
-import { RECUT_ACTOR } from '../../bus/round-limit-decision.js'
+import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
+import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, MERGE_DONE, OWNER_WAIT_OPENED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, WITNESS_RECORDED } from '../../core/events.js'
+import { changesRoundsOf, RECUT_GRACE_MS } from '../../core/queue.js'
+import { parkedCardNumbers } from '../../intake/intake.js'
+import { RoundLimitRecutter } from '../../nodes/review/pr-close.js'
+import { fullReview } from '../../nodes/review/review-depth.js'
+import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../nodes/review/review-worker.js'
+import { RECUT_ACTOR } from '../../policy/round-limit-decision.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
 
@@ -350,8 +350,8 @@ describe('the re-cut of a pull request at the review round limit', () => {
   })
 
   it('an R1 card at the limit opens an owner wait and is not re-cut', async () => {
-    const fixed = fixture(cardText({ touches: ['scripts/bus/queue.ts'], body: SLICEABLE }))
-    fixed.reviewer.findings = ['scripts/bus/queue.ts:roundsOf counts the wrong review']
+    const fixed = fixture(cardText({ touches: ['scripts/core/queue.ts'], body: SLICEABLE }))
+    fixed.reviewer.findings = ['scripts/core/queue.ts:roundsOf counts the wrong review']
     await reviewToTheLimit(fixed)
 
     expect(fixed.outcomes).toEqual([expect.objectContaining({ kind: 'owner_wait', pr: PR, why: expect.stringContaining('is R1') })])

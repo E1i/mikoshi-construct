@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../bus/db.js'
-import { windowOpenPrs } from '../../bus/window-prs.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STARTED } from '../../core/events.js'
+import { windowOpenPrs } from '../../window/window-prs.js'
 
 const roots: string[] = []
 

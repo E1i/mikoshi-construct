@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { liveDecisionOf } from '../../bus/live-decision.js'
-import { detectionCommand } from '../../bus/supervisor.js'
-import { liveWorkers } from '../../bus/workers.js'
+import { liveDecisionOf } from '../../policy/live-decision.js'
+import { detectionCommand } from '../../supervisor/supervisor.js'
+import { liveWorkers } from '../../supervisor/workers.js'
 
 const roots: string[] = []
 

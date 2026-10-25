@@ -1,10 +1,10 @@
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent } from '../../bus/db.js'
-import { failTask, leaseNext } from '../../bus/lease.js'
-import { FAILURES_TO_STOP } from '../../bus/queue.js'
-import { reduce } from '../../bus/reducer.js'
+import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, PR_OPENED, REJECTED } from '../../core/events.js'
+import { failTask, leaseNext } from '../../core/lease.js'
+import { FAILURES_TO_STOP } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
 import { mergeBench } from './merge-bench.js'
 
 const benches: MergeBench[] = []

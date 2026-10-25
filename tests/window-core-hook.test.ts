@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
-import { CONTINUE_PROMPT, MIKO_HANDOFF_NAME } from '../scripts/miko/loop.js'
-import { ENTRYPOINT_VARIABLE } from '../scripts/miko/tab.js'
 import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../scripts/ports/session.js'
+import { CONTINUE_PROMPT, MIKO_HANDOFF_NAME } from '../scripts/window/loop.js'
+import { ENTRYPOINT_VARIABLE } from '../scripts/window/tab.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const HOOK = path.join(REPO_ROOT, '.claude', 'hooks', 'window-core.mjs')

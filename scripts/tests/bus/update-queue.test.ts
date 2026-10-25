@@ -1,18 +1,18 @@
-import type { Lease } from '../../bus/lease.js'
-import type { NodeStep } from '../../bus/node.js'
-import type { UpdateOutcome } from '../../bus/update-executor.js'
+import type { Lease } from '../../core/lease.js'
+import type { NodeStep } from '../../core/node.js'
+import type { UpdateOutcome } from '../../nodes/update/update-executor.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendEvent } from '../../bus/db.js'
-import { prBodySha, taskKey } from '../../bus/identifiers.js'
-import { ownerInbox } from '../../bus/inbox.js'
-import { expireLeases, LEASE_MS, leaseNext } from '../../bus/lease.js'
-import { NoLiveVerdict } from '../../bus/merge-worker.js'
-import { updateCandidates } from '../../bus/queue.js'
-import { projectionDump, reduce } from '../../bus/reducer.js'
-import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../bus/update-executor.js'
-import { runUpdateWorker, UpdateNode } from '../../bus/update-worker.js'
+import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, POLICY_DENIED, REVIEW_RECORDED } from '../../core/events.js'
+import { prBodySha, taskKey } from '../../core/identifiers.js'
+import { ownerInbox } from '../../core/inbox.js'
+import { expireLeases, LEASE_MS, leaseNext } from '../../core/lease.js'
+import { updateCandidates } from '../../core/queue.js'
+import { projectionDump, reduce } from '../../core/reducer.js'
+import { NoLiveVerdict } from '../../nodes/merge/merge-worker.js'
+import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../nodes/update/update-executor.js'
+import { runUpdateWorker, UpdateNode } from '../../nodes/update/update-worker.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -163,7 +163,7 @@ describe('the update queue', () => {
 
   it('a clean update carries the verdict to the new head', () => {
     const bench = updateBench()
-    bench.gitHub.open({ number: 987, review: 'success', mergeable_state: 'behind', files: ['scripts/bus/queue.ts'] })
+    bench.gitHub.open({ number: 987, review: 'success', mergeable_state: 'behind', files: ['scripts/core/queue.ts'] })
     bench.tick()
     detectUpdate(bench)
 
@@ -185,8 +185,8 @@ describe('the update queue', () => {
 
   it('an update that changes the PR diff sends the new head back to review without a verdict', () => {
     const bench = updateBench()
-    bench.gitHub.open({ number: 988, review: 'success', mergeable_state: 'behind', files: ['scripts/bus/queue.ts'] })
-    bench.gitHub.updatedPatches = { 'scripts/bus/queue.ts': '@@ -1,2 +1,2 @@ a line main also changed' }
+    bench.gitHub.open({ number: 988, review: 'success', mergeable_state: 'behind', files: ['scripts/core/queue.ts'] })
+    bench.gitHub.updatedPatches = { 'scripts/core/queue.ts': '@@ -1,2 +1,2 @@ a line main also changed' }
     bench.tick()
     detectUpdate(bench)
 

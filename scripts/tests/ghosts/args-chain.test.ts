@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ARGS_PATH, tiedArgsSha256 } from '../../ghosts/args-chain.js'
+import { ARGS_PATH, tiedArgsSha256 } from '../../ladder/args-chain.js'
 
 const APPROVED = 'a'.repeat(64)
 

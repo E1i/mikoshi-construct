@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE } from '../../bus/db.js'
-import { approvalEvent, revokeEvent } from '../../ghosts/approval.js'
-import { ghostLines } from '../../ghosts/journal.js'
+import { BUS_DB_VARIABLE } from '../../core/db.js'
+import { ghostLines } from '../../core/journal.js'
+import { approvalEvent, revokeEvent } from '../../ladder/approval.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
-const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
+const LAUNCH = path.join(REPO_ROOT, 'scripts/ladder/launch.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const CARD = 902
 const OTHER_HASH = 'b'.repeat(64)

@@ -4,15 +4,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE } from '../../bus/db.js'
-import { openDatabase } from '../../bus/sqlite.js'
+import { BUS_DB_VARIABLE } from '../../core/db.js'
 import { GHOST_ROW } from '../../core/events.js'
-import { ghostLines } from '../../ghosts/journal.js'
-import { ghostRowState, upsertGhostRow, writingRow } from '../../ghosts/status.js'
+import { ghostLines } from '../../core/journal.js'
+import { openDatabase } from '../../core/sqlite.js'
+import { ghostRowState, upsertGhostRow, writingRow } from '../../ladder/status.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const CLEANUP = path.join(REPO_ROOT, 'scripts/ghosts/cleanup.ts')
-const WATCH = path.join(REPO_ROOT, 'scripts/ghosts/watch.ts')
+const CLEANUP = path.join(REPO_ROOT, 'scripts/ladder/cleanup.ts')
+const WATCH = path.join(REPO_ROOT, 'scripts/ladder/watch.ts')
 const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
 const TASK_LOGS = ['mc-g1.quality.log', 'mc-g1-quality-2.log']
 const FOREIGN_LOG = 'mc-g10.quality.log'
@@ -540,7 +540,7 @@ describe('superseded without --tasks', () => {
   })
 })
 
-const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
+const LAUNCH = path.join(REPO_ROOT, 'scripts/ladder/launch.ts')
 const LAUNCH_WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
 const launchWorlds: string[] = []
 

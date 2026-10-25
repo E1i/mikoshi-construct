@@ -5,15 +5,15 @@ import { existsSync, readFileSync, watch } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE } from '../../bus/db.js'
-import { openDatabase } from '../../bus/sqlite.js'
+import { BUS_DB_VARIABLE } from '../../core/db.js'
 import { GHOST_ROW } from '../../core/events.js'
-import { ghostLines } from '../../ghosts/journal.js'
-import { ghostRowState } from '../../ghosts/status.js'
+import { ghostLines } from '../../core/journal.js'
+import { openDatabase } from '../../core/sqlite.js'
+import { ghostRowState } from '../../ladder/status.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')
-const LAUNCH = path.join(REPO_ROOT, 'scripts/ghosts/launch.ts')
+const LAUNCH = path.join(REPO_ROOT, 'scripts/ladder/launch.ts')
 const TSX_LOADER = 'tsx'
 const ROW_APPEARS_MS = 20_000
 const FREE_ROW_MS = 30_000

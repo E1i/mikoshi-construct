@@ -102,8 +102,8 @@ describe('intake confirmation gate', () => {
   })
 
   it('confirmed slices are parked as cards with depends and no manual step', () => {
-    const w = world([card({ touches: ['scripts/bus/queue.ts', 'scripts/bus/inbox.ts'] })])
-    writeFileSync(path.join(w.repo, 'scripts/bus/queue.ts'), 'import { inboxOf } from \'./inbox.js\'\n')
+    const w = world([card({ touches: ['scripts/core/queue.ts', 'scripts/core/inbox.ts'] })])
+    writeFileSync(path.join(w.repo, 'scripts/core/queue.ts'), 'import { inboxOf } from \'./inbox.js\'\n')
     const held = intake(w)
     expect(held.status).toBe('awaiting')
     expect(existsSync(w.parking)).toBe(false)
@@ -121,17 +121,17 @@ describe('intake confirmation gate', () => {
       expect(text).toContain('who: shift')
       expect(text).toContain('- `pnpm run quality` is green')
     }
-    expect(admittedText(w, '13.md')).toContain('touches: scripts/bus/queue.ts\n')
-    expect(admittedText(w, '14.md')).toContain('touches: scripts/bus/inbox.ts\n')
+    expect(admittedText(w, '13.md')).toContain('touches: scripts/core/queue.ts\n')
+    expect(admittedText(w, '14.md')).toContain('touches: scripts/core/inbox.ts\n')
     expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: 'person' }, { task: '14', confirmation: 'person' }])
   })
 
   it('card A of probe 1075 passes intake into cards with depends with no manual step', () => {
-    const touches = ['scripts/ghosts/hash.ts', 'scripts/ghosts/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/bus/inbox.ts', 'scripts/bus/queue.ts', 'scripts/bus/round-limit-decision.ts', 'scripts/bus/update-done.ts', 'scripts/bus/merge-executor.ts', 'scripts/decisions/decisions.ts', 'scripts/ci/update-branch.ts', 'scripts/tests/bus/round-limit-decision.test.ts', 'scripts/tests/bus/merge-queue.test.ts', 'scripts/bus/answerer.ts', 'scripts/bus/answer-worker.ts', 'scripts/bus/lease.ts', 'scripts/tests/bus/answer-node.test.ts', 'scripts/miko/watch.ts', 'scripts/miko/watch-store.ts', 'scripts/tests/miko/watch.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ghosts/launch.ts', 'scripts/bus/launch-worker.ts', 'package.json', 'architecture/window.md', '.changeset/**']
+    const touches = ['scripts/ladder/hash.ts', 'scripts/ladder/approval.ts', 'scripts/tests/ghosts/hash.test.ts', 'scripts/core/inbox.ts', 'scripts/core/queue.ts', 'scripts/policy/round-limit-decision.ts', 'scripts/nodes/update/update-done.ts', 'scripts/nodes/merge/merge-executor.ts', 'scripts/policy/decisions/decisions.ts', 'scripts/ci/update-branch.ts', 'scripts/tests/bus/round-limit-decision.test.ts', 'scripts/tests/bus/merge-queue.test.ts', 'scripts/nodes/answer/answerer.ts', 'scripts/nodes/answer/answer-worker.ts', 'scripts/core/lease.ts', 'scripts/tests/bus/answer-node.test.ts', 'scripts/window/watch.ts', 'scripts/window/watch-store.ts', 'scripts/tests/miko/watch.test.ts', 'scripts/construct/check-acceptance.mjs', 'templates/ai/claude/scripts/construct/check-acceptance.mjs', 'scripts/ladder/launch.ts', 'scripts/nodes/launch/launch-worker.ts', 'package.json', 'architecture/window.md', '.changeset/**']
     const witness = '`pnpm exec vitest run scripts/tests/ghosts/hash.test.ts scripts/tests/bus/round-limit-decision.test.ts scripts/tests/bus/merge-queue.test.ts scripts/tests/bus/answer-node.test.ts scripts/tests/miko/watch.test.ts` exits 0'
     const w = world([card({ name: 'owner-loop-without-relay', milestone: 'operator', size: 'L', touches, task: 'Card A owner-loop-without-relay, eight items as one task.', witnesses: [witness] })])
     writeFileSync(path.join(w.repo, 'package.json'), '{}\n')
-    writeFileSync(path.join(w.repo, 'scripts/bus/queue.ts'), 'import { inboxOf } from \'./inbox.js\'\n')
+    writeFileSync(path.join(w.repo, 'scripts/core/queue.ts'), 'import { inboxOf } from \'./inbox.js\'\n')
     const held = intake(w)
     expect(held.status).toBe('awaiting')
     const confirmed = intake(w, { confirm: held.status === 'awaiting' ? held.token : '' })
@@ -146,7 +146,7 @@ describe('intake confirmation gate', () => {
     const parsed = parked.map(entry => parseParkingFile(entry.file, admittedText(w, entry.file)))
     const parkedTouches = parsed.flatMap(entry => (entry.kind === 'parked' ? entry.parked.task.touches : []))
     expect(new Set(parkedTouches)).toEqual(new Set(touches))
-    expect(parsed.map(entry => entry.kind === 'parked' && entry.parked.task.touches.includes('scripts/bus/queue.ts'))).toEqual([true, false])
+    expect(parsed.map(entry => entry.kind === 'parked' && entry.parked.task.touches.includes('scripts/core/queue.ts'))).toEqual([true, false])
   })
 
   it('a --confirm token that names another list parks nothing and prints the list this run holds', () => {

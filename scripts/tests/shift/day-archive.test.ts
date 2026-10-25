@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DECISIONS_IN_FORCE_LIMIT } from '../../decisions/decisions.js'
-import { appended, archiveOfDay, DAY_FILE_LIMIT, dayFileNamedIn, QUESTIONS_HEADING, splitDay } from '../../shift/day-archive.js'
+import { DECISIONS_IN_FORCE_LIMIT } from '../../policy/decisions/decisions.js'
+import { appended, archiveOfDay, DAY_FILE_LIMIT, dayFileNamedIn, QUESTIONS_HEADING, splitDay } from '../../window/day-archive.js'
 
 const OPEN = '- Q21 open — R4 design: which limit?\n  options (a) and (b)'
 const ANSWERED = '- Q20 answered — Q17 cleanup blocked\n  options (a), (b), (c)'

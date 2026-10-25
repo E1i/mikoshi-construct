@@ -82,7 +82,7 @@ See [the reasoning budget](/guide/reasoning-budget) for what each class means an
 
 `construct board` shows where each task stands while it runs, on one screen: Flow, the live Backlog, and Services with the window and its subagents, all read from the bus; without a bus it reads the ladder runs in `.construct/runs.jsonl` and the open pull requests, see [the reference](/cli#construct-board).
 
-The bus and the board live per repository, in `~/.construct/<owner>--<repo>/`, `<owner>/<repo>` read from the git remote of the checkout (`origin` first). The launchd job `scripts/bus/launchd/dev.mikoshi.bus.plist` starts the bus in the checkout `CONSTRUCT_FACTORY_DIR` names, so set it once with `launchctl setenv CONSTRUCT_FACTORY_DIR <checkout>` before loading the job; without it the job exits 1 and only `~/.construct/dev.mikoshi.bus.log` says why. The job passes no `GH_TOKEN`: gh answers with its active account.
+The bus and the board live per repository, in `~/.construct/<owner>--<repo>/`, `<owner>/<repo>` read from the git remote of the checkout (`origin` first). The launchd job `scripts/supervisor/launchd/dev.mikoshi.bus.plist` starts the bus in the checkout `CONSTRUCT_FACTORY_DIR` names, so set it once with `launchctl setenv CONSTRUCT_FACTORY_DIR <checkout>` before loading the job; without it the job exits 1 and only `~/.construct/dev.mikoshi.bus.log` says why. The job passes no `GH_TOKEN`: gh answers with its active account.
 
 ## 5. Verify — the step that is allowed to say "done"
 

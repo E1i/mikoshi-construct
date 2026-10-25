@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { lookupMatrixRow, matrixKeyFor } from '../../ghosts/matrix.js'
+import { lookupMatrixRow, matrixKeyFor } from '../../ladder/matrix.js'
 
 function matrixFile(): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-matrix-'))

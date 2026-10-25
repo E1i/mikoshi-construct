@@ -1,6 +1,6 @@
-import type { GitRunner } from '../../ghosts/sketch.js'
+import type { GitRunner } from '../../ladder/sketch.js'
 import { describe, expect, it } from 'vitest'
-import { describeSketch, pairMarkers, parseSketch, rangeDiffVerdict } from '../../ghosts/sketch.js'
+import { describeSketch, pairMarkers, parseSketch, rangeDiffVerdict } from '../../ladder/sketch.js'
 
 const SHA = '0123456789abcdef0123456789abcdef01234567'
 const DASH = String.fromCharCode(8212)

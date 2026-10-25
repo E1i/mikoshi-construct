@@ -17,12 +17,12 @@ const CONTOUR_MAP = [
   '',
   '## Таблица по файлам',
   '',
-  '### scripts/bus/ (2 файлов, 300 строк)',
+  '### scripts/ports/ (2 файлов, 300 строк)',
   '',
   '| файл | строк | что делает сейчас |',
   '|---|---:|---|',
-  '| db.ts | 211 | openBus |',
-  '| queue.ts | 89 | queue |',
+  '| disk.ts | 211 | disk |',
+  '| github.ts | 89 | github |',
   '',
   '### scripts/core/ (1 файлов, 48 строк)',
   '',
@@ -50,7 +50,7 @@ function world(): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-masks-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
-  for (const file of ['scripts/bus/db.ts', 'scripts/bus/queue.ts', 'scripts/tests/bus/queue.test.ts', 'scripts/core/eddies.ts']) {
+  for (const file of ['scripts/ports/disk.ts', 'scripts/ports/github.ts', 'scripts/tests/bus/queue.test.ts', 'scripts/core/eddies.ts']) {
     mkdirSync(path.dirname(path.join(repo, file)), { recursive: true })
     writeFileSync(path.join(repo, file), '')
   }
@@ -79,30 +79,30 @@ function printed(print: (ui: ReturnType<typeof createUi>) => number): { lines: s
 }
 
 describe('intake refuses a ** mask over shared factory code', () => {
-  it('a card with a mask over scripts/bus in touches is not admitted and the refusal names the mask', () => {
+  it('a card with a mask over scripts/ports in touches is not admitted and the refusal names the mask', () => {
     const w = world()
-    const result = admit(w, park(w, 'scripts/bus/**'))
+    const result = admit(w, park(w, 'scripts/ports/**'))
     expect(result.status).toBe('sharedCodeMask')
     const { lines, exit } = printed(ui => printAdmit(ui, result))
     expect(exit).toBe(INTAKE_EXIT.refused)
     expect(lines.join('')).toContain(PLAIN_LORE.intakeRefusedSharedCodeMask)
-    expect(lines.join('')).toContain('\'scripts/bus/**\'')
-    expect(lines.join('')).toContain('scripts/bus/db.ts, scripts/bus/queue.ts')
+    expect(lines.join('')).toContain('\'scripts/ports/**\'')
+    expect(lines.join('')).toContain('scripts/ports/disk.ts, scripts/ports/github.ts')
   })
 
-  it('the same card with concrete files under scripts/bus is admitted', () => {
+  it('the same card with concrete files under scripts/ports is admitted', () => {
     const w = world()
-    expect(admit(w, park(w, 'scripts/bus/db.ts, scripts/bus/queue.ts')).status).toBe('admitted')
+    expect(admit(w, park(w, 'scripts/ports/disk.ts, scripts/ports/github.ts')).status).toBe('admitted')
   })
 
   it('a mask over scripts/tests is admitted', () => {
     const w = world()
-    expect(admit(w, park(w, 'scripts/bus/queue.ts, scripts/tests/**, .changeset/**')).status).toBe('admitted')
+    expect(admit(w, park(w, 'scripts/ports/github.ts, scripts/tests/**, .changeset/**')).status).toBe('admitted')
   })
 
   it('a mask over a new directory named in creates is admitted', () => {
     const w = world()
-    expect(admit(w, park(w, 'scripts/bus/fresh/**', 'scripts/bus/fresh')).status).toBe('admitted')
+    expect(admit(w, park(w, 'scripts/ports/fresh/**', 'scripts/ports/fresh')).status).toBe('admitted')
   })
 
   it('a mask over a parent of shared code is refused as well', () => {
@@ -121,7 +121,7 @@ describe('intake refuses a ** mask over shared factory code', () => {
 
   it('proposes only the files the contour map lists under the masked directory', () => {
     expect(contourMapFiles(CONTOUR_MAP, 'scripts/core')).toEqual(['scripts/core/eddies.ts'])
-    expect(contourMapFiles(CONTOUR_MAP, 'scripts')).toEqual(['scripts/bus/db.ts', 'scripts/bus/queue.ts', 'scripts/core/eddies.ts'])
+    expect(contourMapFiles(CONTOUR_MAP, 'scripts')).toEqual(['scripts/ports/disk.ts', 'scripts/ports/github.ts', 'scripts/core/eddies.ts'])
   })
 
   it('every shared directory is one this repository has', () => {
@@ -131,11 +131,11 @@ describe('intake refuses a ** mask over shared factory code', () => {
   it('a draft with a mask over shared code parks nothing', () => {
     const w = world()
     const draft = path.join(w.root, 'draft.json')
-    writeFileSync(draft, JSON.stringify({ cards: [{ name: 'bus-card', kind: 'implement', milestone: 'netwatch', size: 'S', contour: 'cheap', touches: ['scripts/bus/**'], task: 'Do it.', witnesses: ['`true` passes'] }] }))
+    writeFileSync(draft, JSON.stringify({ cards: [{ name: 'bus-card', kind: 'implement', milestone: 'netwatch', size: 'S', contour: 'cheap', touches: ['scripts/ports/**'], task: 'Do it.', witnesses: ['`true` passes'] }] }))
     const result = runIntake({ draft, taken: '-', parking: w.parking, parkingRoot: w.parking, contourMap: w.contourMap, dir: w.repo, dryRun: false, autoConfirm: true, readStdin: () => '' })
     expect(result).toMatchObject({ status: 'refused', refusal: 'sharedCodeMask' })
     const { lines, exit } = printed(ui => printIntake(ui, result))
     expect(exit).toBe(INTAKE_EXIT.refused)
-    expect(lines.join('')).toContain('\'scripts/bus/**\'')
+    expect(lines.join('')).toContain('\'scripts/ports/**\'')
   })
 })

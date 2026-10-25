@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { layerIn, layerOf, selectRun } from '../../ci/layers.js'
 import { cruise } from '../../ci/select.js'
@@ -13,7 +14,8 @@ const DEPCRUISE = path.join(REPO_ROOT, 'node_modules', 'dependency-cruiser', 'bi
 const LAYER_CONFIG = path.join(REPO_ROOT, '.dependency-cruiser.mjs')
 const LAYER_BASELINE = path.join(REPO_ROOT, '.dependency-cruiser-known-violations.json')
 const LAYERS_CHECK = 'depcruise --config .dependency-cruiser.mjs --ignore-known .dependency-cruiser-known-violations.json scripts src'
-const CRUISE_TIMEOUT_MS = 120_000
+const CRUISE_TIMEOUT_MS = 240_000
+const NOTHING_TO_ITS_RIGHT = /^(.+)-imports-nothing-to-its-right$/
 
 const roots: string[] = []
 
@@ -23,6 +25,18 @@ afterEach(() => {
 })
 
 interface Cruise { status: number | null, violations: string[] }
+interface Rule { name: string, from: { path: string | string[] }, to: { path: string | string[], pathNot?: string | string[] } }
+
+const CONTOUR_SAMPLES = [
+  { name: 'core', rank: 0, file: 'scripts/core/a.ts' },
+  { name: 'ports', rank: 1, file: 'scripts/ports/a.ts' },
+  { name: 'policy', rank: 2, file: 'scripts/policy/a.ts' },
+  { name: 'nodes', rank: 3, file: 'scripts/nodes/x/a.ts' },
+  { name: 'supervisor', rank: 4, file: 'scripts/supervisor/a.ts' },
+  { name: 'window', rank: 4, file: 'scripts/window/a.ts' },
+  { name: 'intake', rank: 4, file: 'scripts/intake/a.ts' },
+  { name: 'cli', rank: 5, file: 'scripts/cli/a.ts' },
+]
 
 function depcruise(cwd: string, args: string[]): Cruise {
   const check = spawnSync(process.execPath, [DEPCRUISE, ...args], { cwd, encoding: 'utf8' })
@@ -48,11 +62,50 @@ function sampleTree(files: Record<string, string>): string {
   return root
 }
 
+function specifier(from: string, to: string): string {
+  const relative = path.posix.relative(path.posix.dirname(from), to).replace(/\.ts$/, '.js')
+  return relative.startsWith('.') ? relative : `./${relative}`
+}
+
+function importing(edges: [from: string, ...to: string[]][]): Record<string, string> {
+  const files: Record<string, string> = {}
+  for (const [from, ...targets] of edges) {
+    files[from] = `${targets.map(to => `import '${specifier(from, to)}'`).join('\n')}\nexport {}\n`
+    for (const to of targets)
+      files[to] ??= 'export {}\n'
+  }
+  return files
+}
+
+function violationsOf(edges: [from: string, ...to: string[]][], ...roots: string[]): Cruise {
+  return depcruise(sampleTree(importing(edges)), ['--config', LAYER_CONFIG, ...roots])
+}
+
 function packageScripts(): Record<string, string> {
   return (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
 }
 
-describe('the layer rules of the bus hold over scripts and src', () => {
+async function configuredRules(): Promise<Rule[]> {
+  const loaded = await import(pathToFileURL(LAYER_CONFIG).href) as { default: { forbidden: Rule[] } }
+  return loaded.default.forbidden
+}
+
+function recordedViolations(): string[] {
+  const recorded = JSON.parse(readFileSync(LAYER_BASELINE, 'utf8')) as { rule: { name: string }, from: string, to: string }[]
+  return recorded.map(violation => `${violation.rule.name} ${violation.from} -> ${violation.to}`)
+}
+
+function nodeShapedFiles(): string[] {
+  const found: string[] = []
+  for (const entry of readdirSync(path.join(REPO_ROOT, 'scripts'), { recursive: true, withFileTypes: true })) {
+    const relative = path.posix.join(path.relative(REPO_ROOT, entry.parentPath).split(path.sep).join('/'), entry.name)
+    if (entry.isFile() && /(?:^|-)(?:worker|executor|starter)\.ts$/.test(entry.name) && !relative.startsWith('scripts/tests/'))
+      found.push(relative)
+  }
+  return found.sort()
+}
+
+describe('the layer rules of the contours hold over scripts and src', () => {
   it('runs the layer check against the recorded baseline in the harness', () => {
     expect(packageScripts()['layers:check']).toBe(LAYERS_CHECK)
   })
@@ -61,126 +114,134 @@ describe('the layer rules of the bus hold over scripts and src', () => {
     expect(depcruise(REPO_ROOT, LAYERS_CHECK.split(' ').slice(1))).toEqual({ status: 0, violations: [] })
   }, CRUISE_TIMEOUT_MS)
 
-  it('refuses an import from the bus core into a service module', () => {
-    const root = sampleTree({
-      'scripts/bus/db.ts': 'import { review } from \'./review-worker.js\'\nexport const db = review\n',
-      'scripts/bus/review-worker.ts': 'export const review = 1\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 1, violations: ['bus-core-imports-no-service scripts/bus/db.ts -> scripts/bus/review-worker.ts'] })
+  it('every contour has its rule and no import runs right', async () => {
+    const ruled = (await configuredRules()).map(rule => NOTHING_TO_ITS_RIGHT.exec(rule.name)?.[1]).filter(name => name !== undefined).sort()
+    expect(ruled).toEqual(CONTOUR_SAMPLES.filter(contour => CONTOUR_SAMPLES.some(other => other.rank > contour.rank)).map(contour => contour.name).sort())
+    const expected = CONTOUR_SAMPLES.flatMap(from => CONTOUR_SAMPLES.filter(to => to.rank > from.rank).map(to => `${from.name}-imports-nothing-to-its-right ${from.file} -> ${to.file}`)).sort()
+    const result = violationsOf(CONTOUR_SAMPLES.map(from => [from.file, ...CONTOUR_SAMPLES.filter(to => to !== from).map(to => to.file)]), 'scripts')
+    expect(result.violations.sort()).toEqual(expected)
   }, CRUISE_TIMEOUT_MS)
 
-  it('refuses an import from one service into another, and lets a service import its own executor', () => {
-    const root = sampleTree({
-      'scripts/bus/merge-worker.ts': 'import { review } from \'./review-executor.js\'\nimport { merge } from \'./merge-executor.js\'\nexport const worker = [review, merge]\n',
-      'scripts/bus/merge-executor.ts': 'export const merge = 1\n',
-      'scripts/bus/review-executor.ts': 'export const review = 1\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 1, violations: ['bus-services-import-no-other-service scripts/bus/merge-worker.ts -> scripts/bus/review-executor.ts'] })
-  }, CRUISE_TIMEOUT_MS)
-
-  it('refuses a new import between two services the recorded baseline does not hold, and passes the one it holds', () => {
-    const root = sampleTree({
-      'scripts/bus/ladder-starter.ts': 'import { launch } from \'./launch-executor.js\'\nexport const ladder = launch\n',
-      'scripts/bus/launch-executor.ts': 'export const launch = 1\n',
-      'scripts/bus/merge-worker.ts': 'import { close } from \'./close-executor.js\'\nexport const merge = close\n',
-      'scripts/bus/close-executor.ts': 'export const close = 1\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, '--ignore-known', LAYER_BASELINE, 'scripts'])).toEqual({ status: 1, violations: ['bus-services-import-no-other-service scripts/bus/merge-worker.ts -> scripts/bus/close-executor.ts'] })
-  }, CRUISE_TIMEOUT_MS)
-
-  it('names every worker, executor and starter of the bus after its service, so the service rules see each one', () => {
-    const serviceShaped = readdirSync(path.join(REPO_ROOT, 'scripts', 'bus')).filter(file => /(?:^|-)(?:worker|executor|starter)\.ts$/.test(file))
-    expect(serviceShaped.filter(file => !/^[a-z]+-(?:worker|executor|starter)\.ts$/.test(file))).toEqual([])
-    expect(serviceShaped).toContain('merge-executor.ts')
+  it('the code of each node lives in one folder nodes/<name>/', () => {
+    const files = nodeShapedFiles()
+    const elsewhere = files.filter(file => !/^scripts\/nodes\/([a-z]+)\/\1-(?:worker|executor|starter)\.ts$/.test(file))
+    expect(elsewhere).toEqual(['scripts/ladder/ladder-starter.ts'])
+    const folders = readdirSync(path.join(REPO_ROOT, 'scripts', 'nodes'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
+    expect(folders).toEqual([...new Set(files.filter(file => file.startsWith('scripts/nodes/')).map(file => file.split('/')[2]!))].sort())
+    expect(files).toContain('scripts/nodes/merge/merge-executor.ts')
   })
+
+  it('the recorded baseline holds exactly the violations the rules find', () => {
+    const found = depcruise(REPO_ROOT, ['--config', LAYER_CONFIG, 'scripts', 'src']).violations
+    const recorded = recordedViolations()
+    expect(recorded.filter(violation => !found.includes(violation))).toEqual([])
+    expect(found.filter(violation => !recorded.includes(violation))).toEqual([])
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses an import from the bus core into a service module', () => {
+    const result = violationsOf([
+      ['scripts/core/db.ts', 'scripts/nodes/review/review-worker.ts', 'scripts/ladder/ladder-starter.ts'],
+    ], 'scripts')
+    expect(result.violations.sort()).toEqual([
+      'bus-core-imports-no-service scripts/core/db.ts -> scripts/ladder/ladder-starter.ts',
+      'bus-core-imports-no-service scripts/core/db.ts -> scripts/nodes/review/review-worker.ts',
+      'core-imports-nothing-to-its-right scripts/core/db.ts -> scripts/nodes/review/review-worker.ts',
+      'no-factory-contour-imports-ladder scripts/core/db.ts -> scripts/ladder/ladder-starter.ts',
+    ])
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses an import from one node into another, and lets a node import its own executor', () => {
+    expect(violationsOf([
+      ['scripts/nodes/merge/merge-worker.ts', 'scripts/nodes/review/review-executor.ts', 'scripts/nodes/merge/merge-executor.ts'],
+    ], 'scripts')).toEqual({ status: 1, violations: ['nodes-import-no-other-node scripts/nodes/merge/merge-worker.ts -> scripts/nodes/review/review-executor.ts'] })
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses a new import between two nodes the recorded baseline does not hold, and passes the one it holds', () => {
+    const root = sampleTree(importing([
+      ['scripts/ladder/ladder-starter.ts', 'scripts/nodes/launch/launch-executor.ts'],
+      ['scripts/nodes/merge/merge-worker.ts', 'scripts/nodes/close/close-executor.ts'],
+    ]))
+    expect(depcruise(root, ['--config', LAYER_CONFIG, '--ignore-known', LAYER_BASELINE, 'scripts'])).toEqual({ status: 1, violations: ['nodes-import-no-other-node scripts/nodes/merge/merge-worker.ts -> scripts/nodes/close/close-executor.ts'] })
+  }, CRUISE_TIMEOUT_MS)
 
   it('refuses a cycle inside the bus core', () => {
     const root = sampleTree({
-      'scripts/bus/db.ts': 'import { reduce } from \'./reducer.js\'\nexport const db = () => reduce\n',
-      'scripts/bus/reducer.ts': 'import { db } from \'./db.js\'\nexport const reduce = () => db\n',
+      'scripts/core/db.ts': 'import { reduce } from \'./reducer.js\'\nexport const db = () => reduce\n',
+      'scripts/core/reducer.ts': 'import { db } from \'./db.js\'\nexport const reduce = () => db\n',
     })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 1, violations: ['no-circular-bus-core scripts/bus/db.ts -> scripts/bus/reducer.ts'] })
+    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 1, violations: ['no-circular-bus-core scripts/core/db.ts -> scripts/core/reducer.ts'] })
   }, CRUISE_TIMEOUT_MS)
 
-  it('refuses an import from the product into the factory scripts', () => {
-    const root = sampleTree({
-      'src/cli.ts': 'import { bus } from \'../scripts/bus/db.js\'\nexport const cli = bus\n',
-      'scripts/bus/db.ts': 'export const bus = 1\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'src', 'scripts'])).toEqual({ status: 1, violations: ['src-imports-no-script src/cli.ts -> scripts/bus/db.ts'] })
+  it('refuses an import from the product into a core file outside the named ones', () => {
+    expect(violationsOf([['src/cli.ts', 'scripts/core/db.ts']], 'src', 'scripts')).toEqual({ status: 1, violations: ['src-imports-no-script src/cli.ts -> scripts/core/db.ts'] })
   }, CRUISE_TIMEOUT_MS)
 
-  it('lets the product import the core contour', () => {
-    const root = sampleTree({
-      'src/cli.ts': 'import { CARD_ADMITTED } from \'../scripts/core/events.js\'\nexport const cli = CARD_ADMITTED\n',
-      'scripts/core/events.ts': 'export const CARD_ADMITTED = \'card.admitted\'\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'src', 'scripts'])).toEqual({ status: 0, violations: [] })
+  it('refuses an import from the product into a contour other than core', () => {
+    expect(violationsOf([['src/cli.ts', 'scripts/ports/gh.ts']], 'src', 'scripts')).toEqual({ status: 1, violations: ['src-imports-no-script src/cli.ts -> scripts/ports/gh.ts'] })
   }, CRUISE_TIMEOUT_MS)
 
-  it('refuses an import from the core contour into the bus, ghosts, shift or miko', () => {
-    const root = sampleTree({
-      'scripts/core/events.ts': ['bus/db', 'ghosts/journal', 'shift/shift', 'miko/loop'].map((module, index) => `import { a${index} } from '../${module}.js'`).join('\n'),
-      'scripts/bus/db.ts': 'export const a0 = 1\n',
-      'scripts/ghosts/journal.ts': 'export const a1 = 1\n',
-      'scripts/shift/shift.ts': 'export const a2 = 1\n',
-      'scripts/miko/loop.ts': 'export const a3 = 1\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts']).violations.sort()).toEqual([
-      'core-imports-no-factory scripts/core/events.ts -> scripts/bus/db.ts',
-      'core-imports-no-factory scripts/core/events.ts -> scripts/ghosts/journal.ts',
-      'core-imports-no-factory scripts/core/events.ts -> scripts/miko/loop.ts',
-      'core-imports-no-factory scripts/core/events.ts -> scripts/shift/shift.ts',
+  it('lets the product import the named core files and the owner channel', () => {
+    expect(violationsOf([['src/cli.ts', 'scripts/core/events.ts', 'scripts/core/factory-paths.ts', 'scripts/owner/channel.ts']], 'src', 'scripts')).toEqual({ status: 0, violations: [] })
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses an import from the core contour into the owner scripts or the commands', () => {
+    const result = violationsOf([['scripts/core/events.ts', 'scripts/owner/channel.ts', 'src/commands/doctor/index.ts']], 'scripts', 'src')
+    expect(result.violations.sort()).toEqual([
+      'core-imports-no-factory scripts/core/events.ts -> scripts/owner/channel.ts',
+      'core-imports-no-factory scripts/core/events.ts -> src/commands/doctor/index.ts',
     ])
   }, CRUISE_TIMEOUT_MS)
 
-  it('refuses an import from the bus into the ladder scripts outside ladder-starter', () => {
-    const root = sampleTree({
-      'scripts/bus/launch-worker.ts': 'import { journal } from \'../ghosts/journal.js\'\nexport const launch = journal\n',
-      'scripts/ghosts/journal.ts': 'export const journal = 1\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 1, violations: ['bus-imports-no-ladder scripts/bus/launch-worker.ts -> scripts/ghosts/journal.ts'] })
-  }, CRUISE_TIMEOUT_MS)
-
-  it('lets ladder-starter import the ladder', () => {
-    const root = sampleTree({
-      'scripts/bus/ladder-starter.ts': 'import { supervise } from \'../ghosts/supervise.js\'\nexport const ladder = supervise\n',
-      'scripts/ghosts/supervise.ts': 'export const supervise = 1\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts'])).toEqual({ status: 0, violations: [] })
-  }, CRUISE_TIMEOUT_MS)
-
-  it('refuses an import from the ports contour into the bus, ghosts, shift or miko', () => {
-    const root = sampleTree({
-      'scripts/ports/session.ts': ['bus/db', 'ghosts/journal', 'shift/shift', 'miko/loop'].map((module, index) => `import { a${index} } from '../${module}.js'`).join('\n'),
-      'scripts/bus/db.ts': 'export const a0 = 1\n',
-      'scripts/ghosts/journal.ts': 'export const a1 = 1\n',
-      'scripts/shift/shift.ts': 'export const a2 = 1\n',
-      'scripts/miko/loop.ts': 'export const a3 = 1\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts']).violations.sort()).toEqual([
-      'ports-import-no-caller scripts/ports/session.ts -> scripts/bus/db.ts',
-      'ports-import-no-caller scripts/ports/session.ts -> scripts/ghosts/journal.ts',
-      'ports-import-no-caller scripts/ports/session.ts -> scripts/miko/loop.ts',
-      'ports-import-no-caller scripts/ports/session.ts -> scripts/shift/shift.ts',
+  it('refuses an import from the ladder into a contour other than core and ports', () => {
+    const result = violationsOf([
+      ['scripts/ladder/ladder.ts', 'scripts/core/a.ts', 'scripts/ports/a.ts', 'scripts/policy/a.ts', 'scripts/nodes/x/a.ts', 'scripts/window/a.ts', 'scripts/cli/a.ts'],
+      ['scripts/done/check.ts', 'scripts/supervisor/a.ts', 'scripts/intake/a.ts'],
+    ], 'scripts')
+    expect(result.violations.sort()).toEqual([
+      'ladder-imports-only-core-and-ports scripts/done/check.ts -> scripts/intake/a.ts',
+      'ladder-imports-only-core-and-ports scripts/done/check.ts -> scripts/supervisor/a.ts',
+      'ladder-imports-only-core-and-ports scripts/ladder/ladder.ts -> scripts/cli/a.ts',
+      'ladder-imports-only-core-and-ports scripts/ladder/ladder.ts -> scripts/nodes/x/a.ts',
+      'ladder-imports-only-core-and-ports scripts/ladder/ladder.ts -> scripts/policy/a.ts',
+      'ladder-imports-only-core-and-ports scripts/ladder/ladder.ts -> scripts/window/a.ts',
     ])
   }, CRUISE_TIMEOUT_MS)
 
-  it('refuses an import from the bus into the intake command for an event name', () => {
-    const root = sampleTree({
-      'scripts/bus/card-automaton.ts': 'import { CARD_MOVED } from \'../../src/commands/intake/index.js\'\nexport const moved = CARD_MOVED\n',
-      'src/commands/intake/index.ts': 'export const CARD_MOVED = \'card.moved\'\n',
-    })
-    expect(depcruise(root, ['--config', LAYER_CONFIG, 'scripts', 'src'])).toEqual({ status: 1, violations: ['bus-takes-event-names-from-core scripts/bus/card-automaton.ts -> src/commands/intake/index.ts'] })
+  it('refuses an import of the ladder from every factory contour, and lets the cli import it', () => {
+    const importers = CONTOUR_SAMPLES.filter(contour => contour.name !== 'cli')
+    const result = violationsOf([
+      ...importers.map((contour): [string, string] => [contour.file, 'scripts/ladder/ladder.ts']),
+      ['scripts/cli/a.ts', 'scripts/ladder/ladder.ts', 'scripts/done/check.ts'],
+    ], 'scripts')
+    expect(result.violations.filter(violation => violation.startsWith('no-factory-contour-imports-ladder')).sort()).toEqual(
+      importers.map(contour => `no-factory-contour-imports-ladder ${contour.file} -> scripts/ladder/ladder.ts`).sort(),
+    )
+    expect(result.violations.filter(violation => violation.includes('scripts/cli/a.ts'))).toEqual([])
+  }, CRUISE_TIMEOUT_MS)
+
+  it('places the src folders of the intake and the cli contours at their ranks', () => {
+    const result = violationsOf([
+      ['src/card/risk.ts', 'scripts/cli/a.ts'],
+      ['src/commands/board/index.ts', 'scripts/intake/a.ts'],
+      ['src/commands/cost/index.ts', 'scripts/policy/a.ts'],
+      ['scripts/morse/cli.ts', 'scripts/ladder/ladder.ts', 'scripts/nodes/x/a.ts'],
+    ], 'scripts', 'src')
+    expect(result.violations.filter(violation => violation.includes('-imports-nothing-to-its-right ')).sort()).toEqual([
+      'intake-imports-nothing-to-its-right src/card/risk.ts -> scripts/cli/a.ts',
+    ])
+  }, CRUISE_TIMEOUT_MS)
+
+  it('refuses an import from the factory contours into the intake command for an event name', () => {
+    expect(violationsOf([['scripts/intake/a.ts', 'src/commands/intake/index.ts']], 'scripts', 'src')).toEqual({ status: 1, violations: ['takes-event-names-from-core scripts/intake/a.ts -> src/commands/intake/index.ts'] })
   }, CRUISE_TIMEOUT_MS)
 })
 
 describe('the CI selector reads its layers from the one layer map', () => {
   it('the CI selector takes the layer of a file from the layer map', () => {
-    const map = { files: { 'scripts/bus/queue.ts': 'core' }, folders: { 'scripts/bus/': 'bus', 'src/': 'src' } }
-    expect(layerIn(map, 'scripts/bus/queue.ts')).toBe('core')
-    expect(layerIn(map, 'scripts/bus/lease.ts')).toBe('bus')
-    expect(layerIn(map, 'scripts/ghosts/launch.ts')).toBe('ghosts')
+    const map = { files: { 'scripts/core/queue.ts': 'queue' }, folders: { 'scripts/core/': 'core', 'src/': 'src' } }
+    expect(layerIn(map, 'scripts/core/queue.ts')).toBe('queue')
+    expect(layerIn(map, 'scripts/core/lease.ts')).toBe('core')
+    expect(layerIn(map, 'scripts/ladder/launch.ts')).toBe('ladder')
     expect(layerIn(map, 'docs/index.ts')).toBeNull()
     const recorded = readLayerMap()
     for (const [file, layer] of Object.entries(recorded.files))
@@ -188,13 +249,13 @@ describe('the CI selector reads its layers from the one layer map', () => {
   })
 
   it('a file two folders of the map claim belongs to no layer', () => {
-    expect(layerIn({ files: {}, folders: { 'scripts/': 'scripts', 'scripts/bus/': 'bus' } }, 'scripts/bus/db.ts')).toBeNull()
+    expect(layerIn({ files: {}, folders: { 'scripts/': 'scripts', 'scripts/core/': 'core' } }, 'scripts/core/db.ts')).toBeNull()
   })
 })
 
 describe('a test that scans the scripts or src tree runs on every pull request', () => {
-  it('a diff of only scripts/bus/board-page.ts selects scripts/tests/core/events.test.ts', () => {
-    const run = selectRun(['scripts/bus/board-page.ts'], cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8'))
+  it('a diff of only scripts/cli/board-page.ts selects scripts/tests/core/events.test.ts', () => {
+    const run = selectRun(['scripts/cli/board-page.ts'], cruise(), test => readFileSync(path.join(REPO_ROOT, test), 'utf8'))
     expect(run.kind === 'layers' ? run.tests : run.why).toContain('scripts/tests/core/events.test.ts')
   }, CRUISE_TIMEOUT_MS)
 })

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { laneName, laneNumber, laneTouches } from '../../../src/commands/intake/admit.js'
-import { isLane, LANE_NAME, laneJsonProblems, readLaneJson, UNKNOWN, writeLaneJson } from '../../lanes/lane-json.js'
+import { isLane, LANE_NAME, laneJsonProblems, readLaneJson, UNKNOWN, writeLaneJson } from '../../intake/lane-json.js'
 
 const VALID = { purpose: 'bus cards', touches: ['scripts/bus/**'], createdBy: 'owner', createdAt: '2026-10-11T12:00:00.000Z', status: 'open' }
 

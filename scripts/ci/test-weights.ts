@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import config from '../../vitest.config.js'
-import { execGh, readGhJson } from '../core/gh.js'
+import { execGh, readGhJson } from '../ports/gh.js'
 import { updateWeights, weightsFromVitestReport } from './shard.js'
 
 export interface RunStep { name: string, startedAt: string, completedAt: string }

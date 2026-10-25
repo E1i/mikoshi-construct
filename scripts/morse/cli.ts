@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import process from 'node:process'
-import { predict } from './predict.js'
-import { classify } from './rules.js'
+import { predict } from '../policy/morse/predict.js'
+import { classify } from '../policy/morse/rules.js'
 
 function flag(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name)

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
-import { compactContextOf, sourceOf } from '../../miko/compact-start.js'
-import { CONTINUE_PROMPT } from '../../miko/loop.js'
-import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../miko/tab.js'
 import { CARD_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
+import { compactContextOf, sourceOf } from '../../window/compact-start.js'
+import { CONTINUE_PROMPT } from '../../window/loop.js'
+import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 
 const TAB = { CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: '/h' }
 const always = (): boolean => true

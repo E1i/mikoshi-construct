@@ -1,4 +1,4 @@
-import type { BusEvent } from '../../bus/db.js'
+import type { BusEvent } from '../../core/db.js'
 import { once } from 'node:events'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -6,8 +6,9 @@ import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, BUSY_TIMEOUT_MS, inTransaction, openBus } from '../../bus/db.js'
-import { cardIdOf, isActor, taskKey } from '../../bus/identifiers.js'
+import { appendEvent, BUSY_TIMEOUT_MS, inTransaction, openBus } from '../../core/db.js'
+import { FACTORY_FOLDERS } from '../../core/factory-paths.js'
+import { cardIdOf, isActor, taskKey } from '../../core/identifiers.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const WAIT_ON_MAIN_MS = 5000
@@ -24,7 +25,9 @@ db.exec('COMMIT')
 db.close()
 `
 const roots: string[] = []
-const BUS_SOURCE = path.join(import.meta.dirname, '..', '..', 'bus')
+const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
+const SQLITE_LOADER = 'scripts/core/sqlite.ts'
+const OPENED_BEFORE_THE_CONTOURS = ['scripts/window/eddies-measure.ts', 'scripts/window/watch-store.ts']
 
 afterEach(() => {
   for (const root of roots.splice(0))
@@ -124,14 +127,15 @@ describe('bus.db', () => {
     db.close()
   }, LOCK_HELD_MS * 3)
 
-  it('every bus database open under scripts/bus passes the busy timeout', () => {
-    const lines = readdirSync(BUS_SOURCE, { recursive: true, encoding: 'utf8' })
-      .filter(file => file.endsWith('.ts'))
-      .flatMap(file => readFileSync(path.join(BUS_SOURCE, file), 'utf8').split('\n').map(line => ({ file, line })))
+  it('every bus database open under the factory contours passes the busy timeout', () => {
+    const lines = FACTORY_FOLDERS.sharedCode
+      .flatMap(folder => readdirSync(path.join(REPO_ROOT, folder), { recursive: true, encoding: 'utf8' }).map(file => path.posix.join(folder, file)))
+      .filter(file => file.endsWith('.ts') && !OPENED_BEFORE_THE_CONTOURS.includes(file))
+      .flatMap(file => readFileSync(path.join(REPO_ROOT, file), 'utf8').split('\n').map(line => ({ file, line })))
     const opens = lines.filter(({ line }) => line.includes('openDatabase(') && !line.includes('function openDatabase('))
     expect(opens.length).toBeGreaterThan(0)
     expect(opens.filter(({ line }) => !line.includes('timeout: BUSY_TIMEOUT_MS'))).toEqual([])
-    expect(lines.filter(({ file, line }) => line.includes('DatabaseSync(') && file !== 'sqlite.ts')).toEqual([])
+    expect(lines.filter(({ file, line }) => line.includes('DatabaseSync(') && file !== SQLITE_LOADER)).toEqual([])
   })
 })
 

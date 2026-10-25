@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PROMPTS_DIR, promptsDirOf, sha256, storedInput } from '../../bus/prompt-store.js'
+import { PROMPTS_DIR, promptsDirOf, sha256, storedInput } from '../../ports/prompt-store.js'
 
 const roots: string[] = []
 

@@ -1,6 +1,6 @@
 import process from 'node:process'
-import { openBus } from '../../bus/db.js'
-import { ANSWER_SOURCE, requestFromWindow, WindowRequests } from '../../bus/window-requests.js'
+import { openBus } from '../../core/db.js'
+import { ANSWER_SOURCE, requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 
 const [busPath, channel, words, startAt] = process.argv.slice(2)
 function refuse(): never {

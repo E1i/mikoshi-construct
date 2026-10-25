@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const DELETED = ['scripts/bus/backfill.ts', 'scripts/bus/node-equivalence.ts', 'scripts/lanes/migrate.ts']
-const KEPT_FOR_THEIR_IMPORTERS = ['scripts/ghosts/task-merged.ts', 'scripts/bus/import.ts', 'scripts/bus/launch-withdraw.ts']
+const KEPT_FOR_THEIR_IMPORTERS = ['scripts/nodes/close/task-merged.ts', 'scripts/intake/import.ts', 'scripts/nodes/launch/launch-withdraw.ts']
 const RELATIVE_IMPORT = /\bfrom '(\.{1,2}\/[^']+)\.js'/g
 
 function tracked(...paths: string[]): string[] {

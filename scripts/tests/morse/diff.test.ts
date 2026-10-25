@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changedFilesFrom } from '../../morse/diff.js'
+import { changedFilesFrom } from '../../ports/diff.js'
 
 describe('morse diff', () => {
   it('reads a binary path only from numstat\'s -\\t-', () => {

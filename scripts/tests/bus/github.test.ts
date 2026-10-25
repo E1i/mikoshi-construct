@@ -1,7 +1,7 @@
-import type { GhSpawned } from '../../core/gh.js'
+import type { GhSpawned } from '../../ports/gh.js'
 import { describe, expect, it } from 'vitest'
-import { BUDGET_SPENT_STATUS, ghApi, ghApiPatch, ghApiPut, NO_ANSWER_STATUS } from '../../bus/github.js'
-import { GhBudgetWindow, ghPort } from '../../core/gh.js'
+import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
+import { BUDGET_SPENT_STATUS, ghApi, ghApiPatch, ghApiPut, NO_ANSWER_STATUS } from '../../ports/github.js'
 
 const included = (code: number, body: string): GhSpawned => ({ status: code === 200 ? 0 : 1, stdout: `HTTP/2.0 ${code} X\r\nX-Ratelimit-Remaining: 9\r\n\r\n${body}\n`, stderr: code === 200 ? '' : `gh: no (HTTP ${code})` })
 

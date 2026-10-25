@@ -31,7 +31,7 @@ records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.cl
 `task` whose `task:start` line in `ghosts.jsonl` carries the session, and has no `task` when none does. The merge half is
 not enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
 
-At the Eddies warn the window writes its handoff with the fields `scripts/ghosts/handoff-check.ts` lists, one labelled line
+At the Eddies warn the window writes its handoff with the fields `scripts/window/handoff-check.ts` lists, one labelled line
 or heading each, and runs `pnpm handoff:check <file>`. A handoff that fails is not a handoff, and the next window does not
 start from it. The handoff does not grow and does not retell the queue: it holds exactly one STOP section, at most
 `HANDOFF_LIMIT` bytes, UTF-8, by one measure in `handoff:check` and `handoff:write` (a refusal names the largest field), a `queue:` of card numbers only (`#N`, in an order the
@@ -40,18 +40,18 @@ cards' `depends` in the parking allow), an `in-flight:` of one `#N <stage> [PR #
 `pnpm handoff:write <handoff> <draft> [--parking <dir>]`, never by hand: it checks the draft, moves the old handoff to
 `<dir>/archive/NNNN.md`, writes `prev:` under the STOP heading and replaces the file; a refused draft archives nothing. A Ghost's continuation under `continue: auto` is held to the same fields and bounds on its shift report — at most one
 STOP section, `HANDOFF_LIMIT`, card numbers only in `queue:` — and a refusal ends the card with reason `handoff-invalid`
-(`continues` in `scripts/shift/continuation.ts`).
+(`continues` in `scripts/nodes/launch/continuation.ts`).
 
 Mikoshi, the interactive window the owner opens, runs under `pnpm miko`: a loop in the owner's own terminal (any terminal,
 the one built into VS Code included) that starts `claude` (`$MIKO_CLAUDE`, default `claude --permission-mode dontAsk`). At
 the limit Mikoshi writes its own handoff, `~/.construct/handoff/miko.md`, through `pnpm handoff:write`, under the same contract as the
 Operator's handoff (the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), and then ends its own
-process. A session ends at exactly one of three stop reasons, decided by `stopReasonOf` in `scripts/miko/exit.ts`: the context of its last answer is at or above `contextLimit` × `warnRatio`, its spend is at or above the spend warn, `sessionSpend` × `warnRatio` (all three in `.claude/eddies.json`, both readings taken from the session's own transcript the way Eddies takes them), or the last `STATUS:` of `miko.md` is `DONE`. A closed card, a wait for `merge.done`, `review.recorded` or `card.verified`, a wait for an answer, or a last `STATUS:` of `OWNER` is none of them: at `OWNER` the window asks its question in the window, waits for the answer in the same session, then writes `STATUS: CONTINUE` with `pnpm handoff:write`; the window waits with `pnpm miko:watch --once` in the same session and takes the next card in the same session, and `pnpm miko:exit` refuses with `not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card`. `pnpm handoff:write` at every boundary stays as insurance, without `pnpm miko:exit`. At the context warn or the spend warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. A context `miko:exit` cannot read (no session id, no transcript) counts as at the warn, as it does for `operator-boundary`: the session ends with reason `context` and its counters journalled as `unknown`. `pnpm handoff:write` never runs `pnpm miko:exit`, whatever status it writes. Each exit appends one `session-exit` line to `.construct/eddies.jsonl` in the project directory: the session id, the counters of its first and last answer, its spend by the Eddies calculation, the reason, and the cards and bus events since the session started, each `unknown` when it could not be read; a refusal writes none. A session writes one handoff, named by `CONSTRUCT_HANDOFF` (unset or empty it is `miko.md` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`, an empty variable read as unset): the Eddies warn of a session without `CONSTRUCT_CARD` names that file, and `pnpm handoff:write` refuses a new handoff file that is not it. A session with `CONSTRUCT_CARD` writes its task handoff, whatever `CONSTRUCT_HANDOFF` it inherited, and `pnpm handoff:write` does not hold it to `miko.md`. `pnpm miko:exit`
-(`scripts/miko/exit.ts`) ends the nearest `claude` among its ancestors at `STATUS: DONE` unconditionally; at
-the context or spend reason, only when a `scripts/miko/loop.ts` process stands above that claude and `miko.md` was
+process. A session ends at exactly one of three stop reasons, decided by `stopReasonOf` in `scripts/window/exit.ts`: the context of its last answer is at or above `contextLimit` × `warnRatio`, its spend is at or above the spend warn, `sessionSpend` × `warnRatio` (all three in `.claude/eddies.json`, both readings taken from the session's own transcript the way Eddies takes them), or the last `STATUS:` of `miko.md` is `DONE`. A closed card, a wait for `merge.done`, `review.recorded` or `card.verified`, a wait for an answer, or a last `STATUS:` of `OWNER` is none of them: at `OWNER` the window asks its question in the window, waits for the answer in the same session, then writes `STATUS: CONTINUE` with `pnpm handoff:write`; the window waits with `pnpm miko:watch --once` in the same session and takes the next card in the same session, and `pnpm miko:exit` refuses with `not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card`. `pnpm handoff:write` at every boundary stays as insurance, without `pnpm miko:exit`. At the context warn or the spend warn the window runs `pnpm handoff:write`, then `pnpm miko:exit`. A context `miko:exit` cannot read (no session id, no transcript) counts as at the warn, as it does for `operator-boundary`: the session ends with reason `context` and its counters journalled as `unknown`. `pnpm handoff:write` never runs `pnpm miko:exit`, whatever status it writes. Each exit appends one `session-exit` line to `.construct/eddies.jsonl` in the project directory: the session id, the counters of its first and last answer, its spend by the Eddies calculation, the reason, and the cards and bus events since the session started, each `unknown` when it could not be read; a refusal writes none. A session writes one handoff, named by `CONSTRUCT_HANDOFF` (unset or empty it is `miko.md` in `$CONSTRUCT_HANDOFF_DIR` or `~/.construct/handoff`, an empty variable read as unset): the Eddies warn of a session without `CONSTRUCT_CARD` names that file, and `pnpm handoff:write` refuses a new handoff file that is not it. A session with `CONSTRUCT_CARD` writes its task handoff, whatever `CONSTRUCT_HANDOFF` it inherited, and `pnpm handoff:write` does not hold it to `miko.md`. `pnpm miko:exit`
+(`scripts/window/exit.ts`) ends the nearest `claude` among its ancestors at `STATUS: DONE` unconditionally; at
+the context or spend reason, only when a `scripts/window/loop.ts` process stands above that claude and `miko.md` was
 written in the last two minutes (`FRESH_MS`), which proves the handoff exists for the next session and permits nothing
 by itself; otherwise it refuses with the reason (the file's age, when that is the reason) and ends nothing. When the mtime of `miko.md` changed during the session, the loop at once
-starts a new session with the prompt `CONTINUE_PROMPT` (`scripts/miko/loop.ts`), whatever the exit code, which it never reads. A session that
+starts a new session with the prompt `CONTINUE_PROMPT` (`scripts/window/loop.ts`), whatever the exit code, which it never reads. A session that
 ended without writing `miko.md`, or a Ctrl+C the loop receives, ends the loop and starts nothing. The first session
 `pnpm miko` starts gets that prompt when `miko.md` exists, and no prompt when it does not. The prompt carries what the
 STATUS means to the window: a `miko.md` whose last `STATUS:` line is `CONTINUE` is continued from its next task with no
@@ -61,17 +61,17 @@ for in the same session, then `pnpm handoff:write` with `STATUS: CONTINUE`, with
 Mikoshi runs in one of two modes, decided by `windowModeOf` in `scripts/ports/session.ts` (#1265): loop mode under
 `pnpm miko` (`MIKO_WINDOW=1`, `MIKO_LOOP_PID` or `MIKO_EXIT_REQUEST` set), and tab mode, a session with none of those
 marks and no `CONSTRUCT_CARD` (an IDE tab or a bare `claude`). Loop mode keeps the rules above. A tab window is that
-session when it is interactive and not raised by the bus (`tabWindowOf` in `scripts/miko/tab.ts`: a
+session when it is interactive and not raised by the bus (`tabWindowOf` in `scripts/window/tab.ts`: a
 `CLAUDE_CODE_ENTRYPOINT` of `sdk-cli`, the headless one a bus reviewer runs under, or `CONSTRUCT_BUS_RAISED=1` is no
-tab window). A tab window continues by itself with nobody at a terminal. At Stop, `scripts/miko/turn-watch.ts` reads
+tab window). A tab window continues by itself with nobody at a terminal. At Stop, `scripts/window/turn-watch.ts` reads
 the last `STATUS:` of the session's handoff: `CONTINUE` blocks the stop with a reason telling the window to run
 `pnpm miko:watch --once` and take the next move; `OWNER`, `DONE` or no handoff lets it stop. The loop guard is
 `stop_hook_active` (the second stop in a row passes) and the watch's own timeout; the Stop hook
 `.claude/hooks/turn-watch.mjs` asks `turn-watch.ts` for every session `windowSessionOf` or `tabWindowOf` names. Before
-a compaction, the PreCompact hook `.claude/hooks/miko-relay.mjs pre-compact` runs `scripts/miko/pre-compact.ts`, which
+a compaction, the PreCompact hook `.claude/hooks/miko-relay.mjs pre-compact` runs `scripts/window/pre-compact.ts`, which
 leaves a handoff written within `FRESH_MS` alone and otherwise writes an insurance handoff from it through
 `pnpm handoff:write`. After a compaction, `.claude/hooks/window-core.mjs` on SessionStart with source `compact` appends
-`CONTINUE_PROMPT` to its `additionalContext` when `scripts/miko/compact-start.ts` finds the handoff of a tab window. At a context or
+`CONTINUE_PROMPT` to its `additionalContext` when `scripts/window/compact-start.ts` finds the handoff of a tab window. At a context or
 spend threshold, `pnpm miko:exit` in a tab window ends nothing and says so: the window writes the handoff and goes on,
 and compaction carries the session on from it. No route leads from a spend threshold to a compaction. Compaction comes
 only from the context filling, or from `/compact`, which the owner types and the model cannot run: the PreCompact
@@ -102,7 +102,7 @@ card change through `pnpm intake --admit`), and the message names it.
 
 `STATUS: OWNER` stops a session only at a boundary [owner-merges.md](owner-merges.md) or the owner
 decisions define, named on the line as `STATUS: OWNER — boundary: <name>` from the closed list `OWNER_BOUNDARIES` in
-`scripts/shift/handoff-write.ts`: `version-pr` (the version pull request), `owner-merged-kind` (an owner-merged kind no
+`scripts/window/handoff-write.ts`: `version-pr` (the version pull request), `owner-merged-kind` (an owner-merged kind no
 delegation decision covers), `missing-right` (a right the window lacks under its permission mode), `owner-question` (an
 explicit new question from the owner). Review changes, red CI, a denied form that has an allowed route and `who: window`
 cards are executor work, never OWNER; `pnpm handoff:write` refuses a draft whose last STATUS line is OWNER without a name
@@ -125,7 +125,7 @@ GH_TOKEN=… before gh pr merge, matches no `Bash(gh pr merge:*)`. Global gh fla
 
 What stays the same from one session to the next lives here, under version control, and not in the handoff:
 `pnpm handoff:check` refuses each of these labels in a handoff, as a line or as a heading (`STATIC_FIELDS` in
-`scripts/ghosts/handoff-check.ts`), and names this section. A change to one of them is a change to this file.
+`scripts/window/handoff-check.ts`), and names this section. A change to one of them is a change to this file.
 
 - journal: `~/.construct/handoff/ghosts.jsonl`.
 - card paths: `~/.construct/parking`, one `<id>.md` per card.
@@ -175,7 +175,7 @@ owner's text verbatim. The handoff's local decisions field points here and does 
 
 The owner's day list, `~/.construct/handoff/day-<date>.md`, holds only what a session needs now: its title line, the
 open owner questions and the owner texts of the current session, at most `DAY_FILE_LIMIT` bytes, the one constant it
-shares with the decisions in force (`scripts/shift/day-archive.ts`).
+shares with the decisions in force (`scripts/window/day-archive.ts`).
 
 - Owner texts, verbatim, each under an `## Owner …` heading naming its session (`session <N>`); the window never edits
   one after writing it. An owner order that holds longer than a day goes into the decisions, not into the day file,
@@ -282,7 +282,7 @@ A cheap-path task starts only with `pnpm task:start <branch> --card "<card>"`, w
 `mc-<id>` from `origin/main` under the worktree home, `~/.construct/worktrees` (`CONSTRUCT_WORKTREE_HOME` moves it), not
 beside the repository, and writes the journal start line carrying the card; a task with no start line was not
 started on the cheap path, whatever its branch is called. The bus removes a closed card's tree
-(`removeCardTree` in `scripts/bus/close-executor.ts`). Before it cuts anything, `task:start` passes the card through the intake
+(`removeCardTree` in `scripts/nodes/close/close-executor.ts`). Before it cuts anything, `task:start` passes the card through the intake
 door: it takes a card only when the bus holds a `card.admitted` event for it, written through `pnpm intake` when it
 sliced and confirmed the card, by `pnpm intake --admit <parking>/<id>.md` for a card parked before the door, or by a
 move into a lane; it reads no journal line, and a card with no such event, or one that changed since it, is refused
@@ -356,7 +356,7 @@ otherwise it is refused with `re-approve`
 ([0043](decisions/0043-the-ladder-starts-from-the-sketch.md),
 [0048](decisions/0048-an-approval-names-its-sketch-and-a-rebase-that-changes-no-commit-keeps-it.md)).
 A rebased sketch that differs from the approved one only in a generated file `REGENERATED` in
-`scripts/ghosts/regenerated.ts` registers also launches without a new approval: the launcher runs that
+`scripts/ladder/regenerated.ts` registers also launches without a new approval: the launcher runs that
 file's check on the sketch after the install, frees the row with no session when it fails, and journals
 `event:approval-carry` when it passes
 ([0052](decisions/0052-an-approval-carries-a-regeneration-and-a-review-carries-a-clean-update-branch.md)).
@@ -372,7 +372,7 @@ report, cleans the tree, and journals `event:superseded`; the tree and branch st
 `pnpm ghosts:hash` prints the approval line only after a preflight, run in the repository it is started in
 against `origin/main` fetched once and pinned: the build accepts the text; no witness names `origin/main`;
 a Design that names a generated path says the implementer runs its generator without asking; every file
-under `scripts/ghosts/**` the brief names or the sketch adds has its row in
+under `scripts/ladder/**` the brief names or the sketch adds has its row in
 [ghosts-files.md](ghosts-files.md);
 the sketch changes no Immutable path; then, in a clean worktree of the pinned base with nothing laid over
 it, every Acceptance witness runs verbatim and exits nonzero for a reason other than a missing command,
@@ -425,7 +425,7 @@ skips one turns `pnpm run quality` red after it pushed (#681, 2026-10-08):
 
 ```text
 Register every file you add in every registry that lists its kind, in the same commit:
-- a new scripts/ghosts/** file: its row in architecture/ghosts-files.md with the kind ghosts or plain, the kind
+- a new scripts/ladder/** file: its row in architecture/ghosts-files.md with the kind ghosts or plain, the kind
   the card declares in creates:; name the kind in the final message;
 - a new package.json script: its row in CONTRIBUTING.md § Scripts, and, when the harness does not run it, its entry
   in OUTSIDE_THE_HARNESS in tests/harness-membership.test.ts.
@@ -481,7 +481,7 @@ those commands while a `.construct/mutations/<id>.json` is open is #162.
 ## Giving the verdict
 
 The depth of the review follows the card's risk level, and one function, `reviewDepth` in
-`scripts/ghosts/verdict.ts`, maps a level to a depth; the ladder's review step (the Ghost
+`scripts/ladder/verdict.ts`, maps a level to a depth; the ladder's review step (the Ghost
 verdict) and the shift chain's step wait both read it, from the risk `riskReading` gives the card's
 touches. R4 gets no review agent: the witnesses and CI decide, and the chain arms the pull request
 with no verdict line, but only after `riskReading` over the pull request's changed files reads R4

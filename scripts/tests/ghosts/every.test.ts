@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseEverySeconds } from '../../ghosts/every.js'
+import { parseEverySeconds } from '../../core/every.js'
 
 describe('parseEverySeconds', () => {
   it.each(['1', '5', '600'])('reads %s as whole seconds', (raw) => {

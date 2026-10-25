@@ -26,7 +26,7 @@ describe('the layer map gives every source file one layer', () => {
   })
 
   it('a file entry wins over the folder that holds it', () => {
-    expect(layersIn({ files: { 'scripts/bus/queue.ts': 'core' }, folders: { 'scripts/bus/': 'bus' } }, 'scripts/bus/queue.ts')).toEqual(['core'])
+    expect(layersIn({ files: { 'scripts/core/queue.ts': 'core' }, folders: { 'scripts/bus/': 'bus' } }, 'scripts/core/queue.ts')).toEqual(['core'])
     expect(layersIn({ files: {}, folders: { 'scripts/release/': 'release', 'scripts/release-notes/': 'release-notes' } }, 'scripts/release-notes/render.ts')).toEqual(['release-notes'])
   })
 

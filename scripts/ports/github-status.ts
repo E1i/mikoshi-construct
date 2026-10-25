@@ -1,5 +1,5 @@
-import type { GhPort } from '../core/gh.js'
-import { GhFailed, PROCESS_GH_PORT } from '../core/gh.js'
+import type { GhPort } from './gh.js'
+import { GhFailed, PROCESS_GH_PORT } from './gh.js'
 
 export const REVIEW_STATUS_CONTEXT = 'review'
 

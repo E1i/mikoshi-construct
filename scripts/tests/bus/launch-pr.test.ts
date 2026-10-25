@@ -6,13 +6,13 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../bus/db.js'
-import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from '../../bus/launch-starter.js'
-import { busCardBodies } from '../../bus/parking-reads.js'
-import { reduce } from '../../bus/reducer.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
+import { reduce } from '../../core/reducer.js'
+import { busCardBodies } from '../../intake/parking-reads.js'
+import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from '../../nodes/launch/launch-starter.js'
+import { renderPrompt } from '../../nodes/launch/prompt.js'
 import { sessionEnv } from '../../ports/session.js'
-import { renderPrompt } from '../../shift/prompt.js'
 import { waitFor } from '../wait-for.js'
 
 const ARRIVAL_GUARD_MS = 25_000
@@ -103,7 +103,7 @@ function launchWorld(claudeExit: number, report = '') {
   const writeReport = report === '' ? '' : `printf '%s\\n' ${shellWord(report)} > ${shellWord(path.join(launchDir, `report-${CARD_ID}.md`))}\n`
   const claude = script(path.join(root, 'claude-stub.sh'), `#!/bin/sh\ncat > /dev/null\nprintf 'green\\n' > x.txt\n${writeReport}exit ${claudeExit}\n`)
 
-  const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'shift', 'tree-pr-cli.ts'))}`
+  const treePr = `${shellWord(path.join(REPO, 'node_modules', '.bin', 'tsx'))} ${shellWord(path.join(REPO, 'scripts', 'nodes', 'launch', 'tree-pr-cli.ts'))}`
   vi.stubEnv(BUS_DB_VARIABLE, busPath)
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` }
   const starter = new ShiftCardStarter(

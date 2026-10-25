@@ -1,7 +1,7 @@
 import type { StartedBus } from './card-started-bus.js'
 import process from 'node:process'
 import { afterEach, beforeEach } from 'vitest'
-import { BUS_DB_VARIABLE } from '../../bus/db.js'
+import { BUS_DB_VARIABLE } from '../../core/db.js'
 import { busWithCardStarted } from './card-started-bus.js'
 
 export function ownBusPerTest(): () => string {

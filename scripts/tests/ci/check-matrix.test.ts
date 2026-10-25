@@ -1,5 +1,5 @@
-import type { Matrix, MatrixMutation, MatrixResult, RunTest } from '../../bus/check-matrix.js'
 import type { Graph } from '../../ci/layers.js'
+import type { Matrix, MatrixMutation, MatrixResult, RunTest } from '../../cli/check-matrix.js'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -9,24 +9,24 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
-import { buildCatalog, writeCatalog } from '../../bus/check-catalog.js'
-import { appendMatrix, buildMatrix, matrixArguments, matrixSummary, runMatrix, runMutation } from '../../bus/check-matrix.js'
-import { openBus } from '../../bus/db.js'
-import { openDatabase } from '../../bus/sqlite.js'
+import { buildCatalog, writeCatalog } from '../../cli/check-catalog.js'
+import { appendMatrix, buildMatrix, matrixArguments, matrixSummary, runMatrix, runMutation } from '../../cli/check-matrix.js'
+import { openBus } from '../../core/db.js'
 import { CHECKS_MATRIX_EVENT } from '../../core/events.js'
+import { openDatabase } from '../../core/sqlite.js'
 
-const MATRIX_MODULE = path.resolve(import.meta.dirname, '../../bus/check-matrix.ts')
+const MATRIX_MODULE = path.resolve(import.meta.dirname, '../../cli/check-matrix.ts')
 
 const GRAPH: Graph = new Map([
-  ['scripts/bus/db.ts', []],
-  ['scripts/bus/merge-worker.ts', ['scripts/bus/db.ts']],
+  ['scripts/core/db.ts', []],
+  ['scripts/nodes/merge/merge-worker.ts', ['scripts/core/db.ts']],
   ['scripts/notes/print.ts', []],
-  ['scripts/tests/bus/merge-worker.test.ts', ['scripts/bus/merge-worker.ts']],
+  ['scripts/tests/bus/merge-worker.test.ts', ['scripts/nodes/merge/merge-worker.ts']],
   ['scripts/tests/notes/print.test.ts', ['scripts/notes/print.ts']],
 ])
 
 const BRIEF = [
-  'mutation m1 scripts/bus/merge-worker.ts: replace `ok = true` with `ok = false` -> scripts/tests/bus/merge-worker.test.ts',
+  'mutation m1 scripts/nodes/merge/merge-worker.ts: replace `ok = true` with `ok = false` -> scripts/tests/bus/merge-worker.test.ts',
 ].join('\n')
 
 function catalogDb(briefText: string) {
@@ -36,7 +36,7 @@ function catalogDb(briefText: string) {
 }
 
 const MERGE_TEST = 'scripts/tests/bus/merge-worker.test.ts'
-const MERGE_FILE = 'scripts/bus/merge-worker.ts'
+const MERGE_FILE = 'scripts/nodes/merge/merge-worker.ts'
 const ORIGINAL = 'export const ok = true\n'
 
 function rowsOf(change: { find: string, replacement: string } | { prose: string }, killedBy: string | null, layer: string) {
@@ -66,10 +66,10 @@ function source(root: string): string {
 
 function tree(): string {
   const root = mkdtempSync(path.join(os.tmpdir(), 'matrix-'))
-  mkdirSync(path.join(root, 'scripts/bus'), { recursive: true })
+  mkdirSync(path.join(root, 'scripts/nodes/merge'), { recursive: true })
   mkdirSync(path.join(root, 'scripts/tests/bus'), { recursive: true })
   writeFileSync(path.join(root, MERGE_FILE), ORIGINAL)
-  writeFileSync(path.join(root, 'scripts/tests/bus/merge-worker.test.ts'), 'import { readFileSync } from \'node:fs\'\nimport path from \'node:path\'\nprocess.exit(readFileSync(path.join(import.meta.dirname, \'../../bus/merge-worker.ts\'), \'utf8\').includes(\'ok = true\') ? 0 : 1)\n')
+  writeFileSync(path.join(root, 'scripts/tests/bus/merge-worker.test.ts'), 'import { readFileSync } from \'node:fs\'\nimport path from \'node:path\'\nprocess.exit(readFileSync(path.join(import.meta.dirname, \'../../nodes/merge/merge-worker.ts\'), \'utf8\').includes(\'ok = true\') ? 0 : 1)\n')
   return root
 }
 
@@ -77,7 +77,7 @@ describe('the check matrix built from the catalog rows', () => {
   it('a catalog mutation in a touched layer is killed by its own test', async () => {
     const root = tree()
     const db = rowsOf({ find: 'ok = true', replacement: 'ok = false' }, 'scripts/tests/bus/merge-worker.test.ts', 'bus:merge')
-    const matrix = buildMatrix(['scripts/bus/merge-worker.ts'], GRAPH, () => '', db)
+    const matrix = buildMatrix(['scripts/nodes/merge/merge-worker.ts'], GRAPH, () => '', db)
     expect(matrix.layers.map(layer => layer.layer)).toEqual(['bus:merge'])
     expect(matrix.layers[0]!.tests).toEqual(['scripts/tests/bus/merge-worker.test.ts'])
     const results = await runMatrix(matrix, root, nodeKills)
@@ -89,14 +89,14 @@ describe('the check matrix built from the catalog rows', () => {
   it('a mutation the test cannot see survives', async () => {
     const root = tree()
     const db = rowsOf({ find: 'ok = true', replacement: 'ok = true ' }, 'scripts/tests/bus/merge-worker.test.ts', 'bus:merge')
-    const matrix = buildMatrix(['scripts/bus/merge-worker.ts'], GRAPH, () => '', db)
+    const matrix = buildMatrix(['scripts/nodes/merge/merge-worker.ts'], GRAPH, () => '', db)
     expect((await runMatrix(matrix, root, nodeKills)).map(result => result.outcome)).toEqual(['survived'])
   })
 
   it('rows the matrix leaves out carry why', async () => {
     const untouched = buildMatrix(['scripts/notes/print.ts'], GRAPH, () => '', rowsOf({ find: 'a', replacement: 'b' }, 'scripts/tests/bus/merge-worker.test.ts', 'bus:merge'))
     expect(untouched.skipped.map(entry => entry.why)).toEqual(['its layer is not touched'])
-    const unpredicted = buildMatrix(['scripts/bus/merge-worker.ts'], GRAPH, () => '', rowsOf({ find: 'a', replacement: 'b' }, null, 'bus:merge'))
+    const unpredicted = buildMatrix(['scripts/nodes/merge/merge-worker.ts'], GRAPH, () => '', rowsOf({ find: 'a', replacement: 'b' }, null, 'bus:merge'))
     expect(unpredicted.skipped.map(entry => entry.why)).toEqual(['no test predicted to kill it'])
     expect(matrixSummary(unpredicted, [])).toContain('Skipped #7/m1: no test predicted to kill it.')
   })

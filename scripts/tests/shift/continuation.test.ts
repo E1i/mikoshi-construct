@@ -1,7 +1,7 @@
-import type { SessionEvidence } from '../../shift/continuation.js'
+import type { SessionEvidence } from '../../nodes/launch/continuation.js'
 import { describe, expect, it } from 'vitest'
-import { HANDOFF_FIELDS, HANDOFF_LIMIT } from '../../ghosts/handoff-check.js'
-import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, exitReason, MAX_RESTARTS } from '../../shift/continuation.js'
+import { BOUNDARY_LINE, continuationRefusal, continues, eddiesEvidence, exitReason, MAX_RESTARTS } from '../../nodes/launch/continuation.js'
+import { HANDOFF_FIELDS, HANDOFF_LIMIT } from '../../window/handoff-check.js'
 
 const HANDOFF = HANDOFF_FIELDS.map(field => `${field.label}: ${field.label === 'queue' ? '#1 → #2' : 'x'}`).join('\n')
 const QUIET: SessionEvidence = { exit: 0, closed: false, stopped: false, refused: false, question: false, boundary: false, warned: false }
