@@ -11,7 +11,7 @@ import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAINS_PROJECTION } from './chain.js'
-import { CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
+import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
@@ -148,16 +148,37 @@ function prClosed(db: DatabaseSync, event: StoredEvent): void {
 }
 
 const ENDED_CARD_STATES: ReadonlySet<string | null> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+function questionAMergeSpares(wait = ''): string {
+  return `${wait}need = 'decision' AND ${wait}id NOT LIKE '${DOWNGRADE_WAIT_PREFIX}%'`
+}
+
+function endedCardAnswer(cardId: number, state: string): string {
+  return `card #${cardId} ${state}`
+}
 
 function closeWaitsOfAnEndedCard(db: DatabaseSync, cardId: number | null, eventId: number): void {
   if (cardId === null)
     return
   const state = (db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state ?? null
-  if (!ENDED_CARD_STATES.has(state))
+  if (state === null || !ENDED_CARD_STATES.has(state))
     return
-  const sparingItsQuestions = state === MERGED_CARD ? ` AND NOT (need = 'decision' AND id NOT LIKE '${DOWNGRADE_WAIT_PREFIX}%')` : ''
+  const sparingItsQuestions = state === MERGED_CARD ? ` AND NOT (${questionAMergeSpares()})` : ''
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ?${sparingItsQuestions}`)
-    .run(`card #${cardId} ${state}`, eventId, cardId)
+    .run(endedCardAnswer(cardId, state), eventId, cardId)
+}
+
+const OPEN_WAITS_OF_ENDED_CARDS = `
+  SELECT wait.id, wait.card_id, card.state FROM owner_waits AS wait JOIN cards AS card ON card.card_id = wait.card_id
+  WHERE wait.state = '${OPEN_WAIT}' AND card.state IN (SELECT value FROM json_each(?))
+    AND NOT (card.state = '${MERGED_CARD}' AND ${questionAMergeSpares('wait.')})
+  ORDER BY wait.id
+`
+
+export function closeWaitsOfEndedCards(db: DatabaseSync, ts: string): string[] {
+  const waits = db.prepare(OPEN_WAITS_OF_ENDED_CARDS).all(JSON.stringify([...ENDED_CARD_STATES])) as { id: string, card_id: number, state: string }[]
+  for (const wait of waits)
+    appendEvent(db, { ts, type: OWNER_WAIT_CLOSED, actor: 'reducer', cardId: wait.card_id, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${wait.id}:card-${wait.state}`, payload: { id: wait.id, answer: endedCardAnswer(wait.card_id, wait.state) }, legacy: false })
+  return waits.map(wait => wait.id)
 }
 
 function foldEndingTheWaitsOfAnEndedCard(db: DatabaseSync, event: StoredEvent): void {

@@ -6,7 +6,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendedOnCard } from '../../core/card-automaton.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } from '../../core/db.js'
-import { CARD_WAITING, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
+import { CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { cardIdOfDescription } from '../../core/identifiers.js'
 import { ghostLines } from '../../core/journal.js'
 import { proofMechanismWaitText } from '../../core/queue.js'
@@ -661,6 +661,26 @@ describe('the reducer of the owner_waits projection', () => {
     expect(new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools).run()).toMatchObject([{ kind: 'done' }])
     expect(reduce(db).rejected).toBe(0)
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[id, 'closed', 'the downgrade is withdrawn']])
+    db.close()
+  })
+
+  it('a done owner.wait.close leaves the W wait closed in the owner_waits projection', () => {
+    const db = busWith(admitted(1262), downgradeOf(1262))
+    reduce(db)
+    const id = waits(db)[0]!.id as string
+    appendEvent(db, event(OWNER_WAIT_CLOSED, { actor: null, legacy: true, dedupeKey: `${OWNER_WAIT_CLOSED}:${id}`, payload: { id, answer: 'a close the projection never applied' } }))
+    reduce(db)
+    expect(waits(db).map(each => each.state)).toEqual(['open'])
+    const refuse = (): never => {
+      throw new Error('closing a wait uses no tool')
+    }
+    const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
+    const requests = new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools)
+    requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'card #1262 dropped, the wait is void' })
+    requestFromWindow(db, '2026-10-09T12:00:01.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the same close again' })
+    expect(requests.run().map(outcome => outcome.kind)).toEqual(['done', 'refused'])
+    expect(reduce(db).rejected).toBe(0)
+    expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[id, 'closed', 'card #1262 dropped, the wait is void']])
     db.close()
   })
 

@@ -10,11 +10,11 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { boardProjection } from '../cli/board-page.js'
-import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { REDUCED, WINDOW_REQUEST } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { deriveQueues } from '../core/queue.js'
-import { reduce } from '../core/reducer.js'
+import { closeWaitsOfEndedCards, reduce } from '../core/reducer.js'
 import { decisionsIntake } from '../policy/decisions-import.js'
 import { defaultDecisions } from '../policy/decisions/read.js'
 import { ghApi } from '../ports/github.js'
@@ -109,6 +109,9 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
+  const closed = inTransaction(db, () => closeWaitsOfEndedCards(db, new Date().toISOString()))
+  if (closed.length > 0)
+    console.log(`${PREFIX}closed the owner waits of ended cards: ${closed.join(', ')}`)
   const { busTick, boardFile, boardDataFile } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
   console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues, the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it, and ${boardFile} with ${boardDataFile} every ${TICK_MS / 1000} s; no workers`)
   try {
