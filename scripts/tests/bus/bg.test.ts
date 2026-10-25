@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf, machineBusPath } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { alive, BUS_FLAG, BUS_RUN_LAUNCH, busInArgs, instancesOf, launchName, PREFIX, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
+import { alive, BUS_FLAG, BUS_RUN_LAUNCH, busInArgs, instancesOf, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
@@ -556,6 +556,38 @@ const RUNNING: RunningProcess[] = [
 ]
 
 describe('bus:bg --supervise', () => {
+  it('a bus:run started before --bus, with no bus on its command line, holds a start over its own bus: no second bus:run is started', () => {
+    const w = world()
+    const beforeBusFlag: RunningProcess = { pid: 101, args: 'node pnpm.cjs --silent bus:run' }
+    const result = startDetached(BUS_RUN_LAUNCH, w.busDir, { ...w.env, CONSTRUCT_BUS_DB: ownBus(w) }, () => [beforeBusFlag])
+    expect(result.exitCode).toBe(1)
+    expect(result.alreadyRunning).toEqual(beforeBusFlag)
+    expect(pidsOf(result)).toEqual([])
+    expect(readArgv(w)).toEqual([])
+  })
+
+  it('on main.advanced a bus:run started before --bus is stopped and started once over the same bus with --bus, never a second beside it', async () => {
+    const w = world()
+    const r = repo()
+    const bus = ownBus(w)
+    const beforeBusFlag: RunningProcess = { pid: 101, args: 'node pnpm.cjs --silent bus:run' }
+    const results: BgResult[] = []
+    let stopped: number[] = []
+    const s = supervised(r, w.busDir, [beforeBusFlag], gitCode(r.dir), NO_PREFLIGHT, (launch) => {
+      const result = startDetached(launch, w.busDir, { ...w.env, CONSTRUCT_BUS_DB: bus }, () => stopped.includes(beforeBusFlag.pid) ? [] : [beforeBusFlag])
+      results.push(result)
+      started.push(...pidsOf(result))
+      return result
+    })
+    stopped = s.stopped
+    await s.supervisor.step()
+    s.advance(r.commit('scripts/core/queue.ts'))
+    await s.supervisor.step()
+    expect(s.stopped).toEqual([beforeBusFlag.pid])
+    expect(results.map(result => result.exitCode)).toEqual([0])
+    expect(await argvLines(w, 1)).toEqual([`--silent ${RUN_SCRIPT} ${BUS_FLAG} ${bus}`])
+  })
+
   it('a worker running with --on while workers.json lists it live is restarted by the supervisor with --live, and back to shadow when it is no longer listed live', async () => {
     const r = repo()
     const busDir = path.join(tempRoot('bus-bg-mode-'), 'bus')
