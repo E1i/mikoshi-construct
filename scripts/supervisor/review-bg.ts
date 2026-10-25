@@ -9,7 +9,7 @@ import { openBus } from '../core/db.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { shadowReading } from '../core/report.js'
 import { REVIEW_READS, SWITCH_FLAG } from '../nodes/review/review-worker.js'
-import { alive, printBg, psList, servesBus, startDetached, thisBus } from './bg.js'
+import { alive, argsBeforeBus, printBg, psList, servesBus, startDetached, thisBus } from './bg.js'
 
 export const PREFIX = '[bus:review:bg] '
 export const REVIEW_SCRIPT = 'bus:review'
@@ -43,7 +43,7 @@ function recordedWorker(busDir: string, env: NodeJS.ProcessEnv, processes: Proce
   const listed = processes().find(candidate => candidate.pid === pid)
   if (listed === undefined)
     return { pid, args: `recorded in ${file}` }
-  return servesBus(listed, thisBus(env)) && REVIEW_WORKER_MARKERS.some(marker => listed.args.includes(marker)) ? listed : undefined
+  return servesBus(listed, thisBus(env)) && REVIEW_WORKER_MARKERS.some(marker => argsBeforeBus(listed.args).includes(marker)) ? listed : undefined
 }
 
 export function startReviewWorker(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList): BgResult {
