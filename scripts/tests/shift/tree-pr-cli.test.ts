@@ -77,6 +77,7 @@ const PATH_LINES: Record<string, { diff: ShiftedDiff, cardBody?: string, line: s
 }
 
 const MATRIX_GAP = (file: string): string => `the code matrix count line ■ n □ n · n its change to ${file} requires (architecture/code-matrix.md)`
+const MATRIX_MANIFEST = `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: ['pnpm run quality'], codeMatrix: 'architecture/code-matrix.md' } })}\n`
 const CHANGESET_GAP = (file: string): string => `the changeset its change to the published ${file} requires`
 
 const FORMAT_GAPS: Record<string, { diff: ShiftedDiff, gaps: string[] }> = {
@@ -296,6 +297,7 @@ describe('tree-pr for a finished card session', () => {
     const observed = Object.fromEntries(Object.entries(FORMAT_GAPS).map(([name, { diff }]) => {
       const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-cli-'))
       roots.push(root)
+      writeFileSync(path.join(root, 'construct.json'), MATRIX_MANIFEST)
       const bodies: string[] = []
       const lines: string[] = []
 

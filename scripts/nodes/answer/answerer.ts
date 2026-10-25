@@ -1,3 +1,4 @@
+import type { ShiftGate } from '../../../src/manifest.js'
 import type { Lease } from '../../core/lease.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
@@ -8,6 +9,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { readShiftGate } from '../../../src/manifest.js'
 import { defaultBusPath } from '../../core/db.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { readResultFields } from '../../ports/result.js'
@@ -230,7 +232,11 @@ function diffLines(card: CardSession, diff: string | null | undefined): string[]
   return [`The diff of the tree against ${MAIN_BRANCH}:`, diff]
 }
 
-export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, diff?: string | null): string {
+function gateLine(gate: ShiftGate): string {
+  return gate.prepush.length === 0 ? `the card's witnesses` : `the card's witnesses and the pre-push checks this repository declares, ${gate.prepush.join(', ')}`
+}
+
+export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null): string {
   const { lease, source, widened, card } = request
   return [
     `[answer:${lease.taskKey}]`,
@@ -241,7 +247,7 @@ export function answerPrompt(request: AnswerRequest, ownerQuestion: string, card
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
     `The card's latest events, oldest first:`,
     ...source.events.map(event => JSON.stringify(event)),
-    `Run the window gate of D-194 in ${card.worktree}, each as its own command: the card's witnesses, pnpm typecheck, pnpm lint and the pre-push tests, pnpm exec node --import tsx scripts/ci/prepush.ts, which runs the tests the CI selector picks for this tree less the sandbox list; the full quality is CI. End the session when they are green. A red pre-push run is fixed in this session; a broken one prints its finding and question, and that question goes to the owner as below. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
+    `Run the window gate of D-194 in ${card.worktree}, each as its own command: ${gateLine(gate)}. End the session when they are green. A red pre-push run is fixed in this session; a broken one prints its finding and question, and that question goes to the owner as below. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
   ].join('\n')
 }
 
@@ -347,7 +353,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const cardBody = tools.cardText(request.lease.cardId)
-    const prompt = answerPrompt(request, ownerQuestion, cardBody, resumed ? undefined : tools.diff?.(card))
+    const prompt = answerPrompt(request, ownerQuestion, cardBody, readShiftGate(card.worktree), resumed ? undefined : tools.diff?.(card))
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)

@@ -12,11 +12,13 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - Never approve a workflow run and never run `gh pr merge` yourself. The first line of the pull request's
   description is the task's card:
   `{{card}}`
+{{?matrix}}
 - A change to `src/` or `templates/` writes the code matrix over the alphabet of
-  `architecture/code-matrix.md` (the common rules and those the brief declares) into the shift report: the
+  `{{codeMatrix}}` (the common rules and those the brief declares) into the shift report: the
   upper triangle and the count line `■ n □ n · n`. The shift copies that count line into the pull request's
   description; without it the bus denies the merge. A change to `scripts/` only needs no
   matrix.
+{{/matrix}}
 - Run no background command, no monitor and no wait for a notification: nobody wakes a headless
   session, and a session that waits ends there. Run everything in the foreground and read its result
   in the same call.
@@ -29,23 +31,23 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   yourself, resolve every conflict keeping what the task asks for, conclude the merge with
   `git -C {{worktree}} commit --no-edit` and repeat your checks; that merge commit is the one commit you
   make. A conflict you cannot resolve without the owner is a `question:` line, not a fault.
-- Before you end the session, run each as its own command and read its result: the task's witnesses,
-  `pnpm typecheck`, `pnpm lint` and the pre-push tests, `pnpm exec node --import tsx scripts/ci/prepush.ts`,
-  which runs the tests the CI selector picks for this tree less the sandbox list; the full quality is CI.
-  A red pre-push run is fixed in this session before you end it. A broken one prints a `finding:` and a
-  `question:` line: copy both into the report and exit; the bus pushes nothing.
+- Before you end the session, run each as its own command and read its result: the task's witnesses
+  and the pre-push checks this repository declares, {{prepush}}. A red pre-push run is fixed in this
+  session before you end it. A broken one prints a `finding:` and a `question:` line: copy both into the
+  report and exit; the bus pushes nothing.
 - On an Eddies warn: finish the step you are in, write the handoff and the report, exit; the bus then
   commits, pushes and opens the pull request from the tree before it records the stop.
   On an Eddies stop: write the report and exit.
 - At a boundary — the session's context reached `contextLimit`, or an owner-merged pull request just
   merged — finish the step you are in, write the handoff and the report with a
   `boundary: <which boundary>` line in it, and exit.
-- At an Eddies warn or a boundary, the shift report also carries the handoff contract: every field
-  `HANDOFF_FIELDS` in `scripts/window/handoff-check.ts` lists, as a `<label>: <value>` line or a
-  `## <label>` heading with a body. Without them no session continues from the report under
-  `continue: auto`.
-- A handoff file is written only with `pnpm handoff:write <handoff> <draft>`, never by editing it: the command checks the
+- At an Eddies warn or a boundary, the shift report also carries the handoff contract: each of the
+  fields {{handoffFields}}, as a `<label>: <value>` line or a `## <label>` heading with a body. Without
+  them no session continues from the report under `continue: auto`.
+{{?handoff}}
+- A handoff file is written only with `{{handoffWrite}}`, never by editing it: the command checks the
   draft, archives the old handoff and writes its `prev:` line.
+{{/handoff}}
 - Before you exit, for any reason, write the shift report to `{{report}}`, inside your tree; the bus
   collects it from there before anything is staged, so never commit it. Its first line is the
   card above; then one line each, in this order: `contract: <kind, contour, decision, touches, the

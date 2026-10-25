@@ -7,6 +7,11 @@
   "harness": {
     "command": "pnpm run quality"
   },
+  "shift": {
+    "prepush": ["pnpm typecheck", "pnpm lint", "pnpm exec node --import tsx scripts/ci/prepush.ts"],
+    "handoffWrite": "pnpm handoff:write <handoff> <draft>",
+    "codeMatrix": "architecture/code-matrix.md"
+  },
   "report": {
     "usage": true
   },
