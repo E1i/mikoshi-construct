@@ -21,7 +21,7 @@ import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { CHECK_MS } from '../ports/netwatch.js'
-import { instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
+import { flagsInArgs, instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
@@ -284,7 +284,7 @@ export class BusSupervisor {
     const processes = this.parts.processes()
     const diverged = this.parts.wanted().flatMap((launch) => {
       const instance = runningInstance(processes, launch.markers)
-      return instance !== undefined && instance.args.includes(LIVE_FLAG) !== launch.args.includes(LIVE_FLAG) ? [{ launch, instance }] : []
+      return instance !== undefined && flagsInArgs(instance.args).includes(LIVE_FLAG) !== launch.args.includes(LIVE_FLAG) ? [{ launch, instance }] : []
     })
     const lines: string[] = []
     for (const { launch, instance } of diverged) {

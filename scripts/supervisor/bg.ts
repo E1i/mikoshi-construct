@@ -77,7 +77,8 @@ export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH, installed: s
 }
 
 export function carriesMarker(args: string, markers: readonly string[]): boolean {
-  return markers.some(marker => args.includes(marker) || args.includes(marker.replace(SOURCE_MARKER, `$1${BUILT_MODULE}`)))
+  const command = argsBeforeBus(args)
+  return markers.some(marker => command.includes(marker) || command.includes(marker.replace(SOURCE_MARKER, `$1${BUILT_MODULE}`)))
 }
 
 function psLines(args: string[], env: NodeJS.ProcessEnv): RunningProcess[] {
@@ -91,6 +92,15 @@ function parsePs(output: string): RunningProcess[] {
       const match = PS_LINE.exec(line)
       return match === null ? [] : [{ pid: Number(match[1]), args: match[2]! }]
     })
+}
+
+export function argsBeforeBus(args: string): string {
+  const at = args.lastIndexOf(BUS_ARGUMENT)
+  return at === -1 ? args : args.slice(0, at)
+}
+
+export function flagsInArgs(args: string): string[] {
+  return argsBeforeBus(args).split(/\s+/).filter(token => token !== '')
 }
 
 export function busInArgs(args: string): string | undefined {

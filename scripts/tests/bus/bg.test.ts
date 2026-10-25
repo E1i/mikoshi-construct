@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf, machineBusPath } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { alive, BUS_FLAG, BUS_RUN_LAUNCH, busInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
+import { alive, BUS_FLAG, BUS_RUN_LAUNCH, BUS_RUN_MARKERS, busInArgs, carriesMarker, flagsInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
@@ -614,6 +614,29 @@ describe('bus:bg --supervise', () => {
     expect(live.stopped).toEqual([103])
     expect(live.starts.map(start => start.name)).toEqual(['bus:update --on'])
     expect(live.freed).toEqual([['bus:update --on']])
+  })
+
+  it('live in the bus path: a shadow worker over a bus whose path carries --live is left in shadow, and one with --live before --bus is restarted in shadow', async () => {
+    const r = repo()
+    const busDir = path.join(tempRoot('bus-bg-mode-'), 'bus')
+    switchWorker(busDir, 'review', true)
+    const bus = '/x/E1i--live-0-44/bus.db'
+    const busRun: RunningProcess = { pid: 101, args: `node /p/dist/scripts/supervisor/run.js --bus ${bus}` }
+    const shadow = supervised(r, busDir, [busRun, { pid: 102, args: `node /p/dist/scripts/nodes/review/review-worker.js --on --bus ${bus}` }])
+    expect(await shadow.supervisor.step()).toEqual([])
+    expect(shadow.stopped).toEqual([])
+    const live = supervised(r, busDir, [busRun, { pid: 102, args: `node /p/dist/scripts/nodes/review/review-worker.js --on --live --bus ${bus}` }])
+    await live.supervisor.step()
+    expect(live.stopped).toEqual([102])
+    expect(live.starts.map(start => start.name)).toEqual(['bus:review --on'])
+  })
+
+  it('live in the bus path: flags and markers are read before the last --bus, never inside the bus path', () => {
+    const args = 'node /p/dist/scripts/nodes/review/review-worker.js --on --bus /x/E1i--live-0-44/bus.db'
+    expect(flagsInArgs(args)).toEqual(['node', '/p/dist/scripts/nodes/review/review-worker.js', '--on'])
+    expect(flagsInArgs(`node w.js --on --live --bus /x/bus.db`)).toContain('--live')
+    expect(carriesMarker('node /p/w.js --bus /x/scripts/supervisor/run.js/bus.db', BUS_RUN_MARKERS)).toBe(false)
+    expect(carriesMarker('node /p/dist/scripts/supervisor/run.js --bus /x/bus.db', BUS_RUN_MARKERS)).toBe(true)
   })
 
   it('main advancing with a change under scripts/bus restarts every switched-on bus process on the new code, and a switched-off one is stopped, not brought back', async () => {
