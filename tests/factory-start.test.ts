@@ -10,12 +10,12 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE, busDirOf } from '../scripts/core/bus-path.js'
+import { BUS_DB_VARIABLE, busDirOf, repoIdOf } from '../scripts/core/bus-path.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
-import { AGENT_LOG, agentLabel, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
+import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { liveWorkers, MODE_WORKERS, modeOf, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
@@ -258,6 +258,29 @@ describe('the keep-alive of the start command', () => {
 
   it('gives two repositories of one name two agents', () => {
     expect(agentLabel('/a/shop')).not.toBe(agentLabel('/b/shop'))
+  })
+})
+
+describe('the bus the start command runs over', () => {
+  it('the owner checkout keeps the machine bus and a clone gets its own, even before it exists', () => {
+    const home = tempRoot('factory-home-')
+    const machine = path.join(home, '.construct', 'bus.db')
+    mkdirSync(path.dirname(machine), { recursive: true })
+    writeFileSync(machine, '')
+    const owner = tempRoot('factory-owner-')
+    mkdirSync(path.join(owner, path.dirname(OWNER_AGENT_FILE)), { recursive: true })
+    writeFileSync(path.join(owner, OWNER_AGENT_FILE), '')
+    const clone = tempRoot('factory-clone-')
+    const ownerEnv: NodeJS.ProcessEnv = {}
+    const cloneEnv: NodeJS.ProcessEnv = {}
+
+    expect(factoryBusOf(ownerEnv, home, owner)).toBe(machine)
+    const own = factoryBusOf(cloneEnv, home, clone)
+
+    expect(own).toBe(path.join(home, '.construct', repoIdOf(clone), 'bus.db'))
+    expect(existsSync(own)).toBe(false)
+    expect(ownerEnv[BUS_DB_VARIABLE]).toBe(machine)
+    expect(cloneEnv[BUS_DB_VARIABLE]).toBe(own)
   })
 })
 
