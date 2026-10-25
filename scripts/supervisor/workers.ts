@@ -12,7 +12,20 @@ import { reviewLaunch } from './review-bg.js'
 export const WORKERS_FILE = 'workers.json'
 export const WORKERS = ['review', 'merge', 'update', 'launch', 'restart', 'answer', 'close', 'witness'] as const
 
+export const FACTORY_MODES = ['window', 'ghost-protocol'] as const
+export const DEFAULT_MODE = 'window'
+
 export type BusWorker = typeof WORKERS[number]
+export type FactoryMode = typeof FACTORY_MODES[number]
+
+export const MODE_WORKERS: Readonly<Record<FactoryMode, readonly BusWorker[]>> = {
+  'window': ['review', 'launch', 'answer', 'witness'],
+  'ghost-protocol': WORKERS,
+}
+
+export function isFactoryMode(name: string): name is FactoryMode {
+  return (FACTORY_MODES as readonly string[]).includes(name)
+}
 
 export function isBusWorker(name: string): name is BusWorker {
   return (WORKERS as readonly string[]).includes(name)
@@ -54,9 +67,30 @@ export function liveWorkers(busDir: string): BusWorker[] {
   return WORKERS.filter(worker => live.includes(worker))
 }
 
-function writeWorkers(busDir: string, on: BusWorker[], live: BusWorker[]): void {
+export function modeOf(busDir: string): FactoryMode | null {
+  const file = path.join(busDir, WORKERS_FILE)
+  if (!existsSync(file))
+    return null
+  const mode = (JSON.parse(readFileSync(file, 'utf8')) as { mode?: unknown }).mode
+  return typeof mode === 'string' && isFactoryMode(mode) ? mode : null
+}
+
+function writeWorkers(busDir: string, on: BusWorker[], live: BusWorker[], mode: FactoryMode | null = modeOf(busDir)): void {
   mkdirSync(busDir, { recursive: true })
-  writeFileSync(path.join(busDir, WORKERS_FILE), `${JSON.stringify(live.length === 0 ? { on } : { on, live })}\n`)
+  writeFileSync(path.join(busDir, WORKERS_FILE), `${JSON.stringify({ ...(mode === null ? {} : { mode }), on, ...(live.length === 0 ? {} : { live }) })}\n`)
+}
+
+export function switchMode(busDir: string, mode: FactoryMode): BusWorker[] {
+  const on = WORKERS.filter(worker => MODE_WORKERS[mode].includes(worker))
+  writeWorkers(busDir, on, liveWorkers(busDir), mode)
+  return on
+}
+
+export function startingMode(busDir: string): FactoryMode | null {
+  if (existsSync(path.join(busDir, WORKERS_FILE)))
+    return null
+  switchMode(busDir, DEFAULT_MODE)
+  return DEFAULT_MODE
 }
 
 export function switchWorker(busDir: string, worker: BusWorker, on: boolean): BusWorker[] {

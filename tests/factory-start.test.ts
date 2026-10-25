@@ -1,5 +1,7 @@
 import type { SpawnSyncReturns } from 'node:child_process'
-import type { LaunchctlRun } from '../scripts/supervisor/start.js'
+import type { BusEvent } from '../scripts/core/db.js'
+import type { WindowShard } from '../scripts/policy/shards.js'
+import type { LaunchctlRun, ModeParts } from '../scripts/supervisor/start.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,9 +11,13 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE, busDirOf } from '../scripts/core/bus-path.js'
+import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
+import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
+import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/supervisor/bg.js'
-import { AGENT_LOG, agentLabel, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, runStart, START_BIN, USAGE } from '../scripts/supervisor/start.js'
+import { AGENT_LOG, agentLabel, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
+import { liveWorkers, MODE_WORKERS, modeOf, switchedOn, switchWorker, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
 
@@ -32,6 +38,7 @@ const SPAWN_BOUNDARY_SANDBOX_LEVEL = 'none'
 const SPAWNS_LOG = 'spawns.jsonl'
 const NEVER_SPAWNED = ['pnpm', 'git']
 const NOHUP_ENTRIES = ['supervisor.js', 'run.js']
+const FRESH_LAUNCHES = [...NOHUP_ENTRIES, ...MODE_WORKERS.window.map(worker => `${path.basename(FACTORY_WORKERS[worker], '.ts')}.js`)]
 const SPAWN_RECORDER = `import childProcess from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
@@ -254,6 +261,124 @@ describe('the keep-alive of the start command', () => {
   })
 })
 
+const SHARD_ID = 'shard-1'
+const NOW = new Date('2026-10-25T12:00:00.000Z')
+const WINDOW_WORKERS = ['review', 'launch', 'answer', 'witness']
+
+interface ModeBench {
+  parts: ModeParts
+  events: BusEvent[]
+  channel: string
+}
+
+function modeBench(active: WindowShard[] = []): ModeBench {
+  const root = tempRoot('factory-mode-')
+  const events: BusEvent[] = []
+  const channel = path.join(root, 'answers')
+  return { events, channel, parts: { busDir: path.join(root, 'bus'), channel, now: () => NOW, uuid: () => SHARD_ID, record: event => events.push(event), activeWindows: () => active } }
+}
+
+function modeCommand(...argv: string[]) {
+  const command = startCommandOf(argv)
+  if (command === null || command.kind === 'start')
+    throw new Error(`${argv.join(' ')} is not a mode command`)
+  return command
+}
+
+const fresh = async () => ({ stdout: [], stderr: [], exitCode: 0 })
+
+describe('the modes of the factory', () => {
+  it('a fresh factory starts in WINDOW with merge off', async () => {
+    const home = tempRoot('factory-home-')
+    const parts = keepAliveParts(home, recordingLaunchctl().run, 'linux')
+
+    const result = await runStart(tempRoot('factory-user-'), REPOSITORY, parts, fresh)
+
+    expect(result.exitCode, result.stderr.join('\n')).toBe(0)
+    expect(modeOf(parts.busDir)).toBe('window')
+    expect(switchedOn(parts.busDir)).toEqual(WINDOW_WORKERS)
+    expect(switchedOn(parts.busDir)).not.toContain('merge')
+    expect(result.stdout.join('\n')).toContain('merge off')
+  })
+
+  it('a factory that already has its workers keeps them on start', async () => {
+    const home = tempRoot('factory-home-')
+    const parts = keepAliveParts(home, recordingLaunchctl().run, 'linux')
+    switchWorker(parts.busDir, 'merge', true)
+
+    await runStart(tempRoot('factory-user-'), REPOSITORY, parts, fresh)
+
+    expect(switchedOn(parts.busDir)).toEqual(['merge'])
+    expect(modeOf(parts.busDir)).toBeNull()
+  })
+
+  it('the switch to GHOST PROTOCOL without an unused owner word is refused with the ready command', () => {
+    const bench = modeBench()
+
+    const result = runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain(`${sayCommand(ghostProtocolWord(8))} && ${START_BIN} --mode ghost-protocol --hours 8`)
+    expect(existsSync(path.join(bench.parts.busDir, WORKERS_FILE))).toBe(false)
+    expect(bench.events).toEqual([])
+  })
+
+  it('the switch to GHOST PROTOCOL on an unused owner word issues a window shard for its term and switches every worker on', () => {
+    const bench = modeBench()
+    const said = sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+
+    const result = runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+
+    expect(result.exitCode, result.stderr.join('\n')).toBe(0)
+    expect(modeOf(bench.parts.busDir)).toBe('ghost-protocol')
+    expect(switchedOn(bench.parts.busDir)).toEqual([...WORKERS])
+    expect(bench.events.map(event => [event.type, event.payload])).toEqual([[SHARD_ISSUED, { id: SHARD_ID, by: said, run: null, window: true, scope: 'merge', until: '2026-10-25T20:00:00.000Z' }]])
+    expect(existsSync(`${said}${USED_WORD}`)).toBe(true)
+    expect(runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), modeBench().parts).exitCode).toBe(1)
+  })
+
+  it('an owner word for another term opens no GHOST PROTOCOL', () => {
+    const bench = modeBench()
+    const said = sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+
+    expect(runMode(modeCommand('--mode', 'ghost-protocol'), bench.parts).exitCode).toBe(1)
+    expect(existsSync(said)).toBe(true)
+  })
+
+  it('wINDOW needs no owner word, switches merge off and revokes the window shard', () => {
+    const bench = modeBench([{ id: SHARD_ID, by: 'owner', scope: 'merge', until: '2026-10-25T20:00:00.000Z' }])
+    switchWorker(bench.parts.busDir, 'merge', true)
+
+    const result = runMode(modeCommand('--mode', 'window'), bench.parts)
+
+    expect(result.exitCode).toBe(0)
+    expect(modeOf(bench.parts.busDir)).toBe('window')
+    expect(switchedOn(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+    expect(bench.events.map(event => [event.type, event.payload])).toEqual([[SHARD_REVOKED, { id: SHARD_ID }]])
+  })
+
+  it('a queue goes live only on an unused owner word and back to shadow without one', () => {
+    const bench = modeBench()
+    const refused = runMode(modeCommand('--live', 'launch'), bench.parts)
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr.join('\n')).toContain(sayCommand('allow-live launch'))
+    expect(refused.stderr.join('\n')).not.toContain('decisions:add')
+    expect(liveWorkers(bench.parts.busDir)).toEqual([])
+
+    sayToOwnerChannel(bench.channel, 'allow-live launch', NOW)
+    expect(runMode(modeCommand('--live', 'launch'), bench.parts).exitCode).toBe(0)
+    expect(liveWorkers(bench.parts.busDir)).toEqual(['launch'])
+
+    expect(runMode(modeCommand('--shadow', 'launch'), bench.parts).exitCode).toBe(0)
+    expect(liveWorkers(bench.parts.busDir)).toEqual([])
+  })
+
+  it('refuses an unknown mode, a term on WINDOW and a term that is not a whole number of hours', () => {
+    for (const argv of [['--mode', 'turbo'], ['--mode', 'window', '--hours', '2'], ['--mode', 'ghost-protocol', '--hours', '1.5'], ['--live', 'nobody'], ['extra']])
+      expect(startCommandOf(argv), argv.join(' ')).toBeNull()
+  })
+})
+
 interface Packed {
   root: string
   installed: string
@@ -310,12 +435,16 @@ describe('the start command in the published package', () => {
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const argv = path.join(out, 'nohup.argv')
     const launchedLines = (): string[] => existsSync(argv) ? readFileSync(argv, 'utf8').trim().split('\n') : []
-    await waitFor(() => launchedLines().length >= 2, () => `two launches in ${argv}`, LAUNCHED_WITHIN_MS)
+    await waitFor(() => launchedLines().length >= FRESH_LAUNCHES.length, () => `${FRESH_LAUNCHES.length} launches in ${argv}`, LAUNCHED_WITHIN_MS)
     const launched = launchedLines()
-    expect(launched).toHaveLength(2)
+    expect(launched).toHaveLength(FRESH_LAUNCHES.length)
     expect(launched.filter(line => line.includes('pnpm'))).toEqual([])
     const built = (source: string): string => path.join(packed.installed, OUT_DIR, 'scripts', 'supervisor', source)
-    expect(launched.map(line => line.slice(line.indexOf(' ') + 1)).sort()).toEqual([built('run.js'), `${built('supervisor.js')} ${SUPERVISE_FLAG}`].sort())
+    const targets = launched.map(line => line.slice(line.indexOf(' ') + 1))
+    expect(targets).toContain(built('run.js'))
+    expect(targets).toContain(`${built('supervisor.js')} ${SUPERVISE_FLAG}`)
+    expect(targets.map(target => path.basename(target.split(' ')[0]!)).sort()).toEqual([...FRESH_LAUNCHES].sort())
+    expect(targets.filter(target => !target.startsWith(path.join(packed.installed, OUT_DIR)))).toEqual([])
     expect(existsSync(path.join(busDirOf(path.join(packed.root, 'bus.db')), SUPERVISOR_LAUNCH.instanceFile!))).toBe(true)
   })
 
@@ -323,7 +452,7 @@ describe('the start command in the published package', () => {
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const log = path.join(out, SPAWNS_LOG)
     const nohups = (): RecordedSpawn[] => recordedSpawns(log).filter(spawn => spawn.command === 'nohup')
-    await waitFor(() => nohups().length >= 2, () => `two launches in ${log}`, LAUNCHED_WITHIN_MS)
+    await waitFor(() => nohups().length >= FRESH_LAUNCHES.length, () => `${FRESH_LAUNCHES.length} launches in ${log}`, LAUNCHED_WITHIN_MS)
     const spawns = recordedSpawns(log)
     expect(spawns.map(spawn => spawn.command).filter(command => !FACTORY_SPAWNS.includes(command))).toEqual([])
     expect(spawns.filter(spawn => NEVER_SPAWNED.includes(path.basename(spawn.command)) || spawn.args.some(arg => NEVER_SPAWNED.includes(arg)))).toEqual([])
@@ -335,7 +464,7 @@ describe('the start command in the published package', () => {
       expect(path.basename(args[0]!), args.join(' ')).toBe(path.basename(process.execPath))
       expect(args[1]!.startsWith(shipped), args.join(' ')).toBe(true)
     }
-    expect(nohups().map(spawn => path.basename(spawn.args[1]!)).sort()).toEqual([...NOHUP_ENTRIES].sort())
+    expect(nohups().map(spawn => path.basename(spawn.args[1]!)).sort()).toEqual([...FRESH_LAUNCHES].sort())
     const ps = spawns.filter(spawn => spawn.command === 'ps')
     expect(ps.length > 0).toBe(true)
     expect(ps.filter(spawn => !spawn.args[0]?.startsWith('-'))).toEqual([])
