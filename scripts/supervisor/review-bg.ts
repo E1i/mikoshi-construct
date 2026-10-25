@@ -9,7 +9,7 @@ import { openBus } from '../core/db.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { shadowReading } from '../core/report.js'
 import { REVIEW_READS, SWITCH_FLAG } from '../nodes/review/review-worker.js'
-import { alive, printBg, psList, startDetached } from './bg.js'
+import { alive, printBg, psList, servesBus, startDetached, thisBus } from './bg.js'
 
 export const PREFIX = '[bus:review:bg] '
 export const REVIEW_SCRIPT = 'bus:review'
@@ -33,7 +33,7 @@ export function busShadowProblems(busPath: string): string[] {
   }
 }
 
-function recordedWorker(busDir: string, processes: ProcessList): RunningProcess | undefined {
+function recordedWorker(busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList): RunningProcess | undefined {
   const file = path.join(busDir, REVIEW_INSTANCE_FILE)
   if (!existsSync(file))
     return undefined
@@ -43,11 +43,11 @@ function recordedWorker(busDir: string, processes: ProcessList): RunningProcess 
   const listed = processes().find(candidate => candidate.pid === pid)
   if (listed === undefined)
     return { pid, args: `recorded in ${file}` }
-  return REVIEW_WORKER_MARKERS.some(marker => listed.args.includes(marker)) ? listed : undefined
+  return servesBus(listed, thisBus(env)) && REVIEW_WORKER_MARKERS.some(marker => listed.args.includes(marker)) ? listed : undefined
 }
 
 export function startReviewWorker(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList): BgResult {
-  const held = launch.instanceFile === REVIEW_INSTANCE_FILE ? recordedWorker(busDir, processes) : undefined
+  const held = launch.instanceFile === REVIEW_INSTANCE_FILE ? recordedWorker(busDir, env, processes) : undefined
   if (held !== undefined)
     return { stdout: [], stderr: [`${launch.prefix}${launch.script} is already running as pid ${held.pid} (${held.args}); nothing started`], exitCode: 1, alreadyRunning: held }
   return startDetached(launch, busDir, env, processes)

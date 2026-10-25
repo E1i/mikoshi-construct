@@ -136,17 +136,17 @@ function checkedNamedBus(named: string, home: string, dir: string): string {
   return named
 }
 
-export function busPathOf(env: NodeJS.ProcessEnv, home: string, dir: string): string {
+export function busPathOf(env: NodeJS.ProcessEnv, home: string, dir: string, machineFallback = true): string {
   const named = env[BUS_DB_VARIABLE]
   if (named !== undefined && named !== '')
     return checkedNamedBus(named, home, dir)
   const own = path.join(repoHome(home, repoIdOf(dir)), BUS_FILE)
   const machine = machineBusPath(home)
-  return !existsSync(own) && existsSync(machine) ? machine : own
+  return machineFallback && !existsSync(own) && existsSync(machine) ? machine : own
 }
 
-export function pinBus(env: NodeJS.ProcessEnv, home: string, dir: string): string {
-  const busPath = busPathOf(env, home, dir)
+export function pinBus(env: NodeJS.ProcessEnv, home: string, dir: string, machineFallback = true): string {
+  const busPath = busPathOf(env, home, dir, machineFallback)
   env[BUS_DB_VARIABLE] = busPath
   return busPath
 }

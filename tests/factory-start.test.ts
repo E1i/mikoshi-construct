@@ -10,12 +10,12 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE, busDirOf } from '../scripts/core/bus-path.js'
+import { BUS_DB_VARIABLE, busDirOf, repoIdOf } from '../scripts/core/bus-path.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
-import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/supervisor/bg.js'
-import { AGENT_LOG, agentLabel, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
+import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
+import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { liveWorkers, MODE_WORKERS, modeOf, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
@@ -148,6 +148,11 @@ describe('a factory process is launched as the package it runs from', () => {
     expect(launchArgv(SUPERVISOR_LAUNCH, installed)).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG])
   })
 
+  it('carries the absolute path of its bus as --bus after its own args, so ps reads the bus from the command line', () => {
+    expect(launchArgv(BUS_RUN_LAUNCH, null, 'bus.db')).toEqual(['nohup', 'pnpm', '--silent', BUS_RUN_LAUNCH.script, BUS_FLAG, path.resolve('bus.db')])
+    expect(launchArgv(SUPERVISOR_LAUNCH, `${REPOSITORY}/`, '/x/bus.db')).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG, BUS_FLAG, '/x/bus.db'])
+  })
+
   it('refuses a script the package names no factory entry for, rather than starting something else', () => {
     expect(() => launchArgv({ ...BUS_RUN_LAUNCH, script: 'lint' }, REPOSITORY)).toThrow(/names no factory entry for lint/)
   })
@@ -258,6 +263,42 @@ describe('the keep-alive of the start command', () => {
 
   it('gives two repositories of one name two agents', () => {
     expect(agentLabel('/a/shop')).not.toBe(agentLabel('/b/shop'))
+  })
+})
+
+describe('the bus the start command runs over', () => {
+  it('the owner checkout keeps the machine bus and a clone gets its own, even before it exists', () => {
+    const home = tempRoot('factory-home-')
+    const machine = path.join(home, '.construct', 'bus.db')
+    mkdirSync(path.dirname(machine), { recursive: true })
+    writeFileSync(machine, '')
+    const owner = tempRoot('factory-owner-')
+    mkdirSync(path.join(owner, path.dirname(OWNER_AGENT_FILE)), { recursive: true })
+    writeFileSync(path.join(owner, OWNER_AGENT_FILE), '')
+    const clone = tempRoot('factory-clone-')
+    const ownerEnv: NodeJS.ProcessEnv = {}
+    const cloneEnv: NodeJS.ProcessEnv = {}
+
+    expect(factoryBusOf(ownerEnv, home, owner)).toBe(machine)
+    const own = factoryBusOf(cloneEnv, home, clone)
+
+    expect(own).toBe(path.join(home, '.construct', repoIdOf(clone), 'bus.db'))
+    expect(existsSync(own)).toBe(false)
+    expect(ownerEnv[BUS_DB_VARIABLE]).toBe(machine)
+    expect(cloneEnv[BUS_DB_VARIABLE]).toBe(own)
+  })
+})
+
+describe('the exit code of the start command', () => {
+  it('a start that started nothing for its own bus exits non-zero', async () => {
+    const parts = keepAliveParts(tempRoot('factory-home-'), recordingLaunchctl().run, 'linux')
+    const unreadBusRun = () => [{ pid: 4242, args: `node /x/${OUT_DIR}/scripts/supervisor/run.js` }]
+    const startOverOwnBus = async () => runBusBg(parts.busDir, [BUS_RUN_LAUNCH], { [BUS_DB_VARIABLE]: parts.busDb }, unreadBusRun)
+
+    const result = await runStart(tempRoot('factory-user-'), REPOSITORY, parts, startOverOwnBus)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain(`started nothing for ${parts.busDb}`)
   })
 })
 
@@ -506,7 +547,9 @@ describe('the start command in the published package', () => {
     expect(launched).toHaveLength(FRESH_LAUNCHES.length)
     expect(launched.filter(line => line.includes('pnpm'))).toEqual([])
     const built = (source: string): string => path.join(packed.installed, OUT_DIR, 'scripts', 'supervisor', source)
-    const targets = launched.map(line => line.slice(line.indexOf(' ') + 1))
+    const busArgument = ` ${BUS_FLAG} ${path.join(packed.root, 'bus.db')}`
+    expect(launched.filter(line => !line.endsWith(busArgument))).toEqual([])
+    const targets = launched.map(line => line.slice(line.indexOf(' ') + 1, -busArgument.length))
     expect(targets).toContain(built('run.js'))
     expect(targets).toContain(`${built('supervisor.js')} ${SUPERVISE_FLAG}`)
     expect(targets.map(target => path.basename(target.split(' ')[0]!)).sort()).toEqual([...FRESH_LAUNCHES].sort())

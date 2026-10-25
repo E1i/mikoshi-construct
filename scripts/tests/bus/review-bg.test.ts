@@ -7,7 +7,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { NetWatch } from '../../ports/netwatch.js'
-import { psList, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
+import { PREFIX as BG_PREFIX, psList, runBusBg, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
 import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../supervisor/review-bg.js'
 import { BusTick } from '../../supervisor/run.js'
 import { settled } from '../shift/fixtures/settled.js'
@@ -162,6 +162,31 @@ describe('pnpm bus:review:bg', () => {
     const third = startReviewWorker(reviewLaunch(clean), w.busDir, w.env, reused)
     expect(third.exitCode).toBe(0)
     started.push(Number(third.stdout[0]))
+  })
+
+  it('a recorded review worker of another bus does not hold this bus', () => {
+    const w = world()
+    mkdirSync(w.busDir, { recursive: true })
+    writeFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), '4343\n')
+    const ofAnotherBus: ProcessList = () => [{ pid: 4343, args: `node /x/node_modules/tsx/dist/cli.mjs ${REVIEW_WORKER_MARKERS[0]}`, bus: path.join(tmpdir(), 'another', 'bus.db') }]
+    const result = startReviewWorker(reviewLaunch(clean), w.busDir, { ...w.env, CONSTRUCT_BUS_DB: path.join(path.dirname(w.busDir), 'bus.db') }, ofAnotherBus)
+    started.push(Number(result.stdout[0]))
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    expect(result.alreadyRunning).toBeUndefined()
+  })
+
+  it('a recorded review worker whose bus could not be read holds the start but does not count as this bus running, so the start exits 1', () => {
+    const w = world()
+    const bus = path.join(path.dirname(w.busDir), 'bus.db')
+    mkdirSync(w.busDir, { recursive: true })
+    writeFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), '4343\n')
+    const unread: ProcessList = () => [{ pid: 4343, args: `node /x/node_modules/tsx/dist/cli.mjs ${REVIEW_WORKER_MARKERS[0]}` }]
+    const result = runBusBg(w.busDir, [reviewLaunch(clean)], { ...w.env, CONSTRUCT_BUS_DB: bus }, unread, startReviewWorker)
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toEqual([`${BG_PREFIX}bus:review --on is running as pid 4343, whose bus could not be read as ${bus}; left alone and not counted as running for it`])
+    expect(result.stderr).toEqual([`${BG_PREFIX}started nothing for ${bus} and found nothing of it running; its factory is not up`])
+    expect(readFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), 'utf8').trim()).toBe('4343')
   })
 
   it('an unclean shadow is refused before anything starts', async () => {

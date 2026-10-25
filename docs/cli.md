@@ -2128,10 +2128,15 @@ construct-factory
 ```
 
 It starts the factory in the background over the repository's own bus, `~/.construct/<repo-id>/`
-(or the one `CONSTRUCT_BUS_DB` names): `bus:run` and the workers switched on in `bus/workers.json`
+(or the one `CONSTRUCT_BUS_DB` names), even where that bus does not exist yet and another
+factory runs over `~/.construct/bus.db`: `bus:run` and the workers switched on in `bus/workers.json`
 beside it, each as `node` on its built file in the installed package, and the supervisor that keeps
-them running, each detached so it survives closing the terminal. A process already running is left
-alone, so a second run starts nothing twice. Logs go to that `bus/` directory.
+them running, each detached so it survives closing the terminal. A process already running over the
+same bus is left alone, so a second run starts nothing twice; a process of another bus does not
+count, and neither does its start lock or pid file, which live in the `bus/` directory of its bus.
+Logs go to that `bus/` directory. The command exits non-zero when it started nothing for its bus and
+found nothing running over it, which includes a running process whose bus it could not read: that
+one is left alone, and named.
 
 Then it installs the keep-alive. On macOS that is a launchd agent,
 `dev.mikoshi.factory.<repository>-<hash>.plist` in the `Library/LaunchAgents` of your home, loaded into your login
