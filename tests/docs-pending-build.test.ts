@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const BROKEN = path.join(import.meta.dirname, 'fixtures/release-notes/pre-242-ladder-witnesses-the-acceptance.md')
-const COPIED = ['package.json', 'CHANGELOG.md', 'docs', 'scripts/docs', 'scripts/release-notes']
+const COPIED = ['package.json', 'CHANGELOG.md', 'docs', 'scripts/docs', 'scripts/release-notes', 'architecture']
 
 function repositoryWith(changeset: (target: string) => void): string {
   const root = mkdtempSync(path.join(tmpdir(), 'construct-docs-pending-'))

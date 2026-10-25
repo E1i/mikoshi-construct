@@ -9,7 +9,7 @@ import { renderIndex } from '../release-notes/render.js'
 
 const CHANGESET_DIR = path.join(REPO_ROOT, '.changeset')
 const DOCS = path.join(REPO_ROOT, 'docs')
-const SIBLINGS_THE_DOCS_CONFIG_RESOLVES = ['package.json', 'scripts', 'node_modules']
+const SIBLINGS_THE_DOCS_CONFIG_RESOLVES = ['package.json', 'scripts', 'node_modules', 'architecture']
 const GENERATED = ['.vitepress/cache', '.vitepress/dist'].map(part => path.join(DOCS, part))
 
 function changesetFiles(): string[] {

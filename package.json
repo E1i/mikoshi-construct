@@ -72,7 +72,7 @@
     "composition:render": "node --import tsx scripts/composition/sync-docs.ts",
     "dev": "node --import tsx src/cli.ts",
     "gate:window": "node --import tsx scripts/ci/select.ts --window",
-    "docs:build": "vitepress build docs",
+    "docs:build": "node --import tsx src/cli.ts atlas --out .construct/atlas.html && vitepress build docs",
     "docs:dev": "vitepress dev docs",
     "docs:pending": "node --import tsx scripts/docs/build-pending.ts",
     "docs:preview": "vitepress preview docs",

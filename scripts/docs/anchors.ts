@@ -1,8 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import config from '../../docs/.vitepress/config.js'
 import { REPO_ROOT } from '../release-notes/changelog.js'
+import { brokenFileLinks } from './file-links.js'
 
 interface SidebarItem {
   link?: string
@@ -48,4 +49,13 @@ for (const target of broken)
   console.error(`[docs:anchors] ${target.link} — no heading with id "${target.id}" in the rendered ${target.page}`)
 
 console.log(`[docs:anchors] ${targets.length - broken.length}/${targets.length} anchored links resolve to a rendered heading`)
-process.exit(broken.length === 0 ? 0 : 1)
+
+const builtPages = readdirSync(DIST, { recursive: true, encoding: 'utf8' })
+  .filter(file => file.endsWith('.html'))
+  .map(page => ({ page, html: readFileSync(path.join(DIST, page), 'utf8') }))
+const brokenFiles = brokenFileLinks(builtPages, config.base ?? '/', file => existsSync(path.join(DIST, file)))
+for (const link of brokenFiles)
+  console.error(`[docs:anchors] ${link.page} links ${link.href}, which is no file in the build under ${config.base}`)
+
+console.log(`[docs:anchors] ${brokenFiles.length} built links to an .html file outside the build`)
+process.exit(broken.length === 0 && brokenFiles.length === 0 ? 0 : 1)
