@@ -91,7 +91,7 @@ describe('the Stop hook asks turn-watch whether a window turn may end', () => {
   }, 20_000)
 
   it('the Stop hook lets a bus reviewer end without a watch: withoutCard drops the window mark', () => {
-    const reviewer = withoutCard({ ...process.env, ...WINDOW_ENV, ...HEADLESS, ...handoffEnv('CONTINUE'), CONSTRUCT_CARD: '1183' })
+    const reviewer = withoutCard({ ...WINDOW_ENV, ...HEADLESS, ...handoffEnv('CONTINUE'), CONSTRUCT_CARD: '1183' })
     expect(reviewer[WINDOW_VARIABLE]).toBeUndefined()
     expect(stop(busFile(), { session_id: SESSION, stop_hook_active: false }, reviewer)).toEqual({ status: 0, stdout: '' })
   }, 20_000)
