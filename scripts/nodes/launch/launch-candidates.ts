@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ParkedTask } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
-import { parseParkingFile } from '../../../src/card/parking.js'
+import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
@@ -105,6 +106,7 @@ interface CardLife {
   admittedAt: number
   lane: string | null
   task: ShiftTask | null
+  windowsToWork: boolean
   depends: number[]
   contour: Contour
   started: boolean
@@ -143,11 +145,11 @@ function laneOf(payload: Record<string, unknown>): string | null {
   return typeof lane === 'string' && lane !== '' ? lane : null
 }
 
-function taskOf(row: LifeRow, payload: Record<string, unknown>): ShiftTask | null {
+function parkedOf(row: LifeRow, payload: Record<string, unknown>): ParkedTask | null {
   if (typeof payload.text !== 'string')
     return null
   const parsed = parseParkingFile(`${row.card_id}.md`, payload.text)
-  return parsed.kind === 'parked' ? parsed.parked.task : null
+  return parsed.kind === 'parked' ? parsed.parked : null
 }
 
 function carriesABody(payload: Record<string, unknown>): boolean {
@@ -202,7 +204,8 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       const running = life !== undefined && runs(life)
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: taskOf(row, payload), depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map() })
+      const parked = parkedOf(row, payload)
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map() })
       continue
     }
     if (life !== undefined && PULL_REQUEST_ROWS.has(row.type)) {
@@ -265,7 +268,7 @@ function reviewDue(life: CardLife, settled: Settled): boolean {
 
 export function launchableCard(db: DatabaseSync, cardId: number): LaunchableCard | null {
   const life = cardLives(db).get(cardId)
-  if (life === undefined || life.lane === null || (fallCounts(db).get(cardId) ?? 0) >= FALLS_BEFORE_CUT || cardSet(db, NO_LONGER_CANDIDATES).has(cardId))
+  if (life === undefined || life.lane === null || life.windowsToWork || (fallCounts(db).get(cardId) ?? 0) >= FALLS_BEFORE_CUT || cardSet(db, NO_LONGER_CANDIDATES).has(cardId))
     return null
   const settled = settledCards(db, cardSet(db, MERGED_CARDS))
   return isQueued(life, settled) || reviewDue(life, settled) ? { lane: life.lane, contour: life.contour } : null
@@ -323,7 +326,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   }
   const chosen: LaunchCandidate[] = []
   for (const life of [...lives.values()].sort((a, b) => a.cardId - b.cardId)) {
-    if ((falls.get(life.cardId) ?? 0) >= FALLS_BEFORE_CUT || noLongerCandidates.has(life.cardId))
+    if (life.windowsToWork || (falls.get(life.cardId) ?? 0) >= FALLS_BEFORE_CUT || noLongerCandidates.has(life.cardId))
       continue
     if (reviewDue(life, settled)) {
       if (!launching.has(life.cardId))

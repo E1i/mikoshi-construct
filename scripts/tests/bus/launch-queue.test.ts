@@ -253,6 +253,22 @@ describe('the launch queue', () => {
     bench.close()
   })
 
+  it('a card.admitted of a who: window card enqueues no launch task', () => {
+    const bench = launchBench()
+    const admitAs = (cardId: number, lane: string, who: string): void => {
+      const text = parkingFileText({ card: `#${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${cardId}`, touches: [`scripts/card-${cardId}.ts`], continue: 'stop', who, body: 'Do the card.' })
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane, decision: 'auto', contour: 'cheap', depends: [], admission: admission(cardId), text }, legacy: false })
+    }
+    admitAs(915, 'lane-a', 'window')
+    admitAs(916, 'lane-b', 'shift')
+    bench.tick()
+
+    expect(taskState(bench.db, launch(915))).toBeUndefined()
+    expect(launchableCard(bench.db, 915)).toBeNull()
+    expect(taskState(bench.db, launch(916))).toMatchObject({ state: 'queued' })
+    bench.close()
+  })
+
   it('the launch node does not take two cards of different lanes with overlapping touches', () => {
     const bench = launchBench()
     bench.admitTouching(920, 'lane-a', ['scripts/core/queue.ts', '.changeset/**'])
