@@ -5,6 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus } from '../core/bus-path.js'
+import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { alive, printBg, psList, startDetached } from './bg.js'
 import { openBus } from './db.js'
 import { shadowReading } from './report.js'
@@ -15,7 +16,7 @@ export const REVIEW_SCRIPT = 'bus:review'
 export const REVIEW_LOG = 'review.log'
 export const REVIEW_INSTANCE_FILE = 'bus-review.pid'
 export const REVIEW_START_LOCK = 'bus-review-bg.lock'
-export const REVIEW_WORKER_MARKERS = [`scripts/bus/review-worker.ts ${SWITCH_FLAG}`, `--silent ${REVIEW_SCRIPT} ${SWITCH_FLAG}`] as const
+export const REVIEW_WORKER_MARKERS = [`${FACTORY_WORKERS.review} ${SWITCH_FLAG}`, `--silent ${REVIEW_SCRIPT} ${SWITCH_FLAG}`] as const
 
 export function busShadowProblems(busPath: string): string[] {
   if (!existsSync(busPath))

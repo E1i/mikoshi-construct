@@ -1,6 +1,7 @@
 import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
 import { isTest, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
+import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
 import { layersIn, readLayerMap } from '../core/layer-map.js'
 import { scansATree } from './tree-scanners.js'
 
@@ -9,15 +10,15 @@ export { isTest }
 export const BUS_CORE = /^scripts\/bus\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
 export const BUS_SERVICE = /^scripts\/bus\/([a-z]+)-(?:worker|executor|starter)\.ts$/
 export const BUS_SHARED: readonly string[] = [
-  'scripts/bus/db.ts',
-  'scripts/bus/errors.ts',
-  'scripts/bus/lease.ts',
-  'scripts/bus/node.ts',
-  'scripts/bus/queue.ts',
-  'scripts/bus/stamp.ts',
-  'scripts/bus/stored.ts',
+  FACTORY_NAMED.busDatabase,
+  FACTORY_NAMED.busErrors,
+  FACTORY_NAMED.busLease,
+  FACTORY_NAMED.busNode,
+  FACTORY_NAMED.busQueue,
+  FACTORY_NAMED.busStamping,
+  FACTORY_NAMED.busStored,
 ]
-export const BUS_TESTS = 'scripts/tests/bus/'
+export const BUS_TESTS = `${FACTORY_FOLDERS.busTests[0]}/`
 const LAYERS = readLayerMap()
 const SCRIPT_DIR = /^scripts\/([^/]+)\//
 const SOURCE_FILE = /\.ts$/

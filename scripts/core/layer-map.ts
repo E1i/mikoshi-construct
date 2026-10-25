@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { FACTORY_RUNTIME } from './factory-paths.js'
 
-export const LAYER_MAP = 'scripts/core/layer-map.json'
+export const LAYER_MAP = FACTORY_RUNTIME.layerMap
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 

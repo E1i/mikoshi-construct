@@ -105,6 +105,11 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/model/probe.ts', 'import { defaultBusPath } from \'../../scripts/core/bus-path.js\'\n\nexport const probe = defaultBusPath\n')).toEqual(['no-restricted-imports'])
   })
 
+  it('lets the card module read the factory path registry and nothing else under scripts', async () => {
+    expect(await violations('src/card/probe.ts', 'import { FACTORY_ROOT } from \'../../scripts/core/factory-paths.js\'\n\nexport const probe = FACTORY_ROOT\n')).toEqual([])
+    expect(await violations('src/card/probe.ts', 'import { defaultBusPath } from \'../../scripts/core/bus-path.js\'\n\nexport const probe = defaultBusPath\n')).toEqual(['no-restricted-imports'])
+  })
+
   it('keeps the entry point to running the program', async () => {
     expect(await violations('src/cli.ts', 'import { main } from \'./program.js\'\n\nexport const probe = main\n')).toEqual([])
     expect(await violations('src/cli.ts', 'import { runDoctor } from \'./commands/doctor/index.js\'\n\nexport const probe = runDoctor\n')).toEqual(['no-restricted-imports'])

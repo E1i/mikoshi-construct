@@ -2,14 +2,15 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import YAML from 'yaml'
+import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT } from './factory-paths.js'
 
-export const KNOWN_CALLERS = 'scripts/core/gh-callers.known.json'
-export const GH_PORT = 'scripts/core/gh.ts'
-export const GH_CALLER_SCAN = 'scripts/core/gh-callers.ts'
+export const KNOWN_CALLERS = FACTORY_NAMED.knownGhCallers
+export const GH_PORT = FACTORY_NAMED.ghPort
+export const GH_CALLER_SCAN = FACTORY_NAMED.ghCallers
 
-const SCANNED_ROOTS = ['scripts', 'src']
+const SCANNED_ROOTS = [FACTORY_ROOT, 'src']
 const WORKFLOWS = '.github/workflows'
-const UNSCANNED = 'scripts/tests/'
+const UNSCANNED = `${FACTORY_FOLDERS.tests[0]}/`
 const API_HOST = 'api.github.com'
 const WORKFLOW_EXTENSIONS = ['.yml', '.yaml']
 const GH_IN_A_STEP = /(?:^|[\s;&|(`"'])gh\s+[a-z]/m

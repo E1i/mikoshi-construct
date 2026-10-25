@@ -1,15 +1,16 @@
 import path from 'node:path'
+import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT } from '../../scripts/core/factory-paths.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 
-export const TEST_ROOTS = ['tests', 'scripts/tests']
+export const TEST_ROOTS = ['tests', FACTORY_FOLDERS.tests[0]]
 export const PACKAGE_MANIFEST = 'package.json'
 export const PACKAGE_SCRIPT_READERS = ['tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts']
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
-  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', 'scripts/tests/core/events.test.ts', 'scripts/tests/bus/no-parking-reads.test.ts', 'scripts/tests/bus/journal-guard.test.ts'],
-  'scripts/': ['tests/graph-command.test.ts', 'scripts/tests/bus/sqlite.test.ts', 'scripts/tests/core/events.test.ts', 'scripts/tests/bus/no-parking-reads.test.ts', 'scripts/tests/bus/journal-guard.test.ts'],
-  'scripts/bus/': ['scripts/tests/ci/layers.test.ts'],
-  'scripts/ghosts/': ['scripts/tests/shredder/owner-merges.test.ts'],
-  'scripts/shift/': ['tests/decisions-read-through-reader.test.ts'],
+  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.factoryPathsTest],
+  [`${FACTORY_ROOT}/`]: ['tests/graph-command.test.ts', FACTORY_NAMED.sqliteTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest],
+  [`${FACTORY_FOLDERS.bus[0]}/`]: [FACTORY_NAMED.layersTest],
+  [`${FACTORY_FOLDERS.ghosts[0]}/`]: [FACTORY_NAMED.ownerMergesTest],
+  [`${FACTORY_FOLDERS.shift[0]}/`]: ['tests/decisions-read-through-reader.test.ts'],
 }
 const TEST_FILE = /\.test\.ts$/
 const MODULE_FILE = /\.[cm]?[jt]s$/

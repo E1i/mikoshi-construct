@@ -4,6 +4,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
+import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { STAMP_ENV } from './stamp.js'
 
 export const PREFIX = '[bus:bg] '
@@ -11,7 +12,7 @@ export const SHADOW_LOG = 'shadow.log'
 export const START_LOCK = 'bus-bg.lock'
 export const START_LOCK_LIMIT_MS = 10 * 60 * 1000
 export const RUN_SCRIPT = 'bus:run'
-export const BUS_RUN_MARKERS = ['scripts/bus/run.ts', `--silent ${RUN_SCRIPT}`] as const
+export const BUS_RUN_MARKERS = [FACTORY_RUNTIME.busRunEntry, `--silent ${RUN_SCRIPT}`] as const
 export const BUILD_DIR = 'dist'
 export const BUILT_MODULE = '.js'
 

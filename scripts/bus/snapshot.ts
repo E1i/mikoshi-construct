@@ -1,11 +1,12 @@
 import type { Meter } from './meter.js'
+import { FACTORY_FOLDERS } from '../core/factory-paths.js'
 import { REQUIRED_CHECK, SECRET_SCAN_CHECK } from '../core/gh.js'
 import { REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from './identifiers.js'
 
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
-export const MECHANICS_PATHS = ['scripts/shift/']
+export const MECHANICS_PATHS = [`${FACTORY_FOLDERS.shift[0]}/`]
 
 export type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'
 export type CiReading = 'pending' | 'green' | 'red'

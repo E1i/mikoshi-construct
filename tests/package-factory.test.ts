@@ -6,6 +6,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { FACTORY_NAMED } from '../scripts/core/factory-paths.js'
 import { USAGE as MIKO_WATCH_USAGE } from '../scripts/miko/watch.js'
 import { ownerChannelOf, UNUSED_WORD } from '../scripts/owner/channel.js'
 import { USAGE as OWNER_SAY_USAGE, PREFIX } from '../scripts/owner/say.js'
@@ -43,6 +44,8 @@ const SPAWNED_BY_THE_FACTORY: Record<string, string> = {
   'scripts/ci/prepush.ts': 'scripts/bus/answerer.ts',
   'scripts/ci/sandbox-trace.ts': 'scripts/ci/sandbox-liveness.ts',
 }
+
+const NAMED_BUT_NEVER_RUN_BY_THE_FACTORY: string[] = [FACTORY_NAMED.ghCallers]
 
 const READ_BESIDE_THE_MODULE: Record<string, string> = {
   'scripts/shift/header.md': 'scripts/bus/launch-worker.ts',
@@ -197,7 +200,9 @@ describe('the factory in the published package', () => {
       .flatMap(file => [...readFileSync(file, 'utf8').replaceAll(BUNDLER_SOURCE_COMMENT, '').matchAll(SCRIPT_PATH_IN_BUILT_CODE)].map(([, script]) => script!))
       .filter(script => !script.startsWith(TEST_SOURCES) && existsSync(path.join(REPOSITORY, script)))
     expect(named.length).toBeGreaterThan(0)
-    expect([...new Set(named)].filter(script => !packed.files.includes(builtPathOf(script)))).toEqual([])
+    const unpackedNamed = Object.values<string>(FACTORY_NAMED).filter(script => script.endsWith('.ts') && !script.startsWith(TEST_SOURCES) && !packed.files.includes(builtPathOf(script)))
+    expect(unpackedNamed).toEqual(NAMED_BUT_NEVER_RUN_BY_THE_FACTORY)
+    expect([...new Set(named)].filter(script => !NAMED_BUT_NEVER_RUN_BY_THE_FACTORY.includes(script) && !packed.files.includes(builtPathOf(script)))).toEqual([])
     expect(Object.keys(SPAWNED_BY_THE_FACTORY).filter(script => !packed.files.includes(builtPathOf(script)))).toEqual([])
   })
 

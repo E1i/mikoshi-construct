@@ -1,22 +1,18 @@
 import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { FACTORY_FOLDERS } from '../../../scripts/core/factory-paths.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
 
 export const SHARED_CODE_DIRECTORIES = [
-  'scripts/bus',
-  'scripts/core',
-  'scripts/ports',
-  'scripts/ghosts',
-  'scripts/shift',
-  'scripts/decisions',
+  ...FACTORY_FOLDERS.sharedCode,
   'src/card',
   'src/commands/intake',
   'src/commands/board',
   'src/commands/cost',
 ] as const
 
-export const MASKABLE_ROOTS = ['tests', 'scripts/tests', '.changeset'] as const
+export const MASKABLE_ROOTS = ['tests', ...FACTORY_FOLDERS.tests, '.changeset'] as const
 
 const CONTOUR_MAP_SECTION = /^### (\S+?)\/? \(/
 const TABLE_ROW = /^\| ([^|\s][^|]*?) \|/

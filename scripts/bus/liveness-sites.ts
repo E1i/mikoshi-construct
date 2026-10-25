@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, FACTORY_RUNTIME } from '../core/factory-paths.js'
 
 export const SILENT_MS = 20 * 60_000
 
@@ -7,12 +8,12 @@ export function beatsLive(ts: string, nowMs: number): boolean {
   return nowMs - Date.parse(ts) <= SILENT_MS
 }
 
-export const KNOWN_LIVENESS_SITES = 'scripts/bus/liveness-sites.known.json'
-export const LIVENESS_JUDGE = 'scripts/bus/supervisor.ts'
-export const LIVENESS_RULE = 'scripts/bus/liveness-sites.ts'
+export const KNOWN_LIVENESS_SITES = FACTORY_RUNTIME.knownLivenessSites
+export const LIVENESS_JUDGE = FACTORY_RUNTIME.busSupervisor
+export const LIVENESS_RULE = FACTORY_NAMED.livenessSites
 
-const SCANNED_ROOTS = ['scripts', 'src']
-const UNSCANNED = 'scripts/tests/'
+const SCANNED_ROOTS = [FACTORY_ROOT, 'src']
+const UNSCANNED = `${FACTORY_FOLDERS.tests[0]}/`
 const SCANNED_EXTENSIONS = ['.ts', '.mjs']
 
 export type LivenessKind = 'ps' | 'pid-file' | 'kill'
