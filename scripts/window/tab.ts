@@ -1,9 +1,9 @@
-import type { WindowSession } from './window-heartbeat.js'
 import type { Status } from './loop.js'
+import type { WindowSession } from './window-heartbeat.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { raisedByTheBus } from '../nodes/restart/role.js'
-import { windowOf } from './window-heartbeat.js'
 import { statusOf } from './loop.js'
+import { windowOf } from './window-heartbeat.js'
 
 export const ENTRYPOINT_VARIABLE = 'CLAUDE_CODE_ENTRYPOINT'
 export const HEADLESS_ENTRYPOINT = 'sdk-cli'

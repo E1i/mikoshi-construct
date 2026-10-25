@@ -5,8 +5,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE } from '../../core/db.js'
-import { approvalEvent, revokeEvent } from '../../ladder/approval.js'
 import { ghostLines } from '../../core/journal.js'
+import { approvalEvent, revokeEvent } from '../../ladder/approval.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')

@@ -1,5 +1,5 @@
-import type { WindowPr } from '../../window/window-prs.js'
 import type { BusEvent, CardActivity, WatchDeps } from '../../window/watch.js'
+import type { WindowPr } from '../../window/window-prs.js'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -10,13 +10,13 @@ import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { noPullRequestDetail } from '../../nodes/launch/launch-worker.js'
-import { prClosed } from '../../core/observations.js'
-import { QUEUE_ACTOR } from '../../core/queue.js'
-import { REVIEW_ROUNDS_SPENT } from '../../nodes/review/review-executor.js'
-import { recordJudged, recordWorkerDown } from '../../supervisor/supervisor.js'
 import { CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, LADDER_APPROVAL, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
 import { recordGhostLine } from '../../core/journal.js'
+import { prClosed } from '../../core/observations.js'
+import { QUEUE_ACTOR } from '../../core/queue.js'
+import { noPullRequestDetail } from '../../nodes/launch/launch-worker.js'
+import { REVIEW_ROUNDS_SPENT } from '../../nodes/review/review-executor.js'
+import { recordJudged, recordWorkerDown } from '../../supervisor/supervisor.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../window/watch.js'
 import { waitFor } from '../wait-for.js'
@@ -24,7 +24,7 @@ import { waitFor } from '../wait-for.js'
 const RELAUNCH_ACTOR = 'worker:relaunch:'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
-const WATCH = path.join(REPO_ROOT, 'scripts', 'miko', 'watch.ts')
+const WATCH = path.join(REPO_ROOT, 'scripts', 'window', 'watch.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
 const DEADLINE_MS = 15_000
 

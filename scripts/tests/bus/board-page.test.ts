@@ -16,12 +16,12 @@ import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
 import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, ITEM_PROGRESS_ORDER, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
-import { BOARD_FILE, FRESH_MS } from '../../window/board.js'
 import { defaultBusPath } from '../../core/db.js'
-import { TICK_MS } from '../../ports/netwatch.js'
-import { nodeProcess } from '../../core/node.js'
-import { slotsOf as slotsOfKind, slotsVariable } from '../../supervisor/scheduler.js'
 import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { nodeProcess } from '../../core/node.js'
+import { TICK_MS } from '../../ports/netwatch.js'
+import { slotsOf as slotsOfKind, slotsVariable } from '../../supervisor/scheduler.js'
+import { BOARD_FILE, FRESH_MS } from '../../window/board.js'
 
 const roots: string[] = []
 

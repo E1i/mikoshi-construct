@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
+import { ghostLines, recordGhostLine } from '../../core/journal.js'
 import { revokeEvent } from '../../ladder/approval.js'
 import { approveArgs, approveCard, renderWaiting, revokeCard, waitingBriefs } from '../../ladder/approve.js'
 import { hashBrief } from '../../ladder/hash.js'
-import { ghostLines, recordGhostLine } from '../../core/journal.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const NOW = new Date(2026, 9, 6, 12)

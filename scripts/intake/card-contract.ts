@@ -5,9 +5,9 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_PREFIX, SEAM_PREFIX, SLICE_PREFIX } from '../../src/card/risk.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
-import { CARD_PATH_REASON } from '../nodes/launch/tree-pr.js'
 import { CLOSED_CARD, DROPPED_CARD } from '../core/card-automaton.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
+import { CARD_PATH_REASON } from '../nodes/launch/tree-pr.js'
 import { lastHeartbeat } from '../supervisor/heartbeat.js'
 
 export const CONTRACTS = ['intake', 'start', 'review', 'close', 'board'] as const

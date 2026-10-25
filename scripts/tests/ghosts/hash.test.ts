@@ -9,11 +9,11 @@ import { describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { reduce } from '../../core/reducer.js'
 import { CARD_ADMITTED } from '../../core/events.js'
+import { ghostLines, recordGhostLine } from '../../core/journal.js'
+import { reduce } from '../../core/reducer.js'
 import { approvalSha256, approvedHashPath, checkApproval } from '../../ladder/approval.js'
 import { approvalLine, checkAcceptanceBuild, hashBrief, NO_WITNESS_FILES, PREFLIGHT_EVENT, rememberedPreflight, resolveApprover, witnessFilesDigest } from '../../ladder/hash.js'
-import { ghostLines, recordGhostLine } from '../../core/journal.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')

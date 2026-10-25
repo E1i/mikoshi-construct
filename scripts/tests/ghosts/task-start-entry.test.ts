@@ -3,8 +3,8 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { runTaskStart } from '../../ports/task-start.js'
 import { cardStartedLines } from '../../core/tasks.js'
+import { runTaskStart } from '../../ports/task-start.js'
 import { admitCards } from '../shift/fixtures/admitted.js'
 
 const NOW = new Date('2026-10-04T08:00:00.000Z')

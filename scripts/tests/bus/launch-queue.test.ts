@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { ProcessTable } from '../../nodes/restart/chain-process.js'
+import type { Lease } from '../../core/lease.js'
 import type { CardStart, CardStarter, LaunchOutcome, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
 import type { StarterPlaces, StarterPorts } from '../../nodes/launch/launch-starter.js'
-import type { Lease } from '../../core/lease.js'
+import type { ProcessTable } from '../../nodes/restart/chain-process.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,31 +13,31 @@ import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
-import { parkingLane } from '../../intake/admissions.js'
-import { ARCHIVE_DIR } from '../../intake/card-archive.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { recordDecision } from '../../policy/decisions.js'
-import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GHOST_ROW } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
+import { leaseNext } from '../../core/lease.js'
+import { FAILURES_TO_STOP } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
+import { parkingLane } from '../../intake/admissions.js'
+import { ARCHIVE_DIR } from '../../intake/card-archive.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../intake/import.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
+import { busCardBodies } from '../../intake/parking-reads.js'
 import { launchableCard, launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../nodes/launch/launch-starter.js'
 import { withdrawLegacyLaunchTasks } from '../../nodes/launch/launch-withdraw.js'
 import { busStarterPorts, LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { leaseNext } from '../../core/lease.js'
-import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { busCardBodies } from '../../intake/parking-reads.js'
-import { FAILURES_TO_STOP } from '../../core/queue.js'
-import { reduce } from '../../core/reducer.js'
-import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
-import { busLaunches } from '../../supervisor/workers.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GHOST_ROW } from '../../core/events.js'
-import { sessionEnv } from '../../ports/session.js'
 import { taskConflicts } from '../../nodes/launch/overlap.js'
 import { renderPrompt } from '../../nodes/launch/prompt.js'
+import { recordDecision } from '../../policy/decisions.js'
+import { sessionEnv } from '../../ports/session.js'
+import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { busLaunches } from '../../supervisor/workers.js'
+import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { waitFor } from '../wait-for.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -256,9 +256,9 @@ describe('the launch queue', () => {
   it('the launch node does not take two cards of different lanes with overlapping touches', () => {
     const bench = launchBench()
     bench.admitTouching(920, 'lane-a', ['scripts/core/queue.ts', '.changeset/**'])
-    bench.admitTouching(921, 'lane-b', ['scripts/bus/**', '.changeset/**'])
+    bench.admitTouching(921, 'lane-b', ['scripts/core/**', '.changeset/**'])
     bench.admitTouching(922, 'lane-c', ['scripts/core/lease.ts', '.changeset/**'])
-    bench.admitTouching(923, 'lane-d', ['scripts/miko/**'])
+    bench.admitTouching(923, 'lane-d', ['scripts/window/**'])
     bench.started(923)
     bench.admitTouching(924, 'lane-e', ['scripts/window/watch.ts'])
     bench.admitTouching(925, 'lane-f', ['scripts/ci/update-branch.ts', '.changeset/**'])

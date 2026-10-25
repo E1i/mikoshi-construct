@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { legacyEventOf } from '../../intake/import.js'
 import { legacyHistory } from '../../core/legacy-history.js'
+import { legacyEventOf } from '../../intake/import.js'
 
 let dir: string
 let db: DatabaseSync

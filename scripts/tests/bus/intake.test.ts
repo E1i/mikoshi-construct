@@ -12,14 +12,14 @@ import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
-import { parkingLane } from '../../intake/admissions.js'
+import { busPathOf, ForeignBusRefused, machineBusPath, repoHome, repoIdOf } from '../../core/bus-path.js'
 import { appendCardEvent, laid, WINDOW_LANE } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, FACTORY_MODE, LANE_ASSIGNED } from '../../core/events.js'
+import { parkingLane } from '../../intake/admissions.js'
 import { importJournalFile } from '../../intake/import.js'
 import { busCardEvents, busIntakePorts, parkedCardNumbers } from '../../intake/intake.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
-import { busPathOf, ForeignBusRefused, machineBusPath, repoHome, repoIdOf } from '../../core/bus-path.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, FACTORY_MODE, LANE_ASSIGNED } from '../../core/events.js'
 
 const NOW = new Date('2026-10-12T16:00:00.000Z')
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')

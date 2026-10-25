@@ -1,16 +1,16 @@
 import type { Contour } from '../../../src/card/grammar.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { CompanionRow } from '../../../src/commands/intake/check.js'
-import type { GhRunner } from '../../ports/gh.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
+import type { GhRunner } from '../../ports/gh.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
 import { COMPANION_TABLE, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
-import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
-import { changedFilesFrom } from '../../ports/diff.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
+import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
+import { changedFilesFrom } from '../../ports/diff.js'
 
 export const REFUSAL_REASONS = {
   'stale-base': 'a',

@@ -6,9 +6,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE } from '../../core/db.js'
-import { openDatabase } from '../../core/sqlite.js'
 import { GHOST_ROW } from '../../core/events.js'
 import { ghostLines } from '../../core/journal.js'
+import { openDatabase } from '../../core/sqlite.js'
 import { ghostRowState } from '../../ladder/status.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')

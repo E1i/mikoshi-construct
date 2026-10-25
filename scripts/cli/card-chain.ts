@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { CARD_VERIFIED, REVIEW_RECORDED } from '../core/events.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
+import { CARD_VERIFIED, REVIEW_RECORDED } from '../core/events.js'
 
 const DECISION = /\bD-[1-9]\d*\b/g
 

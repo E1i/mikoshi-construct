@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
-import { REJECTED } from './events.js'
 import { appendEvent } from './db.js'
+import { REJECTED } from './events.js'
 import { Rejection } from './stored.js'
 
 function recordRejection(db: DatabaseSync, event: StoredEvent, reason: string): void {

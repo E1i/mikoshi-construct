@@ -6,11 +6,11 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { FACTORY_NAMED } from '../scripts/core/factory-paths.js'
-import { USAGE as MIKO_WATCH_USAGE } from '../scripts/window/watch.js'
+import { FACTORY_FORMER_FOLDERS, FACTORY_NAMED } from '../scripts/core/factory-paths.js'
 import { ownerChannelOf, UNUSED_WORD } from '../scripts/owner/channel.js'
 import { USAGE as OWNER_SAY_USAGE, PREFIX } from '../scripts/owner/say.js'
 import { USAGE as SHARD_USAGE } from '../scripts/policy/shard.js'
+import { USAGE as MIKO_WATCH_USAGE } from '../scripts/window/watch.js'
 import { assetsNamedBy, copyFactoryAssets, FACTORY_DIRECTORIES, factoryAssets, factoryBuild, factoryEntries, factoryGraph, importsOf, locatedBy, OUT_DIR, productBuild, scriptsNamedBy } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
@@ -30,6 +30,11 @@ const BUNDLER_SOURCE_COMMENT = /^\s*\/\/ .*$/gm
 
 const STARTS: Record<string, { args: string[], exit: number, prints: string }> = {
   'scripts/core/reducer.ts': { args: [], exit: 0, prints: 'applied 0, rejected 0' },
+  'scripts/cli/slot.ts': { args: [], exit: 1, prints: '[bus:slot] the kind is one of quality | vitest' },
+  'scripts/intake/import.ts': { args: [], exit: 1, prints: '[bus:import] no journal at' },
+  'scripts/nodes/close/task-close.ts': { args: [], exit: 1, prints: '[task:close] one task id is needed' },
+  'scripts/ports/task-start.ts': { args: [], exit: 1, prints: '[task:start] a task starts from its card now' },
+  'scripts/supervisor/start.ts': { args: ['--bogus'], exit: 2, prints: 'usage: construct-factory' },
   'scripts/policy/decisions/read.ts': { args: [], exit: 1, prints: '[decisions] no decisions at' },
   'scripts/ladder/role.ts': { args: ['review', '--task', 't1'], exit: 0, prints: 'local: launch the review agent for t1' },
   'scripts/window/watch.ts': { args: ['--bogus'], exit: 2, prints: MIKO_WATCH_USAGE },
@@ -46,6 +51,7 @@ const SPAWNED_BY_THE_FACTORY: Record<string, string> = {
 }
 
 const NAMED_BUT_NEVER_RUN_BY_THE_FACTORY: string[] = [FACTORY_NAMED.ghCallers]
+const FORMER_FOLDER_ENTRIES: string[] = Object.values(FACTORY_FORMER_FOLDERS).flat()
 
 const READ_BESIDE_THE_MODULE: Record<string, string> = {
   'scripts/nodes/launch/header.md': 'scripts/nodes/launch/launch-worker.ts',
@@ -129,11 +135,11 @@ describe('what the factory build reaches from its entries', () => {
   it('locates a file read beside the module, directly or through a root constant, and drops the root itself and installed dependencies', () => {
     const text = [
       'const REPO_ROOT = path.resolve(import.meta.dirname, \'../..\')',
-      'const header = readFileSync(path.join(import.meta.dirname, \'..\', \'shift\', \'header.md\'), \'utf8\')',
+      'const header = readFileSync(path.join(import.meta.dirname, \'launch\', \'header.md\'), \'utf8\')',
       'const HOOK = path.join(REPO_ROOT, \'.claude\', \'hooks\', \'eddies-measure.mjs\')',
       'const CRUISER = path.join(REPO_ROOT, \'node_modules\', \'dependency-cruiser\', \'bin\', \'dependency-cruiser.mjs\')',
     ].join('\n')
-    expect(locatedBy('scripts/bus/x.ts', text).sort()).toEqual(['.claude/hooks/eddies-measure.mjs', 'scripts/nodes/launch/header.md'])
+    expect(locatedBy('scripts/nodes/x.ts', text).sort()).toEqual(['.claude/hooks/eddies-measure.mjs', 'scripts/nodes/launch/header.md'])
   })
 
   it('has an entry started from the package for every factory directory, and every started entry is a factory entry', () => {
@@ -198,7 +204,7 @@ describe('the factory in the published package', () => {
   it('holds the built twin of every script path the packed code names', () => {
     const named = builtFiles(path.join(packed.installed, OUT_DIR))
       .flatMap(file => [...readFileSync(file, 'utf8').replaceAll(BUNDLER_SOURCE_COMMENT, '').matchAll(SCRIPT_PATH_IN_BUILT_CODE)].map(([, script]) => script!))
-      .filter(script => !script.startsWith(TEST_SOURCES) && existsSync(path.join(REPOSITORY, script)))
+      .filter(script => !script.startsWith(TEST_SOURCES) && !FORMER_FOLDER_ENTRIES.includes(script) && existsSync(path.join(REPOSITORY, script)))
     expect(named.length).toBeGreaterThan(0)
     const unpackedNamed = Object.values<string>(FACTORY_NAMED).filter(script => script.endsWith('.ts') && !script.startsWith(TEST_SOURCES) && !packed.files.includes(builtPathOf(script)))
     expect(unpackedNamed).toEqual(NAMED_BUT_NEVER_RUN_BY_THE_FACTORY)

@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../core/db.js'
-import { openDatabase } from '../../core/sqlite.js'
-import { recordWindowHeartbeat, WINDOW_BEAT_MS, windowBeat, windowOf, windowSessionOf } from '../../window/window-heartbeat.js'
-import { WINDOW_ACTOR } from '../../window/window-requests.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
+import { openDatabase } from '../../core/sqlite.js'
+import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { NO_TRANSCRIPT, sessionGauges } from '../../window/eddies-measure.js'
 import { productionDeps } from '../../window/watch.js'
-import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
+import { recordWindowHeartbeat, WINDOW_BEAT_MS, windowBeat, windowOf, windowSessionOf } from '../../window/window-heartbeat.js'
+import { WINDOW_ACTOR } from '../../window/window-requests.js'
 
 const START = Date.parse('2026-10-20T10:00:00.000Z')
 const roots: string[] = []

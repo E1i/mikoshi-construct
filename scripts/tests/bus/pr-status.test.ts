@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
+import { COMMAND_EXECUTED, PR_STATUS_REFUSED, PR_STATUS_SET } from '../../core/events.js'
+import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { PREFIX, setStepStatuses, STATUS_BATCH, STATUS_CONTEXT, STATUS_OFF_FILE } from '../../ports/pr-status.js'
 import { composeBusTick } from '../../supervisor/run.js'
-import { COMMAND_EXECUTED, PR_STATUS_REFUSED, PR_STATUS_SET } from '../../core/events.js'
-import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 
 const HEAD = 'b'.repeat(40)

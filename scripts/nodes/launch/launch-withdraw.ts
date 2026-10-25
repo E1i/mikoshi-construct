@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
 import type { Queue } from '../../core/identifiers.js'
-import { TASK_FAILED, TASK_LEASED, TASK_REQUEUED } from '../../core/events.js'
 import { inTransaction } from '../../core/db.js'
+import { TASK_FAILED, TASK_LEASED, TASK_REQUEUED } from '../../core/events.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { appendedAndReduced, generationField, QUEUE_ACTOR, QUEUED, STOPPED, WITHDRAWN } from '../../core/queue.js'
 

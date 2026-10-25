@@ -4,8 +4,8 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readd
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MIKO_HANDOFF_NAME } from '../scripts/window/loop.js'
 import { CONTINUE_PROMPT } from '../scripts/nodes/launch/continuation.js'
+import { MIKO_HANDOFF_NAME } from '../scripts/window/loop.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../.claude/hooks/eddies.mjs')
 const SESSION = 'sess-eddies'

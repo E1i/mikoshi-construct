@@ -1,6 +1,6 @@
 import type { Card } from '../../src/card/grammar.js'
-import type { GhCaller } from '../ports/gh.js'
 import type { ExitReason } from '../nodes/launch/continuation.js'
+import type { GhCaller } from '../ports/gh.js'
 import path from 'node:path'
 import { repoSlugOf } from './bus-path.js'
 

@@ -7,10 +7,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { grepMatchProbe } from '../../ports/witnesses.js'
 import { approvalLine, checkAcceptanceBuild } from '../../ladder/hash.js'
 import { immutableRefusal } from '../../ladder/preflight-static.js'
 import { runPreflight } from '../../ladder/preflight.js'
+import { grepMatchProbe } from '../../ports/witnesses.js'
 import { realShell } from '../../ports/worktree.js'
 
 const NOW = new Date(2026, 9, 5, 12)

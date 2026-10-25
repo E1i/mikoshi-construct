@@ -6,8 +6,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { publishedTreePr, taskStartCommand, TREE_PR_ENTRY } from '../scripts/nodes/launch/launch-worker.js'
 import { openDatabase } from '../scripts/core/sqlite.js'
+import { publishedTreePr, taskStartCommand, TREE_PR_ENTRY } from '../scripts/nodes/launch/launch-worker.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, OUT_DIR, productBuild } from '../tsup.config.js'
 
@@ -124,7 +124,7 @@ afterAll(() => {
 describe('the published factory path takes a card from intake to a session', () => {
   it('runs task:start and the pull request step through pnpm in this checkout and through built files from an installed package', () => {
     expect(taskStartCommand(null)).toEqual({ file: 'pnpm', args: ['--silent', 'task:start'] })
-    expect(taskStartCommand(REPOSITORY)).toEqual({ file: process.execPath, args: [path.join(REPOSITORY, OUT_DIR, 'scripts', 'ghosts', 'task-start.js')] })
+    expect(taskStartCommand(REPOSITORY)).toEqual({ file: process.execPath, args: [path.join(REPOSITORY, OUT_DIR, 'scripts', 'ports', 'task-start.js')] })
     expect(publishedTreePr('/repo', null)).toContain('pnpm')
     expect(publishedTreePr('/repo', REPOSITORY)).toBe(`'${process.execPath}' '${path.join(REPOSITORY, OUT_DIR, `${TREE_PR_ENTRY}.js`)}'`)
   })
@@ -141,12 +141,12 @@ describe('the published factory path takes a card from intake to a session', () 
   })
 
   it('the published launch path starts a session for an admitted card', async () => {
-    const built = (entry: string): string => path.join(foreign.installed, OUT_DIR, 'scripts', 'bus', entry)
-    const reduce = spawnSync(process.execPath, [built('reducer.js')], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
+    const built = (entry: string): string => path.join(foreign.installed, OUT_DIR, 'scripts', entry)
+    const reduce = spawnSync(process.execPath, [built('core/reducer.js')], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
     expect(reduce.status, reduce.stderr).toBe(0)
     let worker: ChildProcess | undefined
     try {
-      worker = spawn(process.execPath, [built('launch-worker.js'), '--on', '--live'], { cwd: foreign.repo, env: foreign.env, stdio: 'ignore' })
+      worker = spawn(process.execPath, [built('nodes/launch/launch-worker.js'), '--on', '--live'], { cwd: foreign.repo, env: foreign.env, stdio: 'ignore' })
       await waitFor(() => cardEvents(foreign.bus).includes('card.started'), () => `card.started for #${CARD_ID} in ${foreign.bus}`, STARTED_WITHIN_MS)
       await waitFor(() => existsSync(foreign.calls), () => `a claude call in ${foreign.calls}`, STARTED_WITHIN_MS)
     }

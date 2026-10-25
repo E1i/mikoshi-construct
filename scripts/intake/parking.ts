@@ -4,8 +4,8 @@ import type { ShiftTask } from '../../src/card/task-file.js'
 import { mergedTasks } from '../../src/card/closed.js'
 import { SHIFT_WHO } from '../../src/card/parking.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
-import { declaredGhostsFile, GHOSTS_FILES } from '../policy/shredder/reader.js'
 import { taskConflicts } from '../nodes/launch/overlap.js'
+import { declaredGhostsFile, GHOSTS_FILES } from '../policy/shredder/reader.js'
 
 export interface LeftCard {
   id: string

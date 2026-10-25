@@ -1,13 +1,13 @@
-import type { DetachedLaunch } from './bg.js'
 import type { InForceDecision } from '../policy/decisions.js'
+import type { DetachedLaunch } from './bg.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
-import { BUS_RUN_LAUNCH, PREFIX } from './bg.js'
-import { liveDecisionOf } from '../policy/live-decision.js'
 import { LIVE_FLAG } from '../core/node.js'
-import { reviewLaunch } from './review-bg.js'
 import { SWITCH_FLAG } from '../nodes/review/review-worker.js'
+import { liveDecisionOf } from '../policy/live-decision.js'
+import { BUS_RUN_LAUNCH, PREFIX } from './bg.js'
+import { reviewLaunch } from './review-bg.js'
 
 export const WORKERS_FILE = 'workers.json'
 export const WORKERS = ['review', 'merge', 'update', 'launch', 'restart', 'answer', 'close', 'witness'] as const

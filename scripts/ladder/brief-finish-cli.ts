@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { defaultBusPath } from '../core/db.js'
 import { busCardBodies } from '../intake/parking-reads.js'
-import { runPnpmCommand } from './install.js'
 import { finishBrief } from './brief-finish.js'
+import { runPnpmCommand } from './install.js'
 
 export const PREFIX = '[shift:brief-finish] '
 

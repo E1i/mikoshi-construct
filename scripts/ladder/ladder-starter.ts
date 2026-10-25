@@ -3,8 +3,8 @@ import type { CardStart, CardStarter, LaunchedCard, LaunchTechnicalReason, Queue
 import type { StarterPlaces, StarterPorts } from '../nodes/launch/launch-starter.js'
 import path from 'node:path'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { messageOf } from '../core/errors.js'
+import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { technical } from '../nodes/launch/launch-executor.js'
 import { cardCommand, shellWord, unreadableCard } from '../nodes/launch/launch-starter.js'
 

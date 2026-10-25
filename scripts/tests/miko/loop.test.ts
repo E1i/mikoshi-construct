@@ -6,19 +6,19 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
-import { lastProcessBeats, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
-import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { PROCESS_ENDED, PROCESS_REFUSED, ROLE_RETURNED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { observeRoleStop, roleToOwner } from '../../nodes/restart/role.js'
-import { PROCESS_ENDED, PROCESS_REFUSED, ROLE_RETURNED } from '../../core/events.js'
-import { HANDOFF_FIELDS, STATE_LABELS } from '../../window/handoff-check.js'
-import { parsePs } from '../../window/exit.js'
-import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
 import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
+import { lastProcessBeats, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { parsePs } from '../../window/exit.js'
+import { HANDOFF_FIELDS, STATE_LABELS } from '../../window/handoff-check.js'
+import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
-const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
+const LOOP = path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
 const KEY_PRESS_GAP_MS = 300
 const READY_DEADLINE_MS = 15_000
 const PAUSE_LINE = 'next session in'

@@ -2,10 +2,10 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_PATH_EXCLUSIONS, FACTORY_PATH_ROOTS, FACTORY_ROOT, FACTORY_RUNTIME, FACTORY_WORKERS, inScopes, scopeOf } from '../../core/factory-paths.js'
 import { builtEntryOf } from '../../supervisor/bg.js'
 import { SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
 import { busLaunches } from '../../supervisor/workers.js'
-import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_PATH_EXCLUSIONS, FACTORY_PATH_ROOTS, FACTORY_ROOT, FACTORY_RUNTIME, FACTORY_WORKERS, inScopes, scopeOf } from '../../core/factory-paths.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const REGISTRY = 'scripts/core/factory-paths.ts'

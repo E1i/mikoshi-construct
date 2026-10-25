@@ -3,9 +3,9 @@ import type { Equivalence } from '../core/node.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { defaultBusPath, openBus } from '../core/db.js'
 import { CARD_CLOSED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, REVIEW_RECORDED, UPDATE_DONE } from '../core/events.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
-import { defaultBusPath, openBus } from '../core/db.js'
 
 export const PREFIX = '[bus:window] '
 export const COMPLETION_OF = { merge: MERGE_DONE, update: UPDATE_DONE, close: CARD_CLOSED, review: REVIEW_RECORDED } as const

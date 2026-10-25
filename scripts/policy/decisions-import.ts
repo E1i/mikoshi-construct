@@ -1,11 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
+import { appendEvent } from '../core/db.js'
 import { DECISIONS_IMPORTED } from '../core/events.js'
+import { NETWATCH } from '../core/observations.js'
 import { boundText, decisionsRefusals, inForce, parseDecisions } from './decisions/decisions.js'
 import { archiveOf } from './decisions/read.js'
-import { appendEvent } from '../core/db.js'
-import { NETWATCH } from '../core/observations.js'
 
 const LAST_IMPORTED = `SELECT json_extract(payload, '$.sha256') AS sha FROM events WHERE type = '${DECISIONS_IMPORTED}' ORDER BY id DESC LIMIT 1`
 

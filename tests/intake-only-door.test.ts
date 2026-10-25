@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../scripts/core/db.js'
-import { busCardEvents } from '../scripts/intake/intake.js'
 import { CARD_ADMITTED } from '../scripts/core/events.js'
-import { runTaskStart } from '../scripts/ports/task-start.js'
 import { cardStartedLines } from '../scripts/core/tasks.js'
+import { busCardEvents } from '../scripts/intake/intake.js'
+import { runTaskStart } from '../scripts/ports/task-start.js'
 import { journalInBus } from '../scripts/tests/ghosts/card-started-bus.js'
 
 const NOW = new Date('2026-10-05T08:00:00.000Z')

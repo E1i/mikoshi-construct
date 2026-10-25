@@ -29,9 +29,9 @@ const CARD: TreeCard = {
 const BASE: Record<string, string> = {
   'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker(): number {\n  return 1\n}\n',
   'scripts/nodes/merge/merge-worker.ts': 'export function runMergeWorker(): number {\n  return 1\n}\n',
-  'scripts/tests/bus/review-worker.test.ts': 'import { runReviewWorker } from \'../../bus/review-worker.js\'\n\nexport const ran = runReviewWorker()\n',
-  'scripts/shift/shift.ts': 'export function runShift(): number {\n  return 1\n}\n',
-  'tests/decisions-read-through-reader.test.ts': 'export const scanned = \'scripts/shift\'\n',
+  'scripts/tests/bus/review-worker.test.ts': 'import { runReviewWorker } from \'../../nodes/review/review-worker.js\'\n\nexport const ran = runReviewWorker()\n',
+  'scripts/ladder/ladder.ts': 'export function runShift(): number {\n  return 1\n}\n',
+  'tests/decisions-read-through-reader.test.ts': 'export const scanned = \'scripts/ladder\'\n',
 }
 
 function git(cwd: string, args: string[]): string {
@@ -83,7 +83,7 @@ describe('the shift gate lets the tests that cover the touched files follow the 
     const worktree = cardTree()
     write(worktree, {
       'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker(): number {\n  return 2\n}\n',
-      'scripts/tests/bus/review-worker.test.ts': 'import { runReviewWorker } from \'../../bus/review-worker.js\'\n\nexport const ran = runReviewWorker() + 1\n',
+      'scripts/tests/bus/review-worker.test.ts': 'import { runReviewWorker } from \'../../nodes/review/review-worker.js\'\n\nexport const ran = runReviewWorker() + 1\n',
     })
     expect(treePr(ports(), CARD, worktree, null)).toEqual({ kind: 'pr', number: '954' })
   })
@@ -123,9 +123,9 @@ describe('the shift gate lets the tests that cover the touched files follow the 
   it('an edit of a test that scans the tree of a touched file outside touches does not stop the card', () => {
     const worktree = cardTree()
     write(worktree, {
-      'scripts/shift/shift.ts': 'export function runShift(): number {\n  return 2\n}\n',
-      'tests/decisions-read-through-reader.test.ts': 'export const scanned = \'scripts/shift/\'\n',
+      'scripts/ladder/ladder.ts': 'export function runShift(): number {\n  return 2\n}\n',
+      'tests/decisions-read-through-reader.test.ts': 'export const scanned = \'scripts/ladder/\'\n',
     })
-    expect(treePr(ports(), { ...CARD, touches: ['scripts/shift/**'] }, worktree, null)).toEqual({ kind: 'pr', number: '954' })
+    expect(treePr(ports(), { ...CARD, touches: ['scripts/ladder/ladder.ts'] }, worktree, null)).toEqual({ kind: 'pr', number: '954' })
   })
 })

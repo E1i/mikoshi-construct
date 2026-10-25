@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Scope } from '../../core/node.js'
 import type { StoredEvent } from '../../core/stored.js'
-import { CloseNode } from '../../nodes/close/close-worker.js'
 import { STORED_COLUMNS } from '../../core/stored.js'
+import { CloseNode } from '../../nodes/close/close-worker.js'
 
 class DetectingCloseNode extends CloseNode {
   detect(scope?: Scope): void {

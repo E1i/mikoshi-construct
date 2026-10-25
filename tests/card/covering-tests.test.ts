@@ -94,16 +94,16 @@ describe('the tests that cover a touched file', () => {
 
 describe('the tests that reach a touched file other than by a static import', () => {
   const reaching: Record<string, string> = {
-    'scripts/shift/shift.ts': 'export function runShift() {}\n',
+    'scripts/ladder/ladder.ts': 'export function runShift() {}\n',
     'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker() {}\n',
     'scripts/nodes/answer/answer-executor.ts': 'export const A = 1\n',
-    'scripts/bus/barrel.ts': 'export * from\n  \'./answer-executor.js\'\n',
+    'scripts/nodes/answer/barrel.ts': 'export * from\n  \'./answer-executor.js\'\n',
     'tests/decisions-read-through-reader.test.ts': 'readdirSync(\'scripts\')\n',
     'scripts/tests/bus/spawns.test.ts': 'spawnSync(\'tsx\', [\'scripts/nodes/review/review-worker.ts\'])\n',
-    'scripts/tests/bus/mocks.test.ts': 'vi.mock(\'../../bus/answer-executor.js\')\n',
-    'scripts/tests/bus/requires.test.ts': 'const worker = require(\'../../bus/review-worker.js\')\n',
-    'scripts/tests/bus/actual.test.ts': 'await vi.importActual(\'../../bus/answer-executor.js\')\n',
-    'scripts/tests/bus/through-barrel.test.ts': 'import { A } from \'../../bus/barrel.js\'\n',
+    'scripts/tests/bus/mocks.test.ts': 'vi.mock(\'../../nodes/answer/answer-executor.js\')\n',
+    'scripts/tests/bus/requires.test.ts': 'const worker = require(\'../../nodes/review/review-worker.js\')\n',
+    'scripts/tests/bus/actual.test.ts': 'await vi.importActual(\'../../nodes/answer/answer-executor.js\')\n',
+    'scripts/tests/bus/through-barrel.test.ts': 'import { A } from \'../../nodes/answer/barrel.js\'\n',
   }
 
   function reached(touches: string[]): string[] {
@@ -113,8 +113,8 @@ describe('the tests that reach a touched file other than by a static import', ()
   }
 
   it('a test that scans the tree of a touched file covers it (SCANNED_TREES)', () => {
-    expect(reached(['scripts/shift/shift.ts'])).toEqual(['tests/decisions-read-through-reader.test.ts'])
-    expect(SCANNED_TREES['scripts/shift/']).toContain('tests/decisions-read-through-reader.test.ts')
+    expect(reached(['scripts/ladder/ladder.ts'])).toEqual(['tests/decisions-read-through-reader.test.ts'])
+    expect(SCANNED_TREES['scripts/ladder/ladder.ts']).toContain('tests/decisions-read-through-reader.test.ts')
   })
 
   it('a test that spawns a touched script by its path, or loads it through require, covers it', () => {

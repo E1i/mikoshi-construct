@@ -3,8 +3,8 @@ import type { Expect } from './expect.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { formatTokens } from './expect-sample.js'
 import { journalText } from '../core/journal.js'
+import { formatTokens } from './expect-sample.js'
 
 export type ApprovalCheck
   = | { ok: true, text: string, sha256: string, approvedSketch: string }

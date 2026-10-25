@@ -14,23 +14,23 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { CARD_ADMITTED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
-import { importJournal } from '../../intake/import.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, RENEW_MS, renewLease, StaleLease } from '../../core/lease.js'
-import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { keyOf, queueTaskWithin, reviewCandidates } from '../../core/queue.js'
-import { authorSessions } from '../../nodes/review/record-verdict.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
+import { importJournal } from '../../intake/import.js'
+import { authorSessions } from '../../nodes/review/record-verdict.js'
 import { fullReview, planReview, withinTouches } from '../../nodes/review/review-depth.js'
 import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, gitHubPrBody, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, sparingLiveLeases, startReviewWorkers, stepLine, TREE_LEFT } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../nodes/review/reviewer.js'
-import { BusTick } from '../../supervisor/run.js'
-import { CARD_ADMITTED } from '../../core/events.js'
-import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
 import { classify } from '../../policy/morse/rules.js'
+import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
+import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { HEADLESS_FLAGS, REVIEW_PERMISSION_MODE, sessionArgv } from '../../ports/session.js'
+import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
 
@@ -1301,7 +1301,7 @@ describe('review depth by MORSE', () => {
   })
 
   it('a ladder PR by any rule but instructions gets the diff review', async () => {
-    const { bench, world, seen } = await reviewOnce(962, [edited('scripts/core/queue.ts'), edited('scripts/tests/bus/queue.test.ts', 4, 0)], ['scripts/bus/**', 'scripts/tests/bus/**'], 'depth')
+    const { bench, world, seen } = await reviewOnce(962, [edited('scripts/core/queue.ts'), edited('scripts/tests/bus/queue.test.ts', 4, 0)], ['scripts/core/**', 'scripts/tests/bus/**'], 'depth')
 
     expect(world.predictions).toEqual([{ task: review(962), verdict: 'ladder', rule: 'doubt' }])
     expect(seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts ladder by rule doubt, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [] }])
@@ -1311,7 +1311,7 @@ describe('review depth by MORSE', () => {
   })
 
   it('an instructions PR gets the full review', async () => {
-    const { bench, world, seen } = await reviewOnce(970, [edited('.claude/agents/review.md'), edited('scripts/core/queue.ts')], ['.claude/agents/review.md', 'scripts/bus/**'], 'depth')
+    const { bench, world, seen } = await reviewOnce(970, [edited('.claude/agents/review.md'), edited('scripts/core/queue.ts')], ['.claude/agents/review.md', 'scripts/core/**'], 'depth')
 
     expect(world.predictions).toEqual([{ task: review(970), verdict: 'ladder', rule: 'instructions' }])
     expect(seen.map(each => each.plan)).toMatchObject([{ depth: 'full', why: 'MORSE predicts ladder by rule instructions', prediction: { verdict: 'ladder', rule: 'instructions' } }])

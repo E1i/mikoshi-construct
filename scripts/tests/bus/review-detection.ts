@@ -2,9 +2,9 @@ import type { Scope } from '../../core/node.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeBench } from './merge-bench.js'
+import { STORED_COLUMNS } from '../../core/stored.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewNode } from '../../nodes/review/review-worker.js'
-import { STORED_COLUMNS } from '../../core/stored.js'
 
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 

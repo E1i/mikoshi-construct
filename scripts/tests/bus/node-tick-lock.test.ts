@@ -8,11 +8,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openBus, watchLocks } from '../../core/db.js'
+import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED } from '../../core/events.js'
 import { completeTask } from '../../core/lease.js'
-import { TICK_MS } from '../../ports/netwatch.js'
 import { DATABASE_LOCKED, DERIVE_EVERY_TICKS, Node, nodeProcess } from '../../core/node.js'
 import { keyOf, queueTask } from '../../core/queue.js'
-import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED } from '../../core/events.js'
+import { TICK_MS } from '../../ports/netwatch.js'
 import { Clock, sha } from './github-fake.js'
 
 const BUSY_EVENTS = 150_000

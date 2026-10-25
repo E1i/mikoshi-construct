@@ -7,8 +7,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { alive, BUS_RUN_LAUNCH, busInEnviron, busInPsEnvironment, instancesOf, launchName, parsePs, PREFIX, processBuses, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { appendEvent, openBus } from '../../core/db.js'
+import { alive, BUS_RUN_LAUNCH, busInEnviron, busInPsEnvironment, instancesOf, launchName, parsePs, PREFIX, processBuses, psList, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { startReviewWorker } from '../../supervisor/review-bg.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../supervisor/workers.js'
@@ -32,7 +32,7 @@ afterEach(() => {
 const SYSTEM_BIN_DIRS = ['/bin', '/usr/bin']
 const NO_PREFLIGHT = (): string[] => []
 const UNREAD_INSTANCE_FILE = 'bus-run.pid'
-const SUPERVISOR_ENTRY = path.resolve(import.meta.dirname, '..', '..', 'bus', 'supervisor.ts')
+const SUPERVISOR_ENTRY = path.resolve(import.meta.dirname, '..', '..', 'supervisor', 'supervisor.ts')
 
 function linkFromSystem(bin: string, name: string): void {
   const source = SYSTEM_BIN_DIRS.map(dir => path.join(dir, name)).find(file => existsSync(file))

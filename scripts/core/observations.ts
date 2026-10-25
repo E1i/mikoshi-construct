@@ -1,5 +1,5 @@
-import type { BusEvent } from './db.js'
 import type { ClosedPr, MainHead, OpenPr, Snapshot } from '../ports/snapshot.js'
+import type { BusEvent } from './db.js'
 import { createHash } from 'node:crypto'
 import { PR_CLOSED } from './events.js'
 

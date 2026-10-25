@@ -9,11 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { RED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
+import { CARD_ADMITTED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { realTimedShell } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
-import { CARD_ADMITTED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
+import { RED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
 import { withWorktree } from '../../ports/worktree.js'
 
 const CARD = 1301

@@ -4,8 +4,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mutationJudgedLine } from '../../../src/commands/mutate/journal.js'
 import { ghostJournalOf } from '../../cli/check-catalog.js'
-import { openBus } from '../../core/db.js'
 import { busMutationJudged } from '../../cli/mutate.js'
+import { openBus } from '../../core/db.js'
 
 const roots: string[] = []
 

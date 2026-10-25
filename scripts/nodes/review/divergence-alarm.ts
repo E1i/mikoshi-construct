@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
-import { BOARD_ALARM, BOARD_ALARM_CLEARED } from '../../core/events.js'
 import { appendEvent } from '../../core/db.js'
+import { BOARD_ALARM, BOARD_ALARM_CLEARED } from '../../core/events.js'
 
 export const FOREIGN_DIVERGENCE = 'foreign-divergence'
 

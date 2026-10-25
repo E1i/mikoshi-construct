@@ -6,15 +6,15 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
-import { HANDOFF_FIELDS } from '../../window/handoff-check.js'
+import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../../ports/session.js'
 import { FRESH_MS } from '../../window/exit.js'
+import { HANDOFF_FIELDS } from '../../window/handoff-check.js'
 import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
 import { FRESH, HANDOFF_WRITE_SCRIPT, insuranceDraftOf, INSURED, NOT_A_TAB } from '../../window/pre-compact.js'
 import { ENTRYPOINT_VARIABLE } from '../../window/tab.js'
-import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../../ports/session.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
-const PRE_COMPACT = path.join(REPO_ROOT, 'scripts', 'miko', 'pre-compact.ts')
+const PRE_COMPACT = path.join(REPO_ROOT, 'scripts', 'window', 'pre-compact.ts')
 const RELAY = path.join(REPO_ROOT, '.claude', 'hooks', 'miko-relay.mjs')
 const DECISIONS = fileURLToPath(import.meta.url)
 const roots: string[] = []

@@ -4,9 +4,9 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { busCardBodies, busParkedDepends, cardBodies } from '../../intake/parking-reads.js'
-import { reduce } from '../../core/reducer.js'
 import { CARD_ADMITTED, CARD_DROPPED } from '../../core/events.js'
+import { reduce } from '../../core/reducer.js'
+import { busCardBodies, busParkedDepends, cardBodies } from '../../intake/parking-reads.js'
 
 const roots: string[] = []
 

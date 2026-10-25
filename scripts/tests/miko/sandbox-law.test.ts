@@ -7,11 +7,11 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { printBoard } from '../../cli/board-page.js'
 import { openBus } from '../../core/db.js'
-import { HANDOFF_FIELDS } from '../../window/handoff-check.js'
 import { gitIn, runTaskStart } from '../../ports/task-start.js'
 import { realMikoExitDeps, runMikoExit, SANDBOX_REFUSAL, stopReasonOf } from '../../window/exit.js'
-import { productionDeps, tick, watchState } from '../../window/watch.js'
+import { HANDOFF_FIELDS } from '../../window/handoff-check.js'
 import { runHandoffWrite } from '../../window/handoff-write.js'
+import { productionDeps, tick, watchState } from '../../window/watch.js'
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()

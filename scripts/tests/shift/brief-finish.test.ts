@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { EXPECT_LINE_INDEX } from '../../ladder/expect.js'
-import { runPnpmCommand } from '../../ladder/install.js'
 import { PREFIX, REAL_DEPS, runBriefFinish } from '../../ladder/brief-finish-cli.js'
 import { finishBrief, NO_PNPM_RUNNER } from '../../ladder/brief-finish.js'
+import { EXPECT_LINE_INDEX } from '../../ladder/expect.js'
+import { runPnpmCommand } from '../../ladder/install.js'
 
 const CARD = 9402
 const CARD_LINE = `#${CARD} a-card [implement/netwatch/M/ladder/auto] · depends — · blocks —`

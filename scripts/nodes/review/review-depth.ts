@@ -1,5 +1,5 @@
-import type { Prediction, RuleId } from '../../policy/morse/rules.js'
 import type { Lease } from '../../core/lease.js'
+import type { Prediction, RuleId } from '../../policy/morse/rules.js'
 import { runsCover } from '../../../src/card/covering-tests.js'
 import { PREFIX_SUFFIX } from '../../../src/card/task-file.js'
 

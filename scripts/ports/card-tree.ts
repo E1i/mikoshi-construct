@@ -4,11 +4,11 @@ import type { GitHub } from './github.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
-import { taskWorktree, worktreeHome } from './worktree-home.js'
-import { pnpmInstall } from './worktree.js'
 import { cardSessionOf, NO_RECORDED_SESSION, openPrOfCard } from '../nodes/answer/answer-source.js'
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
+import { taskWorktree, worktreeHome } from './worktree-home.js'
+import { pnpmInstall } from './worktree.js'
 
 const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
 

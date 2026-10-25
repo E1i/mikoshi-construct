@@ -1,19 +1,19 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { CardFileStep } from '../../intake/card-archive.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { CardFileStep } from '../../intake/card-archive.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
+import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_CLOSED, CARD_VERIFIED, POLICY_DENIED } from '../../core/events.js'
+import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
-import { cardSessionOf } from '../answer/answer-source.js'
 import { archiveCardFile } from '../../intake/card-archive.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
-import { appendEvent } from '../../core/db.js'
-import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
 import { closeWitnessDenial, MERGE_RECORD, WITNESS_REASON } from '../../policy/policy.js'
+import { cardSessionOf } from '../answer/answer-source.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof WITNESS_REASON | typeof NOT_MINE
 

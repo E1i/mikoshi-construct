@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
+import { ghostLines } from '../../core/journal.js'
 import { approvalOf, approvalSha256, approvedHashPath, canonicalImplementText, checkApproval, extractApprovedHash, extractApprovedSketch, extractImplementText, implementLineNumbers, journalEvents, morseApprovalOf, morseCarryOf, sha256Hex, withoutSketchLine } from '../../ladder/approval.js'
 import { morseApprove } from '../../ladder/hash.js'
-import { ghostLines } from '../../core/journal.js'
 import { ownBusPerTest } from './own-bus.js'
 
 function worldDir(): string {

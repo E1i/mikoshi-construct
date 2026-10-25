@@ -1,5 +1,5 @@
-import type { ProcessTable } from '../../nodes/restart/chain-process.js'
 import type { ChainRow, ChainState } from '../../core/chain.js'
+import type { ProcessTable } from '../../nodes/restart/chain-process.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'

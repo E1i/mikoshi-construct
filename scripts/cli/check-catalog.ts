@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Graph } from '../ci/layers.js'
-import type { Meter } from '../ports/meter.js'
 import type { CardBody } from '../intake/parking-reads.js'
+import type { Meter } from '../ports/meter.js'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,12 +9,12 @@ import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
-import { GHOST_LINE } from '../core/events.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { GHOST_LINE } from '../core/events.js'
 import { legacyHistory } from '../core/legacy-history.js'
+import { openDatabase } from '../core/sqlite.js'
 import { cardBodies } from '../intake/parking-reads.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
-import { openDatabase } from '../core/sqlite.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const BRIEF_FILE = /^brief-(\d+)(?:-.*)?\.md$/

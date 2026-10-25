@@ -1,10 +1,10 @@
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { cardSessionOf } from '../../nodes/answer/answer-source.js'
 import { defaultBusPath, openBus } from '../../core/db.js'
-import { importJournal } from '../../intake/import.js'
 import { cardStartedLines, parseTasksFile, startedTree } from '../../core/tasks.js'
+import { importJournal } from '../../intake/import.js'
+import { cardSessionOf } from '../../nodes/answer/answer-source.js'
 import { busWithCardStarted } from './card-started-bus.js'
 
 const CARD = '#160 window-close [implement/ghosts/S/ladder/owner] · depends — · blocks —'

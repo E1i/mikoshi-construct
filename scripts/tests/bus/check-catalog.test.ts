@@ -67,7 +67,7 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     ])
     const text = (test: string) => test === 'scripts/tests/morse/cli.test.ts' ? 'execFileSync(tsx, [\'scripts/morse/cli.ts\'])' : test === 'scripts/tests/ghosts/helper.ts' ? 'spawn(\'scripts/ladder/launch.ts\')' : ''
     const layers = Object.fromEntries(buildCatalog({ ...sources(), graph, testText: text, cards: [] }).tests.map(row => [row.test, row.layer]))
-    expect(layers).toEqual({ 'scripts/tests/morse/cli.test.ts': 'morse', 'scripts/tests/ghosts/watch.test.ts': 'ghosts' })
+    expect(layers).toEqual({ 'scripts/tests/morse/cli.test.ts': 'morse', 'scripts/tests/ghosts/watch.test.ts': 'ladder' })
   })
 
   it('credits a card that names a test by its path, and not one that names a longer path ending in the same path', () => {

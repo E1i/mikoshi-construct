@@ -10,15 +10,15 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { keyOf, queueTask } from '../../core/queue.js'
-import { COMPLETION_OF } from '../../window/window.js'
 import { NODE_DETECTED } from '../../core/events.js'
-import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../window/handoff-check.js'
+import { keyOf, queueTask } from '../../core/queue.js'
+import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../window/day-archive.js'
 import { UNREAD } from '../../window/eddies-measure.js'
 import { stopReasonOf } from '../../window/exit.js'
-import { statusOf } from '../../window/loop.js'
-import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../window/day-archive.js'
+import { HANDOFF_FIELDS, HANDOFF_LIMIT, runHandoffCheck } from '../../window/handoff-check.js'
 import { busMerged, nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../window/handoff-write.js'
+import { statusOf } from '../../window/loop.js'
+import { COMPLETION_OF } from '../../window/window.js'
 
 const roots: string[] = []
 const UNBOUNDED_OWNER_STATUSES = [
@@ -406,8 +406,8 @@ describe('handoff:write', () => {
   it('handoff:write does not import miko:exit', () => {
     const source = readFileSync(HANDOFF_WRITE, 'utf8')
     expect(source).not.toMatch(/\b(?:runMikoExit|realMikoExitDeps|exitDecision)\b/)
-    expect(source.match(/from ['"]\.\.\/miko\/exit(?:\.js)?['"]/g)).toEqual(['from \'../miko/exit.js\''])
-    expect(source).toMatch(/import \{ stopReasonOf \} from '\.\.\/miko\/exit\.js'/)
+    expect(source.match(/from ['"]\.\/exit(?:\.js)?['"]/g)).toEqual(['from \'./exit.js\''])
+    expect(source).toMatch(/import \{ stopReasonOf \} from '\.\/exit\.js'/)
   })
 
   it('generates the STOP heading, merged today and the stop reason, and refuses them in the draft', () => {

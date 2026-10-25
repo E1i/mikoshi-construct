@@ -13,8 +13,8 @@ import { mikoHandoff } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
-const LOOP = path.join(REPO_ROOT, 'scripts', 'miko', 'loop.ts')
-const EXIT = path.join(REPO_ROOT, 'scripts', 'miko', 'exit.ts')
+const LOOP = path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
+const EXIT = path.join(REPO_ROOT, 'scripts', 'window', 'exit.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
@@ -174,7 +174,7 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
 
 describe('exitDecision reads the stop reason, the process chain and the age of miko.md', () => {
   const now = 1_000_000_000
-  const loop = { pid: 10, ppid: 1, args: 'node /x/node_modules/tsx/dist/cli.mjs /x/scripts/miko/loop.ts' }
+  const loop = { pid: 10, ppid: 1, args: 'node /x/node_modules/tsx/dist/cli.mjs /x/scripts/window/loop.ts' }
   const shell = { pid: 11, ppid: 10, args: 'sh -c claude --permission-mode auto "$@" miko' }
   const claude = { pid: 12, ppid: 11, args: 'claude --permission-mode auto' }
   const zsh = { pid: 13, ppid: 12, args: '/bin/zsh -c -l eval pnpm miko:exit' }

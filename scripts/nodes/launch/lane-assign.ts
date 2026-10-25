@@ -7,10 +7,10 @@ import path from 'node:path'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, MERGE_DONE, POLICY_DENIED } from '../../core/events.js'
-import { taskConflicts } from './overlap.js'
 import { appendEvent, OPEN_WAIT, OWNER_WAITS } from '../../core/db.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, MERGE_DONE, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
+import { taskConflicts } from './overlap.js'
 
 export const DEFAULT_LANE_COUNT = DEFAULT_LANES
 export const LANE_COUNT_FIELD = 'lanes'

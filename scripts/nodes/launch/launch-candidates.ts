@@ -3,14 +3,14 @@ import type { ShiftTask } from '../../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
-import { taskConflicts } from './overlap.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
-import { currentLane, heldByStall, stalledCards } from './lane-assign.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
+import { currentLane, heldByStall, stalledCards } from './lane-assign.js'
+import { taskConflicts } from './overlap.js'
 
 export const FALLS_BEFORE_CUT = 2
 

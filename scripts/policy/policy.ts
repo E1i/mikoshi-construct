@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { InForceDecision } from './decisions.js'
 import type { Witness } from '../ports/witnesses.js'
+import type { InForceDecision } from './decisions.js'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'

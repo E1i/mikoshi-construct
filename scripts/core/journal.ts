@@ -5,10 +5,10 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
+import { GHOST_LINE } from './events.js'
 import { cardIdOf } from './identifiers.js'
 import { legacyHistory } from './legacy-history.js'
 import { openDatabase } from './sqlite.js'
-import { GHOST_LINE } from './events.js'
 
 export type RangeDiffOutcome = 'identical' | 'equal' | 'regenerated'
 

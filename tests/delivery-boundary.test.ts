@@ -9,7 +9,8 @@ import { BUS_DB_VARIABLE } from '../scripts/core/db.js'
 import { productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
-const BUS_SOURCE = 'scripts/bus/'
+const FACTORY_SOURCE = 'scripts/'
+const SHARED_WITH_THE_PRODUCT = ['scripts/owner/channel.ts', 'scripts/core/bus-path.ts', 'scripts/core/events.ts', 'scripts/core/factory-paths.ts']
 const BUS_STORE_MODULE = 'node:sqlite'
 const BUS_STORE_READER = 'src/commands/cost/bus.ts'
 const SPAWN_MODULE = 'node:child_process'
@@ -56,7 +57,7 @@ async function buildProduct(outDir: string): Promise<ProductBundle> {
 
 function boundaryCrossings(inputs: BundleInputs): string[] {
   return Object.entries(inputs).flatMap(([input, { imports }]) => [
-    ...(input.startsWith(BUS_SOURCE) ? [`${input}: bus code in the product`] : []),
+    ...(input.startsWith(FACTORY_SOURCE) && !SHARED_WITH_THE_PRODUCT.includes(input) ? [`${input}: bus code in the product`] : []),
     ...imports.filter(found => found.kind !== STATIC_IMPORT).map(found => `${input}: ${found.kind} of ${found.path}`),
     ...imports.filter(found => found.path === BUS_STORE_MODULE && input !== BUS_STORE_READER).map(() => `${input}: ${BUS_STORE_MODULE} outside ${BUS_STORE_READER}`),
     ...imports.filter(found => found.path === SPAWN_MODULE && !SPAWN_CARRIERS.includes(input)).map(() => `${input}: ${SPAWN_MODULE} outside the spawn carriers`),

@@ -6,12 +6,12 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
-import { recordWindowHeartbeat, windowSessionOf } from '../../window/window-heartbeat.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
+import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
 import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT, tabWindowOf } from '../../window/tab.js'
 import { LIVE_WATCH, NO_LIVE_WATCH, TAB_CONTINUE } from '../../window/turn-watch.js'
-import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+import { recordWindowHeartbeat, windowSessionOf } from '../../window/window-heartbeat.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const HOOK = path.join(REPO_ROOT, '.claude', 'hooks', 'turn-watch.mjs')

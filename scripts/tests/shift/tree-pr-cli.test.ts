@@ -5,8 +5,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_PERMISSION_MODE } from '../../nodes/launch/launch-starter.js'
-import { CARD_VARIABLE } from '../../ports/session.js'
 import { busCardStopped, busPrOpened, claudeResume, PREFIX, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
+import { CARD_VARIABLE } from '../../ports/session.js'
 
 const roots: string[] = []
 

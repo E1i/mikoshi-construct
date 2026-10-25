@@ -11,7 +11,7 @@ function sources(files: Record<string, string>): SliceSources {
 
 describe('sliceDepends', () => {
   it('a slice whose file imports a file of another slice depends on that slice, with .js read as its .ts source', () => {
-    const files = sources({ 'scripts/core/queue.ts': 'import { roundLimitDecisionOf } from \'./round-limit-decision.js\'\n' })
+    const files = sources({ 'scripts/core/queue.ts': 'import { roundLimitDecisionOf } from \'../policy/round-limit-decision.js\'\n' })
     expect(sliceDepends([['scripts/core/queue.ts'], ['scripts/policy/round-limit-decision.ts']], files)).toEqual([[1], []])
   })
 

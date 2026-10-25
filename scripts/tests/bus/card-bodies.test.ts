@@ -7,10 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { cardBodyText, WINDOW_LANE } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
-import { busCardAdmissions, busIntakePorts, intakeAdmissions } from '../../intake/intake.js'
+import { CARD_ADMITTED } from '../../core/events.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { replayDifferences } from '../../core/report.js'
-import { CARD_ADMITTED } from '../../core/events.js'
+import { busCardAdmissions, busIntakePorts, intakeAdmissions } from '../../intake/intake.js'
 
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
 const CARD = '#90 body-card [implement/netwatch/S/cheap/auto] · depends — · blocks —'

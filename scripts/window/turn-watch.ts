@@ -6,11 +6,11 @@ import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../core/db.js'
-import { WINDOW_BEAT_MS, windowSessionOf } from './window-heartbeat.js'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
 import { sessionHandoffOf } from './handoff-write.js'
 import { PREFIX } from './loop.js'
 import { handoffStatusOf, tabWindowOf } from './tab.js'
+import { WINDOW_BEAT_MS, windowSessionOf } from './window-heartbeat.js'
 
 export const NOT_A_WINDOW = 'turn-watch: not a window session; no watch is required'
 export const NO_LIVE_WATCH = `turn-watch: this window session has no window.heartbeat newer than ${WINDOW_BEAT_MS / 60_000} minutes; start pnpm miko:watch before ending the turn`

@@ -1,8 +1,8 @@
 import type { Meter } from './meter.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
+import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
 import { REQUIRED_CHECK, SECRET_SCAN_CHECK } from './gh.js'
 import { REVIEW_STATUS_CONTEXT } from './github-status.js'
-import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
 
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
