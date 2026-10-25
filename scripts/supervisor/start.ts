@@ -8,8 +8,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BUS_DB_VARIABLE, busDirOf, pinBus } from '../core/bus-path.js'
 import { FACTORY_NAMED } from '../core/factory-paths.js'
-import { builtEntryOf, installedPackage, printBg } from './bg.js'
-import { startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
+import { installedPackage, printBg } from './bg.js'
+import { startBus } from './supervisor.js'
 
 export const START_PREFIX = '[factory:start] '
 export const OWNER_AGENT = 'dev.mikoshi.bus'
@@ -19,7 +19,9 @@ export const KEEP_ALIVE_PLATFORM = 'darwin'
 export const LAUNCH_AGENTS = path.join('Library', 'LaunchAgents')
 export const AGENT_LOG = 'launchd.log'
 export const RAISED_WITHIN_S = 20
-export const USAGE = 'usage: construct-factory — starts the factory for the git repository in the current directory and installs its keep-alive; takes no arguments'
+export const START_BIN = 'construct-factory'
+export const KEEP_ALIVE_PROGRAM = ['/usr/bin/env', START_BIN]
+export const USAGE = `usage: ${START_BIN} — starts the factory for the git repository in the current directory and installs its keep-alive; takes no arguments`
 
 const REPOSITORY_HASH_LENGTH = 12
 
@@ -32,7 +34,6 @@ export interface KeepAliveParts {
   platform: NodeJS.Platform
   home: string
   uid: number
-  node: string
   path: string
   busDb: string
   busDir: string
@@ -41,8 +42,6 @@ export interface KeepAliveParts {
 
 export interface KeepAliveAgent {
   label: string
-  node: string
-  starter: string
   repository: string
   path: string
   busDb: string
@@ -76,8 +75,7 @@ export function keepAlivePlist(agent: KeepAliveAgent): string {
     `\t${plistString(agent.label)}`,
     '\t<key>ProgramArguments</key>',
     '\t<array>',
-    `\t\t${plistString(agent.node)}`,
-    `\t\t${plistString(agent.starter)}`,
+    ...KEEP_ALIVE_PROGRAM.map(argument => `\t\t${plistString(argument)}`),
     '\t</array>',
     '\t<key>WorkingDirectory</key>',
     `\t${plistString(agent.repository)}`,
@@ -125,7 +123,7 @@ export function installKeepAlive(repository: string, installed: string | null, p
   const label = agentLabel(repository)
   const plist = path.join(parts.home, LAUNCH_AGENTS, `${label}.plist`)
   const domain = `gui/${parts.uid}`
-  const text = keepAlivePlist({ label, node: parts.node, starter: builtEntryOf(installed, SUPERVISOR_LAUNCH.script), repository, path: parts.path, busDb: parts.busDb, log: path.join(parts.busDir, AGENT_LOG) })
+  const text = keepAlivePlist({ label, repository, path: parts.path, busDb: parts.busDb, log: path.join(parts.busDir, AGENT_LOG) })
   if (readOrNull(plist) === text && parts.launchctl(['print', `${domain}/${label}`]).status === 0)
     return { stdout: [`${START_PREFIX}the keep-alive ${label} for ${repository} is already installed and loaded (${plist})`], stderr: [], exitCode: 0 }
   mkdirSync(path.dirname(plist), { recursive: true })
@@ -160,7 +158,6 @@ async function main(): Promise<void> {
     platform: process.platform,
     home: os.homedir(),
     uid: process.getuid?.() ?? 0,
-    node: process.execPath,
     path: process.env.PATH ?? '',
     busDb,
     busDir: busDirOf(busDb),
