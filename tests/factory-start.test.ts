@@ -10,14 +10,13 @@ import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE, busDirOf } from '../scripts/core/bus-path.js'
 import { BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv } from '../scripts/supervisor/bg.js'
-import { AGENT_LOG, agentLabel, installKeepAlive, KEEP_ALIVE_PLATFORM, LAUNCH_AGENTS, OWNER_AGENT, runStart, USAGE } from '../scripts/supervisor/start.js'
+import { AGENT_LOG, agentLabel, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, runStart, START_BIN, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const PACKAGE_NAME = 'mikoshi-construct'
-const START_BIN = 'construct-factory'
 const START_ENTRY = 'scripts/supervisor/start.ts'
 const PACKED_BESIDE_THE_BUILD = ['package.json', 'README.md', 'LICENSE', 'templates']
 const PACK_TIMEOUT_MS = 300_000
@@ -77,11 +76,15 @@ function recordingLaunchctl(status = 0): { calls: string[][], run: (args: string
 
 function keepAliveParts(home: string, launchctl: (args: string[]) => LaunchctlRun, platform: NodeJS.Platform = KEEP_ALIVE_PLATFORM) {
   const busDb = path.join(home, '.construct', 'bus.db')
-  return { platform, home, uid: UID, node: process.execPath, path: USER_PATH, busDb, busDir: busDirOf(busDb), launchctl }
+  return { platform, home, uid: UID, path: USER_PATH, busDb, busDir: busDirOf(busDb), launchctl }
 }
 
 function plistValue(text: string, key: string): string | undefined {
   return new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(text)?.[1]
+}
+
+function programArguments(text: string): string[] {
+  return [...[...text.matchAll(/<array>([\s\S]*?)<\/array>/g)][0]![1]!.matchAll(/<string>([^<]*)<\/string>/g)].map(match => match[1]!)
 }
 
 function linesOf(file: string): string[] {
@@ -173,7 +176,7 @@ describe('the keep-alive of the start command', () => {
     expect(plistValue(text, 'PATH')).toBe(USER_PATH)
     expect(plistValue(text, BUS_DB_VARIABLE)).toBe(path.join(home, '.construct', 'bus.db'))
     expect(plistValue(text, 'StandardOutPath')).toBe(path.join(home, '.construct', 'bus', AGENT_LOG))
-    expect([...text.matchAll(/<array>([\s\S]*?)<\/array>/g)][0]![1]!.match(/<string>[^<]*<\/string>/g)).toEqual([`<string>${process.execPath}</string>`, `<string>${path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js')}</string>`])
+    expect(programArguments(text)).toEqual(KEEP_ALIVE_PROGRAM)
     expect(text).toMatch(/<key>KeepAlive<\/key>\s*<true\/>/)
     expect(text).toMatch(/<key>RunAtLoad<\/key>\s*<true\/>/)
     expect(text).not.toContain(OWNER_AGENT)
@@ -188,6 +191,16 @@ describe('the keep-alive of the start command', () => {
     expect(existsSync(path.join(ownerHome, LAUNCH_AGENTS))).toBe(false)
     expect(ownerLaunchctl.calls).toEqual([])
     expect(started).toEqual([user, REPOSITORY])
+  })
+
+  it('the keep-alive plist names no install path of node or the supervisor', () => {
+    const home = tempRoot('factory-home-')
+    const user = tempRoot('factory-user-')
+    expect(installKeepAlive(user, REPOSITORY, keepAliveParts(home, recordingLaunchctl().run)).exitCode).toBe(0)
+    const text = readFileSync(path.join(home, LAUNCH_AGENTS, `${agentLabel(user)}.plist`), 'utf8')
+    expect(programArguments(text)).toEqual(['/usr/bin/env', START_BIN])
+    for (const pinned of [process.execPath, path.dirname(process.execPath), REPOSITORY, OUT_DIR, 'supervisor.js'])
+      expect(text, pinned).not.toContain(pinned)
   })
 
   it('leaves a keep-alive that is already installed and loaded as it is', () => {
@@ -331,7 +344,9 @@ describe('the start command in the published package', () => {
   it.runIf(process.platform === KEEP_ALIVE_PLATFORM)('the published command loads a keep-alive that reruns the installed starter in the user repository', () => {
     const plist = path.join(home, LAUNCH_AGENTS, `${agentLabel(user)}.plist`)
     const text = readFileSync(plist, 'utf8')
-    expect(text).toContain(`<string>${path.join(packed.installed, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js')}</string>`)
+    expect(programArguments(text)).toEqual(KEEP_ALIVE_PROGRAM)
+    expect(text).not.toContain(packed.installed)
+    expect(text).not.toContain(process.execPath)
     expect(plistValue(text, 'WorkingDirectory')).toBe(user)
     expect(plistValue(text, BUS_DB_VARIABLE)).toBe(path.join(packed.root, 'bus.db'))
     expect(readFileSync(path.join(out, 'launchctl.argv'), 'utf8')).toContain(`bootstrap gui/${process.getuid!()} ${plist}`)
