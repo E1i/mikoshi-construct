@@ -282,8 +282,15 @@ export function openBusWait(db: DatabaseSync, ts: string, actor: string, ask: Ow
   return open?.id ?? openOwnerWait(db, ts, actor, ask)
 }
 
+const UNREDUCED_CLOSE_OF = `
+  SELECT 1 FROM events
+  WHERE type = '${OWNER_WAIT_CLOSED}' AND legacy = 0 AND json_extract(payload, '$.id') = ? AND id > (SELECT user_version FROM pragma_user_version)
+`
+
 export function closeOwnerWait(db: DatabaseSync, ts: string, actor: string, id: string, answer: string, request: number): boolean {
-  return appendEvent(db, { ts, type: OWNER_WAIT_CLOSED, actor, cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${id}`, payload: { id, answer, request }, legacy: false })
+  if (db.prepare(UNREDUCED_CLOSE_OF).get(id) !== undefined)
+    return false
+  return appendEvent(db, { ts, type: OWNER_WAIT_CLOSED, actor, cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${id}:${request}`, payload: { id, answer, request }, legacy: false })
 }
 
 export const LOCKS_LOG = 'locks.log'

@@ -8,9 +8,11 @@ import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { appendEvent, BUSY_TIMEOUT_MS, CACHE_KIB, inTransaction, openBus } from '../../core/db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, CACHE_KIB, inTransaction, openBus, openOwnerWait, OWNER_WAITS } from '../../core/db.js'
+import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { FACTORY_FOLDERS } from '../../core/factory-paths.js'
 import { cardIdOf, isActor, taskKey } from '../../core/identifiers.js'
+import { DIRTY_ROWS, reduce, SNAPSHOT } from '../../core/reducer.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
@@ -18,6 +20,7 @@ import { ReviewNode } from '../../nodes/review/review-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { TICK_MS } from '../../ports/netwatch.js'
+import { startBus } from '../../supervisor/run.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const WAIT_ON_MAIN_MS = 5000
@@ -97,6 +100,43 @@ describe('bus.db', () => {
     expect(tables).toEqual(['card_bodies', 'cards', 'chains', 'decisions', 'events', 'mains', 'node_cursors', 'owner_waits', 'plan_items', 'plans', 'projection_watermarks', 'prs', 'roles', 'tasks'])
     const taskColumns = db.prepare('PRAGMA table_info(tasks)').all().map(row => row.name)
     expect(taskColumns).toContain('lease_gen')
+    db.close()
+  })
+
+  it('bus start closes the owner waits of merged, closed and dropped cards', () => {
+    const db = newBus()
+    const ts = '2026-10-09T12:00:00.000Z'
+    let sequence = 0
+    const append = (type: string, fields: Partial<BusEvent>): void => {
+      sequence += 1
+      appendEvent(db, { ts, type, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${type}:${sequence}`, payload: {}, legacy: false, ...fields })
+    }
+    const downgrade = (cardId: number): void => append(CARD_WAITING, { actor: 'worker:intake:s1', cardId, payload: { reason: WITNESS_DOWNGRADE, witnesses: ['w'], actions: [`разрешить понижение свидетеля w у #${cardId}`] } })
+    for (const cardId of [1262, 1292, 1293, 1300]) {
+      append('card.admitted', { actor: 'reducer', cardId, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [] } })
+      downgrade(cardId)
+    }
+    const question = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1292, request: 7 })
+    for (const [cardId, pr] of [[1292, 900], [1293, 901]] as const) {
+      append('card.started', { actor: 'worker:launch:s1', cardId, payload: { session: 's1' } })
+      append('pr.opened', { actor: 'worker:launch:s1', cardId, payload: { pr } })
+    }
+    for (const [cardId, pr] of [[1292, 900], [1293, 901]] as const)
+      append('merge.done', { actor: 'worker:merge:s1', cardId, pr, head: HEAD, payload: { commit: HEAD, rule: 'auto' } })
+    append('card.closed', { cardId: 1293, pr: 901 })
+    append('card.dropped', { cardId: 1262, payload: { replaced_by: 1263 } })
+    reduce(db)
+    for (const table of [OWNER_WAITS, `${OWNER_WAITS}_${SNAPSHOT}`])
+      db.exec(`UPDATE ${table} SET state = 'open', answer = NULL`)
+    db.exec(`DELETE FROM ${DIRTY_ROWS}`)
+    const openWaits = (): unknown[] => db.prepare(`SELECT card_id, id FROM ${OWNER_WAITS} WHERE state = 'open' ORDER BY card_id, id`).all().map(row => [row.card_id, row.id])
+    expect(openWaits()).toHaveLength(5)
+    const closed = startBus(db, () => new Date(ts))
+    expect(closed).toHaveLength(3)
+    expect(reduce(db).rejected).toBe(0)
+    expect(openWaits()).toEqual([[1292, question], [1300, expect.stringMatching(/^W\d+$/)]])
+    expect(db.prepare(`SELECT answer FROM ${OWNER_WAITS} WHERE state = 'closed' ORDER BY card_id`).all().map(row => row.answer)).toEqual(['card #1262 dropped', 'card #1292 merged', 'card #1293 closed'])
+    expect(startBus(db, () => new Date(ts))).toEqual([])
     db.close()
   })
 
