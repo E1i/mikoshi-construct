@@ -11,7 +11,6 @@ export default withMermaid(defineConfig({
   lastUpdated: true,
   cleanUrls: true,
   rewrites: { 'atlas.md': 'atlas-guide.md' },
-  ignoreDeadLinks: [/^\/mikoshi-construct\/atlas$/],
   async buildEnd(siteConfig) {
     await copyFile(path.join(REPO_ROOT, '.construct/atlas.html'), path.join(siteConfig.outDir, 'atlas.html'))
   },

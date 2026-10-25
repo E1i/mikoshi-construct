@@ -10,7 +10,7 @@ model) and renders one self-contained HTML page ([CLI reference](/cli#construct-
 would name come from discovery, which writes them under `interpretation` in `construct.model.json`
 ([Getting started](/guide/getting-started#then-open-the-map-of-the-code)).
 
-**[Open the Atlas of mikoshi-construct](/mikoshi-construct/atlas.html)**, a self-contained page outside this
+<strong><a href="/mikoshi-construct/atlas.html" target="_self">Open the Atlas of mikoshi-construct</a></strong>, a self-contained page outside this
 site's theme. `pnpm docs:build` runs `construct atlas` from the checkout
 before VitePress, so the page is rebuilt with the site.
 
