@@ -21,7 +21,7 @@ const STARTED_WITHIN_MS = 60_000
 const SYSTEM_BIN_DIRS = ['/usr/bin', '/bin', '/usr/sbin', '/sbin']
 const LINUX_SANDBOX_BINS = ['bwrap', 'socat']
 const CARD_ID = 1
-const DRAFT = { cards: [{ name: 'open-question', kind: 'implement', milestone: 'netwatch', size: 'S', contour: 'cheap', decision: 'auto', touches: ['architecture/open-questions.md'], task: 'Add one open question to architecture/open-questions.md.', witnesses: ['`grep -q probe architecture/open-questions.md` exits 0'] }] }
+const DRAFT = { cards: [{ name: 'open-question', kind: 'implement', milestone: 'netwatch', size: 'S', contour: 'cheap', decision: 'auto', who: 'shift', touches: ['architecture/open-questions.md'], task: 'Add one open question to architecture/open-questions.md.', witnesses: ['`grep -q probe architecture/open-questions.md` exits 0'] }] }
 
 interface Foreign {
   root: string
