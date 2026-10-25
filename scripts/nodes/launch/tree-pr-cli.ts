@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ReportCollection } from './report-collect.js'
 import type { Refusal, RefusalReason, TreeCard, TreePr, TreePrPorts } from './tree-pr.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -7,12 +8,14 @@ import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
 import { CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT } from '../../core/events.js'
+import { treeReportPath } from '../../core/places.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { sessionEnv } from '../../ports/session.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { CARD_MCP_FLAGS, CARD_PERMISSION_MODE } from './launch-starter.js'
+import { collectReport, missingReportDetail, REPORT_MISSING } from './report-collect.js'
 import { refusalOf, shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift:tree-pr] '
@@ -36,6 +39,7 @@ export interface TreePrCliPorts extends TreePrPorts {
   lastRefusal: (cardId: number) => string | null
   returned: (cardId: number, code: string, why: string) => void
   resume: (cardId: number, worktree: string, prompt: string) => boolean
+  collect?: (worktree: string, saved: string) => ReportCollection
 }
 
 export interface PrOpenedBus {
@@ -181,6 +185,7 @@ const REAL_PORTS: TreePrCliPorts = {
   lastRefusal: busLastRefusal(REAL_BUS.busPath),
   returned: busCardReturned(REAL_BUS),
   resume: claudeResume(REAL_BUS.busPath),
+  collect: collectReport,
 }
 
 function cardIdOf(word: string): number | null {
@@ -228,12 +233,27 @@ export function returnPrompt(cardId: number, why: string, refusal: Refusal, plac
     `${PREFIX}card #${cardId}: ${why}.`,
     `The card returns to you once for ${refusal.code}. In ${places.worktree}, without changing the card's touches or its body:`,
     ...refusal.tasks.map(task => `- ${task}`),
-    `Then repeat the card's witnesses, pnpm typecheck and pnpm lint, each as its own command, update the shift report${places.report === undefined ? '' : ` ${places.report}`}, and end the session: the shift checks the tree again and opens the pull request. The same refusal a second time is a wait for the window.`,
+    `Then repeat the card's witnesses, pnpm typecheck and pnpm lint, each as its own command, write the shift report ${treeReportPath(places.worktree)} again, and end the session: the shift checks the tree again and opens the pull request. The same refusal a second time is a wait for the window.`,
   ].join('\n')
 }
 
+function reportMissing(cardId: number, places: TreePlaces, ports: TreePrCliPorts, first: boolean): string | null {
+  if (places.report === undefined || ports.collect === undefined)
+    return null
+  const collection = ports.collect(places.worktree, places.report)
+  if (collection.kind === 'collected' || (!first && collection.kind === 'absent'))
+    return null
+  return `${missingReportDetail(cardId, collection, '0')}; the tree is left uncommitted`
+}
+
 function settleTree(cardId: number, card: TreeCard, places: TreePlaces, ports: TreePrCliPorts, out: (line: string) => void): number {
-  for (;;) {
+  for (let first = true; ; first = false) {
+    const missing = reportMissing(cardId, places, ports, first)
+    if (missing !== null) {
+      ports.stopped(cardId, missing, REPORT_MISSING)
+      out(`${PREFIX}card #${cardId}: ${missing}`)
+      return 1
+    }
     const outcome = treePr(ports, card, places.worktree, reportOf(places.report))
     if (outcome.kind !== 'problem') {
       if (outcome.kind === 'pr')

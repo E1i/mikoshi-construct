@@ -11,8 +11,10 @@ import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING } from '../../core/events.js'
+import { treeReportPath } from '../../core/places.js'
 import { reduce } from '../../core/reducer.js'
 import { LaunchNode, noPullRequestDetail } from '../../nodes/launch/launch-worker.js'
+import { collectReport } from '../../nodes/launch/report-collect.js'
 import { busCardReturned, busCardStopped, busCardText, busCardWaited, busLastRefusal, busPrOpened, PREFIX, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { reportClosingOf, treePr } from '../../nodes/launch/tree-pr.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
@@ -408,16 +410,20 @@ const TOUCHES = [SCRIPT, 'src/x.ts', 'src/y.ts', '.changeset/**']
 const MATRIX_LINE = '■ 3 □ 1 · 6\n'
 
 function reportIn(prompt: string): string {
-  return /update the shift report (\S+),/.exec(prompt)![1]!
+  return /write the shift report (\S+) again,/.exec(prompt)![1]!
 }
 
 describe('a refusal the session can fix returns the card to it once', () => {
-  function settled(contour: 'cheap' | 'ladder', state: DiffState, resume: TreePrCliPorts['resume'], gh = openingGh()) {
+  function settled(contour: 'cheap' | 'ladder', state: DiffState, resume: TreePrCliPorts['resume'], gh = openingGh(), collect?: TreePrCliPorts['collect']) {
     const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-return-'))
     roots.push(root)
     const bus = launchedBus(root, [951])
     const report = path.join(root, 'report-951.md')
-    const code = runTreePr(['951', root, report], { ...busPorts(bus, cardText(contour, TOUCHES)), git: diffGit(state), gh, resume }, () => {})
+    if (collect !== undefined) {
+      mkdirSync(path.dirname(treeReportPath(root)), { recursive: true })
+      writeFileSync(treeReportPath(root), 'result: done\n')
+    }
+    const code = runTreePr(['951', root, report], { ...busPorts(bus, cardText(contour, TOUCHES)), git: diffGit(state), gh, resume, ...(collect === undefined ? {} : { collect }) }, () => {})
     return { code, bus, events: refusalsOf(bus.busPath, 951) }
   }
 
@@ -479,7 +485,7 @@ describe('a refusal the session can fix returns the card to it once', () => {
     const { code, events } = settled('cheap', state, (_cardId, _worktree, prompt) => {
       fixes.shift()!(reportIn(prompt))
       return true
-    })
+    }, openingGh(), collectReport)
 
     expect({ code, events, unused: fixes.length }).toEqual({ code: 0, events: [RETURNED('a:no-matrix-line'), RETURNED('a:no-changeset'), PR], unused: 0 })
   })

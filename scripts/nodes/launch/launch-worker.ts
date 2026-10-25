@@ -58,6 +58,7 @@ import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
 import { renderPrompt } from './prompt.js'
+import { collectReport, missingReportDetail, recordedExitCode, REPORT_MISSING } from './report-collect.js'
 import { transcriptFile } from './session-journal.js'
 import { reportClosingOf } from './tree-pr.js'
 
@@ -123,6 +124,7 @@ export interface LaunchNodeParts {
   endedWith?: (start: SessionStart) => string | null
   handedOff?: (start: SessionStart) => boolean
   reportOf?: (start: SessionStart) => string | null
+  collected?: (card: StartedCard, start: SessionStart) => string | null
   warned?: (card: StartedCard) => boolean
   publish?: (card: StartedCard, start: SessionStart) => void
   continuer?: SessionContinuer
@@ -325,6 +327,7 @@ export class LaunchNode extends Node<LaunchStep> {
       this.starters[card.contour]?.stop(card)
     if (this.sessionProcess(card) !== 'gone')
       return false
+    this.launchParts.collected?.(card, { cardId: start.card_id, ts: start.ts })
     const end = live ? 'was stopped at the drop' : 'ended on its own'
     const detail = `card #${start.card_id} is dropped; its session ${card.session} ${end}`
     return appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: live, detail }, legacy: false })
@@ -354,6 +357,7 @@ export class LaunchNode extends Node<LaunchStep> {
     this.starters[card.contour]?.stop(card)
     if (this.sessionProcess(card) !== 'gone')
       return false
+    this.launchParts.collected?.(card, { cardId: start.card_id, ts: start.ts })
     return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, `${cause}: ${why}`)
   }
 
@@ -367,6 +371,9 @@ export class LaunchNode extends Node<LaunchStep> {
 
   private stopEnded(start: RunningStart, card: StartedCard): boolean {
     const session: SessionStart = { cardId: start.card_id, ts: start.ts }
+    const missing = card.contour === 'cheap' ? this.launchParts.collected?.(card, session) ?? null : null
+    if (missing !== null)
+      return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${REPORT_MISSING}:${start.dedupe_key}`, missing, REPORT_MISSING)
     const amend = this.amendSince(start)
     const handedOff = this.launchParts.handedOff?.(session) ?? false
     if (card.contour === 'cheap' && this.launchParts.continuer !== undefined && amend !== null && (handedOff || (this.launchParts.resulted?.(card, session) ?? false)))
@@ -453,8 +460,8 @@ export class LaunchNode extends Node<LaunchStep> {
     return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, `${cause}: ${detail}`)
   }
 
-  private faultStop(ts: string, start: RunningStart, dedupeKey: string, detail: string): boolean {
-    const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey, payload: { reason: 'fault', detail }, legacy: false })
+  private faultStop(ts: string, start: RunningStart, dedupeKey: string, detail: string, code?: string): boolean {
+    const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey, payload: { reason: 'fault', detail, ...(code === undefined ? {} : { code }) }, legacy: false })
     const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
     if (!recorded || task === undefined)
       return recorded
@@ -593,6 +600,15 @@ export function reportSince(launchDir: string): (start: SessionStart) => string 
   }
 }
 
+export function reportCollector(launchDir: string): (card: StartedCard, start: SessionStart) => string | null {
+  return (card, start) => {
+    const collection = collectReport(card.worktree, reportPath(launchDir, String(start.cardId)))
+    if (collection.kind === 'collected' || (collection.kind === 'absent' && reportWrittenSince(launchDir, start)))
+      return null
+    return missingReportDetail(start.cardId, collection, recordedExitCode(launchDir, start.cardId, Date.parse(start.ts)))
+  }
+}
+
 export function eddiesWarned(card: StartedCard): boolean {
   const journal = eddiesJournalPath(card.worktree)
   return existsSync(journal) && eddiesEvidence(readFileSync(journal, 'utf8'), card.session).warned
@@ -621,7 +637,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {

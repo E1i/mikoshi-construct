@@ -25,6 +25,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD
 import { recordGhostLine } from '../../core/journal.js'
 import { leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
+import { treeReportPath } from '../../core/places.js'
 import { keyOf, launchTasks, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { busIntakePorts } from '../../intake/intake.js'
@@ -1484,7 +1485,7 @@ describe('what a launched session left behind', () => {
     expect(cuts).toEqual([])
     expect(spawned.map(run => run.cwd)).toEqual(['/trees/mc-1123'])
     expect(spawned[0]!.input).toContain(CONTINUE_PROMPT)
-    expect(spawned[0]!.input).toContain(path.join(root, 'launch', 'report-1123.md'))
+    expect(spawned[0]!.input).toContain(treeReportPath('/trees/mc-1123'))
     expect(spawned[0]!.input).not.toContain('Do the card.')
   })
 

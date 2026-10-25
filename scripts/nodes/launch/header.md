@@ -46,7 +46,8 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   `continue: auto`.
 - A handoff file is written only with `pnpm handoff:write <handoff> <draft>`, never by editing it: the command checks the
   draft, archives the old handoff and writes its `prev:` line.
-- Before you exit, for any reason, write the shift report to `{{report}}`. Its first line is the
+- Before you exit, for any reason, write the shift report to `{{report}}`, inside your tree; the bus
+  collects it from there before anything is staged, so never commit it. Its first line is the
   card above; then one line each, in this order: `contract: <kind, contour, decision, touches, the
   law the task answers to, or what is not recorded>`, `expect: <the forecast, or expect not
   recorded in <where>>`, `action: <what was run>`, `result: <one line: what was done, or where and why it
