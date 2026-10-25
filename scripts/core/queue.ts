@@ -5,7 +5,7 @@ import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
-import { PRIORITIES } from '../../src/card/parking.js'
+import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
@@ -279,7 +279,7 @@ function latestQuestionStops(columns: string, condition: string): string {
 
 const QUESTION_CANDIDATES = latestQuestionStops(
   `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body`,
-  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST}`,
+  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND ${notAWindowCard('stop.card_id')}`,
 )
 
 const QUESTIONS_WITH_NO_WINDOW_WAIT_YET = latestQuestionStops(
@@ -359,10 +359,15 @@ const AN_OPEN_QUESTION = `(
   OR (json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${ownerQuestionAnswered('stop')})
 )`
 
+function notAWindowCard(card: string): string {
+  return `NOT EXISTS (SELECT 1 FROM ${CARD_BODIES} AS body WHERE body.card_id = ${card} AND body.who = '${WINDOW_WHO}')`
+}
+
 function answerCandidatesWhere(condition: string): string {
   return `
   SELECT pr, card_id, head, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
   WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
+    AND ${notAWindowCard('prs.card_id')}
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
         AND stop.type = '${CARD_STOPPED}' AND ${AN_OPEN_QUESTION}

@@ -279,8 +279,8 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  const admitCard = (bench: ReturnType<typeof answerBench>, cardId: number, touches: string[], bodySha: string): number => {
-    const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: ${touches.join(', ')}\ncontinue: stop\nwho: shift\n\nAnswer it.\n`
+  const admitCard = (bench: ReturnType<typeof answerBench>, cardId: number, touches: string[], bodySha: string, who = 'shift'): number => {
+    const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: ${touches.join(', ')}\ncontinue: stop\nwho: ${who}\n\nAnswer it.\n`
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${bodySha}`, payload: { card: `#${cardId}`, lane: 'lane-a', text, textSha: textSha(text), bodySha }, legacy: false })
     return Number((bench.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
   }
@@ -571,6 +571,22 @@ describe('the answer queue', () => {
     expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, worktree: bench.treeOf(1101), resumed: true, source: 'ci', from: sha('a'), to: PUSHED }])
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
+    bench.close()
+  })
+
+  it('a red CI on the PR of a who: window card enqueues no answer task', () => {
+    const bench = answerBench()
+    bench.started(1105)
+    admitCard(bench, 1105, ['scripts/core/queue.ts'], 'dddd4444', 'window')
+    bench.gitHub.open({ number: 1005, required: 'failure', failed: ['lint'] })
+    bench.started(1106)
+    admitCard(bench, 1106, ['scripts/core/queue.ts'], 'eeee5555')
+    bench.gitHub.open({ number: 1006, required: 'failure', failed: ['lint'] })
+    bench.tick()
+    bench.tick()
+
+    const queued = (bench.db.prepare(`SELECT card_id FROM tasks WHERE queue = 'answer'`).all() as { card_id: number }[]).map(row => row.card_id)
+    expect(queued).toEqual([1106])
     bench.close()
   })
 
