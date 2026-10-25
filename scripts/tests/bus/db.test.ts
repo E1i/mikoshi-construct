@@ -1,14 +1,18 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
+import type { CardStarter } from '../../nodes/launch/launch-executor.js'
 import { once } from 'node:events'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { Worker } from 'node:worker_threads'
-import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, BUSY_TIMEOUT_MS, inTransaction, openBus } from '../../core/db.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { appendEvent, BUSY_TIMEOUT_MS, CACHE_KIB, inTransaction, openBus } from '../../core/db.js'
 import { FACTORY_FOLDERS } from '../../core/factory-paths.js'
 import { cardIdOf, isActor, taskKey } from '../../core/identifiers.js'
+import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { TICK_MS } from '../../ports/netwatch.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const WAIT_ON_MAIN_MS = 5000
@@ -30,6 +34,7 @@ const SQLITE_LOADER = 'scripts/core/sqlite.ts'
 const OPENED_BEFORE_THE_CONTOURS = ['scripts/window/eddies-measure.ts', 'scripts/window/watch-store.ts']
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -53,6 +58,15 @@ function observed(overrides: Partial<BusEvent> = {}): BusEvent {
     legacy: false,
     ...overrides,
   }
+}
+
+function plansOf(db: DatabaseSync, sql: string): string[] {
+  return db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all().map(row => String(row.detail))
+}
+
+function scansEvents(db: DatabaseSync, sql: string): boolean {
+  const names = new Set(['events', ...[...sql.matchAll(/\bevents AS (\w+)/g)].map(found => found[1])])
+  return plansOf(db, sql).some(detail => /^SCAN (\w+)/.exec(detail) !== null && names.has(/^SCAN (\w+)/.exec(detail)![1]))
 }
 
 describe('bus.db', () => {
@@ -126,6 +140,54 @@ describe('bus.db', () => {
     await holderDone
     db.close()
   }, LOCK_HELD_MS * 3)
+
+  it('the last event of a type and the events of a card are read through an index', () => {
+    const db = newBus()
+    const lastOfType = plansOf(db, `SELECT id FROM events WHERE type = ? ORDER BY id DESC LIMIT 1`)
+    const ofCard = plansOf(db, `SELECT id FROM events WHERE card_id = ? AND id > ? LIMIT 1`)
+    expect(lastOfType).toEqual([expect.stringMatching(/^SEARCH events USING (COVERING )?INDEX events_by_type \(type=\?\)$/)])
+    expect(ofCard).toEqual([expect.stringMatching(/^SEARCH events USING (COVERING )?INDEX events_by_card \(card_id=\? AND id>\?\)$/)])
+    expect(db.prepare('PRAGMA cache_size').get()).toEqual({ cache_size: -CACHE_KIB })
+    db.close()
+  })
+
+  it('a tick with no new events runs no query that scans events', async () => {
+    const db = newBus()
+    let now = Date.parse('2026-10-09T12:00:00.000Z')
+    const clock = (): Date => new Date(now)
+    for (let index = 0; index < 50; index++)
+      appendEvent(db, observed({ cardId: 700 + index, pr: 700 + index, dedupeKey: `pr:${700 + index}:abc` }))
+    const starter = { start: () => ({ kind: 'refused', denial: { kind: 'technical', reason: 'test', detail: 'no start' } }), stop: () => {} } as unknown as CardStarter
+    const node = new LaunchNode({ db, starter, clock, session: 'idle', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), lanes: () => 2 })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const candidates = vi.spyOn(LaunchNode.prototype as unknown as { candidates: () => unknown }, 'candidates')
+    const controller = new AbortController()
+    const queries = new Set<string>()
+    const prepare = db.prepare.bind(db)
+    let pauses = 0
+    let candidatesBefore = 0
+    const pause = async (): Promise<void> => {
+      node.stopOverdue()
+      pauses += 1
+      if (pauses === 1) {
+        now += TICK_MS
+        candidatesBefore = candidates.mock.calls.length
+        db.prepare = (sql: string) => {
+          queries.add(sql)
+          return prepare(sql)
+        }
+        return
+      }
+      db.prepare = prepare
+      controller.abort()
+    }
+    await node.run({ pause, signal: controller.signal })
+    expect(candidatesBefore).toBeGreaterThan(0)
+    expect(candidates.mock.calls.length).toBe(candidatesBefore)
+    expect([...queries].some(sql => sql.includes('process.heartbeat') || sql.includes('INSERT INTO events'))).toBe(true)
+    expect([...queries].filter(sql => scansEvents(db, sql))).toEqual([])
+    db.close()
+  })
 
   it('every bus database open under the factory contours passes the busy timeout', () => {
     const lines = FACTORY_FOLDERS.sharedCode
