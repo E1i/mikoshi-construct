@@ -136,7 +136,7 @@ describe('the window heartbeat', () => {
     expect(beats(file)).toEqual([])
   })
 
-  it('a beat lost to a locked bus is retried at the next tick', () => {
+  it('a beat lost to a locked bus is retried on the next poll', () => {
     const file = busFile()
     const locked = lockedBusError(file)
     let now = START
