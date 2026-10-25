@@ -20,10 +20,12 @@ const ALLOWED_INTERNAL_IMPORTS = {
   'src/cli.ts': ['program'],
 }
 
+const CORE_FILES_SRC_MAY_IMPORT = ['bus-path', 'eddies', 'events', 'factory-paths', 'gh-callers', 'handoff-dir', 'layer-map', 'merge-event', 'verification'].map(name => `core/${name}.js`)
+
 const ALLOWED_FACTORY_IMPORTS = {
   'src/card': ['core/factory-paths.js'],
-  'src/commands': ['core/'],
-  'src/program.ts': ['core/', 'owner/channel.js'],
+  'src/commands': CORE_FILES_SRC_MAY_IMPORT,
+  'src/program.ts': [...CORE_FILES_SRC_MAY_IMPORT, 'owner/channel.js'],
 }
 
 function factoryReach(target) {

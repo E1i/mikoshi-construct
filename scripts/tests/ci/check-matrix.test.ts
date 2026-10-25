@@ -1,5 +1,5 @@
-import type { Matrix, MatrixMutation, MatrixResult, RunTest } from '../../cli/check-matrix.js'
 import type { Graph } from '../../ci/layers.js'
+import type { Matrix, MatrixMutation, MatrixResult, RunTest } from '../../cli/check-matrix.js'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -12,8 +12,8 @@ import { busReaderAt } from '../../../src/commands/board/bus.js'
 import { buildCatalog, writeCatalog } from '../../cli/check-catalog.js'
 import { appendMatrix, buildMatrix, matrixArguments, matrixSummary, runMatrix, runMutation } from '../../cli/check-matrix.js'
 import { openBus } from '../../core/db.js'
-import { openDatabase } from '../../core/sqlite.js'
 import { CHECKS_MATRIX_EVENT } from '../../core/events.js'
+import { openDatabase } from '../../core/sqlite.js'
 
 const MATRIX_MODULE = path.resolve(import.meta.dirname, '../../cli/check-matrix.ts')
 
@@ -66,10 +66,10 @@ function source(root: string): string {
 
 function tree(): string {
   const root = mkdtempSync(path.join(os.tmpdir(), 'matrix-'))
-  mkdirSync(path.join(root, 'scripts/bus'), { recursive: true })
+  mkdirSync(path.join(root, 'scripts/nodes/merge'), { recursive: true })
   mkdirSync(path.join(root, 'scripts/tests/bus'), { recursive: true })
   writeFileSync(path.join(root, MERGE_FILE), ORIGINAL)
-  writeFileSync(path.join(root, 'scripts/tests/bus/merge-worker.test.ts'), 'import { readFileSync } from \'node:fs\'\nimport path from \'node:path\'\nprocess.exit(readFileSync(path.join(import.meta.dirname, \'../../bus/merge-worker.ts\'), \'utf8\').includes(\'ok = true\') ? 0 : 1)\n')
+  writeFileSync(path.join(root, 'scripts/tests/bus/merge-worker.test.ts'), 'import { readFileSync } from \'node:fs\'\nimport path from \'node:path\'\nprocess.exit(readFileSync(path.join(import.meta.dirname, \'../../nodes/merge/merge-worker.ts\'), \'utf8\').includes(\'ok = true\') ? 0 : 1)\n')
   return root
 }
 

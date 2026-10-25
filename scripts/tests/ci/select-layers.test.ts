@@ -33,7 +33,7 @@ describe('the checks a change reaches follow the layers of the dependency graph'
 
   it('a change in the core runs the core and every dependent layer', () => {
     const run = layersRun(['scripts/core/db.ts'])
-    expect(run.layers).toEqual(['bus-core', 'bus:merge', 'bus:review', 'ghosts'])
+    expect(run.layers).toEqual(['bus-core', 'bus:merge', 'bus:review', 'ladder'])
     expect(run.tests).toEqual([
       'scripts/tests/bus/merge-worker.test.ts',
       'scripts/tests/bus/review-worker.test.ts',
@@ -233,6 +233,6 @@ describe('the layer patterns of the selector are the ones of the dependency-crui
   })
 
   it('names a layer for each sample', () => {
-    expect(samples.map(layerOf)).toEqual(['bus-core', 'bus-core', 'bus-core', 'bus-core', 'bus-core', 'bus:merge', 'bus:review', 'bus:ladder', 'bus', 'bus', 'ci'])
+    expect(samples.map(layerOf)).toEqual(['bus-core', 'bus-core', 'bus-core', 'bus-core', 'bus-core', 'bus:merge', 'bus:review', 'bus:ladder', 'cli', 'supervisor', 'ci'])
   })
 })
