@@ -20,7 +20,7 @@ const FACTORY_SCRIPT = /^node --import tsx (scripts\/[\w/-]+)\.ts(?:\s|$)/
 const SOURCE_MARKER = /^(scripts\/[\w/-]+)\.ts(?=\s|$)/
 const PS_LINE = /^\s*(\d+)\s(.*)$/
 export const BUS_FLAG = '--bus'
-const BUS_IN_ARGS = new RegExp(`(?:^|\\s)${BUS_FLAG}\\s+(\\S+)`, 'g')
+const BUS_ARGUMENT = ` ${BUS_FLAG} `
 
 export interface BgResult {
   stdout: string[]
@@ -94,7 +94,9 @@ function parsePs(output: string): RunningProcess[] {
 }
 
 export function busInArgs(args: string): string | undefined {
-  return [...args.matchAll(BUS_IN_ARGS)].at(-1)?.[1]
+  const at = args.lastIndexOf(BUS_ARGUMENT)
+  const bus = at === -1 ? '' : args.slice(at + BUS_ARGUMENT.length).trim()
+  return bus === '' ? undefined : bus
 }
 
 export function withBuses<T extends RunningProcess>(processes: T[]): T[] {

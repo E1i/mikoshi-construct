@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf, machineBusPath } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { alive, BUS_FLAG, BUS_RUN_LAUNCH, busInArgs, instancesOf, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
+import { alive, BUS_FLAG, BUS_RUN_LAUNCH, busInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
@@ -434,6 +434,12 @@ describe('pnpm bus:bg', () => {
     expect(busInArgs('node dist/scripts/supervisor/supervisor.js --supervise --bus /args/bus.db --bus /x/bus.db')).toBe('/x/bus.db')
     expect(busInArgs('node scripts/supervisor/supervisor.ts --supervise CONSTRUCT_BUS_DB=/y/bus.db')).toBeUndefined()
     expect(busInArgs('node scripts/supervisor/supervisor.ts --supervise --busy /y/bus.db')).toBeUndefined()
+  })
+
+  it('a bus path with a space in it is read back whole from the command line its launch carries', () => {
+    const bus = '/Users/Jane Doe/.construct/a1b2/bus.db'
+    for (const launch of [BUS_RUN_LAUNCH, SUPERVISOR_LAUNCH])
+      expect(busInArgs(launchArgv(launch, null, bus).slice(1).join(' '))).toBe(bus)
   })
 
   it('withBuses stamps the bus a command line carries and leaves one that carries none unchanged', () => {
