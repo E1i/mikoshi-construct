@@ -51,8 +51,8 @@ function pull(main: string): { code: number, out: string[], err: string[], head:
 }
 
 describe('pnpm miko:pull', () => {
-  it('an incoming change under .claude pulls nothing and prints the owner pull command', () => {
-    const { main, ahead } = mainTreeBehindOrigin(['.claude/hooks/window-core.mjs', 'scripts/miko/new.ts'])
+  it('a pull whose range touches a path the sandbox cannot write is refused before anything is written', () => {
+    const { main, ahead } = mainTreeBehindOrigin(['.claude/hooks/window-core.mjs', '.claude/settings.json', 'scripts/miko/new.ts'])
     const before = git(main, ['rev-parse', 'HEAD']).trim()
     const result = pull(main)
     expect(result.code).not.toBe(0)
@@ -62,6 +62,9 @@ describe('pnpm miko:pull', () => {
     expect(git(main, ['status', '--porcelain'])).toBe('')
     expect(result.err).toHaveLength(1)
     expect(result.err[0]).toContain(ownerPullCommand(main))
+    expect(result.err[0]).toContain('.claude/hooks/window-core.mjs')
+    expect(result.err[0]).toContain('.claude/settings.json')
+    expect(result.err[0]).not.toContain('scripts/miko/new.ts')
     expect(result.out).toEqual([])
   })
 
