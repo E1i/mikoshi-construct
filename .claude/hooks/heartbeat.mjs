@@ -9,7 +9,7 @@ export const CARD_VARIABLE = 'CONSTRUCT_CARD'
 const SESSION_ID = /^[\w-]{1,128}$/
 
 export function heartbeatArgv(root, session) {
-  return ['--import', 'tsx', path.join(root, 'scripts', 'bus', 'heartbeat.ts'), session]
+  return ['--import', 'tsx', path.join(root, 'scripts', 'supervisor', 'heartbeat.ts'), session]
 }
 
 export function sessionOf(text) {

@@ -36,7 +36,7 @@ export function stopInputOf(text) {
 }
 
 export function turnWatchArgv(root) {
-  return ['--import', 'tsx', path.join(root, 'scripts', 'miko', 'turn-watch.ts')]
+  return ['--import', 'tsx', path.join(root, 'scripts', 'window', 'turn-watch.ts')]
 }
 
 export function stopDecision(status, stderr) {

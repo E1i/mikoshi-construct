@@ -41,7 +41,7 @@ function sourceOf(input) {
 function compactContext(root, input) {
   if (sourceOf(input) !== COMPACT_SOURCE)
     return ''
-  const run = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'scripts', 'miko', 'compact-start.ts')], { cwd: root, input, encoding: 'utf8', timeout: COMPACT_START_TIMEOUT_MS })
+  const run = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'scripts', 'window', 'compact-start.ts')], { cwd: root, input, encoding: 'utf8', timeout: COMPACT_START_TIMEOUT_MS })
   if (run.error !== undefined || run.status !== 0) {
     process.stderr.write(`window-core: compact-start gave no continue prompt (${run.error?.message ?? `exit ${run.status ?? run.signal}`})\n`)
     return ''
