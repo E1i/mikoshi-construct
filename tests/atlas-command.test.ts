@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -12,7 +12,7 @@ import { runInit } from '../src/commands/init.js'
 import { FAILED_EXIT, reported } from '../src/failure.js'
 import { readAtlasRecord } from '../src/manifest.js'
 import { ENGRAM_HOME_DIR, engramDirectoryName } from '../src/model/discovery.js'
-import { MODEL_FILE, parseModel } from '../src/model/schema.js'
+import { MECHANICS_FILE, MODEL_FILE, parseMechanicsDocument, parseModel } from '../src/model/schema.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -83,16 +83,39 @@ function markupOf(html: string): string {
 }
 
 describe('construct atlas in a repository construct init made', () => {
-  it('writes the engram into its construct.model.json and the page under .construct, which git ignores', async () => {
+  it('writes the engram into its construct.model.json, the mechanics and the page under .construct, which git ignores', async () => {
     const dir = await initRepository()
     const written = atlasOf(dir)
     expect(written).toEqual({ engram: path.join(dir, MODEL_FILE), page: path.join(dir, '.construct', 'atlas.html'), interpreted: false })
-    const model = parseModel(readFileSync(written.engram, 'utf8'), MODEL_FILE)
-    expect(model.mechanics?.components.some(component => component.path === 'src/app.ts')).toBe(true)
+    const mechanics = parseMechanicsDocument(readFileSync(path.join(dir, MECHANICS_FILE), 'utf8'), MECHANICS_FILE)
+    expect(mechanics.components.some(component => component.path === 'src/app.ts')).toBe(true)
     const html = readFileSync(written.page, 'utf8')
     expect(readFileSync(path.join(path.dirname(written.page), 'atlas-docs.html'), 'utf8')).toContain('<h2>Take an order</h2>')
     expect(pageData(html).files).toContain('src/app.ts')
-    expect(git(dir, 'status', '--porcelain')).toBe(` M ${MODEL_FILE}\n`)
+    expect(git(dir, 'status', '--porcelain', '--untracked-files=all')).not.toContain('.construct/')
+  })
+
+  it('after construct atlas the tracked construct.model.json carries no mechanics and is under 200 KB', async () => {
+    const dir = await initRepository()
+    for (let index = 0; index < 200; index++)
+      writeFileSync(path.join(dir, 'src', `part-${index}.ts`), `import { place } from './part-${(index + 1) % 200}.js'\n\nexport function part${index}(): void {\n  place()\n}\n`)
+    commitAll(dir)
+    expect(pageData(readFileSync(atlasOf(dir).page, 'utf8')).files).toContain('src/part-199.ts')
+    const tracked = readFileSync(path.join(dir, MODEL_FILE), 'utf8')
+    expect(JSON.parse(tracked)).not.toHaveProperty('mechanics')
+    expect(statSync(path.join(dir, MODEL_FILE)).size).toBeLessThan(200 * 1024)
+    expect(git(dir, 'ls-files', MECHANICS_FILE)).toBe('')
+  })
+
+  it('atlas.html from a fresh checkout is built from the same mechanics', async () => {
+    const dir = await initRepository()
+    const first = readFileSync(atlasOf(dir).page, 'utf8')
+    const checkout = path.join(mkdtempSync(path.join(tmpdir(), 'construct-atlas-checkout-')), path.basename(dir))
+    git(path.dirname(checkout), 'clone', '-q', dir, checkout)
+    expect(existsSync(path.join(checkout, MECHANICS_FILE))).toBe(false)
+    const again = readFileSync(atlasOf(checkout).page, 'utf8')
+    expect(pageData(again)).toEqual(pageData(first))
+    expect(readFileSync(path.join(checkout, MECHANICS_FILE), 'utf8')).toBe(readFileSync(path.join(dir, MECHANICS_FILE), 'utf8'))
   })
 
   it('writes no docs view when the caller says the repository is attached, init or not', async () => {

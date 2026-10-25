@@ -1,6 +1,7 @@
 import { RecordAheadOfReader } from '../record-ahead.js'
 
 export const MODEL_FILE = 'construct.model.json'
+export const MECHANICS_FILE = '.construct/mechanics.json'
 export const MODEL_VERSION = 6
 const OLDEST_READABLE_MODEL_VERSION = 1
 
@@ -187,6 +188,7 @@ export const COMPONENT_PROPERTIES = ['id', 'path', 'relations', 'reason']
 export const RELATION_PROPERTIES = ['from', 'to', 'kind', 'specifier', 'status', 'source']
 const OPTIONAL_LISTS = ['stages', 'nodes', 'links']
 const MODEL_PROPERTIES = ['modelVersion', 'facts', 'claims', 'hypotheses', 'stages', 'nodes', 'links', 'mechanics', 'interpretation']
+const MECHANICS_DOCUMENT_PROPERTIES = ['modelVersion', 'mechanics']
 
 export class DanglingFactReference extends Error {
   readonly factId: string
@@ -576,7 +578,7 @@ function parseMechanics(name: string, raw: Record<string, unknown>): Mechanics {
   }
 }
 
-export function parseModel(source: string, name: string): RepositoryModel {
+function versionedDocument(source: string, name: string, record: string, properties: string[]): Record<string, unknown> {
   let raw: unknown
   try {
     raw = JSON.parse(source)
@@ -587,10 +589,19 @@ export function parseModel(source: string, name: string): RepositoryModel {
   if (!isRecord(raw))
     fail(name, 'the document must be an object')
   if (typeof raw.modelVersion === 'number' && raw.modelVersion > MODEL_VERSION)
-    throw new RecordAheadOfReader(MODEL_FILE, 'modelVersion', raw.modelVersion, MODEL_VERSION)
-  closed(name, raw, MODEL_PROPERTIES, 'the document')
+    throw new RecordAheadOfReader(record, 'modelVersion', raw.modelVersion, MODEL_VERSION)
+  closed(name, raw, properties, 'the document')
   if (typeof raw.modelVersion !== 'number' || !Number.isInteger(raw.modelVersion) || raw.modelVersion < OLDEST_READABLE_MODEL_VERSION)
     fail(name, `the document needs "modelVersion": ${MODEL_VERSION}`)
+  return raw
+}
+
+export function parseMechanicsDocument(source: string, name: string): Mechanics {
+  return parseMechanics(name, versionedDocument(source, name, MECHANICS_FILE, MECHANICS_DOCUMENT_PROPERTIES))
+}
+
+export function parseModel(source: string, name: string): RepositoryModel {
+  const raw = versionedDocument(source, name, MODEL_FILE, MODEL_PROPERTIES)
 
   const facts = parseFacts(name, raw)
   const factIds = uniqueIds(name, facts.map(fact => fact.id), 'fact')
