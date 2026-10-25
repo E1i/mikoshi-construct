@@ -20,7 +20,7 @@ const BRIEF = '/handoff/brief-900-depth-card.md'
 
 const BY_RISK = [
   { touches: ['.claude/agents/review.md'], risk: 'R1', depth: 'full', step: 'blind Design scan' },
-  { touches: ['scripts/shift/**'], risk: 'R2', depth: 'full', step: 'blind Design scan' },
+  { touches: ['scripts/window/**'], risk: 'R2', depth: 'full', step: 'blind Design scan' },
   { touches: ['src/atlas/**'], risk: 'R3', depth: 'diff', step: 'reads the diff only' },
   { touches: ['docs/cli.md', 'tests/x.test.ts'], risk: 'R4', depth: 'none', step: 'Launch no review agent' },
 ] as const

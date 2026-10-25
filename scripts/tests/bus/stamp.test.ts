@@ -76,7 +76,7 @@ describe('the bus log stamper', () => {
 
   it.each(DETACHED_SCRIPTS)('the entry behind %s imports stampLogOutput and calls it', (script) => {
     const source = entryOf(script)
-    expect(source).toMatch(/^import \{ stampLogOutput \} from '\.\/stamp\.js'$/m)
+    expect(source).toMatch(/^import \{ stampLogOutput \} from '(?:\.\/|\.\.\/\.\.\/supervisor\/)stamp\.js'$/m)
     expect(source).toMatch(/^\s+stampLogOutput\(\)$/m)
   })
 })

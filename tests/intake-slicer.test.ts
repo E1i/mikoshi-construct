@@ -150,7 +150,7 @@ describe('intake marks what the retelling left unclear and guesses nothing silen
 })
 
 describe('intake keeps the who of the draft for a seamed card a person kept whole', () => {
-  const seamed = { name: 'kept-whole', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['scripts/shift/shift.ts', 'src/model/schema.ts', 'src/detect/index.ts', 'docs/cli.md', 'tests/a.test.ts', 'tests/b.test.ts', '.changeset/**'], task: 'Journal the verdict for the card.', witnesses: ['`pnpm test` prints the journaled verdict'] }
+  const seamed = { name: 'kept-whole', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision: 'owner', who: 'shift', touches: ['scripts/ladder/ladder.ts', 'src/model/schema.ts', 'src/detect/index.ts', 'docs/cli.md', 'tests/a.test.ts', 'tests/b.test.ts', '.changeset/**'], task: 'Journal the verdict for the card.', witnesses: ['`pnpm test` prints the journaled verdict'] }
   const reason = 'the owner kept it whole on 2026-10-06'
 
   it('a seamed card without whole is held for the window', () => {

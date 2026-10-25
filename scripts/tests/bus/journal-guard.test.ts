@@ -2,10 +2,11 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { FACTORY_FORMER_FOLDERS, inScopes } from '../../core/factory-paths.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const SCANNED_ROOTS = ['src', 'scripts']
-const THE_LADDER = 'scripts/ghosts/'
+const THE_LADDER = FACTORY_FORMER_FOLDERS.ghosts
 const THE_LEGACY_IMPORTER = 'scripts/intake/import.ts'
 const TESTS = 'scripts/tests/'
 const SOURCE_FILE = /\.[cm]?[jt]s$/
@@ -29,7 +30,7 @@ function sourceFiles(root: string, dir: string): string[] {
 
 function journalUsers(root: string): string[] {
   return SCANNED_ROOTS.flatMap(dir => sourceFiles(root, dir))
-    .filter(file => !file.startsWith(THE_LADDER) && !file.startsWith(TESTS))
+    .filter(file => !inScopes(file, THE_LADDER) && !file.startsWith(TESTS))
     .filter(file => JOURNAL_NAMES.test(readFileSync(path.join(root, file), 'utf8')))
     .sort()
 }

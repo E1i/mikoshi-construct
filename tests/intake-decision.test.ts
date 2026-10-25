@@ -142,7 +142,7 @@ describe('construct intake --admit derives the decision from architecture/owner-
 
   it('an approval-rules path is no merge kind, so a pull request on it is not owner-merged by its path', () => {
     const { globs } = ownerPathsOf(readFileSync(OWNER_MERGES, 'utf8'))
-    expect(globs.filter(glob => glob.startsWith('scripts/ghosts/'))).toEqual([])
+    expect(globs.filter(glob => glob.startsWith('scripts/ladder/'))).toEqual([])
   })
 
   it('in a repository with no owner-merges.md the card\'s decision stands', () => {
