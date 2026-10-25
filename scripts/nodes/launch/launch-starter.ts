@@ -48,6 +48,8 @@ export interface StarterPlaces {
 
 export const CARD_PERMISSION_MODE = 'dontAsk'
 
+export const CARD_MCP_FLAGS = ['--strict-mcp-config'] as const
+
 export const HTTPS_ORIGIN_ENV: Record<string, string> = {
   GIT_CONFIG_COUNT: '4',
   GIT_CONFIG_KEY_0: 'url.https://github.com/.insteadOf',
@@ -73,7 +75,7 @@ export function treePrCommand(repo: string): string {
 }
 
 export function launchArgv(session: { command: string, treePr: string, cardId: number, worktree: string, report: string, id: string }): string[] {
-  return ['-c', `env -u ${BUS_DB_VARIABLE} ${session.command} "$@" && ${session.treePr} ${session.cardId} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', '-p', '--session-id', session.id]
+  return ['-c', `env -u ${BUS_DB_VARIABLE} ${session.command} "$@" && ${session.treePr} ${session.cardId} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', ...CARD_MCP_FLAGS, '-p', '--session-id', session.id]
 }
 
 export function launchEnv(session: NodeJS.ProcessEnv, launching: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
