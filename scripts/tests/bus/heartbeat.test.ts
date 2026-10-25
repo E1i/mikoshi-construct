@@ -309,10 +309,10 @@ async function hook(): Promise<HeartbeatHook> {
 function fakeProject(): { root: string, marker: string } {
   const root = mkdtempSync(path.join(tmpdir(), 'heartbeat-hook-'))
   roots.push(root)
-  mkdirSync(path.join(root, 'scripts', 'bus'), { recursive: true })
+  mkdirSync(path.join(root, 'scripts', 'supervisor'), { recursive: true })
   symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(root, 'node_modules'))
   const marker = path.join(root, 'beat')
-  writeFileSync(path.join(root, 'scripts', 'bus', 'heartbeat.ts'), `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(marker)}, process.argv[2] ?? '')\n`)
+  writeFileSync(path.join(root, 'scripts', 'supervisor', 'heartbeat.ts'), `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(marker)}, process.argv[2] ?? '')\n`)
   return { root, marker }
 }
 
@@ -327,7 +327,7 @@ function runHook(root: string, card: string | undefined, input: object): void {
 describe('the PostToolUse hook starts the heartbeat CLI only in a session of a card', () => {
   it('heartbeatArgv runs the heartbeat CLI of the project under tsx with the session id', async () => {
     const { heartbeatArgv } = await hook()
-    expect(heartbeatArgv('/repo', 'session-1')).toEqual(['--import', 'tsx', path.join('/repo', 'scripts', 'bus', 'heartbeat.ts'), 'session-1'])
+    expect(heartbeatArgv('/repo', 'session-1')).toEqual(['--import', 'tsx', path.join('/repo', 'scripts', 'supervisor', 'heartbeat.ts'), 'session-1'])
   })
 
   it('sessionOf takes a plain session_id from the hook input and nothing else', async () => {
