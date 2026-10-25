@@ -152,7 +152,7 @@ function questionAMergeSpares(wait = ''): string {
   return `${wait}need = 'decision' AND ${wait}id NOT LIKE '${DOWNGRADE_WAIT_PREFIX}%'`
 }
 
-function endedCardAnswer(cardId: number, state: string): string {
+function endedCardAnswer(cardId: number, state: string | null): string {
   return `card #${cardId} ${state}`
 }
 
@@ -160,7 +160,7 @@ function closeWaitsOfAnEndedCard(db: DatabaseSync, cardId: number | null, eventI
   if (cardId === null)
     return
   const state = (db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state ?? null
-  if (state === null || !ENDED_CARD_STATES.has(state))
+  if (!ENDED_CARD_STATES.has(state))
     return
   const sparingItsQuestions = state === MERGED_CARD ? ` AND NOT (${questionAMergeSpares()})` : ''
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ?${sparingItsQuestions}`)

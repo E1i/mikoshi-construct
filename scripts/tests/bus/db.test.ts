@@ -12,7 +12,7 @@ import { appendEvent, BUSY_TIMEOUT_MS, CACHE_KIB, inTransaction, openBus, openOw
 import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { FACTORY_FOLDERS } from '../../core/factory-paths.js'
 import { cardIdOf, isActor, taskKey } from '../../core/identifiers.js'
-import { closeWaitsOfEndedCards, DIRTY_ROWS, reduce, SNAPSHOT } from '../../core/reducer.js'
+import { DIRTY_ROWS, reduce, SNAPSHOT } from '../../core/reducer.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
@@ -20,6 +20,7 @@ import { ReviewNode } from '../../nodes/review/review-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { TICK_MS } from '../../ports/netwatch.js'
+import { startBus } from '../../supervisor/run.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const WAIT_ON_MAIN_MS = 5000
@@ -130,12 +131,12 @@ describe('bus.db', () => {
     db.exec(`DELETE FROM ${DIRTY_ROWS}`)
     const openWaits = (): unknown[] => db.prepare(`SELECT card_id, id FROM ${OWNER_WAITS} WHERE state = 'open' ORDER BY card_id, id`).all().map(row => [row.card_id, row.id])
     expect(openWaits()).toHaveLength(5)
-    const closed = inTransaction(db, () => closeWaitsOfEndedCards(db, ts))
+    const closed = startBus(db, () => new Date(ts))
     expect(closed).toHaveLength(3)
     expect(reduce(db).rejected).toBe(0)
     expect(openWaits()).toEqual([[1292, question], [1300, expect.stringMatching(/^W\d+$/)]])
     expect(db.prepare(`SELECT answer FROM ${OWNER_WAITS} WHERE state = 'closed' ORDER BY card_id`).all().map(row => row.answer)).toEqual(['card #1262 dropped', 'card #1292 merged', 'card #1293 closed'])
-    expect(inTransaction(db, () => closeWaitsOfEndedCards(db, ts))).toEqual([])
+    expect(startBus(db, () => new Date(ts))).toEqual([])
     db.close()
   })
 

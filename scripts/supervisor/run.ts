@@ -106,10 +106,14 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
   return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, defaultDecisions(home), clock), board.project, answer, statuses), boardFile: board.file, boardDataFile: board.dataFile }
 }
 
+export function startBus(db: DatabaseSync, clock: () => Date): string[] {
+  return inTransaction(db, () => closeWaitsOfEndedCards(db, clock().toISOString()))
+}
+
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const closed = inTransaction(db, () => closeWaitsOfEndedCards(db, new Date().toISOString()))
+  const closed = startBus(db, () => new Date())
   if (closed.length > 0)
     console.log(`${PREFIX}closed the owner waits of ended cards: ${closed.join(', ')}`)
   const { busTick, boardFile, boardDataFile } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
