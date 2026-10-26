@@ -57,7 +57,7 @@ function add(db: ReturnType<typeof openBus>, files: Record<string, string>, args
   const state = { ...files }
   const err: string[] = []
   const code = runDecisionsAdd(['--file', FILE, ...args], {
-    home: '/home/x',
+    decisions: '/home/x/.construct/owner-decisions.md',
     now: () => NOW,
     exists: file => file in state,
     read: file => state[file]!,

@@ -2,7 +2,8 @@ import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { ownerChannelOf, sayToOwnerChannel } from './channel.js'
+import { defaultBusPath } from '../core/bus-path.js'
+import { ownerChannelOfBus, sayToOwnerChannel } from './channel.js'
 
 export const PREFIX = '[owner:say] '
 export const USAGE = 'usage: pnpm owner:say "<the owner\'s words>"'
@@ -17,4 +18,4 @@ export function runOwnerSay(args: readonly string[], channel: string, now: Date,
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  process.exitCode = runOwnerSay(process.argv.slice(2), ownerChannelOf(os.homedir()), new Date(), line => console.log(line))
+  process.exitCode = runOwnerSay(process.argv.slice(2), ownerChannelOfBus(os.homedir(), defaultBusPath()), new Date(), line => console.log(line))

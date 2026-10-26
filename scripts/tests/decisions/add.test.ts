@@ -25,7 +25,7 @@ function add(files: Record<string, string>, args: string[], failingWrite = 0, se
   const recorded: OwnerDecision[] = []
   let writes = 0
   const code = runDecisionsAdd(['--file', FILE, ...args], {
-    home: '/home/x',
+    decisions: '/home/x/.construct/owner-decisions.md',
     now: () => NOW,
     exists: file => file in state,
     read: file => state[file]!,
@@ -50,7 +50,7 @@ function decisionsRead(files: Record<string, string>): { code: number, out: stri
   const out: string[] = []
   const err: string[] = []
   const code = runDecisionsRead([FILE], {
-    home: '/home/x',
+    decisions: '/home/x/.construct/owner-decisions.md',
     history: [],
     bus: new Map(),
     exists: file => file in files,

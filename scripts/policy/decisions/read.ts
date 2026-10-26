@@ -1,10 +1,9 @@
 import type { BusCardStates, JournalEntry } from '../../../src/card/closed.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { closedFromBus, mergedFromBus } from '../../../src/card/closed.js'
+import { decisionsFileOf } from '../../core/bus-path.js'
 import { defaultBusPath } from '../../core/db.js'
 import { busHistory } from '../../core/journal.js'
 import { busCardStates } from '../../core/tasks.js'
@@ -13,7 +12,7 @@ import { decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, 
 export const USAGE = 'usage: pnpm decisions [<owner-decisions.md>]'
 
 export interface DecisionsReadDeps {
-  home: string
+  decisions: string
   exists: (file: string) => boolean
   history: readonly JournalEntry[]
   bus: BusCardStates
@@ -21,10 +20,6 @@ export interface DecisionsReadDeps {
   out: (line: string) => void
   err: (line: string) => void
   finding?: (line: string) => void
-}
-
-export function defaultDecisions(home: string): string {
-  return path.join(home, '.construct', 'owner-decisions.md')
 }
 
 export function archiveOf(file: string): string {
@@ -41,7 +36,7 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
     deps.err(`${PREFIX}${USAGE}`)
     return 2
   }
-  const file = args[0] ?? defaultDecisions(deps.home)
+  const file = args[0] ?? deps.decisions
   if (!deps.exists(file)) {
     deps.err(`${PREFIX}no decisions at ${file}`)
     return 1
@@ -67,7 +62,7 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = runDecisionsRead(process.argv.slice(2), {
-    home: os.homedir(),
+    decisions: decisionsFileOf(defaultBusPath()),
     history: busHistory(defaultBusPath()),
     bus: busCardStates(defaultBusPath()),
     exists: existsSync,

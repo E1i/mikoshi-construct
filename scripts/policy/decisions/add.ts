@@ -1,9 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { OwnerDecision } from '../decisions.js'
 import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { decisionsFileOf } from '../../core/bus-path.js'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { busHistory } from '../../core/journal.js'
@@ -11,7 +11,7 @@ import { busCardStates } from '../../core/tasks.js'
 import { runRequest, SESSION_VARIABLE } from '../../window/window-requests.js'
 import { recordDecision } from '../decisions.js'
 import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, WRITER_MARKER } from './decisions.js'
-import { archiveOf, defaultDecisions, settledCards } from './read.js'
+import { archiveOf, settledCards } from './read.js'
 
 export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] [--settled #N]... "[owner] <decision>"'
 export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
@@ -22,7 +22,7 @@ const CARD_REFERENCE = /^#?([1-9]\d*)$/
 const UNTIL_VALUE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z$/
 
 export interface DecisionsAddDeps {
-  home: string
+  decisions: string
   now: () => Date
   exists: (file: string) => boolean
   read: (file: string) => string
@@ -154,7 +154,7 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
     deps.err(source)
     return 1
   }
-  const file = parsed.file ?? defaultDecisions(deps.home)
+  const file = parsed.file ?? deps.decisions
   if (!deps.exists(file)) {
     deps.err(`${PREFIX}no decisions at ${file}`)
     return 1
@@ -250,7 +250,7 @@ function requestFromThisWindow(session: string, args: string[]): number {
 
 function writeOnThisMachine(args: string[]): number {
   return runDecisionsAdd(args, {
-    home: os.homedir(),
+    decisions: decisionsFileOf(defaultBusPath()),
     now: () => new Date(),
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),

@@ -8,6 +8,7 @@ export const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
 export const CONSTRUCT_HOME_DIR = '.construct'
 export const BUS_FILE = 'bus.db'
 export const BUS_DIR = 'bus'
+export const DECISIONS_FILE = 'owner-decisions.md'
 export const PREFERRED_REMOTE = 'origin'
 export const REPO_ID_SEPARATOR = '--'
 export const LOCAL_REPO_PREFIX = 'local'
@@ -153,6 +154,14 @@ export function pinBus(env: NodeJS.ProcessEnv, home: string, dir: string, machin
 
 export function busDirOf(busPath: string): string {
   return path.join(path.dirname(busPath), BUS_DIR)
+}
+
+export function decisionsFileOf(busPath: string): string {
+  return path.join(path.dirname(busPath), DECISIONS_FILE)
+}
+
+export function isMachineBus(home: string, busPath: string): boolean {
+  return path.resolve(busPath) === machineBusPath(home)
 }
 
 export function defaultBusPath(): string {

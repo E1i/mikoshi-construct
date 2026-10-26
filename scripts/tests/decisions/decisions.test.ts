@@ -20,7 +20,7 @@ function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal:
   const err: string[] = []
   const findings: string[] = []
   const code = runDecisionsRead(args, {
-    home: '/home/x',
+    decisions: '/home/x/.construct/owner-decisions.md',
     history: journal,
     bus,
     exists: candidate => candidate === '/d/owner-decisions.md' || candidate === '/home/x/.construct/owner-decisions.md' || (candidate === ARCHIVE && archive !== null),
@@ -100,7 +100,7 @@ describe('owner decisions are a numbered record', () => {
     expect(read(text).code).toBe(1)
   })
 
-  it('reads the home decisions file when none is named', () => {
+  it('reads the bus decisions file when none is named', () => {
     expect(read(file('- D-1 · 2026-10-08 — one.'), []).out).toEqual(['- D-1 · 2026-10-08 — one.'])
   })
 
@@ -320,7 +320,7 @@ describe('a decision bound to a card is spent once the card is merged or closed'
       const before = snapshot()
       const out: string[] = []
       const code = runDecisionsRead([decisions], {
-        home: root,
+        decisions,
         history: journal({ event: 'merge', task: '730', pr: 674, by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' }),
         bus: new Map(),
         exists: existsSync,

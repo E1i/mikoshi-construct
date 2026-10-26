@@ -13,7 +13,7 @@ import { BUS_DB_VARIABLE, busDirOf, pinBus } from '../core/bus-path.js'
 import { appendEvent, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
 import { FACTORY_NAMED } from '../core/factory-paths.js'
-import { consumeOwnerWord, ownerChannelOf, USED_WORD } from '../owner/channel.js'
+import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
 import { allowLiveText } from '../policy/live-decision.js'
 import { activeWindowShards, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
 import { installedPackage, printBg } from './bg.js'
@@ -340,7 +340,7 @@ async function main(): Promise<void> {
   if (command.kind !== 'start') {
     printBg(runMode(command, {
       busDir: busDirOf(busDb),
-      channel: ownerChannelOf(os.homedir()),
+      channel: ownerChannelOfBus(os.homedir(), busDb),
       now: () => new Date(),
       uuid: randomUUID,
       record: event => withBus(busDb, db => appendEvent(db, event)),

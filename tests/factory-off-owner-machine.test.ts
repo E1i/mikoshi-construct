@@ -229,7 +229,7 @@ describe('per-repository bus home', () => {
     keepDryRun(dir)('session-1', record)
     const db = openBus(busPath)
     try {
-      expect(realRequestTools(db, busPath, repo, env, home).dryRunOf('session-1')).toEqual(record)
+      expect(realRequestTools(db, busPath, repo, env).dryRunOf('session-1')).toEqual(record)
     }
     finally {
       db.close()

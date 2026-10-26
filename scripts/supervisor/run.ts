@@ -10,13 +10,14 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { boardProjection } from '../cli/board-page.js'
+import { decisionsFileOf } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { REDUCED, WINDOW_REQUEST } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { deriveQueues } from '../core/queue.js'
 import { closeWaitsOfEndedCards, reduce } from '../core/reducer.js'
+import { ownerChannelOfBus } from '../owner/channel.js'
 import { decisionsIntake } from '../policy/decisions-import.js'
-import { defaultDecisions } from '../policy/decisions/read.js'
 import { ghApi } from '../ports/github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
@@ -46,10 +47,12 @@ export class BusTick {
     if (poll.kind !== 'ticked')
       return { poll, reduced: null, derived: null }
     this.intake()
+    const beforeRequests = reduce(this.db)
     this.requests()
     const ts = this.clock().toISOString()
     const through = lastEventId(this.db)
-    const reduced = reduce(this.db)
+    const afterRequests = reduce(this.db)
+    const reduced = { applied: beforeRequests.applied + afterRequests.applied, rejected: beforeRequests.rejected + afterRequests.rejected }
     appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...reduced }, legacy: false })
     const derived = deriveQueues(this.db, ts)
     this.statuses()
@@ -87,7 +90,7 @@ export interface ComposedTick {
 
 export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, post: GitHubPost, clock: () => Date, home: string): ComposedTick {
   const board = boardProjection(db, busPath, TICK_MS)
-  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, process.cwd(), process.env, home))
+  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, process.cwd(), process.env), ownerChannelOfBus(home, busPath))
   const answer = (): void => {
     for (const outcome of requests.run())
       console.log(`${PREFIX}${WINDOW_REQUEST} ${outcome.request} ${outcome.kind}: ${outcome.detail}`)
@@ -103,7 +106,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
       console.log(statusFailureLine(error))
     }
   }
-  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, defaultDecisions(home), clock), board.project, answer, statuses), boardFile: board.file, boardDataFile: board.dataFile }
+  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, decisionsFileOf(busPath), clock), board.project, answer, statuses), boardFile: board.file, boardDataFile: board.dataFile }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { isMachineBus } from '../core/bus-path.js'
 
 export const OWNER_CHANNEL_HOME = '.construct-owner'
 export const OWNER_ANSWERS = 'answers'
@@ -16,6 +17,11 @@ export interface ConsumedWord {
 
 export function ownerChannelOf(home: string): string {
   return path.join(home, OWNER_CHANNEL_HOME, OWNER_ANSWERS)
+}
+
+export function ownerChannelOfBus(home: string, busPath: string): string {
+  const machine = ownerChannelOf(home)
+  return isMachineBus(home, busPath) ? machine : path.join(machine, path.basename(path.dirname(path.resolve(busPath))))
 }
 
 export function sayToOwnerChannel(channel: string, text: string, now: Date): string {

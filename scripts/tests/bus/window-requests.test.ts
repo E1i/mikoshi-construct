@@ -8,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
 import { factoryMode } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
@@ -25,6 +26,8 @@ import { inForceDecisions, recordDecision } from '../../policy/decisions.js'
 import { stampOf } from '../../policy/decisions/add.js'
 import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
+import { NetWatch } from '../../ports/netwatch.js'
+import { BusTick } from '../../supervisor/run.js'
 import { decisionsAdder, worktreesHolding } from '../../window/window-request-tools.js'
 import { ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
@@ -69,7 +72,7 @@ function room(bench: MergeBench = mergeBench()): Room {
         mkdirSync(path.join(root, 'worktrees', `mc-${CARD}`), { recursive: true })
       },
       dryRunOf: dryRunIn(path.join(root, 'dry-run-reviews')),
-      addDecision: decisionsAdder(bench.db, root, bench.clock.now),
+      addDecision: decisionsAdder(bench.db, path.join(root, '.construct', 'owner-decisions.md'), bench.clock.now),
       causeHolds: () => made.causes.shift() ?? null,
       closePr: request => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).close(request),
       closeDropped: () => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).closeDropped(),
@@ -173,6 +176,20 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     const unknownCard = ask(made, { kind: 'tree.cut', card: CARD + 1 })
     expect(made.requests().run()[0]).toMatchObject({ kind: 'refused', request: unknownCard })
     expect(made.requests().run()).toEqual([])
+  })
+
+  it('a tree.cut requested in the same tick as the card.admitted of its card is answered done on that tick', () => {
+    const made = room()
+    const { bench } = made
+    const text = `card: #${CARD} a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: scripts/a.ts\ncontinue: stop\nwho: window\n\nCut it.\n`
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+    const request = ask(made, { kind: 'tree.cut', card: CARD })
+    const outcomes: unknown[] = []
+    const busTick = new BusTick(bench.db, new NetWatch(bench.db, bench.gitHub.client, bench.clock.now), bench.clock.now, () => {}, () => {}, () => outcomes.push(...made.requests().run()))
+
+    expect(busTick.run()?.poll.kind).toBe('ticked')
+    expect(outcomes).toEqual([{ kind: 'done', request, detail: `cut ${path.join(made.root, 'worktrees', `mc-${CARD}`)} on feat/card-${CARD}` }])
+    expect(answerOf(made, request).type).toBe(REQUEST_DONE)
   })
 
   it('an allow-merge request after the dry-run records the decision on the current head by D-186', () => {
