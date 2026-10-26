@@ -14,7 +14,7 @@ import { busParkedDepends } from '../intake/parking-reads.js'
 import { activeDecisionsShard, VERSION_PR_RESERVATION } from '../policy/shards.js'
 import { execGh, readGhJson } from '../ports/gh.js'
 import { CARD_VARIABLE } from '../ports/session.js'
-import { readBoard } from './board.js'
+import { MERGE_PAST_THE_BUS, readBoard } from './board.js'
 import { appended, archiveOfDay, DAY_FILE_LIMIT, dayBytes, dayFileNamedIn, splitDay } from './day-archive.js'
 import { projectRoot, realExitReadings, UNKNOWN } from './eddies-measure.js'
 import { stopReasonOf } from './exit.js'
@@ -105,10 +105,11 @@ function inFlightEntry(row: HandoffState['execution'][number]): string {
 
 export function stateLines(state: HandoffState): string[] {
   const current = state.lanes.filter(lane => lane.card !== null).map(lane => `#${lane.card} ${lane.lane} ${lane.state}`)
+  const inFlight = state.execution.filter(row => !row.markers.includes(MERGE_PAST_THE_BUS))
   return [
     `current card: ${joinedOrNothing(current, '; ')}`,
     `queue: ${joinedOrNothing(state.ready.map(card => `#${card.card}`), ' → ')}`,
-    ...(state.execution.length === 0 ? [`${IN_FLIGHT_LABEL}: ${NOTHING}`] : [`${IN_FLIGHT_LABEL}:`, ...state.execution.map(inFlightEntry)]),
+    ...(inFlight.length === 0 ? [`${IN_FLIGHT_LABEL}: ${NOTHING}`] : [`${IN_FLIGHT_LABEL}:`, ...inFlight.map(inFlightEntry)]),
     `${BLOCKED_LABEL}: ${joinedOrNothing(state.blocked.map(card => `#${card.card} ${card.reason}`), '; ')}`,
   ]
 }

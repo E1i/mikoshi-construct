@@ -22,6 +22,7 @@ import { stillSilent } from '../supervisor/supervisor.js'
 export const BOARD_FILE = 'board.html'
 export const FRESH_MS = RENEW_MS
 export const NO_PROGRESS_MS = 30 * 60_000
+export const PAST_THE_BUS_SHOWN_MS = 24 * 60 * 60_000
 export const PROGRESS_EVENTS = [REVIEW_RECORDED, MERGE_DONE, PR_OPENED, 'pr.closed', CARD_STARTED, CARD_ADMITTED, CARD_CLOSED, TASK_COMPLETED] as const
 export const MERGE_PAST_THE_BUS = 'merge past the bus'
 export const SILENT_PROCESS = 'silent process'
@@ -323,7 +324,7 @@ function stageOfChain(chain: ChainLane): string {
   return `waiting on ${cards.map(card => `#${card}`).join(', ')}`
 }
 
-function executionBlock(db: DatabaseSync, chains: readonly ChainLane[], down: ReadonlySet<string>): ExecutionRow[] {
+function executionBlock(db: DatabaseSync, now: Date, chains: readonly ChainLane[], down: ReadonlySet<string>): ExecutionRow[] {
   const open = db.prepare(OPEN_PRS).all() as unknown as OpenPrRow[]
   const withPr = new Set(open.map(row => row.card_id))
   const writing = chains.filter(chain => chain.state !== 'stopped' && !withPr.has(chain.card_id))
@@ -333,7 +334,7 @@ function executionBlock(db: DatabaseSync, chains: readonly ChainLane[], down: Re
     return { card: row.card_id, pr: row.pr, stage, since: row.since, review: row.review, markers: [...markersOf(stage, down), ...(row.stop === null ? [] : [row.stop])] }
   })
   const past = (db.prepare(MERGED_PAST_THE_BUS).all() as { pr: number, ts: string, card_id: number | null, commit_sha: string | null }[])
-    .filter(row => row.card_id !== null)
+    .filter(row => row.card_id !== null && ageMs(now, row.ts) <= PAST_THE_BUS_SHOWN_MS)
     .map(row => ({ card: row.card_id!, pr: row.pr, stage: `merged${row.commit_sha === null ? '' : ` ${row.commit_sha}`}`, since: row.ts, review: null, markers: [MERGE_PAST_THE_BUS] }))
   return [...writing, ...reviewed, ...past]
 }
@@ -466,7 +467,7 @@ export function readBoard(sources: BoardSources): Board {
     lanes: laneBlock(chains),
     window: health.find(component => component.name === 'Operator')!,
     shard: activeShard(db, now),
-    execution: executionBlock(db, chains, down),
+    execution: executionBlock(db, now, chains, down),
     health,
     progress: progressOf(db, now, health, queue.blocked, queue.ready),
     contract: contractRow(db),
