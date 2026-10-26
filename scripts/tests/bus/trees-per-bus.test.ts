@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf } from '../../core/bus-path.js'
-import { openBus } from '../../core/db.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { CARD_STARTED } from '../../core/events.js'
 import { handoffLadderSteps, realStarterPorts } from '../../nodes/launch/launch-worker.js'
 import { cardTree, cardTreeRoots, DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { realRequestTools } from '../../window/window-request-tools.js'
@@ -36,13 +37,35 @@ describe('card trees per bus', () => {
     expect(path.basename(treeA)).toBe('2')
   })
 
-  it('keeps a tree that already exists at the old mc- path', () => {
+  it('a second bus gets its own tree for card 1 while the old mc-1 exists', () => {
     const root = newRoot()
-    const oldHome = path.join(root, 'old')
+    const oldHome = path.join(root, 'worktrees')
+    mkdirSync(path.join(oldHome, 'mc-1'), { recursive: true })
+    const bus = path.join(root, 'E1i--clone', 'bus.db')
+    openBus(bus).close()
+    expect(cardTree({}, bus, '1', oldHome)).toBe(path.join(busDirOf(bus), 'worktrees', '1'))
+  })
+
+  it('the old mikoshi-construct bus keeps the old path of a card it already started', () => {
+    const root = newRoot()
+    const oldHome = path.join(root, 'worktrees')
     mkdirSync(path.join(oldHome, 'mc-2'), { recursive: true })
-    const bus = path.join(root, '.construct', 'a--one', 'bus.db')
-    expect(cardTree({}, bus, '2', oldHome)).toBe(path.join(oldHome, 'mc-2'))
-    expect(cardTree({}, bus, '3', oldHome)).toBe(path.join(busDirOf(bus), 'worktrees', '3'))
+    const oldBus = path.join(root, 'bus.db')
+    expect(cardTree({}, oldBus, '2', oldHome)).toBe(path.join(oldHome, 'mc-2'))
+    expect(cardTree({}, oldBus, '3', oldHome)).toBe(path.join(busDirOf(oldBus), 'worktrees', '3'))
+  })
+
+  it('a card whose card.started on this bus names the old path keeps it', () => {
+    const root = newRoot()
+    const oldHome = path.join(root, 'worktrees')
+    mkdirSync(path.join(oldHome, 'mc-3'), { recursive: true })
+    mkdirSync(path.join(oldHome, 'mc-4'), { recursive: true })
+    const bus = path.join(root, 'E1i--clone', 'bus.db')
+    const db = openBus(bus)
+    appendEvent(db, { ts: '2026-10-26T12:00:00.000Z', type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 3, pr: null, head: null, dedupeKey: `${CARD_STARTED}:3`, payload: { session: 'card-session-3', worktree: path.join(oldHome, 'mc-3'), branch: 'feat/card-3', base: 'a'.repeat(40) }, legacy: false })
+    db.close()
+    expect(cardTree({}, bus, '3', oldHome)).toBe(path.join(oldHome, 'mc-3'))
+    expect(cardTree({}, bus, '4', oldHome)).toBe(path.join(busDirOf(bus), 'worktrees', '4'))
   })
 
   it('lets CONSTRUCT_WORKTREE_HOME override the root, keeping the mc- name', () => {
