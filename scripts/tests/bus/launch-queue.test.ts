@@ -873,7 +873,7 @@ describe('the launch queue', () => {
 
     expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
     const [args, card] = (await written(stub.argsFile)).trim().split('\n')
-    const settings = /^--permission-mode dontAsk --settings (\{.*\}) --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
+    const settings = /^--permission-mode dontAsk --setting-sources project,local --settings (\{.*\}) --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
     expect(JSON.parse(settings ?? 'null')).toEqual({
       sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },

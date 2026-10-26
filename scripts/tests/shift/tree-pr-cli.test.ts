@@ -388,7 +388,7 @@ describe('the session a refusal returns the card to', () => {
     const { ran, seen } = resumed(`printf '%s\\n' "$PWD" "$${CARD_VARIABLE}" "$NO_COLOR" "$@" > SEEN`, 10_000)
 
     const [cwd, card, noColor, ...argv] = readFileSync(seen, 'utf8').trim().split('\n')
-    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv: argv.filter((_, at) => argv[at - 1] !== '--settings') }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '--settings', '--strict-mcp-config', '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
+    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv: argv.filter((_, at) => argv[at - 1] !== '--settings') }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '--setting-sources', 'project,local', '--settings', '--strict-mcp-config', '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
   })
 
   it('resumes the card session with settings that allow only the tree\'s own gate commands and edits inside the tree', () => {
