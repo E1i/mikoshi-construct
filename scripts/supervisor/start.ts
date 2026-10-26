@@ -18,7 +18,7 @@ import { allowLiveText } from '../policy/live-decision.js'
 import { activeWindowShards, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
 import { installedPackage, printBg } from './bg.js'
 import { startBus } from './supervisor.js'
-import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
+import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
 
 export const START_PREFIX = '[factory:start] '
 export const OWNER_AGENT = 'dev.mikoshi.bus'
@@ -230,7 +230,7 @@ function failed(lines: string[]): BgResult {
 function windowMode(parts: ModeParts): BgResult {
   let on: BusWorker[]
   try {
-    on = switchMode(parts.busDir, DEFAULT_MODE)
+    on = switchMode(parts.busDir, DEFAULT_MODE, null, MODE_LIVE[DEFAULT_MODE])
   }
   catch (error) {
     return failed([`${DEFAULT_MODE} was not switched, so no shard was revoked: ${messageOf(error)}`])

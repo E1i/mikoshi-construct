@@ -5,7 +5,7 @@ import type { GitHub } from '../ports/github.js'
 import type { Poll } from '../ports/netwatch.js'
 import type { GitHubPost } from '../ports/pr-status.js'
 import type { BgResult, ProcessList } from './bg.js'
-import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { linkSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -25,7 +25,7 @@ import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
 import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
-import { BUS_RUN_MARKERS, instancesOf, psList } from './bg.js'
+import { alive, BUS_RUN_MARKERS, instancesOf, psList } from './bg.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = '[bus:run] '
@@ -43,9 +43,45 @@ function lockHolder(lock: string): number | null {
   }
 }
 
+function holderServes(holder: number, processes: ProcessList, busPath: string): boolean {
+  let listed: ReturnType<ProcessList>
+  try {
+    listed = processes()
+  }
+  catch {
+    return alive(holder)
+  }
+  return instancesOf(listed, BUS_RUN_MARKERS, busPath).some(candidate => candidate.pid === holder)
+}
+
+function removeStaleLock(lock: string, staleHolder: number | null, self: number): boolean {
+  const aside = `${lock}.${self}`
+  try {
+    renameSync(lock, aside)
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return true
+    throw error
+  }
+  const movedHolder = lockHolder(aside)
+  if (movedHolder !== staleHolder) {
+    try {
+      linkSync(aside, lock)
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST')
+        throw error
+    }
+  }
+  rmSync(aside, { force: true })
+  return movedHolder === staleHolder
+}
+
 export function holdRunLock(busPath: string, processes: ProcessList, self: number = process.pid): BgResult {
   const busDir = busDirOf(busPath)
   const lock = path.join(busDir, RUN_LOCK)
+  const takenAgain: BgResult = { stdout: [], stderr: [`${PREFIX}${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`], exitCode: 1 }
   mkdirSync(busDir, { recursive: true })
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -56,12 +92,13 @@ export function holdRunLock(busPath: string, processes: ProcessList, self: numbe
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST')
         throw error
       const holder = lockHolder(lock)
-      if (holder !== null && holder !== self && instancesOf(processes(), BUS_RUN_MARKERS, busPath).some(candidate => candidate.pid === holder))
+      if (holder !== null && holder !== self && holderServes(holder, processes, busPath))
         return { stdout: [], stderr: [`${PREFIX}another bus:run, pid ${holder}, holds ${lock} for ${busPath}; one bus:run serves one bus, so this one exits and starts nothing`], exitCode: 1 }
-      rmSync(lock, { force: true })
+      if (!removeStaleLock(lock, holder, self))
+        return takenAgain
     }
   }
-  return { stdout: [], stderr: [`${PREFIX}${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`], exitCode: 1 }
+  return takenAgain
 }
 
 export interface Tick {

@@ -18,7 +18,7 @@ import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
-import { liveWorkers, MODE_WORKERS, modeOf, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
+import { liveWorkers, MODE_WORKERS, modeOf, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
 
@@ -387,6 +387,19 @@ describe('the modes of the factory', () => {
 
     expect(modeOf(bench.parts.busDir)).toBe('window')
     expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+  })
+
+  it('a ghost-protocol term ending on its own keeps a worker the operator put in shadow', () => {
+    const bench = modeBench()
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+    switchDetection(bench.parts.busDir, 'review', false)
+    sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+    runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+
+    expect(returnToWindowAtTermEnd(bench.parts.busDir, new Date(Date.parse(termEndOf(bench.parts.busDir)!) + 1))).toBe(true)
+
+    expect(modeOf(bench.parts.busDir)).toBe('window')
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS.filter(worker => worker !== 'review'))
   })
 
   it('a factory that already has its workers keeps them on start', async () => {

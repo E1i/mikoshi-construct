@@ -1,6 +1,6 @@
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
 import type { BusCode } from '../../supervisor/supervisor.js'
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -121,6 +121,41 @@ describe('one bus:run serves one bus', () => {
     const otherBus = busPathIn('bus-run-other-')
     expect(holdRunLock(otherBus, () => [runJsOn(busPath)]).exitCode).toBe(0)
     expect(holdRunLock(busPath, () => [runJsOn(otherBus)]).exitCode).toBe(0)
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
+  })
+
+  it('a stale run lock another run.js replaced first stays with that run.js', () => {
+    const busPath = busPathIn('bus-run-stale-')
+    const lock = path.join(busDirOf(busPath), RUN_LOCK)
+    const dead = 4301
+    const faster = 4302
+    expect(holdRunLock(busPath, () => [], dead).exitCode).toBe(0)
+
+    const slower = holdRunLock(busPath, () => {
+      rmSync(lock)
+      writeFileSync(lock, `${faster}\n`)
+      return []
+    }, 4303)
+
+    expect(slower.exitCode).toBe(1)
+    expect(slower.stderr.join('\n')).toContain('taken again')
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(faster))
+    expect(readdirSync(busDirOf(busPath))).toEqual([RUN_LOCK])
+  })
+
+  it('with ps unreadable a run lock held by a live pid refuses and one held by a dead pid is taken', () => {
+    const busPath = busPathIn('bus-run-no-ps-')
+    const lock = path.join(busDirOf(busPath), RUN_LOCK)
+    const unreadable = (): never => {
+      throw new Error('spawnSync ps EPERM')
+    }
+    expect(holdRunLock(busPath, () => [], process.ppid).exitCode).toBe(0)
+
+    expect(holdRunLock(busPath, unreadable).exitCode).toBe(1)
+
+    rmSync(lock)
+    expect(holdRunLock(busPath, () => [], 2 ** 22 + 1).exitCode).toBe(0)
+    expect(holdRunLock(busPath, unreadable).exitCode).toBe(0)
     expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
   })
 })
