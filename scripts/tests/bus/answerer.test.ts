@@ -107,7 +107,8 @@ describe('the answerer', () => {
     const ownerQuestion = ownerQuestionPath(path.join(path.dirname(worktree), 'answers'), answered.session, 1)
 
     expect(runs.map(settingsOf)).toEqual([treeSettings(worktree, ownerQuestion)])
-  })})
+  })
+})
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
