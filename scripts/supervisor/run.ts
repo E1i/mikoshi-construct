@@ -4,13 +4,15 @@ import type { ReduceCount } from '../core/reducer.js'
 import type { GitHub } from '../ports/github.js'
 import type { Poll } from '../ports/netwatch.js'
 import type { GitHubPost } from '../ports/pr-status.js'
-import { realpathSync } from 'node:fs'
+import type { BgResult, ProcessList } from './bg.js'
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { boardProjection } from '../cli/board-page.js'
-import { decisionsFileOf } from '../core/bus-path.js'
+import { busDirOf, decisionsFileOf } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { REDUCED, WINDOW_REQUEST } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
@@ -23,9 +25,44 @@ import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
 import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
+import { BUS_RUN_MARKERS, instancesOf, psList } from './bg.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = '[bus:run] '
+export const RUN_LOCK = 'bus-run.lock'
+
+function lockHolder(lock: string): number | null {
+  try {
+    const holder = Number(readFileSync(lock, 'utf8').trim())
+    return Number.isInteger(holder) && holder > 0 ? holder : null
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return null
+    throw error
+  }
+}
+
+export function holdRunLock(busPath: string, processes: ProcessList, self: number = process.pid): BgResult {
+  const busDir = busDirOf(busPath)
+  const lock = path.join(busDir, RUN_LOCK)
+  mkdirSync(busDir, { recursive: true })
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(lock, `${self}\n`, { flag: 'wx' })
+      return { stdout: [], stderr: [], exitCode: 0 }
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST')
+        throw error
+      const holder = lockHolder(lock)
+      if (holder !== null && holder !== self && instancesOf(processes(), BUS_RUN_MARKERS, busPath).some(candidate => candidate.pid === holder))
+        return { stdout: [], stderr: [`${PREFIX}another bus:run, pid ${holder}, holds ${lock} for ${busPath}; one bus:run serves one bus, so this one exits and starts nothing`], exitCode: 1 }
+      rmSync(lock, { force: true })
+    }
+  }
+  return { stdout: [], stderr: [`${PREFIX}${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`], exitCode: 1 }
+}
 
 export interface Tick {
   poll: Poll
@@ -115,6 +152,11 @@ export function startBus(db: DatabaseSync, clock: () => Date): string[] {
 
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
+  const lock = holdRunLock(busPath, psList())
+  if (lock.exitCode !== 0) {
+    console.error(lock.stderr.join('\n'))
+    return lock.exitCode
+  }
   const db = openBus(busPath)
   const closed = startBus(db, () => new Date())
   if (closed.length > 0)

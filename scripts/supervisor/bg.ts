@@ -27,6 +27,7 @@ export interface BgResult {
   stderr: string[]
   exitCode: number
   alreadyRunning?: RunningProcess
+  startingAs?: number
 }
 
 export interface RunningProcess {
@@ -204,7 +205,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
   mkdirSync(busDir, { recursive: true })
   const holder = startHolder(lock, processes)
   if (holder !== null)
-    return { stdout: [], stderr: [`${prefix}another start (pid ${holder}) is starting ${script} (${lock}); nothing started`], exitCode: 1 }
+    return { stdout: [], stderr: [`${prefix}another start (pid ${holder}) is starting ${script} (${lock}); nothing started`], exitCode: 1, ...holder > 0 ? { startingAs: holder } : {} }
   try {
     const running = runningInstance(processes(), launch.markers, thisBus(env))
     if (running !== undefined)
@@ -249,6 +250,11 @@ export function runBusBg(busDir: string, launches: DetachedLaunch[], env: NodeJS
       result.stdout.push(proven
         ? `${PREFIX}${launchName(launch)} is already running as pid ${started.alreadyRunning.pid}; left alone`
         : `${PREFIX}${launchName(launch)} is running as pid ${started.alreadyRunning.pid}, whose bus could not be read as ${bus}; left alone and not counted as running for it`)
+      continue
+    }
+    if (started.startingAs !== undefined) {
+      up += 1
+      result.stdout.push(`${PREFIX}${launchName(launch)} is being started by another start, pid ${started.startingAs}; left to it`)
       continue
     }
     up += started.exitCode === 0 ? 1 : 0

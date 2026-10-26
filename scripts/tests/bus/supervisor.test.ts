@@ -1,9 +1,13 @@
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
 import type { BusCode } from '../../supervisor/supervisor.js'
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { launchName } from '../../supervisor/bg.js'
+import { afterEach, describe, expect, it } from 'vitest'
+import { busDirOf } from '../../core/bus-path.js'
+import { BUS_FLAG, launchName } from '../../supervisor/bg.js'
 import { reviewLaunch } from '../../supervisor/review-bg.js'
+import { holdRunLock, RUN_LOCK } from '../../supervisor/run.js'
 import { BusSupervisor, entryOf, gitCode, importClosure, LOCAL_MAIN_REF, SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
 import { busLaunches, workerLaunches } from '../../supervisor/workers.js'
 
@@ -84,6 +88,40 @@ describe('the supervisor follows the local main ref', () => {
 
     expect(await supervisor.step()).toEqual([])
     expect(supervisor.ownCodeBehind).toBeNull()
+  })
+})
+
+describe('one bus:run serves one bus', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0))
+      rmSync(root, { recursive: true, force: true })
+  })
+
+  function busPathIn(prefix: string): string {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), prefix)))
+    roots.push(root)
+    return path.join(root, 'bus.db')
+  }
+
+  it('a second run.js on one bus exits non-zero with a message while the first holds its lock', () => {
+    const busPath = busPathIn('bus-run-lock-')
+    const lock = path.join(busDirOf(busPath), RUN_LOCK)
+    const first = 4300
+    const runJsOn = (bus: string) => ({ pid: first, args: `node /x/dist/scripts/supervisor/run.js ${BUS_FLAG} ${bus}`, bus })
+
+    expect(holdRunLock(busPath, () => [], first).exitCode).toBe(0)
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(first))
+
+    const second = holdRunLock(busPath, () => [runJsOn(busPath)])
+    expect(second.exitCode).toBe(1)
+    expect(second.stderr.join('\n')).toContain(`pid ${first}`)
+    expect(second.stderr.join('\n')).toContain(lock)
+
+    const otherBus = busPathIn('bus-run-other-')
+    expect(holdRunLock(otherBus, () => [runJsOn(busPath)]).exitCode).toBe(0)
+    expect(holdRunLock(busPath, () => [runJsOn(otherBus)]).exitCode).toBe(0)
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
   })
 })
 

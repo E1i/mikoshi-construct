@@ -11,9 +11,9 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE, busDirOf, repoIdOf } from '../scripts/core/bus-path.js'
-import { LIVE_FLAG } from '../scripts/core/node.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
+import { LIVE_FLAG } from '../scripts/core/node.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
@@ -300,6 +300,27 @@ describe('the exit code of the start command', () => {
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr.join('\n')).toContain(`started nothing for ${parts.busDb}`)
+  })
+
+  it('a second construct-factory over a running or starting factory exits 0', async () => {
+    const parts = keepAliveParts(tempRoot('factory-home-'), recordingLaunchctl().run, 'linux')
+    const env = { [BUS_DB_VARIABLE]: parts.busDb }
+    const startArgs = `node /x/${OUT_DIR}/scripts/supervisor/start.js`
+    const otherStart = 4243
+    const supervisor = { pid: 4244, args: `node /x/${OUT_DIR}/scripts/supervisor/supervisor.js ${SUPERVISE_FLAG} ${BUS_FLAG} ${parts.busDb}`, bus: parts.busDb }
+    const servedBus = () => [{ pid: process.pid, args: startArgs }, { pid: otherStart, args: startArgs }, supervisor]
+    mkdirSync(parts.busDir, { recursive: true })
+    writeFileSync(path.join(parts.busDir, BUS_RUN_LAUNCH.startLock), `${otherStart}\n`)
+
+    const second = await runStart(tempRoot('factory-user-'), REPOSITORY, parts, async () => runBusBg(parts.busDir, [BUS_RUN_LAUNCH, SUPERVISOR_LAUNCH], env, servedBus))
+
+    expect(second.exitCode, second.stderr.join('\n')).toBe(0)
+    expect(second.stdout.join('\n')).toContain(`pid ${otherStart}`)
+    expect(second.stdout.join('\n')).toContain(`pid ${supervisor.pid}`)
+
+    const unserved = () => [{ pid: process.pid, args: startArgs }, { pid: otherStart, args: startArgs }]
+    const startingOnly = await runStart(tempRoot('factory-user-'), REPOSITORY, parts, async () => runBusBg(parts.busDir, [BUS_RUN_LAUNCH], env, unserved))
+    expect(startingOnly.exitCode, startingOnly.stderr.join('\n')).toBe(0)
   })
 })
 
