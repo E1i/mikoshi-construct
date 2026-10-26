@@ -163,7 +163,11 @@ and `.construct/high-effort-areas.md`.
      rung before it. One rung failing as on the base is an unwitnessed acceptance and the ladder goes
      on; a rung between that does not fail that way starts the count again. No implementation can turn
      such a witness green, so the run stops at that rung, with no higher rung and no design step, and
-     the reason names the witness; `validationError` carries it.
+     the reason names the witness; `validationError` carries it. It is also the status of a rung on
+     which a criterion the brief fixed is named by no reported witness at all (outcome
+     `witness unmatched`), after a list marker is taken off both sides: no rung can witness a
+     criterion the harness never reports, so the run stops at that rung, with no higher rung and no
+     design step, and `validationError` names the unmatched criteria.
    - `base moved` — after a rung the HEAD the harness observed (`headSha`, the output of `git rev-parse HEAD`
      it ran itself in the working tree) is not the base sha pinned at preflight: something moved HEAD under
      the run, as an implementer's `git reset` did when `origin/main` advanced mid-run. No rung and no
@@ -191,7 +195,7 @@ and `.construct/high-effort-areas.md`.
      rung that changed nothing (`no change`), from a rung that changed an immutable path
      (`immutable changed`), from a rung that changed source with no test (`untested change`), from a
      rung whose declared contract check was red, unreported or another command (`contract check failed`), from an
-     invalid witness (`witness invalid`), from an args file whose hash differs (`args mismatch`), from an acceptance not witnessed, from a blocked report and from a design the schema rejected.
+     invalid witness (`witness invalid`), from a fixed criterion no witness names (`witness unmatched`), from an args file whose hash differs (`args mismatch`), from an acceptance not witnessed, from a blocked report and from a design the schema rejected.
    - `cause` — required when `status` is `stopped` or `failed`, and absent otherwise. It says why
      the run ended without passing, from the causes that status allows:
      - `stopped` / `environment` — it was failing on something outside the task, such as the
