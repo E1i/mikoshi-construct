@@ -5,7 +5,10 @@ const MANIFEST = 'package.json'
 const QUALITY = 'quality'
 const TSX_CLI = /(?:^|&&|\|\||;|\|)\s*(?:pnpm\s+(?:exec\s+)?)?tsx\s/
 const SCRIPT_REFERENCE = /pnpm\s+(?:run\s+)?([\w:-]+)/g
-const LOADER_FORM = 'node --import tsx scripts/composition/check.ts'
+const LOADER_FORMS = {
+  'composition:check': 'node --import tsx scripts/composition/check.ts',
+  'composition:render': 'node --import tsx scripts/composition/sync-docs.ts',
+}
 
 function scriptsOf(presetId: Parameters<typeof renderInit>[0]): Record<string, string> {
   const manifest = JSON.parse(renderInit(presetId, PNPM_HARNESS).get(MANIFEST) ?? '{}') as { scripts?: Record<string, string> }
@@ -34,8 +37,10 @@ describe('the package.json scripts init writes run without the tsx CLI and its I
       expect(invokingTheCli).toEqual([])
     })
 
-    it(`${presetId}: composition:check loads tsx into node`, () => {
-      expect(scriptsOf(presetId)['composition:check']).toBe(LOADER_FORM)
+    it(`${presetId}: composition:check and composition:render load tsx into node`, () => {
+      const scripts = scriptsOf(presetId)
+      for (const [name, form] of Object.entries(LOADER_FORMS))
+        expect(scripts[name], name).toBe(form)
     })
   }
 })
