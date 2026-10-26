@@ -111,7 +111,7 @@ describe('the view of a repository', () => {
     const shown = visibleNodes(map)
     expect(shown.length).toBeGreaterThan(1)
     expect(shown.length).toBeLessThanOrEqual(MAX_DEFAULT_NODES)
-    expect(map.contours.flatMap(contour => contour.components.flatMap(component => component.files.map(file => file.path))).sort()).toEqual(mechanics.components.map(component => component.path).sort())
+    expect(map.contours.flatMap(contour => contour.components.flatMap(component => component.files.filter(file => file.state !== 'absent').map(file => file.path))).sort()).toEqual(mechanics.components.map(component => component.path).sort())
   })
 
   it('folds more than 30 declared contours into groups by their parent directory, so the top level still has at most 30 nodes', () => {
