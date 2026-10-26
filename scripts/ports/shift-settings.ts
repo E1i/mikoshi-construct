@@ -19,5 +19,5 @@ export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] 
 }
 
 export function settingsFlag(settings: ShiftSettings): string[] {
-  return ['--settings', JSON.stringify(settings)]
+  return ['--setting-sources', 'project,local', '--settings', JSON.stringify(settings)]
 }

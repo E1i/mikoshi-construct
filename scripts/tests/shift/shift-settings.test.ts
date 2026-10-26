@@ -46,9 +46,9 @@ describe('the settings a card session is started with in a repository after cons
     expect(shiftSettings(tree, readShiftGate(tree), [question]).permissions.allow.at(-1)).toBe(`Edit(/${question})`)
   })
 
-  it('travel as one --settings argument holding the settings as JSON', () => {
+  it('travel as one --settings argument holding the settings as JSON, behind --setting-sources that leaves out the user settings', () => {
     const settings = shiftSettings(tree, readShiftGate(tree))
-    const [flag, json] = settingsFlag(settings)
-    expect({ flag, settings: JSON.parse(json!) }).toEqual({ flag: '--settings', settings })
+    const [sourcesFlag, sources, flag, json] = settingsFlag(settings)
+    expect({ sourcesFlag, sources, flag, settings: JSON.parse(json!) }).toEqual({ sourcesFlag: '--setting-sources', sources: 'project,local', flag: '--settings', settings })
   })
 })
