@@ -3,12 +3,12 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bodySha, bodyShaWithoutTouches } from '../../../src/commands/intake/confirm.js'
 import { BACKFILL_SOURCE } from '../../core/backfill-source.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '../../core/events.js'
-import { runTaskStart } from '../../ports/task-start.js'
+import { realDeps, runTaskStart } from '../../ports/task-start.js'
 import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ports/worktree-home.js'
 import { slotsOf } from '../../supervisor/scheduler.js'
 import { journalInBus } from './card-started-bus.js'
@@ -341,6 +341,23 @@ describe('w1: task:start cuts the tree and writes the start', () => {
     expect(git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/h1')
     expect(existsSync(path.join(world.root, 'mc-41'))).toBe(false)
     expect(starts(world)).toMatchObject([{ worktree }])
+  })
+
+  it('cuts a new worktree where the bus it serves names it, with no mc- prefix', () => {
+    const world = newWorld()
+    const tree = path.join(world.root, 'bus', 'worktrees', '41')
+    const result = runTaskStart(['feat/h1', '--card', card(41)], { ...depsOf(world), treeOf: id => path.join(world.root, 'bus', 'worktrees', id) })
+    expect(result.exitCode).toBe(0)
+    expect(result.worktree).toBe(tree)
+    expect(git(tree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feat/h1')
+  })
+
+  it('the real task:start names the per-bus tree of the bus it serves', () => {
+    const busFile = path.join(tmpdir(), 'task-start-real', 'bus.db')
+    vi.stubEnv('CONSTRUCT_BUS_DB', busFile)
+    vi.stubEnv('CONSTRUCT_WORKTREE_HOME', '')
+    expect(realDeps().treeOf!('987654')).toBe(path.join(path.dirname(busFile), 'bus', 'worktrees', '987654'))
+    vi.unstubAllEnvs()
   })
 
   it('reads the worktree home from its environment variable, else ~/.construct/worktrees', () => {

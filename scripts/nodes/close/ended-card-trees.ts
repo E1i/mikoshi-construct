@@ -11,7 +11,8 @@ import { TREE_LEFT } from '../review/review-worker.js'
 import { cardClosed, failureOf } from './close-executor.js'
 
 export const DIRTY = 'dirty'
-const CARD_TREE_NAME = /^(?:mc-)?(\d+)$/
+const PREFIXED_TREE_NAME = /^mc-(\d+)$/
+const BARE_TREE_NAME = /^(\d+)$/
 const DELETED_ONLY = /^[D ]{2} /
 
 export interface WorktreeGit {
@@ -58,9 +59,11 @@ function changesOf(status: string): string[] {
 
 export class EndedCardTrees {
   private readonly homes: Set<string>
+  private readonly bareIdHomes: Set<string>
 
-  constructor(private readonly db: DatabaseSync, homes: string[], private readonly git: WorktreeGit, private readonly clock: () => Date) {
+  constructor(private readonly db: DatabaseSync, homes: string[], private readonly git: WorktreeGit, private readonly clock: () => Date, bareIdHomes: string[] = []) {
     this.homes = new Set(homes.map(canonical))
+    this.bareIdHomes = new Set(bareIdHomes.map(canonical))
   }
 
   free(): EndedTree[] {
@@ -73,8 +76,10 @@ export class EndedCardTrees {
   }
 
   private endedOwnerOf(tree: string): number | null {
-    const id = CARD_TREE_NAME.exec(path.basename(tree))?.[1]
-    if (id === undefined || !this.homes.has(path.dirname(tree)))
+    const name = path.basename(tree)
+    const home = path.dirname(tree)
+    const id = (this.homes.has(home) ? PREFIXED_TREE_NAME.exec(name)?.[1] : undefined) ?? (this.bareIdHomes.has(home) ? BARE_TREE_NAME.exec(name)?.[1] : undefined)
+    if (id === undefined)
       return null
     const cardId = Number(id)
     const session = cardSessionOf(this.db, cardId)

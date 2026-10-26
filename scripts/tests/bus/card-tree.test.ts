@@ -4,14 +4,14 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, POLICY_DENIED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { importJournal } from '../../intake/import.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
-import { gitCardTrees } from '../../ports/card-tree.js'
+import { gitCardTrees, realCardTrees } from '../../ports/card-tree.js'
 import { taskWorktree } from '../../ports/worktree-home.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -73,7 +73,7 @@ function deletedAfter(start: (bench: Bench, tree: string) => void): (bench: Benc
 
 function neverStarted(): void {}
 
-async function roundInRecreatedTree(treeOf: (root: string) => string, start: (bench: Bench, tree: string, repo: string) => void, session: { session: string, resumed: boolean }): Promise<void> {
+async function roundInRecreatedTree(treeOf: (root: string) => string, start: (bench: Bench, tree: string, repo: string) => void, session: { session: string, resumed: boolean }, treeFactory?: (root: string) => (cardId: string) => string): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-card-tree-'))
   const bench = mergeBench()
   const { repo, pushedHead } = origin(root)
@@ -98,7 +98,7 @@ async function roundInRecreatedTree(treeOf: (root: string) => string, start: (be
     newSession: () => 'new-session-1',
     publish: () => {},
   })
-  const gitTrees = gitCardTrees(repo, path.join(root, 'worktrees'), (cwd: string) => installed.push(cwd), bench.gitHub.client)
+  const gitTrees = gitCardTrees(repo, path.join(root, 'worktrees'), (cwd: string) => installed.push(cwd), bench.gitHub.client, treeFactory?.(root))
   const trees = {
     ...gitTrees,
     recreate: (worktree: string, branch: string) => {
@@ -190,6 +190,18 @@ describe('the card tree', () => {
 
   it('a card with no card.started and an open pull request gets its tree from the pull request branch and the round starts', async () => {
     await roundInRecreatedTree(root => taskWorktree(path.join(root, 'worktrees'), '1199'), neverStarted, { session: 'new-session-1', resumed: false })
+  })
+
+  it('a card with no recorded tree gets the tree the tools name for it, not one under the worktree home', async () => {
+    await roundInRecreatedTree(root => path.join(root, 'bus', 'worktrees', '1199'), neverStarted, { session: 'new-session-1', resumed: false }, root => cardId => path.join(root, 'bus', 'worktrees', cardId))
+  })
+
+  it('the real card tree tools name the per-bus tree of the bus they serve', () => {
+    const busFile = path.join(tmpdir(), 'bus-card-tree-real', 'bus.db')
+    vi.stubEnv('CONSTRUCT_BUS_DB', busFile)
+    vi.stubEnv('CONSTRUCT_WORKTREE_HOME', '')
+    expect(realCardTrees().treeOf!('987654')).toBe(path.join(path.dirname(busFile), 'bus', 'worktrees', '987654'))
+    vi.unstubAllEnvs()
   })
 
   it('an existing card tree behind the task head is brought to the head before the answer runs', async () => {

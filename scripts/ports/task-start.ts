@@ -369,7 +369,7 @@ export function gitIn(cwd: string, args: string[]): string {
   }
 }
 
-function realDeps(): TaskStartDeps {
+export function realDeps(): TaskStartDeps {
   return {
     cwd: process.cwd(),
     git: gitIn,

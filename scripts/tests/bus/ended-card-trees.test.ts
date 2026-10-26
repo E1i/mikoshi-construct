@@ -185,7 +185,7 @@ describe('the close worker frees the trees of ended cards', () => {
     closed(CLOSED)
     closed(RUNNING)
 
-    const ended = new EndedCardTrees(bench.db, [root, perBus], gitWorktrees(repo), bench.clock.now).free()
+    const ended = new EndedCardTrees(bench.db, [root, perBus], gitWorktrees(repo), bench.clock.now, [perBus]).free()
     recordEndedTrees(bench.db, CLOSER, bench.clock.now().toISOString(), ended)
 
     expect(existsSync(current)).toBe(false)
@@ -193,13 +193,14 @@ describe('the close worker frees the trees of ended cards', () => {
     expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toHaveLength(2)
   })
 
-  it('a bare-id tree outside the homes is left untouched though its card is closed', () => {
-    const tree = cardTree(CLOSED, path.join(root, 'elsewhere'), String(CLOSED))
+  it('a bare-id tree under a root that is not the per-bus one is left untouched though its card is closed', () => {
+    const perBus = path.join(root, 'bus', 'worktrees')
+    const tree = cardTree(CLOSED, root, String(CLOSED))
     unlinkSync(path.join(tree, 'README.md'))
     started(CLOSED, tree)
     closed(CLOSED)
 
-    pass()
+    new EndedCardTrees(bench.db, [root, perBus], gitWorktrees(repo), bench.clock.now, [perBus]).free()
 
     expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
     expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])

@@ -123,11 +123,17 @@ export async function runCloseWorker(argv: string[], run: CloseRun): Promise<num
   return runNode(argv, 'close', run.busPath, (db, mode) => new CloseNode({ db, reported: run.reported, clock: () => new Date(), session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db) }), { pause: run.pause })
 }
 
+export function cardTreeRoots(env: NodeJS.ProcessEnv, busPath: string, repo: string): { homes: string[], perBus: string } {
+  const perBus = path.join(busDirOf(busPath), 'worktrees')
+  return { homes: [worktreeHome(env), DEFAULT_WORKTREE_HOME, perBus, path.dirname(repo)], perBus }
+}
+
 async function main(): Promise<number> {
   const construct = path.join(os.homedir(), '.construct')
   const repo = process.cwd()
   const endedTrees = (db: DatabaseSync) => {
-    const trees = new EndedCardTrees(db, [worktreeHome(process.env), DEFAULT_WORKTREE_HOME, path.join(busDirOf(defaultBusPath()), 'worktrees'), path.dirname(repo)], gitWorktrees(repo), () => new Date())
+    const roots = cardTreeRoots(process.env, defaultBusPath(), repo)
+    const trees = new EndedCardTrees(db, roots.homes, gitWorktrees(repo), () => new Date(), [roots.perBus])
     return () => trees.free()
   }
   const busPath = defaultBusPath()
