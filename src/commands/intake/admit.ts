@@ -9,9 +9,9 @@ import type { DraftCard } from './draft.js'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { decisionsFileOf, defaultBusPath } from '../../../scripts/core/bus-path.js'
 import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
 import { endedCards } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
@@ -167,7 +167,7 @@ const SUPERSEDED_BY = ' · superseded-by D-'
 const DROPPED_CARD = 'dropped'
 
 export function defaultDecisions(): string {
-  return path.join(os.homedir(), '.construct', 'owner-decisions.md')
+  return decisionsFileOf(defaultBusPath())
 }
 
 export function downgradeAction(cardId: number, witness: string): string {

@@ -8,7 +8,7 @@ import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
 import { busExpected, busPathOf } from '../scripts/core/bus-path.js'
-import { ownerChannelOf, sayToOwnerChannel } from '../scripts/owner/channel.js'
+import { ownerChannelOfBus, sayToOwnerChannel } from '../scripts/owner/channel.js'
 import { printAtlas, runAtlas } from './atlas/index.js'
 import { ATTACH_EXIT, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
 import { busReaderAt } from './commands/board/bus.js'
@@ -323,7 +323,7 @@ const atlas = withKnownFlags(defineCommand({
 const SAY_EXIT = { said: 0, noWords: 2 } as const
 
 const say = withKnownFlags(defineCommand({
-  meta: { name: 'say', description: 'Write the owner\'s words, with the time, as one unused answer in ~/.construct-owner/answers, the channel an owner decision is accepted from' },
+  meta: { name: 'say', description: 'Write the owner\'s words, with the time, as one unused answer in the owner channel of this repository\'s bus (~/.construct-owner/answers for the machine bus, ~/.construct-owner/answers/<repo-id> for a repository bus), the channel an owner decision is accepted from' },
   args: {
     plain: commonArgs.plain,
     johnny: commonArgs.johnny,
@@ -337,7 +337,7 @@ const say = withKnownFlags(defineCommand({
       return
     }
     const failed = reported(console, () => {
-      console.ok(console.lore.ownerSaid(sayToOwnerChannel(ownerChannelOf(homedir()), words, new Date())))
+      console.ok(console.lore.ownerSaid(sayToOwnerChannel(ownerChannelOfBus(homedir(), busPathOf(process.env, homedir(), process.cwd())), words, new Date())))
     })
     if (failed !== 0)
       process.exitCode = failed

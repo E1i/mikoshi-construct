@@ -6,8 +6,9 @@ the next one ([README, Mikoshi, constructs and other words](https://github.com/E
 The loop is `scripts/window/loop.ts`; its siblings in `scripts/window/` are `pnpm miko:watch`,
 `pnpm miko:pull`, `pnpm miko:exit` and the handoff scripts.
 
-- The owner's decisions reach the factory only through `construct say`, which writes to
-  `~/.construct-owner/answers/` ([CLI reference](/cli#construct-say)).
+- The owner's decisions reach the factory only through `construct say`, which writes to the
+  owner channel of the repository's own bus under `~/.construct-owner/answers/`
+  ([CLI reference](/cli#construct-say)).
 - `construct board` shows the window beside the bus pulse ([CLI reference](/cli#construct-board)).
 - The window's rules are `architecture/window.md` and `architecture/window-core.md`.
 - In a repository only attached, the window hooks are described under

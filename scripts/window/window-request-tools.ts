@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardTask, RequestTools } from './window-requests.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { busDirOf } from '../core/bus-path.js'
+import { busDirOf, decisionsFileOf } from '../core/bus-path.js'
 import { cardSessionOf } from '../nodes/answer/answer-source.js'
 import { dryRunIn, dryRunReviewsDir } from '../nodes/review/dry-run-record.js'
 import { PrCloser } from '../nodes/review/pr-close.js'
@@ -42,7 +42,7 @@ function causeHoldsIn(db: DatabaseSync, repo: string): (task: CardTask) => strin
   }
 }
 
-export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv, home: string): RequestTools {
+export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv): RequestTools {
   const closer = new PrCloser(db, ghApi(repo), ghApiPatch(repo), () => new Date())
   return {
     treeOf: cardId => cardTree(env, busPath, String(cardId)),
@@ -51,18 +51,18 @@ export function realRequestTools(db: DatabaseSync, busPath: string, repo: string
       execFileSync('pnpm', ['--silent', 'task:start', branch, '--card', cardLine], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     },
     dryRunOf: dryRunIn(dryRunReviewsDir(busDirOf(busPath))),
-    addDecision: decisionsAdder(db, home, () => new Date()),
+    addDecision: decisionsAdder(db, decisionsFileOf(busPath), () => new Date()),
     causeHolds: causeHoldsIn(db, repo),
     closePr: request => closer.close(request),
     closeDropped: () => closer.closeDropped(),
   }
 }
 
-export function decisionsAdder(db: DatabaseSync, home: string, now: () => Date): RequestTools['addDecision'] {
+export function decisionsAdder(db: DatabaseSync, decisions: string, now: () => Date): RequestTools['addDecision'] {
   return (args) => {
     const lines: string[] = []
     const code = runDecisionsAdd(args, {
-      home,
+      decisions,
       now,
       exists: existsSync,
       read: file => readFileSync(file, 'utf8'),

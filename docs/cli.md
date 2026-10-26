@@ -1018,11 +1018,15 @@ local working state, not part of the recorded surface.
 ## construct say
 
 The owner's channel for a decision, in the published package: the same write as the repository's
-`pnpm owner:say`. It writes one new file into `~/.construct-owner/answers/` holding `said: <ISO time>`
-and the words, and prints its path. That directory is outside every agent sandbox's `allowWrite`, so
+`pnpm owner:say`. It writes one new file into the channel of the bus of the repository it runs in,
+holding `said: <ISO time>` and the words, and prints its path: `~/.construct-owner/answers/` for the
+machine bus `~/.construct/bus.db`, `~/.construct-owner/answers/<repo-id>/` for a repository bus
+`~/.construct/<repo-id>/bus.db`. That directory is outside every agent sandbox's `allowWrite`, so
 the owner runs the command from their own shell (in Claude Code, behind `!`). The bus accepts an
-owner decision only when its words are a whole line of a file in that directory not used yet, and
-marks the file used in the same step, so one file grants one decision.
+owner decision only when its words are a whole line of a file in its own channel not used yet, and
+marks the file used in the same step, so one file grants one decision, and a word said for one
+repository never confirms a decision or a start word in another. The decision is written into
+`owner-decisions.md` beside that bus's `bus.db`, and a bus imports decisions from that file only.
 
 ```bash
 construct say "Q14: the second path."

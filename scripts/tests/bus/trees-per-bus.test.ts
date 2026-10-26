@@ -77,7 +77,7 @@ describe('card trees per bus', () => {
     const root = newRoot()
     const bus = path.join(root, '.construct', 'a--one', 'bus.db')
     const db = openBus(bus)
-    const tools = realRequestTools(db, bus, path.join(root, 'repo'), {}, root)
+    const tools = realRequestTools(db, bus, path.join(root, 'repo'), {})
     expect(tools.treeOf(987654)).toBe(path.join(busDirOf(bus), 'worktrees', '987654'))
     db.close()
   })

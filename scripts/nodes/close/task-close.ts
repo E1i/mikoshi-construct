@@ -17,6 +17,7 @@ import { formatTokens } from '../../../src/commands/cost/expect.js'
 import { MUTATION_JUDGED_EVENT } from '../../../src/commands/mutate/journal.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../../src/ui/signal.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
+import { decisionsFileOf } from '../../core/bus-path.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
 import { ENTRY_EVENT, entryOf, startedEntryOf } from '../../core/entry.js'
 import { CARD_VERIFIED } from '../../core/events.js'
@@ -27,7 +28,7 @@ import { openDatabase } from '../../core/sqlite.js'
 import { cardStartedLines, prCardOf } from '../../core/tasks.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { parseDecisions } from '../../policy/decisions/decisions.js'
-import { archiveOf, defaultDecisions } from '../../policy/decisions/read.js'
+import { archiveOf } from '../../policy/decisions/read.js'
 import { closeWitnessDenial } from '../../policy/policy.js'
 import { execGh, readGhJson } from '../../ports/gh.js'
 
@@ -592,7 +593,7 @@ function realDeps(): TaskCloseDeps {
     forecast: taskClass => cheapForecastOf(defaultShiftRoot(), taskClass, claudeProjectsDir(), defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     prBody: prBodyOf(gh),
-    decisionsFile: defaultDecisions(os.homedir()),
+    decisionsFile: decisionsFileOf(defaultBusPath()),
     openIssue: (issue) => {
       const open = readGhJson<(OpenIssue & { number: number })[]>(gh, ['issue', 'list', '--state', 'open', '--limit', String(OPEN_ISSUE_LIMIT), '--json', 'number,title,body'])
       return open.kind === 'read' ? { kind: 'read', value: open.value.find(candidate => candidate.number === issue) ?? null } : open
