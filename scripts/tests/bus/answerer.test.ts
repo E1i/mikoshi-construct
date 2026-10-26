@@ -4,7 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { readShiftGate } from '../../../src/manifest.js'
 import { claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools } from '../../nodes/answer/answerer.js'
+import { settingsFlag, shiftSettings } from '../../nodes/launch/shift-settings.js'
 
 const CARD_SESSION = 'card-session-1207'
 const NEW_SESSION = 'new-session-1'
@@ -84,6 +86,14 @@ describe('the answerer', () => {
     expect(answered).toMatchObject({ session: CARD_SESSION, resumed: true, atContextWarn: false })
     expect(runs[0]!.argv).toEqual(expect.arrayContaining(['--resume', CARD_SESSION]))
     expect(prompt).not.toContain(DIFF)
+  })
+
+  it.each([[201_662, 'new'], [120_000, 'resumed']])('starts the %s-context %s session with the shift settings of the card tree and its owner-question file', async (context) => {
+    const { answered, runs } = await answerAt(context)
+    const worktree = runs[0]!.cwd
+    const ownerQuestion = ownerQuestionPath(path.join(path.dirname(worktree), 'answers'), answered.session, 1)
+
+    expect(runs[0]!.argv.slice(0, 2)).toEqual(settingsFlag(shiftSettings(worktree, readShiftGate(worktree), [ownerQuestion])))
   })
 })
 

@@ -16,6 +16,7 @@ import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 import { continuationBody } from './prompt.js'
 import { restoreReport } from './report-collect.js'
 import { journalDoubt, parseSessionJournal } from './session-journal.js'
+import { settingsFlag, shiftSettings } from './shift-settings.js'
 
 export interface DetachedSpawn {
   command: string
@@ -204,7 +205,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       const prompt = this.ports.prompt({ ...task, body: body(task, places) }, places)
       const pid = this.ports.spawnDetached({
         command: 'sh',
-        args: launchArgv({ command: cardCommand(this.places.claude), treePr: this.places.treePr, cardId: card.cardId, worktree, report: this.reportOf(card.cardId), exit: exitCodePath(this.places.launchDir, String(card.cardId)), id: session }),
+        args: launchArgv({ command: [cardCommand(this.places.claude), ...settingsFlag(shiftSettings(worktree, places.gate)).map(shellWord)].join(' '), treePr: this.places.treePr, cardId: card.cardId, worktree, report: this.reportOf(card.cardId), exit: exitCodePath(this.places.launchDir, String(card.cardId)), id: session }),
         cwd: worktree,
         env: launchEnv(this.ports.envOf(card.cardId)),
         input: prompt,

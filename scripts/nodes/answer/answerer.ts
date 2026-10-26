@@ -17,6 +17,7 @@ import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
+import { settingsFlag, shiftSettings } from '../launch/shift-settings.js'
 import { commitAndPush, freshBaseProblem, freshBaseTask } from '../launch/tree-pr.js'
 
 export const PREFIX = '[bus:answer] '
@@ -353,7 +354,9 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const cardBody = tools.cardText(request.lease.cardId)
-    const prompt = answerPrompt(request, ownerQuestion, cardBody, readShiftGate(card.worktree), resumed ? undefined : tools.diff?.(card))
+    const gate = readShiftGate(card.worktree)
+    const prompt = answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card))
+    const settings = settingsFlag(shiftSettings(card.worktree, gate, [ownerQuestion]))
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
@@ -373,7 +376,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
       env: sessionEnv(process.env, request.lease.cardId),
     }), beat, ANSWER_BEAT_MS)
-    const code = await run(resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]), '')
+    const code = await run([...settings, ...(resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]))], '')
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)
     const steps = ['']
@@ -384,7 +387,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       if (gap === null)
         return null
       steps.push(MERGE_STEP)
-      const merged = await run(resumeArgv(session, mergePrompt(request.lease, card, gap, ownerQuestion), [dir]), MERGE_STEP)
+      const merged = await run([...settings, ...resumeArgv(session, mergePrompt(request.lease, card, gap, ownerQuestion), [dir])], MERGE_STEP)
       const owner = ownerAfter(MERGE_STEP)
       if (owner !== null)
         return owner

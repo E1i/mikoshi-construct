@@ -3,8 +3,10 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { readShiftGate } from '../../../src/manifest.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_PERMISSION_MODE } from '../../nodes/launch/launch-starter.js'
+import { settingsFlag, shiftSettings } from '../../nodes/launch/shift-settings.js'
 import { busCardStopped, busPrOpened, claudeResume, PREFIX, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
 
@@ -386,7 +388,7 @@ describe('the session a refusal returns the card to', () => {
     const { ran, seen } = resumed(`printf '%s\\n' "$PWD" "$${CARD_VARIABLE}" "$NO_COLOR" "$@" > SEEN`, 10_000)
 
     const [cwd, card, noColor, ...argv] = readFileSync(seen, 'utf8').trim().split('\n')
-    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '--strict-mcp-config', '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
+    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, ...settingsFlag(shiftSettings(path.dirname(seen), readShiftGate(path.dirname(seen)))), '--strict-mcp-config', '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
   })
 
   it('a resumed card session starts with --strict-mcp-config, so no MCP server of the owner\'s user config starts in it', () => {
