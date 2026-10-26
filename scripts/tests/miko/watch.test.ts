@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, LADDER_APPROVAL, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
+import { CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, LADDER_APPROVAL, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../../core/events.js'
 import { recordGhostLine } from '../../core/journal.js'
 import { prClosed } from '../../core/observations.js'
 import { QUEUE_ACTOR } from '../../core/queue.js'
@@ -18,7 +18,8 @@ import { noPullRequestDetail } from '../../nodes/launch/launch-worker.js'
 import { REVIEW_ROUNDS_SPENT } from '../../nodes/review/review-executor.js'
 import { recordJudged, recordWorkerDown } from '../../supervisor/supervisor.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../window/watch-store.js'
-import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../window/watch.js'
+import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, wakesTheWindow, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../window/watch.js'
+import { requestActor } from '../../window/window-requests.js'
 import { waitFor } from '../wait-for.js'
 
 const RELAUNCH_ACTOR = 'worker:relaunch:'
@@ -55,12 +56,19 @@ function ghost(line: string): string {
   return `bus ${GHOST_LINE} card - pr - ${line}`
 }
 
-function fileDeps(file: string, events: BusEvent[] = [], stalls: CardActivity[] = []): WatchDeps {
+function latestPerPr(events: BusEvent[], type: string, id: number): BusEvent[] {
+  return [...new Map(events.filter(event => event.type === type && event.id <= id).map(event => [event.pr, event])).values()]
+}
+
+function fileDeps(file: string, events: BusEvent[] = [], stalls: CardActivity[] = [], windowPrs: ReadonlySet<number> = new Set(), ownRequests: ReadonlySet<number> = new Set()): WatchDeps {
   let woken = new Map<number, number>()
   return {
     bus: file,
-    observedUpTo: id => [...new Map(events.filter(event => event.type === PR_OBSERVED && event.id <= id).map(event => [event.pr, event])).values()],
+    observedUpTo: id => latestPerPr(events, PR_OBSERVED, id),
+    witnessedUpTo: id => latestPerPr(events, WITNESS_RECORDED, id),
     deniedUpTo: id => events.filter(event => event.type === POLICY_DENIED && event.id <= id),
+    windowPrs: () => windowPrs,
+    ownRequest: request => ownRequests.has(request),
     observedHeads: (pr) => {
       const observed = events.filter(event => event.type === PR_OBSERVED && event.pr === pr && event.head !== null)
       return [...new Map(observed.map(event => [event.head!, event.id])).entries()].sort((a, b) => a[1] - b[1]).map(([head]) => head)
@@ -401,15 +409,56 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     expect(tick(state, deps)).toEqual([])
   })
 
-  it('a window.request.done does not wake the window', () => {
+  it('a window.request.done wakes the window that made the request, and not a window of another session', () => {
     const file = journal()
     const bus = path.join(path.dirname(file), 'bus.db')
     writeStop(bus, 1)
+    writeBusEvent(bus, WINDOW_REQUEST, requestActor(process.env), 'window.request:own', JSON.stringify({ kind: 'tree.cut', card: 1050 }), null, null, 1050)
+    writeBusEvent(bus, WINDOW_REQUEST, 'worker:window:another-session', 'window.request:other', JSON.stringify({ kind: 'tree.cut', card: 1051 }), null, null, 1051)
     const deps = { ...productionDeps(path.dirname(file), bus), beat: () => {} }
     const state = watchState(deps)
-    writeBusEvent(bus, REQUEST_DONE, QUEUE_ACTOR, 'window.request:8:answered', JSON.stringify({ request: 8, kind: 'review', detail: 'enqueued' }), 950, null, 1050)
+    const own = writeBusEvent(bus, REQUEST_DONE, QUEUE_ACTOR, 'window.request:2:answered', JSON.stringify({ request: 2, kind: 'tree.cut', detail: 'cut' }), null, null, 1050)
+    writeBusEvent(bus, REQUEST_DONE, QUEUE_ACTOR, 'window.request:3:answered', JSON.stringify({ request: 3, kind: 'tree.cut', detail: 'cut' }), null, null, 1051)
     const fence = writeStop(bus, 2)
-    expect(tick(state, deps)).toEqual([`bus ${STOP_EVENT} card - pr - ${fence}`])
+    expect(tick(state, deps)).toEqual([`bus ${REQUEST_DONE} card 1050 pr - ${own}`, `bus ${STOP_EVENT} card - pr - ${fence}`])
+  })
+
+  describe('wakesTheWindow wakes the window on what changes on its own card', () => {
+    const WINDOW_PR = 1161
+    const memory = (ownRequests: number[] = []): Parameters<typeof wakesTheWindow>[0] => ({ ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: new Map(), windowPrs: new Set([WINDOW_PR]), ownRequest: request => ownRequests.includes(request) })
+    const event = (type: string, payload: object, pr: number | null = WINDOW_PR): BusEvent => ({ id: 1, type, cardId: 1357, pr, head: 'h1', payload: JSON.stringify(payload) })
+
+    it('wakes on a window.request.done of a request this window made, and not on one of another', () => {
+      const state = memory([11683553])
+      expect(wakesTheWindow(state, event(REQUEST_DONE, { request: 11683553, kind: 'tree.cut' }, null))).toBe(true)
+      expect(wakesTheWindow(state, event(REQUEST_DONE, { request: 11683554, kind: 'tree.cut' }, null))).toBe(false)
+    })
+
+    it('wakes on every red witness.recorded and on a green one after red, and not on a green with no red before it', () => {
+      const state = memory()
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'green' }))).toBe(false)
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'red' }))).toBe(true)
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'red' }))).toBe(true)
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'green' }))).toBe(true)
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'green' }))).toBe(false)
+    })
+
+    it('wakes once when CI on a window card\'s PR turns green, and not when CI of another PR does', () => {
+      const state = memory()
+      expect(wakesTheWindow(state, event(PR_OBSERVED, { ci: 'pending' }))).toBe(false)
+      expect(wakesTheWindow(state, event(PR_OBSERVED, { ci: 'green' }))).toBe(true)
+      expect(wakesTheWindow(state, event(PR_OBSERVED, { ci: 'green', mergeable: 'clean' }))).toBe(false)
+      expect(wakesTheWindow(state, event(PR_OBSERVED, { ci: 'pending' }, 801))).toBe(false)
+      expect(wakesTheWindow(state, event(PR_OBSERVED, { ci: 'green' }, 801))).toBe(false)
+    })
+
+    it('carries a red witness across the --once cursor, so the green after it still wakes', () => {
+      const events: BusEvent[] = [{ ...event(WITNESS_RECORDED, { verdict: 'red' }), id: 1 }]
+      const deps = { ...fileDeps(journal(), events, [], new Set([WINDOW_PR])), lastBusId: () => 2 }
+      const green = { ...event(WITNESS_RECORDED, { verdict: 'green' }), id: 2 }
+      events.push(green)
+      expect(selectOnce({ offset: 0, busId: 1 }, deps, 1357)).toEqual({ line: `bus ${WITNESS_RECORDED} card 1357 pr ${WINDOW_PR} ${green.payload}`, cursor: { offset: 0, busId: 2 } })
+    })
   })
 
   it('stays silent on ghost lines of other events and on ghost lines with no event', () => {

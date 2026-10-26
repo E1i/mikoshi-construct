@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { defaultBusPath, openBus } from '../core/db.js'
-import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
+import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../core/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
@@ -17,12 +17,16 @@ import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore } from './watch-store.js'
 import { windowBeat, windowOf } from './window-heartbeat.js'
 import { windowOpenPrs } from './window-prs.js'
+import { requestActor } from './window-requests.js'
 
 export const STOP_EVENT = 'relaunch-stop'
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED]
+export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED, REQUEST_DONE, WITNESS_RECORDED]
 export const HEAD_BOUND_EVENTS = [STOP_EVENT, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, CARD_STOPPED]
 export const FAILED_CI = 'red'
+export const PASSED_CI = 'green'
+export const RED_WITNESS = 'red'
+export const GREEN_WITNESS = 'green'
 export const DENIALS_IN_A_ROW = 2
 export const USER_SETTINGS = '~/.claude/settings.json'
 export const STALL_MS = 20 * 60_000
@@ -49,7 +53,10 @@ export interface DenialRun {
 export interface WatchState {
   busId: number
   ciByPr: Map<number | null, { head: string | null, ci: unknown }>
+  witnessByPr: Map<number | null, unknown>
   deniedByTask: Map<string, DenialRun>
+  windowPrs: ReadonlySet<number>
+  ownRequest: (request: number) => boolean
   stalls: Set<string>
   stuck: Set<string>
 }
@@ -83,7 +90,10 @@ export interface WatchDeps {
   lastBusId: () => number
   busEventsAfter: (id: number) => BusEvent[]
   observedUpTo: (id: number) => BusEvent[]
+  witnessedUpTo: (id: number) => BusEvent[]
   deniedUpTo: (id: number) => BusEvent[]
+  windowPrs: () => ReadonlySet<number>
+  ownRequest: (request: number) => boolean
   observedHeads: (pr: number) => string[]
   stalls: () => CardActivity[]
   stuck: () => StuckPr[]
@@ -225,27 +235,52 @@ export function wakingEvent(line: string): string | undefined {
 
 export function watchState(deps: WatchDeps): WatchState {
   const busId = deps.lastBusId()
-  return { busId, ciByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
+  return { busId, ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest, stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
 }
 
 function ciOf(payload: string): unknown {
   return payloadOf(payload).ci
 }
 
-type BusMemory = Pick<WatchState, 'ciByPr' | 'deniedByTask'>
+function verdictOf(payload: string): unknown {
+  return payloadOf(payload).verdict
+}
 
-function turnsRed(state: BusMemory, event: BusEvent): boolean {
+type BusMemory = Pick<WatchState, 'ciByPr' | 'witnessByPr' | 'deniedByTask' | 'windowPrs' | 'ownRequest'>
+
+function busMemoryUpTo(deps: WatchDeps, busId: number): BusMemory {
+  const ciByPr: BusMemory['ciByPr'] = new Map(deps.observedUpTo(busId).map(event => [event.pr, { head: event.head, ci: ciOf(event.payload) }]))
+  const witnessByPr: BusMemory['witnessByPr'] = new Map(deps.witnessedUpTo(busId).map(event => [event.pr, verdictOf(event.payload)]))
+  return { ciByPr, witnessByPr, deniedByTask: denialsUpTo(deps, busId), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest }
+}
+
+function ciTurns(state: BusMemory, event: BusEvent): boolean {
   const before = state.ciByPr.get(event.pr)
   const now = { head: event.head, ci: ciOf(event.payload) }
   state.ciByPr.set(event.pr, now)
-  return now.ci === FAILED_CI && (before?.ci !== FAILED_CI || before.head !== now.head)
+  const changed = before?.ci !== now.ci || before?.head !== now.head
+  if (now.ci === FAILED_CI)
+    return changed
+  return now.ci === PASSED_CI && changed && event.pr !== null && state.windowPrs.has(event.pr)
+}
+
+function witnessTurns(state: BusMemory, event: BusEvent): boolean {
+  const before = state.witnessByPr.get(event.pr)
+  const now = verdictOf(event.payload)
+  state.witnessByPr.set(event.pr, now)
+  return now === RED_WITNESS || (now === GREEN_WITNESS && before === RED_WITNESS)
+}
+
+function answersOwnRequest(state: BusMemory, event: BusEvent): boolean {
+  const request = payloadOf(event.payload).request
+  return Number.isSafeInteger(request) && state.ownRequest(request as number)
 }
 
 function deniedTask(event: BusEvent, payload: Record<string, unknown>): string {
   return [event.cardId ?? '-', event.pr ?? '-', event.head ?? '-', textOf(payload, 'command') ?? '-'].join(':')
 }
 
-function deniedAgainInARow(state: BusMemory, event: BusEvent): boolean {
+function deniedAgainInARow(state: Pick<BusMemory, 'deniedByTask'>, event: BusEvent): boolean {
   const payload = payloadOf(event.payload)
   const task = deniedTask(event, payload)
   const reason = denialReason(payload)
@@ -256,7 +291,7 @@ function deniedAgainInARow(state: BusMemory, event: BusEvent): boolean {
 }
 
 function denialsUpTo(deps: WatchDeps, busId: number): Map<string, DenialRun> {
-  const seen: BusMemory = { ciByPr: new Map(), deniedByTask: new Map() }
+  const seen: Pick<BusMemory, 'deniedByTask'> = { deniedByTask: new Map() }
   for (const event of deps.deniedUpTo(busId))
     deniedAgainInARow(seen, event)
   return seen.deniedByTask
@@ -266,7 +301,11 @@ export function wakesTheWindow(state: BusMemory, event: BusEvent): boolean {
   if (!WAKING_BUS_EVENTS.includes(event.type))
     return false
   if (event.type === PR_OBSERVED)
-    return turnsRed(state, event)
+    return ciTurns(state, event)
+  if (event.type === WITNESS_RECORDED)
+    return witnessTurns(state, event)
+  if (event.type === REQUEST_DONE)
+    return answersOwnRequest(state, event)
   if (event.type === POLICY_DENIED)
     return deniedAgainInARow(state, event)
   if (event.type === TASK_EXPIRED)
@@ -290,6 +329,7 @@ export function ofSupersededHead(event: BusEvent, deps: Pick<WatchDeps, 'observe
 }
 
 function busLines(state: WatchState, deps: WatchDeps): string[] {
+  state.windowPrs = deps.windowPrs()
   const events = deps.busEventsAfter(state.busId)
   for (const event of events)
     state.busId = Math.max(state.busId, event.id)
@@ -330,9 +370,7 @@ export function selectOnce(cursor: WatchCursor, deps: WatchDeps, card?: number):
   const end = deps.lastBusId()
   if (end < cursor.busId)
     throw new WatchRefusal(`miko:watch: the bus ${deps.bus} ends at event ${end}, before the cursor's event ${cursor.busId}; it was replaced or cut`)
-  const seen: BusMemory = { ciByPr: new Map(), deniedByTask: denialsUpTo(deps, cursor.busId) }
-  for (const event of deps.observedUpTo(cursor.busId))
-    seen.ciByPr.set(event.pr, { head: event.head, ci: ciOf(event.payload) })
+  const seen = busMemoryUpTo(deps, cursor.busId)
   let skipped: Delivery | undefined
   for (const event of deps.busEventsAfter(cursor.busId)) {
     if (event.id > end)
@@ -457,6 +495,37 @@ function observedUpTo(bus: string, id: number): BusEvent[] {
   }
 }
 
+function witnessedUpTo(bus: string, id: number): BusEvent[] {
+  const db = openBus(bus)
+  try {
+    const rows = db.prepare('SELECT id, type, card_id, pr, head, payload FROM events WHERE id IN (SELECT MAX(id) FROM events WHERE type = ? AND id <= ? GROUP BY pr) ORDER BY id').all(WITNESS_RECORDED, id) as unknown as BusRow[]
+    return rows.map(eventOfRow)
+  }
+  finally {
+    db.close()
+  }
+}
+
+function windowPrs(bus: string): ReadonlySet<number> {
+  const db = openBus(bus)
+  try {
+    return new Set(windowOpenPrs(db).map(open => open.pr))
+  }
+  finally {
+    db.close()
+  }
+}
+
+function ownRequest(bus: string, actor: string, request: number): boolean {
+  const db = openBus(bus)
+  try {
+    return db.prepare('SELECT 1 FROM events WHERE id = ? AND type = ? AND actor = ?').get(request, WINDOW_REQUEST, actor) !== undefined
+  }
+  finally {
+    db.close()
+  }
+}
+
 function deniedUpTo(bus: string, id: number): BusEvent[] {
   const db = openBus(bus)
   try {
@@ -561,12 +630,16 @@ function rememberStalls(file: string, stalls: readonly CardActivity[]): void {
 
 export function productionDeps(handoff: string, bus: string): WatchDeps {
   const woken = path.join(handoff, WOKEN_STALLS)
+  const actor = requestActor(process.env)
   return {
     bus,
     lastBusId: () => lastBusId(bus),
     busEventsAfter: id => busEventsAfter(bus, id),
     observedUpTo: id => observedUpTo(bus, id),
+    witnessedUpTo: id => witnessedUpTo(bus, id),
     deniedUpTo: id => deniedUpTo(bus, id),
+    windowPrs: () => windowPrs(bus),
+    ownRequest: request => ownRequest(bus, actor, request),
     observedHeads: pr => observedHeads(bus, pr),
     stalls: () => stalls(bus, Date.now()),
     stuck: () => stuckPrs(bus),
