@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf } from '../../core/bus-path.js'
 import { BUS_FLAG, launchName } from '../../supervisor/bg.js'
 import { reviewLaunch } from '../../supervisor/review-bg.js'
-import { holdRunLock, RUN_LOCK } from '../../supervisor/run.js'
+import { holdRunLock, lockBreakerOf, RUN_LOCK } from '../../supervisor/run.js'
 import { BusSupervisor, entryOf, gitCode, importClosure, LOCAL_MAIN_REF, SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
 import { busLaunches, workerLaunches } from '../../supervisor/workers.js'
 
@@ -130,17 +130,36 @@ describe('one bus:run serves one bus', () => {
     const dead = 4301
     const faster = 4302
     expect(holdRunLock(busPath, () => [], dead).exitCode).toBe(0)
-
-    const slower = holdRunLock(busPath, () => {
+    let listings = 0
+    const fasterReplacesTheStaleLock = () => {
+      listings += 1
+      if (listings > 1)
+        return [{ pid: faster, args: `node /x/dist/scripts/supervisor/run.js ${BUS_FLAG} ${busPath}`, bus: busPath }]
       rmSync(lock)
       writeFileSync(lock, `${faster}\n`)
       return []
-    }, 4303)
+    }
+
+    const slower = holdRunLock(busPath, fasterReplacesTheStaleLock, 4303)
 
     expect(slower.exitCode).toBe(1)
-    expect(slower.stderr.join('\n')).toContain('taken again')
+    expect(slower.stderr.join('\n')).toContain(`pid ${faster}`)
     expect(readFileSync(lock, 'utf8').trim()).toBe(String(faster))
     expect(readdirSync(busDirOf(busPath))).toEqual([RUN_LOCK])
+  })
+
+  it('a stale run lock another run.js is already removing is left to it', () => {
+    const busPath = busPathIn('bus-run-breaker-')
+    const lock = path.join(busDirOf(busPath), RUN_LOCK)
+    const dead = 4304
+    expect(holdRunLock(busPath, () => [], dead).exitCode).toBe(0)
+    writeFileSync(lockBreakerOf(lock), '4305\n')
+
+    const second = holdRunLock(busPath, () => [], 4306)
+
+    expect(second.exitCode).toBe(1)
+    expect(second.stderr.join('\n')).toContain(lockBreakerOf(lock))
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(dead))
   })
 
   it('with ps unreadable a run lock held by a live pid refuses and one held by a dead pid is taken', () => {

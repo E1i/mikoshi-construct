@@ -389,6 +389,16 @@ describe('the modes of the factory', () => {
     expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
   })
 
+  it('construct-factory --mode window brings a worker the operator put in shadow back to the window live set', () => {
+    const bench = modeBench()
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+    switchDetection(bench.parts.busDir, 'review', false)
+
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+  })
+
   it('a ghost-protocol term ending on its own keeps a worker the operator put in shadow', () => {
     const bench = modeBench()
     runMode(modeCommand('--mode', 'window'), bench.parts)

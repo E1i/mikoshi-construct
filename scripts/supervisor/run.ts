@@ -5,7 +5,7 @@ import type { GitHub } from '../ports/github.js'
 import type { Poll } from '../ports/netwatch.js'
 import type { GitHubPost } from '../ports/pr-status.js'
 import type { BgResult, ProcessList } from './bg.js'
-import { linkSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { linkSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -54,51 +54,70 @@ function holderServes(holder: number, processes: ProcessList, busPath: string): 
   return instancesOf(listed, BUS_RUN_MARKERS, busPath).some(candidate => candidate.pid === holder)
 }
 
-function removeStaleLock(lock: string, staleHolder: number | null, self: number): boolean {
-  const aside = `${lock}.${self}`
+function refusedRun(line: string): BgResult {
+  return { stdout: [], stderr: [`${PREFIX}${line}`], exitCode: 1 }
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+  return (error as NodeJS.ErrnoException).code === code
+}
+
+function linkLock(lock: string, self: number): boolean {
+  const written = `${lock}.${self}`
+  writeFileSync(written, `${self}\n`)
   try {
-    renameSync(lock, aside)
+    linkSync(written, lock)
+    return true
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-      return true
-    throw error
+    if (!isErrorCode(error, 'EEXIST'))
+      throw error
+    return false
   }
-  const movedHolder = lockHolder(aside)
-  if (movedHolder !== staleHolder) {
-    try {
-      linkSync(aside, lock)
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST')
-        throw error
-    }
+  finally {
+    rmSync(written, { force: true })
   }
-  rmSync(aside, { force: true })
-  return movedHolder === staleHolder
+}
+
+export function lockBreakerOf(lock: string): string {
+  return `${lock}.break`
+}
+
+function removeStaleLock(lock: string, staleHolder: number | null, self: number): BgResult | null {
+  const breaker = lockBreakerOf(lock)
+  try {
+    writeFileSync(breaker, `${self}\n`, { flag: 'wx' })
+  }
+  catch (error) {
+    if (!isErrorCode(error, 'EEXIST'))
+      throw error
+    return refusedRun(`${breaker} is held: another bus:run is removing a stale ${RUN_LOCK}, so this one exits and starts nothing; remove ${breaker} if no bus:run is starting`)
+  }
+  try {
+    if (lockHolder(lock) === staleHolder)
+      rmSync(lock, { force: true })
+    return null
+  }
+  finally {
+    rmSync(breaker, { force: true })
+  }
 }
 
 export function holdRunLock(busPath: string, processes: ProcessList, self: number = process.pid): BgResult {
   const busDir = busDirOf(busPath)
   const lock = path.join(busDir, RUN_LOCK)
-  const takenAgain: BgResult = { stdout: [], stderr: [`${PREFIX}${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`], exitCode: 1 }
   mkdirSync(busDir, { recursive: true })
   for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      writeFileSync(lock, `${self}\n`, { flag: 'wx' })
+    if (linkLock(lock, self))
       return { stdout: [], stderr: [], exitCode: 0 }
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST')
-        throw error
-      const holder = lockHolder(lock)
-      if (holder !== null && holder !== self && holderServes(holder, processes, busPath))
-        return { stdout: [], stderr: [`${PREFIX}another bus:run, pid ${holder}, holds ${lock} for ${busPath}; one bus:run serves one bus, so this one exits and starts nothing`], exitCode: 1 }
-      if (!removeStaleLock(lock, holder, self))
-        return takenAgain
-    }
+    const holder = lockHolder(lock)
+    if (holder !== null && holder !== self && holderServes(holder, processes, busPath))
+      return refusedRun(`another bus:run, pid ${holder}, holds ${lock} for ${busPath}; one bus:run serves one bus, so this one exits and starts nothing`)
+    const refused = removeStaleLock(lock, holder, self)
+    if (refused !== null)
+      return refused
   }
-  return takenAgain
+  return refusedRun(`${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`)
 }
 
 export interface Tick {
