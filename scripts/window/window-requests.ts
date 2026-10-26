@@ -506,10 +506,18 @@ export function runRequest(argv: readonly string[], db: DatabaseSync, now: Date,
   return 0
 }
 
+export function requestSession(env: NodeJS.ProcessEnv): string {
+  return text(env[SESSION_VARIABLE]) ?? BY_HAND
+}
+
+export function requestActor(env: NodeJS.ProcessEnv): string {
+  return `${WINDOW_ACTOR}${requestSession(env)}`
+}
+
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const db = openBus(defaultBusPath())
   try {
-    process.exitCode = runRequest(process.argv.slice(2), db, new Date(), text(process.env[SESSION_VARIABLE]) ?? BY_HAND, line => console.log(line))
+    process.exitCode = runRequest(process.argv.slice(2), db, new Date(), requestSession(process.env), line => console.log(line))
   }
   finally {
     db.close()
