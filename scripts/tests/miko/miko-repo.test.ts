@@ -5,11 +5,14 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { machineBusPath, repoHome, repoIdOf } from '../../core/bus-path.js'
+import { BUS_FILE, constructHome, isOwnerCheckout, machineBusPath, OWNER_AGENT_FILE, repoHome, repoIdOf } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { PROCESS_HEARTBEAT } from '../../core/events.js'
+import { PROCESS_HEARTBEAT, WINDOW_REQUEST } from '../../core/events.js'
+import { HANDOFF_DIR, HANDOFF_DIR_VARIABLE, handoffDirOf } from '../../core/handoff-dir.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
-import { MIKO_HANDOFF_NAME, mikoHandoff } from '../../window/loop.js'
+import { compactContextOf } from '../../window/compact-start.js'
+import { CONTINUE_PROMPT, continuePrompt, MIKO_HANDOFF_NAME, mikoHandoff, PACKAGE_COMMANDS } from '../../window/loop.js'
+import { LOOP_SCRIPT_NAME, mikoRoute } from '../../window/miko.js'
 import { ONCE_STORE } from '../../window/watch-store.js'
 
 const MIKO = fileURLToPath(new URL('../../window/miko.ts', import.meta.url))
@@ -67,14 +70,19 @@ function miko(w: World, args: string[]): { status: number | null, stdout: string
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }
 
-function machineEvents(w: World): number {
-  const db = openBus(w.machineBus)
+function eventsOf(bus: string, type?: string): number {
+  const db = openBus(bus)
   try {
-    return (db.prepare('SELECT count(*) AS n FROM events').get() as { n: number }).n
+    const row = type === undefined ? db.prepare('SELECT count(*) AS n FROM events').get() : db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(type)
+    return (row as { n: number }).n
   }
   finally {
     db.close()
   }
+}
+
+function machineEvents(w: World): number {
+  return eventsOf(w.machineBus)
 }
 
 function draft(): string {
@@ -142,4 +150,82 @@ describe('miko runs the window of the repository it is started in', () => {
     expect(prompt).not.toContain(mikoHandoff(path.join(w.home, '.construct', 'handoff')))
     expect(machineEvents(w)).toBe(before)
   }, 30_000)
+
+  it('miko request writes its window request into the repository\'s own bus and never the machine bus', () => {
+    const w = world()
+    const before = machineEvents(w)
+    const run = miko(w, ['request', 'mode', '--set', 'window'])
+    expect(run.stderr).toBe('')
+    expect(run.status).toBe(0)
+    expect(eventsOf(path.join(w.own, BUS_FILE), WINDOW_REQUEST)).toBe(1)
+    expect(machineEvents(w)).toBe(before)
+  }, 30_000)
+
+  it('miko handoff check reads the handoff miko handoff write wrote under the repository\'s own construct home', () => {
+    const w = world()
+    const handoff = mikoHandoff(path.join(w.own, 'handoff'))
+    mkdirSync(path.dirname(handoff), { recursive: true })
+    const file = path.join(w.home, 'draft.md')
+    writeFileSync(file, draft())
+    expect(miko(w, ['handoff', 'write', handoff, file]).status).toBe(0)
+    const run = miko(w, ['handoff', 'check', handoff])
+    expect(run.stderr).toBe('')
+    expect(run.status).toBe(0)
+  }, 30_000)
+
+  it('miko exit runs the window exit, refuses with no handoff of the repository and leaves the machine bus untouched', () => {
+    const w = world()
+    const before = machineEvents(w)
+    const run = miko(w, ['exit'])
+    expect(run.stderr).not.toContain('Unknown command')
+    expect(run.stderr).toContain(`${MIKO_HANDOFF_NAME} does not exist`)
+    expect(run.stderr).toContain('nothing ended')
+    expect(run.status).toBe(1)
+    expect(machineEvents(w)).toBe(before)
+  }, 30_000)
+
+  it('a compacted tab window of a foreign repository is handed that repository\'s continue prompt', () => {
+    const w = world()
+    const handoffDir = path.join(w.own, HANDOFF_DIR)
+    const env = { CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir }
+    const handoff = mikoHandoff(handoffDir)
+    const context = compactContextOf('compact', env, file => file === handoff, w.repo)
+    expect(context).toBe(continuePrompt(handoff, PACKAGE_COMMANDS))
+    expect(context).not.toBe(CONTINUE_PROMPT)
+    expect(context).not.toContain('pnpm ')
+  })
+})
+
+describe('the miko entry and the repository context it reads', () => {
+  const source = path.join('/pkg', 'scripts', 'window', 'miko.ts')
+  const built = path.join('/pkg', 'dist', 'scripts', 'window', 'miko.js')
+
+  it('routes no arguments to the loop and the window words to their scripts, beside the entry', () => {
+    expect(mikoRoute([], source)).toEqual({ script: path.join('/pkg', 'scripts', 'window', `${LOOP_SCRIPT_NAME}.ts`), args: [] })
+    expect(mikoRoute(['handoff', 'write', 'a', 'b'], source)).toEqual({ script: path.join('/pkg', 'scripts', 'window', 'handoff-write.ts'), args: ['a', 'b'] })
+    expect(mikoRoute(['handoff', 'check', 'a'], built)).toEqual({ script: path.join('/pkg', 'dist', 'scripts', 'window', 'handoff-check.js'), args: ['a'] })
+    expect(mikoRoute(['request', 'mode'], source)).toEqual({ script: path.join('/pkg', 'scripts', 'window', 'window-requests.ts'), args: ['mode'] })
+    expect(mikoRoute(['watch', '--once'], built)).toEqual({ script: path.join('/pkg', 'dist', 'scripts', 'window', 'watch.js'), args: ['--once'] })
+    expect(mikoRoute(['exit'], source)).toEqual({ script: path.join('/pkg', 'scripts', 'window', 'exit.ts'), args: [] })
+  })
+
+  it('hands every other word to the product CLI, from source beside a .ts entry and built beside a .js one', () => {
+    expect(mikoRoute(['doctor', '--json'], source)).toEqual({ script: path.join('/pkg', 'src', 'cli.ts'), args: ['doctor', '--json'] })
+    expect(mikoRoute(['handoff'], built)).toEqual({ script: path.join('/pkg', 'dist', 'cli.js'), args: ['handoff'] })
+  })
+
+  it('is the owner checkout only where the owner launchd agent file is in the repository', () => {
+    const w = world()
+    expect(isOwnerCheckout(w.repo)).toBe(false)
+    mkdirSync(path.dirname(path.join(w.repo, OWNER_AGENT_FILE)), { recursive: true })
+    writeFileSync(path.join(w.repo, OWNER_AGENT_FILE), '')
+    expect(isOwnerCheckout(w.repo)).toBe(true)
+    expect(handoffDirOf({}, w.home, w.repo)).toBe(path.join(constructHome(w.home), HANDOFF_DIR))
+  })
+
+  it('an empty CONSTRUCT_HANDOFF_DIR names no directory, so the handoff stays under the repository\'s own home', () => {
+    const w = world()
+    expect(handoffDirOf({ [HANDOFF_DIR_VARIABLE]: '' }, w.home, w.repo)).toBe(path.join(w.own, HANDOFF_DIR))
+    expect(handoffDirOf({ [HANDOFF_DIR_VARIABLE]: '/named' }, w.home, w.repo)).toBe('/named')
+  })
 })
