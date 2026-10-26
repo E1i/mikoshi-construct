@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { readShiftGate } from '../../../src/manifest.js'
 import { PREPUSH_COMMAND } from '../../ci/prepush.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
@@ -29,6 +30,8 @@ import { cardDecisionCommand, DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_P
 import { busSessionPulse, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
+
+const OWN_GATE = readShiftGate(path.join(import.meta.dirname, '../../..'))
 
 const benches: MergeBench[] = []
 const roots: string[] = []
@@ -449,7 +452,7 @@ describe('the answer node', () => {
     const cardBody = '#905 answer-input [implement/netwatch/S/cheap/auto]\n\nthe card body'
     let given = ''
     const answerer = async (request: Parameters<Answerer>[0]): Promise<Answered & { input: AnswerInput }> => {
-      given = answerPrompt(request, '/answers/card-session-1.1.owner.txt', cardBody)
+      given = answerPrompt(request, '/answers/card-session-1.1.owner.txt', cardBody, OWN_GATE)
       return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null, input: { prompt: given, cardBody } }
     }
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, prompts: path.join(trees, 'prompts') })
@@ -489,13 +492,13 @@ describe('the answer node', () => {
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', worktree: path.join(trees, 'mc-905'), resumed: true, source: 'question', from: sha('a'), to: sha('e') }])
   })
 
-  it('the answer round prompt names the window gate of D-194 with the pre-push tests, not pnpm run quality', () => {
+  it('the answer round prompt in this repository names the window gate of D-194 with the pre-push tests its construct.json declares, not pnpm run quality', () => {
     const prompt = answerPrompt({
       lease: { taskKey: 'answer:1079:925:head', queue: 'answer', cardId: 1079, pr: 925, head: sha('a'), leaseGen: 1, actor: 'worker:answer:s' },
       source: { kind: 'changes', findings: ['a.ts:1 a finding'], events: [] },
       widened: null,
       card: { session: 's', worktree: '/trees/mc-1079', branch: 'feat/window-gate-by-layers' },
-    }, '/answers/s.1.owner.txt', null)
+    }, '/answers/s.1.owner.txt', null, OWN_GATE)
 
     expect(prompt).toContain('D-194')
     expect(prompt).toContain(PREPUSH_COMMAND)

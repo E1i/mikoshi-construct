@@ -3,6 +3,7 @@ import type { CardStart, CardStarter, LaunchedCard, LaunchTechnicalReason, Queue
 import type { StarterPlaces, StarterPorts } from '../nodes/launch/launch-starter.js'
 import path from 'node:path'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { readShiftGate } from '../../src/manifest.js'
 import { messageOf } from '../core/errors.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { technical } from '../nodes/launch/launch-executor.js'
@@ -113,7 +114,7 @@ export class LadderCardStarter implements CardStarter {
     const base = this.ports.base(worktree)
     const session = this.ports.uuid()
     const report = path.join(this.places.launchDir, step === 'brief' ? `report-${card.cardId}-brief.md` : `report-${card.cardId}.md`)
-    const prompt = step === 'launch' ? '' : this.ports.prompt({ ...task, body: `${this.steps.body(task, step)}\n\n${task.body}` }, { worktree, report })
+    const prompt = step === 'launch' ? '' : this.ports.prompt({ ...task, body: `${this.steps.body(task, step)}\n\n${task.body}` }, { worktree, report, gate: readShiftGate(worktree) })
     const chain = CHAINS[step]({ places: this.places, task, worktree, report, brief: this.steps.brief(task), tasksFile: step === 'review' ? '' : this.steps.tasksFile(task), prompt })
     const pid = this.ports.spawnDetached({
       command: 'sh',

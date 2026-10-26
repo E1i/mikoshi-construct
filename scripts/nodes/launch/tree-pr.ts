@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
 import { COMPANION_TABLE, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
+import { readShiftGate } from '../../../src/manifest.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
@@ -188,14 +189,14 @@ interface FormatGap extends Gap {
   lacks: string
 }
 
-function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[], outsideTouches: readonly string[]): FormatGap[] {
+function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[], outsideTouches: readonly string[], codeMatrix: string | null): FormatGap[] {
   const paths = shifted.files.map(file => file.path)
-  const unmatrixed = pathWithoutMatrix(body, paths)
+  const unmatrixed = codeMatrix === null ? undefined : pathWithoutMatrix(body, paths)
   const published = paths.find(file => PUBLISHED_CODE.touched(file, publishedRoots))
   const changeset = shifted.files.some(file => file.status !== 'D' && CHANGESET_FILE.test(file.path))
   const gaps: FormatGap[] = []
   if (unmatrixed !== undefined)
-    gaps.push({ reason: 'no-matrix-line', lacks: `the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (architecture/code-matrix.md)`, task: 'write the code matrix of architecture/code-matrix.md and its count line ■ n □ n · n into the shift report', paths: [] })
+    gaps.push({ reason: 'no-matrix-line', lacks: `the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (${codeMatrix})`, task: `write the code matrix of ${codeMatrix} and its count line ■ n □ n · n into the shift report`, paths: [] })
   if (published !== undefined && !changeset)
     gaps.push({ reason: 'no-changeset', lacks: `the changeset its change to the published ${published} requires`, task: `add a .changeset/*.md file for the change to ${published}`, paths: [] })
   if (outsideTouches.length > 0)
@@ -313,7 +314,7 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     const shifted = shiftedPath(ports.git, worktree, card, report)
     const body = prBodyOf(card, shifted.line, matrixCountLineOf(report))
     const outside = changedOutsideTouches(ports.git, worktree, shifted.files.map(file => file.path), card.touches, card.runs)
-    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), outside)
+    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), outside, readShiftGate(worktree).codeMatrix)
     if (gaps.length > 0)
       return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])

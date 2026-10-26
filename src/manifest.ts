@@ -59,6 +59,18 @@ export interface AtlasRecord {
   open: string
 }
 
+export interface ShiftRecord {
+  prepush: string[]
+  handoffWrite?: string
+  codeMatrix?: string
+}
+
+export interface ShiftGate {
+  prepush: string[]
+  handoffWrite: string | null
+  codeMatrix: string | null
+}
+
 export interface Manifest {
   manifestVersion: number
   construct: string
@@ -79,6 +91,7 @@ export interface Manifest {
   milestones?: string[]
   atlas?: AtlasRecord
   lanes?: number
+  shift?: ShiftRecord
 }
 
 export function sha256(content: string): string {
@@ -206,6 +219,30 @@ function upgradeAtlas(raw: unknown): AtlasRecord | undefined {
   return typeof value.open === 'string' && value.open !== '' ? { open: value.open } : undefined
 }
 
+function declaredText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined
+}
+
+function upgradeShift(raw: unknown): ShiftRecord | undefined {
+  const value = (raw ?? {}) as Partial<Record<keyof ShiftRecord, unknown>>
+  const prepush = Array.isArray(value.prepush) ? value.prepush.map(declaredText).filter(command => command !== undefined) : []
+  if (prepush.length === 0)
+    return undefined
+  const handoffWrite = declaredText(value.handoffWrite)
+  const codeMatrix = declaredText(value.codeMatrix)
+  return { prepush, ...(handoffWrite === undefined ? {} : { handoffWrite }), ...(codeMatrix === undefined ? {} : { codeMatrix }) }
+}
+
+export function shiftGateOf(manifest: Manifest | null): ShiftGate {
+  const shift = manifest?.shift
+  const fallback = manifest?.harness.command
+  return {
+    prepush: shift?.prepush ?? (fallback === undefined ? [] : [fallback]),
+    handoffWrite: shift?.handoffWrite ?? null,
+    codeMatrix: shift?.codeMatrix ?? null,
+  }
+}
+
 export function isLaneCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
@@ -240,6 +277,7 @@ export function upgradeManifest(raw: unknown): Manifest {
     policy: upgradePolicy(manifest.policy),
     atlas: upgradeAtlas(manifest.atlas),
     lanes: isLaneCount(manifest.lanes) ? manifest.lanes : undefined,
+    shift: upgradeShift(manifest.shift),
   }
 }
 
@@ -290,4 +328,8 @@ export function readManifest(root: string): Manifest | null {
 
 export function readMilestones(root: string): string[] | undefined {
   return readManifest(root)?.milestones
+}
+
+export function readShiftGate(root: string): ShiftGate {
+  return shiftGateOf(readManifest(root))
 }

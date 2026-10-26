@@ -1,3 +1,4 @@
+import type { HandoffField } from '../core/handoff-fields.js'
 import { Buffer } from 'node:buffer'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -5,30 +6,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
+import { HANDOFF_FIELDS } from '../core/handoff-fields.js'
 import { busParkedDepends } from '../intake/parking-reads.js'
 
 export const PREFIX = '[handoff:check] '
-
-export interface HandoffField {
-  id: string
-  label: string
-  group: 'where we are' | 'what continuing needs' | 'how to verify' | 'what must not be lost'
-}
-
-export const HANDOFF_FIELDS: readonly HandoffField[] = [
-  { id: 'current-card', label: 'current card', group: 'where we are' },
-  { id: 'queue', label: 'queue', group: 'where we are' },
-  { id: 'done', label: 'done', group: 'where we are' },
-  { id: 'not-done', label: 'not done', group: 'where we are' },
-  { id: 'delegation', label: 'delegation', group: 'what continuing needs' },
-  { id: 'next-task', label: 'next task', group: 'what continuing needs' },
-  { id: 'local-decisions', label: 'local decisions', group: 'what continuing needs' },
-  { id: 'owner-waits', label: 'owner waits', group: 'how to verify' },
-  { id: 'decisions', label: 'decisions', group: 'what must not be lost' },
-  { id: 'intake-tokens', label: 'intake tokens', group: 'what must not be lost' },
-  { id: 'stop-reason', label: 'stop reason', group: 'what must not be lost' },
-  { id: 'continue-when', label: 'continue when', group: 'what must not be lost' },
-]
 
 const HEADING = /^#{1,6} +(\S.*)$/
 const LIST_MARKERS = /^(?:(?:[-*+]|\d+[.)])\s+)+/

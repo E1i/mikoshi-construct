@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runDoctor } from '../src/commands/doctor/index.js'
-import { buildManifest, DISCOVERY_MARKERS, MANIFEST_VERSION, readManifest, readMilestones, recordedShas, recordSync, upgradeManifest, writeManifest } from '../src/manifest.js'
+import { buildManifest, DISCOVERY_MARKERS, MANIFEST_VERSION, readManifest, readMilestones, readShiftGate, recordedShas, recordSync, upgradeManifest, writeManifest } from '../src/manifest.js'
 import { manifestResult } from './doctor-manifest-result.js'
 
 const LEGACY_FIXTURE = path.join(import.meta.dirname, 'fixtures/manifest/legacy-0.1.x')
@@ -106,6 +106,25 @@ describe('the milestone list is the project\'s', () => {
     writeManifest(root, { ...currentManifest(), milestones: ['checkout', 'billing'] })
     writeManifest(root, readManifest(root)!)
     expect(readMilestones(root)).toEqual(['checkout', 'billing'])
+  })
+})
+
+describe('the shift gate is what the repository declares', () => {
+  it('falls back to the harness command and names no handoff or matrix where construct.json declares no shift record', () => {
+    const root = scratch()
+    writeManifest(root, currentManifest())
+    expect(readShiftGate(root)).toEqual({ prepush: ['pnpm run quality'], handoffWrite: null, codeMatrix: null })
+  })
+
+  it('reads the declared pre-push commands, handoff writer and code matrix, and drops a record with no pre-push command', () => {
+    const root = scratch()
+    writeManifest(root, { ...currentManifest(), shift: { prepush: ['pnpm run typecheck', ' '], handoffWrite: 'pnpm handoff:write', codeMatrix: 'architecture/code-matrix.md' } })
+    expect(readShiftGate(root)).toEqual({ prepush: ['pnpm run typecheck'], handoffWrite: 'pnpm handoff:write', codeMatrix: 'architecture/code-matrix.md' })
+    expect(upgradeManifest({ ...currentManifest(), shift: { prepush: [], codeMatrix: 'x.md' } }).shift).toBeUndefined()
+  })
+
+  it('names nothing where there is no construct.json', () => {
+    expect(readShiftGate(scratch())).toEqual({ prepush: [], handoffWrite: null, codeMatrix: null })
   })
 })
 

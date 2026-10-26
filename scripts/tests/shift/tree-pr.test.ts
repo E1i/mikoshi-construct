@@ -202,6 +202,8 @@ function committer(repo: string): void {
   git(repo, ['config', 'commit.gpgsign', 'false'])
 }
 
+const MATRIX_MANIFEST = `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: ['pnpm run quality'], codeMatrix: 'architecture/code-matrix.md' } })}\n`
+
 interface CardTree {
   root: string
   worktree: string
@@ -217,7 +219,7 @@ function cardTree(): CardTree {
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin])
   execFileSync('git', ['init', '-q', '-b', 'main', worktree])
   committer(worktree)
-  write(worktree, { 'docs/x.md': 'base\n', 'docs/y.md': 'base\n' })
+  write(worktree, { 'docs/x.md': 'base\n', 'docs/y.md': 'base\n', 'construct.json': MATRIX_MANIFEST })
   git(worktree, ['add', '-A'])
   git(worktree, ['commit', '-q', '-m', 'base'])
   git(worktree, ['remote', 'add', 'origin', origin])
@@ -417,6 +419,7 @@ describe('a refusal the session can fix returns the card to it once', () => {
   function settled(contour: 'cheap' | 'ladder', state: DiffState, resume: TreePrCliPorts['resume'], gh = openingGh(), collect?: TreePrCliPorts['collect']) {
     const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-return-'))
     roots.push(root)
+    writeFileSync(path.join(root, 'construct.json'), MATRIX_MANIFEST)
     const bus = launchedBus(root, [951])
     const report = path.join(root, 'report-951.md')
     if (collect !== undefined) {
@@ -426,6 +429,15 @@ describe('a refusal the session can fix returns the card to it once', () => {
     const code = runTreePr(['951', root, report], { ...busPorts(bus, cardText(contour, TOUCHES)), git: diffGit(state), gh, resume, ...(collect === undefined ? {} : { collect }) }, () => {})
     return { code, bus, events: refusalsOf(bus.busPath, 951) }
   }
+
+  it('a repository whose construct.json declares no code matrix gets no no-matrix-line gap', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-return-'))
+    roots.push(root)
+    const bus = launchedBus(root, [951])
+    const code = runTreePr(['951', root], { ...busPorts(bus, cardText('ladder', TOUCHES)), git: diffGit({ files: [{ path: 'src/x.ts' }, { path: '.changeset/x.md' }] }), gh: openingGh(), resume: untouchable }, () => {})
+
+    expect({ code, events: refusalsOf(bus.busPath, 951) }).toEqual({ code: 0, events: [PR] })
+  })
 
   it('a cheap card without a D-76 line gets no no-d76-line gap', () => {
     const { code, events } = settled('cheap', { files: [{ path: SCRIPT }] }, untouchable)
@@ -460,6 +472,7 @@ describe('a refusal the session can fix returns the card to it once', () => {
     let returns = 0
     const root = mkdtempSync(path.join(tmpdir(), 'tree-pr-return-'))
     roots.push(root)
+    writeFileSync(path.join(root, 'construct.json'), MATRIX_MANIFEST)
     const bus = launchedBus(root, [951, 952])
     const ports = busPorts(bus, cardText('ladder', TOUCHES))
     const code = runTreePr(['951', root], { ...ports, git: diffGit({ files: [{ path: 'src/x.ts' }] }), gh: openingGh(), resume: () => {

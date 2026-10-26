@@ -7,6 +7,7 @@ import { closeSync, mkdirSync, openSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../../src/card/parking.js'
+import { readShiftGate } from '../../../src/manifest.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
@@ -34,7 +35,7 @@ export interface StarterPorts {
   kill: (target: number) => void
   uuid: () => string
   envOf: (cardId: number) => NodeJS.ProcessEnv
-  prompt: (task: ShiftTask, places: { worktree: string, report: string }) => string
+  prompt: (task: ShiftTask, places: PromptPlaces) => string
   changedPaths: (worktree: string) => string[]
   readReport: (file: string) => string | null
   cardSessions: (cardId: number) => string[]
@@ -199,7 +200,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     try {
       const { worktree, base, body } = treeOf(task)
       const session = this.ports.uuid()
-      const places = { worktree, report: treeReportPath(worktree) }
+      const places = { worktree, report: treeReportPath(worktree), gate: readShiftGate(worktree) }
       const prompt = this.ports.prompt({ ...task, body: body(task, places) }, places)
       const pid = this.ports.spawnDetached({
         command: 'sh',
