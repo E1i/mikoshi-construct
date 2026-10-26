@@ -1273,12 +1273,13 @@ of three lists: `hooks.Stop` runs it as `stop`, `hooks.PreCompact` as `pre-compa
 of 10 seconds. It creates each list only where it is missing.
 
 It reads the handoff at `CONSTRUCT_HANDOFF`, or `miko.md` in `CONSTRUCT_HANDOFF_DIR`, or
-`~/.construct/handoff/miko.md`, and does nothing in a card session (`CONSTRUCT_CARD`), a headless one
-(`CLAUDE_CODE_ENTRYPOINT=sdk-cli`) or one the bus raised (`CONSTRUCT_BUS_RAISED=1`). Every other
-session in an attached repository is a tab window, and without either variable all of them, in every
-attached repository, read the one handoff: while it ends `STATUS: CONTINUE`, none of them stops after
-its turn. This is accepted: an attached repository is one Mikoshi lives in. To keep a session out, or
-to give one repository its own handoff, start the session with `CONSTRUCT_HANDOFF` naming another file.
+`~/.construct/<repo-id>/handoff/miko.md`, beside the repository's own bus, with `<repo-id>` named as the
+bus names it (`<owner>--<name>` from the `origin` remote, `local--<dir>-<hash>` without one), and does
+nothing in a card session (`CONSTRUCT_CARD`), a headless one (`CLAUDE_CODE_ENTRYPOINT=sdk-cli`) or one
+the bus raised (`CONSTRUCT_BUS_RAISED=1`). Every other session in an attached repository is a tab
+window of that repository: while its own handoff ends `STATUS: CONTINUE`, it does not stop after its
+turn, and the handoff of another repository never holds it. A repository with no handoff of its own
+never blocks a stop.
 
 At Stop it blocks the stop when the handoff's last `STATUS:` line is `CONTINUE` and lets the second
 stop in a row through; after a compaction it hands the session `additionalContext` naming the handoff
