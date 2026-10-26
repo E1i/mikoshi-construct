@@ -1,4 +1,5 @@
 import type { SpawnSyncReturns } from 'node:child_process'
+import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../scripts/core/db.js'
 import type { WindowShard } from '../scripts/policy/shards.js'
 import type { LaunchctlRun, ModeParts } from '../scripts/supervisor/start.js'
@@ -11,10 +12,12 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE, busDirOf, repoIdOf } from '../scripts/core/bus-path.js'
+import { appendEvent, openBus } from '../scripts/core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
 import { LIVE_FLAG } from '../scripts/core/node.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
+import { activeWindowShards } from '../scripts/policy/shards.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
@@ -386,6 +389,32 @@ describe('the modes of the factory', () => {
     runMode(modeCommand('--mode', 'window'), bench.parts)
 
     expect(modeOf(bench.parts.busDir)).toBe('window')
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+  })
+
+  it('ghost-protocol to window on a real bus revokes the shard in the bus and exits 0', () => {
+    const bench = modeBench()
+    const busDb = path.join(path.dirname(bench.parts.busDir), 'bus.db')
+    const onBus = <T>(read: (db: DatabaseSync) => T): T => {
+      const db = openBus(busDb)
+      try {
+        return read(db)
+      }
+      finally {
+        db.close()
+      }
+    }
+    const parts: ModeParts = { ...bench.parts, record: event => onBus(db => appendEvent(db, event)), activeWindows: now => onBus(db => activeWindowShards(db, now)) }
+    sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+    expect(runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), parts).exitCode).toBe(0)
+    expect(onBus(db => activeWindowShards(db, NOW)).map(shard => shard.id)).toEqual([SHARD_ID])
+
+    const result = runMode(modeCommand('--mode', 'window'), parts)
+
+    expect(result.exitCode, result.stderr.join('\n')).toBe(0)
+    expect(onBus(db => db.prepare(`SELECT json_extract(payload, '$.id') AS id FROM events WHERE type = ?`).all(SHARD_REVOKED))).toEqual([{ id: SHARD_ID }])
+    expect(onBus(db => activeWindowShards(db, NOW))).toEqual([])
+    expect(switchedOn(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
     expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
   })
 

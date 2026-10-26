@@ -41,7 +41,7 @@ export const USAGE = `usage: ${START_BIN} — starts the factory for the git rep
 const REPOSITORY_HASH_LENGTH = 12
 const HOUR_MS = 3_600_000
 const MODE_SHARD_ACTOR = 'owner'
-const MODE_ACTOR = 'factory:mode'
+const MODE_ACTOR = 'policy'
 
 export interface LaunchctlRun {
   status: number
