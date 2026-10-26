@@ -7,8 +7,8 @@
   "packageManager": "pnpm@{{pnpmVersion}}",
 {{/if}}
   "scripts": {
-    "composition:render": "tsx scripts/composition/sync-docs.ts",
-    "composition:check": "tsx scripts/composition/check.ts",
+    "composition:render": "node --import tsx scripts/composition/sync-docs.ts",
+    "composition:check": "node --import tsx scripts/composition/check.ts",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
     "typecheck": "tsc --noEmit",
