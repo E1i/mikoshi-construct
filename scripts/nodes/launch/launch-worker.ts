@@ -22,7 +22,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
-import { busDirOf, machineBusPath } from '../../core/bus-path.js'
+import { busDirOf, busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { CARD_BODIES, cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
@@ -46,7 +46,7 @@ import { commandWords, realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf, storedInput } from '../../ports/prompt-store.js'
 import { sessionEnv } from '../../ports/session.js'
-import { taskWorktree, worktreeHome } from '../../ports/worktree-home.js'
+import { cardTree } from '../../ports/worktree-home.js'
 import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../supervisor/bg.js'
 import { heartbeatEnv, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
@@ -659,13 +659,13 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage()): StarterPorts {
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo)): StarterPorts {
   const taskStart = taskStartCommand(installed)
   return {
     read: bodyOf,
     cut: (task) => {
       execFileSync(taskStart.file, [...taskStart.args, task.branch, '--card', task.card.line], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-      return taskWorktree(worktreeHome(env), String(task.card.id))
+      return cardTree(env, busPath, String(task.card.id))
     },
     base: worktree => execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     spawnDetached,
@@ -716,7 +716,7 @@ export function busCardSessions(busPath: string): (cardId: number) => string[] {
 }
 
 export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
-  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath))
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath)
 }
 
 export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv, busPath: string): LadderSteps {
@@ -724,7 +724,7 @@ export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS
   return {
     stepOf: task => ladderStep({ journal: ghostLinesText(busPath), brief: readIfThere(briefPathOf(handoffDir, task.card)) }, task.card),
     tree: (task) => {
-      const tree = taskWorktree(worktreeHome(env), String(task.card.id))
+      const tree = cardTree(env, busPath, String(task.card.id))
       return existsSync(tree) ? tree : null
     },
     brief: task => briefPathOf(handoffDir, task.card),

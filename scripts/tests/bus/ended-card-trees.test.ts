@@ -31,8 +31,8 @@ let root: string
 let repo: string
 let bench: ReturnType<typeof mergeBench>
 
-function cardTree(cardId: number, home = root): string {
-  const tree = path.join(home, `mc-${cardId}`)
+function cardTree(cardId: number, home = root, name = `mc-${cardId}`): string {
+  const tree = path.join(home, name)
   git(repo, ['worktree', 'add', '-q', '-b', `feat/card-${cardId}`, tree])
   return realpathSync(tree)
 }
@@ -166,6 +166,37 @@ describe('the close worker frees the trees of ended cards', () => {
     unlinkSync(path.join(tree, 'README.md'))
     started(CLOSED, tree)
     closeLeased(CLOSED)
+    closed(CLOSED)
+
+    pass()
+
+    expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+  })
+
+  it('an ended card\'s tree at the per-bus path and one at the old mc-<id> path are both swept', () => {
+    const perBus = path.join(root, 'bus', 'worktrees')
+    const current = cardTree(CLOSED, perBus, String(CLOSED))
+    const old = cardTree(RUNNING, root)
+    unlinkSync(path.join(current, 'README.md'))
+    unlinkSync(path.join(old, 'README.md'))
+    started(CLOSED, current)
+    started(RUNNING, old)
+    closed(CLOSED)
+    closed(RUNNING)
+
+    const ended = new EndedCardTrees(bench.db, [root, perBus], gitWorktrees(repo), bench.clock.now).free()
+    recordEndedTrees(bench.db, CLOSER, bench.clock.now().toISOString(), ended)
+
+    expect(existsSync(current)).toBe(false)
+    expect(existsSync(old)).toBe(false)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toHaveLength(2)
+  })
+
+  it('a bare-id tree outside the homes is left untouched though its card is closed', () => {
+    const tree = cardTree(CLOSED, path.join(root, 'elsewhere'), String(CLOSED))
+    unlinkSync(path.join(tree, 'README.md'))
+    started(CLOSED, tree)
     closed(CLOSED)
 
     pass()

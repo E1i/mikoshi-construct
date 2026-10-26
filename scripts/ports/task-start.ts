@@ -27,7 +27,7 @@ import { busCardStates } from '../core/tasks.js'
 import { busCardBodies } from '../intake/parking-reads.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
-import { worktreeHome } from './worktree-home.js'
+import { cardTree } from './worktree-home.js'
 import { adoptTree, cutTree, pnpmInstall } from './worktree.js'
 
 export const PREFIX = '[task:start] '
@@ -49,6 +49,7 @@ export interface TaskStartDeps {
   session: string | undefined
   shift?: string
   worktreeHome?: string
+  treeOf?: (id: string) => string
   style?: SignalStyle
   cardBody?: CardBodyReader
   windowLimit?: () => number
@@ -377,7 +378,7 @@ function realDeps(): TaskStartDeps {
     bus: defaultBusPath(),
     now: () => new Date(),
     session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
-    worktreeHome: worktreeHome(process.env),
+    treeOf: id => cardTree(process.env, defaultBusPath(), id),
     cardBody: busCardBodies(defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     windowLimit: () => slotsOf(WINDOW_LIMIT_SLOTS, process.env),

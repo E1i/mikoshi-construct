@@ -12,11 +12,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { busDirOf } from '../../core/bus-path.js'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../../core/events.js'
 import { Node, prefixOf, runNode } from '../../core/node.js'
 import { closeCandidates } from '../../core/queue.js'
-import { worktreeHome } from '../../ports/worktree-home.js'
+import { DEFAULT_WORKTREE_HOME, worktreeHome } from '../../ports/worktree-home.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
 import { EndedCardTrees, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
@@ -126,7 +127,7 @@ async function main(): Promise<number> {
   const construct = path.join(os.homedir(), '.construct')
   const repo = process.cwd()
   const endedTrees = (db: DatabaseSync) => {
-    const trees = new EndedCardTrees(db, [worktreeHome(process.env), path.dirname(repo)], gitWorktrees(repo), () => new Date())
+    const trees = new EndedCardTrees(db, [worktreeHome(process.env), DEFAULT_WORKTREE_HOME, path.join(busDirOf(defaultBusPath()), 'worktrees'), path.dirname(repo)], gitWorktrees(repo), () => new Date())
     return () => trees.free()
   }
   const busPath = defaultBusPath()

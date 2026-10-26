@@ -11,7 +11,7 @@ import { TREE_LEFT } from '../review/review-worker.js'
 import { cardClosed, failureOf } from './close-executor.js'
 
 export const DIRTY = 'dirty'
-const CARD_TREE_NAME = /^mc-(\d+)$/
+const CARD_TREE_NAME = /^(?:mc-)?(\d+)$/
 const DELETED_ONLY = /^[D ]{2} /
 
 export interface WorktreeGit {
