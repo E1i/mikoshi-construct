@@ -3,12 +3,10 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { readShiftGate } from '../../../src/manifest.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_PERMISSION_MODE } from '../../nodes/launch/launch-starter.js'
 import { busCardStopped, busPrOpened, claudeResume, PREFIX, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
-import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 
 const roots: string[] = []
 
@@ -154,6 +152,7 @@ function busCard(contour: ShiftedDiff['contour'], body = 'Do x.'): { cardText: s
 const NO_CARD = { git: untouchable, gh: untouchable, opened: untouchable, waited: untouchable, lastRefusal: untouchable, returned: untouchable, resume: untouchable }
 
 const START_KEY = 'card.started:launch:951:1'
+const TREE_GATE = 'pnpm run gate-of-the-tree'
 
 function launchedBus(root: string, cardId: number): PrOpenedBus {
   const busPath = path.join(root, 'bus.db')
@@ -375,6 +374,7 @@ describe('the session a refusal returns the card to', () => {
     const db = openBus(busPath)
     appendEvent(db, { ts: '2026-10-22T04:00:00.000Z', type: 'card.started', actor: 'worker:launch:1', cardId: 951, pr: null, head: null, dedupeKey: START_KEY, payload: { session: SESSION, worktree: root, branch: 'feat/x' }, legacy: false })
     db.close()
+    writeFileSync(path.join(root, 'construct.json'), `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [TREE_GATE] } })}\n`)
     const claude = path.join(root, 'claude')
     const seen = path.join(root, 'seen.txt')
     writeFileSync(claude, `#!/bin/sh\n${script.replaceAll('SEEN', seen)}\n`)
@@ -388,7 +388,18 @@ describe('the session a refusal returns the card to', () => {
     const { ran, seen } = resumed(`printf '%s\\n' "$PWD" "$${CARD_VARIABLE}" "$NO_COLOR" "$@" > SEEN`, 10_000)
 
     const [cwd, card, noColor, ...argv] = readFileSync(seen, 'utf8').trim().split('\n')
-    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, ...settingsFlag(shiftSettings(path.dirname(seen), readShiftGate(path.dirname(seen)))), '--strict-mcp-config', '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
+    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv: argv.filter((_, at) => argv[at - 1] !== '--settings') }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '--settings', '--strict-mcp-config', '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
+  })
+
+  it('resumes the card session with settings that allow only the tree\'s own gate commands and edits inside the tree', () => {
+    const { seen } = resumed(`printf '%s\\n' "$@" > SEEN`, 10_000)
+    const tree = path.dirname(seen)
+
+    const argv = readFileSync(seen, 'utf8').trim().split('\n')
+    expect(JSON.parse(argv[argv.indexOf('--settings') + 1]!)).toEqual({
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+      permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
+    })
   })
 
   it('a resumed card session starts with --strict-mcp-config, so no MCP server of the owner\'s user config starts in it', () => {

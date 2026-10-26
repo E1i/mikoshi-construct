@@ -13,7 +13,6 @@ import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
-import { shiftGateOf } from '../../../src/manifest.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GHOST_ROW } from '../../core/events.js'
@@ -35,7 +34,6 @@ import { taskConflicts } from '../../nodes/launch/overlap.js'
 import { renderPrompt } from '../../nodes/launch/prompt.js'
 import { recordDecision } from '../../policy/decisions.js'
 import { sessionEnv } from '../../ports/session.js'
-import { shiftSettings } from '../../ports/shift-settings.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busLaunches } from '../../supervisor/workers.js'
@@ -46,6 +44,7 @@ import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const ARRIVAL_GUARD_MS = 25_000
+const TREE_GATE = 'pnpm run gate-of-the-tree'
 const UNDER_FULL_SUITE_LOAD_MS = 5 * 60_000
 const roots: string[] = []
 const groups: number[] = []
@@ -867,12 +866,18 @@ describe('the launch queue', () => {
     const root = tempRoot()
     const stub = stubClaude(root)
     const bench = launchBench(realStarter(root, `${stub.command} --permission-mode auto`, 934, {}, { claude: stub.command }))
+    const tree = path.join(root, 'mc-934')
+    writeFileSync(path.join(tree, 'construct.json'), `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [TREE_GATE] } })}\n`)
     bench.admit(934, 'lane-x')
     bench.tick()
 
     expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
     const [args, card] = (await written(stub.argsFile)).trim().split('\n')
-    expect(args).toBe(`--permission-mode dontAsk --settings ${JSON.stringify(shiftSettings(path.join(root, 'mc-934'), shiftGateOf(null)))} --strict-mcp-config -p --session-id session-934`)
+    const settings = /^--permission-mode dontAsk --settings (\{.*\}) --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
+    expect(JSON.parse(settings ?? 'null')).toEqual({
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+      permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
+    })
     expect(card).toBe('card=934')
     bench.close()
   })

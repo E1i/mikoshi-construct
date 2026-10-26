@@ -3,10 +3,9 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
-import { readShiftGate } from '../../../src/manifest.js'
 import { claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools } from '../../nodes/answer/answerer.js'
-import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 
 const CARD_SESSION = 'card-session-1207'
 const NEW_SESSION = 'new-session-1'
@@ -14,6 +13,7 @@ const CONTEXT_WARN = 200_000
 const CARD_BODY = '#1207 answer-starts-fresh [implement/netwatch/S/cheap/owner]\n\nthe card body'
 const DIFF = 'diff --git a/scripts/bus/answerer.ts b/scripts/bus/answerer.ts\n+the change so far'
 const FINDING = 'the retry is missing'
+const TREE_GATE = 'pnpm run gate-of-the-tree'
 
 const roots: string[] = []
 
@@ -25,11 +25,24 @@ afterEach(() => {
 function requestIn(root: string): AnswerRequest {
   const worktree = path.join(root, 'mc-1207')
   mkdirSync(worktree, { recursive: true })
+  writeFileSync(path.join(worktree, 'construct.json'), `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [TREE_GATE] } })}\n`)
   return {
     lease: { taskKey: 'answer:1207:1300', queue: 'answer', cardId: 1207, pr: 1300, head: 'a'.repeat(40), leaseGen: 1, actor: 'worker:answer:worker-1' },
     source: { kind: 'changes', findings: [FINDING], events: [] },
     widened: null,
     card: { session: CARD_SESSION, worktree, branch: 'feat/card-1207' },
+  }
+}
+
+function settingsOf(run: AnswerRun): unknown {
+  const at = run.argv.indexOf('--settings')
+  return at === -1 ? null : JSON.parse(run.argv[at + 1]!)
+}
+
+function treeSettings(worktree: string, ownerQuestion: string): unknown {
+  return {
+    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+    permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
   }
 }
 
@@ -93,7 +106,7 @@ describe('the answerer', () => {
     const worktree = runs[0]!.cwd
     const ownerQuestion = ownerQuestionPath(path.join(path.dirname(worktree), 'answers'), answered.session, 1)
 
-    expect(runs[0]!.argv.slice(0, 2)).toEqual(settingsFlag(shiftSettings(worktree, readShiftGate(worktree), [ownerQuestion])))
+    expect(runs.map(settingsOf)).toEqual([treeSettings(worktree, ownerQuestion)])
   })
 })
 
@@ -162,12 +175,13 @@ describe('the answer path publishes on a fresh base', () => {
         contextWarn: () => CONTEXT_WARN,
       })
       const answered = await answerer(requestIn(root))
-      return { owner: answered.owner, runs: runs.length, merge: runs[1]?.argv.at(-1)?.includes('resolve every conflict in a.md') }
+      const settings = treeSettings(path.join(root, 'mc-1207'), ownerQuestionPath(path.join(root, 'answers'), answered.session, 1))
+      return { owner: answered.owner, runs: runs.length, merge: runs[1]?.argv.at(-1)?.includes('resolve every conflict in a.md'), settings: runs.map(run => isDeepStrictEqual(settingsOf(run), settings)) }
     }))
 
     expect(outcomes).toEqual([
-      { owner: null, runs: 2, merge: true },
-      { owner: 'merging a fresh origin/main into feat/card-1207 conflicts in a.md and the answer session did not resolve it', runs: 2, merge: true },
+      { owner: null, runs: 2, merge: true, settings: [true, true] },
+      { owner: 'merging a fresh origin/main into feat/card-1207 conflicts in a.md and the answer session did not resolve it', runs: 2, merge: true, settings: [true, true] },
     ])
   })
 
