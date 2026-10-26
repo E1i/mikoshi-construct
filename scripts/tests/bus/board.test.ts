@@ -29,6 +29,7 @@ import { busSessionPulse, recordHeartbeat, recordProcessHeartbeat } from '../../
 import { BusTick } from '../../supervisor/run.js'
 import { recordJudged } from '../../supervisor/supervisor.js'
 import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS, windowGauges } from '../../window/board.js'
+import { stateLines } from '../../window/handoff-write.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -599,6 +600,23 @@ describe('the factory board', () => {
     const execution = bench.tick().execution
     expect(execution.find(row => row.pr === 753)).toMatchObject({ card: 853, stage: `merged 1e18f06c${'0'.repeat(32)}`, markers: [MERGE_PAST_THE_BUS] })
     expect(execution.find(row => row.pr === 754)).toBeUndefined()
+  })
+
+  it('a merge past the bus shows on the board for 24 h and never in the handoff in-flight', () => {
+    const bench = boardBench()
+    bench.gitHub.open({ number: 753 })
+    bench.gitHub.open({ number: 755 })
+    bench.tick()
+    bench.gitHub.close(753, true)
+    bench.tick()
+    bench.clock.advance(24 * 60 * 60_000)
+    bench.gitHub.close(755, true)
+    bench.tick()
+    bench.clock.advance(60 * 60_000)
+    const board = bench.tick()
+    expect(board.execution.find(row => row.pr === 753)).toBeUndefined()
+    expect(board.execution.find(row => row.pr === 755)).toMatchObject({ markers: [MERGE_PAST_THE_BUS] })
+    expect(stateLines(board).join('\n')).not.toMatch(/PR #75[35]/)
   })
 
   it('a dropped card is not in flight', () => {
