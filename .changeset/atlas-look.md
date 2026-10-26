@@ -1,5 +1,0 @@
----
-"mikoshi-construct": minor
----
-
-`construct atlas`: the map and the docs pages have a new look. Each page now opens with a top bar (the MIKOSHI atlas · engine mark, the Map / Docs switch and a ◐ theme button) and a header naming the repository, with counts of contours, parts, files, read and unread files, entry points and relations, and a bar showing the share of files read. The map sits in a Map panel with search, edge filters and sorting, a canvas and an inspector that shows a hint until something is selected, followed by a Legend panel and a status line. The docs page uses the same style. The pages are dark by default and light when the system prefers light; the ◐ theme button switches between the two and remembers the choice. Both pages still fetch nothing: the fonts are system fonts, and the theme switch runs inside the one script whose hash the page's Content-Security-Policy names. The map page no longer draws the stage columns or their second legend; the stages are read on the docs page.
