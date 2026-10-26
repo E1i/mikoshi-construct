@@ -15,8 +15,7 @@
   },
   "devDependencies": {
     "@types/express": "catalog:",
-    "@types/supertest": "catalog:",
-    "supertest": "catalog:",
+    "light-my-request": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:"
   }
