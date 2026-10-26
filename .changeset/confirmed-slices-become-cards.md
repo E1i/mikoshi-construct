@@ -1,5 +1,0 @@
----
-"mikoshi-construct": minor
----
-
-cli: `construct intake` now turns the slices it proposes into cards. Each `slice:` line ends with `· depends N` when a file in that slice has a relative import of a file in slice N. Intake reads those imports from the repository given by `--dir`. A card with proposed slices waits for `--confirm`. Once confirmed, intake parks one card per slice instead of the whole card. Each slice card is named `<name>-slice-<n>` and gets its own number. Its depends come from the import order between slices, and its body says `whole: slice <n> of <name>`, so it is not held for slicing again. A slice card keeps the card's witnesses that name one of its test files. A witness that names a test of no slice goes to every slice. A slice left with no witness keeps all of them and is marked unclear. Intake refuses a card whose slices import each other, because no order of their cards holds. A card the complexity seam flags with no slices to offer is no longer held at `who: window`.

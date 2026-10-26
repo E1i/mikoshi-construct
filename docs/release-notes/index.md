@@ -4,6 +4,10 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.44.0
+
+[0.44.0 — the factory ships in the package (beta)](/release-notes/0.44.0)
+
 ## 0.43.0
 
 [0.43.0 — Mikoshi builds the Atlas of any repository](/release-notes/0.43.0)
