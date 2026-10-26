@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { FACTORY_FORMER_FOLDERS, FACTORY_NAMED } from '../scripts/core/factory-paths.js'
-import { ownerChannelOf, UNUSED_WORD } from '../scripts/owner/channel.js'
+import { ownerChannelOfBus, UNUSED_WORD } from '../scripts/owner/channel.js'
 import { USAGE as OWNER_SAY_USAGE, PREFIX } from '../scripts/owner/say.js'
 import { USAGE as SHARD_USAGE } from '../scripts/policy/shard.js'
 import { USAGE as MIKO_WATCH_USAGE } from '../scripts/window/watch.js'
@@ -179,7 +179,7 @@ describe('the factory in the published package', () => {
     expect(run.status, run.stderr).toBe(0)
     expect(run.stdout.startsWith(PREFIX)).toBe(true)
     const said = run.stdout.slice(PREFIX.length).trim()
-    expect(path.dirname(said)).toBe(ownerChannelOf(env.HOME!))
+    expect(path.dirname(said)).toBe(ownerChannelOfBus(env.HOME!, env.CONSTRUCT_BUS_DB!))
     expect(said.endsWith(UNUSED_WORD)).toBe(true)
     expect(readFileSync(said, 'utf8')).toContain(SAID)
   })
@@ -223,7 +223,7 @@ describe('the factory in the published package', () => {
     const env = cleanEnv(packed.root, 'home-cli')
     const run = spawnSync(path.join(packed.prefix, 'bin', 'construct'), ['say', SAID_THROUGH_THE_CLI, '--plain'], { cwd: packed.root, env, encoding: 'utf8' })
     expect(run.status, run.stderr).toBe(0)
-    const channel = ownerChannelOf(env.HOME!)
+    const channel = ownerChannelOfBus(env.HOME!, env.CONSTRUCT_BUS_DB!)
     const said = readdirSync(channel)
     expect(said).toHaveLength(1)
     expect(said[0]!.endsWith(UNUSED_WORD)).toBe(true)

@@ -1,4 +1,4 @@
-Write the owner's words, with the time, as one unused answer in ~/.construct-owner/answers, the channel an owner decision is accepted from (construct say v<version>)
+Write the owner's words, with the time, as one unused answer in the owner channel of this repository's bus (~/.construct-owner/answers for the machine bus, ~/.construct-owner/answers/<repo-id> for a repository bus), the channel an owner decision is accepted from (construct say v<version>)
 
 USAGE construct say [OPTIONS] 
 
