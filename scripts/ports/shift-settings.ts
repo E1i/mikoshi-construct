@@ -1,4 +1,4 @@
-import type { ShiftGate } from '../../../src/manifest.js'
+import type { ShiftGate } from '../../src/manifest.js'
 
 export interface ShiftSettings {
   sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false }

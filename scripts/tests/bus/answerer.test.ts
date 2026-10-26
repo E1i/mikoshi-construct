@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readShiftGate } from '../../../src/manifest.js'
 import { claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools } from '../../nodes/answer/answerer.js'
-import { settingsFlag, shiftSettings } from '../../nodes/launch/shift-settings.js'
+import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 
 const CARD_SESSION = 'card-session-1207'
 const NEW_SESSION = 'new-session-1'

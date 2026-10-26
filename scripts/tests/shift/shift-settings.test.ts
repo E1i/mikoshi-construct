@@ -7,7 +7,7 @@ import { readManifest, readShiftGate } from '../../../src/manifest.js'
 import { createUi, silentWriter } from '../../../src/ui/console.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { treeReportPath } from '../../core/places.js'
-import { settingsFlag, shiftSettings } from '../../nodes/launch/shift-settings.js'
+import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 
 function editCovers(rule: string, file: string): boolean {
   const pattern = /^Edit\(\/(.+)\)$/.exec(rule)?.[1]

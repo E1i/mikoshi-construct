@@ -12,11 +12,11 @@ import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
+import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 import { continuationBody } from './prompt.js'
 import { restoreReport } from './report-collect.js'
 import { journalDoubt, parseSessionJournal } from './session-journal.js'
-import { settingsFlag, shiftSettings } from './shift-settings.js'
 
 export interface DetachedSpawn {
   command: string
