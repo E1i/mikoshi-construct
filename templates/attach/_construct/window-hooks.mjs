@@ -1,11 +1,25 @@
 import { Buffer } from 'node:buffer'
-import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
+const CONSTRUCT_HOME_DIR = '.construct'
+const HANDOFF_DIR = 'handoff'
 const HANDOFF_NAME = 'miko.md'
+const GIT_ENTRY = '.git'
+const GITDIR_POINTER = /^gitdir:(.+)$/m
+const REMOTE_SECTION = /^\s*\[remote\s+"([^"]+)"\]\s*$/
+const ANY_SECTION = /^\s*\[/
+const URL_LINE = /^\s*url\s*=(.+)$/
+const SLUG_TAIL = /[:/]([^/:]+)\/([^/]+?)(?:\.git)?\/?$/
+const UNSAFE_ID_CHARACTER = /[^\w.-]/g
+const PREFERRED_REMOTE = 'origin'
+const REPO_ID_SEPARATOR = '--'
+const LOCAL_REPO_PREFIX = 'local'
+const LOCAL_HASH_LENGTH = 12
 const HEADLESS_ENTRYPOINT = 'sdk-cli'
 const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
 const COMPACT_SOURCE = 'compact'
@@ -37,8 +51,73 @@ export function tabWindow(env) {
   return !env.CONSTRUCT_CARD && env.CLAUDE_CODE_ENTRYPOINT !== HEADLESS_ENTRYPOINT && env.CONSTRUCT_BUS_RAISED !== '1'
 }
 
-export function handoffOf(env, home) {
-  return env.CONSTRUCT_HANDOFF || path.join(env.CONSTRUCT_HANDOFF_DIR || path.join(home, '.construct', 'handoff'), HANDOFF_NAME)
+function readIfFile(file) {
+  try {
+    return statSync(file).isFile() ? readFileSync(file, 'utf8') : null
+  }
+  catch {
+    return null
+  }
+}
+
+function repositoryRoot(dir) {
+  let current = path.resolve(dir)
+  for (;;) {
+    if (existsSync(path.join(current, GIT_ENTRY)))
+      return current
+    const parent = path.dirname(current)
+    if (parent === current)
+      return null
+    current = parent
+  }
+}
+
+function commonGitDir(root) {
+  const entry = path.join(root, GIT_ENTRY)
+  const pointer = readIfFile(entry)?.match(GITDIR_POINTER)?.[1]?.trim()
+  const gitDir = pointer === undefined ? entry : path.resolve(root, pointer)
+  const common = readIfFile(path.join(gitDir, 'commondir'))?.trim()
+  return common === undefined || common === '' ? gitDir : path.resolve(gitDir, common)
+}
+
+function remoteUrl(config) {
+  const urls = new Map()
+  let remote = null
+  for (const line of config.split('\n')) {
+    const section = line.match(REMOTE_SECTION)
+    if (section !== null) {
+      remote = section[1]
+      continue
+    }
+    if (ANY_SECTION.test(line)) {
+      remote = null
+      continue
+    }
+    const url = line.match(URL_LINE)?.[1]?.trim()
+    if (remote !== null && url !== undefined && !urls.has(remote))
+      urls.set(remote, url)
+  }
+  return urls.get(PREFERRED_REMOTE) ?? urls.values().next().value ?? null
+}
+
+function safeSegment(text) {
+  return text.replace(UNSAFE_ID_CHARACTER, '_')
+}
+
+export function repoIdOf(dir) {
+  const root = repositoryRoot(dir)
+  const config = root === null ? null : readIfFile(path.join(commonGitDir(root), 'config'))
+  const url = config === null ? null : remoteUrl(config)
+  const slug = url === null ? null : url.match(SLUG_TAIL)
+  if (slug != null)
+    return [slug[1], slug[2]].map(safeSegment).join(REPO_ID_SEPARATOR)
+  const place = root ?? path.resolve(dir)
+  const hash = createHash('sha256').update(place).digest('hex').slice(0, LOCAL_HASH_LENGTH)
+  return [LOCAL_REPO_PREFIX, `${safeSegment(path.basename(place))}-${hash}`].join(REPO_ID_SEPARATOR)
+}
+
+export function handoffOf(env, home, dir) {
+  return env.CONSTRUCT_HANDOFF || path.join(env.CONSTRUCT_HANDOFF_DIR || path.join(home, CONSTRUCT_HOME_DIR, repoIdOf(dir), HANDOFF_DIR), HANDOFF_NAME)
 }
 
 export function statusOf(text) {
@@ -52,15 +131,6 @@ function parsed(text) {
   }
   catch {
     return {}
-  }
-}
-
-function readOrNull(file) {
-  try {
-    return readFileSync(file, 'utf8')
-  }
-  catch {
-    return null
   }
 }
 
@@ -100,14 +170,14 @@ export function preCompactOutput(line) {
   return line === null ? null : { systemMessage: line }
 }
 
-export function windowHookOutput(event, input, env, home, now) {
+export function windowHookOutput(event, input, env, home, now, dir) {
   if (!tabWindow(env))
     return {}
-  const handoff = handoffOf(env, home)
+  const handoff = handoffOf(env, home, dir)
   if (event === 'stop')
-    return { stdout: stopOutput(input, handoff, readOrNull(handoff)) }
+    return { stdout: stopOutput(input, handoff, readIfFile(handoff)) }
   if (event === 'session-start')
-    return { stdout: sessionStartOutput(input, handoff, readOrNull(handoff)) }
+    return { stdout: sessionStartOutput(input, handoff, readIfFile(handoff)) }
   if (event === 'pre-compact')
     return { stdout: preCompactOutput(preCompactLine(handoff, mtimeOrNull(handoff), now)) }
   return { stderr: `window-hooks: ${event ?? 'no event'} is not one of stop, session-start, pre-compact; nothing run` }
@@ -128,7 +198,7 @@ async function main() {
     process.stderr.write(`${missing}\n`)
     return
   }
-  const output = windowHookOutput(event, input, process.env, os.homedir(), Date.now())
+  const output = windowHookOutput(event, input, process.env, os.homedir(), Date.now(), process.env.CLAUDE_PROJECT_DIR || process.cwd())
   if (output.stdout != null)
     process.stdout.write(`${JSON.stringify(output.stdout)}\n`)
   if (output.stderr != null)
