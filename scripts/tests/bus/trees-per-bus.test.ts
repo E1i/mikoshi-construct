@@ -82,6 +82,17 @@ describe('card trees per bus', () => {
     db.close()
   })
 
+  it.each([
+    ['the override', { [WORKTREE_HOME_VARIABLE]: '/elsewhere/trees' }, false],
+    ['the old home', {}, true],
+    ['the per-bus default', {}, false],
+  ] as const)('every tree cardTree gives under %s lies in a close sweep root', (_case, env, oldExists) => {
+    const root = newRoot()
+    const bus = path.join(root, '.construct', 'a--one', 'bus.db')
+    const tree = cardTree(env, bus, '5', DEFAULT_WORKTREE_HOME, () => oldExists)
+    expect(cardTreeRoots(env, bus, path.join(root, 'repo')).homes).toContain(path.dirname(tree))
+  })
+
   it('the close sweep roots hold the per-bus worktrees, the old home and the override when set', () => {
     const root = newRoot()
     const bus = path.join(root, '.construct', 'a--one', 'bus.db')
@@ -89,7 +100,6 @@ describe('card trees per bus', () => {
     const plain = cardTreeRoots({}, bus, repo)
     expect(plain.perBus).toBe(path.join(busDirOf(bus), 'worktrees'))
     expect(plain.homes).toEqual(expect.arrayContaining([plain.perBus, DEFAULT_WORKTREE_HOME, root]))
-    expect(path.dirname(cardTree({}, bus, '5', path.join(root, 'old')))).toBe(plain.perBus)
     expect(cardTreeRoots({ [WORKTREE_HOME_VARIABLE]: '/elsewhere/trees' }, bus, repo).homes).toEqual(expect.arrayContaining(['/elsewhere/trees', plain.perBus, DEFAULT_WORKTREE_HOME]))
   })
 })

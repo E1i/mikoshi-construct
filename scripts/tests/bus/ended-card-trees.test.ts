@@ -4,17 +4,19 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { busDirOf } from '../../core/bus-path.js'
 import { RUNNING_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { reduce } from '../../core/reducer.js'
-import { DIRTY, EndedCardTrees, gitWorktrees, recordEndedTrees } from '../../nodes/close/ended-card-trees.js'
+import { cardTreeSweep, DIRTY, EndedCardTrees, gitWorktrees, recordEndedTrees } from '../../nodes/close/ended-card-trees.js'
 import { TREE_LEFT } from '../../nodes/review/review-worker.js'
 import { detectClose } from './close-detection.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 
 const CLOSED = 836
+const CLOSED_BESIDE_REPO = 837
 const RUNNING = 872
 const UNRECORDED = 913
 const CLOSER = 'worker:close:pass'
@@ -204,6 +206,24 @@ describe('the close worker frees the trees of ended cards', () => {
 
     expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
     expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+  })
+
+  it('the close worker sweep removes a closed card\'s bare-id tree under the bus it serves and leaves a numeric directory beside the repo', () => {
+    const bus = path.join(root, '.construct', 'a--one', 'bus.db')
+    const perBusTree = cardTree(CLOSED, path.join(busDirOf(bus), 'worktrees'), String(CLOSED))
+    const besideRepo = cardTree(CLOSED_BESIDE_REPO, path.dirname(repo), String(CLOSED_BESIDE_REPO))
+    unlinkSync(path.join(perBusTree, 'README.md'))
+    unlinkSync(path.join(besideRepo, 'README.md'))
+    started(CLOSED, perBusTree)
+    started(CLOSED_BESIDE_REPO, besideRepo)
+    closed(CLOSED)
+    closed(CLOSED_BESIDE_REPO)
+
+    const ended = cardTreeSweep(bench.db, {}, bus, repo, gitWorktrees(repo), bench.clock.now).free()
+
+    expect(ended).toEqual([{ cardId: CLOSED, path: perBusTree, left: null }])
+    expect(existsSync(perBusTree)).toBe(false)
+    expect(existsSync(path.join(besideRepo, 'package.json'))).toBe(true)
   })
 
   it('an mc-<id> tree outside the homes is left untouched though its card is closed', () => {

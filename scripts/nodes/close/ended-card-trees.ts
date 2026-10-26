@@ -6,6 +6,7 @@ import { CLOSED_CARD, MERGED_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM } from '../../core/events.js'
 import { LEASED } from '../../core/queue.js'
+import { cardTreeRoots } from '../../ports/worktree-home.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { TREE_LEFT } from '../review/review-worker.js'
 import { cardClosed, failureOf } from './close-executor.js'
@@ -126,6 +127,11 @@ export class EndedCardTrees {
       return `${gitSaid}; ${failureOf(error)}`
     }
   }
+}
+
+export function cardTreeSweep(db: DatabaseSync, env: NodeJS.ProcessEnv, busPath: string, repo: string, git: WorktreeGit, clock: () => Date): EndedCardTrees {
+  const roots = cardTreeRoots(env, busPath, repo)
+  return new EndedCardTrees(db, roots.homes, git, clock, [roots.perBus])
 }
 
 export function recordEndedTrees(db: DatabaseSync, actor: string, ts: string, trees: EndedTree[]): void {
