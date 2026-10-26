@@ -40,6 +40,14 @@ export function normalizeItem(item) {
   return item.trim().replace(/(`[^`]*`)|\s+/g, (_run, quoted) => quoted ?? ' ').replace(/\.$/, '')
 }
 
+export function withoutListMarker(criterion) {
+  return criterion.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '')
+}
+
+function criterionOf(item) {
+  return withoutListMarker(normalizeItem(item))
+}
+
 function splitOutsideBackticks(body) {
   const items = ['']
   let quoted = false
@@ -83,7 +91,7 @@ function sectionBody(text, name) {
 
 function sectionItems(text, name) {
   const body = sectionBody(text, name)
-  return body == null ? null : splitOutsideBackticks(body).map(normalizeItem).filter(item => item !== '')
+  return body == null ? null : splitOutsideBackticks(body).map(criterionOf).filter(item => item !== '')
 }
 
 function trimItemEdges(item) {
@@ -126,7 +134,7 @@ function itemBoundaryProblem(item, previous) {
 
 function boundaryProblems(items) {
   return (items ?? [])
-    .map((item, index) => ({ criterion: normalizeItem(item), problem: itemBoundaryProblem(item, items[index - 1]) }))
+    .map((item, index) => ({ criterion: criterionOf(item), problem: itemBoundaryProblem(item, items[index - 1]) }))
     .filter(item => item.problem != null)
 }
 
@@ -134,11 +142,11 @@ export function readWitness(item) {
   const marker = lastMarkerOutsideBackticks(item)
   const quoted = marker === -1 ? '' : item.slice(marker + WITNESS_MARKER.length).trim()
   if (!QUOTED_COMMAND.test(quoted))
-    return { criterion: normalizeItem(item), command: null, problem: 'no witness' }
+    return { criterion: criterionOf(item), command: null, problem: 'no witness' }
   const command = quoted.slice(1, -1)
   if (command.includes('`'))
-    return { criterion: normalizeItem(item), command: null, problem: 'backtick' }
-  return { criterion: normalizeItem(item.slice(0, marker)), command, problem: null }
+    return { criterion: criterionOf(item), command: null, problem: 'backtick' }
+  return { criterion: criterionOf(item.slice(0, marker)), command, problem: null }
 }
 
 export function agreedWitnesses(text) {

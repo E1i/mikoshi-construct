@@ -212,8 +212,16 @@ async function ask(prompt, options) {
   return null
 }
 
+function withoutListMarker(criterion) {
+  return criterion.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '')
+}
+
+function sameCriterion(reported, fixed) {
+  return typeof reported === 'string' && withoutListMarker(reported) === withoutListMarker(fixed)
+}
+
 function witnessDigestOf(witness) {
-  return witnessDigests.find(digest => digest.criterion === witness.criterion)
+  return witnessDigests.find(digest => sameCriterion(witness.criterion, digest.criterion))
 }
 
 function witnessScriptLines(digest, n) {
@@ -376,7 +384,7 @@ function covers(witnessPath, file) {
 }
 
 function intersectsTheBaseChange(digest, rebase) {
-  const named = (rebase.witnessPaths ?? []).find(entry => entry.criterion === digest.criterion)
+  const named = (rebase.witnessPaths ?? []).find(entry => sameCriterion(entry.criterion, digest.criterion))
   if (named == null || named.paths.length === 0)
     return true
   return named.paths.some(witnessPath => rebase.baseChangedFiles.some(file => covers(witnessPath, file)))
@@ -424,7 +432,7 @@ const NO_CHANGE = 'The previous attempt changed no file. Implement the task; a r
 
 function observedFor(fixed, observed) {
   const digest = witnessDigestOf(fixed)
-  return digest == null ? undefined : observed.find(witness => witness.criterion === fixed.criterion && witness.ranSha256 === digest.sha256)
+  return digest == null ? undefined : observed.find(witness => sameCriterion(witness.criterion, fixed.criterion) && witness.ranSha256 === digest.sha256)
 }
 
 function failedOnEnvironment(witness) {
@@ -488,8 +496,18 @@ function invalidWitnessItems(observed, failingAsOnTheBaseOnThePreviousRung) {
 
 function unrunVerbatimItems(observed) {
   return witnessDigests
-    .filter(fixed => observedFor(fixed, observed) == null && observed.some(witness => witness.criterion === fixed.criterion))
+    .filter(fixed => observedFor(fixed, observed) == null && observed.some(witness => sameCriterion(witness.criterion, fixed.criterion)))
     .map(fixed => fixed.criterion)
+}
+
+function unmatchedItems(observed) {
+  return witnessDigests
+    .filter(fixed => !observed.some(witness => sameCriterion(witness.criterion, fixed.criterion)))
+    .map(fixed => fixed.criterion)
+}
+
+function unmatchedReason(items) {
+  return `No reported witness names the criterion, so no rung can witness it: ${items.join(' | ')}`
 }
 
 function isImmutable(file) {
@@ -756,7 +774,7 @@ for (let index = 0; index < rungs.length; index++) {
     }
     const rerun = witnessDigests.filter(digest => intersectsTheBaseChange(digest, rebase))
     attempts.push({ rung, effort, outcome: 'base moved, diff kept', reason: `${reason}; re-running ${rerun.length} of ${witnessDigests.length} witnesses`, securityFinding: '' })
-    const kept = (verdict.witnesses ?? []).filter(witness => !rerun.some(digest => digest.criterion === witness.criterion))
+    const kept = (verdict.witnesses ?? []).filter(witness => !rerun.some(digest => sameCriterion(witness.criterion, digest.criterion)))
     const reverified = await verify(rung, rerun)
     verdict = reverified == null ? null : { ...reverified, witnesses: [...(reverified.witnesses ?? []), ...kept] }
   }
@@ -777,6 +795,11 @@ for (let index = 0; index < rungs.length; index++) {
   if (environment != null) {
     attempts.push({ rung, effort, outcome: 'base environment', reason: environment, securityFinding: verdict.securityFinding ?? '' })
     return { status: 'base unverified', attempts, validationError: environment, acceptance, invariants, immutable }
+  }
+  const unmatched = harnessPassed && !unchanged ? unmatchedItems(verdict.witnesses ?? []) : []
+  if (unmatched.length > 0) {
+    attempts.push({ rung, effort, outcome: 'witness unmatched', reason: unmatchedReason(unmatched), securityFinding: verdict.securityFinding ?? '' })
+    return { status: 'base unverified', attempts, validationError: unmatchedReason(unmatched), acceptance, invariants, immutable }
   }
   const touchedImmutable = harnessPassed && !unchanged ? verdict.changedFiles.filter(isImmutable) : []
   const unrun = harnessPassed && !unchanged && touchedImmutable.length === 0 ? unrunVerbatimItems(verdict.witnesses ?? []) : []

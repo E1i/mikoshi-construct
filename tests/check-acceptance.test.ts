@@ -134,7 +134,7 @@ describe('the build of a brief\'s items', () => {
       '- W1, one — witness: `true`',
       '- W2, two — witness: `true`',
     ].join('\n')
-    expect(() => buildArgs(glued)).toThrow('more than one witness marker in one item; end each item with ;: - W1, one — witness: `true` - W2, two')
+    expect(() => buildArgs(glued)).toThrow('more than one witness marker in one item; end each item with ;: W1, one — witness: `true` - W2, two')
   })
 
   it('refuses the #1037 brief in its old form and builds it with each item ended by a semicolon', () => {

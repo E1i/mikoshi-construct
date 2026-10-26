@@ -118,7 +118,7 @@ describe('a reported witness is matched to the agreed one by its criterion and i
     expect(environment.outcomes).toEqual(['base environment'])
 
     expect((await outcomes(onFirst({ command: paraphrased(1), afterExitCode: 1, afterExcerpt: '2 failed' }))).outcomes).toEqual(['acceptance not witnessed', 'passed'])
-    expect((await outcomes(onFirst({ criterion: 'criterion 1 of another run' }))).outcomes).toEqual(['acceptance not witnessed', 'passed'])
+    expect((await outcomes(onFirst({ criterion: 'criterion 1 of another run' }))).outcomes).toEqual(['witness unmatched'])
   })
 
   it('a witness whose sha differs is not run verbatim, whatever command it reports', async () => {
