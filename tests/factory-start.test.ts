@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE, busDirOf, repoIdOf } from '../scripts/core/bus-path.js'
+import { LIVE_FLAG } from '../scripts/core/node.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
@@ -341,6 +342,30 @@ describe('the modes of the factory', () => {
     expect(switchedOn(parts.busDir)).toEqual(WINDOW_WORKERS)
     expect(switchedOn(parts.busDir)).not.toContain('merge')
     expect(result.stdout.join('\n')).toContain('merge off')
+  })
+
+  it('a fresh bus started in window mode runs launch, witness, review and answer live and merge in shadow', async () => {
+    const parts = keepAliveParts(tempRoot('factory-home-'), recordingLaunchctl().run, 'linux')
+
+    await runStart(tempRoot('factory-user-'), REPOSITORY, parts, fresh)
+    const launches = wantedLaunches(parts.busDir, () => [], [], NOW)
+
+    expect(liveWorkers(parts.busDir)).toEqual(WINDOW_WORKERS)
+    expect(launches.filter(launch => launch.args.includes(LIVE_FLAG)).map(launch => launch.script).sort()).toEqual(['bus:answer', 'bus:launch', 'bus:review', 'bus:witness'])
+    expect(launches.filter(launch => launch.script === 'bus:merge' && launch.args.includes(LIVE_FLAG))).toEqual([])
+  })
+
+  it('window to ghost-protocol to window keeps the window live set', () => {
+    const bench = modeBench()
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+    sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+    runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+
+    expect(modeOf(bench.parts.busDir)).toBe('window')
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
   })
 
   it('a factory that already has its workers keeps them on start', async () => {
