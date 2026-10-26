@@ -16,10 +16,9 @@ import { defaultBusPath } from '../../core/db.js'
 import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../../core/events.js'
 import { Node, prefixOf, runNode } from '../../core/node.js'
 import { closeCandidates } from '../../core/queue.js'
-import { worktreeHome } from '../../ports/worktree-home.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
-import { EndedCardTrees, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
+import { cardTreeSweep, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
 import { cardVerifiedClosings, closingVerificationOf, legacyLines } from './task-close.js'
 
 export const PREFIX = prefixOf('close')
@@ -126,7 +125,7 @@ async function main(): Promise<number> {
   const construct = path.join(os.homedir(), '.construct')
   const repo = process.cwd()
   const endedTrees = (db: DatabaseSync) => {
-    const trees = new EndedCardTrees(db, [worktreeHome(process.env), path.dirname(repo)], gitWorktrees(repo), () => new Date())
+    const trees = cardTreeSweep(db, process.env, defaultBusPath(), repo, gitWorktrees(repo), () => new Date())
     return () => trees.free()
   }
   const busPath = defaultBusPath()

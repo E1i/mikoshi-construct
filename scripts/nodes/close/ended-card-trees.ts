@@ -6,12 +6,14 @@ import { CLOSED_CARD, MERGED_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM } from '../../core/events.js'
 import { LEASED } from '../../core/queue.js'
+import { cardTreeRoots } from '../../ports/worktree-home.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { TREE_LEFT } from '../review/review-worker.js'
 import { cardClosed, failureOf } from './close-executor.js'
 
 export const DIRTY = 'dirty'
-const CARD_TREE_NAME = /^mc-(\d+)$/
+const PREFIXED_TREE_NAME = /^mc-(\d+)$/
+const BARE_TREE_NAME = /^(\d+)$/
 const DELETED_ONLY = /^[D ]{2} /
 
 export interface WorktreeGit {
@@ -58,9 +60,11 @@ function changesOf(status: string): string[] {
 
 export class EndedCardTrees {
   private readonly homes: Set<string>
+  private readonly bareIdHomes: Set<string>
 
-  constructor(private readonly db: DatabaseSync, homes: string[], private readonly git: WorktreeGit, private readonly clock: () => Date) {
+  constructor(private readonly db: DatabaseSync, homes: string[], private readonly git: WorktreeGit, private readonly clock: () => Date, bareIdHomes: string[] = []) {
     this.homes = new Set(homes.map(canonical))
+    this.bareIdHomes = new Set(bareIdHomes.map(canonical))
   }
 
   free(): EndedTree[] {
@@ -73,8 +77,10 @@ export class EndedCardTrees {
   }
 
   private endedOwnerOf(tree: string): number | null {
-    const id = CARD_TREE_NAME.exec(path.basename(tree))?.[1]
-    if (id === undefined || !this.homes.has(path.dirname(tree)))
+    const name = path.basename(tree)
+    const home = path.dirname(tree)
+    const id = (this.homes.has(home) ? PREFIXED_TREE_NAME.exec(name)?.[1] : undefined) ?? (this.bareIdHomes.has(home) ? BARE_TREE_NAME.exec(name)?.[1] : undefined)
+    if (id === undefined)
       return null
     const cardId = Number(id)
     const session = cardSessionOf(this.db, cardId)
@@ -121,6 +127,11 @@ export class EndedCardTrees {
       return `${gitSaid}; ${failureOf(error)}`
     }
   }
+}
+
+export function cardTreeSweep(db: DatabaseSync, env: NodeJS.ProcessEnv, busPath: string, repo: string, git: WorktreeGit, clock: () => Date): EndedCardTrees {
+  const roots = cardTreeRoots(env, busPath, repo)
+  return new EndedCardTrees(db, roots.homes, git, clock, [roots.perBus])
 }
 
 export function recordEndedTrees(db: DatabaseSync, actor: string, ts: string, trees: EndedTree[]): void {

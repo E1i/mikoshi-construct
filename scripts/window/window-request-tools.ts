@@ -9,7 +9,7 @@ import { PrCloser } from '../nodes/review/pr-close.js'
 import { recordDecision } from '../policy/decisions.js'
 import { runDecisionsAdd } from '../policy/decisions/add.js'
 import { ghApi, ghApiPatch } from '../ports/github.js'
-import { taskWorktree, worktreeHome } from '../ports/worktree-home.js'
+import { cardTree } from '../ports/worktree-home.js'
 
 const WORKTREE_LINE = /^worktree (.+)$/
 const BRANCH_LINE = /^branch refs\/heads\/(.+)$/
@@ -45,7 +45,7 @@ function causeHoldsIn(db: DatabaseSync, repo: string): (task: CardTask) => strin
 export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv, home: string): RequestTools {
   const closer = new PrCloser(db, ghApi(repo), ghApiPatch(repo), () => new Date())
   return {
-    treeOf: cardId => taskWorktree(worktreeHome(env), String(cardId)),
+    treeOf: cardId => cardTree(env, busPath, String(cardId)),
     exists: existsSync,
     cutTree: (branch, cardLine) => {
       execFileSync('pnpm', ['--silent', 'task:start', branch, '--card', cardLine], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })

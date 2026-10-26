@@ -4,16 +4,18 @@ import type { GitHub } from './github.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
+import { defaultBusPath } from '../core/db.js'
 import { cardSessionOf, NO_RECORDED_SESSION, openPrOfCard } from '../nodes/answer/answer-source.js'
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
-import { taskWorktree, worktreeHome } from './worktree-home.js'
+import { cardTree, taskWorktree, worktreeHome } from './worktree-home.js'
 import { pnpmInstall } from './worktree.js'
 
 const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
 
 export interface CardTreeTools {
   home: string
+  treeOf?: (cardId: string) => string
   exists: (dir: string) => boolean
   branchOf: (pr: number) => string
   recreate: (worktree: string, branch: string) => void
@@ -31,9 +33,10 @@ function headRefOf(pull: unknown, pr: number): string {
   return ref
 }
 
-export function gitCardTrees(repo: string, home: string, install: (cwd: string) => void, gitHub: GitHub = ghApi(repo)): CardTreeTools {
+export function gitCardTrees(repo: string, home: string, install: (cwd: string) => void, gitHub: GitHub = ghApi(repo), treeOf?: (cardId: string) => string): CardTreeTools {
   return {
     home,
+    treeOf,
     exists: existsSync,
     branchOf: pr => headRefOf(new Meter(gitHub, Date.now).get(`repos/{owner}/{repo}/pulls/${pr}`), pr),
     recreate: (worktree, branch) => {
@@ -81,7 +84,7 @@ function openHeadOf(db: DatabaseSync, pr: number): string | null {
 }
 
 export function realCardTrees(): CardTreeTools {
-  return gitCardTrees(process.cwd(), worktreeHome(process.env), cwd => pnpmInstall(cwd, INSTALL_ARGS))
+  return gitCardTrees(process.cwd(), worktreeHome(process.env), cwd => pnpmInstall(cwd, INSTALL_ARGS), ghApi(process.cwd()), id => cardTree(process.env, defaultBusPath(), id))
 }
 
 export function cardTreeOf(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null {
@@ -96,7 +99,7 @@ export function cardTreeOf(db: DatabaseSync, cardId: number, tools: CardTreeTool
   if (pr === null)
     return recorded
   const branch = tools.branchOf(pr)
-  const worktree = recorded?.worktree ?? taskWorktree(tools.home, String(cardId))
+  const worktree = recorded?.worktree ?? tools.treeOf?.(String(cardId)) ?? taskWorktree(tools.home, String(cardId))
   tools.recreate(worktree, branch)
   return { session: recorded?.session ?? NO_RECORDED_SESSION, worktree, branch }
 }

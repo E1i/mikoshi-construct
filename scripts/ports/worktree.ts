@@ -66,6 +66,7 @@ export interface TreeDeps {
   install: (cwd: string, args: string[]) => void
   exists: (target: string) => boolean
   worktreeHome?: string
+  treeOf?: (id: string) => string
 }
 
 export interface ReadyTree {
@@ -165,7 +166,7 @@ export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree |
   catch (error) {
     return { refused: `not inside a git repository: ${firstLine(error)}` }
   }
-  const worktree = taskWorktree(deps.worktreeHome ?? path.dirname(repo), id)
+  const worktree = deps.treeOf?.(id) ?? taskWorktree(deps.worktreeHome ?? path.dirname(repo), id)
   if (deps.exists(worktree))
     return { refused: `${worktree} already exists; nothing written` }
   if (branchExists(deps, repo, branch))
