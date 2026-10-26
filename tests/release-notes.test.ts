@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import config from '../docs/.vitepress/config.js'
-import { CHANGELOG_PATH, handWrittenNotes, INDEX_PATH, parseChangelog, releaseAnchor } from '../scripts/release-notes/changelog.js'
+import { CHANGELOG_PATH, handWrittenNotes, INDEX_PATH, parseChangelog, releaseAnchor, releaseSidebarItems } from '../scripts/release-notes/changelog.js'
 import { parseNotices, unansweredNotices } from '../scripts/release-notes/notices.js'
 import { renderIndex } from '../scripts/release-notes/render.js'
 import { packageScripts, resolvedScript } from './package-scripts.js'
@@ -140,9 +140,16 @@ describe('the releases sublist names the latest releases, not only the hand-writ
     expect(sublist().some(item => item.text.startsWith(newest))).toBe(true)
   })
 
-  it('keeps every hand-written note named, because it is the better artifact where it exists', () => {
-    for (const version of handWrittenNotes().keys())
+  it('keeps every hand-written note of a released version named, because it is the better artifact where it exists', () => {
+    const versions = parseChangelog(CHANGELOG).map(entry => entry.version)
+    for (const version of [...handWrittenNotes().keys()].filter(version => versions.includes(version)))
       expect(sublist().map(item => item.link), version).toContain(`/release-notes/${version}`)
+  })
+
+  it('leaves out a note written ahead of the version pull request until the changelog carries its version', () => {
+    const notes = new Map([['9.9.0', '9.9.0 — ahead'], ['1.0.0', '1.0.0 — out']])
+    const links = releaseSidebarItems(['1.0.0'], notes).map(item => item.link)
+    expect(links).toEqual(['/release-notes/1.0.0'])
   })
 
   it('points a version without a note at its own section, and names only versions the changelog carries', () => {
