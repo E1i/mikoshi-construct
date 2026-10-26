@@ -15,10 +15,19 @@ export function taskWorktree(home: string, id: string): string {
   return path.join(home, `mc-${id}`)
 }
 
+export function busWorktreeHome(busPath: string): string {
+  return path.join(busDirOf(busPath), 'worktrees')
+}
+
 export function cardTree(env: NodeJS.ProcessEnv, busPath: string, id: string, oldHome: string = DEFAULT_WORKTREE_HOME, exists: (target: string) => boolean = existsSync): string {
   const set = env[WORKTREE_HOME_VARIABLE]
   if (set !== undefined && set !== '')
     return taskWorktree(set, id)
   const old = taskWorktree(oldHome, id)
-  return exists(old) ? old : path.join(busDirOf(busPath), 'worktrees', id)
+  return exists(old) ? old : path.join(busWorktreeHome(busPath), id)
+}
+
+export function cardTreeRoots(env: NodeJS.ProcessEnv, busPath: string, repo: string): { homes: string[], perBus: string } {
+  const perBus = busWorktreeHome(busPath)
+  return { homes: [worktreeHome(env), DEFAULT_WORKTREE_HOME, perBus, path.dirname(repo)], perBus }
 }

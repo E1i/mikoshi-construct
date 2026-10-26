@@ -5,9 +5,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf } from '../../core/bus-path.js'
 import { openBus } from '../../core/db.js'
-import { cardTreeRoots } from '../../nodes/close/close-worker.js'
 import { handoffLadderSteps, realStarterPorts } from '../../nodes/launch/launch-worker.js'
-import { cardTree, DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
+import { cardTree, cardTreeRoots, DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { realRequestTools } from '../../window/window-request-tools.js'
 
 const roots: string[] = []
@@ -90,6 +89,7 @@ describe('card trees per bus', () => {
     const plain = cardTreeRoots({}, bus, repo)
     expect(plain.perBus).toBe(path.join(busDirOf(bus), 'worktrees'))
     expect(plain.homes).toEqual(expect.arrayContaining([plain.perBus, DEFAULT_WORKTREE_HOME, root]))
+    expect(path.dirname(cardTree({}, bus, '5', path.join(root, 'old')))).toBe(plain.perBus)
     expect(cardTreeRoots({ [WORKTREE_HOME_VARIABLE]: '/elsewhere/trees' }, bus, repo).homes).toEqual(expect.arrayContaining(['/elsewhere/trees', plain.perBus, DEFAULT_WORKTREE_HOME]))
   })
 })
