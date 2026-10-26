@@ -29,3 +29,16 @@ jobs:
 
       - name: Quality
         run: {{harnessCommandYamlScalar}}
+
+  required:
+    needs: [quality]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every needed job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            [ "$result" = success ] || { echo "a needed job ended $result"; exit 1; }
+          done
