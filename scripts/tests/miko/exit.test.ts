@@ -142,14 +142,14 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
     expect(read(dir, 'survived')).toBe('')
     expect(stderr).toContain('STATUS: CONTINUE: next session')
     expect(journal(dir)).toEqual([expect.objectContaining({ event: 'session-exit', session_id: SESSION, reason: 'context', start: { input: CONTEXT_WARN, cache_write: 0, cache_read: 0 } })])
-    expect(readdirSync(path.dirname(mikoHandoff(dir))).filter(name => name.startsWith('miko-exit.'))).toEqual([])
+    expect(readdirSync(path.dirname(mikoHandoff(path.join(dir, '.construct', 'handoff')))).filter(name => name.startsWith('miko-exit.'))).toEqual([])
   }, 20_000)
 
   it('refuses when miko.md is older than two minutes', async () => {
     const dir = home(['quiet exit 1'])
-    writeFileSync(mikoHandoff(dir), 'old handoff')
+    writeFileSync(mikoHandoff(path.join(dir, '.construct', 'handoff')), 'old handoff')
     const threeMinutesAgo = (Date.now() - 3 * 60 * 1000) / 1000
-    utimesSync(mikoHandoff(dir), threeMinutesAgo, threeMinutesAgo)
+    utimesSync(mikoHandoff(path.join(dir, '.construct', 'handoff')), threeMinutesAgo, threeMinutesAgo)
     const { code } = await run(dir, TSX, [LOOP])
     expect(code).toBe(0)
     expect(read(dir, 'exit.code').trim()).toBe('1')
@@ -161,9 +161,9 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
 
   it('refuses outside the miko loop at the context warn with a stale CONTINUE handoff', async () => {
     const dir = home(['quiet exit 1'])
-    writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
+    writeFileSync(mikoHandoff(path.join(dir, '.construct', 'handoff')), 'STATUS: CONTINUE\n')
     const threeMinutesAgo = (Date.now() - 3 * 60 * 1000) / 1000
-    utimesSync(mikoHandoff(dir), threeMinutesAgo, threeMinutesAgo)
+    utimesSync(mikoHandoff(path.join(dir, '.construct', 'handoff')), threeMinutesAgo, threeMinutesAgo)
     const { code, signal } = await run(dir, path.join(dir, 'claude'), [], { [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT })
     expect({ code, signal }).toEqual({ code: 0, signal: null })
     expect(read(dir, 'exit.code').trim()).toBe('1')
