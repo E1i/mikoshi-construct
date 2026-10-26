@@ -23,6 +23,11 @@ export const MODE_WORKERS: Readonly<Record<FactoryMode, readonly BusWorker[]>> =
   'ghost-protocol': WORKERS,
 }
 
+export const MODE_LIVE: Readonly<Record<FactoryMode, readonly BusWorker[]>> = {
+  'window': ['review', 'launch', 'answer', 'witness'],
+  'ghost-protocol': [],
+}
+
 export function isFactoryMode(name: string): name is FactoryMode {
   return (FACTORY_MODES as readonly string[]).includes(name)
 }
@@ -93,16 +98,17 @@ function writeWorkers(busDir: string, on: BusWorker[], live: BusWorker[], until:
   writeFileSync(path.join(busDir, WORKERS_FILE), `${JSON.stringify({ on, ...(live.length === 0 ? {} : { live }), ...(until === null ? {} : { until }) })}\n`)
 }
 
-export function switchMode(busDir: string, mode: FactoryMode, until: string | null = null): BusWorker[] {
+export function switchMode(busDir: string, mode: FactoryMode, until: string | null = null, seededLive: readonly BusWorker[] = []): BusWorker[] {
   const on = WORKERS.filter(worker => MODE_WORKERS[mode].includes(worker))
-  writeWorkers(busDir, on, liveWorkers(busDir), until)
+  const live = liveWorkers(busDir)
+  writeWorkers(busDir, on, WORKERS.filter(worker => live.includes(worker) || seededLive.includes(worker)), until)
   return on
 }
 
 export function startingMode(busDir: string): FactoryMode | null {
   if (existsSync(path.join(busDir, WORKERS_FILE)))
     return null
-  switchMode(busDir, DEFAULT_MODE)
+  switchMode(busDir, DEFAULT_MODE, null, MODE_LIVE[DEFAULT_MODE])
   return DEFAULT_MODE
 }
 

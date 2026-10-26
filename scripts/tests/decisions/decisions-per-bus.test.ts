@@ -10,6 +10,7 @@ import { DECISIONS_IMPORTED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } fro
 import { LIVE_FLAG } from '../../core/node.js'
 import { OWNER_WORD_NOT_FOUND, ownerChannelOf, ownerChannelOfBus, sayToOwnerChannel } from '../../owner/channel.js'
 import { inForceDecisions } from '../../policy/decisions.js'
+import { liveDecisionOf } from '../../policy/live-decision.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { composeBusTick } from '../../supervisor/run.js'
 import { startingMode, wantedLaunches } from '../../supervisor/workers.js'
@@ -65,9 +66,9 @@ function answerOf(db: DatabaseSync, request: number): { type: string, detail: st
   return { type: row.type, detail: (JSON.parse(row.payload) as { detail: string }).detail }
 }
 
-function liveLaunches(bus: Bus): string[] {
+function liveLaunches(bus: Bus, decisions = inForceDecisions(bus.db)): string[] {
   startingMode(busDirOf(bus.path))
-  return wantedLaunches(busDirOf(bus.path), () => [], inForceDecisions(bus.db)).filter(launch => launch.args.includes(LIVE_FLAG)).map(launch => launch.script)
+  return wantedLaunches(busDirOf(bus.path), () => [], decisions).filter(launch => launch.args.includes(LIVE_FLAG)).map(launch => launch.script)
 }
 
 describe('owner decisions belong to the bus of their repository', () => {
@@ -90,14 +91,15 @@ describe('owner decisions belong to the bus of their repository', () => {
     expect(importedTexts(repository.db)).toEqual([])
   })
 
-  it('an allow-live launch decision of the first bus starts no node of the second with --live', () => {
+  it('an allow-live launch decision of the first bus adds no --live node to the second beyond its own set', () => {
     const { machine, repository } = twoBuses()
     writeFileSync(decisionsFileOf(machine.path), `# Owner decisions\n\n${ALLOW_LIVE_LAUNCH}\n`)
     machine.composed.busTick.run()
     repository.composed.busTick.run()
 
     expect(liveLaunches(machine)).not.toEqual([])
-    expect(liveLaunches(repository)).toEqual([])
+    expect(liveDecisionOf(inForceDecisions(repository.db), 'launch')).toBeNull()
+    expect(liveLaunches(repository)).toEqual(liveLaunches(repository, []))
   })
 
   it('an owner word said for the first repository does not confirm decisions:add on the second', () => {

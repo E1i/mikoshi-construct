@@ -1,9 +1,13 @@
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
 import type { BusCode } from '../../supervisor/supervisor.js'
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { launchName } from '../../supervisor/bg.js'
+import { afterEach, describe, expect, it } from 'vitest'
+import { busDirOf } from '../../core/bus-path.js'
+import { BUS_FLAG, launchName } from '../../supervisor/bg.js'
 import { reviewLaunch } from '../../supervisor/review-bg.js'
+import { holdRunLock, lockBreakerOf, RUN_LOCK } from '../../supervisor/run.js'
 import { BusSupervisor, entryOf, gitCode, importClosure, LOCAL_MAIN_REF, SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
 import { busLaunches, workerLaunches } from '../../supervisor/workers.js'
 
@@ -84,6 +88,94 @@ describe('the supervisor follows the local main ref', () => {
 
     expect(await supervisor.step()).toEqual([])
     expect(supervisor.ownCodeBehind).toBeNull()
+  })
+})
+
+describe('one bus:run serves one bus', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0))
+      rmSync(root, { recursive: true, force: true })
+  })
+
+  function busPathIn(prefix: string): string {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), prefix)))
+    roots.push(root)
+    return path.join(root, 'bus.db')
+  }
+
+  it('a second run.js on one bus exits non-zero with a message while the first holds its lock', () => {
+    const busPath = busPathIn('bus-run-lock-')
+    const lock = path.join(busDirOf(busPath), RUN_LOCK)
+    const first = 4300
+    const runJsOn = (bus: string) => ({ pid: first, args: `node /x/dist/scripts/supervisor/run.js ${BUS_FLAG} ${bus}`, bus })
+
+    expect(holdRunLock(busPath, () => [], first).exitCode).toBe(0)
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(first))
+
+    const second = holdRunLock(busPath, () => [runJsOn(busPath)])
+    expect(second.exitCode).toBe(1)
+    expect(second.stderr.join('\n')).toContain(`pid ${first}`)
+    expect(second.stderr.join('\n')).toContain(lock)
+
+    const otherBus = busPathIn('bus-run-other-')
+    expect(holdRunLock(otherBus, () => [runJsOn(busPath)]).exitCode).toBe(0)
+    expect(holdRunLock(busPath, () => [runJsOn(otherBus)]).exitCode).toBe(0)
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
+  })
+
+  it('a stale run lock another run.js replaced first stays with that run.js', () => {
+    const busPath = busPathIn('bus-run-stale-')
+    const lock = path.join(busDirOf(busPath), RUN_LOCK)
+    const dead = 4301
+    const faster = 4302
+    expect(holdRunLock(busPath, () => [], dead).exitCode).toBe(0)
+    let listings = 0
+    const fasterReplacesTheStaleLock = () => {
+      listings += 1
+      if (listings > 1)
+        return [{ pid: faster, args: `node /x/dist/scripts/supervisor/run.js ${BUS_FLAG} ${busPath}`, bus: busPath }]
+      rmSync(lock)
+      writeFileSync(lock, `${faster}\n`)
+      return []
+    }
+
+    const slower = holdRunLock(busPath, fasterReplacesTheStaleLock, 4303)
+
+    expect(slower.exitCode).toBe(1)
+    expect(slower.stderr.join('\n')).toContain(`pid ${faster}`)
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(faster))
+    expect(readdirSync(busDirOf(busPath))).toEqual([RUN_LOCK])
+  })
+
+  it('a stale run lock another run.js is already removing is left to it', () => {
+    const busPath = busPathIn('bus-run-breaker-')
+    const lock = path.join(busDirOf(busPath), RUN_LOCK)
+    const dead = 4304
+    expect(holdRunLock(busPath, () => [], dead).exitCode).toBe(0)
+    writeFileSync(lockBreakerOf(lock), '4305\n')
+
+    const second = holdRunLock(busPath, () => [], 4306)
+
+    expect(second.exitCode).toBe(1)
+    expect(second.stderr.join('\n')).toContain(lockBreakerOf(lock))
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(dead))
+  })
+
+  it('with ps unreadable a run lock held by a live pid refuses and one held by a dead pid is taken', () => {
+    const busPath = busPathIn('bus-run-no-ps-')
+    const lock = path.join(busDirOf(busPath), RUN_LOCK)
+    const unreadable = (): never => {
+      throw new Error('spawnSync ps EPERM')
+    }
+    expect(holdRunLock(busPath, () => [], process.ppid).exitCode).toBe(0)
+
+    expect(holdRunLock(busPath, unreadable).exitCode).toBe(1)
+
+    rmSync(lock)
+    expect(holdRunLock(busPath, () => [], 2 ** 22 + 1).exitCode).toBe(0)
+    expect(holdRunLock(busPath, unreadable).exitCode).toBe(0)
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
   })
 })
 

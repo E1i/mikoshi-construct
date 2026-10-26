@@ -13,11 +13,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE, busDirOf, repoIdOf } from '../scripts/core/bus-path.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
+import { LIVE_FLAG } from '../scripts/core/node.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
-import { liveWorkers, MODE_WORKERS, modeOf, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
+import { liveWorkers, MODE_WORKERS, modeOf, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
 
@@ -300,6 +301,27 @@ describe('the exit code of the start command', () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr.join('\n')).toContain(`started nothing for ${parts.busDb}`)
   })
+
+  it('a second construct-factory over a running or starting factory exits 0', async () => {
+    const parts = keepAliveParts(tempRoot('factory-home-'), recordingLaunchctl().run, 'linux')
+    const env = { [BUS_DB_VARIABLE]: parts.busDb }
+    const startArgs = `node /x/${OUT_DIR}/scripts/supervisor/start.js`
+    const otherStart = 4243
+    const supervisor = { pid: 4244, args: `node /x/${OUT_DIR}/scripts/supervisor/supervisor.js ${SUPERVISE_FLAG} ${BUS_FLAG} ${parts.busDb}`, bus: parts.busDb }
+    const servedBus = () => [{ pid: process.pid, args: startArgs }, { pid: otherStart, args: startArgs }, supervisor]
+    mkdirSync(parts.busDir, { recursive: true })
+    writeFileSync(path.join(parts.busDir, BUS_RUN_LAUNCH.startLock), `${otherStart}\n`)
+
+    const second = await runStart(tempRoot('factory-user-'), REPOSITORY, parts, async () => runBusBg(parts.busDir, [BUS_RUN_LAUNCH, SUPERVISOR_LAUNCH], env, servedBus))
+
+    expect(second.exitCode, second.stderr.join('\n')).toBe(0)
+    expect(second.stdout.join('\n')).toContain(`pid ${otherStart}`)
+    expect(second.stdout.join('\n')).toContain(`pid ${supervisor.pid}`)
+
+    const unserved = () => [{ pid: process.pid, args: startArgs }, { pid: otherStart, args: startArgs }]
+    const startingOnly = await runStart(tempRoot('factory-user-'), REPOSITORY, parts, async () => runBusBg(parts.busDir, [BUS_RUN_LAUNCH], env, unserved))
+    expect(startingOnly.exitCode, startingOnly.stderr.join('\n')).toBe(0)
+  })
 })
 
 const SHARD_ID = 'shard-1'
@@ -341,6 +363,53 @@ describe('the modes of the factory', () => {
     expect(switchedOn(parts.busDir)).toEqual(WINDOW_WORKERS)
     expect(switchedOn(parts.busDir)).not.toContain('merge')
     expect(result.stdout.join('\n')).toContain('merge off')
+  })
+
+  it('a fresh bus started in window mode runs launch, witness, review and answer live and merge in shadow', async () => {
+    const parts = keepAliveParts(tempRoot('factory-home-'), recordingLaunchctl().run, 'linux')
+
+    await runStart(tempRoot('factory-user-'), REPOSITORY, parts, fresh)
+    const launches = wantedLaunches(parts.busDir, () => [], [], NOW)
+
+    expect(liveWorkers(parts.busDir)).toEqual(WINDOW_WORKERS)
+    expect(launches.filter(launch => launch.args.includes(LIVE_FLAG)).map(launch => launch.script).sort()).toEqual(['bus:answer', 'bus:launch', 'bus:review', 'bus:witness'])
+    expect(launches.filter(launch => launch.script === 'bus:merge' && launch.args.includes(LIVE_FLAG))).toEqual([])
+  })
+
+  it('window to ghost-protocol to window keeps the window live set', () => {
+    const bench = modeBench()
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+    sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+    runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+
+    expect(modeOf(bench.parts.busDir)).toBe('window')
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+  })
+
+  it('construct-factory --mode window brings a worker the operator put in shadow back to the window live set', () => {
+    const bench = modeBench()
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+    switchDetection(bench.parts.busDir, 'review', false)
+
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+  })
+
+  it('a ghost-protocol term ending on its own keeps a worker the operator put in shadow', () => {
+    const bench = modeBench()
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+    switchDetection(bench.parts.busDir, 'review', false)
+    sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+    runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+
+    expect(returnToWindowAtTermEnd(bench.parts.busDir, new Date(Date.parse(termEndOf(bench.parts.busDir)!) + 1))).toBe(true)
+
+    expect(modeOf(bench.parts.busDir)).toBe('window')
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS.filter(worker => worker !== 'review'))
   })
 
   it('a factory that already has its workers keeps them on start', async () => {
