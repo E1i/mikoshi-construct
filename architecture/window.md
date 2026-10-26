@@ -128,7 +128,7 @@ What stays the same from one session to the next lives here, under version contr
 `scripts/window/handoff-check.ts`), and names this section. A change to one of them is a change to this file.
 
 - journal: `~/.construct/handoff/ghosts.jsonl`.
-- card paths: `~/.construct/parking`, one `<id>.md` per card.
+- card paths: the bus (`card_bodies`); a card's text is read with `pnpm intake --export '#N'`, never from a file. `~/.construct/parking` holds only drafts before admit.
 - cloud runs: none.
 - probe results: `~/.construct/scratch`.
 - judge format: a test is named `<file> › <full describe chain> › <title>`, in a judge's verdict and in the red field of
