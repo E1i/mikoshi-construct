@@ -603,5 +603,20 @@
     "target": ".claude/skills/intake/SKILL.md",
     "sha256": "ad918c4aeddb98c24bf5cb997d72ef1ca39a8cd30c997485af461d058a797937",
     "date": "2026-10-25"
+  },
+  {
+    "target": "scripts/construct/implement.workflow",
+    "sha256": "6d45ff476ca6671c6975229634ff67fb48b324aba4c3f37bd0888e369e1d6bc4",
+    "date": "2026-10-26"
+  },
+  {
+    "target": "scripts/construct/check-acceptance.mjs",
+    "sha256": "7c24818e0940cea186c1bb2faca0db162e15b81f72f281f403ecf1919512faac",
+    "date": "2026-10-26"
+  },
+  {
+    "target": ".claude/skills/implement/SKILL.md",
+    "sha256": "1c69e9d5dba559d06d106864579d8712e4adeab7fb20c1cec4ed2c1cfaa6fb2d",
+    "date": "2026-10-26"
   }
 ]

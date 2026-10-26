@@ -373,16 +373,18 @@ describe('done needs every acceptance item witnessed red before the change and g
     expect(result.attempts[0]).toMatchObject({ outcome: 'acceptance not witnessed' })
   })
 
-  it('names the item no witness covered, and counts only a criterion copied verbatim', async () => {
+  it('names the item no witness covered, counts only a criterion copied verbatim, and stops on that rung', async () => {
     const acceptance = ['the reader parses the file', 'an empty file reads unknown']
     const { result } = await run({ task: 'add a reader', effort: 'low', acceptance }, {
       implementer: [REPORT, REPORT],
       harness: [{ ...GREEN, witnesses: [...witnessed([acceptance[0]]), ...witnessed(['an empty file reads as unknown'])] }, { ...GREEN, witnesses: witnessed(acceptance) }],
     })
 
+    expect(result.attempts).toHaveLength(1)
+    expect(result.attempts[0]).toMatchObject({ outcome: 'witness unmatched' })
     expect(result.attempts[0].reason).toContain(acceptance[1])
     expect(result.attempts[0].reason).not.toContain(acceptance[0])
-    expect(result.status).toBe('done')
+    expect(result.status).toBe('base unverified')
   })
 
   it('gives the harness the witness commands the brief fixed, and the base sha to run them at in a worktree of its own', async () => {
