@@ -35,12 +35,11 @@ catalog:
   '@redocly/cli': ^2.52.0
   '@types/express': ^4.17.25
   '@types/node': ^{{nodeMajor}}.0.0
-  '@types/supertest': ^7.2.1
   eslint: ^10.10.0
   express: ^4.21.2
   express-openapi-validator: ^5.6.2
+  light-my-request: ^6.8.0
   openapi-typescript: ^7.13.0
-  supertest: ^7.2.2
   tsx: ^4.23.13
   typescript: ^5.9.3
   vitest: ^5.0.0
