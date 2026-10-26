@@ -44,6 +44,7 @@ import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const ARRIVAL_GUARD_MS = 25_000
+const TREE_GATE = 'pnpm run gate-of-the-tree'
 const UNDER_FULL_SUITE_LOAD_MS = 5 * 60_000
 const roots: string[] = []
 const groups: number[] = []
@@ -865,12 +866,18 @@ describe('the launch queue', () => {
     const root = tempRoot()
     const stub = stubClaude(root)
     const bench = launchBench(realStarter(root, `${stub.command} --permission-mode auto`, 934, {}, { claude: stub.command }))
+    const tree = path.join(root, 'mc-934')
+    writeFileSync(path.join(tree, 'construct.json'), `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [TREE_GATE] } })}\n`)
     bench.admit(934, 'lane-x')
     bench.tick()
 
     expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
     const [args, card] = (await written(stub.argsFile)).trim().split('\n')
-    expect(args).toBe('--permission-mode dontAsk --strict-mcp-config -p --session-id session-934')
+    const settings = /^--permission-mode dontAsk --settings (\{.*\}) --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
+    expect(JSON.parse(settings ?? 'null')).toEqual({
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+      permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
+    })
     expect(card).toBe('card=934')
     bench.close()
   })

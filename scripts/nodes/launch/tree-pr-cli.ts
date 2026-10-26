@@ -6,6 +6,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
+import { readShiftGate } from '../../../src/manifest.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
 import { CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT } from '../../core/events.js'
 import { treeReportPath } from '../../core/places.js'
@@ -13,6 +14,7 @@ import { openDatabase } from '../../core/sqlite.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { sessionEnv } from '../../ports/session.js'
+import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { CARD_MCP_FLAGS, CARD_PERMISSION_MODE } from './launch-starter.js'
 import { collectReport, missingReportDetail, REPORT_MISSING } from './report-collect.js'
@@ -154,7 +156,7 @@ export function claudeResume(busPath: string, claude = 'claude', ceilingMs = RET
     }
     if (session === undefined)
       return false
-    const run = spawnSync(claude, ['--permission-mode', CARD_PERMISSION_MODE, ...CARD_MCP_FLAGS, '-p', '--resume', session, prompt], { cwd: worktree, env: sessionEnv(process.env, cardId), stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
+    const run = spawnSync(claude, ['--permission-mode', CARD_PERMISSION_MODE, ...settingsFlag(shiftSettings(worktree, readShiftGate(worktree))), ...CARD_MCP_FLAGS, '-p', '--resume', session, prompt], { cwd: worktree, env: sessionEnv(process.env, cardId), stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
     return run.error === undefined && run.status === 0
   }
 }
