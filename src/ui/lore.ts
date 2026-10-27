@@ -611,9 +611,9 @@ export const LORE: Lore = {
     next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
   attachRefusedRequiredCheck: {
-    what: 'BREACH FAILED // CHECK UNRESOLVED: the CI job behind this gate has no fixed check name (a matrix, an expression or a reusable workflow)',
-    why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded cannot be read from the file.',
-    next: 'Name the check run yourself: --required-check "<name>". Nothing was written.',
+    what: 'BREACH FAILED // CHECK UNRESOLVED: no CI job with a fixed check name runs this gate (none runs it, or it is a matrix, an expression or a reusable workflow)',
+    why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded, or a job that was not found, cannot be read from the file.',
+    next: 'Name the CI job with --required-check "<name>". Nothing was written.',
   },
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness rewrites the tree: ${marks.join(', ')}`,
@@ -1014,9 +1014,9 @@ export const PLAIN_LORE: Lore = {
     next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
   attachRefusedRequiredCheck: {
-    what: 'Refused: the required check cannot be resolved from the CI job this harness was taken from (it is a matrix, uses an expression or calls a reusable workflow).',
-    why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded cannot be read from the file.',
-    next: 'Name the check run yourself with --required-check "<name>". Nothing was written.',
+    what: 'Refused: the required check cannot be resolved, no CI job with a fixed check name runs this harness (none runs it, or it is a matrix, uses an expression or calls a reusable workflow).',
+    why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded, or a job that was not found, cannot be read from the file.',
+    next: 'Name the CI job with --required-check "<name>". Nothing was written.',
   },
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness command edits files: ${marks.join(', ')}.`,

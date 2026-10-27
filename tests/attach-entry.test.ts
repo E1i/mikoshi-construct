@@ -182,7 +182,7 @@ describe('attach --yes without --harness', () => {
 
   it('attaches the same repository once a harness is named', async () => {
     const root = repository()
-    const result = await runAttach(capturing('plain').ui, { dir: root, yes: true, harness: 'true' })
+    const result = await runAttach(capturing('plain').ui, { dir: root, yes: true, harness: 'true', requiredCheck: 'gate' })
     expect(result.status).toBe('done')
   })
 })

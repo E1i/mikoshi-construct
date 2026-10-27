@@ -33,7 +33,7 @@ describe('attach carries the window hooks and rules with push none', () => {
   it('attach with defaults records push none and writes the hooks and the rules as excluded files', async () => {
     const dir = fixture()
 
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
 
     const record = readAttachRecord(dir)
     expect(record?.push).toBe('none')
@@ -51,7 +51,7 @@ describe('attach carries the window hooks and rules with push none', () => {
 
   it('detach removes the hooks and the rules and leaves git status empty', async () => {
     const dir = fixture()
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
 
     expect(runDetach(ui, { dir }).status).toBe('done')
 

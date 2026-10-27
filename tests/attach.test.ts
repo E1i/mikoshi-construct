@@ -28,6 +28,7 @@ import { listing } from './repository-listing.js'
 
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
 const HARNESS = 'pnpm run quality'
+const REQUIRED_CHECK = 'gate'
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 const home = useIsolatedHome()
@@ -128,7 +129,7 @@ describe('a1: init plans merges and appends where attach plans only creates', ()
 describe('a2: attach leaves the tracked tree untouched and records what it did', () => {
   it('keeps git status empty, hides every recorded file and the ledger, leaves no untracked entry in a recorded directory, and records a hash per recorded file matching disk', async () => {
     const dir = fixture()
-    const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    const result = await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
     expect(result.status).toBe('done')
     expect(porcelain(dir)).toBe('')
 
@@ -140,7 +141,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
     expect(record?.recordVersion).toBe(ATTACH_RECORD_VERSION)
     expect(record?.construct).toBe(VERSION)
     expect(Date.parse(record?.attachedAt ?? '')).not.toBeNaN()
-    expect(record?.harness).toEqual({ command: HARNESS })
+    expect(record?.harness).toEqual({ command: HARNESS, job: REQUIRED_CHECK })
     expect(record?.excludeCreated).toBe(false)
     expect(record?.excludeSeparator).toBe(1)
 
@@ -170,7 +171,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
   it('creates .git/info/exclude when the repository has none and records that it did', async () => {
     const dir = fixture()
     rmSync(path.join(dir, '.git/info'), { recursive: true })
-    const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    const result = await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
     expect(result.status).toBe('done')
     expect(readAttachRecord(dir)?.excludeCreated).toBe(true)
     expect(readAttachRecord(dir)?.excludeSeparator).toBe(0)
@@ -243,7 +244,7 @@ describe('what attach does not count as a project is what detect ignores plus th
         mkdirSync(path.join(dir, entry))
     }
 
-    const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    const result = await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
 
     expect(result.refusal).toBe('nothing-to-attach')
   })
@@ -256,7 +257,7 @@ describe('the ledger directory is not something to attach to', () => {
       ledger.arrange(dir)
       const before = listing(dir)
 
-      const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
+      const result = await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
 
       expect(result.refusal).toBe(ledger.refusal)
       if (ledger.refusal != null)
@@ -266,7 +267,7 @@ describe('the ledger directory is not something to attach to', () => {
 })
 
 async function attachedAlready(dir: string, removeCarriers: boolean): Promise<void> {
-  await runAttach(ui, { dir, harness: HARNESS, yes: true })
+  await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
   if (!removeCarriers)
     return
   const record = readAttachRecord(dir)
@@ -304,7 +305,7 @@ describe('a repository that already holds its attach record is not attached agai
       const before = listing(dir)
       const { ui: plain, output } = capturing()
 
-      const result = await runAttach(plain, { dir, harness: HARNESS, yes: true })
+      const result = await runAttach(plain, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
 
       expect(result.refusal).toBe(attached.refusal)
       if (attached.refusal == null) {
@@ -334,7 +335,7 @@ describe('a3: every refusal exits before anything is written', () => {
       const before = listing(dir)
       const { ui: plain, output } = capturing()
 
-      const result = await runAttach(plain, { dir, harness: HARNESS, yes: true, ...refusal.options })
+      const result = await runAttach(plain, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true, ...refusal.options })
 
       expect(result.status).toBe('refused')
       expect(result.refusal).toBe(refusal.refusal)
@@ -360,7 +361,7 @@ describe('a3: every refusal exits before anything is written', () => {
   it('a harness that edits files is attached with a warning that names what edits and what to run instead', async () => {
     const dir = fixture()
     const { ui: plain, output } = capturing()
-    const result = await runAttach(plain, { dir, harness: 'npx eslint . --fix', yes: true })
+    const result = await runAttach(plain, { dir, harness: 'npx eslint . --fix', requiredCheck: REQUIRED_CHECK, yes: true })
     const notice = PLAIN_LORE.attachHarnessEditsFiles(['--fix'])
     expect(result.status).toBe('done')
     expect(output()).toContain(notice.what)
@@ -374,7 +375,7 @@ describe('a3: every refusal exits before anything is written', () => {
     writeFileSync(path.join(dir, '.claude/agents/harness.md'), '# mine\n')
     writeFileSync(path.join(dir, '.claude/agents/architect.md'), '# mine\n')
     const { ui: plain, output } = capturing()
-    await runAttach(plain, { dir, harness: HARNESS, yes: true })
+    await runAttach(plain, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
     expect(output()).toContain('2 paths attach would create already exist:')
     expect(output()).toContain('.claude/agents/architect.md')
     expect(output()).toContain('.claude/agents/harness.md')
@@ -386,7 +387,7 @@ describe('the carriers attach writes are the ones init writes', () => {
     const fresh = mkdtempSync(path.join(tmpdir(), 'construct-attach-init-'))
     await runInit(ui, { dir: fresh, preset: 'node-library', yes: true, dryRun: false })
     const attached = fixture()
-    await runAttach(ui, { dir: attached, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir: attached, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
     const attachOnly = '.claude/commands/attached-discover.md'
     for (const target of ATTACH_CARRIERS.targets.filter(carrier => carrier !== attachOnly))
       expect(readFileSync(path.join(attached, target)).equals(readFileSync(path.join(fresh, target))), target).toBe(true)
@@ -397,7 +398,7 @@ describe('the carriers attach writes are the ones init writes', () => {
   it('reports the created paths, the trailer and the next steps without lore in plain mode', async () => {
     const dir = fixture()
     const { ui: plain, output } = capturing()
-    await runAttach(plain, { dir, harness: HARNESS, yes: true })
+    await runAttach(plain, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
     for (const target of ATTACH_CARRIERS.targets)
       expect(output()).toContain(`+ ${target}`)
     expect(output()).toContain(PLAIN_LORE.attached)
@@ -501,7 +502,7 @@ describe('attach decides without reading the stack (#232)', () => {
     const dir = goRepository(false)
     const before = listing(dir)
 
-    const result = await runAttach(ui, { dir, harness: 'make check', yes: true })
+    const result = await runAttach(ui, { dir, harness: 'make check', requiredCheck: REQUIRED_CHECK, yes: true })
 
     expect(result.status).toBe('done')
     expect(runDetach(ui, { dir }).status).toBe('done')
@@ -519,7 +520,7 @@ describe('attach decides without reading the stack (#232)', () => {
 
   it('reads an attached Go repository as attached, never checked, without a report', async () => {
     const dir = goRepository(false)
-    expect((await runAttach(ui, { dir, harness: 'make check', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'make check', requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
     const result = runDoctor(dir)
     if (result == null || !('state' in result))
@@ -530,8 +531,8 @@ describe('attach decides without reading the stack (#232)', () => {
   })
 
   it('gives a Go repository the same decision with and without a services/ directory', async () => {
-    const without = await runAttach(ui, { dir: goRepository(false), harness: 'make check', yes: true })
-    const withServices = await runAttach(ui, { dir: goRepository(true), harness: 'make check', yes: true })
+    const without = await runAttach(ui, { dir: goRepository(false), harness: 'make check', requiredCheck: REQUIRED_CHECK, yes: true })
+    const withServices = await runAttach(ui, { dir: goRepository(true), harness: 'make check', requiredCheck: REQUIRED_CHECK, yes: true })
 
     expect(without.status).toBe(withServices.status)
     expect(without.refusal).toBe(withServices.refusal)
@@ -560,7 +561,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
   it('the commit guard: creates the settings file holding exactly the entry, hides it and records what it created', async () => {
     const dir = fixture()
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY], ...WINDOW_HOOKS } })
     expect(porcelain(dir)).toBe('')
@@ -574,7 +575,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
     const existing = { permissions: { allow: ['Bash(ls:*)'] }, hooks: { PreToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'true' }] }], Stop: [{ hooks: [{ type: 'command', command: 'true' }] }] } }
     writeSettings(dir, JSON.stringify(existing))
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({ ...existing, hooks: { ...WINDOW_HOOKS, PreToolUse: [...existing.hooks.PreToolUse, GUARD_ENTRY], Stop: [...existing.hooks.Stop, WINDOW_ENTRIES.Stop] } })
     expect(readAttachRecord(dir)?.settingsHook?.created).toEqual({ file: false, hooks: false, preToolUse: false })
@@ -585,7 +586,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
     const dir = fixture()
     writeSettings(dir, JSON.stringify({ permissions: { allow: [] } }))
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({ permissions: { allow: [] }, hooks: { PreToolUse: [GUARD_ENTRY], ...WINDOW_HOOKS } })
     expect(readAttachRecord(dir)?.settingsHook?.created).toEqual({ file: false, hooks: true, preToolUse: true })
@@ -621,7 +622,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
       const before = listing(dir)
       const { ui: plain, output } = capturing()
 
-      const result = await runAttach(plain, { dir, harness: HARNESS, yes: true })
+      const result = await runAttach(plain, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
 
       expect(result.status).toBe('refused')
       expect(result.refusal).toBe(refusal.reason)
@@ -638,8 +639,8 @@ describe('the commit guard: attach installs one entry in the untracked settings 
     const versionFour = fixture()
     git(versionFour, 'update-index', '--index-version', '4')
 
-    expect((await runAttach(ui, { dir: plainRepository, harness: HARNESS, yes: true })).status).toBe('done')
-    expect((await runAttach(ui, { dir: versionFour, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir: plainRepository, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir: versionFour, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
   })
 
   it('the commit guard: a settings file that stops parsing between the check and the write rolls back this run and restores the exclude file', async () => {
@@ -710,7 +711,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     const dir = fixture()
     writeSettings(dir, HOST_SETTINGS)
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
     const copy = recordedCopy(dir)
     expect(copy).toBe(originalCopyPath(dir))
@@ -727,7 +728,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
   it('attach with no host settings file makes no copy', async () => {
     const dir = fixture()
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
     expect(filesInHome()).toEqual([])
     expect(readAttachRecord(dir)?.settingsHook?.original).toBeUndefined()
@@ -738,7 +739,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     mkdirSync(path.join(dir, '.construct/browser'), { recursive: true })
     writeFileSync(path.join(dir, '.construct/runs.jsonl'), '{}\n')
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
     expect(readAttachRecord(dir)?.ledgerHeld).toEqual(['.construct/runs.jsonl', '.construct/browser'])
   })
@@ -748,7 +749,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     mkdirSync(path.join(dir, '.construct/browser/20200101T000000000Z-1'), { recursive: true })
     writeFileSync(path.join(dir, '.construct/browser/notes.txt'), 'mine\n')
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
     expect(readAttachRecord(dir)?.browserHeld).toEqual(['20200101T000000000Z-1', 'notes.txt'])
     expect(readAttachRecord(dir)?.recordVersion).toBe(ATTACH_RECORD_VERSION)
@@ -766,7 +767,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
       const excludeBefore = readFileSync(path.join(dir, EXCLUDE_FILE))
       const { ui: plain, output } = capturing()
 
-      const result = await runAttach(plain, { dir, harness: HARNESS, yes: true })
+      const result = await runAttach(plain, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
 
       expect(result.status).toBe('refused')
       expect(result.refusal).toBe('original-pending')
@@ -780,10 +781,10 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
   it('attach after a finished detach succeeds', async () => {
     const dir = fixture()
     writeSettings(dir, HOST_SETTINGS)
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
     expect(runDetach(ui, { dir }).status).toBe('done')
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
   })
 
   it('two repositories with the same basename get different copy directories', async () => {
@@ -795,7 +796,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
       git(dir, 'add', '-A')
       git(dir, 'commit', '-qm', 'base')
       writeSettings(dir, HOST_SETTINGS)
-      expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+      expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
     }
 
     const names = [first, second].map(dir => path.basename(path.dirname(recordedCopy(dir))))
@@ -811,10 +812,10 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     const link = path.join(mkdtempSync(path.join(tmpdir(), 'construct-link-')), 'link')
     symlinkSync(dir, link)
 
-    const subdirectory = await runAttach(ui, { dir: path.join(dir, 'sub'), harness: HARNESS, yes: true })
+    const subdirectory = await runAttach(ui, { dir: path.join(dir, 'sub'), harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
     expect(subdirectory.refusal).toBe('no-git')
     expect(filesInHome()).toEqual([])
-    expect((await runAttach(ui, { dir: link, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir: link, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
     const real = realpathSync(dir)
     const key = `${sha256OfText(real).slice(0, 12)}-${path.basename(real)}`
@@ -824,7 +825,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
   it('the copy path in the record, not a recomputed key, is what detach reads after the repository is renamed', async () => {
     const dir = fixture()
     writeSettings(dir, HOST_SETTINGS)
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
     const moved = `${dir}-moved`
     renameSync(dir, moved)
 
@@ -842,7 +843,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     const excludeBefore = readFileSync(path.join(dir, EXCLUDE_FILE))
     const { ui: plain, output } = capturing()
 
-    const result = await runAttach(plain, { dir, harness: HARNESS, yes: true })
+    const result = await runAttach(plain, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('settings-original')

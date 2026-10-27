@@ -216,3 +216,8 @@ export function harnessCandidates(root: string): HarnessCandidate[] {
   }
   return candidates.slice(0, MAX_HARNESS_CANDIDATES)
 }
+
+export function jobRunning(root: string, command: string): string | null {
+  const key = sameCommand(command)
+  return harnessCandidates(root).find(candidate => sameCommand(candidate.command) === key)?.job ?? null
+}

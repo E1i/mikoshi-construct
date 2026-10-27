@@ -40,7 +40,7 @@ function engramFile(): string {
 describe('the Atlas in an attached repository', () => {
   it('attach writes the atlas carriers as excluded files', async () => {
     const dir = foreignRepository()
-    const result = await runAttach(ui, { dir, harness: 'node --version', yes: true })
+    const result = await runAttach(ui, { dir, harness: 'node --version', requiredCheck: 'gate', yes: true })
     expect(result.status).toBe('done')
     expect(ATTACH_CARRIERS.targets).toEqual(expect.arrayContaining(ATLAS_CARRIERS))
     const exclude = readFileSync(path.join(dir, '.git/info/exclude'), 'utf8')
@@ -53,7 +53,7 @@ describe('the Atlas in an attached repository', () => {
 
   it('names in the attached-discover carrier a command that exists and keeps the interpretation out of the repository', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'node --version', yes: true })
+    await runAttach(ui, { dir, harness: 'node --version', requiredCheck: 'gate', yes: true })
     const discover = readFileSync(path.join(dir, '.claude/commands/attached-discover.md'), 'utf8')
     expect(discover).toContain('construct atlas')
     expect(discover).toContain('~/.construct/engram/')
@@ -62,7 +62,7 @@ describe('the Atlas in an attached repository', () => {
 
   it('leaves git status empty after the interpretation is written into the Engram', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'node --version', yes: true })
+    await runAttach(ui, { dir, harness: 'node --version', requiredCheck: 'gate', yes: true })
     runAtlas({ dir, home: home(), attached: true })
     const file = engramFile()
     expect(file.startsWith(home())).toBe(true)
@@ -76,7 +76,7 @@ describe('the Atlas in an attached repository', () => {
 
   it('detach removes the atlas carriers', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'node --version', yes: true })
+    await runAttach(ui, { dir, harness: 'node --version', requiredCheck: 'gate', yes: true })
     const result = runDetach(ui, { dir })
     expect(result.status).toBe('done')
     for (const target of ATLAS_CARRIERS)
