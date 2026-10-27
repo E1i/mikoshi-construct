@@ -19,7 +19,7 @@ import { writeExcludeBlock } from './exclude.js'
 import { fileEditingMarks, harnessCandidates, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, DEFAULT_PUSH_POLICY, NO_HARNESS, writeAttachRecord } from './record.js'
-import { harnessRefusal, refusalFor } from './refusals.js'
+import { harnessRefusal, refusalFor, unresolvableCheckRefusal } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
 import { installHookEntries, readSettings, SETTINGS_FILE } from './settings.js'
 import { shellWord } from './shell-word.js'
@@ -39,6 +39,7 @@ export type { SettingsHook } from './settings.js'
 export interface AttachOptions {
   dir: string
   harness?: string
+  requiredCheck?: string
   ai?: string
   lanes?: string
   yes: boolean
@@ -76,6 +77,7 @@ const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefu
   'settings-original': lore => lore.attachRefusedSettingsOriginal,
   'original-pending': lore => lore.attachRefusedOriginalPending,
   'cursor': lore => lore.attachRefusedCursor,
+  'required-check-unresolvable': lore => lore.attachRefusedRequiredCheck,
   'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word).map(shellWord)),
 }
 
@@ -119,7 +121,11 @@ function printCandidates(ui: Ui, candidates: HarnessCandidate[]): void {
   candidates.forEach(({ command, source }, index) => ui.line(`    ${ui.lore.attachHarnessCandidate(index + 1, command, source)}`))
 }
 
-async function askHarness(ui: Ui, root: string, interactive: Prompter): Promise<AttachHarness | undefined> {
+function isRefusal(harness: AttachHarness | AttachRefusal): harness is AttachRefusal {
+  return typeof harness === 'object' && 'reason' in harness
+}
+
+async function askHarness(ui: Ui, root: string, interactive: Prompter, requiredCheck: string | undefined): Promise<AttachHarness | AttachRefusal | undefined> {
   const candidates = harnessCandidates(root)
   printCandidates(ui, candidates)
   if (candidates.length === 0)
@@ -127,7 +133,16 @@ async function askHarness(ui: Ui, root: string, interactive: Prompter): Promise<
   const command = await interactive.harnessCommand(candidates.map(candidate => candidate.command))
   if (command === undefined)
     return undefined
-  return command == null ? NO_HARNESS : { command }
+  if (command == null)
+    return NO_HARNESS
+  const chosen = candidates.find(candidate => candidate.command === command)
+  if (chosen?.jobUnresolved === true && requiredCheck == null)
+    return unresolvableCheckRefusal()
+  return withJob(command, requiredCheck ?? chosen?.job)
+}
+
+function withJob(command: string, job: string | undefined): AttachHarness {
+  return job == null ? { command } : { command, job }
 }
 
 function checkedHarness(ui: Ui, command: string, searchPath: string): AttachRefusal | null {
@@ -160,9 +175,12 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   }
   const interactive = options.yes ? undefined : prompter
 
-  const harness = options.harness != null ? { command: options.harness } : interactive == null ? NO_HARNESS : await askHarness(ui, root, interactive)
-  if (harness == null)
+  const asked = options.harness != null ? withJob(options.harness, options.requiredCheck) : interactive == null ? NO_HARNESS : await askHarness(ui, root, interactive, options.requiredCheck)
+  if (asked == null)
     return aborted()
+  if (isRefusal(asked))
+    return refused(ui, asked)
+  const harness = asked
   if (harness === NO_HARNESS)
     ui.line(`  ${ui.lore.attachHarnessNone}`)
   const unchecked = harness === NO_HARNESS ? null : checkedHarness(ui, harness.command, (options.env ?? process.env).PATH ?? '')

@@ -44,6 +44,9 @@
         "plain": {
           "type": "boolean"
         },
+        "requiredCheck": {
+          "type": "string"
+        },
         "yes": {
           "alias": "y",
           "type": "boolean"

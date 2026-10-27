@@ -895,7 +895,7 @@ describe('interactive attach proposes the harness candidates it read from the re
     expect(offered()).toEqual(['pnpm test', 'pnpm run quality', 'pnpm run typecheck'])
     expect(output()).toContain(PLAIN_LORE.attachHarnessCandidate(1, 'pnpm test', '.github/workflows/test.yml:6'))
     expect(output()).toContain(PLAIN_LORE.attachHarnessCandidate(2, 'pnpm run quality', 'package.json scripts.quality'))
-    expect(readAttachRecord(dir)?.harness).toEqual({ command: 'pnpm test' })
+    expect(readAttachRecord(dir)?.harness).toEqual({ command: 'pnpm test', job: 'test' })
   })
 
   it('says so when the repository has no test to propose, attaches without asking, records harness none, and doctor reports it as not covered', async () => {
@@ -930,6 +930,55 @@ describe('interactive attach proposes the harness candidates it read from the re
     expect(offered()).toEqual(['npm run test'])
     expect(output()).toContain(PLAIN_LORE.attachHarnessNone)
     expect(readAttachRecord(dir)?.harness).toBe(NO_HARNESS)
+  })
+
+  const unresolvable = (jobLines: string[]): string => `jobs:\n  test:\n${jobLines.map(line => `    ${line}`).join('\n')}\n    steps:\n      - run: pnpm test\n`
+  const UNRESOLVABLE_JOBS: Record<string, string[]> = {
+    'a matrix job': ['name: Test', 'strategy:', '  matrix:', '    node: [20, 22]'],
+    'a name with an expression': [`name: Test on \${{ matrix.os }}`],
+    'a reusable-workflow caller': ['uses: ./.github/workflows/reusable.yml'],
+  }
+
+  for (const [kind, jobLines] of Object.entries(UNRESOLVABLE_JOBS)) {
+    it(`refuses ${kind} as the gate job, writes nothing, and says to name the check with --required-check`, async () => {
+      const dir = fixture()
+      mkdirSync(path.join(dir, '.github/workflows'), { recursive: true })
+      writeFileSync(path.join(dir, '.github/workflows/test.yml'), unresolvable(jobLines))
+      const before = listing(dir)
+      const { ui, output } = capturing()
+      const { prompter } = choosing(candidates => candidates[0])
+
+      const result = await runAttach(ui, { dir, yes: false }, prompter)
+
+      expect(result.status).toBe('refused')
+      expect(result.refusal).toBe('required-check-unresolvable')
+      expect(output()).toContain(PLAIN_LORE.attachRefusedRequiredCheck.what)
+      expect(output()).toContain(PLAIN_LORE.attachRefusedRequiredCheck.next)
+      expect(listing(dir)).toEqual(before)
+    })
+  }
+
+  it('--required-check names the check of an unresolvable job and is the recorded job', async () => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.github/workflows'), { recursive: true })
+    writeFileSync(path.join(dir, '.github/workflows/test.yml'), unresolvable(UNRESOLVABLE_JOBS['a matrix job']))
+    const { ui } = capturing()
+    const { prompter } = choosing(candidates => candidates[0])
+
+    const result = await runAttach(ui, { dir, yes: false, requiredCheck: 'Test (20)' }, prompter)
+
+    expect(result.status).toBe('done')
+    expect(readAttachRecord(dir)?.harness).toEqual({ command: 'pnpm test', job: 'Test (20)' })
+  })
+
+  it('--required-check beside --harness records the job without reading any workflow', async () => {
+    const dir = fixture()
+    const { ui } = capturing()
+
+    const result = await runAttach(ui, { dir, yes: true, harness: HARNESS, requiredCheck: 'gate' })
+
+    expect(result.status).toBe('done')
+    expect(readAttachRecord(dir)?.harness).toEqual({ command: HARNESS, job: 'gate' })
   })
 
   it('with candidates in the repository, --yes and no --harness asks nothing, exits 0 and records harness none', async () => {

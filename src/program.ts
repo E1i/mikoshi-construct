@@ -107,6 +107,7 @@ const attach = withKnownFlags(defineCommand({
   args: {
     ...commonArgs,
     harness: { type: 'string', description: 'The harness command the ladder verifies with; nothing is assumed' },
+    requiredCheck: { type: 'string', description: 'The name of the CI check run the bus waits for; recorded in .construct/attach.json' },
     ai: { type: 'enum', options: AI_TARGETS, description: 'AI target: claude (cursor and both are refused)' },
     lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in .construct/attach.json' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
@@ -121,7 +122,7 @@ const attach = withKnownFlags(defineCommand({
         return
       }
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
-      const result = await runAttach(console, { dir: args.dir, harness: args.harness, ai: args.ai, lanes: args.lanes, yes: args.yes }, prompter)
+      const result = await runAttach(console, { dir: args.dir, harness: args.harness, requiredCheck: args.requiredCheck, ai: args.ai, lanes: args.lanes, yes: args.yes }, prompter)
       process.exitCode = ATTACH_EXIT[result.status]
     }
     catch (error) {

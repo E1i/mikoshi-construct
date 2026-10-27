@@ -20,6 +20,8 @@ export function fileEditingMarks(command: string): string[] {
 export interface HarnessCandidate {
   command: string
   source: string
+  job?: string
+  jobUnresolved?: true
 }
 
 export const MAX_HARNESS_CANDIDATES = 3
@@ -40,21 +42,79 @@ interface Found extends HarnessCandidate {
   reads: string
 }
 
+const JOBS_KEY = /^jobs:\s*(?:#.*)?$/
+const JOB_ID = /^\s+([\w-]+):\s*(?:#.*)?$/
+const JOB_NAME = /^\s+name:[ \t]+([^#\s][^#]*)/
+const JOB_EXPANDED_KEY = /^\s+(?:strategy|uses):/
+const EXPRESSION = '${{'
+
+interface JobReading {
+  name: string | null
+}
+
 function unquoted(value: string): string {
   const trimmed = value.trim()
   const quoted = /^(['"])(.*)\1$/.exec(trimmed)
   return quoted?.[2] ?? trimmed
 }
 
+function indentOf(line: string): number {
+  return line.length - line.trimStart().length
+}
+
+function jobReading(lines: string[], head: { at: number, id: string }, stop: number): JobReading {
+  const body = lines.slice(head.at + 1, stop).filter(line => line.trim() !== '' && !line.trim().startsWith('#'))
+  const own = body.filter(line => indentOf(line) === indentOf(body[0]))
+  if (own.some(line => JOB_EXPANDED_KEY.test(line)))
+    return { name: null }
+  const nameLine = own.find(line => JOB_NAME.test(line))
+  const name = nameLine == null ? head.id : unquoted(JOB_NAME.exec(nameLine)![1])
+  return { name: name.includes(EXPRESSION) ? null : name }
+}
+
+function jobsOf(lines: string[]): (JobReading | undefined)[] {
+  const jobs: (JobReading | undefined)[] = lines.map(() => undefined)
+  const start = lines.findIndex(line => JOBS_KEY.test(line))
+  if (start < 0)
+    return jobs
+  const heads: { at: number, id: string }[] = []
+  let end = lines.length
+  for (let at = start + 1; at < lines.length; at++) {
+    if (lines[at].trim() === '')
+      continue
+    if (indentOf(lines[at]) === 0) {
+      end = at
+      break
+    }
+    const id = JOB_ID.exec(lines[at])?.[1]
+    if (id != null && (heads.length === 0 || indentOf(lines[at]) === indentOf(lines[heads[0].at])))
+      heads.push({ at, id })
+  }
+  heads.forEach((head, position) => {
+    const stop = heads[position + 1]?.at ?? end
+    const reading = jobReading(lines, head, stop)
+    for (let at = head.at; at < stop; at++)
+      jobs[at] = reading
+  })
+  return jobs
+}
+
+function jobFields(reading: JobReading | undefined): Pick<HarnessCandidate, 'job' | 'jobUnresolved'> {
+  if (reading == null)
+    return {}
+  return reading.name == null ? { jobUnresolved: true } : { job: reading.name }
+}
+
 function workflowRunLines(file: string, text: string): Found[] {
   const lines = text.split(/\r?\n/)
+  const jobs = jobsOf(lines)
   return lines.flatMap((line, index) => {
     const step = RUN_STEP.exec(line)
     if (step == null)
       return []
     const value = step[2].trim()
     if (!BLOCK_SCALAR.test(value))
-      return value === '' ? [] : [{ command: unquoted(value), source: `${file}:${index + 1}`, reads: unquoted(value) }]
+      return value === '' ? [] : [{ command: unquoted(value), source: `${file}:${index + 1}`, reads: unquoted(value), ...jobFields(jobs[index]) }]
     const indent = step[1].length
     const body: Found[] = []
     for (let at = index + 1; at < lines.length; at++) {
@@ -65,7 +125,7 @@ function workflowRunLines(file: string, text: string): Found[] {
         break
       const command = next.trim()
       if (!command.startsWith('#'))
-        body.push({ command, source: `${file}:${at + 1}`, reads: command })
+        body.push({ command, source: `${file}:${at + 1}`, reads: command, ...jobFields(jobs[index]) })
     }
     return body
   })
@@ -152,7 +212,7 @@ export function harnessCandidates(root: string): HarnessCandidate[] {
     if (seen.has(key))
       continue
     seen.add(key)
-    candidates.push({ command: found.command, source: found.source })
+    candidates.push({ command: found.command, source: found.source, ...(found.job == null ? {} : { job: found.job }), ...(found.jobUnresolved === true ? { jobUnresolved: true as const } : {}) })
   }
   return candidates.slice(0, MAX_HARNESS_CANDIDATES)
 }

@@ -1,4 +1,7 @@
 import type { Meter } from './meter.js'
+import process from 'node:process'
+import { readAttachRecord } from '../../src/commands/attach/record.js'
+import { repositoryRoot } from '../core/bus-path.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
 import { REQUIRED_CHECK, SECRET_SCAN_CHECK } from './gh.js'
@@ -93,8 +96,17 @@ function checkRunsOf(meter: Meter, sha: string): CheckRun[] {
   return (meter.get(`${REPO}/commits/${sha}/check-runs?per_page=100`) as { check_runs?: CheckRun[] }).check_runs ?? []
 }
 
-function ciOfRuns(runs: CheckRun[]): CiReading {
-  const required = runs.find(run => run.name === REQUIRED_CHECK)
+export function watchedRoot(): string {
+  return repositoryRoot(process.cwd()) ?? process.cwd()
+}
+
+export function requiredCheckOf(root: string = watchedRoot()): string {
+  const harness = readAttachRecord(root)?.harness
+  return typeof harness === 'object' && harness.job != null ? harness.job : REQUIRED_CHECK
+}
+
+function ciOfRuns(runs: CheckRun[], requiredCheck: string): CiReading {
+  const required = runs.find(run => run.name === requiredCheck)
   if (required === undefined || required.status !== 'completed')
     return 'pending'
   if (required.conclusion !== 'success')
@@ -107,12 +119,12 @@ function ciOfRuns(runs: CheckRun[]): CiReading {
   return FAILED_CONCLUSIONS.has(secretScan.conclusion ?? '') ? 'red' : 'green'
 }
 
-function failedChecksOf(runs: CheckRun[]): string[] {
-  return runs.flatMap(run => run.name !== undefined && run.name !== REQUIRED_CHECK && run.status === 'completed' && FAILED_CONCLUSIONS.has(run.conclusion ?? '') ? [run.name] : [])
+function failedChecksOf(runs: CheckRun[], requiredCheck: string): string[] {
+  return runs.flatMap(run => run.name !== undefined && run.name !== requiredCheck && run.status === 'completed' && FAILED_CONCLUSIONS.has(run.conclusion ?? '') ? [run.name] : [])
 }
 
-export function ciOf(meter: Meter, sha: string): CiReading {
-  return ciOfRuns(checkRunsOf(meter, sha))
+export function ciOf(meter: Meter, sha: string, requiredCheck = REQUIRED_CHECK): CiReading {
+  return ciOfRuns(checkRunsOf(meter, sha), requiredCheck)
 }
 
 export function verdictOf(meter: Meter, sha: string): VerdictOnHead | null {
@@ -121,12 +133,12 @@ export function verdictOf(meter: Meter, sha: string): VerdictOnHead | null {
   return review?.state === undefined ? null : VERDICT_OF_STATE[review.state] ?? null
 }
 
-function openPrOf(meter: Meter, pull: Pull): OpenPr | null {
+function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | null {
   const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
   if (mergeable === undefined)
     return null
   const runs = checkRunsOf(meter, pull.head.sha)
-  const ci = ciOfRuns(runs)
+  const ci = ciOfRuns(runs, requiredCheck)
   return {
     pr: pull.number,
     cardId: cardIdOfDescription(pull.body),
@@ -134,7 +146,7 @@ function openPrOf(meter: Meter, pull: Pull): OpenPr | null {
     head: pull.head.sha,
     mergeable,
     ci,
-    failedChecks: ci === 'red' ? failedChecksOf(runs) : [],
+    failedChecks: ci === 'red' ? failedChecksOf(runs, requiredCheck) : [],
     verdictOnHead: verdictOf(meter, pull.head.sha),
     autoMerge: pull.auto_merge !== null && pull.auto_merge !== undefined,
     draft: pull.draft === true,
@@ -171,7 +183,7 @@ function mainOf(meter: Meter, lastMain: string | null): MainHead | null {
   return { sha, touchesMechanics: touchesMechanics(files) }
 }
 
-export function takeSnapshot(meter: Meter, known: number[], lastMain: string | null): Snapshot {
+export function takeSnapshot(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK): Snapshot {
   const listed = meter.get(`${REPO}/pulls?state=open&per_page=${OPEN_PULLS_PAGE}`) as Pull[]
   const snapshot: Snapshot = { open: [], closed: [], unsettled: [], main: null }
   const pulls = [...listed]
@@ -183,7 +195,7 @@ export function takeSnapshot(meter: Meter, known: number[], lastMain: string | n
       snapshot.closed.push(closedPrOf(pull))
       continue
     }
-    const open = openPrOf(meter, listedNumbers.has(pull.number) ? meter.get(`${REPO}/pulls/${pull.number}`) as Pull : pull)
+    const open = openPrOf(meter, listedNumbers.has(pull.number) ? meter.get(`${REPO}/pulls/${pull.number}`) as Pull : pull, requiredCheck)
     if (open === null)
       snapshot.unsettled.push(pull.number)
     else

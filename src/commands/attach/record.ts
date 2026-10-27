@@ -12,7 +12,7 @@ export type PushPolicy = 'none' | 'bus'
 
 export const DEFAULT_PUSH_POLICY: PushPolicy = 'none'
 
-export type AttachHarness = { command: string } | typeof NO_HARNESS
+export type AttachHarness = { command: string, job?: string } | typeof NO_HARNESS
 
 export interface AttachRecord {
   recordVersion: number
