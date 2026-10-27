@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
@@ -27,6 +28,7 @@ import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECOR
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, reviewInputOfKey, taskKey } from '../../core/identifiers.js'
 import { expireLeases, leaseNext, leaseQueued } from '../../core/lease.js'
 import { Node, runNode, SWITCH_FLAG } from '../../core/node.js'
+import { pushPolicyAt } from '../../core/push-policy.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from '../../core/queue.js'
 import { shadowReading } from '../../core/report.js'
 import { openDatabase } from '../../core/sqlite.js'
@@ -364,8 +366,10 @@ function ghOutput(port: GhPort, args: string[], call: GhCallOptions): string {
   return result.stdout
 }
 
-export function ghNotePr(cwd: string, port: GhPort = PROCESS_GH_PORT): (pr: number, line: string) => void {
+export function ghNotePr(cwd: string, port: GhPort = PROCESS_GH_PORT, pushPolicy?: () => PushPolicy): (pr: number, line: string) => void {
   return (pr, line) => {
+    if (pushPolicy?.() === 'none')
+      return
     const view = ghOutput(port, ['pr', 'view', String(pr), '--json', 'body', '-q', '.body'], { cwd })
     ghOutput(port, ['pr', 'edit', String(pr), '--body-file', '-'], { cwd, input: `${view.trimEnd()}\n\n${line}\n` })
   }
@@ -447,10 +451,10 @@ async function main(): Promise<number> {
     slots: slotsOf('review', process.env),
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
-    notePr: ghNotePr(cwd),
+    notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyAt(cwd)),
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
-    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), parked: parkedCardNumbers() }),
+    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), parked: parkedCardNumbers(), pushPolicy: () => pushPolicyAt(cwd) }),
   })
 }
 

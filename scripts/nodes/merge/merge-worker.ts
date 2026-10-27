@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, Scope } from '../../core/node.js'
@@ -16,6 +17,7 @@ import { rerunModeOf } from '../../cli/check-catalog.js'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { Node, NodeRefused, runNode } from '../../core/node.js'
+import { pushPolicyAt } from '../../core/push-policy.js'
 import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_BEHIND, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from '../../core/queue.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
@@ -38,6 +40,7 @@ export interface MergeWorkerParts {
   clock: () => Date
   session: string
   run: string | null
+  pushPolicy?: () => PushPolicy
 }
 
 export interface MergeNodeParts extends MergeWorkerParts {
@@ -80,7 +83,7 @@ export class MergeNode extends Node<MergeStep> {
   constructor(parts: MergeNodeParts) {
     super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
     this.rerun = rerunModeOf(parts.env)
-    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun })
+    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun, pushPolicy: parts.pushPolicy })
     this.subscribe(MERGE_ON, scopeOf)
   }
 
@@ -121,16 +124,17 @@ export interface MergeRun {
   put: GitHubPut
   publish: StatusPublisher
   session: string
+  pushPolicy?: () => PushPolicy
   pause: (ms: number) => Promise<unknown>
 }
 
 export async function runMergeWorker(argv: string[], run: MergeRun): Promise<number> {
-  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, mode, env: process.env }), { pause: run.pause })
+  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, mode, env: process.env }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
-  return runMergeWorker(process.argv.slice(2), { busPath: defaultBusPath(), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep })
+  return runMergeWorker(process.argv.slice(2), { busPath: defaultBusPath(), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyAt(cwd) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

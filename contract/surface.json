@@ -1030,6 +1030,7 @@
         ".construct/commit-guard.mjs",
         ".construct/shell-parser.mjs",
         ".construct/window-hooks.mjs",
+        ".construct/window-rules.md",
         "scripts/construct/browser-lab.mjs",
         "scripts/construct/browser-witness.mjs",
         "scripts/construct/check-acceptance.mjs",
