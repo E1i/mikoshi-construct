@@ -23,7 +23,10 @@ branch included, makes a new head, and the pull request is ready again only once
 The coordinating window stops at a boundary rather than at the limit. It checks the boundary after each finished step.
 The boundary is reached when the session's context reaches `contextLimit` or its spend reaches `sessionSpend`, both in
 `.claude/eddies.json`, or when a pull request of an owner-merged kind has just merged. From then on it takes no new work.
-It waits for the subagents it started itself, writes their results into the handoff, and stops. It does not wait for
+It waits for the subagents it started itself, writes their results into the handoff, and stops. The wait is
+mechanical: a `PreToolUse` hook on `Agent` and a `SubagentStop` hook (`.claude/hooks/window-agents.mjs`) keep the live
+subagents in `.construct/window-agents.jsonl`, and `pnpm miko:exit` (`scripts/window/exit.ts`) refuses, naming them,
+while any is live or a worktree of the repository holds uncommitted changes. It does not wait for
 Ghosts: their state is in the ledger and the journal, and the next session reads it there. Eddies enforces the budget
 half of this rule: `.claude/hooks/eddies.mjs` refuses `Agent`, `Workflow`, a nested `claude -p` and `ghosts:launch` once
 either session threshold is reached, an agent's or a workflow run's further calls past `agentSpend` or `runSpend`, and

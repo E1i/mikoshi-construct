@@ -16,6 +16,7 @@ import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
 import { realRoleStopObserver } from './role-bus.js'
 import { windowEndObserver } from './role-end.js'
 import { tabWindowOf } from './tab.js'
+import { dirtyOpenCardTrees, liveAgentsOf } from './window-agents.js'
 
 export const FRESH_MS = 2 * 60 * 1000
 export const LOOP_SCRIPT = path.normalize(FACTORY_RUNTIME.mikoLoopEntry)
@@ -51,6 +52,8 @@ export interface MikoExitDeps {
   observeStop?: (stop: RoleStop) => void
   endWindow?: (end: WindowEnd) => void
   tab?: boolean
+  liveAgents?: () => string[]
+  dirtyTrees?: () => string[]
 }
 
 export function parsePs(text: string): ProcessRow[] {
@@ -195,12 +198,25 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
   return { kill: claude.pid, reason, line: `ending claude ${claude.pid} at the ${reason} limit: the pnpm miko loop starts the next session` }
 }
 
+function unfinishedWork(deps: MikoExitDeps): string | null {
+  const agents = deps.liveAgents?.() ?? []
+  if (agents.length > 0)
+    return `subagents still running: ${agents.join(', ')}: wait for them and write their results into the handoff`
+  const trees = deps.dirtyTrees?.() ?? []
+  return trees.length > 0 ? `uncommitted changes in: ${trees.join(', ')}: commit or hand them off first` : null
+}
+
 export function runMikoExit(deps: MikoExitDeps): number {
   const readings = deps.readings()
   const status = deps.status?.() ?? null
   const decision = decisionOf(deps, status, readings)
   if ('refuse' in decision) {
     deps.err(`${PREFIX}${decision.refuse}`)
+    return 1
+  }
+  const unfinished = unfinishedWork(deps)
+  if (unfinished !== null) {
+    deps.err(`${PREFIX}${unfinished}; nothing ended`)
     return 1
   }
   if (decision.stopped === true) {
@@ -268,6 +284,8 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
     observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
     endWindow: windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) }),
     tab: tabWindowOf(process.env) !== null,
+    liveAgents: () => liveAgentsOf(root),
+    dirtyTrees: () => dirtyOpenCardTrees(process.env, defaultBusPath()),
   }
 }
 
