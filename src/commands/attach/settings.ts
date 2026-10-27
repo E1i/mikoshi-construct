@@ -1,9 +1,11 @@
 import { Buffer } from 'node:buffer'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { isDeepStrictEqual } from 'node:util'
 import { appendHookEntry, isJsonObject } from '../../materialize/strategies.js'
+import { engramFile } from '../../model/discovery.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
 import { sha256OfBytes } from './original.js'
 
@@ -50,6 +52,19 @@ export interface SettingsCreated {
   preToolUse: boolean
 }
 
+export interface EngramPermissions {
+  added: string[]
+  createdPermissions: boolean
+  createdAllow: boolean
+}
+
+const ENGRAM_TOOLS = ['Read', 'Edit', 'Write'] as const
+
+export function engramRules(root: string, home: string = homedir()): string[] {
+  const directory = path.dirname(engramFile(root, { attached: true, home }))
+  return ENGRAM_TOOLS.map(tool => `${tool}(/${directory}/**)`)
+}
+
 export interface SettingsOriginal {
   copy: string
   sha256: string
@@ -61,6 +76,7 @@ export interface SettingsHook {
   created: SettingsCreated
   entry: JsonObject
   window?: WindowEntry[]
+  engram?: EngramPermissions
   original?: SettingsOriginal
 }
 
@@ -108,6 +124,10 @@ export function readSettings(root: string): SettingsReading {
   if (!isJsonObject(parsed))
     return { kind: 'unreadable' }
   if ('hooks' in parsed && !isJsonObject(parsed.hooks))
+    return { kind: 'unreadable' }
+  if ('permissions' in parsed && !isJsonObject(parsed.permissions))
+    return { kind: 'unreadable' }
+  if (isJsonObject(parsed.permissions) && 'allow' in parsed.permissions && !Array.isArray(parsed.permissions.allow))
     return { kind: 'unreadable' }
   const hooks = parsed.hooks
   if (isJsonObject(hooks) && HOOK_EVENTS.some(event => event in hooks && !Array.isArray(hooks[event])))
@@ -160,6 +180,34 @@ function writeSettings(root: string, settings: JsonObject): Buffer {
   return bytes
 }
 
+function allowEngram(settings: JsonObject, rules: string[]): EngramPermissions {
+  const createdPermissions = !('permissions' in settings)
+  const permissions: JsonObject = isJsonObject(settings.permissions) ? settings.permissions : {}
+  const createdAllow = !('allow' in permissions)
+  const allow: unknown[] = Array.isArray(permissions.allow) ? permissions.allow : []
+  const added = rules.filter(rule => !allow.includes(rule))
+  allow.push(...added)
+  permissions.allow = allow
+  settings.permissions = permissions
+  return { added, createdPermissions, createdAllow }
+}
+
+function revokeEngram(settings: JsonObject, engram: EngramPermissions): void {
+  const permissions = settings.permissions
+  if (!isJsonObject(permissions) || !Array.isArray(permissions.allow))
+    return
+  const remaining = permissions.allow.filter(rule => !engram.added.includes(rule as string))
+  permissions.allow = remaining
+  if (engram.createdAllow && remaining.length === 0)
+    delete permissions.allow
+  if (engram.createdPermissions && Object.keys(permissions).length === 0)
+    delete settings.permissions
+}
+
+function isEngramRecord(value: unknown): boolean {
+  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(rule => typeof rule === 'string') && typeof value.createdPermissions === 'boolean' && typeof value.createdAllow === 'boolean')
+}
+
 export type SettingsInstall
   = | { kind: 'installed', hook: SettingsHook, afterSha256: string }
     | { kind: 'unreadable' }
@@ -180,8 +228,9 @@ export function installHookEntries(root: string, reading: SettingsReading): Sett
     return { event, entry: windowEntry, created: appendHookEntry(hooks, event, windowEntry) }
   })
   settings.hooks = hooks
+  const engram = allowEngram(settings, engramRules(root))
   const afterSha256 = sha256OfBytes(writeSettings(root, settings))
-  return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry, window }, afterSha256 }
+  return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry, window, engram }, afterSha256 }
 }
 
 const SHA256_HEX = /^[0-9a-f]{64}$/
@@ -208,7 +257,7 @@ export function isSettingsHook(value: unknown): value is SettingsHook {
   if (!isJsonObject(value) || value.file !== SETTINGS_FILE || !isJsonObject(value.created))
     return false
   const { file, hooks, preToolUse } = value.created
-  if (![file, hooks, preToolUse].every(flag => typeof flag === 'boolean') || !isJsonObject(value.entry) || !namesGuard(value.entry) || !isWindowRecord(value.window))
+  if (![file, hooks, preToolUse].every(flag => typeof flag === 'boolean') || !isJsonObject(value.entry) || !namesGuard(value.entry) || !isWindowRecord(value.window) || !isEngramRecord(value.engram))
     return false
   return value.original === undefined || (file === false && isSettingsOriginal(value.original))
 }
@@ -244,6 +293,8 @@ export function removeHookEntries(root: string, hook: SettingsHook): { fileDelet
     if (created && remaining.length === 0)
       delete hooks[event]
   }
+  if (hook.engram != null)
+    revokeEngram(settings, hook.engram)
   if (hook.created.hooks && Object.keys(hooks).length === 0)
     delete settings.hooks
   if (hook.created.file && Object.keys(settings).length === 0) {

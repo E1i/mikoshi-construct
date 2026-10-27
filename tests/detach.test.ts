@@ -471,7 +471,7 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
     expect(result.status).toBe('done')
     const after = readSettings(dir) as { hooks: { PreToolUse: unknown[] } }
     expect(after.hooks.PreToolUse).toEqual([{ matcher: 'Edit', hooks: [{ type: 'command', command: 'true' }] }])
-    expect(after).toEqual({ ...settings, hooks: { PreToolUse: after.hooks.PreToolUse, PostToolUse: settings.hooks.PostToolUse } })
+    expect(after).toEqual({ ...settings, permissions: { allow: ['Bash(ls:*)', 'Bash(make:*)'] }, hooks: { PreToolUse: after.hooks.PreToolUse, PostToolUse: settings.hooks.PostToolUse } })
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)
     expect(output()).toContain(PLAIN_LORE.detachEntryRemoved(SETTINGS_FILE))
     expect(removedLines(output())).not.toContain(SETTINGS_FILE)
