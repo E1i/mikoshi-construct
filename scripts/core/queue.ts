@@ -127,7 +127,7 @@ const A_REVIEW_IN_FLIGHT = `EXISTS (
 
 function mergeCandidatesWhere(verdict: string, mergeable: string): string {
   return `
-  SELECT pr, card_id, head FROM prs
+  SELECT pr, card_id, head, body_sha FROM prs
   WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND ${verdict} AND ${mergeable} AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT ${A_DEPENDENCY_UNMERGED} AND NOT ${A_REVIEW_IN_FLIGHT}
   ORDER BY pr
@@ -495,6 +495,13 @@ const TASKS_OF_AN_OLD_HEAD = `
   ORDER BY task_key
 `
 
+const MERGES_OF_AN_OLD_BODY = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.queue = 'merge' AND tasks.state IN ('${QUEUED}', '${LEASED}') AND tasks.head = prs.head
+    AND prs.body_sha IS NOT NULL AND tasks.task_key NOT LIKE '%:pr-body-' || prs.body_sha
+  ORDER BY tasks.task_key
+`
+
 const TASKS_OF_A_CLOSED_PULL_REQUEST = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
   WHERE (prs.state = 'closed' OR (prs.state = 'merged' AND tasks.queue NOT IN (${QUEUES_A_MERGE_FINISHES}))) AND tasks.state IN (${UNFINISHED_STATES})
@@ -606,12 +613,14 @@ export interface QueuedTask extends TaskIdentity {
   stop?: number
   cardBody?: string
   base?: string
+  prBody?: string
 }
 
 const CARD_BODY_QUEUES: readonly Queue[] = ['answer', 'witness']
 const STOP_SUFFIX = /:stop-([1-9]\d*)$/
 const BODY_SHA = /^[0-9a-f]{8,64}$/
 const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::base-[0-9a-f]{40})?(?::stop-[1-9]\d*)?$/
+const MERGE_PR_BODY = /:pr-body-([0-9a-f]{8,64})$/
 const WITNESS_BASE = /:base-([0-9a-f]{40})(?::stop-[1-9]\d*)?$/
 
 function cardBodySegment(task: QueuedTask): string {
@@ -630,12 +639,24 @@ function baseSegment(task: QueuedTask): string {
   return `:base-${task.base}`
 }
 
+function prBodySegment(task: QueuedTask): string {
+  if (task.prBody === undefined)
+    return ''
+  if (task.queue !== 'merge' || task.pr === undefined || !BODY_SHA.test(task.prBody))
+    throw new Error(`only a merge task of a pull request carries a pull request body sha: ${task.queue}, ${task.prBody}`)
+  return `:pr-body-${task.prBody}`
+}
+
+function mergeBodyOfKey(key: string): string | undefined {
+  return MERGE_PR_BODY.exec(key)?.[1]
+}
+
 export function baseOfKey(key: string): string | undefined {
   return WITNESS_BASE.exec(key)?.[1]
 }
 
 export function keyOf(task: QueuedTask): string {
-  const key = `${taskKey(task)}${cardBodySegment(task)}${baseSegment(task)}`
+  const key = `${taskKey(task)}${cardBodySegment(task)}${baseSegment(task)}${prBodySegment(task)}`
   return task.stop === undefined ? key : `${key}:stop-${task.stop}`
 }
 
@@ -655,10 +676,11 @@ function cardBodyIn(key: unknown): string | undefined {
 
 function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows: Candidate[]): QueuedTask[] {
   return rows.filter(row => !closedByRounds(db, ts, queue, row.pr, row.head)).map((row) => {
-    const input = row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
+    const input = queue !== 'review' || row.body_sha === undefined ? undefined : reviewInputOf(row.body_sha, row.card_body)
     const cardBody = CARD_BODY_QUEUES.includes(queue) ? answerCardBodyOf(row) : undefined
     const base = queue === 'witness' && cardBody !== undefined ? row.witness_base ?? undefined : undefined
-    return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input, cardBody, base }
+    const prBody = queue === 'merge' && typeof row.body_sha === 'string' && BODY_SHA.test(row.body_sha) ? row.body_sha : undefined
+    return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input, cardBody, base, prBody }
   })
 }
 
@@ -709,7 +731,8 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   if (input !== undefined && (event.pr === null || event.head === null))
     reject(`${event.type} of a review input needs a pr and a head`)
   const base = queue === 'witness' ? baseOfKey(String(payload.task_key)) : undefined
-  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody, base })
+  const prBody = queue === 'merge' ? mergeBodyOfKey(String(payload.task_key)) : undefined
+  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody, base, prBody })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
   return { key, queue }
@@ -916,7 +939,8 @@ function identity(row: TaskRow): QueuedTask {
   const input = row.queue === 'review' ? reviewInputOfKey(row.task_key) : undefined
   const cardBody = CARD_BODY_QUEUES.includes(row.queue) ? cardBodyIn(row.task_key) : undefined
   const base = row.queue === 'witness' ? baseOfKey(row.task_key) : undefined
-  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody, base }
+  const prBody = row.queue === 'merge' ? mergeBodyOfKey(row.task_key) : undefined
+  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody, base, prBody }
 }
 
 export interface BodyAdmission { bodySha: string, event: string }
@@ -999,7 +1023,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   }
   for (const row of db.prepare(TASKS_OF_A_CLOSED_PULL_REQUEST).all() as unknown as TaskRow[])
     withdrawTask(db, ts, identity(row))
-  for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db)]) {
+  for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db), ...db.prepare(MERGES_OF_AN_OLD_BODY).all() as unknown as TaskRow[]]) {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
