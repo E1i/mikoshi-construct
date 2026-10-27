@@ -145,7 +145,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
     expect(record?.excludeSeparator).toBe(1)
 
     const files = Object.keys(record?.files ?? {}).sort()
-    expect(files).toEqual([...ATTACH_CARRIERS.targets, ATTACH_GUARD.target, ATTACH_GUARD.parser, ATTACH_WINDOW_HOOKS.target].sort())
+    expect(files).toEqual([...ATTACH_CARRIERS.targets, ATTACH_GUARD.target, ATTACH_GUARD.parser, ATTACH_WINDOW_HOOKS.target, ATTACH_WINDOW_HOOKS.rules].sort())
     for (const [file, sha] of Object.entries(record?.files ?? {}))
       expect(sha256(path.join(dir, file)), file).toBe(sha)
 
@@ -661,7 +661,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('settings-unreadable')
-    expect(result.rolledBack).toHaveLength(15)
+    expect(result.rolledBack).toHaveLength(16)
     expect(listing(dir)).toEqual([...before, '.claude/', SETTINGS_FILE].sort())
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('{ nope')
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)

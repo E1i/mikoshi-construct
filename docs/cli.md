@@ -1236,7 +1236,7 @@ yourself, then run it again. A collision found during the write keeps the output
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
    `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`,
-   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`, and the window hooks `.construct/window-hooks.mjs`.
+   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`, the window hooks `.construct/window-hooks.mjs` and the generic window rules `.construct/window-rules.md`.
 3. The guard entry and the three window hook entries in `.claude/settings.local.json` (below). The file
    is read again at this moment: if it no longer parses, or already carries a guard or window hook
    entry, the files of this run are rolled back and attach refuses.
@@ -1335,7 +1335,8 @@ lists.
 | `construct` | The CLI version that attached. |
 | `attachedAt` | ISO timestamp of the run. |
 | `harness` | `{ "command": "<command>" }`, the command passed or chosen, never a default; or the string `"none"` when the owner chose none or nothing was proposed. |
-| `files` | Every carrier path, `.construct/commit-guard.mjs`, `.construct/shell-parser.mjs` and `.construct/window-hooks.mjs` with the sha256 of the bytes written. The record itself is not in it. |
+| `files` | Every carrier path, `.construct/commit-guard.mjs`, `.construct/shell-parser.mjs`, `.construct/window-hooks.mjs` and `.construct/window-rules.md` with the sha256 of the bytes written. The record itself is not in it. |
+| `push` | `none` by default, or `bus` only by an explicit policy of the repository. Under `none` no bus process commits, pushes or opens a pull request in the repository: `tree-pr` leaves the tree and the report as they are. A record without the field reads as `none`. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
 | `ledgerCreated` | Whether `.construct/` was created by this run (`true`) or already existed (`false`). `detach` removes `.construct/` only when this is `true`; a record without the field (written before it existed) does not say, so `.construct/` stays. |

@@ -8,6 +8,10 @@ export const ATTACH_LEDGER_DIR = '.construct'
 export const ATTACH_RECORD_VERSION = 4
 export const NO_HARNESS = 'none'
 
+export type PushPolicy = 'none' | 'bus'
+
+export const DEFAULT_PUSH_POLICY: PushPolicy = 'none'
+
 export type AttachHarness = { command: string } | typeof NO_HARNESS
 
 export interface AttachRecord {
@@ -25,6 +29,7 @@ export interface AttachRecord {
   settingsHook?: SettingsHook
   lanes?: number
   factoryBeside?: FactoryBeside
+  push?: PushPolicy
 }
 
 export function readAttachRecord(root: string): AttachRecord | null {
