@@ -22,13 +22,13 @@ export const GUARD_ENTRY: JsonObject = {
 
 const WINDOW_HOOK_TIMEOUT_SECONDS = 10
 
-export const WINDOW_EVENTS = ['Stop', 'PreCompact', 'SessionStart'] as const
+export const WINDOW_EVENTS = ['Stop', 'PreCompact', 'SessionStart', 'PreToolUse'] as const
 
 export type WindowEvent = typeof WINDOW_EVENTS[number]
 
-type HookEvent = 'PreToolUse' | WindowEvent
+type HookEvent = WindowEvent
 
-const HOOK_EVENTS: readonly HookEvent[] = ['PreToolUse', ...WINDOW_EVENTS]
+const HOOK_EVENTS: readonly HookEvent[] = WINDOW_EVENTS
 
 function windowHook(argument: string): JsonObject {
   return { type: 'command', command: `node "$CLAUDE_PROJECT_DIR"/${ATTACH_WINDOW_HOOKS.target} ${argument}`, timeout: WINDOW_HOOK_TIMEOUT_SECONDS }
@@ -38,6 +38,7 @@ export const WINDOW_ENTRIES: Readonly<Record<WindowEvent, JsonObject>> = {
   Stop: { hooks: [windowHook('stop')] },
   PreCompact: { hooks: [windowHook('pre-compact')] },
   SessionStart: { hooks: [windowHook('session-start')] },
+  PreToolUse: { matcher: 'Write|Edit|MultiEdit', hooks: [windowHook('pre-tool-use')] },
 }
 
 export interface WindowEntry {
@@ -285,12 +286,14 @@ export function removeHookEntries(root: string, hook: SettingsHook): { fileDelet
     throw new Error(`${SETTINGS_FILE} changed while detach ran`)
   const settings = reading.settings
   const hooks = reading.settings.hooks
-  for (const { event, entry, created } of recordedEntries(hook)) {
+  const recorded = recordedEntries(hook)
+  for (const { event, entry } of recorded) {
     if (!(event in hooks))
       continue
-    const remaining = entriesOf(settings, event).filter(element => !isDeepStrictEqual(element, entry))
-    hooks[event] = remaining
-    if (created && remaining.length === 0)
+    hooks[event] = entriesOf(settings, event).filter(element => !isDeepStrictEqual(element, entry))
+  }
+  for (const event of new Set(recorded.map(entry => entry.event))) {
+    if (event in hooks && Array.isArray(hooks[event]) && hooks[event].length === 0 && recorded.some(entry => entry.event === event && entry.created))
       delete hooks[event]
   }
   if (hook.engram != null)

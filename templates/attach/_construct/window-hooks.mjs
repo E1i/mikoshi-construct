@@ -27,6 +27,7 @@ const COMPACT_SOURCE = 'compact'
 const FRESH_MS = 2 * 60 * 1000
 const NEEDS_CONSTRUCT = '--needs-construct'
 const CONSTRUCT_BIN = 'construct'
+const HANDOFF_WRITE_REASON = 'write the handoff with miko handoff write <name> <draft>'
 
 function executable(file) {
   try {
@@ -170,6 +171,16 @@ export function preCompactOutput(line) {
   return line === null ? null : { systemMessage: line }
 }
 
+export function handoffWriteOutput(input, handoff, dir) {
+  const target = input.tool_input?.file_path
+  if (typeof target !== 'string' || target === '')
+    return null
+  const relative = path.relative(path.dirname(handoff), path.resolve(dir, target))
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative))
+    return null
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: HANDOFF_WRITE_REASON } }
+}
+
 export function windowHookOutput(event, input, env, home, now, dir) {
   if (!tabWindow(env))
     return {}
@@ -180,7 +191,9 @@ export function windowHookOutput(event, input, env, home, now, dir) {
     return { stdout: sessionStartOutput(input, handoff, readIfFile(handoff), readIfFile(path.join(dir, RULES_FILE))) }
   if (event === 'pre-compact')
     return { stdout: preCompactOutput(preCompactLine(handoff, mtimeOrNull(handoff), now)) }
-  return { stderr: `window-hooks: ${event ?? 'no event'} is not one of stop, session-start, pre-compact; nothing run` }
+  if (event === 'pre-tool-use')
+    return { stdout: handoffWriteOutput(input, handoff, dir) }
+  return { stderr: `window-hooks: ${event ?? 'no event'} is not one of stop, session-start, pre-compact, pre-tool-use; nothing run` }
 }
 
 async function readStdin() {
