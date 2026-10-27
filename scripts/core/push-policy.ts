@@ -1,9 +1,10 @@
-import type { PushPolicy } from '../../src/commands/attach/record.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 const ATTACH_RECORD = '.construct/attach.json'
+
+type PushPolicy = 'none' | 'bus'
 
 export const KEPT_BY_PUSH_POLICY = 'kept_by_push_policy'
 
