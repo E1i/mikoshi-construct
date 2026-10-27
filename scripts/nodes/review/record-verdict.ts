@@ -7,7 +7,7 @@ import { CARD_ANSWERED, CARD_STARTED } from '../../core/events.js'
 import { assertHeld } from '../../core/lease.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter } from '../../ports/meter.js'
-import { ciOf } from '../../ports/snapshot.js'
+import { ciOf, requiredCheckOf } from '../../ports/snapshot.js'
 
 export type VerdictWord = 'pass' | 'changes'
 export type TechnicalReason = 'stale_head' | 'github_error' | 'ci_not_ready' | 'ci_red' | 'review_failed' | typeof NO_ISOLATION
@@ -61,7 +61,7 @@ export function freshDenial(gitHub: GitHub, lease: Lease, nowMs: () => number): 
     const pull = meter.get(`${REPO}/pulls/${lease.pr}`) as Pull
     if (pull.state !== 'open' || pull.head?.sha !== lease.head)
       return technical('stale_head', `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}`)
-    const ci = ciOf(meter, lease.head!)
+    const ci = ciOf(meter, lease.head!, requiredCheckOf())
     if (ci === 'red')
       return technical('ci_red', `CI is red on ${lease.head}`)
     return ci === 'green' ? null : technical('ci_not_ready', `CI is ${ci} on ${lease.head}`)

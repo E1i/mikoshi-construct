@@ -20,7 +20,7 @@ import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERS
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActive, unspentShard } from '../../policy/shards.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter } from '../../ports/meter.js'
-import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from '../../ports/snapshot.js'
+import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, requiredCheckOf, verdictOf } from '../../ports/snapshot.js'
 
 export const MERGE_METHOD = 'squash'
 export const MERGE_QUEUE = 'merge'
@@ -192,7 +192,7 @@ export class MergeExecutor {
         const unmergeable = decidedPastRoundLimit === null ? this.notReady(meter, pull, lease) : null
         if (unmergeable !== null)
           return { kind: 'denied', denial: unmergeable }
-        const ci = ciOf(meter, lease.head!)
+        const ci = ciOf(meter, lease.head!, requiredCheckOf())
         if (ci === 'red')
           return technical('ci_red', `CI is red on ${lease.head}`)
         if (ci !== 'green')

@@ -9,8 +9,11 @@ import { readAttachRecord, runAttach } from '../../../src/commands/attach/index.
 import { createUi, silentWriter } from '../../../src/ui/console.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { useIsolatedHome } from '../../../tests/isolated-home.js'
+import { openBus } from '../../core/db.js'
 import { Meter } from '../../ports/meter.js'
+import { NetWatch, NETWATCH_SCRIPT } from '../../ports/netwatch.js'
 import { ciOf, requiredCheckOf } from '../../ports/snapshot.js'
+import { Clock, FakeGitHub } from '../bus/github-fake.js'
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 useIsolatedHome()
@@ -74,5 +77,24 @@ describe('attach records the job of the gate candidate and the bus reads it as t
     expect((await runAttach(ui, { dir, harness: 'pnpm test', yes: true })).status).toBe('done')
 
     expect(requiredCheckOf(dir)).toBe('required')
+  })
+
+  it('netwatch observes ci from the recorded job, not from the check named required', async () => {
+    const attached = repository()
+    await runAttach(ui, { dir: attached, yes: false }, choosingFirst())
+    const plain = repository()
+    const observedCi = (root: string): unknown => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'bus-attach-required-'))
+      const db = openBus(path.join(dir, 'bus.db'))
+      const gitHub = new FakeGitHub()
+      gitHub.open({ number: 900, review: 'success' })
+      new NetWatch(db, gitHub.client, new Clock().now, NETWATCH_SCRIPT, root).poll()
+      const row = db.prepare('SELECT payload FROM events WHERE type = ?').get('pr.observed')
+      db.close()
+      return (JSON.parse(String(row?.payload)) as { ci: unknown }).ci
+    }
+
+    expect(observedCi(plain)).toBe('green')
+    expect(observedCi(attached)).toBe('pending')
   })
 })

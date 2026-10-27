@@ -1,4 +1,5 @@
 import type { Meter } from './meter.js'
+import path from 'node:path'
 import { readAttachRecord } from '../../src/commands/attach/record.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
@@ -94,7 +95,9 @@ function checkRunsOf(meter: Meter, sha: string): CheckRun[] {
   return (meter.get(`${REPO}/commits/${sha}/check-runs?per_page=100`) as { check_runs?: CheckRun[] }).check_runs ?? []
 }
 
-export function requiredCheckOf(root: string): string {
+export const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
+
+export function requiredCheckOf(root: string = REPO_ROOT): string {
   const harness = readAttachRecord(root)?.harness
   return typeof harness === 'object' && harness.job != null ? harness.job : REQUIRED_CHECK
 }
