@@ -6,11 +6,12 @@ import { listTemplateFiles } from '../../materialize/templates.js'
 import { ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
 
 export function planWindowHooks(): FileOp[] {
+  const wanted: string[] = [ATTACH_WINDOW_HOOKS.target, ATTACH_WINDOW_HOOKS.rules]
   const ops: FileOp[] = listTemplateFiles(ATTACH_WINDOW_HOOKS.group)
-    .filter(file => file.target === ATTACH_WINDOW_HOOKS.target)
+    .filter(file => wanted.includes(file.target))
     .map(file => ({ target: file.target, strategy: strategyFor(file.target), action: 'create', content: readFileSync(file.source, 'utf8') }))
-  if (ops.length !== 1)
-    throw new Error(`attach window hooks missing from the templates: ${ATTACH_WINDOW_HOOKS.target}`)
+  if (ops.length !== wanted.length)
+    throw new Error(`attach window hooks missing from the templates: ${wanted.join(', ')}`)
   return ops
 }
 

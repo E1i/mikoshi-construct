@@ -89,7 +89,7 @@ describe('attach on a repository that carries its own construct', () => {
     expect(existsSync(path.join(factoryHome, BUS_FILE))).toBe(true)
     const record = readAttachRecord(dir)
     expect(record?.factoryBeside?.home).toBe(factoryHome)
-    expect(Object.keys(record?.files ?? {}).sort()).toEqual([ATTACH_GUARD.target, ATTACH_GUARD.parser, ATTACH_WINDOW_HOOKS.target].sort())
+    expect(Object.keys(record?.files ?? {}).sort()).toEqual([ATTACH_GUARD.target, ATTACH_GUARD.parser, ATTACH_WINDOW_HOOKS.target, ATTACH_WINDOW_HOOKS.rules].sort())
     for (const target of ATTACH_CARRIERS.targets)
       expect(readFileSync(path.join(dir, target), 'utf8'), target).toBe(`its own ${target}\n`)
     expect(git(dir, 'status', '--porcelain')).toBe('')

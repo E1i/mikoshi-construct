@@ -3,6 +3,7 @@ import type { CardTask, RequestTools } from './window-requests.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { busDirOf, decisionsFileOf } from '../core/bus-path.js'
+import { pushPolicyAt } from '../core/push-policy.js'
 import { cardSessionOf } from '../nodes/answer/answer-source.js'
 import { dryRunIn, dryRunReviewsDir } from '../nodes/review/dry-run-record.js'
 import { PrCloser } from '../nodes/review/pr-close.js'
@@ -43,7 +44,7 @@ function causeHoldsIn(db: DatabaseSync, repo: string): (task: CardTask) => strin
 }
 
 export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv): RequestTools {
-  const closer = new PrCloser(db, ghApi(repo), ghApiPatch(repo), () => new Date())
+  const closer = new PrCloser(db, ghApi(repo), ghApiPatch(repo), () => new Date(), () => pushPolicyAt(repo))
   return {
     treeOf: cardId => cardTree(env, busPath, String(cardId)),
     exists: existsSync,

@@ -18,7 +18,7 @@ import { carriersItsConstructTracks } from './constructed.js'
 import { writeExcludeBlock } from './exclude.js'
 import { fileEditingMarks, harnessCandidates, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
-import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, NO_HARNESS, writeAttachRecord } from './record.js'
+import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, DEFAULT_PUSH_POLICY, NO_HARNESS, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
 import { installHookEntries, readSettings, SETTINGS_FILE } from './settings.js'
@@ -227,6 +227,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     settingsHook: kept == null ? installed.hook : { ...installed.hook, original: { copy: kept.copy, sha256: kept.sha256, afterSha256: installed.afterSha256 } },
     lanes,
     factoryBeside,
+    push: DEFAULT_PUSH_POLICY,
   })
 
   ui.ok(ui.lore.attached)
