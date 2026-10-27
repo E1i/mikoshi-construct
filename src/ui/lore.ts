@@ -216,6 +216,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachCollisionForeign: string
   attachRefusedCursor: string
   attachRefusedNotACommand: (word: string, suggestions: string[]) => Notice
+  attachRefusedRequiredCheck: Notice
   attachHarnessEditsFiles: (marks: string[]) => Notice
   attachRefusedSettingsIndex: Notice
   attachRefusedSettingsTracked: Notice
@@ -607,6 +608,11 @@ export const LORE: Lore = {
     why: 'The ladder runs the harness as written in a plain shell; a package script name or a node_modules/.bin binary never resolves there, so every rung would flatline before it measured anything.',
     next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
+  attachRefusedRequiredCheck: {
+    what: 'BREACH FAILED // CHECK UNRESOLVED: the CI job behind this gate has no fixed check name (a matrix, an expression or a reusable workflow)',
+    why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded cannot be read from the file.',
+    next: 'Name the check run yourself: --required-check "<name>". Nothing was written.',
+  },
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness rewrites the tree: ${marks.join(', ')}`,
     why: 'It runs on the base and after every change; a gate that fixes what it checks turns a red change green and slips its own edits into the diff under review.',
@@ -1004,6 +1010,11 @@ export const PLAIN_LORE: Lore = {
     why: 'The ladder runs the harness as written, in a plain shell; a package.json script name or a binary under node_modules/.bin is not on PATH there, so every rung would fail before it measured anything.',
     next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
+  attachRefusedRequiredCheck: {
+    what: 'Refused: the required check cannot be resolved from the CI job this harness was taken from (it is a matrix, uses an expression or calls a reusable workflow).',
+    why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded cannot be read from the file.',
+    next: 'Name the check run yourself with --required-check "<name>". Nothing was written.',
+  },
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness command edits files: ${marks.join(', ')}.`,
     why: 'The ladder runs it on the base and after every change; a gate that fixes what it checks can turn a red change green, and its edits land in the diff under review.',

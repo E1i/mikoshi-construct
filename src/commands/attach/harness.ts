@@ -21,6 +21,7 @@ export interface HarnessCandidate {
   command: string
   source: string
   job?: string
+  jobUnresolved?: true
 }
 
 export const MAX_HARNESS_CANDIDATES = 3
@@ -44,6 +45,12 @@ interface Found extends HarnessCandidate {
 const JOBS_KEY = /^jobs:\s*(?:#.*)?$/
 const JOB_ID = /^\s+([\w-]+):\s*(?:#.*)?$/
 const JOB_NAME = /^\s+name:[ \t]+([^#\s][^#]*)/
+const JOB_EXPANDED_KEY = /^\s+(?:strategy|uses):/
+const EXPRESSION = '${{'
+
+interface JobReading {
+  name: string | null
+}
 
 function unquoted(value: string): string {
   const trimmed = value.trim()
@@ -55,8 +62,18 @@ function indentOf(line: string): number {
   return line.length - line.trimStart().length
 }
 
-function jobsOf(lines: string[]): (string | undefined)[] {
-  const jobs: (string | undefined)[] = lines.map(() => undefined)
+function jobReading(lines: string[], head: { at: number, id: string }, stop: number): JobReading {
+  const body = lines.slice(head.at + 1, stop).filter(line => line.trim() !== '' && !line.trim().startsWith('#'))
+  const own = body.filter(line => indentOf(line) === indentOf(body[0]))
+  if (own.some(line => JOB_EXPANDED_KEY.test(line)))
+    return { name: null }
+  const nameLine = own.find(line => JOB_NAME.test(line))
+  const name = nameLine == null ? head.id : unquoted(JOB_NAME.exec(nameLine)![1])
+  return { name: name.includes(EXPRESSION) ? null : name }
+}
+
+function jobsOf(lines: string[]): (JobReading | undefined)[] {
+  const jobs: (JobReading | undefined)[] = lines.map(() => undefined)
   const start = lines.findIndex(line => JOBS_KEY.test(line))
   if (start < 0)
     return jobs
@@ -75,12 +92,17 @@ function jobsOf(lines: string[]): (string | undefined)[] {
   }
   heads.forEach((head, position) => {
     const stop = heads[position + 1]?.at ?? end
-    const nameLine = lines.slice(head.at + 1, stop).find(line => indentOf(line) === indentOf(lines[head.at]) + 2 && JOB_NAME.test(line))
-    const name = nameLine == null ? head.id : unquoted(JOB_NAME.exec(nameLine)![1])
+    const reading = jobReading(lines, head, stop)
     for (let at = head.at; at < stop; at++)
-      jobs[at] = name
+      jobs[at] = reading
   })
   return jobs
+}
+
+function jobFields(reading: JobReading | undefined): Pick<HarnessCandidate, 'job' | 'jobUnresolved'> {
+  if (reading == null)
+    return {}
+  return reading.name == null ? { jobUnresolved: true } : { job: reading.name }
 }
 
 function workflowRunLines(file: string, text: string): Found[] {
@@ -92,7 +114,7 @@ function workflowRunLines(file: string, text: string): Found[] {
       return []
     const value = step[2].trim()
     if (!BLOCK_SCALAR.test(value))
-      return value === '' ? [] : [{ command: unquoted(value), source: `${file}:${index + 1}`, reads: unquoted(value), job: jobs[index] }]
+      return value === '' ? [] : [{ command: unquoted(value), source: `${file}:${index + 1}`, reads: unquoted(value), ...jobFields(jobs[index]) }]
     const indent = step[1].length
     const body: Found[] = []
     for (let at = index + 1; at < lines.length; at++) {
@@ -103,7 +125,7 @@ function workflowRunLines(file: string, text: string): Found[] {
         break
       const command = next.trim()
       if (!command.startsWith('#'))
-        body.push({ command, source: `${file}:${at + 1}`, reads: command, job: jobs[index] })
+        body.push({ command, source: `${file}:${at + 1}`, reads: command, ...jobFields(jobs[index]) })
     }
     return body
   })
@@ -190,7 +212,7 @@ export function harnessCandidates(root: string): HarnessCandidate[] {
     if (seen.has(key))
       continue
     seen.add(key)
-    candidates.push(found.job == null ? { command: found.command, source: found.source } : { command: found.command, source: found.source, job: found.job })
+    candidates.push({ command: found.command, source: found.source, ...(found.job == null ? {} : { job: found.job }), ...(found.jobUnresolved === true ? { jobUnresolved: true as const } : {}) })
   }
   return candidates.slice(0, MAX_HARNESS_CANDIDATES)
 }

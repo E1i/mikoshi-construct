@@ -1104,6 +1104,7 @@ did in `.construct/attach.json`. No `construct.json`, no
 | Option | Default | What it does |
 |---|---|---|
 | `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: in a terminal attach first offers the [candidates](#harness-candidates) it read; under `--yes` without it, the harness is recorded as `none`. |
+| `--required-check <name>` | the job read from the workflow | The name of the CI check run the bus waits for, recorded as `harness.job` in `.construct/attach.json`. Needed when the job the chosen candidate came from is a matrix, has a `${{` expression in its name or calls a reusable workflow: its check name is not in the file, and attach refuses without this flag. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
 | `--lanes <count>` | asked, `3` | How many parallel lanes the bus runs, a whole number from 1 up. Recorded as `lanes` in `.construct/attach.json`, never in a `construct.json`; under `--yes` without it, `3`. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |
@@ -1334,7 +1335,7 @@ lists.
 | `recordVersion` | `4`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought; a `2` differs from `3` only in that its `harness` is always a command; a `3` carries no `settingsHook.window`, so only the guard entry is sought. |
 | `construct` | The CLI version that attached. |
 | `attachedAt` | ISO timestamp of the run. |
-| `harness` | `{ "command": "<command>" }`, the command passed or chosen, never a default; or the string `"none"` when the owner chose none or nothing was proposed. |
+| `harness` | `{ "command": "<command>", "job": "<check name>" }`, the command passed or chosen, never a default, and `job`, the name of the CI job the chosen candidate was taken from or the one `--required-check` named (absent when neither is known); or the string `"none"` when the owner chose none or nothing was proposed. |
 | `files` | Every carrier path, `.construct/commit-guard.mjs`, `.construct/shell-parser.mjs` and `.construct/window-hooks.mjs` with the sha256 of the bytes written. The record itself is not in it. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |

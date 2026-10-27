@@ -1,22 +1,32 @@
 import type { Prompter } from '../../../src/ui/prompts.js'
+import type { Lease } from '../../core/lease.js'
 import type { GhResponse } from '../../ports/github.js'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import process from 'node:process'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readAttachRecord, runAttach } from '../../../src/commands/attach/index.js'
 import { createUi, silentWriter } from '../../../src/ui/console.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { useIsolatedHome } from '../../../tests/isolated-home.js'
 import { openBus } from '../../core/db.js'
+import { reduce } from '../../core/reducer.js'
+import { freshDenial } from '../../nodes/review/record-verdict.js'
+import { recordDecision } from '../../policy/decisions.js'
 import { Meter } from '../../ports/meter.js'
 import { NetWatch, NETWATCH_SCRIPT } from '../../ports/netwatch.js'
 import { ciOf, requiredCheckOf } from '../../ports/snapshot.js'
-import { Clock, FakeGitHub } from '../bus/github-fake.js'
+import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
+import { liveBench } from '../bus/merge-bench.js'
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 useIsolatedHome()
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 const WORKFLOW = [
   'jobs:',
@@ -96,5 +106,73 @@ describe('attach records the job of the gate candidate and the bus reads it as t
 
     expect(observedCi(plain)).toBe('green')
     expect(observedCi(attached)).toBe('pending')
+  })
+})
+
+async function attachedRepository(): Promise<string> {
+  const dir = repository()
+  await runAttach(ui, { dir, yes: false }, choosingFirst())
+  return dir
+}
+
+function watching(dir: string): void {
+  vi.spyOn(process, 'cwd').mockReturnValue(dir)
+}
+
+describe('the bus reads the recorded job from the root of the repository it watches', () => {
+  it('requiredCheckOf without a root reads attach.json of the working directory repository', async () => {
+    const dir = await attachedRepository()
+    watching(dir)
+
+    expect(requiredCheckOf()).toBe('Build and test')
+  })
+
+  it('requiredCheckOf without a root finds the repository root from a subdirectory', async () => {
+    const dir = await attachedRepository()
+    mkdirSync(path.join(dir, 'packages/app'), { recursive: true })
+    watching(path.join(dir, 'packages/app'))
+
+    expect(requiredCheckOf()).toBe('Build and test')
+  })
+
+  it('requiredCheckOf without a root keeps the check named required in a repository attach.json does not name a job for', () => {
+    watching(repository())
+
+    expect(requiredCheckOf()).toBe('required')
+  })
+
+  it('the review verdict freshness check passes on the recorded job and holds on the check named required', async () => {
+    const gitHub = new FakeGitHub()
+    gitHub.checkName = 'Build and test'
+    gitHub.open({ number: 951, review: 'success' })
+    const lease = { pr: 951, head: sha('a') } as Lease
+
+    watching(await attachedRepository())
+    expect(freshDenial(gitHub.client, lease, () => 0)).toBeNull()
+
+    watching(repository())
+    expect(freshDenial(gitHub.client, lease, () => 0)).toMatchObject({ kind: 'technical', reason: 'ci_not_ready' })
+  })
+
+  it('the merge executor merges on the recorded job and waits on the check named required', async () => {
+    const attached = await attachedRepository()
+    const plain = repository()
+    const outcome = (mergingFrom: string): unknown => {
+      watching(attached)
+      const bench = liveBench()
+      bench.gitHub.checkName = 'Build and test'
+      recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 121, text: '[owner] allow-live merge', cards: [] })
+      reduce(bench.db)
+      bench.gitHub.open({ number: 960, review: 'success' })
+      bench.tick()
+      const lease = bench.lease()!
+      watching(mergingFrom)
+      const merged = bench.merge(lease)
+      bench.close()
+      return merged
+    }
+
+    expect(outcome(attached)).toMatchObject({ kind: 'merged' })
+    expect(outcome(plain)).toMatchObject({ kind: 'denied', denial: { reason: 'ci_not_ready' } })
   })
 })

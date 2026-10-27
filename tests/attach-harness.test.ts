@@ -159,3 +159,71 @@ describe('the candidate question takes yes, no or a number', () => {
     })
   }
 })
+
+const workflow = (...lines: string[]): string => `${lines.join('\n')}\n`
+
+const JOB_READINGS: Record<string, { text: string, expected: { job?: string, jobUnresolved?: true } }> = {
+  'a workflow indented by four spaces': {
+    text: workflow('jobs:', '    build:', '        name: Four wide', '        steps:', '            - run: pnpm test'),
+    expected: { job: 'Four wide' },
+  },
+  'a quoted name': {
+    text: workflow('jobs:', '  build:', '    name: "Build and test"', '    steps:', '      - run: pnpm test'),
+    expected: { job: 'Build and test' },
+  },
+  'a single-quoted name': {
+    text: workflow('jobs:', '  build:', '    name: \'Build, test\'', '    steps:', '      - run: pnpm test'),
+    expected: { job: 'Build, test' },
+  },
+  'no name, so the id is the check run': {
+    text: workflow('jobs:', '  build:', '    runs-on: ubuntu-latest', '    steps:', '      - run: pnpm test'),
+    expected: { job: 'build' },
+  },
+  'a step name that must not be taken': {
+    text: workflow('jobs:', '  build:', '    steps:', '      - name: Run the tests', '        run: pnpm test'),
+    expected: { job: 'build' },
+  },
+  'a step name after the run line of the same step': {
+    text: workflow('jobs:', '  build:', '    steps:', '      - run: pnpm test', '        name: Run the tests'),
+    expected: { job: 'build' },
+  },
+  'a block scalar run under a named job': {
+    text: workflow('jobs:', '  build:', '    name: Gate', '    steps:', '      - run: |', '          pnpm install', '          pnpm test'),
+    expected: { job: 'Gate' },
+  },
+  'the second of several jobs': {
+    text: workflow('jobs:', '  lint:', '    name: Lint it', '    steps:', '      - run: pnpm lint', '  test:', '    name: Test it', '    steps:', '      - run: pnpm test', '  deploy:', '    name: Ship it', '    steps:', '      - run: pnpm deploy'),
+    expected: { job: 'Test it' },
+  },
+  'a matrix job': {
+    text: workflow('jobs:', '  test:', '    name: Test', '    strategy:', '      matrix:', '        node: [20, 22]', '    steps:', '      - run: pnpm test'),
+    expected: { jobUnresolved: true },
+  },
+  'a matrix job with no name': {
+    text: workflow('jobs:', '  test:', '    strategy:', '      matrix:', '        node: [20, 22]', '    steps:', '      - run: pnpm test'),
+    expected: { jobUnresolved: true },
+  },
+  'a name that holds an expression': {
+    text: workflow('jobs:', '  test:', `    name: Test on \${{ inputs.os }}`, '    steps:', '      - run: pnpm test'),
+    expected: { jobUnresolved: true },
+  },
+  'a job that calls a reusable workflow': {
+    text: workflow('jobs:', '  test:', '    uses: ./.github/workflows/reusable.yml', '    steps:', '      - run: pnpm test'),
+    expected: { jobUnresolved: true },
+  },
+}
+
+describe('attach reads the job a candidate was taken from', () => {
+  for (const [name, { text, expected }] of Object.entries(JOB_READINGS)) {
+    it(`${name}`, () => {
+      const dir = repository({ '.github/workflows/ci.yml': text })
+      const found = harnessCandidates(dir).find(candidate => candidate.command === 'pnpm test')
+      expect(found).toEqual({ command: 'pnpm test', source: expect.stringContaining('.github/workflows/ci.yml:'), ...expected })
+    })
+  }
+
+  it('a job beside a matrix job keeps its own name', () => {
+    const dir = repository({ '.github/workflows/ci.yml': workflow('jobs:', '  matrix:', '    strategy:', '      matrix:', '        node: [20]', '    steps:', '      - run: pnpm lint', '  test:', '    name: Plain', '    steps:', '      - run: pnpm test') })
+    expect(harnessCandidates(dir).find(candidate => candidate.command === 'pnpm test')?.job).toBe('Plain')
+  })
+})

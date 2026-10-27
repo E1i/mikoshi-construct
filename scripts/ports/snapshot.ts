@@ -1,6 +1,7 @@
 import type { Meter } from './meter.js'
-import path from 'node:path'
+import process from 'node:process'
 import { readAttachRecord } from '../../src/commands/attach/record.js'
+import { repositoryRoot } from '../core/bus-path.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
 import { REQUIRED_CHECK, SECRET_SCAN_CHECK } from './gh.js'
@@ -95,9 +96,11 @@ function checkRunsOf(meter: Meter, sha: string): CheckRun[] {
   return (meter.get(`${REPO}/commits/${sha}/check-runs?per_page=100`) as { check_runs?: CheckRun[] }).check_runs ?? []
 }
 
-export const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
+export function watchedRoot(): string {
+  return repositoryRoot(process.cwd()) ?? process.cwd()
+}
 
-export function requiredCheckOf(root: string = REPO_ROOT): string {
+export function requiredCheckOf(root: string = watchedRoot()): string {
   const harness = readAttachRecord(root)?.harness
   return typeof harness === 'object' && harness.job != null ? harness.job : REQUIRED_CHECK
 }

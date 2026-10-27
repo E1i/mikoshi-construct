@@ -26,7 +26,7 @@ function readIfFile(file: string): string | null {
   return existsSync(file) && statSync(file).isFile() ? readFileSync(file, 'utf8') : null
 }
 
-function repositoryRoot(dir: string): string | null {
+export function repositoryRoot(dir: string): string | null {
   let current = path.resolve(dir)
   for (;;) {
     if (existsSync(path.join(current, GIT_ENTRY)))

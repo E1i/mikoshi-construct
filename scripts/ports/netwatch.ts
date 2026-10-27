@@ -12,7 +12,7 @@ import { RUN_SCRIPT } from '../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { ghApi } from './github.js'
 import { Meter, RateLimited } from './meter.js'
-import { REPO_ROOT, requiredCheckOf, takeSnapshot } from './snapshot.js'
+import { requiredCheckOf, takeSnapshot } from './snapshot.js'
 
 export const PREFIX = '[bus:netwatch] '
 export const TICK_MS = 60_000
@@ -63,7 +63,7 @@ export class NetWatch {
   private lastPollAt: number | null = null
   private blockedUntil = 0
 
-  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly root: string = REPO_ROOT) {}
+  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly root?: string) {}
 
   dueReason(nowMs: number): PollReason | null {
     if (this.lastPollAt === null)
