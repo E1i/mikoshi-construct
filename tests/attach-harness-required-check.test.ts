@@ -43,6 +43,19 @@ describe('attach --harness without --required-check', () => {
     expect(readAttachRecord(dir)).toBeNull()
   })
 
+  it.each([
+    ['a matrix job', 'name: ci\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        node: [20, 22]\n    steps:\n      - run: npm test\n'],
+    // eslint-disable-next-line no-template-curly-in-string
+    ['a job named by an expression', 'name: ci\non: push\njobs:\n  test:\n    name: test ${{ matrix.node }}\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n'],
+  ])('refuses when %s runs the command and its check name cannot be fixed', async (_label, workflow) => {
+    const dir = repository(workflow)
+    const result = await runAttach(ui, { dir, harness: 'npm test', yes: true, env })
+    expect(result.status).toBe('refused')
+    expect(result.refusal).toBe('required-check-unresolvable')
+    expect(attachExitOf(result)).toBe(2)
+    expect(readAttachRecord(dir)).toBeNull()
+  })
+
   it('refuses when there is no workflow at all', async () => {
     const result = await runAttach(ui, { dir: repository(null), harness: 'npm test', yes: true, env })
     expect(result.refusal).toBe('required-check-unresolvable')
