@@ -284,7 +284,7 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
     observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
     endWindow: windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) }),
     tab: tabWindowOf(process.env) !== null,
-    liveAgents: () => liveAgentsOf(root),
+    liveAgents: () => liveAgentsOf(root, process.env),
     dirtyTrees: () => dirtyOpenCardTrees(process.env, defaultBusPath()),
   }
 }

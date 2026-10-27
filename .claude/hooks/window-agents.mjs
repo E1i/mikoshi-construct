@@ -19,7 +19,7 @@ export function agentLineOf(text, at) {
   const id = input?.agent_id
   if (event === undefined || typeof id !== 'string' || id === '')
     return null
-  return { event, id, type: typeof input.agent_type === 'string' ? input.agent_type : null, at }
+  return { event, id, type: typeof input.agent_type === 'string' ? input.agent_type : null, session: typeof input.session_id === 'string' ? input.session_id : null, at }
 }
 
 async function readStdin() {
