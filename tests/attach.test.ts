@@ -895,7 +895,7 @@ describe('interactive attach proposes the harness candidates it read from the re
     expect(offered()).toEqual(['pnpm test', 'pnpm run quality', 'pnpm run typecheck'])
     expect(output()).toContain(PLAIN_LORE.attachHarnessCandidate(1, 'pnpm test', '.github/workflows/test.yml:6'))
     expect(output()).toContain(PLAIN_LORE.attachHarnessCandidate(2, 'pnpm run quality', 'package.json scripts.quality'))
-    expect(readAttachRecord(dir)?.harness).toEqual({ command: 'pnpm test' })
+    expect(readAttachRecord(dir)?.harness).toEqual({ command: 'pnpm test', job: 'test' })
   })
 
   it('says so when the repository has no test to propose, attaches without asking, records harness none, and doctor reports it as not covered', async () => {

@@ -127,7 +127,10 @@ async function askHarness(ui: Ui, root: string, interactive: Prompter): Promise<
   const command = await interactive.harnessCommand(candidates.map(candidate => candidate.command))
   if (command === undefined)
     return undefined
-  return command == null ? NO_HARNESS : { command }
+  if (command == null)
+    return NO_HARNESS
+  const job = candidates.find(candidate => candidate.command === command)?.job
+  return job == null ? { command } : { command, job }
 }
 
 function checkedHarness(ui: Ui, command: string, searchPath: string): AttachRefusal | null {

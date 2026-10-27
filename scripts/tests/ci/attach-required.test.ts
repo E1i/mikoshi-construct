@@ -1,0 +1,78 @@
+import type { Prompter } from '../../../src/ui/prompts.js'
+import type { GhResponse } from '../../ports/github.js'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { readAttachRecord, runAttach } from '../../../src/commands/attach/index.js'
+import { createUi, silentWriter } from '../../../src/ui/console.js'
+import { resolveTheme } from '../../../src/ui/theme.js'
+import { useIsolatedHome } from '../../../tests/isolated-home.js'
+import { Meter } from '../../ports/meter.js'
+import { ciOf, requiredCheckOf } from '../../ports/snapshot.js'
+
+const ui = createUi(resolveTheme({ plain: true }), silentWriter)
+useIsolatedHome()
+
+const WORKFLOW = [
+  'jobs:',
+  '  build:',
+  '    name: Build and test',
+  '    steps:',
+  '      - run: pnpm test',
+  '',
+].join('\n')
+
+function repository(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'construct-attach-required-'))
+  execFileSync('git', ['init', '-q'], { cwd: dir })
+  mkdirSync(path.join(dir, '.github/workflows'), { recursive: true })
+  writeFileSync(path.join(dir, '.github/workflows/ci.yml'), WORKFLOW)
+  writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'host', private: true, scripts: { test: 'vitest run' } }))
+  return dir
+}
+
+function choosingFirst(): Prompter {
+  return {
+    preset: () => Promise.resolve(undefined),
+    aiTarget: () => Promise.resolve(undefined),
+    projectName: () => Promise.resolve(undefined),
+    review: () => Promise.resolve(undefined),
+    lanes: () => Promise.resolve(3),
+    harnessCommand: candidates => Promise.resolve(candidates[0]),
+    confirm: () => Promise.resolve(true),
+  }
+}
+
+function meterOf(runs: { name: string, status: string, conclusion: string | null }[]): Meter {
+  const respond = (): GhResponse => ({ status: 200, headers: {}, body: { check_runs: runs } })
+  return new Meter(respond, () => 0)
+}
+
+describe('attach records the job of the gate candidate and the bus reads it as the required check', () => {
+  it('writes the job name into attach.json', async () => {
+    const dir = repository()
+
+    expect((await runAttach(ui, { dir, yes: false }, choosingFirst())).status).toBe('done')
+
+    expect(readAttachRecord(dir)?.harness).toEqual({ command: 'pnpm test', job: 'Build and test' })
+    expect(requiredCheckOf(dir)).toBe('Build and test')
+  })
+
+  it('reads green under attach.json when the check run of that job is success', async () => {
+    const dir = repository()
+    await runAttach(ui, { dir, yes: false }, choosingFirst())
+    const meter = meterOf([{ name: 'Build and test', status: 'completed', conclusion: 'success' }])
+
+    expect(ciOf(meter, 'a'.repeat(40), requiredCheckOf(dir))).toBe('green')
+    expect(ciOf(meter, 'a'.repeat(40))).toBe('pending')
+  })
+
+  it('keeps the check named required when attach recorded no job', async () => {
+    const dir = repository()
+    expect((await runAttach(ui, { dir, harness: 'pnpm test', yes: true })).status).toBe('done')
+
+    expect(requiredCheckOf(dir)).toBe('required')
+  })
+})

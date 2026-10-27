@@ -245,12 +245,12 @@ function isFailing(check: Check): boolean {
   return outcome !== undefined && outcome !== '' && !PASSING.includes(outcome)
 }
 
-function ciOf(checks: Check[], head: string): Ci {
+function ciOf(checks: Check[], head: string, requiredCheck: string): Ci {
   if (checks.length === 0)
     return { state: 'none', text: `— (no checks recorded on ${head})`, head }
-  const required = checks.find(check => check.name === REQUIRED_CHECK)
+  const required = checks.find(check => check.name === requiredCheck)
   if (required === undefined)
-    return { state: 'pending', text: `pending (${REQUIRED_CHECK} not reported) on ${head}`, head }
+    return { state: 'pending', text: `pending (${requiredCheck} not reported) on ${head}`, head }
   const pending = checks.filter(check => check.status !== undefined && check.status !== 'COMPLETED')
   if (pending.includes(required))
     return { state: 'pending', text: `pending (${pending.length} of ${checks.length}) on ${head}`, head }
@@ -264,7 +264,7 @@ function ciOf(checks: Check[], head: string): Ci {
     : { state: 'green', text: `green ${at} on ${head}`, head, greenAt: at }
 }
 
-export function prDetails(gh: GhRunner, repo: string, pr: PullRequest): PrDetails {
+export function prDetails(gh: GhRunner, repo: string, pr: PullRequest, requiredCheck = REQUIRED_CHECK): PrDetails {
   let view: { headRefOid?: string, statusCheckRollup?: Check[], files?: { path: string }[] }
   try {
     view = JSON.parse(gh(['pr', 'view', String(pr.number), '-R', repo, '--json', 'headRefOid,statusCheckRollup,files'])) as typeof view
@@ -272,5 +272,5 @@ export function prDetails(gh: GhRunner, repo: string, pr: PullRequest): PrDetail
   catch (error) {
     return { ci: { state: 'unknown', text: `UNKNOWN (missing: checks; ${reasonOf(error)})`, head: pr.headRefOid.slice(0, 7) }, files: undefined }
   }
-  return { ci: ciOf(view.statusCheckRollup ?? [], (view.headRefOid ?? pr.headRefOid).slice(0, 7)), files: view.files?.map(file => file.path) }
+  return { ci: ciOf(view.statusCheckRollup ?? [], (view.headRefOid ?? pr.headRefOid).slice(0, 7), requiredCheck), files: view.files?.map(file => file.path) }
 }

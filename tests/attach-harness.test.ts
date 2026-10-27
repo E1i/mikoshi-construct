@@ -103,13 +103,13 @@ const MONOREPO = {
 describe('attach proposes harness candidates read from the repository', () => {
   it('on a monorepo, the CI step pnpm test comes first with its workflow line, and lint is not among them', () => {
     const candidates = harnessCandidates(repository(MONOREPO))
-    expect(candidates[0]).toEqual({ command: 'pnpm test', source: '.github/workflows/ci.yml:10' })
+    expect(candidates[0]).toEqual({ command: 'pnpm test', source: '.github/workflows/ci.yml:10', job: 'check' })
     expect(candidates.map(candidate => candidate.command).filter(command => command.includes('lint'))).toEqual([])
   })
 
   it('the package script that repeats a CI step is not proposed twice, and typecheck ranks after tests', () => {
     expect(harnessCandidates(repository(MONOREPO))).toEqual([
-      { command: 'pnpm test', source: '.github/workflows/ci.yml:10' },
+      { command: 'pnpm test', source: '.github/workflows/ci.yml:10', job: 'check' },
       { command: 'pnpm run typecheck', source: 'package.json scripts.typecheck' },
     ])
   })
@@ -120,7 +120,7 @@ describe('attach proposes harness candidates read from the repository', () => {
       '.github/workflows/ci.yml': 'jobs:\n  ci:\n    steps:\n      - name: gate\n        run: |\n          pnpm install\n          pnpm run quality\n',
     })
     expect(harnessCandidates(dir)).toEqual([
-      { command: 'pnpm run quality', source: '.github/workflows/ci.yml:7' },
+      { command: 'pnpm run quality', source: '.github/workflows/ci.yml:7', job: 'ci' },
       { command: 'pnpm run test', source: 'package.json scripts.test' },
     ])
   })

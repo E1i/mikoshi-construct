@@ -8,7 +8,7 @@ export const ATTACH_LEDGER_DIR = '.construct'
 export const ATTACH_RECORD_VERSION = 4
 export const NO_HARNESS = 'none'
 
-export type AttachHarness = { command: string } | typeof NO_HARNESS
+export type AttachHarness = { command: string, job?: string } | typeof NO_HARNESS
 
 export interface AttachRecord {
   recordVersion: number

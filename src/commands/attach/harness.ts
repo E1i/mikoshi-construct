@@ -20,6 +20,7 @@ export function fileEditingMarks(command: string): string[] {
 export interface HarnessCandidate {
   command: string
   source: string
+  job?: string
 }
 
 export const MAX_HARNESS_CANDIDATES = 3
@@ -40,21 +41,58 @@ interface Found extends HarnessCandidate {
   reads: string
 }
 
+const JOBS_KEY = /^jobs:\s*(?:#.*)?$/
+const JOB_ID = /^\s+([\w-]+):\s*(?:#.*)?$/
+const JOB_NAME = /^\s+name:[ \t]+([^#\s][^#]*)/
+
 function unquoted(value: string): string {
   const trimmed = value.trim()
   const quoted = /^(['"])(.*)\1$/.exec(trimmed)
   return quoted?.[2] ?? trimmed
 }
 
+function indentOf(line: string): number {
+  return line.length - line.trimStart().length
+}
+
+function jobsOf(lines: string[]): (string | undefined)[] {
+  const jobs: (string | undefined)[] = lines.map(() => undefined)
+  const start = lines.findIndex(line => JOBS_KEY.test(line))
+  if (start < 0)
+    return jobs
+  const heads: { at: number, id: string }[] = []
+  let end = lines.length
+  for (let at = start + 1; at < lines.length; at++) {
+    if (lines[at].trim() === '')
+      continue
+    if (indentOf(lines[at]) === 0) {
+      end = at
+      break
+    }
+    const id = JOB_ID.exec(lines[at])?.[1]
+    if (id != null && (heads.length === 0 || indentOf(lines[at]) === indentOf(lines[heads[0].at])))
+      heads.push({ at, id })
+  }
+  heads.forEach((head, position) => {
+    const stop = heads[position + 1]?.at ?? end
+    const nameLine = lines.slice(head.at + 1, stop).find(line => indentOf(line) === indentOf(lines[head.at]) + 2 && JOB_NAME.test(line))
+    const name = nameLine == null ? head.id : unquoted(JOB_NAME.exec(nameLine)![1])
+    for (let at = head.at; at < stop; at++)
+      jobs[at] = name
+  })
+  return jobs
+}
+
 function workflowRunLines(file: string, text: string): Found[] {
   const lines = text.split(/\r?\n/)
+  const jobs = jobsOf(lines)
   return lines.flatMap((line, index) => {
     const step = RUN_STEP.exec(line)
     if (step == null)
       return []
     const value = step[2].trim()
     if (!BLOCK_SCALAR.test(value))
-      return value === '' ? [] : [{ command: unquoted(value), source: `${file}:${index + 1}`, reads: unquoted(value) }]
+      return value === '' ? [] : [{ command: unquoted(value), source: `${file}:${index + 1}`, reads: unquoted(value), job: jobs[index] }]
     const indent = step[1].length
     const body: Found[] = []
     for (let at = index + 1; at < lines.length; at++) {
@@ -65,7 +103,7 @@ function workflowRunLines(file: string, text: string): Found[] {
         break
       const command = next.trim()
       if (!command.startsWith('#'))
-        body.push({ command, source: `${file}:${at + 1}`, reads: command })
+        body.push({ command, source: `${file}:${at + 1}`, reads: command, job: jobs[index] })
     }
     return body
   })
@@ -152,7 +190,7 @@ export function harnessCandidates(root: string): HarnessCandidate[] {
     if (seen.has(key))
       continue
     seen.add(key)
-    candidates.push({ command: found.command, source: found.source })
+    candidates.push(found.job == null ? { command: found.command, source: found.source } : { command: found.command, source: found.source, job: found.job })
   }
   return candidates.slice(0, MAX_HARNESS_CANDIDATES)
 }
