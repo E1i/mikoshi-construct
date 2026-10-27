@@ -3,7 +3,10 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { FACTORY_NAMED } from './factory-paths.js'
 
+export const OWNER_AGENT = 'dev.mikoshi.bus'
+export const OWNER_AGENT_FILE = path.join(FACTORY_NAMED.launchdDirectory, `${OWNER_AGENT}.plist`)
 export const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
 export const CONSTRUCT_HOME_DIR = '.construct'
 export const BUS_FILE = 'bus.db'
@@ -26,7 +29,7 @@ function readIfFile(file: string): string | null {
   return existsSync(file) && statSync(file).isFile() ? readFileSync(file, 'utf8') : null
 }
 
-function repositoryRoot(dir: string): string | null {
+export function repositoryRoot(dir: string): string | null {
   let current = path.resolve(dir)
   for (;;) {
     if (existsSync(path.join(current, GIT_ENTRY)))
@@ -164,8 +167,13 @@ export function isMachineBus(home: string, busPath: string): boolean {
   return path.resolve(busPath) === machineBusPath(home)
 }
 
+export function isOwnerCheckout(dir: string): boolean {
+  return existsSync(path.join(repositoryRoot(dir) ?? dir, OWNER_AGENT_FILE))
+}
+
 export function defaultBusPath(): string {
-  return busPathOf(process.env, os.homedir(), process.cwd())
+  const dir = process.cwd()
+  return busPathOf(process.env, os.homedir(), dir, isOwnerCheckout(dir))
 }
 
 export function defaultBusDir(): string {

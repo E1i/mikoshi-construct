@@ -6,7 +6,6 @@ import type { InForceDecision } from '../policy/decisions.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -16,6 +15,7 @@ import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, slotsReadin
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { VERSION } from '../../src/version.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { inForceDecisions } from '../policy/decisions.js'
@@ -28,7 +28,7 @@ const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 export const EDDIES_FILE = path.join(REPOSITORY_ROOT, '.claude/eddies.json')
 export const MODEL_FILE = path.join(REPOSITORY_ROOT, 'construct.model.json')
 export const PACKAGE_FILE = path.join(REPOSITORY_ROOT, 'package.json')
-export const HANDOFF_FILE = mikoHandoff(os.homedir())
+export const HANDOFF_FILE = mikoHandoff(defaultHandoffDir())
 
 export interface BoardFiles {
   write: (file: string, text: string) => void

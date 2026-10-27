@@ -8,7 +8,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, REVIEW_RECORDED, TASK_SUPERSEDED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
-import { cardBodyShaOfCard, FAILURES_TO_STOP, queueTask, supersedeTask } from '../../core/queue.js'
+import { cardBodyShaOfCard, FAILURES_TO_STOP, keyOf as mergeKeyOf, queueTask, supersedeTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
@@ -133,7 +133,7 @@ describe('review queue', () => {
     completeTask(db, clock.now().toISOString(), leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
     gitHub.open({ number: 924, review: 'success' })
     tick()
-    const merge = taskKey({ queue: 'merge', cardId: 1024, pr: 924, head: sha('a') })
+    const merge = mergeKeyOf({ queue: 'merge', cardId: 1024, pr: 924, head: sha('a'), prBody: prBodySha(cardBody(924)) })
     expect(tasks(db)).toEqual([{ task_key: review(924, sha('a')), state: 'completed' }, { task_key: merge, state: 'queued' }])
 
     gitHub.open({ number: 924, head: sha('e'), required: 'pending' })
@@ -301,7 +301,7 @@ describe('review queue', () => {
   it('a head with a queued review of a new input after a pass is no merge candidate until that review is recorded', async () => {
     const { db, gitHub, clock, tick } = setUp()
     const worker = passingWorker(db, gitHub, clock, 933)
-    const merge = taskKey({ queue: 'merge', cardId: 1033, pr: 933, head: sha('a') })
+    const merge = mergeKeyOf({ queue: 'merge', cardId: 1033, pr: 933, head: sha('a'), prBody: prBodySha(cardBody(933)) })
     const merges = (): { task_key: string, state: string }[] => tasks(db).filter(task => task.task_key === merge)
     gitHub.open({ number: 933, body: cardBody(933), mergeable_state: 'behind' })
     tick()
