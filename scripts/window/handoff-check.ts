@@ -6,6 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
+import { handoffDirOf } from '../core/handoff-dir.js'
 import { HANDOFF_FIELDS } from '../core/handoff-fields.js'
 import { busParkedDepends } from '../intake/parking-reads.js'
 
@@ -251,6 +252,7 @@ export interface HandoffCheckDeps {
   read: (file: string) => string
   parked: () => ParkedDepends
   home: string
+  handoffDir?: string
   out: (line: string) => void
   err: (line: string) => void
 }
@@ -258,11 +260,12 @@ export interface HandoffCheckDeps {
 export const USAGE = 'usage: handoff-check.ts <handoff file>'
 
 export function runHandoffCheck(args: string[], deps: HandoffCheckDeps): number {
-  const [file, ...rest] = args
-  if (file === undefined || file.startsWith('--') || rest.length > 0) {
+  const [named, ...rest] = args
+  if (named === undefined || named.startsWith('--') || rest.length > 0) {
     deps.err(`${PREFIX}${USAGE}`)
     return 2
   }
+  const file = deps.handoffDir === undefined ? named : path.resolve(deps.handoffDir, named)
   if (!deps.exists(file)) {
     deps.err(`${PREFIX}no handoff at ${file}`)
     return 1
@@ -285,6 +288,7 @@ if (isEntry) {
     read: file => readFileSync(file, 'utf8'),
     parked: () => busParkedDepends(defaultBusPath()),
     home: os.homedir(),
+    handoffDir: handoffDirOf(process.env, os.homedir(), process.cwd()),
     out: line => process.stdout.write(`${line}\n`),
     err: line => process.stderr.write(`${line}\n`),
   })

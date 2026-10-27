@@ -9,7 +9,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { MERGE_DONE } from '../core/events.js'
-import { HANDOFF_DIR_VARIABLE, handoffDirOf } from '../core/handoff-dir.js'
+import { handoffDirOf } from '../core/handoff-dir.js'
 import { busParkedDepends } from '../intake/parking-reads.js'
 import { activeDecisionsShard, VERSION_PR_RESERVATION } from '../policy/shards.js'
 import { execGh, readGhJson } from '../ports/gh.js'
@@ -348,6 +348,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
     deps.writeNew(archived, previous)
   }
   const staged = `${handoff}.writing`
+  deps.makeDir(path.dirname(handoff))
   deps.write(staged, text.endsWith('\n') ? text : `${text}\n`)
   deps.rename(staged, handoff)
   deps.out(`${PREFIX}${handoff}: ${handoffBytes(text)} bytes, ${PREV_LABEL}: ${prev}, ${stateSource(reading)}`)
@@ -428,7 +429,7 @@ function ghPrState(pr: number): PrState {
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = runHandoffWrite(process.argv.slice(2), {
     cwd: process.cwd(),
-    handoffDir: setOrNull(process.env[HANDOFF_DIR_VARIABLE]) ?? undefined,
+    handoffDir: handoffDirOf(process.env, os.homedir(), process.cwd()),
     sessionHandoff: sessionHandoffOf(process.env, os.homedir()),
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
