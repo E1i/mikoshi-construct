@@ -6,10 +6,10 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
 import { ancestors, exitDecision, FRESH_MS, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
-import { mikoHandoff } from '../../window/loop.js'
+import { MIKO_HANDOFF_NAME, mikoHandoff } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -226,6 +226,14 @@ describe('miko:exit ends a session only at a stop reason', () => {
   it('a handoff with STATUS DONE kills the session without conditions', () => {
     const outcome = exit({ table: () => outsideLoop, handoffMtime: () => undefined, readings: () => UNREAD, status: () => 'DONE' })
     expect(outcome).toMatchObject({ code: 0, kills: [12], stops: [], recorded: [expect.objectContaining({ reason: 'done' })] })
+  })
+
+  it('with no handoff the exit refuses naming the missing handoff before it reads the process table', () => {
+    const table = vi.fn(() => parsePs('  1     0 /sbin/launchd\n 14     1 node exit.ts\n'))
+    const outcome = exit({ table, handoffMtime: () => undefined, status: () => null, readings: () => AT_CONTEXT })
+    expect(outcome).toMatchObject({ code: 1, kills: [], recorded: [] })
+    expect(outcome.lines).toEqual([`[miko] ${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended`])
+    expect(table).not.toHaveBeenCalled()
   })
 
   it('a handoff with STATUS OWNER is no stop reason and pnpm miko:exit refuses it', () => {

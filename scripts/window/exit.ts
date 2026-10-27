@@ -110,9 +110,15 @@ function freshHandoff(handoffMtime: number | undefined, now: number): boolean {
   return handoffMtime !== undefined && now - handoffMtime <= FRESH_MS
 }
 
+const MISSING_HANDOFF = `${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended`
+
+function missingHandoffDecision(handoffMtime: number | undefined, status: string | null): ExitDecision | null {
+  return handoffMtime === undefined && status !== 'DONE' ? { refuse: MISSING_HANDOFF } : null
+}
+
 function staleHandoffRefusal(handoffMtime: number | undefined, now: number): string | null {
   if (handoffMtime === undefined)
-    return `${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended`
+    return MISSING_HANDOFF
   const age = now - handoffMtime
   return age > FRESH_MS ? `${MIKO_HANDOFF_NAME} was written ${Math.round(age / 1000)}s ago, more than ${FRESH_MS / 1000}s: write it with pnpm handoff:write first; nothing ended` : null
 }
@@ -157,6 +163,9 @@ function decisionOf(deps: MikoExitDeps, status: string | null, readings: ExitRea
   const tab = deps.tab === true ? tabThresholdDecision(deps.handoffMtime(), deps.now(), status, readings) : null
   if (tab !== null)
     return tab
+  const missing = missingHandoffDecision(deps.handoffMtime(), status)
+  if (missing !== null)
+    return missing
   const chain = chainOf(deps)
   return chain === null ? { refuse: SANDBOX_REFUSAL } : exitDecision(chain, deps.handoffMtime(), deps.now(), status, readings)
 }
