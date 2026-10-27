@@ -110,15 +110,17 @@ function freshHandoff(handoffMtime: number | undefined, now: number): boolean {
   return handoffMtime !== undefined && now - handoffMtime <= FRESH_MS
 }
 
-const MISSING_HANDOFF = `${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended`
+function missingHandoffRefusal(): string {
+  return `${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended`
+}
 
 function missingHandoffDecision(handoffMtime: number | undefined, status: string | null): ExitDecision | null {
-  return handoffMtime === undefined && status !== 'DONE' ? { refuse: MISSING_HANDOFF } : null
+  return handoffMtime === undefined && status !== 'DONE' ? { refuse: missingHandoffRefusal() } : null
 }
 
 function staleHandoffRefusal(handoffMtime: number | undefined, now: number): string | null {
   if (handoffMtime === undefined)
-    return MISSING_HANDOFF
+    return missingHandoffRefusal()
   const age = now - handoffMtime
   return age > FRESH_MS ? `${MIKO_HANDOFF_NAME} was written ${Math.round(age / 1000)}s ago, more than ${FRESH_MS / 1000}s: write it with pnpm handoff:write first; nothing ended` : null
 }
