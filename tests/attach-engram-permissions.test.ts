@@ -129,6 +129,22 @@ describe('attach allows the repository\'s own Engram directory', () => {
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(owner)
   })
 
+  it.each([
+    ['an empty permissions.allow', { permissions: { allow: [] } }],
+    ['an empty permissions', { permissions: {} }],
+  ])('detach restores exactly the owner\'s settings that start with %s', async (_name, owner) => {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.claude'), { recursive: true })
+    writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
+
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect(allowOf(dir)).toHaveLength(3)
+    dropOriginalCopy(dir)
+
+    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(owner)
+  })
+
   it('detaches a record written before settingsHook.engram existed', async () => {
     const dir = fixture()
     const owner = { model: 'opus' }
