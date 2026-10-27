@@ -8,6 +8,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
 import { appendExitLine, exitLineOf, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
@@ -18,6 +19,7 @@ import { tabWindowOf } from './tab.js'
 
 export const FRESH_MS = 2 * 60 * 1000
 export const LOOP_SCRIPT = path.normalize(FACTORY_RUNTIME.mikoLoopEntry)
+export const BUILT_LOOP_SCRIPT = LOOP_SCRIPT.replace(/\.ts$/, '.js')
 export const NOT_AT_A_STOP_CONDITION = 'not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card'
 export const TAB_THRESHOLD = 'in a tab window a threshold ends no session: continue in this session; compaction carries it on from the handoff (PreCompact insures it, SessionStart compact returns the continue prompt); nothing ended'
 export const SANDBOX_REFUSAL = 'outside the pnpm miko loop the sandbox lets this command neither find nor signal any process: nothing ended; run the session under pnpm miko'
@@ -85,7 +87,7 @@ export function sessionClaudeOf(table: () => ProcessRow[], pid: number): number 
 }
 
 export function isMikoLoop(row: ProcessRow): boolean {
-  return row.args.includes(LOOP_SCRIPT)
+  return row.args.includes(LOOP_SCRIPT) || row.args.includes(BUILT_LOOP_SCRIPT)
 }
 
 function atOrAbove(value: Reading<number>, limit: Reading<number>): boolean {
@@ -108,9 +110,17 @@ function freshHandoff(handoffMtime: number | undefined, now: number): boolean {
   return handoffMtime !== undefined && now - handoffMtime <= FRESH_MS
 }
 
+function missingHandoffRefusal(): string {
+  return `${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended`
+}
+
+function missingHandoffDecision(handoffMtime: number | undefined, status: string | null): ExitDecision | null {
+  return handoffMtime === undefined && status !== 'DONE' ? { refuse: missingHandoffRefusal() } : null
+}
+
 function staleHandoffRefusal(handoffMtime: number | undefined, now: number): string | null {
   if (handoffMtime === undefined)
-    return `${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended`
+    return missingHandoffRefusal()
   const age = now - handoffMtime
   return age > FRESH_MS ? `${MIKO_HANDOFF_NAME} was written ${Math.round(age / 1000)}s ago, more than ${FRESH_MS / 1000}s: write it with pnpm handoff:write first; nothing ended` : null
 }
@@ -155,6 +165,9 @@ function decisionOf(deps: MikoExitDeps, status: string | null, readings: ExitRea
   const tab = deps.tab === true ? tabThresholdDecision(deps.handoffMtime(), deps.now(), status, readings) : null
   if (tab !== null)
     return tab
+  const missing = missingHandoffDecision(deps.handoffMtime(), status)
+  if (missing !== null)
+    return missing
   const chain = chainOf(deps)
   return chain === null ? { refuse: SANDBOX_REFUSAL } : exitDecision(chain, deps.handoffMtime(), deps.now(), status, readings)
 }
@@ -259,4 +272,4 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  process.exitCode = runMikoExit(realMikoExitDeps(mikoHandoff(os.homedir())))
+  process.exitCode = runMikoExit(realMikoExitDeps(mikoHandoff(defaultHandoffDir())))

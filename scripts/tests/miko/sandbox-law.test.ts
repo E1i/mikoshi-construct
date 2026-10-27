@@ -103,12 +103,12 @@ describe('the window commands under the sandbox law', () => {
     const dir = scratch()
     const handoff = path.join(dir, 'miko.md')
     const lines: string[] = []
+    writeFileSync(handoff, 'STATUS: CONTINUE\n')
     const outside = runMikoExit({ ...realMikoExitDeps(handoff), loopRequest: undefined, readings: () => AT_CONTEXT_WARN, recordExit: () => {}, endWindow: undefined, observeStop: undefined, err: line => lines.push(line) })
     expect(outside).toBe(1)
     expect(lines).toEqual([`[miko] ${SANDBOX_REFUSAL}`])
 
     const request = path.join(dir, 'miko-exit.request')
-    writeFileSync(handoff, 'STATUS: CONTINUE\n')
     const underLoop = runMikoExit({ ...realMikoExitDeps(handoff), loopRequest: request, readings: () => AT_CONTEXT_WARN, recordExit: () => {}, endWindow: undefined, observeStop: undefined, err: () => {}, handoffMtime: () => Date.now(), now: () => Date.now(), status: () => 'CONTINUE' })
     expect(underLoop).toBe(0)
     expect(existsSync(request)).toBe(true)

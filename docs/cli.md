@@ -6,10 +6,14 @@ Every command, every flag, and what each one exits with. The short version lives
 ```bash
 npx mikoshi-construct <command> [options]   # no install
 construct <command> [options]               # after a global install
-miko <command> [options]                    # same binary, fewer keystrokes
+miko <command> [options]                    # the same commands, fewer keystrokes
 ```
 
-`construct`, `miko` and `mikoshi-construct` are the same executable.
+`construct` and `mikoshi-construct` are the same executable. `miko` runs every command of theirs, and
+also the window of the repository it is started in: `miko` with no arguments runs the window loop,
+and `miko watch`, `miko handoff write`, `miko handoff check`, `miko request <kind>` and `miko exit`
+run the window's commands. Their handoff lives in `~/.construct/<owner>--<repo>/handoff` and their bus
+is that repository's own `~/.construct/<owner>--<repo>/bus.db`, never a machine-wide one.
 
 ## Options every command takes
 

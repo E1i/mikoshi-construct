@@ -1,14 +1,16 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessRow } from './exit.js'
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { isOwnerCheckout } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../supervisor/liveness-sites.js'
@@ -21,7 +23,25 @@ export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
 export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
 export const DEFAULT_CLAUDE = 'claude --permission-mode dontAsk'
 export const MIKO_HANDOFF_NAME = 'miko.md'
-export const CONTINUE_PROMPT = `прочитай ~/.construct/handoff/${MIKO_HANDOFF_NAME}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца; если OWNER — задай вопрос владельцу в окне и жди ответа в этой же сессии, после ответа pnpm handoff:write со STATUS: CONTINUE, без pnpm miko:exit; событие жди через pnpm miko:watch --once в этой же сессии, следующую карточку бери в этой же сессии, pnpm handoff:write на каждой границе — страховка, без pnpm miko:exit; pnpm miko:exit — только при контексте или тратах сессии не ниже порога предупреждения Eddies или STATUS: DONE`
+export interface WindowCommands {
+  write: string
+  watch: string
+  exit: string
+}
+
+export const OWNER_COMMANDS: WindowCommands = { write: 'pnpm handoff:write', watch: 'pnpm miko:watch --once', exit: 'pnpm miko:exit' }
+export const PACKAGE_COMMANDS: WindowCommands = { write: 'miko handoff write', watch: 'miko watch --once', exit: 'miko exit' }
+
+export function continuePrompt(handoff: string, commands: WindowCommands): string {
+  return `прочитай ${handoff}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца; если OWNER — задай вопрос владельцу в окне и жди ответа в этой же сессии, после ответа ${commands.write} со STATUS: CONTINUE, без ${commands.exit}; событие жди через ${commands.watch} в этой же сессии, следующую карточку бери в этой же сессии, ${commands.write} на каждой границе — страховка, без ${commands.exit}; ${commands.exit} — только при контексте или тратах сессии не ниже порога предупреждения Eddies или STATUS: DONE`
+}
+
+export const CONTINUE_PROMPT = continuePrompt(`~/.construct/handoff/${MIKO_HANDOFF_NAME}`, OWNER_COMMANDS)
+
+export function repositoryContinuePrompt(dir: string, handoff: string): string {
+  return isOwnerCheckout(dir) ? CONTINUE_PROMPT : continuePrompt(handoff, PACKAGE_COMMANDS)
+}
+
 export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_WINDOW_MS = 1500
 export const EXIT_REQUEST_PREFIX = 'miko-exit'
@@ -54,14 +74,15 @@ export interface MikoLoopDeps {
   doubleCtrlC: () => boolean
   err: (line: string) => void
   ended: () => void
+  continuePrompt?: string
 }
 
-export function mikoHandoff(home: string): string {
-  return path.join(home, '.construct', 'handoff', MIKO_HANDOFF_NAME)
+export function mikoHandoff(handoffDir: string): string {
+  return path.join(handoffDir, MIKO_HANDOFF_NAME)
 }
 
-export function exitRequestFile(home: string, loopPid: number): string {
-  return path.join(home, '.construct', 'handoff', `${EXIT_REQUEST_PREFIX}.${loopPid}.request`)
+export function exitRequestFile(handoffDir: string, loopPid: number): string {
+  return path.join(handoffDir, `${EXIT_REQUEST_PREFIX}.${loopPid}.request`)
 }
 
 export function takeExitRequest(request: string): boolean {
@@ -230,7 +251,8 @@ export async function runMikoLoop(deps: MikoLoopDeps): Promise<number> {
 }
 
 async function sessionsUntilTheWindowEnds(deps: MikoLoopDeps): Promise<number> {
-  let prompt = deps.status() === undefined ? undefined : CONTINUE_PROMPT
+  const next = deps.continuePrompt ?? CONTINUE_PROMPT
+  let prompt = deps.status() === undefined ? undefined : next
   for (;;) {
     const before = deps.handoffMtime()
     const end = await deps.session(prompt)
@@ -256,7 +278,7 @@ async function sessionsUntilTheWindowEnds(deps: MikoLoopDeps): Promise<number> {
       deps.err(`${PREFIX}Ctrl+C in the pause: no next session`)
       return 0
     }
-    prompt = CONTINUE_PROMPT
+    prompt = next
   }
 }
 
@@ -356,8 +378,10 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   beating.unref()
   const ctrlC = doubleCtrlCWatcher()
   process.on('SIGINT', ctrlC.press)
-  const handoff = mikoHandoff(os.homedir())
-  const request = exitRequestFile(os.homedir(), process.pid)
+  const handoffDir = defaultHandoffDir()
+  mkdirSync(handoffDir, { recursive: true })
+  const handoff = mikoHandoff(handoffDir)
+  const request = exitRequestFile(handoffDir, process.pid)
   const ended = once(() => {
     clearInterval(beating)
     instance.end()
@@ -372,6 +396,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
       doubleCtrlC: ctrlC.seen,
       err: line => console.error(line),
       ended,
+      continuePrompt: repositoryContinuePrompt(process.cwd(), handoff),
     })
   }
   finally {
