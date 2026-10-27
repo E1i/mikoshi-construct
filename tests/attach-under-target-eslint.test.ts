@@ -46,7 +46,7 @@ describe('attach leaves a target repository that runs `eslint .` as green as it 
     const dir = repositoryLintedByEslintDot()
     expect(await errorsOfEslintDot(dir, linter)).toEqual([])
 
-    const result = await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'npx eslint .', yes: true })
+    const result = await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'npx eslint .', requiredCheck: 'gate', yes: true })
 
     expect(result.status).toBe('done')
     expect(await errorsOfEslintDot(dir, linter)).toEqual([])

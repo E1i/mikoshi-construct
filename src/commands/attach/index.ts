@@ -16,7 +16,7 @@ import { deployFactoryBeside } from './beside.js'
 import { browserEntriesHeldAtAttach, directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
 import { carriersItsConstructTracks } from './constructed.js'
 import { writeExcludeBlock } from './exclude.js'
-import { fileEditingMarks, harnessCandidates, throughPackageRunners } from './harness.js'
+import { fileEditingMarks, harnessCandidates, jobRunning, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, DEFAULT_PUSH_POLICY, NO_HARNESS, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor, unresolvableCheckRefusal } from './refusals.js'
@@ -53,10 +53,15 @@ export interface AttachResult {
   rolledBack: string[]
 }
 
-export const ATTACH_EXIT: Record<AttachResult['status'], number> = {
-  done: 0,
-  refused: 1,
-  aborted: 1,
+export const ATTACH_EXIT: Record<AttachResult['status'] | 'required-check-unresolvable', number> = {
+  'done': 0,
+  'refused': 1,
+  'aborted': 1,
+  'required-check-unresolvable': 2,
+}
+
+export function attachExitOf(result: AttachResult): number {
+  return result.refusal === 'required-check-unresolvable' ? ATTACH_EXIT[result.refusal] : ATTACH_EXIT[result.status]
 }
 
 const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefusal) => string | Notice> = {
@@ -180,12 +185,15 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     return aborted()
   if (isRefusal(asked))
     return refused(ui, asked)
-  const harness = asked
-  if (harness === NO_HARNESS)
+  if (asked === NO_HARNESS)
     ui.line(`  ${ui.lore.attachHarnessNone}`)
-  const unchecked = harness === NO_HARNESS ? null : checkedHarness(ui, harness.command, (options.env ?? process.env).PATH ?? '')
+  const unchecked = asked === NO_HARNESS ? null : checkedHarness(ui, asked.command, (options.env ?? process.env).PATH ?? '')
   if (unchecked != null)
     return refused(ui, unchecked)
+  const derivedJob = options.harness != null && options.requiredCheck == null ? jobRunning(root, options.harness) : undefined
+  if (derivedJob === null)
+    return refused(ui, unresolvableCheckRefusal())
+  const harness = asked !== NO_HARNESS && derivedJob != null ? withJob(asked.command, derivedJob) : asked
 
   const lanes = lanesGiven ?? (interactive == null ? DEFAULT_LANES : await interactive.lanes(DEFAULT_LANES))
   if (lanes == null)

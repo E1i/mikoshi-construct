@@ -162,7 +162,7 @@ describe('an index detach cannot read is a refusal with its own reason', () => {
 
     it(`${unreadable.name}: detach on an attached copy refuses and removes nothing`, async () => {
       const dir = fixture()
-      expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+      expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
       unreadable.arrange(dir)
       unreadable.proves(dir)
       const before = listing(dir)

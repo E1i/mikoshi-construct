@@ -225,7 +225,7 @@ describe('discovery writes what it found in the code into the Engram', () => {
 
   it('writes the engram of an attached repository under the home directory and leaves the target tree untouched', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
     expect(git(dir, 'status', '--porcelain')).toBe('')
     const file = writeEngram(dir, { attached: true, home: home() })
     expect(file).toBe(path.join(home(), ENGRAM_HOME_DIR, engramDirectoryName(dir), MODEL_FILE))

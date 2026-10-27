@@ -154,7 +154,7 @@ function attachedWorld(scratch: Scratch): World {
   const world = scratch.world()
   cpSync(EXISTING_MONOREPO, world.dir, { recursive: true })
   spawnSync('git', ['init', '-q'], { cwd: world.dir })
-  const status = run(scratch.cli, ['attach', '--yes', '--harness', 'pnpm run quality'], world).status
+  const status = run(scratch.cli, ['attach', '--yes', '--harness', 'pnpm run quality', '--required-check', 'quality'], world).status
   if (status !== 0)
     throw new Error(`attach exited ${status} while building the --json samples`)
   return world

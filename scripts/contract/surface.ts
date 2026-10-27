@@ -188,7 +188,7 @@ function observedRuns(cli: ObservedCli, presets: string[]): Runs {
     execFileSync('cp', ['-R', ATTACH_SAMPLE, repository])
     execFileSync('git', ['init', '-q'], { cwd: repository })
     const before = new Set(filesUnder(repository))
-    runCli(cli, ['attach', '--yes', '--harness', 'pnpm run quality'], repository, home)
+    runCli(cli, ['attach', '--yes', '--harness', 'pnpm run quality', '--required-check', 'quality'], repository, home)
     const writes = filesUnder(repository).filter(file => !before.has(file)).sort()
 
     return {

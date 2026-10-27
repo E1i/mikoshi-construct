@@ -165,7 +165,7 @@ describe('construct atlas in a repository construct init made', () => {
 describe('construct atlas in a repository construct attach jacked into, with no init', () => {
   it('writes the engram under the home directory, the page into the .construct directory attach excludes, and nothing git sees', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
     expect(git(dir, 'status', '--porcelain')).toBe('')
     const written = atlasOf(dir)
     expect(written).toEqual({
@@ -184,7 +184,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
 
   it('heads the page with the name and description package.json gives, not the folder name, and says where each came from', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
     const hero = /<header class="hero">[\s\S]*?<\/header>/.exec(readFileSync(atlasOf(dir).page, 'utf8'))![0]
     expect(hero).toContain('<h1 class="repo">shop</h1>')
     expect(hero).toContain('<p class="lede">Takes and stores the orders of the shop</p>')
@@ -194,7 +194,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
 
   it('writes no documentation view into an attached repository and draws no switch on its map', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
     const written = atlasOf(dir)
     expect(existsSync(path.join(dir, '.construct', 'atlas-docs.html'))).toBe(false)
     expect(existsSync(path.join(path.dirname(written.engram), 'atlas-docs.html'))).toBe(false)
@@ -204,7 +204,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
 
   it('a second run writes the same engram and the same page, byte for byte', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
     const first = atlasOf(dir)
     const before = [readFileSync(first.engram), readFileSync(first.page)]
     atlasOf(dir)
@@ -214,7 +214,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
 
   it('keeps the parts the engram already names and maps their code under the contour the package declares', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
     const engram = atlasOf(dir).engram
     const model = JSON.parse(readFileSync(engram, 'utf8')) as Record<string, unknown>
     writeFileSync(engram, `${JSON.stringify({ ...model, ...STAGED_NODES }, null, 2)}\n`)
@@ -230,7 +230,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
 describe('construct detach after construct atlas', () => {
   it('takes the atlas page with the rest of what attach owned, so git sees no .construct/ afterwards', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
     expect(existsSync(atlasOf(dir).page)).toBe(true)
     expect(runDetach(ui, { dir }).status).toBe('done')
     expect(git(dir, 'status', '--porcelain', '--ignored')).not.toContain('.construct/')
@@ -257,7 +257,7 @@ describe('construct atlas in a repository with neither init nor attach', () => {
 describe('construct atlas in a repository construct attach jacked into by this build', () => {
   it('atlas runs on a repository attached by this build', async () => {
     const dir = foreignRepository()
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     const written = atlasOf(dir)
     expect(existsSync(written.engram)).toBe(true)
     expect(existsSync(written.page)).toBe(true)
@@ -267,7 +267,7 @@ describe('construct atlas in a repository construct attach jacked into by this b
 describe('open the source resolves from where the page lies', () => {
   it('resolves every source link to the repository path, for the default page and for --out', async () => {
     const dir = foreignRepository()
-    await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
     const engram = atlasOf(dir).engram
     const model = JSON.parse(readFileSync(engram, 'utf8')) as Record<string, unknown>
     writeFileSync(engram, `${JSON.stringify({ ...model, ...STAGED_NODES }, null, 2)}\n`)
@@ -284,7 +284,7 @@ describe('construct atlas over a repository whose files discovery mostly cannot 
     const dir = path.join(mkdtempSync(path.join(tmpdir(), 'construct-atlas-unknown-')), 'unknown-types')
     cpSync(path.resolve(import.meta.dirname, 'fixtures/engram/unknown-types'), dir, { recursive: true })
     commitAll(dir)
-    expect((await runAttach(ui, { dir, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, requiredCheck: 'gate', yes: true })).status).toBe('done')
     const written = atlasOf(dir)
     const tracked = git(dir, 'ls-files').split('\n').filter(file => file !== '')
     const html = readFileSync(written.page, 'utf8')

@@ -19,7 +19,7 @@ beforeAll(async () => {
   writeFileSync(path.join(attached, 'main.go'), 'package main\n')
   execFileSync('git', ['add', 'main.go'], { cwd: attached })
   execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'base'], { cwd: attached })
-  expect((await runAttach(ui, { dir: attached, harness: 'true', yes: true })).status).toBe('done')
+  expect((await runAttach(ui, { dir: attached, harness: 'true', requiredCheck: 'gate', yes: true })).status).toBe('done')
 })
 
 afterAll(() => {

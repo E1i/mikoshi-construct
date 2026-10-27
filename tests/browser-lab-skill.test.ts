@@ -119,7 +119,7 @@ describe('attach carries the browser lab into a repository that has no JavaScrip
     const dir = goRepository()
     const bin = searchPathHolding('make')
     try {
-      const result = await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'make check', yes: true, env: { PATH: bin } })
+      const result = await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'make check', requiredCheck: 'gate', yes: true, env: { PATH: bin } })
       expect(result.status).toBe('done')
       const record = readAttachRecord(dir)
       const exclude = readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8').split('\n')

@@ -10,7 +10,7 @@ import { defineCommand, showUsage } from 'citty'
 import { busExpected, busPathOf } from '../scripts/core/bus-path.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from '../scripts/owner/channel.js'
 import { printAtlas, runAtlas } from './atlas/index.js'
-import { ATTACH_EXIT, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
+import { attachExitOf, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
 import { busReaderAt } from './commands/board/bus.js'
 import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, rawSectionsAsked, readBoard, STALE_HOURS } from './commands/board/index.js'
 import { COST_EXIT, costExpect, costJson, costReport, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
@@ -123,7 +123,7 @@ const attach = withKnownFlags(defineCommand({
       }
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
       const result = await runAttach(console, { dir: args.dir, harness: args.harness, requiredCheck: args.requiredCheck, ai: args.ai, lanes: args.lanes, yes: args.yes }, prompter)
-      process.exitCode = ATTACH_EXIT[result.status]
+      process.exitCode = attachExitOf(result)
     }
     catch (error) {
       flatlineFor(console, error)

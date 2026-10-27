@@ -48,7 +48,7 @@ describe('construct attach on a foreign repository', () => {
     const dir = foreignRepository()
     const before = trackedBytes(dir)
     expect(Object.keys(before)).toContain(MODEL_FILE)
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(trackedBytes(dir)).toEqual(before)
     expect(git(dir, 'status', '--porcelain', '--untracked-files=no')).toBe('')
     expect(git(dir, 'ls-files', '-z').split('\0').filter(file => file !== '')).toEqual(Object.keys(before))

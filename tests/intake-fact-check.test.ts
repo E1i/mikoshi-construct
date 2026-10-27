@@ -334,7 +334,7 @@ describe('intake fact check', () => {
     execFileSync('git', ['init', '-q'], { cwd: dir })
     execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { cwd: dir })
     execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'base'], { cwd: dir })
-    await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'true', yes: true })
+    await runAttach(createUi(resolveTheme({ plain: true }), silentWriter), { dir, harness: 'true', requiredCheck: 'gate', yes: true })
     const before = hashes(dir)
     const { result, parking } = intake([card({ touches: ['lib/zebra-quokka.ts', '.claude/**'] })], { dir })
     const text = written(result, parking, 2)

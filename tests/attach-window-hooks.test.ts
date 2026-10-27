@@ -59,7 +59,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
   it('attach into a clean repository writes the Stop, PreCompact and SessionStart compact hooks', async () => {
     const dir = fixture()
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
     expect(readFileSync(path.join(dir, ATTACH_WINDOW_HOOKS.target)).equals(readFileSync(TEMPLATE))).toBe(true)
@@ -75,7 +75,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
     const existing = { permissions: { allow: ['Bash(ls:*)'] }, hooks: { Stop: [own], SessionStart: [{ matcher: 'startup', ...own }] } }
     writeSettings(dir, JSON.stringify(existing))
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({
       permissions: { allow: [...existing.permissions.allow, ...engramRules(dir, home())] },
@@ -89,7 +89,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
     const before = JSON.stringify({ hooks: { Stop: [STOP_ENTRY] } })
     writeSettings(dir, before)
 
-    const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    const result = await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
 
     expect(result.status).toBe('refused')
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(before)
@@ -102,7 +102,7 @@ describe('detach takes the window hooks out', () => {
     const dir = fixture()
     const before = `${JSON.stringify({ permissions: { allow: [] }, hooks: { Stop: [{ hooks: [{ type: 'command', command: 'true' }] }] } }, null, 4)}\n`
     writeSettings(dir, before)
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(readSettings(dir)).toMatchObject({ hooks: { PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] } })
     expect(existsSync(path.join(dir, ATTACH_WINDOW_HOOKS.target))).toBe(true)
 
@@ -116,7 +116,7 @@ describe('detach takes the window hooks out', () => {
     const dir = fixture()
     const own = { hooks: [{ type: 'command', command: 'true' }] }
     writeSettings(dir, JSON.stringify({ hooks: { Stop: [own] } }))
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
     const settings = readSettings(dir) as { hooks: Record<string, unknown>, env?: unknown }
     writeSettings(dir, JSON.stringify({ ...settings, env: { A: '1' } }))
 
@@ -127,7 +127,7 @@ describe('detach takes the window hooks out', () => {
 
   it('detach deletes the settings file it created for the guard and the window hooks', async () => {
     const dir = fixture()
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
     expect(runDetach(ui, { dir }).status).toBe('done')
 
@@ -137,7 +137,7 @@ describe('detach takes the window hooks out', () => {
 
   it('detach refuses settings whose window hook was edited since attach, and removes nothing', async () => {
     const dir = fixture()
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
     const settings = readSettings(dir) as { hooks: Record<string, unknown> }
     writeSettings(dir, JSON.stringify({ hooks: { ...settings.hooks, Stop: [windowEntry('stop --loud')] } }))
 

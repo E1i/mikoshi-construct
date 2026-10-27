@@ -83,7 +83,7 @@ describe('the collision refusal prints commands a shell runs as written', () => 
     const parent = mkdtempSync(path.join(tmpdir(), 'construct-shell-root-'))
     const root = repository(parent, name, ATTACH_CARRIERS.targets)
     const { ui, output } = capturing()
-    const result = await runAttach(ui, { dir: root, harness: 'true', yes: true })
+    const result = await runAttach(ui, { dir: root, harness: 'true', requiredCheck: 'gate', yes: true })
     expect(result.refusal).toBe('collision')
     const [remove, rerun] = nextStep(output()).split(` && ${RERUN_PREFIX}`)
     execFileSync('sh', ['-c', remove], { cwd: parent })
@@ -98,7 +98,7 @@ describe('the collision refusal prints commands a shell runs as written', () => 
     const root = repository(parent, 'repo', ATTACH_CARRIERS.targets)
     const harness = `echo ${word}`
     const { ui, output } = capturing()
-    await runAttach(ui, { dir: root, harness, yes: true })
+    await runAttach(ui, { dir: root, harness, requiredCheck: 'gate', yes: true })
     const rerun = nextStep(output()).split(` && ${RERUN_PREFIX}`)[1]
     expect(wordsOf(rerun, parent)).toEqual(['attach', '--dir', root, '--yes', '--harness', harness])
     expect(canaryAnywhere(parent)).toBe(false)
@@ -111,7 +111,7 @@ describe('the not-a-command refusal prints a harness a shell passes as written',
     const root = repository(parent, 'repo', [])
     const harness = `quality ${word}`
     const { ui, output } = capturing()
-    const result = await runAttach(ui, { dir: root, harness, yes: true, env: { PATH: '' } })
+    const result = await runAttach(ui, { dir: root, harness, requiredCheck: 'gate', yes: true, env: { PATH: '' } })
     expect(result.refusal).toBe('not-a-command')
     const suggestions = nextStep(output()).split('  or  ').map(suggestion => wordsOf(suggestion, parent))
     expect(suggestions).toEqual([['--harness', `npm run ${harness}`], ['--harness', `npx ${harness}`]])

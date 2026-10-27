@@ -49,6 +49,8 @@ and the entry in `.claude/settings.local.json` are the only places outside the f
 **The harness command is never guessed.** Pass the command your repository already uses to check a
 change, whatever its package manager: `npm test`, `yarn check`, `bun run ci`. Under `--yes`
 without `--harness`, attach records the harness as `none`. `/implement` reads it back from the record.
+With `--harness`, attach also takes the CI job whose step runs the same command as the check the bus
+waits for; when no job runs it, pass `--required-check "<job name>"` or attach refuses with exit 2.
 
 **Authorship is not hidden.** Nothing attach writes is committed, so the report ends with a trailer to
 copy into commits made during the work, `Attached-Construct: mikoshi-construct@<version>`, and one

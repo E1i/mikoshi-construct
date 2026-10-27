@@ -43,7 +43,7 @@ beforeAll(async () => {
   worlds.push(holder)
   const worktree = path.join(holder, 'wt')
   git(attached, 'worktree', 'add', '-q', '--detach', worktree)
-  const result = await runAttach(ui, { dir: attached, harness: 'true', yes: true })
+  const result = await runAttach(ui, { dir: attached, harness: 'true', requiredCheck: 'gate', yes: true })
   expect(result.status).toBe('done')
   world = { attached, other, worktree }
 })

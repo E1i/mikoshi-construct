@@ -84,8 +84,10 @@ describe('attach records the job of the gate candidate and the bus reads it as t
 
   it('keeps the check named required when attach recorded no job', async () => {
     const dir = repository()
-    expect((await runAttach(ui, { dir, harness: 'pnpm test', yes: true })).status).toBe('done')
+    writeFileSync(path.join(dir, '.github/workflows/ci.yml'), 'name: ci\n')
+    expect((await runAttach(ui, { dir, yes: false }, choosingFirst())).status).toBe('done')
 
+    expect(readAttachRecord(dir)?.harness).not.toHaveProperty('job')
     expect(requiredCheckOf(dir)).toBe('required')
   })
 
