@@ -21,6 +21,7 @@ import { launchName } from '../../supervisor/bg.js'
 import { BusTick, tickOrLocked } from '../../supervisor/run.js'
 import { recordWorkerDown, WorkerKeeper } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
+import { firstTickBound } from './first-tick-bound.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 
 const LIVE_BUS_COPY_VARIABLE = 'CONSTRUCT_BUS_COPY'
@@ -172,10 +173,6 @@ function writeHolds(db: Bus): WriteHold[] {
   return holds
 }
 
-function median(values: number[]): number {
-  return [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!
-}
-
 function heldLock(file: string, holdMs: number): { release: () => void, released: Promise<unknown> } {
   const signal = new Int32Array(new SharedArrayBuffer(8))
   const holder = new Worker(HOLDS_THE_WRITE_LOCK, { eval: true, workerData: { file, signal, holdMs } })
@@ -216,7 +213,7 @@ describe('a bus:run restart holds no write longer than a node waits', () => {
 
     expect(reducedThrough(restarted)).toBeGreaterThan(0)
     expect(written.errors.filter(error => error.includes(DATABASE_LOCKED))).toEqual([])
-    expect(first).toBeLessThanOrEqual(2 * median(usual))
+    expect(first).toBeLessThanOrEqual(firstTickBound(usual))
     restarted.close()
   }, 10 * 60_000)
 
