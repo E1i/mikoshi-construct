@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
-import { WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
+import { engramRules, WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -61,7 +61,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
 
     expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] } })
+    expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
     expect(readFileSync(path.join(dir, ATTACH_WINDOW_HOOKS.target)).equals(readFileSync(TEMPLATE))).toBe(true)
     const record = readAttachRecord(dir)
     expect(Object.keys(record?.files ?? {})).toContain(ATTACH_WINDOW_HOOKS.target)
@@ -78,7 +78,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
     expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({
-      permissions: existing.permissions,
+      permissions: { allow: [...existing.permissions.allow, ...engramRules(dir, home())] },
       hooks: { Stop: [own, STOP_ENTRY], SessionStart: [{ matcher: 'startup', ...own }, COMPACT_START_ENTRY], PreToolUse: [GUARD_ENTRY], PreCompact: [PRE_COMPACT_ENTRY] },
     })
     expect(readAttachRecord(dir)?.settingsHook?.window?.map(({ event, created }) => [event, created])).toEqual([['Stop', false], ['PreCompact', true], ['SessionStart', false]])

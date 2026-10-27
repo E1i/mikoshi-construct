@@ -1183,7 +1183,7 @@ Every check runs before anything is written, in this order, and a refusal create
 | a path attach would create already exists | `Refused: N paths attach would create already exist:`, then why and the next step, then the paths, each labelled `construct's own: byte for byte the template of <date>` or `not recognised: attach never writes over it` (see [A collision](#a-collision)) |
 | `.claude/settings.local.json` exists and `.git/index` cannot be read (version 4, split, sparse or an unknown object format) | `Refused: .claude/settings.local.json exists and .git/index cannot be read here, so whether git tracks it cannot be told.`, then why and next |
 | `.claude/settings.local.json` is tracked by git | `Refused: .claude/settings.local.json is tracked by git.`, then why and next |
-| `.claude/settings.local.json` does not parse as a JSON object, its `hooks` is not an object, its `hooks.PreToolUse` is not a list, or it is not a regular file (a symlink) | `Refused: .claude/settings.local.json is not a settings file attach can edit.`, then why and next |
+| `.claude/settings.local.json` does not parse as a JSON object, its `hooks` is not an object, its `hooks.PreToolUse` is not a list, its `permissions` is not an object, its `permissions.allow` is not a list, or it is not a regular file (a symlink) | `Refused: .claude/settings.local.json is not a settings file attach can edit.`, then why and next |
 | `.claude/settings.local.json` already carries an entry that runs `.construct/commit-guard.mjs` | `Refused: .claude/settings.local.json already carries an entry that runs .construct/commit-guard.mjs.`, then why, and next: keep the file; run `construct detach` first if the repository is still attached, or delete only that entry |
 | `--ai cursor` or `--ai both` | `Refused: --ai cursor is not supported by attach yet; its rules would apply to the whole tree.` |
 | the first word of the harness command (after any `VAR=value`) is not a path, a shell word such as `cd`, or an executable in an absolute `PATH` directory — a `package.json` script name such as `quality`, or a binary under `node_modules/.bin` such as `vitest` | `Refused: "quality" is not a command found on PATH.`, then why, and the next step with the rest of the command kept: `--harness "npm run quality"  or  --harness "npx quality"` |
@@ -1290,6 +1290,11 @@ At Stop it blocks the stop when the handoff's last `STATUS:` line is `CONTINUE` 
 stop in a row through; after a compaction it hands the session `additionalContext` naming the handoff
 to continue from; before a compaction it returns a `systemMessage`, which Claude Code shows the owner,
 saying that the handoff is missing or older than two minutes. It writes no file.
+
+attach also adds three rules to `permissions.allow` in the same file, `Read`, `Edit` and `Write` on
+`//<home>/.construct/engram/<dir>-<hash>/**`, the one directory that holds this repository's Engram (the
+leading `//` is Claude Code's form for an absolute path). It adds only the rules the list lacks, and
+`construct detach` removes exactly those, leaving every other rule.
 
 The guard refuses the agent a `git commit`, `git push`, `git merge`, `git rebase` or `git tag` into the
 attached repository, or into a repository it cannot pin down, with exit code 2 and three lines, what,
