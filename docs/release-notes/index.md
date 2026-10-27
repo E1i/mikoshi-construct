@@ -4,6 +4,24 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.44.1
+
+### Patch Changes
+
+- [#1168](https://github.com/E1i/mikoshi-construct/pull/1168) [`4de7138`](https://github.com/E1i/mikoshi-construct/commit/4de7138688deff4e15ac0b8ad2aaed23bad5f5ff) Thanks [@E1i](https://github.com/E1i)! - `attach` now carries `/construct-atlas` and `/attached-discover` as hidden carriers; in an attached repository the interpretation goes only into the Engram under `~/.construct/engram/`, and `detach` removes both carriers.
+
+- [#1169](https://github.com/E1i/mikoshi-construct/pull/1169) [`da911e8`](https://github.com/E1i/mikoshi-construct/commit/da911e846c551d4f1a776a3d51be0ba9dc0b9c91) Thanks [@E1i](https://github.com/E1i)! - cli: attach carries a generic window rules document beside the window hooks and records `push: none`, under which the bus neither commits, pushes nor opens a pull request in that repository.
+
+- [#1166](https://github.com/E1i/mikoshi-construct/pull/1166) [`4b60286`](https://github.com/E1i/mikoshi-construct/commit/4b60286b275795d5369ce69fb5458e092cf55610) Thanks [@E1i](https://github.com/E1i)! - attach records the CI job its harness candidate came from in attach.json, and the bus reads that job as the required check; where the job's check name is not in the workflow (a matrix, an expression in its name, a reusable workflow) attach refuses until `--required-check <name>` names it
+
+- [#1171](https://github.com/E1i/mikoshi-construct/pull/1171) [`430a20d`](https://github.com/E1i/mikoshi-construct/commit/430a20d0a50859cd35513146f9100e67bab8f0e6) Thanks [@E1i](https://github.com/E1i)! - factory: `miko handoff write` and `miko handoff check` resolve a relative handoff name against the repository's handoff directory — `~/.construct/<owner>--<repo>/handoff` in a repository other than mikoshi-construct, `~/.construct/handoff` in a mikoshi-construct checkout, `CONSTRUCT_HANDOFF_DIR` when it is set — and the first handoff in a new repository is created with its directory. Before, `miko handoff write miko.md <draft>` from the root of a fresh repository resolved `miko.md` against the working directory and refused it as not this session's handoff, so the window in a new repository could not write its first handoff.
+
+- [#1167](https://github.com/E1i/mikoshi-construct/pull/1167) [`1aa2295`](https://github.com/E1i/mikoshi-construct/commit/1aa2295d6934e4bbfd1370b7071ed4e890f44fad) Thanks [@E1i](https://github.com/E1i)! - factory: a merge task's key now carries the sha of the pull request body, so a task withdrawn on the body (`decision_unread`, `no_matrix_count_line`) is queued again under a new key once the body is edited, and the `board.alarm` raised for the withdrawal names that task key.
+
+- [#1164](https://github.com/E1i/mikoshi-construct/pull/1164) [`5998af3`](https://github.com/E1i/mikoshi-construct/commit/5998af31dbe4a62b85e8165d782b1e1e01170e14) Thanks [@E1i](https://github.com/E1i)! - factory: the `miko` bin runs the window of the repository it is started in. `miko` with no arguments starts the window loop; `miko watch`, `miko handoff write`, `miko handoff check`, `miko request <kind>` and `miko exit` run the window's commands from the package; every other `miko <command>` is the CLI as before. In a repository other than mikoshi-construct, the handoff lives in `~/.construct/<owner>--<repo>/handoff`, the bus is that repository's own with no fall back to the machine-wide `~/.construct/bus.db`, and the loop's continue prompt names that handoff and the `miko …` commands instead of `pnpm` scripts. Before, `miko` with no arguments printed the CLI usage, and the window could only run inside a mikoshi-construct checkout.
+
+- [#1165](https://github.com/E1i/mikoshi-construct/pull/1165) [`a91845e`](https://github.com/E1i/mikoshi-construct/commit/a91845e9288e6b6f0325b4e1caa69502d7a97c5a) Thanks [@E1i](https://github.com/E1i)! - factory: a red `witness.recorded` now keeps the names of the failed tests and the first lines of their errors, cut at a limit, after the refusal line. Before, a red witness kept only the last line of the output, so which test failed was lost.
+
 ## 0.44.0
 
 [0.44.0 — the factory ships in the package (beta)](/release-notes/0.44.0)
