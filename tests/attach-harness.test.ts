@@ -103,13 +103,13 @@ const MONOREPO = {
 describe('attach proposes harness candidates read from the repository', () => {
   it('on a monorepo, the CI step pnpm test comes first with its workflow line, and lint is not among them', () => {
     const candidates = harnessCandidates(repository(MONOREPO))
-    expect(candidates[0]).toEqual({ command: 'pnpm test', source: '.github/workflows/ci.yml:10' })
+    expect(candidates[0]).toEqual({ command: 'pnpm test', source: '.github/workflows/ci.yml:10', job: 'check' })
     expect(candidates.map(candidate => candidate.command).filter(command => command.includes('lint'))).toEqual([])
   })
 
   it('the package script that repeats a CI step is not proposed twice, and typecheck ranks after tests', () => {
     expect(harnessCandidates(repository(MONOREPO))).toEqual([
-      { command: 'pnpm test', source: '.github/workflows/ci.yml:10' },
+      { command: 'pnpm test', source: '.github/workflows/ci.yml:10', job: 'check' },
       { command: 'pnpm run typecheck', source: 'package.json scripts.typecheck' },
     ])
   })
@@ -120,7 +120,7 @@ describe('attach proposes harness candidates read from the repository', () => {
       '.github/workflows/ci.yml': 'jobs:\n  ci:\n    steps:\n      - name: gate\n        run: |\n          pnpm install\n          pnpm run quality\n',
     })
     expect(harnessCandidates(dir)).toEqual([
-      { command: 'pnpm run quality', source: '.github/workflows/ci.yml:7' },
+      { command: 'pnpm run quality', source: '.github/workflows/ci.yml:7', job: 'ci' },
       { command: 'pnpm run test', source: 'package.json scripts.test' },
     ])
   })
@@ -158,4 +158,72 @@ describe('the candidate question takes yes, no or a number', () => {
       expect(pickedCandidate(answer, 3)).toBe(picked)
     })
   }
+})
+
+const workflow = (...lines: string[]): string => `${lines.join('\n')}\n`
+
+const JOB_READINGS: Record<string, { text: string, expected: { job?: string, jobUnresolved?: true } }> = {
+  'a workflow indented by four spaces': {
+    text: workflow('jobs:', '    build:', '        name: Four wide', '        steps:', '            - run: pnpm test'),
+    expected: { job: 'Four wide' },
+  },
+  'a quoted name': {
+    text: workflow('jobs:', '  build:', '    name: "Build and test"', '    steps:', '      - run: pnpm test'),
+    expected: { job: 'Build and test' },
+  },
+  'a single-quoted name': {
+    text: workflow('jobs:', '  build:', '    name: \'Build, test\'', '    steps:', '      - run: pnpm test'),
+    expected: { job: 'Build, test' },
+  },
+  'no name, so the id is the check run': {
+    text: workflow('jobs:', '  build:', '    runs-on: ubuntu-latest', '    steps:', '      - run: pnpm test'),
+    expected: { job: 'build' },
+  },
+  'a step name that must not be taken': {
+    text: workflow('jobs:', '  build:', '    steps:', '      - name: Run the tests', '        run: pnpm test'),
+    expected: { job: 'build' },
+  },
+  'a step name after the run line of the same step': {
+    text: workflow('jobs:', '  build:', '    steps:', '      - run: pnpm test', '        name: Run the tests'),
+    expected: { job: 'build' },
+  },
+  'a block scalar run under a named job': {
+    text: workflow('jobs:', '  build:', '    name: Gate', '    steps:', '      - run: |', '          pnpm install', '          pnpm test'),
+    expected: { job: 'Gate' },
+  },
+  'the second of several jobs': {
+    text: workflow('jobs:', '  lint:', '    name: Lint it', '    steps:', '      - run: pnpm lint', '  test:', '    name: Test it', '    steps:', '      - run: pnpm test', '  deploy:', '    name: Ship it', '    steps:', '      - run: pnpm deploy'),
+    expected: { job: 'Test it' },
+  },
+  'a matrix job': {
+    text: workflow('jobs:', '  test:', '    name: Test', '    strategy:', '      matrix:', '        node: [20, 22]', '    steps:', '      - run: pnpm test'),
+    expected: { jobUnresolved: true },
+  },
+  'a matrix job with no name': {
+    text: workflow('jobs:', '  test:', '    strategy:', '      matrix:', '        node: [20, 22]', '    steps:', '      - run: pnpm test'),
+    expected: { jobUnresolved: true },
+  },
+  'a name that holds an expression': {
+    text: workflow('jobs:', '  test:', `    name: Test on \${{ inputs.os }}`, '    steps:', '      - run: pnpm test'),
+    expected: { jobUnresolved: true },
+  },
+  'a job that calls a reusable workflow': {
+    text: workflow('jobs:', '  test:', '    uses: ./.github/workflows/reusable.yml', '    steps:', '      - run: pnpm test'),
+    expected: { jobUnresolved: true },
+  },
+}
+
+describe('attach reads the job a candidate was taken from', () => {
+  for (const [name, { text, expected }] of Object.entries(JOB_READINGS)) {
+    it(`${name}`, () => {
+      const dir = repository({ '.github/workflows/ci.yml': text })
+      const found = harnessCandidates(dir).find(candidate => candidate.command === 'pnpm test')
+      expect(found).toEqual({ command: 'pnpm test', source: expect.stringContaining('.github/workflows/ci.yml:'), ...expected })
+    })
+  }
+
+  it('a job beside a matrix job keeps its own name', () => {
+    const dir = repository({ '.github/workflows/ci.yml': workflow('jobs:', '  matrix:', '    strategy:', '      matrix:', '        node: [20]', '    steps:', '      - run: pnpm lint', '  test:', '    name: Plain', '    steps:', '      - run: pnpm test') })
+    expect(harnessCandidates(dir).find(candidate => candidate.command === 'pnpm test')?.job).toBe('Plain')
+  })
 })

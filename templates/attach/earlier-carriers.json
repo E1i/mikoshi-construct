@@ -626,12 +626,12 @@
   },
   {
     "target": ".claude/skills/construct-atlas/SKILL.md",
-    "sha256": "e8ff3c0a1f983ff0330e0c7797becfff9c6268003caed7aa2a68aadf874d1445",
+    "sha256": "f65c357b0577575f05fcaa0ee0ce7c489b545acc88d6e6b9689e28302184155d",
     "date": "2026-10-27"
   },
   {
     "target": ".claude/commands/attached-discover.md",
-    "sha256": "be78c7c3dd656b1f4d640f3c913a0fc6eeae40f58df5b82c560879770f76b380",
+    "sha256": "c0e44ce4d2df5121d1c42c1d35284da5fc2edf5968d7b6514470ff42455b74da",
     "date": "2026-10-27"
   }
 ]

@@ -32,8 +32,7 @@ Scope: `$ARGUMENTS` (empty means everything).
 
 4. Run `construct atlas` again and report the page it names.
 
-Write only that one Engram file. Never write inside the repository: not `AGENTS.md`, not `CLAUDE.md`, not
-`construct.json`, not `construct.model.json`, not a marker, not a composition model. The only paths the
-construct made here are listed in `.git/info/exclude`; leave everything else as it is. When a high-effort
-list is wanted, `/implement` reads it from `.construct/high-effort-areas.md`, which you write only when the
-user asks. Do not commit.
+Write that one Engram file, and nothing inside the repository except `.construct/high-effort-areas.md`, which
+`/implement` reads for its high-effort list and which you write only when the user asks. Never write
+`AGENTS.md`, `CLAUDE.md`, `construct.json`, `construct.model.json`, a marker or a composition model. The only
+paths the construct made here are listed in `.git/info/exclude`; leave everything else as it is. Do not commit.

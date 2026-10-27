@@ -15,7 +15,7 @@ itself declares; the parts a reader would name come from discovery, which writes
    Otherwise run `/construct-discover`; its step on contours and components runs `construct atlas`, writes
    the components it can stand behind under `interpretation`, and writes nothing under `mechanics`.
 2. Run `construct atlas` (or `npx mikoshi-construct atlas`) from the repository root. It rewrites `mechanics`,
-   keeps `interpretation`, and writes one self-contained page, `.construct/atlas.html` by default.
+   keeps `interpretation`, and writes one self-contained page, the one it names.
 3. Report the page it names and how many components `interpretation` holds. If the first line of its output
    says no part is named yet, discovery wrote no component: say which contours it could not place and why,
    instead of reporting the Atlas as interpreted.

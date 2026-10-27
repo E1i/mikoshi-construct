@@ -58,6 +58,7 @@ export class FakeGitHub {
   commitsBeyondTheCompare = 0
   limited: GhResponse | null = null
   failing = false
+  checkName = 'required'
   calls: string[] = []
   remaining = 5000
   ownerMerges = readFileSync('architecture/owner-merges.md', 'utf8')
@@ -180,7 +181,7 @@ export class FakeGitHub {
       const required = owner?.required ?? 'pending'
       const failed = (owner?.failed ?? []).map(name => ({ name, status: 'completed', conclusion: 'failure' }))
       const running = (owner?.running ?? []).map(name => ({ name, status: 'in_progress', conclusion: null }))
-      return { check_runs: [{ name: 'required', status: required === 'pending' ? 'in_progress' : 'completed', conclusion: required === 'pending' ? null : required }, ...failed, ...running] }
+      return { check_runs: [{ name: this.checkName, status: required === 'pending' ? 'in_progress' : 'completed', conclusion: required === 'pending' ? null : required }, ...failed, ...running] }
     }
     const status = /\/commits\/([0-9a-f]{40})\/status$/.exec(endpoint)
     if (status !== null) {

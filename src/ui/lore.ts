@@ -154,6 +154,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   recordAhead: (record: string, field: string, found: number, understood: number) => string
   modelIsWrittenByInit: string
   atlasNothingInterpreted: string
+  atlasNothingInterpretedAttached: string
   atlasPageWritten: (target: string) => string
   atlasRefusedUnconstructed: string
   intakeRefusedAdmitWithDraft: string
@@ -216,6 +217,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachCollisionForeign: string
   attachRefusedCursor: string
   attachRefusedNotACommand: (word: string, suggestions: string[]) => Notice
+  attachRefusedRequiredCheck: Notice
   attachHarnessEditsFiles: (marks: string[]) => Notice
   attachRefusedSettingsIndex: Notice
   attachRefusedSettingsTracked: Notice
@@ -524,6 +526,7 @@ export const LORE: Lore = {
   recordAhead: (record: string, field: string, found: number, understood: number) => `RELIC FROM A LATER BUILD: ${record} declares ${field} ${found}, and this binary reads ${understood}. Nothing was read and nothing was written \u2014 upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'ENGRAM UNWRITTEN: one is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   atlasNothingInterpreted: 'NO PART NAMED IN THE ENGRAM YET: run /construct-atlas, or /construct-discover and then this again, and the agent names the parts; until then the picture shows the parts the code itself declares.',
+  atlasNothingInterpretedAttached: 'NO PART NAMED IN THE ENGRAM YET: run /construct-atlas, or /attached-discover and then this again, and the agent names the parts; until then the picture shows the parts the code itself declares.',
   atlasPageWritten: (target: string) => `PICTURE COMMITTED TO GLASS: ${target} \u2014 one file, no network, open it from disk.`,
   atlasRefusedUnconstructed: 'ATLAS REFUSED // NO CONSTRUCT HERE: neither a construct.json from `construct init` nor an attach record. Jack in first (`construct attach`), then run this again; nothing was written.',
   intakeRefusedAdmitWithDraft: 'INTAKE REFUSED // ONE DOOR: --admit takes a card already parked; --draft and --taken slice new ones, never in the same run',
@@ -607,6 +610,11 @@ export const LORE: Lore = {
     why: 'The ladder runs the harness as written in a plain shell; a package script name or a node_modules/.bin binary never resolves there, so every rung would flatline before it measured anything.',
     next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
+  attachRefusedRequiredCheck: {
+    what: 'BREACH FAILED // CHECK UNRESOLVED: the CI job behind this gate has no fixed check name (a matrix, an expression or a reusable workflow)',
+    why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded cannot be read from the file.',
+    next: 'Name the check run yourself: --required-check "<name>". Nothing was written.',
+  },
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness rewrites the tree: ${marks.join(', ')}`,
     why: 'It runs on the base and after every change; a gate that fixes what it checks turns a red change green and slips its own edits into the diff under review.',
@@ -919,7 +927,8 @@ export const PLAIN_LORE: Lore = {
   recordAhead: (record: string, field: string, found: number, understood: number) => `${record} declares ${field} ${found}, and this binary understands ${understood}. Nothing was read and nothing was written: upgrade the CLI (npx mikoshi-construct@latest) and run this again.`,
   modelIsWrittenByInit: 'One is written by `construct init`, which is additive and overwrites nothing it does not own. Nothing forces you to have one.',
   atlasNothingInterpreted: 'No part is named in the model yet: run /construct-atlas, or /construct-discover and then this again, and the agent names the parts; until then the picture shows the parts the code itself declares.',
-  atlasPageWritten: (target: string) => `Wrote ${target}: one self-contained file, no network, open it from disk.`,
+  atlasNothingInterpretedAttached: 'No part is named in the Engram yet: run /construct-atlas, or /attached-discover and then this again, and the agent names the parts; until then the picture shows the parts the code itself declares.',
+  atlasPageWritten: (target: string) => `Wrote${target}: one self-contained file, no network, open it from disk.`,
   atlasRefusedUnconstructed: 'Refused: this repository has neither a construct.json from `construct init` nor an attach record. Run `construct attach` first, then run this again; nothing was written.',
   intakeRefusedAdmitWithDraft: 'Refused: --admit takes a card already parked, and --draft with --taken slices new ones; run them separately. Nothing was written.',
   intakeRefusedNoDraft: 'Refused: --draft names the sliced cards as JSON, a file or - for stdin. Nothing was written.',
@@ -1004,6 +1013,11 @@ export const PLAIN_LORE: Lore = {
     why: 'The ladder runs the harness as written, in a plain shell; a package.json script name or a binary under node_modules/.bin is not on PATH there, so every rung would fail before it measured anything.',
     next: suggestions.map(suggestion => `--harness ${suggestion}`).join('  or  '),
   }),
+  attachRefusedRequiredCheck: {
+    what: 'Refused: the required check cannot be resolved from the CI job this harness was taken from (it is a matrix, uses an expression or calls a reusable workflow).',
+    why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded cannot be read from the file.',
+    next: 'Name the check run yourself with --required-check "<name>". Nothing was written.',
+  },
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness command edits files: ${marks.join(', ')}.`,
     why: 'The ladder runs it on the base and after every change; a gate that fixes what it checks can turn a red change green, and its edits land in the diff under review.',

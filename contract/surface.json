@@ -44,6 +44,9 @@
         "plain": {
           "type": "boolean"
         },
+        "requiredCheck": {
+          "type": "string"
+        },
         "yes": {
           "alias": "y",
           "type": "boolean"
@@ -1042,7 +1045,6 @@
         ".claude/agents/architect.md",
         ".claude/agents/harness.md",
         ".claude/agents/implementer.md",
-        ".claude/commands/attached-discover.md",
         ".claude/commands/construct-discover.md",
         ".claude/commands/plan.md",
         ".claude/rules/conventions.md",
@@ -1122,7 +1124,6 @@
         ".claude/agents/architect.md",
         ".claude/agents/harness.md",
         ".claude/agents/implementer.md",
-        ".claude/commands/attached-discover.md",
         ".claude/commands/construct-discover.md",
         ".claude/commands/plan.md",
         ".claude/rules/conventions.md",
@@ -1196,7 +1197,6 @@
         ".claude/agents/architect.md",
         ".claude/agents/harness.md",
         ".claude/agents/implementer.md",
-        ".claude/commands/attached-discover.md",
         ".claude/commands/construct-discover.md",
         ".claude/commands/plan.md",
         ".claude/rules/conventions.md",
@@ -1258,7 +1258,6 @@
         ".claude/agents/architect.md",
         ".claude/agents/harness.md",
         ".claude/agents/implementer.md",
-        ".claude/commands/attached-discover.md",
         ".claude/commands/construct-discover.md",
         ".claude/commands/plan.md",
         ".claude/rules/conventions.md",

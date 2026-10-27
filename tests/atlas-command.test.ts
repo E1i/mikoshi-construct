@@ -86,7 +86,7 @@ describe('construct atlas in a repository construct init made', () => {
   it('writes the engram into its construct.model.json, the mechanics and the page under .construct, which git ignores', async () => {
     const dir = await initRepository()
     const written = atlasOf(dir)
-    expect(written).toEqual({ engram: path.join(dir, MODEL_FILE), page: path.join(dir, '.construct', 'atlas.html'), interpreted: false })
+    expect(written).toEqual({ engram: path.join(dir, MODEL_FILE), page: path.join(dir, '.construct', 'atlas.html'), interpreted: false, attached: false })
     const mechanics = parseMechanicsDocument(readFileSync(path.join(dir, MECHANICS_FILE), 'utf8'), MECHANICS_FILE)
     expect(mechanics.components.some(component => component.path === 'src/app.ts')).toBe(true)
     const html = readFileSync(written.page, 'utf8')
@@ -172,6 +172,7 @@ describe('construct atlas in a repository construct attach jacked into, with no 
       engram: path.join(home(), ENGRAM_HOME_DIR, engramDirectoryName(dir), MODEL_FILE),
       page: path.join(dir, '.construct', 'atlas.html'),
       interpreted: false,
+      attached: true,
     })
     expect(existsSync(path.join(dir, MODEL_FILE))).toBe(false)
     expect(git(dir, 'status', '--porcelain')).toBe('')
@@ -466,8 +467,18 @@ describe('printAtlas', () => {
   it('names the page it wrote and exits 0', () => {
     const lines: string[] = []
     const plain = createUi(resolveTheme({ plain: true }), line => lines.push(line.trimEnd()))
-    expect(printAtlas(plain, { engram: '/e/construct.model.json', page: '/p/atlas.html', interpreted: true })).toBe(ATLAS_EXIT.written)
+    expect(printAtlas(plain, { engram: '/e/construct.model.json', page: '/p/atlas.html', interpreted: true, attached: false })).toBe(ATLAS_EXIT.written)
     expect(lines).toEqual([PLAIN_LORE.atlasPageWritten('/p/atlas.html')])
+  })
+
+  it('an attached atlas with nothing interpreted names /attached-discover and never /construct-discover', () => {
+    const lines: string[] = []
+    const plain = createUi(resolveTheme({ plain: true }), line => lines.push(line.trimEnd()))
+    printAtlas(plain, { engram: '/e/construct.model.json', page: '/p/atlas.html', interpreted: false, attached: true })
+    expect(lines).toEqual([PLAIN_LORE.atlasNothingInterpretedAttached, PLAIN_LORE.atlasPageWritten('/p/atlas.html')])
+    expect(lines[0]).toContain('/construct-atlas')
+    expect(lines[0]).toContain('/attached-discover')
+    expect(lines[0]).not.toContain('/construct-discover')
   })
 
   it('an atlas with nothing interpreted names /construct-atlas and /construct-discover first', async () => {

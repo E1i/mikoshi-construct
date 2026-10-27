@@ -1108,6 +1108,7 @@ did in `.construct/attach.json`. No `construct.json`, no
 | Option | Default | What it does |
 |---|---|---|
 | `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: in a terminal attach first offers the [candidates](#harness-candidates) it read; under `--yes` without it, the harness is recorded as `none`. |
+| `--required-check <name>` | the job read from the workflow | The name of the CI check run the bus waits for, recorded as `harness.job` in `.construct/attach.json`. Needed when the job the chosen candidate came from is a matrix, has a GitHub Actions expression in its name or calls a reusable workflow: its check name is not in the file, and attach refuses without this flag. The flag needs a harness: without one (for example `--yes` with no `--harness`, which records the harness as none) it is ignored. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
 | `--lanes <count>` | asked, `3` | How many parallel lanes the bus runs, a whole number from 1 up. Recorded as `lanes` in `.construct/attach.json`, never in a `construct.json`; under `--yes` without it, `3`. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |
@@ -1240,7 +1241,7 @@ yourself, then run it again. A collision found during the write keeps the output
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
    `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`,
-   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, `.claude/skills/construct-atlas/SKILL.md` and `.claude/commands/attached-discover.md` (the discovery that writes its interpretation only into the Engram under `~/.construct/engram/`), byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`, the window hooks `.construct/window-hooks.mjs` and the generic window rules `.construct/window-rules.md`.
+   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, `.claude/skills/construct-atlas/SKILL.md` and `.claude/commands/attached-discover.md` (the discovery that writes its interpretation only into the Engram under `~/.construct/engram/`, which `init` does not write), the others byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`, the window hooks `.construct/window-hooks.mjs` and the generic window rules `.construct/window-rules.md`.
 3. The guard entry and the three window hook entries in `.claude/settings.local.json` (below). The file
    is read again at this moment: if it no longer parses, or already carries a guard or window hook
    entry, the files of this run are rolled back and attach refuses.
@@ -1338,7 +1339,7 @@ lists.
 | `recordVersion` | `4`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought; a `2` differs from `3` only in that its `harness` is always a command; a `3` carries no `settingsHook.window`, so only the guard entry is sought. |
 | `construct` | The CLI version that attached. |
 | `attachedAt` | ISO timestamp of the run. |
-| `harness` | `{ "command": "<command>" }`, the command passed or chosen, never a default; or the string `"none"` when the owner chose none or nothing was proposed. |
+| `harness` | `{ "command": "<command>", "job": "<check name>" }`, the command passed or chosen, never a default, and `job`, the name of the CI job the chosen candidate was taken from or the one `--required-check` named (absent when neither is known); or the string `"none"` when the owner chose none or nothing was proposed. |
 | `files` | Every carrier path, `.construct/commit-guard.mjs`, `.construct/shell-parser.mjs`, `.construct/window-hooks.mjs` and `.construct/window-rules.md` with the sha256 of the bytes written. The record itself is not in it. |
 | `push` | `none` by default, or `bus` only by an explicit policy of the repository. Under `none` no bus process commits, pushes or opens a pull request in the repository: `tree-pr` leaves the tree and the report as they are. A record without the field reads as `none`. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
