@@ -27,6 +27,7 @@ const COMPACT_SOURCE = 'compact'
 const FRESH_MS = 2 * 60 * 1000
 const NEEDS_CONSTRUCT = '--needs-construct'
 const CONSTRUCT_BIN = 'construct'
+const HANDOFF_WRITE_REASON = 'write the handoff with miko handoff write <name> <draft>'
 
 function executable(file) {
   try {
@@ -117,8 +118,27 @@ export function repoIdOf(dir) {
   return [LOCAL_REPO_PREFIX, `${safeSegment(path.basename(place))}-${hash}`].join(REPO_ID_SEPARATOR)
 }
 
+export function handoffDirOf(env, home, dir) {
+  return env.CONSTRUCT_HANDOFF_DIR || path.join(home, CONSTRUCT_HOME_DIR, repoIdOf(dir), HANDOFF_DIR)
+}
+
 export function handoffOf(env, home, dir) {
-  return env.CONSTRUCT_HANDOFF || path.join(env.CONSTRUCT_HANDOFF_DIR || path.join(home, CONSTRUCT_HOME_DIR, repoIdOf(dir), HANDOFF_DIR), HANDOFF_NAME)
+  return env.CONSTRUCT_HANDOFF || path.join(handoffDirOf(env, home, dir), HANDOFF_NAME)
+}
+
+function realWithTail(target) {
+  const tail = []
+  let head = path.resolve(target)
+  while (!existsSync(head) && path.dirname(head) !== head) {
+    tail.unshift(path.basename(head))
+    head = path.dirname(head)
+  }
+  try {
+    return path.join(realpathSync(head), ...tail)
+  }
+  catch {
+    return path.join(head, ...tail)
+  }
 }
 
 export function statusOf(text) {
@@ -170,6 +190,16 @@ export function preCompactOutput(line) {
   return line === null ? null : { systemMessage: line }
 }
 
+export function handoffWriteOutput(input, handoffDir, dir) {
+  const target = input.tool_input?.file_path
+  if (typeof target !== 'string' || target === '')
+    return null
+  const relative = path.relative(realWithTail(handoffDir), realWithTail(path.resolve(dir, target)))
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative))
+    return null
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: HANDOFF_WRITE_REASON } }
+}
+
 export function windowHookOutput(event, input, env, home, now, dir) {
   if (!tabWindow(env))
     return {}
@@ -180,7 +210,9 @@ export function windowHookOutput(event, input, env, home, now, dir) {
     return { stdout: sessionStartOutput(input, handoff, readIfFile(handoff), readIfFile(path.join(dir, RULES_FILE))) }
   if (event === 'pre-compact')
     return { stdout: preCompactOutput(preCompactLine(handoff, mtimeOrNull(handoff), now)) }
-  return { stderr: `window-hooks: ${event ?? 'no event'} is not one of stop, session-start, pre-compact; nothing run` }
+  if (event === 'pre-tool-use')
+    return { stdout: handoffWriteOutput(input, handoffDirOf(env, home, dir), dir) }
+  return { stderr: `window-hooks: ${event ?? 'no event'} is not one of stop, session-start, pre-compact, pre-tool-use; nothing run` }
 }
 
 async function readStdin() {

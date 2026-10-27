@@ -32,6 +32,7 @@ function windowEntry(argument: string, matcher?: string): Record<string, unknown
 const STOP_ENTRY = windowEntry('stop')
 const PRE_COMPACT_ENTRY = windowEntry('pre-compact')
 const COMPACT_START_ENTRY = windowEntry('session-start')
+const HANDOFF_GUARD_ENTRY = windowEntry('pre-tool-use', 'Write|Edit|MultiEdit')
 
 function git(dir: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' })
@@ -61,11 +62,11 @@ describe('attach puts the tab-window hooks into the working repository', () => {
 
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
+    expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
     expect(readFileSync(path.join(dir, ATTACH_WINDOW_HOOKS.target)).equals(readFileSync(TEMPLATE))).toBe(true)
     const record = readAttachRecord(dir)
     expect(Object.keys(record?.files ?? {})).toContain(ATTACH_WINDOW_HOOKS.target)
-    expect(record?.settingsHook?.window).toEqual(WINDOW_EVENTS.map(event => ({ event, entry: WINDOW_ENTRIES[event], created: true })))
+    expect(record?.settingsHook?.window).toEqual(WINDOW_EVENTS.map(event => ({ event, entry: WINDOW_ENTRIES[event], created: event !== 'PreToolUse' })))
     expect(git(dir, 'status', '--porcelain')).toBe('')
   })
 
@@ -79,9 +80,9 @@ describe('attach puts the tab-window hooks into the working repository', () => {
 
     expect(readSettings(dir)).toEqual({
       permissions: { allow: [...existing.permissions.allow, ...engramRules(dir, home())] },
-      hooks: { Stop: [own, STOP_ENTRY], SessionStart: [{ matcher: 'startup', ...own }, COMPACT_START_ENTRY], PreToolUse: [GUARD_ENTRY], PreCompact: [PRE_COMPACT_ENTRY] },
+      hooks: { Stop: [own, STOP_ENTRY], SessionStart: [{ matcher: 'startup', ...own }, COMPACT_START_ENTRY], PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], PreCompact: [PRE_COMPACT_ENTRY] },
     })
-    expect(readAttachRecord(dir)?.settingsHook?.window?.map(({ event, created }) => [event, created])).toEqual([['Stop', false], ['PreCompact', true], ['SessionStart', false]])
+    expect(readAttachRecord(dir)?.settingsHook?.window?.map(({ event, created }) => [event, created])).toEqual([['Stop', false], ['PreCompact', true], ['SessionStart', false], ['PreToolUse', false]])
   })
 
   it('attach refuses a repository whose settings already name the window hooks, with nothing left behind', async () => {

@@ -1273,9 +1273,12 @@ files, and a call arriving while the parser is missing is refused with exit 2.
 `.construct/window-hooks.mjs` keeps a tab window going with nobody at a terminal. It is self-contained:
 it imports only Node built-ins and runs nothing of the repository or of mikoshi-construct. attach
 registers it in the same `.claude/settings.local.json`, the same way, with one element appended to each
-of three lists: `hooks.Stop` runs it as `stop`, `hooks.PreCompact` as `pre-compact`, and
-`hooks.SessionStart`, with no matcher, as `session-start`, each a `command` hook with a timeout
-of 10 seconds. It creates each list only where it is missing.
+of four lists: `hooks.Stop` runs it as `stop`, `hooks.PreCompact` as `pre-compact`,
+`hooks.SessionStart`, with no matcher, as `session-start`, and `hooks.PreToolUse`, with the matcher
+`Write|Edit|MultiEdit`, as `pre-tool-use`, each a `command` hook with a timeout
+of 10 seconds. It creates each list only where it is missing. At `pre-tool-use` it denies a write whose
+`file_path` lies in the directory of the handoff it reads, with the reason `write the handoff with miko
+handoff write <name> <draft>`, and says nothing about a write anywhere else.
 
 It reads the handoff at `CONSTRUCT_HANDOFF`, or `miko.md` in `CONSTRUCT_HANDOFF_DIR`, or
 `~/.construct/<repo-id>/handoff/miko.md`, beside the repository's own bus, with `<repo-id>` named as the
