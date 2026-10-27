@@ -1108,7 +1108,7 @@ did in `.construct/attach.json`. No `construct.json`, no
 | Option | Default | What it does |
 |---|---|---|
 | `--harness <command>` | asked | The command the ladder verifies every change with. Nothing is assumed: in a terminal attach first offers the [candidates](#harness-candidates) it read; under `--yes` without it, the harness is recorded as `none`. |
-| `--required-check <name>` | the job read from the workflow | The name of the CI check run the bus waits for, recorded as `harness.job` in `.construct/attach.json`. Needed when the job the chosen candidate came from is a matrix, has a GitHub Actions expression in its name or calls a reusable workflow: its check name is not in the file, and attach refuses without this flag. |
+| `--required-check <name>` | the job read from the workflow | The name of the CI check run the bus waits for, recorded as `harness.job` in `.construct/attach.json`. Needed when the job the chosen candidate came from is a matrix, has a GitHub Actions expression in its name or calls a reusable workflow: its check name is not in the file, and attach refuses without this flag. The flag needs a harness: without one (for example `--yes` with no `--harness`, which records the harness as none) it is ignored. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
 | `--lanes <count>` | asked, `3` | How many parallel lanes the bus runs, a whole number from 1 up. Recorded as `lanes` in `.construct/attach.json`, never in a `construct.json`; under `--yes` without it, `3`. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |

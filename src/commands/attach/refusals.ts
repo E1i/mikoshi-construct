@@ -10,7 +10,7 @@ import { originalCopyPath } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE } from './record.js'
 import { carriesGuardEntry, readSettings, SETTINGS_FILE, settingsExist } from './settings.js'
 
-export type AttachRefusalReason = 'no-git' | 'linked-git' | 'attached' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'settings-original' | 'original-pending' | 'cursor' | 'not-a-command' | 'required-check-unresolvable' | 'required-check-unresolvable'
+export type AttachRefusalReason = 'no-git' | 'linked-git' | 'attached' | 'nothing-to-attach' | 'collision' | 'settings-index' | 'settings-tracked' | 'settings-unreadable' | 'settings-guarded' | 'settings-original' | 'original-pending' | 'cursor' | 'not-a-command' | 'required-check-unresolvable'
 
 export interface AttachRefusal {
   reason: AttachRefusalReason
