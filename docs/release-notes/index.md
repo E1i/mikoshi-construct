@@ -4,6 +4,16 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.44.2
+
+### Patch Changes
+
+- [#1173](https://github.com/E1i/mikoshi-construct/pull/1173) [`54c6d83`](https://github.com/E1i/mikoshi-construct/commit/54c6d831abff93db32694b0de41819e2667f1e7c) Thanks [@E1i](https://github.com/E1i)! - `construct attach` adds the Read, Edit and Write allow rules for the repository's own Engram directory to `.claude/settings.local.json`, and `construct detach` removes exactly those.
+
+- [#1174](https://github.com/E1i/mikoshi-construct/pull/1174) [`0d5ea75`](https://github.com/E1i/mikoshi-construct/commit/0d5ea75e7738861441c4ac43602c1f271c22802f) Thanks [@E1i](https://github.com/E1i)! - cli: `attach --harness <cmd>` without `--required-check` takes the CI job whose step runs that command, and refuses with exit 2 when no such job is found.
+
+- [#1175](https://github.com/E1i/mikoshi-construct/pull/1175) [`5fbf366`](https://github.com/E1i/mikoshi-construct/commit/5fbf366d11f1b4e8172d87116b7f3e758c4bc4ae) Thanks [@E1i](https://github.com/E1i)! - The intake skill and the window architecture say the draft is always taken from the bus with `pnpm intake --export '#N'`, never from a parking file.
+
 ## 0.44.1
 
 ### Patch Changes
