@@ -294,8 +294,8 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     for (const text of [localDecision, door]) {
       expect(text).toContain('`pnpm intake --export \'#N\'`')
       expect(text).toContain('`pnpm intake --admit <draft>`')
-      expect(text).toContain('`<parking>/<id>.md`')
-      expect(text).toMatch(/only when that file exists/)
+      expect(text).toMatch(/never a\s+parking file/)
+      expect(text).not.toContain('`<parking>/<id>.md`')
     }
     const skill = readFileSync(path.join(REPO_ROOT, 'templates', 'ai', 'claude', '_claude', 'skills', 'intake', 'SKILL.md'), 'utf8')
     expect(skill).toContain('take its body with `pnpm intake --export \'#N\'`, edit it in a draft\noutside the repository and hand it in with `pnpm intake --admit <draft>`')

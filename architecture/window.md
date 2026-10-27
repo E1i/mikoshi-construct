@@ -161,8 +161,8 @@ owner's text verbatim. The handoff's local decisions field points here and does 
   `main`, with no question to the owner.
 - A parked card changes only through `pnpm intake --admit <draft>` (the dev entry refuses while a bus exists): its
   body is taken from the bus with `pnpm intake --export '#N'`, edited in a draft outside the repository and handed in
-  with `pnpm intake --admit <draft>`, since a bus-wired intake writes no parking file; `<parking>/<id>.md` is the
-  draft only when that file exists. A card goes back to the parking root with `pnpm intake --move '#N' --to .`.
+  with `pnpm intake --admit <draft>`, since a bus-wired intake writes no parking file; the draft is always the
+  `intake --export` output, never a parking file. A card goes back to the parking root with `pnpm intake --move '#N' --to .`.
 - A documentation line or a test that a change makes stale goes into that change's card, never a card of its own.
 - The live `bus.db` is read only through the bus commands, `sqlite3 -readonly` with its full path and `SELECT` only
   (no dot-commands), or a scratch copy.
@@ -297,8 +297,8 @@ started on the cheap path, whatever its branch is called. The bus removes a clos
 (`removeCardTree` in `scripts/nodes/close/close-executor.ts`). Before it cuts anything, `task:start` passes the card through the intake
 door: it takes a card only when the bus holds a `card.admitted` event for it, written through `pnpm intake` when it
 sliced and confirmed the card, by `pnpm intake --admit <draft>` for a card amended or parked before the door, the
-draft being the body `pnpm intake --export '#N'` took from the bus, edited outside the repository, or
-`<parking>/<id>.md` only when that file exists, or by a move into a lane; it reads no journal line, and a card with no such event, or one that changed since it, is refused
+draft being always the body `pnpm intake --export '#N'` took from the bus, edited outside the repository, never a
+parking file, or by a move into a lane; it reads no journal line, and a card with no such event, or one that changed since it, is refused
 with nothing written. The one exception is `--without-intake "<reason>"`, which admits the card and records the flag and
 its reason on the start line as `admission: {by: waiver}`; an admitted card's start line records `admission: {by: bus}`
 with the event.
