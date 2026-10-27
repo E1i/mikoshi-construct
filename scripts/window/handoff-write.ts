@@ -9,7 +9,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { MERGE_DONE } from '../core/events.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { HANDOFF_DIR_VARIABLE, handoffDirOf } from '../core/handoff-dir.js'
 import { busParkedDepends } from '../intake/parking-reads.js'
 import { activeDecisionsShard, VERSION_PR_RESERVATION } from '../policy/shards.js'
 import { execGh, readGhJson } from '../ports/gh.js'
@@ -76,10 +76,10 @@ function setOrNull(value: string | undefined): string | null {
   return value === undefined || value === '' ? null : value
 }
 
-export function sessionHandoffOf(env: NodeJS.ProcessEnv, home: string): string | null {
+export function sessionHandoffOf(env: NodeJS.ProcessEnv, home: string, dir: string = process.cwd()): string | null {
   if (setOrNull(env[CARD_VARIABLE]) !== null)
     return null
-  return setOrNull(env[HANDOFF_VARIABLE]) ?? path.join(setOrNull(env[HANDOFF_DIR_VARIABLE]) ?? path.join(home, '.construct', 'handoff'), MIKO_HANDOFF_NAME)
+  return setOrNull(env[HANDOFF_VARIABLE]) ?? path.join(handoffDirOf(env, home, dir), MIKO_HANDOFF_NAME)
 }
 
 export function nextArchive(names: readonly string[]): string {

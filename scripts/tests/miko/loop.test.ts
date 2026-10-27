@@ -157,7 +157,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
 
   it.each(['owner', 'stop'])('the loop starts no next session after one that ended itself with STATUS: OWNER or STOP, though the prompt no longer ends a session at OWNER, here %s', async (status) => {
     const dir = home([`${status} 0`, 'continue 0'])
-    writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
+    writeFileSync(mikoHandoff(path.join(dir, '.construct', 'handoff')), 'STATUS: CONTINUE\n')
     const { code, stderr } = await startLoop(dir).done
     expect(code).toBe(0)
     expect(lines(dir, 'calls')).toEqual([`1|${CONTINUE_PROMPT}`])
@@ -249,7 +249,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     utimesSync(operator, hourAgo, hourAgo)
     const settled = statSync(operator).mtimeMs
     await startLoop(dir).done
-    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `), expect.stringContaining('the pnpm miko loop starts the next session')])
+    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(path.join(dir, '.construct', 'handoff'))}: `), expect.stringContaining('the pnpm miko loop starts the next session')])
     expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
     expect(CONTINUE_PROMPT).toContain(MIKO_HANDOFF_NAME)
     expect(readFileSync(operator, 'utf8')).toBe('## STOP — Operator\nSTATUS: CONTINUE\n')
@@ -262,8 +262,8 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     writeMikoDraft(dir, 'CONTINUE')
     const { stderr } = await startLoop(dir).done
     expect(existsSync(path.join(dir, 'survived'))).toBe(true)
-    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `)])
-    expect(readFileSync(mikoHandoff(dir), 'utf8')).toContain('STATUS: CONTINUE')
+    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(path.join(dir, '.construct', 'handoff'))}: `)])
+    expect(readFileSync(mikoHandoff(path.join(dir, '.construct', 'handoff')), 'utf8')).toContain('STATUS: CONTINUE')
     expect(lines(dir, 'calls')).toEqual(['0|', `1|${CONTINUE_PROMPT}`])
     expect(stderr).toContain('without rewriting miko.md')
     expect(exitLines(dir)).toEqual([])
@@ -322,21 +322,21 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     const { stderr } = await startLoop(dir).done
     expect(existsSync(path.join(dir, 'survived'))).toBe(true)
     expect(stderr).toContain('STATUS: STOP: no next session')
-    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(dir)}: `)])
-    expect(readFileSync(mikoHandoff(dir), 'utf8')).toContain('STATUS: STOP')
+    expect(lines(dir, 'threshold.log')).toEqual([expect.stringContaining(`${mikoHandoff(path.join(dir, '.construct', 'handoff'))}: `)])
+    expect(readFileSync(mikoHandoff(path.join(dir, '.construct', 'handoff')), 'utf8')).toContain('STATUS: STOP')
     expect(lines(dir, 'calls')).toEqual(['0|'])
   }, 40_000)
 
   it('stops with exit code 1 when MIKO_CLAUDE names a missing command, though miko.md says STATUS: CONTINUE', async () => {
     const dir = home([])
-    writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
+    writeFileSync(mikoHandoff(path.join(dir, '.construct', 'handoff')), 'STATUS: CONTINUE\n')
     const outcome = await startLoop(dir, path.join(dir, 'no-such-claude')).done
     expect(outcome).toMatchObject({ code: 1, stderr: expect.stringContaining('the session did not start') })
   }, 20_000)
 
   it('a session that exits without rewriting miko.md ends the loop, though the previous STATUS: CONTINUE is still there', async () => {
     const dir = home(['quiet 0', 'quiet 0'])
-    writeFileSync(mikoHandoff(dir), 'STATUS: CONTINUE\n')
+    writeFileSync(mikoHandoff(path.join(dir, '.construct', 'handoff')), 'STATUS: CONTINUE\n')
     const outcome = await startLoop(dir).done
     expect(lines(dir, 'calls')).toEqual([`1|${CONTINUE_PROMPT}`])
     expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('without rewriting miko.md') })

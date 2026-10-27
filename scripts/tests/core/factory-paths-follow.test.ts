@@ -29,7 +29,7 @@ describe('a path moved in the factory registry', () => {
     expect(LOOP_SCRIPT).toBe(`${MOVED}/window/loop.ts`)
     const { TREE_PR_ENTRY, HEADER_FILE } = await import('../../nodes/launch/launch-worker.js')
     const { BRIEF_FINISH_CLI } = await import('../../ladder/ladder-starter.js')
-    const { OWNER_AGENT, OWNER_AGENT_FILE } = await import('../../supervisor/start.js')
+    const { OWNER_AGENT, OWNER_AGENT_FILE } = await import('../../core/bus-path.js')
     expect(TREE_PR_ENTRY).toBe(`${MOVED}/nodes/launch/tree-pr-cli`)
     expect(HEADER_FILE.endsWith(`${MOVED}/nodes/launch/header.md`)).toBe(true)
     expect(BRIEF_FINISH_CLI).toBe(`${MOVED}/ladder/brief-finish-cli.ts`)
