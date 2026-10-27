@@ -161,8 +161,8 @@ owner's text verbatim. The handoff's local decisions field points here and does 
   `main`, with no question to the owner.
 - A parked card changes only through `pnpm intake --admit <draft>` (the dev entry refuses while a bus exists): its
   body is taken from the bus with `pnpm intake --export '#N'`, edited in a draft outside the repository and handed in
-  with `pnpm intake --admit <draft>`, since a bus-wired intake writes no parking file; `<parking>/<id>.md` is the
-  draft only when that file exists. A card goes back to the parking root with `pnpm intake --move '#N' --to .`.
+  with `pnpm intake --admit <draft>`, since a bus-wired intake writes no parking file; the draft is always the
+  `intake --export` output, never a parking file. A card goes back to the parking root with `pnpm intake --move '#N' --to .`.
 - A documentation line or a test that a change makes stale goes into that change's card, never a card of its own.
 - The live `bus.db` is read only through the bus commands, `sqlite3 -readonly` with its full path and `SELECT` only
   (no dot-commands), or a scratch copy.
