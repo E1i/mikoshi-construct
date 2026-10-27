@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { CardEvent } from '../../../src/commands/intake/index.js'
 import type { BusEvent } from '../../core/db.js'
 import type { CloseRule, CloseVerdict } from '../../policy/policy.js'
@@ -63,6 +64,7 @@ export interface RecutParts {
   clock: () => Date
   parked: () => number[]
   admit?: CardAdmit
+  pushPolicy?: () => PushPolicy
 }
 
 interface PullAsRead {
@@ -136,9 +138,11 @@ function cardLineOf(card: RecutCard): string {
 }
 
 export class PrCloser {
-  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly patch: GitHubPut, private readonly clock: () => Date) {}
+  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly patch: GitHubPut, private readonly clock: () => Date, private readonly pushPolicy?: () => PushPolicy) {}
 
   close(request: CloseRequest): CloseOutcome {
+    if (this.pushPolicy?.() === 'none')
+      return { kind: 'denied', pr: request.pr, detail: `push policy none: the bus does not close PR #${request.pr}` }
     const read = this.readPull(request.pr)
     if (typeof read === 'string')
       return { kind: 'failed', pr: request.pr, detail: read }
@@ -216,6 +220,8 @@ export class RoundLimitRecutter implements RoundLimitRecut {
   }
 
   recut(at: RoundLimitAt): RecutOutcome {
+    if (this.parts.pushPolicy?.() === 'none')
+      return this.waited(at, 'push policy none: the bus opens and closes no pull request in this repository')
     try {
       return this.recutOrWait(at)
     }
@@ -242,7 +248,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
     catch (error) {
       return this.waited(at, `the bus admitted none of the re-cut cards, so PR #${at.pr} and its branch ${branch.head} are untouched: ${messageOf(error)}`)
     }
-    const closed = new PrCloser(this.parts.db, this.parts.gitHub, this.parts.patch, this.parts.clock).close({ attempt: `round-limit-${at.pr}`, pr: at.pr, cardId: at.cardId, reason: `card #${at.cardId} was re-cut at the review round limit (D-104)`, by: 'round-limit' })
+    const closed = new PrCloser(this.parts.db, this.parts.gitHub, this.parts.patch, this.parts.clock, this.parts.pushPolicy).close({ attempt: `round-limit-${at.pr}`, pr: at.pr, cardId: at.cardId, reason: `card #${at.cardId} was re-cut at the review round limit (D-104)`, by: 'round-limit' })
     if (closed.kind !== 'closed')
       return this.waited(at, `the re-cut cards ${recut.admitted.map(card => `#${card.id}`).join(', ')} are admitted, but PR #${at.pr} was not closed: ${closed.detail}`)
     const opened = this.opened(at, branch, recut.carrier)
@@ -287,7 +293,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
   }
 
   private branchOf(pr: number): Branch | string {
-    const read = new PrCloser(this.parts.db, this.parts.gitHub, this.parts.patch, this.parts.clock).readPull(pr)
+    const read = new PrCloser(this.parts.db, this.parts.gitHub, this.parts.patch, this.parts.clock, this.parts.pushPolicy).readPull(pr)
     if (typeof read === 'string')
       return read
     const head = String(read.head?.ref ?? '')

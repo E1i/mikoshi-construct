@@ -1,5 +1,6 @@
 import type { Contour } from '../../../src/card/grammar.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
+import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { CompanionRow } from '../../../src/commands/intake/check.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
 import type { GhRunner } from '../../ports/gh.js'
@@ -33,7 +34,7 @@ export interface Gap {
   paths: string[]
 }
 
-export type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'problem', why: string, gaps: Gap[] }
+export type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'kept' } | { kind: 'problem', why: string, gaps: Gap[] }
 
 export interface Refusal {
   code: string
@@ -62,6 +63,7 @@ export function faultGaps(reason: RefusalReason): Gap[] {
 export interface TreePrPorts {
   git: (cwd: string, args: string[]) => string
   gh: GhRunner
+  pushPolicy?: (worktree: string) => PushPolicy
 }
 
 const PR_URL_NUMBER = /\/pull\/(\d+)\s*$/
@@ -303,6 +305,8 @@ function staleBase(branch: string, worktree: string, gap: FreshBaseGap): TreePr 
 
 export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, report: string | null): TreePr {
   try {
+    if (ports.pushPolicy?.(worktree) === 'none')
+      return { kind: 'kept' }
     const pushed = commitAndPush(ports.git, worktree, card.branch, card.commitMessage)
     if (pushed.kind === 'clean')
       return { kind: 'clean' }

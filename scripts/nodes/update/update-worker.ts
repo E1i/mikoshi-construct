@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, Scope } from '../../core/node.js'
@@ -16,6 +17,7 @@ import { rerunModeOf } from '../../cli/check-catalog.js'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/events.js'
 import { Node, runNode } from '../../core/node.js'
+import { pushPolicyAt } from '../../core/push-policy.js'
 import { updateCandidates } from '../../core/queue.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
@@ -41,6 +43,7 @@ export interface UpdateNodeParts {
   session: string
   mode: DetectionMode
   env: NodeJS.ProcessEnv
+  pushPolicy?: () => PushPolicy
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -62,7 +65,7 @@ export class UpdateNode extends Node<UpdateStep> {
   constructor(parts: UpdateNodeParts) {
     super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
     this.rerun = rerunModeOf(parts.env)
-    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, rerun: this.rerun })
+    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, rerun: this.rerun, pushPolicy: parts.pushPolicy })
     this.subscribe(UPDATE_ON, scopeOf)
   }
 
@@ -103,15 +106,16 @@ export interface UpdateRun {
   settle: () => void
   session: string
   pause: (ms: number) => Promise<unknown>
+  pushPolicy?: () => PushPolicy
 }
 
 export async function runUpdateWorker(argv: string[], run: UpdateRun): Promise<number> {
-  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env }), { pause: run.pause })
+  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
-  return runUpdateWorker(process.argv.slice(2), { busPath: defaultBusPath(), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), settle: () => blockFor(SETTLE_MS), session: randomUUID(), pause: sleep })
+  return runUpdateWorker(process.argv.slice(2), { busPath: defaultBusPath(), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), settle: () => blockFor(SETTLE_MS), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyAt(cwd) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

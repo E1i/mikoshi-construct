@@ -1,3 +1,4 @@
+import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { Lease } from '../../core/lease.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
@@ -11,6 +12,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
 import { defaultBusPath } from '../../core/db.js'
+import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { readResultFields } from '../../ports/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../../ports/session.js'
@@ -74,6 +76,7 @@ export interface AnswererTools {
   spawn: (run: AnswerRun) => Promise<number>
   newSession: () => string
   publish: (card: CardSession, commitMessage: string) => void
+  pushPolicy?: (card: CardSession) => PushPolicy
   pulse?: AnswerPulse
   context?: (session: string) => number | null
   contextWarn?: () => number | null
@@ -111,6 +114,10 @@ function publishTree(card: CardSession, commitMessage: string): void {
   const pushed = commitAndPush((cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), card.worktree, card.branch, commitMessage)
   if (pushed.kind === 'conflict')
     throw new FreshBaseConflict(pushed)
+}
+
+function pushPolicyOfTree(card: CardSession): PushPolicy {
+  return pushPolicyOf(git, card.worktree)
 }
 
 function freshBaseGapOf(publish: () => void): FreshBaseGap | null {
@@ -333,6 +340,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     spawn: spawnClaude,
     newSession: randomUUID,
     publish: publishTree,
+    pushPolicy: pushPolicyOfTree,
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
@@ -394,7 +402,8 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       const left = merged === 0 ? pushTree() : gap
       return left === null ? null : unmergedQuestion(card, left)
     }
-    const owner = ownerAfter('') ?? await publish()
+    const kept = tools.pushPolicy?.(card) === 'none'
+    const owner = ownerAfter('') ?? (kept ? null : await publish())
     const measured = measuredOf(steps.map(stdoutOf))
     return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody } }
   }

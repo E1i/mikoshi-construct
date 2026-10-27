@@ -10,6 +10,7 @@ import { readShiftGate } from '../../../src/manifest.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
 import { CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT } from '../../core/events.js'
 import { treeReportPath } from '../../core/places.js'
+import { pushPolicyOf } from '../../core/push-policy.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
@@ -177,9 +178,12 @@ export function busCardText(busPath: string): TreePrCliPorts['card'] {
 
 const REAL_BUS: PrOpenedBus = { busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => process.stderr.write(`${line}\n`) }
 
+const REAL_GIT: TreePrPorts['git'] = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+
 const REAL_PORTS: TreePrCliPorts = {
-  git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+  git: REAL_GIT,
   gh: stdoutOrThrow(execGh),
+  pushPolicy: worktree => pushPolicyOf(REAL_GIT, worktree),
   card: busCardText(REAL_BUS.busPath),
   opened: busPrOpened(REAL_BUS),
   stopped: busCardStopped(REAL_BUS),
@@ -197,6 +201,8 @@ function cardIdOf(word: string): number | null {
 function outcomeLine(cardId: number, outcome: Exclude<TreePr, { kind: 'problem' }>): string {
   if (outcome.kind === 'pr')
     return `${PREFIX}card #${cardId}: PR #${outcome.number}`
+  if (outcome.kind === 'kept')
+    return `${PREFIX}card #${cardId}: push policy none, the tree and the report are left as they are`
   return `${PREFIX}card #${cardId}: nothing to commit or push`
 }
 

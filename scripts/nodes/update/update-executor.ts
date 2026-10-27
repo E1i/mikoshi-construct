@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
@@ -11,6 +12,7 @@ import { appendEvent } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
+import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter } from '../../ports/meter.js'
@@ -29,7 +31,7 @@ const UPDATE_COMMAND = 'update_branch'
 
 export type UpdateCommand = typeof UPDATE_COMMAND | 'publish'
 
-export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE
+export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE | typeof KEPT_BY_PUSH_POLICY
 
 export interface UpdateDenial {
   kind: 'technical'
@@ -52,6 +54,7 @@ export interface UpdateParts {
   clock: () => Date
   settle: () => void
   rerun?: RerunMode
+  pushPolicy?: () => PushPolicy
 }
 
 export interface ManualUpdate {
@@ -148,6 +151,8 @@ export class UpdateExecutor {
   update(lease: Lease): UpdateOutcome {
     try {
       assertHeld(this.parts.db, lease)
+      if (this.parts.pushPolicy?.() === 'none')
+        return this.denied(lease, technical(KEPT_BY_PUSH_POLICY, `push policy none: the bus does not update #${lease.pr}`))
       const foreign = notMine(cardContract(this.parts.db, lease.cardId), 'update')
       if (foreign !== null)
         return this.denied(lease, technical(NOT_MINE, foreign))
@@ -284,7 +289,7 @@ export class UpdateExecutor {
       releaseTask(this.parts.db, ts, lease, denial.reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === NOT_MINE }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === NOT_MINE || denial.reason === KEPT_BY_PUSH_POLICY }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }
