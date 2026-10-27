@@ -1,5 +1,21 @@
 # mikoshi-construct
 
+## 0.44.3
+
+### Patch Changes
+
+- [#1183](https://github.com/E1i/mikoshi-construct/pull/1183) [`3f4f9b9`](https://github.com/E1i/mikoshi-construct/commit/3f4f9b9103e2914871eebfe785dfe3370ef695b9) Thanks [@E1i](https://github.com/E1i)! - attach: the window hooks deny a Write, Edit or MultiEdit into the repository's handoff directory and say to write the handoff with `miko handoff write <name> <draft>`.
+
+- [#1181](https://github.com/E1i/mikoshi-construct/pull/1181) [`eb9c5fb`](https://github.com/E1i/mikoshi-construct/commit/eb9c5fbdaf829e9dd3266468634337b89277579f) Thanks [@E1i](https://github.com/E1i)! - cli: the attached window gets `.construct/window-rules.md` as context at every session start, not only after a compaction, and `attach` no longer writes the `Write` rule for the Engram directory, which Claude Code does not apply; `Read` and `Edit` stay.
+
+- [#1180](https://github.com/E1i/mikoshi-construct/pull/1180) [`c93d4a0`](https://github.com/E1i/mikoshi-construct/commit/c93d4a0b1bf0229219ac720058868e8c94891e8c) Thanks [@E1i](https://github.com/E1i)! - window: the handoff check reads `decisions: none` as no decisions file, and `handoff write` accepts `next task: none` with `STATUS: DONE`.
+
+- [#1179](https://github.com/E1i/mikoshi-construct/pull/1179) [`d264f2f`](https://github.com/E1i/mikoshi-construct/commit/d264f2ff087734f49226d4a4a5560f87780f3c8e) Thanks [@E1i](https://github.com/E1i)! - miko: `miko --help` lists the window commands, `handoff write` and `handoff check` among them, one line each, before the product CLI help.
+
+- [#1177](https://github.com/E1i/mikoshi-construct/pull/1177) [`1ddbb4b`](https://github.com/E1i/mikoshi-construct/commit/1ddbb4b1658189447adc100828f4802c26b461fe) Thanks [@E1i](https://github.com/E1i)! - cli: the rerun line `attach` prints after a collision refusal carries the `--required-check` the run was given, so the rerun no longer exits 2 in a repository with no CI job running the harness.
+
+- [#1182](https://github.com/E1i/mikoshi-construct/pull/1182) [`9b99e0e`](https://github.com/E1i/mikoshi-construct/commit/9b99e0e3db2a47572725cd58a4ecaec3f9884746) Thanks [@E1i](https://github.com/E1i)! - window: `miko exit` refuses, naming them, while a subagent the window started is still running or a worktree holds uncommitted changes.
+
 ## 0.44.2
 
 ### Patch Changes
