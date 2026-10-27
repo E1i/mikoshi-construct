@@ -1,10 +1,11 @@
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BOARD_ALARM } from '../../core/events.js'
+import { appendEvent } from '../../core/db.js'
+import { BOARD_ALARM, CARD_ADMITTED } from '../../core/events.js'
 import { prBodySha } from '../../core/identifiers.js'
-import { keyOf, queueTask } from '../../core/queue.js'
+import { answerCandidates, keyOf, queueTask, reviewCandidates, witnessCandidates } from '../../core/queue.js'
 import { cardBody } from './github-fake.js'
-import { eventsOf, liveBench, taskState } from './merge-bench.js'
+import { eventsOf, liveBench, mergeBench, taskState } from './merge-bench.js'
 
 const PR = 977
 const UNREADABLE_BODY = cardBody(PR, 'none')
@@ -141,6 +142,49 @@ describe('a merge task of a pull request whose body was edited', () => {
 
     expect(mergeTasks(bench)).toEqual(before)
     expect(before[0]!.state).toBe('queued')
+  })
+})
+
+describe('the review input segment of a task key', () => {
+  const CARD = PR + 100
+  const CARD_BODY_SHA = 'c'.repeat(40)
+  const HEAD = 'd'.repeat(40)
+
+  function benchWithAPullRequest(ci: string, verdict: string | null): MergeBench {
+    const bench = mergeBench()
+    benches.push(bench)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { bodySha: CARD_BODY_SHA, depends: [] }, legacy: false })
+    bench.db.prepare('INSERT INTO prs (pr, card_id, base, head, state, ci, verdict_on_head, body_sha, draft, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, (SELECT max(id) FROM events))')
+      .run(PR, CARD, 'main', HEAD, 'open', ci, verdict, prBodySha(cardBody(PR)))
+    return bench
+  }
+
+  it('is absent from the key of an answer candidate whose row carries a pull request body sha', () => {
+    const bench = benchWithAPullRequest('red', 'changes')
+    const keys = answerCandidates(bench.db, bench.clock.now().toISOString()).map(keyOf)
+
+    expect(keys.length).toBeGreaterThan(0)
+    for (const key of keys) {
+      expect(key).not.toContain(':pr-body-')
+      expect(key).toContain(`:card-body-${CARD_BODY_SHA}`)
+    }
+  })
+
+  it('is absent from the key of a witness candidate', () => {
+    const bench = benchWithAPullRequest('green', null)
+    const keys = witnessCandidates(bench.db, bench.clock.now().toISOString()).map(keyOf)
+
+    expect(keys.length).toBeGreaterThan(0)
+    for (const key of keys)
+      expect(key).not.toContain(':pr-body-')
+  })
+
+  it('is kept in the key of a review candidate', () => {
+    const bench = benchWithAPullRequest('green', null)
+    const keys = reviewCandidates(bench.db, bench.clock.now().toISOString()).map(keyOf)
+
+    expect(keys).toHaveLength(1)
+    expect(keys[0]).toContain(`:pr-body-${prBodySha(cardBody(PR))}`)
   })
 })
 
