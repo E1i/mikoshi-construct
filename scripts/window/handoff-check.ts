@@ -192,7 +192,7 @@ function prevRefusals(blocks: readonly Block[], context: HandoffContext): string
 
 export function decisionsPath(text: string, file: string, home: string): string | null {
   const value = valuesOf(text).get('decisions')?.trim() ?? ''
-  if (PLACEHOLDER.test(value))
+  if (PLACEHOLDER.test(value) || NONE.test(value))
     return null
   if (value === '~' || value.startsWith('~/'))
     return path.join(home, value.slice(2))

@@ -168,7 +168,8 @@ export function draftGeneratedRefusals(draft: string): string[] {
 
 export function nextTaskFormRefusals(draft: string): string[] {
   const value = fieldValue(draft, 'next task')
-  return value === null || value === '' || NEXT_TASK_FORM.test(value) ? [] : [`${PREFIX}next task: "${value.slice(0, 60)}" is not "#<card> <step>" or "item <N> of <list name>"`]
+  const nothingToDo = value?.toLowerCase() === NOTHING && statusOf(statusLineOf(draft) ?? '') === 'DONE'
+  return value === null || value === '' || nothingToDo || NEXT_TASK_FORM.test(value) ? [] : [`${PREFIX}next task: "${value.slice(0, 60)}" is not "#<card> <step>" or "item <N> of <list name>"`]
 }
 
 export function ownerWaits(draft: string, prState: (pr: number) => PrState): { refusals: string[], draft: string } {
