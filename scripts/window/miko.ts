@@ -26,6 +26,10 @@ function startsWith(argv: readonly string[], words: readonly string[]): boolean 
   return words.every((word, index) => argv[index] === word)
 }
 
+export function mikoHelp(): string {
+  return WINDOW_SCRIPTS.map(([words, script]) => `miko ${words.join(' ')}  (${script})`).join('\n')
+}
+
 export function mikoRoute(argv: readonly string[], here: string): MikoRoute {
   const dir = path.dirname(here)
   const extension = path.extname(here)
@@ -40,6 +44,8 @@ export function mikoRoute(argv: readonly string[], here: string): MikoRoute {
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const route = mikoRoute(process.argv.slice(2), fileURLToPath(import.meta.url))
+  if (process.argv[2] === '--help')
+    process.stdout.write(`${mikoHelp()}\n\n`)
   process.on('SIGINT', () => {})
   const run = spawnSync(process.execPath, [...process.execArgv, route.script, ...route.args], { stdio: 'inherit' })
   process.exitCode = run.status ?? 1
