@@ -15,6 +15,7 @@ export interface EarlierCarrier {
 
 export interface CollisionFlags {
   harness?: string
+  requiredCheck?: string
   yes: boolean
 }
 
@@ -68,7 +69,8 @@ function rerunCommand(root: string, flags: CollisionFlags): string {
   const base = `npx mikoshi-construct attach --dir ${shellWord(root)}`
   if (flags.harness == null)
     return base
-  return `${base}${flags.yes ? ' --yes' : ''} --harness ${shellWord(flags.harness)}`
+  const requiredCheck = flags.requiredCheck == null ? '' : ` --required-check ${shellWord(flags.requiredCheck)}`
+  return `${base}${flags.yes ? ' --yes' : ''} --harness ${shellWord(flags.harness)}${requiredCheck}`
 }
 
 export function collisionReading(root: string, paths: string[], flags: CollisionFlags): CollisionReading {

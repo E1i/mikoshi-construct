@@ -89,7 +89,7 @@ describe('the collision refusal prints commands a shell runs as written', () => 
     execFileSync('sh', ['-c', remove], { cwd: parent })
     expect(canaryAnywhere(parent)).toBe(false)
     expect(ATTACH_CARRIERS.targets.some(target => existsSync(path.join(root, target)))).toBe(false)
-    expect(wordsOf(rerun, parent)).toEqual(['attach', '--dir', root, '--yes', '--harness', 'true'])
+    expect(wordsOf(rerun, parent)).toEqual(['attach', '--dir', root, '--yes', '--harness', 'true', '--required-check', 'gate'])
     expect(canaryAnywhere(parent)).toBe(false)
   })
 
@@ -100,7 +100,7 @@ describe('the collision refusal prints commands a shell runs as written', () => 
     const { ui, output } = capturing()
     await runAttach(ui, { dir: root, harness, requiredCheck: 'gate', yes: true })
     const rerun = nextStep(output()).split(` && ${RERUN_PREFIX}`)[1]
-    expect(wordsOf(rerun, parent)).toEqual(['attach', '--dir', root, '--yes', '--harness', harness])
+    expect(wordsOf(rerun, parent)).toEqual(['attach', '--dir', root, '--yes', '--harness', harness, '--required-check', 'gate'])
     expect(canaryAnywhere(parent)).toBe(false)
   })
 })
