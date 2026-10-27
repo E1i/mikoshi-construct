@@ -297,8 +297,8 @@ started on the cheap path, whatever its branch is called. The bus removes a clos
 (`removeCardTree` in `scripts/nodes/close/close-executor.ts`). Before it cuts anything, `task:start` passes the card through the intake
 door: it takes a card only when the bus holds a `card.admitted` event for it, written through `pnpm intake` when it
 sliced and confirmed the card, by `pnpm intake --admit <draft>` for a card amended or parked before the door, the
-draft being the body `pnpm intake --export '#N'` took from the bus, edited outside the repository, or
-`<parking>/<id>.md` only when that file exists, or by a move into a lane; it reads no journal line, and a card with no such event, or one that changed since it, is refused
+draft being always the body `pnpm intake --export '#N'` took from the bus, edited outside the repository, never a
+parking file, or by a move into a lane; it reads no journal line, and a card with no such event, or one that changed since it, is refused
 with nothing written. The one exception is `--without-intake "<reason>"`, which admits the card and records the flag and
 its reason on the start line as `admission: {by: waiver}`; an admitted card's start line records `admission: {by: bus}`
 with the event.

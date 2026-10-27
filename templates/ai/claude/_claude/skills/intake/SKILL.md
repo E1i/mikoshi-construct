@@ -80,7 +80,7 @@ Every parked card is recorded in the bus as one `card.admitted`, with its confir
 what holds a corrected card back. Only an unclear field sets `who: window`.
 
 To amend an admitted card where the bus is wired, take its body with `pnpm intake --export '#N'`, edit it in a draft
-outside the repository and hand it in with `pnpm intake --admit <draft>`; a parking file is the draft only when one exists.
+outside the repository and hand it in with `pnpm intake --admit <draft>`; the draft is always taken from the bus with `pnpm intake --export '#N'`, never looked for in a parking directory.
 
 ## 4. Report
 
