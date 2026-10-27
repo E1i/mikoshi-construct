@@ -5,6 +5,7 @@ import type { WitnessSubject, WitnessVerdict } from '../../policy/policy.js'
 import type { Shell, ShellResult } from '../../ports/worktree.js'
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
+import { stripVTControlCharacters } from 'node:util'
 import { WITNESS_RECORDED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
@@ -77,6 +78,22 @@ class WitnessTimedOut extends Error {
   }
 }
 
+export const EXCERPT_LINES = 20
+export const EXCERPT_CHARS = 2000
+const FAILURE_LINE = /^\s*(?:FAIL|[×✗✘])|\b\w*Error\b/
+
+export function failureExcerpt(output: string): string {
+  const lines = stripVTControlCharacters(output).split('\n').filter(line => FAILURE_LINE.test(line))
+  return lines.slice(0, EXCERPT_LINES).map(line => line.trimEnd()).join('\n').slice(0, EXCERPT_CHARS)
+}
+
+function withFailureExcerpt(message: string, result: ShellResult | null): string {
+  if (result === null || result.status === 0)
+    return message
+  const excerpt = failureExcerpt(result.output)
+  return excerpt === '' ? message : `${message}\n${excerpt}`
+}
+
 export function gitWitnessTrees(repo: string): WitnessTrees {
   return {
     baseOf: (pr) => {
@@ -139,7 +156,7 @@ export class WitnessExecutor {
     return { kind: 'denied', taskKey: lease.taskKey, denial: { kind: 'technical', reason: WITNESS_UNRUN, detail }, next }
   }
 
-  private budgeted(deadline: number): Shell {
+  private budgeted(deadline: number, last: { result: ShellResult | null }): Shell {
     return (command, cwd) => {
       const left = deadline - this.parts.clock().getTime()
       if (left <= 0)
@@ -147,16 +164,18 @@ export class WitnessExecutor {
       const result = this.parts.shell(command, cwd, left)
       if (result.timedOut)
         throw new WitnessTimedOut(command)
+      last.result = result
       return result
     }
   }
 
   private redOf(subject: WitnessSubject, base: string, head: string): string | null {
     const deadline = this.parts.clock().getTime() + WITNESS_BUDGET_MS
+    const last: { result: ShellResult | null } = { result: null }
     return this.parts.trees.withTree(base, (tree) => {
       try {
         runOnTree(
-          { tree, base, shell: this.budgeted(deadline), log: this.parts.log, refuse: (step, problem) => {
+          { tree, base, shell: this.budgeted(deadline, last), log: this.parts.log, refuse: (step, problem) => {
             if (problem !== null)
               throw new WitnessRed(step, problem)
           }, time: (_name, run) => run() },
@@ -166,7 +185,7 @@ export class WitnessExecutor {
       }
       catch (error) {
         if (error instanceof WitnessRed)
-          return error.message
+          return withFailureExcerpt(error.message, last.result)
         throw error
       }
     })
