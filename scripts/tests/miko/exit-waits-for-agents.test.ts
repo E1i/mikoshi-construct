@@ -4,11 +4,23 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { taskWorktree, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { runMikoExit } from '../../window/exit.js'
 import { AGENTS_FILE, dirtyOpenCardTrees, liveAgentsOf } from '../../window/window-agents.js'
+
+const HOOK = path.resolve(import.meta.dirname, '../../../.claude/hooks/window-agents.mjs')
+
+interface WindowAgentsHook {
+  agentLineOf: (text: string, at: string) => unknown
+}
+
+async function agentLineOf(text: string, at: string): Promise<unknown> {
+  const hook = await import(pathToFileURL(HOOK).href) as WindowAgentsHook
+  return hook.agentLineOf(text, at)
+}
 
 const ABOVE = { context: 300000, contextWarn: 200000, spent: 0, spendWarn: 2400000 } as unknown as ExitReadings
 const roots: string[] = []
@@ -47,8 +59,9 @@ function journal(events: string[]): string {
   return root
 }
 
-const start = (type: string): string => JSON.stringify({ event: 'start', type })
-const stop = (type: string): string => JSON.stringify({ event: 'stop', type })
+const start = (id: string, type: string | null = 'implementer'): string => JSON.stringify({ event: 'start', id, type })
+const stop = (id: string, type: string | null = 'implementer'): string => JSON.stringify({ event: 'stop', id, type })
+const hookInput = (name: string, id: string): string => JSON.stringify({ hook_event_name: name, agent_id: id, agent_type: 'implementer' })
 
 describe('pnpm miko:exit waits for the window\'s subagents and card trees', () => {
   it('refuses while a recorded agent lives, naming it', () => {
@@ -71,9 +84,30 @@ describe('pnpm miko:exit waits for the window\'s subagents and card trees', () =
     expect(requests).toEqual(['/r'])
   })
 
-  it('reads the live agents from the journal: a stop strikes one start of its type', () => {
-    const root = journal([start('implementer'), start('review'), start('implementer'), stop('implementer'), 'not json'])
-    expect(liveAgentsOf(root)).toEqual(['review', 'implementer'])
+  it('pairs by agent id: of two agents of one type, a stop strikes only its own', () => {
+    const root = journal([start('a1'), start('a2'), stop('a1'), 'not json', JSON.stringify({ event: 'start', type: 'review' })])
+    expect(liveAgentsOf(root)).toEqual(['implementer'])
+  })
+
+  it('a resume starts the same id again: start, stop, start leaves it live', () => {
+    const root = journal([start('a1'), stop('a1'), start('a1')])
+    expect(liveAgentsOf(root)).toEqual(['implementer'])
+  })
+
+  it('names an agent without a type by its id', () => {
+    expect(liveAgentsOf(journal([start('a9', null)]))).toEqual(['a9'])
+  })
+
+  it('a denied launch leaves no live agent: a PreToolUse input writes nothing', async () => {
+    const denied = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { subagent_type: 'implementer' } })
+    expect(await agentLineOf(denied, 't')).toBeNull()
+    expect(liveAgentsOf(journal([]))).toEqual([])
+  })
+
+  it('a SubagentStart and SubagentStop pair of one agent_id leaves no live agent', async () => {
+    const pair = [hookInput('SubagentStart', 'a1'), hookInput('SubagentStop', 'a1')]
+    const lines = await Promise.all(pair.map(async text => JSON.stringify(await agentLineOf(text, 't'))))
+    expect(liveAgentsOf(journal(lines))).toEqual([])
   })
 
   it('names only dirty trees of open bus cards: a dirty merged card tree or a clean open one does not count', () => {

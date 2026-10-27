@@ -10,14 +10,17 @@ export const AGENTS_FILE = '.construct/window-agents.jsonl'
 
 interface AgentLine {
   event: string
-  type: string
+  id: string
+  type: string | null
 }
 
 function agentLines(text: string): AgentLine[] {
   return text.split('\n').flatMap((line) => {
     try {
       const entry = JSON.parse(line) as Partial<AgentLine> | null
-      return typeof entry?.event === 'string' && typeof entry.type === 'string' ? [{ event: entry.event, type: entry.type }] : []
+      if (typeof entry?.event !== 'string' || typeof entry.id !== 'string')
+        return []
+      return [{ event: entry.event, id: entry.id, type: typeof entry.type === 'string' ? entry.type : null }]
     }
     catch {
       return []
@@ -33,18 +36,14 @@ export function liveAgentsOf(root: string): string[] {
   catch {
     return []
   }
-  const live: string[] = []
-  for (const { event, type } of agentLines(text)) {
-    if (event === 'start') {
-      live.push(type)
-    }
-    else if (event === 'stop') {
-      const at = live.indexOf(type)
-      if (at !== -1)
-        live.splice(at, 1)
-    }
+  const live = new Map<string, string>()
+  for (const { event, id, type } of agentLines(text)) {
+    if (event === 'start')
+      live.set(id, type ?? id)
+    else if (event === 'stop')
+      live.delete(id)
   }
-  return live
+  return [...live.values()]
 }
 
 function git(tree: string, args: string[]): string {
