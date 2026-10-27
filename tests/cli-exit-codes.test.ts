@@ -41,7 +41,7 @@ function gitRepository(): World {
 
 async function attached(): Promise<World> {
   const w = gitRepository()
-  expect(await run(w, 'attach', '--yes', '--harness', 'pnpm run quality')).toBe(0)
+  expect(await run(w, 'attach', '--yes', '--harness', 'pnpm run quality', '--required-check', 'gate')).toBe(0)
   return w
 }
 
@@ -88,8 +88,8 @@ describe.concurrent('every command exits with the code it exits with today, as a
   })
 
   it('attach and its alias: attached 0, refused 1', async () => {
-    expect(await run(gitRepository(), 'attach', '--yes', '--harness', 'pnpm run quality')).toBe(0)
-    expect(await run(gitRepository(), 'jack-in', '--yes', '--harness', 'pnpm run quality')).toBe(0)
+    expect(await run(gitRepository(), 'attach', '--yes', '--harness', 'pnpm run quality', '--required-check', 'gate')).toBe(0)
+    expect(await run(gitRepository(), 'jack-in', '--yes', '--harness', 'pnpm run quality', '--required-check', 'gate')).toBe(0)
     expect(await run(world(), 'attach', '--yes', '--harness', 'pnpm run quality')).toBe(1)
   })
 

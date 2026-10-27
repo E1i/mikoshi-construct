@@ -82,7 +82,7 @@ describe('attach on a repository that carries its own construct', () => {
   it('attach on a clone that carries its own construct deploys the factory beside it', async () => {
     const dir = cloneCarryingItsOwnConstruct()
 
-    const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    const result = await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
 
     expect(result.status).toBe('done')
     const factoryHome = path.join(home(), OWN_FACTORY_HOME)
@@ -100,7 +100,7 @@ describe('attach on a repository that carries its own construct', () => {
     git(dir, 'rm', '-q', '--cached', ATTACH_CARRIERS.targets[0]!)
     git(dir, 'commit', '-qm', 'untrack one carrier')
 
-    const result = await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    const result = await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
 
     expect(result.refusal).toBe('collision')
     expect(existsSync(path.join(home(), OWN_FACTORY_HOME))).toBe(false)
@@ -112,7 +112,7 @@ describe('attach on a repository that carries its own construct', () => {
     mkdirSync(factoryHome, { recursive: true })
     writeFileSync(path.join(factoryHome, BUS_FILE), 'already here')
 
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     expect(readAttachRecord(dir)?.factoryBeside).toBeUndefined()
     expect(runDetach(ui, { dir }).status).toBe('done')
 
@@ -123,7 +123,7 @@ describe('attach on a repository that carries its own construct', () => {
     const dir = cloneCarryingItsOwnConstruct()
     process.env[BUS_DB_VARIABLE] = path.join(home(), 'elsewhere.db')
 
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
 
     expect(readAttachRecord(dir)?.factoryBeside).toBeUndefined()
     expect(existsSync(path.join(home(), OWN_FACTORY_HOME))).toBe(false)
@@ -136,7 +136,7 @@ describe('construct atlas on an attached clone with its own construct', () => {
     const tracked = (): Record<string, string> => Object.fromEntries(git(dir, 'ls-files', '-z').split('\0').filter(Boolean).map(file => [file, createHash('sha256').update(readFileSync(path.join(dir, file))).digest('hex')]))
     const before = tracked()
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
     const written = runAtlas({ dir, home: home(), attached: true })
 
     expect(tracked()).toEqual(before)
@@ -155,7 +155,7 @@ describe('detach removes what the factory deployed beside the repository and not
     writeFileSync(userHomeFile, 'mine too\n')
     const before = snapshot(dir)
 
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
     const engram = writeEngram(dir, { attached: true, home: home() })
     const factoryHome = path.join(home(), OWN_FACTORY_HOME)
     mkdirSync(path.join(factoryHome, BUS_DIR))
@@ -175,7 +175,7 @@ describe('detach removes what the factory deployed beside the repository and not
 
   it('a keep-alive naming another place does not hold detach', async () => {
     const dir = cloneCarryingItsOwnConstruct()
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     const agents = path.join(home(), 'Library', 'LaunchAgents')
     mkdirSync(agents, { recursive: true })
     writeFileSync(path.join(agents, 'dev.someone.else.plist'), `<string>${path.join(home(), '.construct', 'example--own-construct-two', BUS_FILE)}</string>\n`)
@@ -186,7 +186,7 @@ describe('detach removes what the factory deployed beside the repository and not
 
   it('an unreadable keep-alive is a refusal, not a crash, and removes nothing', async () => {
     const dir = cloneCarryingItsOwnConstruct()
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     const agents = path.join(home(), 'Library', 'LaunchAgents')
     mkdirSync(agents, { recursive: true })
     symlinkSync(path.join(agents, 'gone.target'), path.join(agents, 'dev.dangling.plist'))
@@ -197,7 +197,7 @@ describe('detach removes what the factory deployed beside the repository and not
 
   it('a card tree and branch the factory cut after attach are left to the user, and detach writes nothing into .git for them', async () => {
     const dir = cloneCarryingItsOwnConstruct()
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     const tree = path.join(mkdtempSync(path.join(tmpdir(), 'construct-trees-')), 'mc-1')
     git(dir, 'worktree', 'add', '-q', '-b', 'feat/card', tree)
     const branches = git(dir, 'branch', '--list')
@@ -215,7 +215,7 @@ describe('detach removes what the factory deployed beside the repository and not
   it('removes the directories attach created above the factory home, and only those', async () => {
     const dir = cloneCarryingItsOwnConstruct()
 
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     expect(readAttachRecord(dir)?.factoryBeside?.createdFrom).toBe(path.join(home(), '.construct'))
     runDetach(ui, { dir })
 
@@ -226,7 +226,7 @@ describe('detach removes what the factory deployed beside the repository and not
   it('leaves no emptied Engram directory under the construct home attach created', async () => {
     const dir = cloneCarryingItsOwnConstruct()
 
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     writeEngram(dir, { attached: true, home: home() })
     runDetach(ui, { dir })
 
@@ -238,7 +238,7 @@ describe('detach removes what the factory deployed beside the repository and not
     const engramRoot = path.join(home(), '.construct', 'engram')
     mkdirSync(engramRoot, { recursive: true })
 
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     writeEngram(dir, { attached: true, home: home() })
     runDetach(ui, { dir })
 
@@ -247,7 +247,7 @@ describe('detach removes what the factory deployed beside the repository and not
 
   it('a path beside the repository that cannot be removed is a refusal before the repository is touched, and a later detach finishes', async () => {
     const dir = cloneCarryingItsOwnConstruct()
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     const factoryHome = path.join(home(), OWN_FACTORY_HOME)
     const attached = snapshot(dir)
     chmodSync(factoryHome, 0o500)
@@ -267,7 +267,7 @@ describe('detach removes what the factory deployed beside the repository and not
 
   it('refuses while a keep-alive names the factory home, and removes nothing', async () => {
     const dir = cloneCarryingItsOwnConstruct()
-    await runAttach(ui, { dir, harness: HARNESS, yes: true })
+    await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     const factoryHome = path.join(home(), OWN_FACTORY_HOME)
     const engram = writeEngram(dir, { attached: true, home: home() })
     const attached = snapshot(dir)
@@ -318,7 +318,7 @@ describe('the installed package on a foreign clone with its own construct', () =
     }
     const before = snapshot(dir)
 
-    construct('attach', '--yes', '--harness', INSTALLED_HARNESS)
+    construct('attach', '--yes', '--harness', INSTALLED_HARNESS, '--required-check', 'gate')
     expect(existsSync(path.join(home(), OWN_FACTORY_HOME, BUS_FILE))).toBe(true)
     construct('atlas')
     expect(existsSync(path.join(home(), '.construct', 'engram'))).toBe(true)

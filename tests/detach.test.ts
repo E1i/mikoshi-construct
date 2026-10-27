@@ -73,7 +73,7 @@ function expectSameSnapshot(after: Snapshot, before: Snapshot, listingAfter = be
 }
 
 async function attached(dir: string): Promise<{ files: string[], directories: string[] }> {
-  expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+  expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
   const record = readAttachRecord(dir)
   if (record == null)
     throw new Error('attach wrote no record')

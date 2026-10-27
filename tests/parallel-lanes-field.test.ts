@@ -60,7 +60,7 @@ function answering(lanes: number | undefined): { prompter: Prompter, lanesAskedW
 async function attachedWithLanes(): Promise<string> {
   const dir = gitRepository()
   const { prompter } = answering(ANSWERED_LANES)
-  expect((await runAttach(ui, { dir, harness: HARNESS, yes: false }, prompter)).status).toBe('done')
+  expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: false }, prompter)).status).toBe('done')
   return dir
 }
 
@@ -101,7 +101,7 @@ describe('parallel lanes', () => {
   it('attach asks how many parallel lanes and writes the answer into the attach record without creating construct.json', async () => {
     const dir = gitRepository()
     const { prompter, lanesAskedWith } = answering(ANSWERED_LANES)
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: false }, prompter)).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: false }, prompter)).status).toBe('done')
     expect(lanesAskedWith).toEqual([DEFAULT_LANES])
     expect(readAttachRecord(dir)?.lanes).toBe(ANSWERED_LANES)
     expect(existsSync(path.join(dir, MANIFEST_FILE))).toBe(false)
@@ -109,7 +109,7 @@ describe('parallel lanes', () => {
 
   it('attach --yes records the default of 3 parallel lanes', async () => {
     const dir = gitRepository()
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(readAttachRecord(dir)?.lanes).toBe(DEFAULT_LANES)
   })
 
@@ -121,6 +121,6 @@ describe('parallel lanes', () => {
     expect(doctor.state).toBe('attached')
     expect(runSync(dir, VERSION)).toBeNull()
     expect(existsSync(path.join(dir, MANIFEST_FILE))).toBe(false)
-    expect((await runAttach(ui, { dir, harness: HARNESS, yes: true })).refusal).toBe('attached')
+    expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).refusal).toBe('attached')
   })
 })
