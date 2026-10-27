@@ -1274,7 +1274,7 @@ files, and a call arriving while the parser is missing is refused with exit 2.
 it imports only Node built-ins and runs nothing of the repository or of mikoshi-construct. attach
 registers it in the same `.claude/settings.local.json`, the same way, with one element appended to each
 of three lists: `hooks.Stop` runs it as `stop`, `hooks.PreCompact` as `pre-compact`, and
-`hooks.SessionStart` with the matcher `compact` as `session-start`, each a `command` hook with a timeout
+`hooks.SessionStart`, with no matcher, as `session-start`, each a `command` hook with a timeout
 of 10 seconds. It creates each list only where it is missing.
 
 It reads the handoff at `CONSTRUCT_HANDOFF`, or `miko.md` in `CONSTRUCT_HANDOFF_DIR`, or
@@ -1287,11 +1287,12 @@ turn, and the handoff of another repository never holds it. A repository with no
 never blocks a stop.
 
 At Stop it blocks the stop when the handoff's last `STATUS:` line is `CONTINUE` and lets the second
-stop in a row through; after a compaction it hands the session `additionalContext` naming the handoff
-to continue from; before a compaction it returns a `systemMessage`, which Claude Code shows the owner,
+stop in a row through; at every session start it hands the session the text of
+`.construct/window-rules.md` as `additionalContext`, and after a compaction it adds the line naming the
+handoff to continue from; before a compaction it returns a `systemMessage`, which Claude Code shows the owner,
 saying that the handoff is missing or older than two minutes. It writes no file.
 
-attach also adds three rules to `permissions.allow` in the same file, `Read`, `Edit` and `Write` on
+attach also adds two rules to `permissions.allow` in the same file, `Read` and `Edit` on
 `//<home>/.construct/engram/<dir>-<hash>/**`, the one directory that holds this repository's Engram (the
 leading `//` is Claude Code's form for an absolute path). It adds only the rules the list lacks, and
 `construct detach` removes exactly those, leaving every other rule.

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 const CONSTRUCT_HOME_DIR = '.construct'
 const HANDOFF_DIR = 'handoff'
 const HANDOFF_NAME = 'miko.md'
+const RULES_FILE = '.construct/window-rules.md'
 const GIT_ENTRY = '.git'
 const GITDIR_POINTER = /^gitdir:(.+)$/m
 const REMOTE_SECTION = /^\s*\[remote\s+"([^"]+)"\]\s*$/
@@ -149,15 +150,14 @@ export function stopOutput(input, handoff, text) {
   return { decision: 'block', reason: `window-hooks: ${handoff} ends STATUS: CONTINUE; take its next task in this session` }
 }
 
-export function sessionStartOutput(input, handoff, text) {
-  if (input.source !== COMPACT_SOURCE || text === null)
+export function sessionStartOutput(input, handoff, text, rules) {
+  const handoffLine = input.source === COMPACT_SOURCE && text !== null
+    ? `read ${handoff}; if its last STATUS: line is CONTINUE, continue with its next task without asking the owner; if it is OWNER, ask the owner in this window and wait for the answer in this session`
+    : null
+  const parts = [rules, handoffLine].filter(part => part != null)
+  if (parts.length === 0)
     return null
-  return {
-    hookSpecificOutput: {
-      hookEventName: 'SessionStart',
-      additionalContext: `read ${handoff}; if its last STATUS: line is CONTINUE, continue with its next task without asking the owner; if it is OWNER, ask the owner in this window and wait for the answer in this session`,
-    },
-  }
+  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: parts.join('\n') } }
 }
 
 export function preCompactLine(handoff, mtime, now) {
@@ -177,7 +177,7 @@ export function windowHookOutput(event, input, env, home, now, dir) {
   if (event === 'stop')
     return { stdout: stopOutput(input, handoff, readIfFile(handoff)) }
   if (event === 'session-start')
-    return { stdout: sessionStartOutput(input, handoff, readIfFile(handoff)) }
+    return { stdout: sessionStartOutput(input, handoff, readIfFile(handoff), readIfFile(path.join(dir, RULES_FILE))) }
   if (event === 'pre-compact')
     return { stdout: preCompactOutput(preCompactLine(handoff, mtimeOrNull(handoff), now)) }
   return { stderr: `window-hooks: ${event ?? 'no event'} is not one of stop, session-start, pre-compact; nothing run` }

@@ -37,7 +37,7 @@ function windowHook(argument: string): JsonObject {
 export const WINDOW_ENTRIES: Readonly<Record<WindowEvent, JsonObject>> = {
   Stop: { hooks: [windowHook('stop')] },
   PreCompact: { hooks: [windowHook('pre-compact')] },
-  SessionStart: { matcher: 'compact', hooks: [windowHook('session-start')] },
+  SessionStart: { hooks: [windowHook('session-start')] },
 }
 
 export interface WindowEntry {
@@ -58,7 +58,7 @@ export interface EngramPermissions {
   createdAllow: boolean
 }
 
-const ENGRAM_TOOLS = ['Read', 'Edit', 'Write'] as const
+const ENGRAM_TOOLS = ['Read', 'Edit'] as const
 
 export function engramRules(root: string, home: string = homedir()): string[] {
   const directory = path.dirname(engramFile(root, { attached: true, home }))

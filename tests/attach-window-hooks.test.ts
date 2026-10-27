@@ -31,7 +31,7 @@ function windowEntry(argument: string, matcher?: string): Record<string, unknown
 
 const STOP_ENTRY = windowEntry('stop')
 const PRE_COMPACT_ENTRY = windowEntry('pre-compact')
-const COMPACT_START_ENTRY = windowEntry('session-start', 'compact')
+const COMPACT_START_ENTRY = windowEntry('session-start')
 
 function git(dir: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' })
