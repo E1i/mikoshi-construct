@@ -50,7 +50,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
 
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
 
-    expect(allowOf(dir)).toEqual(['Read', 'Edit', 'Write'].map(tool => `${tool}(/${engramDirectory}/**)`))
+    expect(allowOf(dir)).toEqual(['Read', 'Edit'].map(tool => `${tool}(/${engramDirectory}/**)`))
     expect(allowOf(dir)).toEqual(engramRules(dir, home()))
 
     expect(runDetach(ui, { dir }).status).toBe('done')
@@ -64,7 +64,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
-    expect(allowOf(dir)).toHaveLength(4)
+    expect(allowOf(dir)).toHaveLength(3)
     expect(allowOf(dir)[0]).toBe('Bash(ls)')
 
     expect(runDetach(ui, { dir }).status).toBe('done')
@@ -108,7 +108,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
-    expect(allowOf(dir)).toHaveLength(3)
+    expect(allowOf(dir)).toHaveLength(2)
     dropOriginalCopy(dir)
 
     expect(runDetach(ui, { dir }).status).toBe('done')
@@ -122,7 +122,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
-    expect(allowOf(dir)).toHaveLength(3)
+    expect(allowOf(dir)).toHaveLength(2)
     dropOriginalCopy(dir)
 
     expect(runDetach(ui, { dir }).status).toBe('done')
@@ -138,7 +138,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
-    expect(allowOf(dir)).toHaveLength(3)
+    expect(allowOf(dir)).toHaveLength(2)
     dropOriginalCopy(dir)
 
     expect(runDetach(ui, { dir }).status).toBe('done')
