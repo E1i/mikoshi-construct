@@ -1,5 +1,12 @@
+import { spawnSync } from 'node:child_process'
+import path from 'node:path'
+import process from 'node:process'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { mikoHelp, mikoRoute, WINDOW_SCRIPTS } from '../../window/miko.js'
+
+const MIKO = fileURLToPath(new URL('../../window/miko.ts', import.meta.url))
+const TSX_LOADER = pathToFileURL(path.resolve(import.meta.dirname, '..', '..', '..', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs')).href
 
 describe('miko --help', () => {
   const lines = mikoHelp().split('\n')
@@ -19,5 +26,12 @@ describe('miko --help', () => {
 
   it('leaves the product CLI reachable for --help', () => {
     expect(mikoRoute(['--help'], '/x/scripts/window/miko.ts').script).toMatch(/cli\.ts$/)
+  })
+
+  it('prints one line for each handoff command when spawned with --help', () => {
+    const run = spawnSync(process.execPath, ['--import', TSX_LOADER, MIKO, '--help'], { encoding: 'utf8' })
+    const printed = run.stdout.split('\n')
+    expect(printed.filter(line => line.includes('miko handoff write'))).toHaveLength(1)
+    expect(printed.filter(line => line.includes('miko handoff check'))).toHaveLength(1)
   })
 })
