@@ -8,6 +8,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, MERGE_DONE, NODE_DETECTED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
+import { prBodySha } from '../../core/identifiers.js'
 import { detectionMode } from '../../core/node.js'
 import { keyOf } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
@@ -77,7 +78,7 @@ function dependencyMerged(made: MergeBench, cardId: number, pr: number): void {
 }
 
 function mergeKey(pr: number): string {
-  return keyOf({ queue: 'merge', cardId: pr + 100, pr, head: sha('a') })
+  return keyOf({ queue: 'merge', cardId: pr + 100, pr, head: sha('a'), prBody: prBodySha(cardBody(pr)) })
 }
 
 function count(made: MergeBench, sql: string, ...args: (string | number)[]): number {

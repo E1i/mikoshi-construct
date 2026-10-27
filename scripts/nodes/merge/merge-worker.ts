@@ -60,10 +60,11 @@ interface MergeRow {
   pr: number
   card_id: number
   head: string
+  body_sha: string | null
 }
 
 function scoped(query: string): string {
-  return `SELECT pr, card_id, head FROM (${query}) WHERE (? IS NULL OR pr = ?) AND (? IS NULL OR card_id = ?) ORDER BY pr`
+  return `SELECT pr, card_id, head, body_sha FROM (${query}) WHERE (? IS NULL OR pr = ?) AND (? IS NULL OR card_id = ?) ORDER BY pr`
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -96,7 +97,7 @@ export class MergeNode extends Node<MergeStep> {
     const behind = this.rerun === 'by-layers' ? rows(MERGE_CANDIDATES_BEHIND) : []
     return [...rows(MERGE_CANDIDATES), ...behind, ...decided]
       .filter(row => !closedByRounds(this.db, ts, 'merge', row.pr, row.head))
-      .map(row => ({ queue: 'merge', cardId: row.card_id, pr: row.pr, head: row.head }))
+      .map(row => ({ queue: 'merge', cardId: row.card_id, pr: row.pr, head: row.head, prBody: row.body_sha ?? undefined }))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
