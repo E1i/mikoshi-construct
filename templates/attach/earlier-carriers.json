@@ -618,5 +618,20 @@
     "target": ".claude/skills/implement/SKILL.md",
     "sha256": "1c69e9d5dba559d06d106864579d8712e4adeab7fb20c1cec4ed2c1cfaa6fb2d",
     "date": "2026-10-26"
+  },
+  {
+    "target": ".claude/skills/construct-atlas/SKILL.md",
+    "sha256": "4332115deb053e5c37c9aefabaa6a51c633f53556ef5a160136d3dd3151e5c45",
+    "date": "2026-10-25"
+  },
+  {
+    "target": ".claude/skills/construct-atlas/SKILL.md",
+    "sha256": "f65c357b0577575f05fcaa0ee0ce7c489b545acc88d6e6b9689e28302184155d",
+    "date": "2026-10-27"
+  },
+  {
+    "target": ".claude/commands/attached-discover.md",
+    "sha256": "c0e44ce4d2df5121d1c42c1d35284da5fc2edf5968d7b6514470ff42455b74da",
+    "date": "2026-10-27"
   }
 ]

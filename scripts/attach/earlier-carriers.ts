@@ -22,12 +22,16 @@ export interface Drift {
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const KNOWN_SET_FILE = path.join(REPO_ROOT, 'templates/attach/earlier-carriers.json')
 const CLAUDE_SOURCE_ROOT = 'templates/ai/claude/'
+const ATTACH_SOURCE_ROOT = 'templates/attach/'
+const ATTACH_ONLY_TARGETS = ['.claude/commands/attached-discover.md']
 
 function pairOf(entry: KnownCarrier): string {
   return `${entry.target}\u0000${entry.sha256}`
 }
 
 export function sourceOf(target: string): string {
+  if (ATTACH_ONLY_TARGETS.includes(target))
+    return `${ATTACH_SOURCE_ROOT}_claude/${target.slice('.claude/'.length)}`
   return `${CLAUDE_SOURCE_ROOT}${target.startsWith('.claude/') ? `_claude/${target.slice('.claude/'.length)}` : target}`
 }
 

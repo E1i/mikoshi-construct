@@ -59,8 +59,8 @@ describe('the carried commands read the attach record when there is no construct
 })
 
 describe('the carrier set is exactly what attach may write', () => {
-  it('names twelve targets, every one created whole and never merged or appended', () => {
-    expect(ATTACH_CARRIERS.targets).toHaveLength(12)
+  it('names fourteen targets, every one created whole and never merged or appended', () => {
+    expect(ATTACH_CARRIERS.targets).toHaveLength(14)
     for (const target of ATTACH_CARRIERS.targets)
       expect(strategyFor(target), target).toBe('create')
   })

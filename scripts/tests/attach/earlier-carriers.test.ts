@@ -53,6 +53,10 @@ describe('the generator', () => {
     expect(sourceOf(WORKFLOW)).toBe('templates/ai/claude/scripts/construct/implement.workflow')
   })
 
+  it('reads the attach-only carrier from the attach group, not the init one', () => {
+    expect(sourceOf('.claude/commands/attached-discover.md')).toBe('templates/attach/_claude/commands/attached-discover.md')
+  })
+
   it('renders the file as two-space JSON with a trailing newline', () => {
     expect(renderKnownSet([entry(PLAN, 'a', '2026-09-16')])).toBe(`${JSON.stringify([entry(PLAN, 'a', '2026-09-16')], null, 2)}\n`)
   })

@@ -13,6 +13,8 @@ import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
 const TEMPLATES = path.join(import.meta.dirname, '../templates/ai/claude')
+const ATTACH_TEMPLATES = path.join(import.meta.dirname, '../templates/attach')
+const ATTACH_ONLY = '.claude/commands/attached-discover.md'
 const HARNESS = 'true'
 const PLAN = '.claude/commands/plan.md'
 const ARCHITECT = '.claude/agents/architect.md'
@@ -20,7 +22,8 @@ const HARNESS_AGENT = '.claude/agents/harness.md'
 const OWNER_BYTES = '# mine\n'
 
 function sourceOf(target: string): string {
-  return path.join(TEMPLATES, target.startsWith('.claude/') ? `_claude/${target.slice('.claude/'.length)}` : target)
+  const root = target === ATTACH_ONLY ? ATTACH_TEMPLATES : TEMPLATES
+  return path.join(root, target.startsWith('.claude/') ? `_claude/${target.slice('.claude/'.length)}` : target)
 }
 
 function todaysBytes(target: string): Buffer {
