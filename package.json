@@ -28,7 +28,7 @@
     "construct": "dist/cli.js",
     "construct-factory": "dist/scripts/supervisor/start.js",
     "construct-intake": "dist/scripts/intake/intake.js",
-    "miko": "dist/cli.js",
+    "miko": "dist/scripts/window/miko.js",
     "mikoshi-construct": "dist/cli.js"
   },
   "files": [
@@ -99,7 +99,7 @@
     "model:check": "node --import tsx scripts/model/check.ts",
     "model:render": "node --import tsx scripts/model/sync-docs.ts",
     "lint:fix": "eslint --fix .",
-    "miko": "node --import tsx scripts/window/loop.ts",
+    "miko": "node --import tsx scripts/window/miko.ts",
     "miko:exit": "node --import tsx scripts/window/exit.ts",
     "miko:pull": "node --import tsx scripts/window/pull.ts",
     "miko:watch": "node --import tsx scripts/window/watch.ts",

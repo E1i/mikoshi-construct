@@ -10,10 +10,10 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, closeOwnerWait, openOwnerWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, MERGE_DONE, POLICY_DENIED, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_USED } from '../../core/events.js'
-import { taskKey } from '../../core/identifiers.js'
+import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext, leaseQueued } from '../../core/lease.js'
-import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
+import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { firstLiveVerdict, MergeNode, NoLiveVerdict, runMergeWorker } from '../../nodes/merge/merge-worker.js'
 import { DRY_RUN_ACTOR } from '../../nodes/review/review-worker.js'
@@ -173,7 +173,7 @@ describe('the merge worker', () => {
     const worker = mergeNode(bench)
     const steps = [await step(worker), await step(worker)]
     expect(steps).toMatchObject([{ kind: 'merged', rule: 'owner_under_shard' }, { kind: 'denied', denial: { kind: 'authority', rule: 'owner_without_shard' } }])
-    expect(eventsOf(bench.db, MERGE_DONE)).toEqual([{ commit: expect.any(String) as unknown, rule: 'owner_under_shard', task_key: `merge:826:726:${sha('a')}`, lease_gen: 1 }])
+    expect(eventsOf(bench.db, MERGE_DONE)).toEqual([{ commit: expect.any(String) as unknown, rule: 'owner_under_shard', task_key: `merge:826:726:${sha('a')}:pr-body-${prBodySha(cardBody(726, 'owner'))}`, lease_gen: 1 }])
     expect(eventsOf(bench.db, SHARD_USED)).toEqual([{ id: 'shard-826', commit: expect.any(String) as unknown }])
     expect(bench.gitHub.puts).toHaveLength(1)
     expect(ownerInbox(bench.db).map(line => line.pr)).toEqual([727])
@@ -230,7 +230,7 @@ describe('the merge worker', () => {
     bench.clock.advance(5 * 60 * 60_000)
     bench.tick()
     expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'owner_under_shard' })
-    expect(eventsOf(bench.db, MERGE_DONE)).toEqual([{ commit: expect.any(String) as unknown, rule: 'owner_under_shard', task_key: `merge:826:726:${sha('a')}`, lease_gen: 2 }])
+    expect(eventsOf(bench.db, MERGE_DONE)).toEqual([{ commit: expect.any(String) as unknown, rule: 'owner_under_shard', task_key: `merge:826:726:${sha('a')}:pr-body-${prBodySha(cardBody(726, 'owner'))}`, lease_gen: 2 }])
     expect(eventsOf(bench.db, SHARD_USED)).toEqual([])
     expect(activeWindowShards(bench.db, bench.clock.now()).map(shard => shard.id)).toEqual(['shard-window'])
     bench.close()
@@ -371,7 +371,7 @@ describe('the merge worker', () => {
     expect(shardUnderD82(bench, 980)).toBe(0)
     bench.tick()
     expect(await step(worker)).toMatchObject({ kind: 'merged', rule: 'owner_under_shard' })
-    expect(eventsOf(bench.db, MERGE_DONE)).toEqual([{ commit: expect.any(String) as unknown, rule: 'owner_under_shard', task_key: `merge:1080:980:${sha('a')}`, lease_gen: 2 }])
+    expect(eventsOf(bench.db, MERGE_DONE)).toEqual([{ commit: expect.any(String) as unknown, rule: 'owner_under_shard', task_key: `merge:1080:980:${sha('a')}:pr-body-${prBodySha(cardBody(980, 'owner'))}`, lease_gen: 2 }])
     expect(bench.gitHub.puts.map(put => put.endpoint)).toEqual(['repos/{owner}/{repo}/pulls/980/merge'])
     bench.close()
   })
@@ -440,7 +440,7 @@ describe('a head that moves under the queues', () => {
   it('a moved head supersedes the merge lease without a stop', () => {
     const bench = liveBench()
     const heads = ['a', 'b', 'c', 'd'].map(letter => sha(letter))
-    const mergeKey = (head: string): string => taskKey({ queue: 'merge', cardId: 1054, pr: 954, head })
+    const mergeKey = (head: string): string => keyOf({ queue: 'merge', cardId: 1054, pr: 954, head, prBody: prBodySha(cardBody(954)) })
     bench.gitHub.open({ number: 954, head: heads[0], review: 'success' })
     bench.tick()
     bench.gitHub.pulls.get(954)!.mergeable_state = 'behind'
@@ -508,14 +508,14 @@ describe('a head that moves under the queues', () => {
     bench.gitHub.open({ number: 957, review: 'success' })
     bench.tick()
     const ts = bench.clock.now().toISOString()
-    queueTask(bench.db, ts, { queue: 'merge', cardId: 1057, pr: 957, head: sha('a') })
+    queueTask(bench.db, ts, { queue: 'merge', cardId: 1057, pr: 957, head: sha('a'), prBody: prBodySha(cardBody(957)) })
     bench.gitHub.close(957, true)
     bench.tick()
     queueTask(bench.db, bench.clock.now().toISOString(), { queue: 'close', cardId: 1057, pr: 957, head: sha('a') })
     bench.tick()
 
     expect(tasksOfPr(bench, 957)).toEqual({ close: 'queued', merge: 'queued' })
-    expect(taskState(bench.db, taskKey({ queue: 'merge', cardId: 1057, pr: 957, head: sha('a') })).failures).toBe(0)
+    expect(taskState(bench.db, keyOf({ queue: 'merge', cardId: 1057, pr: 957, head: sha('a'), prBody: prBodySha(cardBody(957)) })).failures).toBe(0)
     bench.close()
   })
 })

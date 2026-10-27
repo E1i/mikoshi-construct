@@ -4,15 +4,14 @@ import type { BgResult } from './bg.js'
 import type { BusWorker, FactoryMode } from './workers.js'
 import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { BUS_DB_VARIABLE, busDirOf, pinBus } from '../core/bus-path.js'
+import { BUS_DB_VARIABLE, busDirOf, isOwnerCheckout, OWNER_AGENT, OWNER_AGENT_FILE, pinBus } from '../core/bus-path.js'
 import { appendEvent, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
-import { FACTORY_NAMED } from '../core/factory-paths.js'
 import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
 import { allowLiveText } from '../policy/live-decision.js'
 import { activeWindowShards, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
@@ -21,8 +20,6 @@ import { startBus } from './supervisor.js'
 import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
 
 export const START_PREFIX = '[factory:start] '
-export const OWNER_AGENT = 'dev.mikoshi.bus'
-export const OWNER_AGENT_FILE = path.join(FACTORY_NAMED.launchdDirectory, `${OWNER_AGENT}.plist`)
 export const AGENT_PREFIX = 'dev.mikoshi.factory.'
 export const KEEP_ALIVE_PLATFORM = 'darwin'
 export const LAUNCH_AGENTS = path.join('Library', 'LaunchAgents')
@@ -64,10 +61,6 @@ export interface KeepAliveAgent {
   path: string
   busDb: string
   log: string
-}
-
-export function isOwnerCheckout(repository: string): boolean {
-  return existsSync(path.join(repository, OWNER_AGENT_FILE))
 }
 
 export function factoryBusOf(env: NodeJS.ProcessEnv, home: string, repository: string): string {

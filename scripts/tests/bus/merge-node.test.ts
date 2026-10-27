@@ -8,6 +8,7 @@ import { RERUN_VARIABLE, writeCatalog } from '../../cli/check-catalog.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
+import { prBodySha } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
@@ -125,7 +126,7 @@ function ownerDecided(made: MergeBench, pr: number): void {
 }
 
 function mergeKey(pr: number, head = sha('a')): string {
-  return keyOf({ queue: 'merge', cardId: pr + 100, pr, head })
+  return keyOf({ queue: 'merge', cardId: pr + 100, pr, head, prBody: prBodySha(cardBody(pr)) })
 }
 
 function derivedKeys(made: MergeBench): string[] {
@@ -368,7 +369,7 @@ describe('the merge node', () => {
 
     expect(eventsOf(made.db, POLICY_DENIED)).toEqual([expect.objectContaining({ command: 'merge', reason: 'witness' })])
     expect(eventsOf(made.db, MERGE_DONE)).toEqual([])
-    expect(taskState(made.db, keyOf({ queue: 'merge', cardId: 1070, pr: 970, head: sha('b') })).state).toBe('withdrawn')
+    expect(taskState(made.db, mergeKey(970, sha('b'))).state).toBe('withdrawn')
 
     witnessGreen(made, 1070, 970, sha('b'), cardBody)
     deriveQueues(made.db, made.clock.now().toISOString())
@@ -390,7 +391,7 @@ describe('the merge node', () => {
 
     expect(eventsOf(made.db, POLICY_DENIED)).toEqual([expect.objectContaining({ command: 'merge', reason: 'witness', base: MAIN_1 })])
     expect(eventsOf(made.db, MERGE_DONE)).toEqual([])
-    expect(taskState(made.db, keyOf({ queue: 'merge', cardId: 1070, pr: 970, head: sha('a') })).state).toBe('withdrawn')
+    expect(taskState(made.db, mergeKey(970)).state).toBe('withdrawn')
 
     witnessGreen(made, 1070, 970, sha('a'), cardBody)
     deriveQueues(made.db, made.clock.now().toISOString())

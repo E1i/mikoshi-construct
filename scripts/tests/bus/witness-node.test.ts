@@ -120,6 +120,38 @@ describe('the witness node', () => {
     expect(witnessDenial(w.db, CARD, w.head, w.base)!.detail).toMatch(/is red: P8: positive control/)
   })
 
+  it('a red record keeps the first line of the problem and then the failure excerpt of the last command', async () => {
+    const w = world([], 'other.txt')
+    await witnessRun(w, (command, cwd, timeoutMs) => command === 'test -f done.txt'
+      ? { status: 1, output: ' RUN  v3\n FAIL  a.test.ts > it\nError: boom\nDuration 1s', timedOut: false }
+      : realTimedShell(command, cwd, timeoutMs))
+
+    const detail = witnessRecordOf(w.db, CARD, w.head, w.base, witnessSubjectOf(w.db, CARD)!.cardBody)!.detail
+    const [first, ...excerpt] = detail.split('\n')
+    expect(first).toMatch(/^P8: positive control .* exits 1/)
+    expect(excerpt).toEqual([' FAIL  a.test.ts > it', 'Error: boom'])
+  })
+
+  it('a red record keeps its message unchanged when the failing output names no failure', async () => {
+    const w = world([], 'other.txt')
+    await witnessRun(w, (command, cwd, timeoutMs) => command === 'test -f done.txt'
+      ? { status: 1, output: 'nothing useful\nDuration 1s', timedOut: false }
+      : realTimedShell(command, cwd, timeoutMs))
+
+    const detail = witnessRecordOf(w.db, CARD, w.head, w.base, witnessSubjectOf(w.db, CARD)!.cardBody)!.detail
+    expect(detail).toMatch(/^P8: positive control .* exits 1/)
+    expect(detail).not.toContain('\n')
+  })
+
+  it('a red record keeps its message unchanged when the last command exited 0, whatever its output says', async () => {
+    const w = world(['done.txt'], 'other.txt')
+    await witnessRun(w, () => ({ status: 0, output: 'FAIL a.test.ts\nError: boom', timedOut: false }))
+
+    const detail = witnessRecordOf(w.db, CARD, w.head, w.base, witnessSubjectOf(w.db, CARD)!.cardBody)!.detail
+    expect(detail).toMatch(/^P7: witness .* exits 0 on the clean base/)
+    expect(detail).not.toContain('\n')
+  })
+
   it('a witness green on the base is denied as witness', async () => {
     const w = world(['done.txt'], 'other.txt')
     await witnessRun(w)

@@ -1,7 +1,6 @@
 import type { WatchCursor } from './watch-store.js'
 import type { WindowPr } from './window-prs.js'
-import { existsSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +8,7 @@ import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../core/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
 import { CARD_PROCESS } from '../supervisor/heartbeat.js'
@@ -683,7 +682,8 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     console.error(USAGE)
     process.exit(2)
   }
-  const handoff = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+  const handoff = defaultHandoffDir()
+  mkdirSync(handoff, { recursive: true })
   const deps = productionDeps(handoff, defaultBusPath())
   try {
     await (args.once ? runOnce(handoff, deps, args.card) : watchForever(deps))

@@ -10,7 +10,7 @@ import { Buffer } from 'node:buffer'
 import { changedFiles, rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
 import { appendEvent, OPEN_WAIT, openBusWait, OWNER_WAITS } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
+import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, QUEUE_ACTOR } from '../../core/queue.js'
@@ -29,6 +29,7 @@ export const QUESTION_OPEN = 'owner_question_open'
 const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', QUESTION_OPEN, NEEDS_UPDATE])
 const OPEN_QUESTIONS_OF_CARD = `SELECT id, text FROM ${OWNER_WAITS} WHERE need = 'decision' AND state = '${OPEN_WAIT}' AND card_id = ? ORDER BY opened_at, id`
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
+const WITHDRAWN_ON_THE_BODY: ReadonlySet<AuthorityRule> = new Set(['decision_unread', 'no_matrix_count_line'])
 const RUNS_PAGE = 100
 const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
@@ -344,6 +345,13 @@ export class MergeExecutor {
     }
     const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON }, [event])
     this.askTheOwnerToMerge(lease, denial)
+    this.alarmOnTheBody(lease, denial)
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
+  }
+
+  private alarmOnTheBody(lease: Lease, denial: MergeDenial): void {
+    if (denial.kind !== 'authority' || !WITHDRAWN_ON_THE_BODY.has(denial.rule))
+      return
+    appendEvent(this.parts.db, { ts: this.ts(), type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${BOARD_ALARM}:${lease.taskKey}`, payload: { task_key: lease.taskKey, reason: denial.rule, detail: denial.detail }, legacy: false })
   }
 }
