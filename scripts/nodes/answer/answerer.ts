@@ -43,7 +43,6 @@ export interface Answered {
   atContextWarn?: boolean
   before: string | null
   after: string | null
-  kept?: boolean
   owner: string | null
   tokens?: number | null
   input?: AnswerInput
@@ -406,6 +405,6 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const kept = tools.pushPolicy?.(card) === 'none'
     const owner = ownerAfter('') ?? (kept ? null : await publish())
     const measured = measuredOf(steps.map(stdoutOf))
-    return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...(kept ? { kept } : {}), ...measured, input: { prompt, cardBody } }
+    return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody } }
   }
 }

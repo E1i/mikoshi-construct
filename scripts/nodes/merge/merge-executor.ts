@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
@@ -13,6 +14,7 @@ import { messageOf } from '../../core/errors.js'
 import { COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
+import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, QUEUE_ACTOR } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
@@ -33,7 +35,7 @@ const RUNS_PAGE = 100
 const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
 
-export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE
+export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE | typeof KEPT_BY_PUSH_POLICY
 
 export type MergeDenial
   = | { kind: 'technical', reason: MergeTechnicalReason, detail: string, base?: string }
@@ -54,6 +56,7 @@ export interface ExecutorParts {
   clock: () => Date
   run: string | null
   rerun?: RerunMode
+  pushPolicy?: () => PushPolicy
 }
 
 interface Pull {
@@ -98,6 +101,8 @@ export class MergeExecutor {
   merge(lease: Lease): MergeOutcome {
     try {
       assertHeld(this.parts.db, lease)
+      if (this.parts.pushPolicy?.() === 'none')
+        return this.denied(lease, { kind: 'technical', reason: KEPT_BY_PUSH_POLICY, detail: `push policy none: the bus does not merge #${lease.pr}` })
       const foreign = notMine(cardContract(this.parts.db, lease.cardId), 'merge')
       if (foreign !== null)
         return this.denied(lease, { kind: 'technical', reason: NOT_MINE, detail: foreign })
@@ -342,7 +347,7 @@ export class MergeExecutor {
       releaseTask(this.parts.db, ts, lease, reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY }, [event])
     this.askTheOwnerToMerge(lease, denial)
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }

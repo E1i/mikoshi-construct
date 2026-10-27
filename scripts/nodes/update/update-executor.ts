@@ -12,6 +12,7 @@ import { appendEvent } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
+import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter } from '../../ports/meter.js'
@@ -26,7 +27,6 @@ const REPO = 'repos/{owner}/{repo}'
 const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
 
 export const MERGES_WITHOUT_UPDATE = 'merges_without_update'
-export const KEPT_BY_PUSH_POLICY = 'kept_by_push_policy'
 const UPDATE_COMMAND = 'update_branch'
 
 export type UpdateCommand = typeof UPDATE_COMMAND | 'publish'

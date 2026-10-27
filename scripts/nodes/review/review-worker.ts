@@ -454,7 +454,7 @@ async function main(): Promise<number> {
     notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyAt(cwd)),
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
-    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), parked: parkedCardNumbers() }),
+    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), parked: parkedCardNumbers(), pushPolicy: () => pushPolicyAt(cwd) }),
   })
 }
 

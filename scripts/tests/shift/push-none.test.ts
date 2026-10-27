@@ -8,10 +8,13 @@ import { leaseNext } from '../../core/lease.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { treePr } from '../../nodes/launch/tree-pr.js'
+import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
+import { PrCloser, RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { ghNotePr } from '../../nodes/review/review-worker.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
-import { liveBench } from '../bus/merge-bench.js'
+import { cardBody, sha } from '../bus/github-fake.js'
+import { liveBench, mergeBench } from '../bus/merge-bench.js'
 import { detectUpdate } from '../bus/update-detection.js'
 
 const CARD = {
@@ -72,7 +75,7 @@ describe('push policy none', () => {
     expect(pushPolicyOf(realGit, root)).toBe(push)
   })
 
-  it.each([['none', false, true], ['bus', true, undefined]] as const)('the answerer under push %s publishes: %s', async (policy, published, kept) => {
+  it.each([['none', false], ['bus', true]] as const)('the answerer under push %s publishes: %s', async (policy, published) => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'push-none-answer-')))
     const worktree = path.join(root, 'tree')
     mkdirSync(worktree)
@@ -89,7 +92,7 @@ describe('push policy none', () => {
     const lease = { taskKey: 'answer:1:2', queue: 'answer', cardId: 1, pr: 2, head: 'a'.repeat(40), leaseGen: 1, actor: 'worker:answer:w' } as const
     const answered = await answerer({ lease, source: { kind: 'changes', findings: [], events: [] }, widened: null, card: { session: 's0', worktree, branch: 'feat/x' } })
 
-    expect({ published: publishes.length === 1, kept: answered.kept }).toEqual({ published, kept })
+    expect({ published: publishes.length === 1, owner: answered.owner }).toEqual({ published, owner: null })
   })
 
   it.each([['none', 0, 'denied'], ['bus', 1, 'updated']] as const)('the update executor under push %s makes %s update-branch calls: %s', (policy, puts, kind) => {
@@ -120,5 +123,63 @@ describe('push policy none', () => {
     ghNotePr('/repo', port, () => policy)(970, 'a note')
 
     expect(spawned.length).toBe(calls)
+  })
+
+  it('a malformed attach record reads as none', () => {
+    const root = repoWith(null)
+    mkdirSync(path.join(root, '.construct'))
+    writeFileSync(path.join(root, '.construct/attach.json'), '{ not json')
+
+    expect(pushPolicyOf(realGit, root)).toBe('none')
+  })
+
+  it.each([['none', 0, 'denied'], ['bus', 1, 'merged']] as const)('the merge executor under push %s makes %s merge calls: %s', (policy, puts, kind) => {
+    const made = liveBench()
+    try {
+      made.gitHub.open({ number: 960, review: 'success' })
+      made.tick()
+      const executor = new MergeExecutor({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, pushPolicy: () => policy })
+      const outcome = executor.merge(leaseNext(made.db, made.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')!)
+
+      expect({ puts: made.gitHub.puts.length, kind: outcome.kind }).toEqual({ puts, kind })
+      if (outcome.kind === 'denied')
+        expect(outcome).toMatchObject({ denial: { reason: 'kept_by_push_policy' }, next: 'withdrawn' })
+    }
+    finally {
+      made.close()
+    }
+  })
+
+  it.each([['none', 0, 'denied'], ['bus', 1, 'closed']] as const)('the pull request closer under push %s makes %s close calls: %s', (policy, closes, kind) => {
+    const made = mergeBench()
+    try {
+      made.gitHub.open({ number: 980, head: sha('a'), ref: 'feat/card-1080', body: cardBody(980) })
+      made.tick()
+      const outcome = new PrCloser(made.db, made.gitHub.client, made.gitHub.patch, made.clock.now, () => policy).close({ attempt: 'a', pr: 980, cardId: 1080, reason: 'cut anew', by: 'window' })
+
+      expect({ closes: made.gitHub.closes.length, kind: outcome.kind }).toEqual({ closes, kind })
+    }
+    finally {
+      made.close()
+    }
+  })
+
+  it.each([['none', 'push policy none'], ['bus', 'no admitted body']] as const)('the round-limit recutter under push %s makes no GitHub write and waits: %s', (policy, why) => {
+    const made = mergeBench()
+    try {
+      const writes: string[] = []
+      const record = (endpoint: string): never => {
+        writes.push(endpoint)
+        throw new Error('written')
+      }
+      const recutter = new RoundLimitRecutter({ db: made.db, gitHub: made.gitHub.client, post: record, patch: record, clock: made.clock.now, parked: () => [], pushPolicy: () => policy })
+      const outcome = recutter.recut({ cardId: 1080, pr: 980, head: sha('a'), findings: [] })
+
+      expect(writes).toEqual([])
+      expect(outcome).toMatchObject({ kind: 'owner_wait', why: expect.stringContaining(why) as unknown })
+    }
+    finally {
+      made.close()
+    }
   })
 })
