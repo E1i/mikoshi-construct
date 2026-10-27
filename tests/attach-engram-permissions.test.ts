@@ -48,7 +48,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     const dir = fixture()
     const engramDirectory = path.dirname(engramFile(dir, { attached: true, home: home() }))
 
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
 
     expect(allowOf(dir)).toEqual(['Read', 'Edit', 'Write'].map(tool => `${tool}(/${engramDirectory}/**)`))
     expect(allowOf(dir)).toEqual(engramRules(dir, home()))
@@ -63,7 +63,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(allowOf(dir)).toHaveLength(4)
     expect(allowOf(dir)[0]).toBe('Bash(ls)')
 
@@ -79,7 +79,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(allowOf(dir)).toEqual(['Bash(ls)', alreadyAllowed, ...missing])
     dropOriginalCopy(dir)
 
@@ -93,7 +93,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(allowOf(dir)).toEqual(owner.permissions.allow)
     dropOriginalCopy(dir)
 
@@ -107,7 +107,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(allowOf(dir)).toHaveLength(3)
     dropOriginalCopy(dir)
 
@@ -121,7 +121,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(allowOf(dir)).toHaveLength(3)
     dropOriginalCopy(dir)
 
@@ -137,7 +137,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
 
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(allowOf(dir)).toHaveLength(3)
     dropOriginalCopy(dir)
 
@@ -150,7 +150,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     const owner = { model: 'opus' }
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(owner))
-    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })).status).toBe('done')
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     rewriteSettingsHook(dir, (hook) => {
       delete hook.original
       delete hook.engram
@@ -173,7 +173,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), before)
 
-    const result = await runAttach(ui, { dir, harness: 'pnpm run quality', yes: true })
+    const result = await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('settings-unreadable')
