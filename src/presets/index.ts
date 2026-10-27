@@ -226,6 +226,8 @@ export const ATTACH_CARRIERS = {
     'scripts/construct/check-baseline.mjs',
     '.claude/skills/browser-lab/SKILL.md',
     'scripts/construct/browser-lab.mjs',
+    '.claude/skills/construct-atlas/SKILL.md',
+    '.claude/commands/attached-discover.md',
   ],
 } as const
 
