@@ -313,9 +313,16 @@ describe('detach and .construct/daemon', () => {
 describe('daemon-run.mjs refusals', () => {
   const SUCCESS_KILLED = 'process.kill(process.pid, \'SIGKILL\')\n'
 
+  function killedBySignal(root: string, command: 'prepare' | 'objects' | 'success'): void {
+    write(root, `${ADAPTER}/${command}.mjs`, SUCCESS_KILLED)
+    const adapterFile = path.join(root, ADAPTER, 'adapter.json')
+    const adapter = JSON.parse(readFileSync(adapterFile, 'utf8')) as Record<string, unknown>
+    writeFileSync(adapterFile, JSON.stringify({ ...adapter, [command]: `exec ${String(adapter[command])}` }))
+  }
+
   it('records an object whose success command is killed by a signal as unobserved', () => {
     const root = repository(['alpha'])
-    write(root, `${ADAPTER}/success.mjs`, SUCCESS_KILLED)
+    killedBySignal(root, 'success')
 
     const verdict = run(root, `node scripts/construct/daemon-run.mjs verdict ${ADAPTER} ${RUN} alpha --agent daemon:${RUN}:alpha`)
 
@@ -325,7 +332,7 @@ describe('daemon-run.mjs refusals', () => {
 
   it('records an object whose prepare is killed by a signal as unobserved and names the signal', () => {
     const root = repository(['alpha'])
-    write(root, `${ADAPTER}/prepare.mjs`, SUCCESS_KILLED)
+    killedBySignal(root, 'prepare')
 
     const prepared = run(root, `node scripts/construct/daemon-run.mjs prepare ${ADAPTER} ${RUN} alpha`)
 
@@ -335,7 +342,7 @@ describe('daemon-run.mjs refusals', () => {
 
   it('refuses objects whose listing command is killed by a signal and names the signal', () => {
     const root = repository(['alpha'])
-    write(root, `${ADAPTER}/objects.mjs`, SUCCESS_KILLED)
+    killedBySignal(root, 'objects')
 
     const listed = run(root, `node scripts/construct/daemon-run.mjs objects ${ADAPTER}`)
 
