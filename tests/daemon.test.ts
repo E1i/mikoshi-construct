@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runAttach } from '../src/commands/attach/index.js'
-import { readDaemonObjects } from '../src/commands/cost/claude-code.js'
-import { costJson, labelledAgentTokens } from '../src/commands/cost/index.js'
+import { labelledAgentTokens, labelledTranscripts } from '../src/commands/cost/claude-code.js'
+import { readDaemonObjects } from '../src/commands/cost/daemon.js'
+import { costJson, costReport, projectKey } from '../src/commands/cost/index.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -177,6 +178,16 @@ describe('daemon.workflow and daemon-run.mjs', () => {
     expect(result.unobserved).toEqual(['broken'])
   })
 
+  it('records an object whose success command exits 1 as false with its line', async () => {
+    const root = repository(['alpha'])
+    write(root, `${ADAPTER}/success.mjs`, 'console.log(\'the badge was missing\')\nprocess.exit(1)\n')
+
+    const { result } = await runDaemon(root, 1)
+
+    expect(evidenceOf(root, 'alpha')).toMatchObject({ verdict: 'false', line: 'the badge was missing' })
+    expect(result.objects[0]).toMatchObject({ verdict: 'false' })
+  })
+
   it('runs no more than the limit of objects at once', async () => {
     const root = repository(['a', 'b', 'c', 'd', 'e'])
 
@@ -202,15 +213,18 @@ describe('the cost of a daemon object', () => {
   it('is the token sum of its agent\'s transcript', () => {
     const projects = scratch('construct-daemon-projects-')
     const label = `daemon:${RUN}:alpha`
-    const runDirectory = path.join(projects, '-repo', 'session-1', 'subagents', 'workflows', 'wf-1')
+    const runDirectory = path.join(projects, projectKey('/repo'), 'session-1', 'subagents', 'workflows', 'wf-1')
     const assistant = (requestId: string, input: number, output: number): string => JSON.stringify({ requestId, timestamp: '2026-10-28T10:00:00Z', message: { role: 'assistant', usage: { input_tokens: input, cache_creation_input_tokens: 5, cache_read_input_tokens: 1000, output_tokens: output } } })
     write(runDirectory, 'agent-a1.jsonl', [assistant('r1', 100, 10), assistant('r1', 100, 10), assistant('r2', 200, 20)].join('\n'))
     write(runDirectory, 'agent-a1.meta.json', JSON.stringify({ description: label }))
     write(runDirectory, 'agent-a2.jsonl', assistant('r3', 9000, 900))
     write(runDirectory, 'agent-a2.meta.json', JSON.stringify({ description: `daemon:${RUN}:beta` }))
 
-    expect(labelledAgentTokens(label, projects)).toBe(100 + 5 + 10 + 200 + 5 + 20)
-    expect(labelledAgentTokens(`daemon:${RUN}:gamma`, projects)).toBeNull()
+    const index = labelledTranscripts('/repo', projects)
+
+    expect(labelledAgentTokens(index, label)).toBe(100 + 5 + 10 + 200 + 5 + 20)
+    expect(labelledAgentTokens(index, `daemon:${RUN}:gamma`)).toBeNull()
+    expect(labelledAgentTokens(labelledTranscripts('/other', projects), label)).toBeNull()
   })
 })
 
@@ -365,7 +379,7 @@ describe('the daemon objects in the cost report', () => {
   it('reads each object\'s agent from evidence.json and reports its transcript tokens', () => {
     const projects = scratch('construct-daemon-projects-')
     const root = scratch('construct-daemon-cost-')
-    const runDirectory = path.join(projects, '-repo', 'session-1', 'subagents', 'workflows', 'wf-1')
+    const runDirectory = path.join(projects, projectKey(root), 'session-1', 'subagents', 'workflows', 'wf-1')
     const label = `daemon:${RUN}:alpha`
     write(runDirectory, 'agent-a1.jsonl', JSON.stringify({ requestId: 'r1', timestamp: '2026-10-28T10:00:00Z', message: { role: 'assistant', usage: { input_tokens: 100, cache_creation_input_tokens: 5, cache_read_input_tokens: 1000, output_tokens: 10 } } }))
     write(runDirectory, 'agent-a1.meta.json', JSON.stringify({ description: label }))
@@ -381,5 +395,18 @@ describe('the daemon objects in the cost report', () => {
     ])
     const json = costJson({ status: 'empty', runtime: 'claude-code', version: '0', turns: { status: 'not recorded' }, daemon: objects }, false)
     expect(json.daemon).toEqual(objects)
+  })
+
+  it('puts the daemon objects under the daemon key of costReport', () => {
+    const projects = scratch('construct-daemon-projects-')
+    const root = scratch('construct-daemon-cost-')
+    const shiftRoot = scratch('construct-daemon-shift-')
+    const label = `daemon:${RUN}:alpha`
+    mkdirSync(path.join(projects, projectKey(root)), { recursive: true })
+    write(root, `.construct/daemon/${RUN}/alpha/evidence.json`, JSON.stringify({ object: 'alpha', verdict: 'holds', agent: label }))
+
+    const report = costReport(root, { projectsDir: projects, shiftRoot, busPath: path.join(shiftRoot, 'bus.db'), env: {}, version: '0' })
+
+    expect(report.daemon).toEqual([{ run: RUN, object: 'alpha', verdict: 'holds', agent: label, tokens: null }])
   })
 })

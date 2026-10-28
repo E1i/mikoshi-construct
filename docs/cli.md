@@ -1585,7 +1585,8 @@ figure quoted without the version of the binary that measured it says nothing ab
 (`ok`, `empty`, `unsupported`, `mismatch` or `unknown`),
 `runtime` (`claude-code` or `cursor`), `version` (the CLI that produced the report), `key` and
 `candidates` where the project key is in question, `runs` when there are any, `daemon` when
-`.construct/daemon/<run>/<object>/evidence.json` files exist, `ledger` and
+`.construct/daemon/<run>/<object>/evidence.json` files exist and the report is not `unsupported` (the
+runtime is `cursor`, or the Claude Code projects directory cannot be read), `ledger` and
 `reconciliation` as described below, and `turns` in every report: the turn journal, described below.
 `daemon` holds one element per object whose `evidence.json` parses with a string `verdict`: `run`,
 `object`, `verdict`, `agent` (the label of the object's agent, `null` for an object recorded unobserved

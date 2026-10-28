@@ -61,7 +61,7 @@ nodes:
     boundary: record
   - id: cost
     label: readDaemonObjects · each evidence.json joined to its agent's tokens by labelledAgentTokens, emitted by costReport and costJson as the daemon key of cost --json
-    path: src/commands/cost/claude-code.ts
+    path: src/commands/cost/daemon.ts
     boundary: record
 edges:
   - {from: workflow, to: objects, kind: sequence}

@@ -1,4 +1,4 @@
-import type { CostReading, CostReport, CostSource, Runtime } from './source.js'
+import type { CostReading, CostSource, Runtime } from './source.js'
 import type { RunDecomposition, StepAgent } from './steps.js'
 import type { Usage, WorkflowRun } from './usage.js'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
@@ -106,58 +106,24 @@ function metaOf(transcript: string): AgentMeta {
   return existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, 'utf8')) as AgentMeta : {}
 }
 
-function transcriptsLabelled(label: string, projectsDir = claudeProjectsDir()): string[] {
-  return directories(projectsDir)
-    .flatMap(directories)
+export function labelledTranscripts(cwd: string, projectsDir = claudeProjectsDir()): Map<string, string[]> {
+  const index = new Map<string, string[]>()
+  const transcripts = directories(path.join(projectsDir, projectKey(cwd)))
     .flatMap(session => directories(workflowsDir(session)))
     .flatMap(run => readdirSync(run).filter(file => file.startsWith('agent-') && file.endsWith('.jsonl')).map(file => path.join(run, file)))
-    .filter(transcript => metaOf(transcript).description === label)
+  for (const transcript of transcripts) {
+    const label = metaOf(transcript).description
+    if (label != null)
+      index.set(label, [...index.get(label) ?? [], transcript])
+  }
+  return index
 }
 
-export function labelledAgentTokens(label: string, projectsDir = claudeProjectsDir()): number | null {
-  const transcripts = transcriptsLabelled(label, projectsDir)
+export function labelledAgentTokens(index: Map<string, string[]>, label: string): number | null {
+  const transcripts = index.get(label) ?? []
   if (transcripts.length === 0)
     return null
   return transcripts.reduce((sum, transcript) => sum + tokensWithoutCacheReads(readAgentRecord(transcript).usage), 0)
-}
-
-export interface DaemonObjectCost {
-  run: string
-  object: string
-  verdict: string
-  agent: string | null
-  tokens: number | null
-}
-
-export type DaemonCostReport = CostReport & { daemon?: DaemonObjectCost[] }
-
-const DAEMON_HOME = path.join('.construct', 'daemon')
-const DAEMON_EVIDENCE_FILE = 'evidence.json'
-
-function directoriesIn(directory: string): string[] {
-  return existsSync(directory) ? readdirSync(directory, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort() : []
-}
-
-function evidenceIn(file: string): { verdict: string, agent: string | null } | null {
-  if (!existsSync(file))
-    return null
-  try {
-    const evidence = JSON.parse(readFileSync(file, 'utf8')) as { verdict?: unknown, agent?: unknown }
-    return typeof evidence.verdict === 'string' ? { verdict: evidence.verdict, agent: typeof evidence.agent === 'string' ? evidence.agent : null } : null
-  }
-  catch {
-    return null
-  }
-}
-
-export function readDaemonObjects(cwd: string, projectsDir: string): DaemonObjectCost[] {
-  const home = path.join(cwd, DAEMON_HOME)
-  return directoriesIn(home).flatMap(run => directoriesIn(path.join(home, run)).flatMap((object) => {
-    const evidence = evidenceIn(path.join(home, run, object, DAEMON_EVIDENCE_FILE))
-    if (evidence == null)
-      return []
-    return [{ run, object, verdict: evidence.verdict, agent: evidence.agent, tokens: evidence.agent == null ? null : labelledAgentTokens(evidence.agent, projectsDir) }]
-  }))
 }
 
 function runOf(sessionDir: string, dir: string): WorkflowRun {
