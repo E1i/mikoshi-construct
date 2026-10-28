@@ -1,5 +1,25 @@
 # mikoshi-construct
 
+## 0.45.0
+
+### Minor Changes
+
+- [#1185](https://github.com/E1i/mikoshi-construct/pull/1185) [`d919925`](https://github.com/E1i/mikoshi-construct/commit/d919925df553e9c035ff9d59bc97681674c36238) Thanks [@E1i](https://github.com/E1i)! - cli: attach and init let the browser organ start inside the Claude Code sandbox by excluding only `node scripts/construct/browser-lab.mjs *`; detach removes what attach added
+
+- [#1184](https://github.com/E1i/mikoshi-construct/pull/1184) [`a5e9cce`](https://github.com/E1i/mikoshi-construct/commit/a5e9cce87aeb394c42ea7eee1c91fe0e5fc48a57) Thanks [@E1i](https://github.com/E1i)! - scripts: an adapter connects to the browser daemon through one file, `.construct/daemon/<name>/adapter.json`, with five fields — `extension` (a directory, optionally a build command), `prepare`, `objects`, `mechanic` and `success` — whose single source of truth is `scripts/construct/daemon-adapter.schema.json`; `node scripts/construct/daemon.mjs check <adapter>` validates an adapter against it and refuses one whose code imports `mikoshi-construct`.
+
+- [#1189](https://github.com/E1i/mikoshi-construct/pull/1189) [`1e50b9c`](https://github.com/E1i/mikoshi-construct/commit/1e50b9ccc324011879ea54362247135d466b17f2) Thanks [@E1i](https://github.com/E1i)! - attach: carries `scripts/construct/daemon.workflow`, `scripts/construct/daemon-run.mjs` and the `daemon` skill, which run an adapter's objects in a real browser lab — a fresh agent per object, at most two at once unless `limit` says otherwise, each on a `--profile-from` copy of the base profile — and leave `.construct/daemon/<run>/<object>/evidence.json` per object; an object whose prepare fails is recorded unobserved and starts no agent. `detach` removes a `.construct/daemon` attach did not find and leaves one that was there; `cost --json` gains a `daemon` key, present when `.construct/daemon` holds evidence, listing each object's run, object, verdict, agent label and the tokens of that agent's transcript (`null` when no transcript carries the label); the text report does not print it.
+
+- [#1186](https://github.com/E1i/mikoshi-construct/pull/1186) [`6440f8d`](https://github.com/E1i/mikoshi-construct/commit/6440f8db27efff8c32b0ff7d44a7a660cd9a0cb6) Thanks [@E1i](https://github.com/E1i)! - The browser lab collects the console of the page and of the content-script world, routes page responses, takes screenshots, runs on a copy of a base profile and hands the browser to a pinned `@playwright/cli`; CI runs its real-browser tests and fails when any is skipped.
+
+### Patch Changes
+
+- [#1190](https://github.com/E1i/mikoshi-construct/pull/1190) [`1833af0`](https://github.com/E1i/mikoshi-construct/commit/1833af0cbe4a8d02b4203c2d31c5b9c329564be1) Thanks [@E1i](https://github.com/E1i)! - cli: when attach refuses a collision where some paths are not recognised, the next step now reads `Move the paths marked not recognised yourself, then run: cd … && rm -- … && npx mikoshi-construct attach …`, a command a shell runs as pasted, instead of a line whose apostrophe left a quote unterminated
+
+- [#1191](https://github.com/E1i/mikoshi-construct/pull/1191) [`48e3c14`](https://github.com/E1i/mikoshi-construct/commit/48e3c1453a39d640e9d69755e7a135f45c73e01f) Thanks [@E1i](https://github.com/E1i)! - cli: the daemon core is now proven in CI by a fixture adapter run through `daemon.workflow` in a real browser — a prepare that substitutes a config file in the lab copy reads `holds`, one that leaves it as shipped reads `false`
+
+- [#1192](https://github.com/E1i/mikoshi-construct/pull/1192) [`8a6d48c`](https://github.com/E1i/mikoshi-construct/commit/8a6d48ca39105e46d6af1b47574c7fad4379e9ce) Thanks [@E1i](https://github.com/E1i)! - The browser lab's `hands` takes `--profile-from` and copies the base profile once per session, runs each object in its own session with the extension config whatever the position of `-s`, works under `--evidence <dir>` so no `.playwright-cli/` lands in the repository root, and on `close` writes the full console stream of its session to `console.json`.
+
 ## 0.44.3
 
 ### Patch Changes
