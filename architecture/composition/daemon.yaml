@@ -1,0 +1,77 @@
+id: daemon
+title: construct daemon composition
+description: >-
+  `scripts/construct/daemon.workflow` is the composition root, and it only orders: every step that
+  touches a file or runs an adapter command is a command of `scripts/construct/daemon-run.mjs`, run
+  by a low-effort agent, because the Workflow sandbox allows no import and no filesystem. `objects`
+  checks the adapter through `checkAdapter` of `daemon.mjs`, builds the extension and lists the
+  objects, and names the run. The objects then go through a bounded pool, `limit` at once (2 when
+  not given). Per object, `prepare` copies the extension to a lab copy and runs the adapter's
+  prepare on it; a prepare that fails writes `evidence.json` as unobserved, removes its lab copy and
+  starts no agent. An agent that returns nothing, or a `verdict` that reports nothing, is recorded
+  through `unobserved`. `verdict` and `unobserved` remove the lab copy once the evidence is written.
+  Otherwise one fresh agent, labelled `daemon:<run>:<object>`, reads the adapter's mechanic prompt
+  and observes through `browser-lab.mjs` on a `--profile-from` copy of the base profile, its hands
+  through `browser-lab.mjs hands`, and leaves the lab outputs in the object's evidence directory.
+  `verdict` runs the adapter's success there and writes `.construct/daemon/<run>/<object>/evidence.json`:
+  the object, the verdict and its line, the lab outputs, the screenshot, the console and the agent's
+  label. The object's cost is read afterwards: `readDaemonObjects` reads each object's `evidence.json`
+  and joins its agent's transcript tokens through `labelledAgentTokens`, and `costReport` puts the
+  result into the report that `costJson` emits as the `daemon` key of `cost --json`.
+doc: architecture/daemon.md
+boundaries:
+  - id: order
+    label: Order · the workflow, no filesystem
+  - id: run
+    label: Run · daemon-run.mjs commands
+  - id: observe
+    label: Observe · one fresh agent per object
+  - id: record
+    label: Record
+nodes:
+  - id: workflow
+    label: daemon.workflow · objects → bounded pool → per object
+    path: scripts/construct/daemon.workflow
+    boundary: order
+  - id: objects
+    label: objects · adapter checked, extension built, objects listed, run named
+    path: scripts/construct/daemon-run.mjs
+    boundary: run
+  - id: check
+    label: checkAdapter · the adapter contract
+    path: scripts/construct/daemon.mjs
+    boundary: run
+  - id: prepare
+    label: prepare · lab copy of the extension, the adapter's prepare on it
+    path: scripts/construct/daemon-run.mjs
+    boundary: run
+  - id: mechanic
+    label: fresh agent · the adapter's mechanic prompt
+    path: scripts/construct/daemon.workflow
+    boundary: observe
+  - id: lab
+    label: browser-lab.mjs · --profile-from copy, hands
+    path: scripts/construct/browser-lab.mjs
+    boundary: observe
+  - id: verdict
+    label: verdict · the adapter's success on the evidence directory
+    path: scripts/construct/daemon-run.mjs
+    boundary: record
+  - id: evidence
+    label: .construct/daemon/<run>/<object>/evidence.json
+    path: scripts/construct/daemon-run.mjs
+    boundary: record
+  - id: cost
+    label: readDaemonObjects · each evidence.json joined to its agent's tokens by labelledAgentTokens, emitted by costReport and costJson as the daemon key of cost --json
+    path: src/commands/cost/daemon.ts
+    boundary: record
+edges:
+  - {from: workflow, to: objects, kind: sequence}
+  - {from: objects, to: check, kind: wires}
+  - {from: objects, to: prepare, kind: fan-out, label: at most limit at once}
+  - {from: prepare, to: mechanic, kind: sequence, label: prepared}
+  - {from: prepare, to: evidence, kind: route, label: prepare failed · unobserved}
+  - {from: mechanic, to: lab, kind: wires}
+  - {from: mechanic, to: verdict, kind: sequence}
+  - {from: verdict, to: evidence, kind: sequence}
+  - {from: evidence, to: cost, kind: wires, label: agent label}

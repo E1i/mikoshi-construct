@@ -5,7 +5,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'n
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { stepsOf } from './steps.js'
-import { add, emptyUsage } from './usage.js'
+import { add, emptyUsage, tokensWithoutCacheReads } from './usage.js'
 
 interface SessionLine {
   requestId?: string
@@ -96,10 +96,34 @@ function agentsIn(dir: string): StepAgent[] {
   return readdirSync(dir)
     .filter(file => file.startsWith('agent-') && file.endsWith('.jsonl'))
     .map((file) => {
-      const metaPath = path.join(dir, file.replace(/\.jsonl$/, '.meta.json'))
-      const meta = existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, 'utf8')) as AgentMeta : {}
+      const meta = metaOf(path.join(dir, file))
       return { label: meta.description ?? path.basename(file), type: meta.agentType ?? '?', phase: meta.workflowPhase ?? null, ...readAgentRecord(path.join(dir, file)) }
     })
+}
+
+function metaOf(transcript: string): AgentMeta {
+  const metaPath = transcript.replace(/\.jsonl$/, '.meta.json')
+  return existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, 'utf8')) as AgentMeta : {}
+}
+
+export function labelledTranscripts(cwd: string, projectsDir = claudeProjectsDir()): Map<string, string[]> {
+  const index = new Map<string, string[]>()
+  const transcripts = directories(path.join(projectsDir, projectKey(cwd)))
+    .flatMap(session => directories(workflowsDir(session)))
+    .flatMap(run => readdirSync(run).filter(file => file.startsWith('agent-') && file.endsWith('.jsonl')).map(file => path.join(run, file)))
+  for (const transcript of transcripts) {
+    const label = metaOf(transcript).description
+    if (label != null)
+      index.set(label, [...index.get(label) ?? [], transcript])
+  }
+  return index
+}
+
+export function labelledAgentTokens(index: Map<string, string[]>, label: string): number | null {
+  const transcripts = index.get(label) ?? []
+  if (transcripts.length === 0)
+    return null
+  return transcripts.reduce((sum, transcript) => sum + tokensWithoutCacheReads(readAgentRecord(transcript).usage), 0)
 }
 
 function runOf(sessionDir: string, dir: string): WorkflowRun {

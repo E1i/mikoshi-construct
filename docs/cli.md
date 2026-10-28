@@ -1241,7 +1241,7 @@ yourself, then run it again. A collision found during the write keeps the output
    `.claude/agents/architect.md`, `.claude/agents/harness.md`, `.claude/agents/implementer.md`,
    `scripts/construct/implement.workflow`, `scripts/construct/check-acceptance.mjs`,
    `scripts/construct/browser-witness.mjs`, `scripts/construct/check-baseline.mjs`,
-   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, `.claude/skills/construct-atlas/SKILL.md`, `scripts/construct/daemon.mjs`, `scripts/construct/daemon-adapter.schema.json` and `.claude/commands/attached-discover.md` (the discovery that writes its interpretation only into the Engram under `~/.construct/engram/`, which `init` does not write), the others byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`, the window hooks `.construct/window-hooks.mjs` and the generic window rules `.construct/window-rules.md`.
+   `.claude/skills/browser-lab/SKILL.md`, `scripts/construct/browser-lab.mjs`, `.claude/skills/construct-atlas/SKILL.md`, `scripts/construct/daemon.mjs`, `scripts/construct/daemon-adapter.schema.json`, `scripts/construct/daemon-run.mjs`, `scripts/construct/daemon.workflow`, `.claude/skills/daemon/SKILL.md` and `.claude/commands/attached-discover.md` (the discovery that writes its interpretation only into the Engram under `~/.construct/engram/`, which `init` does not write), the others byte-identical to what `init` writes, and then the commit guard `.construct/commit-guard.mjs` and the shell parser it imports, `.construct/shell-parser.mjs`, the window hooks `.construct/window-hooks.mjs` and the generic window rules `.construct/window-rules.md`.
 3. The guard entry and the three window hook entries in `.claude/settings.local.json` (below). The file
    is read again at this moment: if it no longer parses, or already carries a guard or window hook
    entry, the files of this run are rolled back and attach refuses.
@@ -1357,7 +1357,7 @@ lists.
 | `settingsHook` | `file` (`.claude/settings.local.json`), `created` (`file`, `hooks` and `preToolUse`: whether this run created each), and `entry`, the element appended to `hooks.PreToolUse` as written. `detach` compares the entry by value and removes the file, `hooks` or `PreToolUse` only where `created` says attach made it and it is now empty. |
 | `settingsHook.window` | One element per window hook entry: `event` (`Stop`, `PreCompact` or `SessionStart`), `entry`, the element appended to that list as written, and `created`, whether this run created the list. `detach` treats each like the guard entry. |
 | `settingsHook.original` | Present only when `.claude/settings.local.json` existed, untracked, before attach: `copy`, the absolute path of the pre-image attach kept, `sha256`, the hash of those bytes, and `afterSha256`, the hash of the file as attach left it. The copy is `.construct/attach/<key>/settings.local.json.orig` under the user's home directory, outside the repository, where `<key>` is the first twelve hex digits of the sha256 of the repository's real path, a dash and its directory name; the directory is `0700` and the copy `0600`. The record holds the path and the hashes, never the bytes. `detach` refuses before any write when the copy is missing, elsewhere or hashes differently; when the file is still what attach left, it writes the original bytes back instead of cutting the entry out, and then deletes the copy. |
-| `ledgerHeld` | The ladder's runtime paths (`.construct/runs.jsonl`, `.construct/steps.jsonl`, `.construct/implement-agreed.txt`, `.construct/implement-args.json`, `.construct/atlas.html`, `.construct/browser`) that were already on disk at attach. `detach` removes the untracked ones not in this list and leaves those in it. |
+| `ledgerHeld` | The ladder's runtime paths (`.construct/runs.jsonl`, `.construct/steps.jsonl`, `.construct/implement-agreed.txt`, `.construct/implement-args.json`, `.construct/atlas.html`, `.construct/browser`, `.construct/daemon`) that were already on disk at attach. `detach` removes the untracked ones not in this list and leaves those in it. |
 | `browserHeld` | The names inside `.construct/browser` at attach, sorted. When `.construct/browser` already existed, `detach` removes only the run directories not in this list; a record without the field leaves every run directory there. |
 | `factoryBeside` | Present only when attach deployed [the factory beside](#the-factory-beside): `home`, the absolute path of the factory's directory, and `createdFrom`, the first directory attach created on the way to it. `detach` removes `home` whole and then each emptied directory up to `createdFrom`, nothing above it. |
 | `excludeSeparator` | How many newlines (`0`, `1` or `2`) attach put before its block in `.git/info/exclude`. `detach` removes the block together with exactly that many, which is what makes the file byte for byte what it was; any other value is refused. |
@@ -1429,7 +1429,10 @@ The guest's runtime goes too. The ladder's files `.construct/runs.jsonl`, `.cons
 `<yyyymmdd>T<hhmmssmmm>Z-<n>`, holding nothing but untracked `.png` shots) is removed with its shots;
 when attach created `.construct/browser` it goes once empty, and when `.construct/browser` existed
 before attach, only the run directories the guest created inside it are removed, the names recorded
-in `browserHeld` and anything else in it staying. A `.claude/settings.local.json` that existed before
+in `browserHeld` and anything else in it staying. When attach found no `.construct/daemon`, the daemon's
+run directories under it (the same run name, each holding object directories of untracked files, the
+`evidence.json` among them) are removed and `.construct/daemon` goes once empty, an adapter written there
+after attach staying; a `.construct/daemon` present at attach is left whole. A `.claude/settings.local.json` that existed before
 attach and is still what attach left gets its original bytes back, and the report says
 `restored .claude/settings.local.json: the original bytes came back, byte for byte.` instead of the
 entry line; the pre-image copy is then deleted.
@@ -1581,8 +1584,15 @@ figure quoted without the version of the binary that measured it says nothing ab
 `--json` prints one object: `schemaVersion` (the version of this key set, not of the CLI), `status`
 (`ok`, `empty`, `unsupported`, `mismatch` or `unknown`),
 `runtime` (`claude-code` or `cursor`), `version` (the CLI that produced the report), `key` and
-`candidates` where the project key is in question, `runs` when there are any, and `ledger` and
+`candidates` where the project key is in question, `runs` when there are any, `daemon` when
+`.construct/daemon/<run>/<object>/evidence.json` files exist and the report is not `unsupported` (the
+runtime is `cursor`, or the Claude Code projects directory cannot be read), `ledger` and
 `reconciliation` as described below, and `turns` in every report: the turn journal, described below.
+`daemon` holds one element per object whose `evidence.json` parses with a string `verdict`: `run`,
+`object`, `verdict`, `agent` (the label of the object's agent, `null` for an object recorded unobserved
+before an agent started) and `tokens`, the token sum of that agent's transcript without cache reads, `null`
+when `agent` is `null` or no transcript under the projects directory carries that label. The key is in
+`--json` only; the text report does not print it.
 
 ### The run ledger
 

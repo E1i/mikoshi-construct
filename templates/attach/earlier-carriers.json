@@ -673,5 +673,45 @@
     "target": "scripts/construct/daemon-adapter.schema.json",
     "sha256": "f2a0a4e585b1f0db64a4ab98352e6981e1e0e5979c3ff163c41df958ead95a41",
     "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon-run.mjs",
+    "sha256": "5897b614f1e8d336e8b49e58aa3d8fd44eb2fced72a2ac1edb535042e1e80b95",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon.workflow",
+    "sha256": "487165179f348bd5e402dc688387e49576504b0c29af865ac98705a4db70fdd2",
+    "date": "2026-10-28"
+  },
+  {
+    "target": ".claude/skills/daemon/SKILL.md",
+    "sha256": "d298cfa8e508e6c5704d7457958aae448aed867b77fff34a75c09866b5a27b16",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon-run.mjs",
+    "sha256": "ed2147fc787057175688fdd286e69b23b5e4bb0837ccc1f1b9b2ab1aa6a33a3c",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon-run.mjs",
+    "sha256": "16c8dbd2f54934e994a23ca3b47aa8445d32ff6687c46b932b6ce26bb939a8e1",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon-run.mjs",
+    "sha256": "8733e3341e9465da9ad73bc82290c4f075f3a1dc83e55120dacfef8abc462adc",
+    "date": "2026-10-29"
+  },
+  {
+    "target": "scripts/construct/daemon.workflow",
+    "sha256": "4710b68c5abd22e113ce0ad4759eaf3f12c3b673a170332f28471905545808b5",
+    "date": "2026-10-29"
+  },
+  {
+    "target": "scripts/construct/daemon-run.mjs",
+    "sha256": "4300755128294732121a2e54c3187ec10c47d3715da387405c417a8f95008ab1",
+    "date": "2026-10-28"
   }
 ]

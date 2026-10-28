@@ -151,7 +151,7 @@ describe('a2: attach leaves the tracked tree untouched and records what it did',
       expect(sha256(path.join(dir, file)), file).toBe(sha)
 
     const directories = record?.directories ?? []
-    expect([...directories].sort()).toEqual(['.claude', '.claude/agents', '.claude/commands', '.claude/skills', '.claude/skills/browser-lab', '.claude/skills/construct-atlas', '.claude/skills/implement', '.claude/skills/intake', 'scripts/construct'])
+    expect([...directories].sort()).toEqual(['.claude', '.claude/agents', '.claude/commands', '.claude/skills', '.claude/skills/browser-lab', '.claude/skills/construct-atlas', '.claude/skills/daemon', '.claude/skills/implement', '.claude/skills/intake', 'scripts/construct'])
     for (const directory of directories)
       expect(directories.indexOf(path.dirname(directory)), `${directory} after its parent`).toBeLessThan(directories.indexOf(directory))
 
@@ -667,7 +667,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('settings-unreadable')
-    expect(result.rolledBack).toHaveLength(20)
+    expect(result.rolledBack).toHaveLength(23)
     expect(listing(dir)).toEqual([...before, '.claude/', SETTINGS_FILE].sort())
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('{ nope')
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)

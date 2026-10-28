@@ -39,6 +39,7 @@ export const ATTACH_RUNTIME_FILES: readonly string[] = [
 export const ATTACH_RUNTIME_BROWSER = '.construct/browser'
 export const ATTACH_RUNTIME_RUN_DIRECTORY = /^\d{8}T\d{9}Z-\d+$/
 export const ATTACH_RUNTIME_SHOT_SUFFIX = '.png'
+export const ATTACH_RUNTIME_DAEMON = '.construct/daemon'
 
 function presentOnDisk(absolute: string): boolean {
   try {
@@ -51,7 +52,7 @@ function presentOnDisk(absolute: string): boolean {
 }
 
 export function runtimeHeldAtAttach(root: string): string[] {
-  return [...ATTACH_RUNTIME_FILES, ATTACH_RUNTIME_BROWSER].filter(target => presentOnDisk(path.join(root, target)))
+  return [...ATTACH_RUNTIME_FILES, ATTACH_RUNTIME_BROWSER, ATTACH_RUNTIME_DAEMON].filter(target => presentOnDisk(path.join(root, target)))
 }
 
 export function browserEntriesHeldAtAttach(root: string): string[] {

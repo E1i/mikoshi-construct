@@ -1,6 +1,7 @@
 import type { Ui } from '../../ui/console.js'
 import type { Signal, SignalStyle } from '../../ui/signal.js'
 import type { CheapClassReading, CheapReading } from './cheap.js'
+import type { DaemonCostReport } from './daemon.js'
 import type { LedgerSummary, Reconciliation, TokenCount } from './ledger.js'
 import type { CostReport, CostStatus } from './source.js'
 import type { TurnSummary } from './turns.js'
@@ -25,7 +26,7 @@ function selectRuns(report: CostReport, last: boolean): WorkflowRun[] {
   return last ? runs.slice(-1) : runs
 }
 
-export function costJson(report: CostReport, last: boolean): Record<string, unknown> {
+export function costJson(report: DaemonCostReport, last: boolean): Record<string, unknown> {
   const runs = selectRuns(report, last)
   return {
     schemaVersion: COST_JSON_SCHEMA_VERSION,
@@ -35,6 +36,7 @@ export function costJson(report: CostReport, last: boolean): Record<string, unkn
     ...(report.key == null ? {} : { key: report.key }),
     ...(report.candidates == null || report.candidates.length === 0 ? {} : { candidates: report.candidates }),
     ...(runs.length === 0 ? {} : { runs }),
+    ...(report.daemon == null ? {} : { daemon: report.daemon }),
     ...(report.ledger == null ? {} : { ledger: report.ledger }),
     ...(report.reconciliation == null ? {} : { reconciliation: report.reconciliation }),
     turns: report.turns,
