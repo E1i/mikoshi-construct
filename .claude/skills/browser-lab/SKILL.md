@@ -24,7 +24,27 @@ node scripts/construct/browser-lab.mjs popup --extension <dir>
 node scripts/construct/browser-lab.mjs options --extension <dir>
 node scripts/construct/browser-lab.mjs page <url> --extension <dir> --wait <selector>
 node scripts/construct/browser-lab.mjs info --extension <dir> --profile <dir>
+node scripts/construct/browser-lab.mjs page <url> --extension <dir> --prefix <text> --route <url-glob> <file> --shot <file>
+node scripts/construct/browser-lab.mjs page <url> --extension <dir> --profile-from <dir>
+node scripts/construct/browser-lab.mjs hands --extension <dir> --profile <dir> -- open <url>
+node scripts/construct/browser-lab.mjs hands --extension <dir> --profile <dir> -- close
 ```
+
+`page` prints `console`: every message of every level from the page and from the content-script world of the
+extension, each with its `world` (`page` or `content-script`); `--prefix <text>` keeps the messages whose text starts
+with it. `--route <url-glob> <file>` (repeatable) answers the page requests matching the glob with the file; requests
+of the service worker are not routed, they belong to the adapter. `--shot <file>` writes a screenshot.
+
+`--profile-from <dir>` runs on a fresh copy of a base profile and deletes the copy at the end, so several runs can go
+in parallel; an extension whose manifest has no `key` gets another id in the copy.
+
+`hands` runs `@playwright/cli` (pinned) on the lab copy of the extension and the `--profile <dir>` given; its own
+arguments go after `--`, and `snapshot` with element refs, `click` and `fill` come from it. It runs its own bundled
+Playwright, so a second Chromium build is installed beside the lab's. The session stays open between calls: end it
+with `hands … -- close` before any other command uses the same profile.
+
+Every `npx` of the lab installs from the public registry whatever the repository's `.npmrc` says, with its own npm
+cache under the construct directory in the home directory.
 
 Add `--headed` to any of them to watch the browser. `page` also runs without `--extension`; with it, the output says
 whether a content script of the extension ran in the page.
