@@ -673,5 +673,20 @@
     "target": "scripts/construct/daemon-adapter.schema.json",
     "sha256": "f2a0a4e585b1f0db64a4ab98352e6981e1e0e5979c3ff163c41df958ead95a41",
     "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon-run.mjs",
+    "sha256": "5897b614f1e8d336e8b49e58aa3d8fd44eb2fced72a2ac1edb535042e1e80b95",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon.workflow",
+    "sha256": "487165179f348bd5e402dc688387e49576504b0c29af865ac98705a4db70fdd2",
+    "date": "2026-10-28"
+  },
+  {
+    "target": ".claude/skills/daemon/SKILL.md",
+    "sha256": "d298cfa8e508e6c5704d7457958aae448aed867b77fff34a75c09866b5a27b16",
+    "date": "2026-10-28"
   }
 ]

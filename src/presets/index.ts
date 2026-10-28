@@ -230,6 +230,9 @@ export const ATTACH_CARRIERS = {
     '.claude/commands/attached-discover.md',
     'scripts/construct/daemon.mjs',
     'scripts/construct/daemon-adapter.schema.json',
+    'scripts/construct/daemon-run.mjs',
+    'scripts/construct/daemon.workflow',
+    '.claude/skills/daemon/SKILL.md',
   ],
 } as const
 

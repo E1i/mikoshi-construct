@@ -18,7 +18,7 @@ import { readTurnJournal } from './turns.js'
 
 export { cheapClass, cheapForecast, cheapForecastOf, cheapRows, defaultShiftRoot, readCheapClasses, readCheapTasks, sessionTokens, SHIFT_JOURNAL_FILE } from './cheap.js'
 export type { CheapClassReading, CheapForecast, CheapNote, CheapReading, CheapRow, CheapSample, CheapSession, CheapTask } from './cheap.js'
-export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, projectKey, readAgentRecord } from './claude-code.js'
+export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, labelledAgentTokens, projectKey, readAgentRecord } from './claude-code.js'
 export type { AgentRecord } from './claude-code.js'
 export { EFFORTS, expectFor, expectLines, expectRefusal, formatContour, formatRoleExpect, formatStepExpect, formatTokens, readLedgerEntries, stepExpects } from './expect.js'
 export type { ExpectHead, ExpectInput, ExpectResult, ImplementSubsample, RoleBand, RoleMinutes, SampleRow, SampleSource, StepExpect, Subsample } from './expect.js'
