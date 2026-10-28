@@ -663,5 +663,15 @@
     "target": "scripts/construct/browser-lab.mjs",
     "sha256": "00125ae082ee5595ab7c405d4b6e19abec27e0a7262c3f3db7de8951f705ee44",
     "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon.mjs",
+    "sha256": "2e9ce130f6bd2535caec8333369b173887ffa1a1c7153e3aec2bf24a026656f9",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon-adapter.schema.json",
+    "sha256": "f2a0a4e585b1f0db64a4ab98352e6981e1e0e5979c3ff163c41df958ead95a41",
+    "date": "2026-10-28"
   }
 ]

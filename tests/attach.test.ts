@@ -667,7 +667,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('settings-unreadable')
-    expect(result.rolledBack).toHaveLength(18)
+    expect(result.rolledBack).toHaveLength(20)
     expect(listing(dir)).toEqual([...before, '.claude/', SETTINGS_FILE].sort())
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('{ nope')
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)

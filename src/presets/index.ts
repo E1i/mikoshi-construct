@@ -228,6 +228,8 @@ export const ATTACH_CARRIERS = {
     'scripts/construct/browser-lab.mjs',
     '.claude/skills/construct-atlas/SKILL.md',
     '.claude/commands/attached-discover.md',
+    'scripts/construct/daemon.mjs',
+    'scripts/construct/daemon-adapter.schema.json',
   ],
 } as const
 
