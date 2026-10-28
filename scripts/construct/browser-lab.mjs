@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -24,8 +24,9 @@ const PAGE_TEXT_LIMIT = 2000
 const STORAGE_AREAS = ['local', 'sync', 'session', 'managed']
 const COMMANDS = ['info', 'sw-eval', 'storage', 'logs', 'network', 'popup', 'options', 'page', 'hands']
 const POSITIONALS_OF = { 'info': [0, 0], 'sw-eval': [1, 1], 'storage': [0, 1], 'logs': [0, 0], 'network': [0, 0], 'popup': [0, 0], 'options': [0, 0], 'page': [1, 1], 'hands': [1, Number.POSITIVE_INFINITY] }
+const CONSOLE_LOG = /^console-.*\.log$/
 const WITHOUT_EXTENSION = new Set(['page'])
-const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1, '--profile': 1, '--route': 2, '--prefix': 1, '--shot': 1, '--profile-from': 1 }
+const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1, '--profile': 1, '--route': 2, '--prefix': 1, '--shot': 1, '--profile-from': 1, '--evidence': 1 }
 
 const USAGE = [
   'usage: browser-lab.mjs <command> [--extension <dir>] [--headed] [--profile <dir>]',
@@ -40,6 +41,7 @@ const USAGE = [
   '        [--route <url-glob> <file>]   answer the page requests matching the glob with the file (repeatable; the service worker requests are not routed)',
   '        [--shot <file>]     screenshot of the page',
   '  hands <args…>             run @playwright/cli with the lab copy of the extension and the --profile <dir> given; its own arguments go after --; end with: hands … -- close',
+  '        [--evidence <dir>]  hands runs with <dir> as its working directory; hands … -- close writes the console of the session to <dir>/console.json',
   '  --profile-from <dir>      run on a fresh copy of a base profile, deleted at the end, so runs can go in parallel; an extension whose manifest has no key gets another id in the copy',
   '  --profile <dir>         keep the browser profile in <dir> after the run, so a login done once with --headed and the extension storage survive into later runs',
   '  every command prints one JSON object; optional permissions are granted in a lab copy, so no prompt appears',
@@ -64,7 +66,7 @@ export function parseArguments(argv) {
   const [command, ...rest] = argv
   if (!COMMANDS.includes(command))
     throw new UsageError(command === undefined ? 'a command is required' : `unknown command ${command}`)
-  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined, profile: undefined, route: [], prefix: undefined, shot: undefined, profileFrom: undefined }
+  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined, profile: undefined, route: [], prefix: undefined, shot: undefined, profileFrom: undefined, evidence: undefined }
   let index = 0
   while (index < rest.length) {
     const argument = rest[index]
@@ -106,6 +108,9 @@ export function parseArguments(argv) {
       case '--profile-from':
         options.profileFrom = value
         break
+      case '--evidence':
+        options.evidence = value
+        break
       case '--route':
         options.route.push({ pattern: value, file: second })
         break
@@ -130,8 +135,10 @@ export function parseArguments(argv) {
     throw new UsageError('--route, --prefix and --shot belong to page')
   if (options.profile !== undefined && options.profileFrom !== undefined)
     throw new UsageError('--profile and --profile-from exclude each other')
-  if (command === 'hands' && options.profile === undefined)
-    throw new UsageError('hands needs --profile <dir>, the session it opens lives in it')
+  if (command === 'hands' && options.profile === undefined && options.profileFrom === undefined)
+    throw new UsageError('hands needs --profile <dir> or --profile-from <dir>, the session it opens lives in it')
+  if (command !== 'hands' && options.evidence !== undefined)
+    throw new UsageError('--evidence belongs to hands')
   return options
 }
 
@@ -225,8 +232,40 @@ export function handsRefusal(ran) {
   return `hands failed: exit ${ran.status}; stdout: ${lastLines(ran.stdout ?? '')}; stderr: ${lastLines(ran.stderr ?? '')}`
 }
 
+function handsCommandAndSession(positionals) {
+  let command
+  let session = 'default'
+  for (let index = 0; index < positionals.length; index += 1) {
+    const argument = positionals[index]
+    if (argument === '-s') {
+      session = positionals[index + 1] ?? session
+      index += 1
+    }
+    else if (argument.startsWith('-s=')) {
+      session = argument.slice(3)
+    }
+    else if (command === undefined && !argument.startsWith('-')) {
+      command = argument
+    }
+  }
+  return { command, session }
+}
+
 export function handsArguments(config, positionals) {
-  return positionals[0] === 'open' ? ['--config', config, ...positionals] : positionals
+  return handsCommandAndSession(positionals).command === 'open' ? ['--config', config, ...positionals] : positionals
+}
+
+function handsProfile(options) {
+  const { session } = handsCommandAndSession(options.positionals)
+  const key = createHash('sha256').update(`${path.resolve(options.evidence ?? '')}\n${session}`).digest('hex').slice(0, 16)
+  return path.join(realpathSync(os.tmpdir()), `browser-lab-hands-${key}`)
+}
+
+function writeConsole(evidence, session) {
+  const directory = path.join(evidence, '.playwright-cli')
+  const logs = existsSync(directory) ? readdirSync(directory).filter(name => CONSOLE_LOG.test(name)).sort() : []
+  const lines = logs.flatMap(name => readFileSync(path.join(directory, name), 'utf8').split('\n').filter(line => line.trim() !== ''))
+  writeFileSync(path.join(evidence, 'console.json'), `${JSON.stringify({ session, console: lines }, null, 2)}\n`)
 }
 
 function runHands({ extension, options, profile }) {
@@ -234,7 +273,13 @@ function runHands({ extension, options, profile }) {
   const config = path.join(profile, 'hands.config.json')
   writeFileSync(config, `${JSON.stringify(handsConfig(extension.directory, profile, options.headed), null, 2)}\n`)
   spawnSync(binary, ['install-browser', 'chromium'], { stdio: ['ignore', 2, 2], env: npxEnvironment() })
-  const ran = spawnSync(binary, handsArguments(config, options.positionals), { encoding: 'utf8', env: npxEnvironment() })
+  const evidence = options.evidence === undefined ? undefined : path.resolve(options.evidence)
+  if (evidence !== undefined)
+    mkdirSync(evidence, { recursive: true })
+  const ran = spawnSync(binary, handsArguments(config, options.positionals), { cwd: evidence, encoding: 'utf8', env: npxEnvironment() })
+  const { command, session } = handsCommandAndSession(options.positionals)
+  if (evidence !== undefined && command === 'close')
+    writeConsole(evidence, session)
   if (ran.error !== undefined || ran.status !== 0)
     throw new Unobserved(handsRefusal(ran))
   return { id: extension.id, args: options.positionals, output: ran.stdout.trim() }
@@ -524,14 +569,16 @@ function copyProfile(base, profile) {
 }
 
 export async function run(options) {
-  const kept = options.profile !== undefined
+  const sessionCopy = options.command === 'hands' && options.profileFrom !== undefined
+  const keptProfile = sessionCopy ? handsProfile(options) : options.profile
+  const kept = keptProfile !== undefined
   if (kept)
-    mkdirSync(options.profile, { recursive: true })
+    mkdirSync(keptProfile, { recursive: true })
   const workspace = kept ? undefined : realpathSync(mkdtempSync(path.join(os.tmpdir(), 'browser-lab-')))
-  const profile = kept ? realpathSync(options.profile) : path.join(workspace, 'profile')
+  const profile = kept ? realpathSync(keptProfile) : path.join(workspace, 'profile')
   let context
   try {
-    if (options.profileFrom !== undefined)
+    if (options.profileFrom !== undefined && !(sessionCopy && existsSync(path.join(profile, 'hands.config.json'))))
       copyProfile(path.resolve(options.profileFrom), profile)
     const extension = options.extension === undefined ? undefined : prepareExtension(path.resolve(options.extension), path.join(kept ? profile : workspace, 'extension'))
     context = options.command === 'hands' ? undefined : await launch(options, profile, extension)
@@ -542,6 +589,8 @@ export async function run(options) {
     await context?.close().catch(() => {})
     if (!kept)
       rmSync(workspace, { recursive: true, force: true })
+    if (sessionCopy && handsCommandAndSession(options.positionals).command === 'close')
+      rmSync(profile, { recursive: true, force: true })
   }
 }
 
