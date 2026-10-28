@@ -1,6 +1,6 @@
 import type { AgentOptions, DaemonResult, Evidence } from './daemon-workflow.js'
-import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -478,5 +478,128 @@ describe('the daemon objects in the cost report', () => {
     const report = costReport(root, { projectsDir: projects, shiftRoot, busPath: path.join(shiftRoot, 'bus.db'), env: {}, version: '0' })
 
     expect(report.daemon).toEqual([{ run: RUN, object: 'alpha', verdict: 'holds', agent: label, tokens: null }])
+  })
+})
+
+const LAB_SCRIPT = path.join(REPO_ROOT, 'scripts/construct/browser-lab.mjs')
+
+interface HandsCall {
+  cwd: string
+  args: string[]
+}
+
+interface HandsLab {
+  root: string
+  base: string
+  calls: () => HandsCall[]
+  hands: (...argv: string[]) => { status: number | null, stderr: string }
+}
+
+function handsLab(): HandsLab {
+  const root = realpathSync(scratch('construct-hands-root-'))
+  const bin = path.join(root, 'bin')
+  const record = path.join(root, 'calls.jsonl')
+  write(root, 'extension/manifest.json', '{"manifest_version":3,"name":"sample","version":"1.0.0"}\n')
+  write(root, 'base-profile/Default/Preferences', '{}\n')
+  write(root, 'bin/npx', '#!/bin/sh\necho "$(dirname "$0")/playwright-cli"\n')
+  write(root, 'bin/playwright-cli', [
+    '#!/usr/bin/env node',
+    'const fs = require(\'node:fs\')',
+    'const args = process.argv.slice(2)',
+    `fs.appendFileSync(${JSON.stringify(record)}, \`\${JSON.stringify({ cwd: process.cwd(), args })}\\n\`)`,
+    'if (args[0] !== \'install-browser\') {',
+    '  fs.mkdirSync(\'.playwright-cli\', { recursive: true })',
+    '  fs.appendFileSync(\'.playwright-cli/console-1.log\', \'[LOG] \' + args.filter(arg => arg !== \'--config\' && !arg.endsWith(\'hands.config.json\')).join(\' \') + \'\\n\')',
+    '}',
+    'console.log(\'ok\')',
+    '',
+  ].join('\n'))
+  chmodSync(path.join(bin, 'npx'), 0o755)
+  chmodSync(path.join(bin, 'playwright-cli'), 0o755)
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` }
+  return {
+    root,
+    base: path.join(root, 'base-profile'),
+    calls: () => existsSync(record)
+      ? readFileSync(record, 'utf8').split('\n').filter(line => line !== '').map(line => JSON.parse(line) as HandsCall).filter(call => call.args[0] !== 'install-browser')
+      : [],
+    hands: (...argv) => {
+      const ran = spawnSync(process.execPath, [LAB_SCRIPT, 'hands', '--extension', path.join(root, 'extension'), ...argv], { cwd: root, encoding: 'utf8', env })
+      return { status: ran.status, stderr: ran.stderr }
+    },
+  }
+}
+
+function userDataDirectory(call: HandsCall): string {
+  const config = JSON.parse(readFileSync(call.args[1] as string, 'utf8')) as { browser: { userDataDir: string } }
+  return config.browser.userDataDir
+}
+
+describe('the hands core of the browser lab', () => {
+  it('hands takes --profile-from and copies the base profile per object', () => {
+    const lab = handsLab()
+
+    const first = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+    const second = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/b', '--', '-s', 'b', 'open', 'http://x')
+
+    expect(first.status, first.stderr).toBe(0)
+    expect(second.status, second.stderr).toBe(0)
+    const [profileA, profileB] = lab.calls().map(userDataDirectory) as [string, string]
+    expect(profileA).not.toBe(profileB)
+    for (const profile of [profileA, profileB]) {
+      expect(profile).not.toBe(lab.base)
+      expect(existsSync(path.join(profile, 'Default/Preferences'))).toBe(true)
+    }
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+    expect(existsSync(profileA)).toBe(false)
+    expect(existsSync(profileB)).toBe(true)
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/b', '--', '-s', 'b', 'close')
+    expect(existsSync(profileB)).toBe(false)
+    expect(existsSync(path.join(lab.base, 'Default/Preferences'))).toBe(true)
+  })
+
+  it('each object gets its own hands session and the extension config whatever the position of -s', () => {
+    const lab = handsLab()
+
+    const positions: [string, string[]][] = [['a', ['-s', 'a', 'open', 'http://x']], ['b', ['open', '-s', 'b', 'http://x']], ['c', ['-s=c', 'open', 'http://x']]]
+    for (const [object, argv] of positions) {
+      const ran = lab.hands('--profile-from', lab.base, '--evidence', `evidence/${object}`, '--', ...argv)
+      expect(ran.status, ran.stderr).toBe(0)
+      lab.hands('--profile-from', lab.base, '--evidence', `evidence/${object}`, '--', '-s', object, 'close')
+    }
+
+    const calls = lab.calls()
+    const opens = calls.filter(call => call.args.includes('open'))
+    expect(opens.map(call => call.args[0])).toEqual(['--config', '--config', '--config'])
+    expect(opens.map(call => call.args.slice(2))).toEqual(positions.map(([, argv]) => argv))
+    expect(calls.filter(call => call.args.includes('close')).map(call => call.args[0])).toEqual(['-s', '-s', '-s'])
+  })
+
+  it('hands runs under the object evidence directory and leaves no .playwright-cli in the root', () => {
+    const lab = handsLab()
+
+    const ran = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+
+    expect(ran.status, ran.stderr).toBe(0)
+    expect(lab.calls().map(call => call.cwd)).toEqual([path.join(lab.root, 'evidence/a')])
+    expect(existsSync(path.join(lab.root, '.playwright-cli'))).toBe(false)
+    expect(existsSync(path.join(lab.root, 'evidence/a/.playwright-cli'))).toBe(true)
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+  })
+
+  it('close writes the full console stream of the hands session into console.json', () => {
+    const lab = handsLab()
+    const consoleFile = path.join(lab.root, 'evidence/a/console.json')
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'click', 'e1')
+    expect(existsSync(consoleFile)).toBe(false)
+
+    const closed = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+
+    expect(closed.status, closed.stderr).toBe(0)
+    expect(JSON.parse(readFileSync(consoleFile, 'utf8'))).toEqual({
+      session: 'a',
+      console: ['[LOG] -s a open http://x', '[LOG] -s a click e1', '[LOG] -s a close'],
+    })
   })
 })

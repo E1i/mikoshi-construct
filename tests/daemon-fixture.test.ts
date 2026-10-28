@@ -98,7 +98,7 @@ async function standInMechanic(root: string, prompt: string, object: string, pag
     return ran
   }
   async function hands(...cliArguments: string[]): Promise<string> {
-    return outputOf((await lab('hands', '--', ...cliArguments)).stdout)
+    return outputOf((await lab('hands', '--evidence', evidence, '--', ...cliArguments)).stdout)
   }
   try {
     await hands('open', session, page)
