@@ -1,0 +1,7 @@
+{
+  "extension": { "directory": "extension" },
+  "prepare": "node .construct/daemon/fixture/prepare.mjs",
+  "objects": "node .construct/daemon/fixture/objects.mjs",
+  "mechanic": ".construct/daemon/fixture/mechanic.md",
+  "success": "node .construct/daemon/fixture/success.mjs"
+}
