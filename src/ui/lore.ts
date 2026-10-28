@@ -601,7 +601,7 @@ export const LORE: Lore = {
       ? `Move or remove them yourself, then run: ${rerun}`
       : recognised === total
         ? `${remove} && ${rerun}`
-        : `${remove} removes construct's own; move the paths marked not recognised yourself, then run: ${rerun}`,
+        : `Move the paths marked not recognised yourself, then run: ${remove} && ${rerun}`,
   }),
   attachCollisionEarlier: (date: string) => `construct's own: byte for byte the template of ${date}`,
   attachCollisionForeign: 'not recognised: the net never writes over it',
@@ -1005,7 +1005,7 @@ export const PLAIN_LORE: Lore = {
       ? `Move or remove them yourself, then run: ${rerun}`
       : recognised === total
         ? `${remove} && ${rerun}`
-        : `${remove} removes construct's own; move the paths marked not recognised yourself, then run: ${rerun}`,
+        : `Move the paths marked not recognised yourself, then run: ${remove} && ${rerun}`,
   }),
   attachCollisionEarlier: (date: string) => `construct's own: byte for byte the template of ${date}`,
   attachCollisionForeign: 'not recognised: attach never writes over it',
