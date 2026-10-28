@@ -1,6 +1,8 @@
 {
   "sandbox": {
-    "excludedCommands": ["node scripts/construct/browser-lab.mjs *"]
+    "excludedCommands": [
+      "node scripts/construct/browser-lab.mjs *"
+    ]
   },
   "hooks": {
     "Stop": [
