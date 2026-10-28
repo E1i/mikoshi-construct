@@ -198,7 +198,7 @@ jobs:
           npx --yes --package @playwright/cli@0.1.17 -c 'playwright-cli install-browser chromium'
         env:
           npm_config_registry: https://registry.npmjs.org/
-      - run: node scripts/ci/browser-tests-ran.mjs tests/browser-lab.test.ts
+      - run: node scripts/ci/browser-tests-ran.mjs tests/browser-lab.test.ts tests/daemon-fixture.test.ts
 
   docs:
     runs-on: ubuntu-24.04

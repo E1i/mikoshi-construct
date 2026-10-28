@@ -276,6 +276,7 @@
   "tests/cost-turns.test.ts": 0.1,
   "tests/cost.test.ts": 0.2,
   "tests/cost/cheap-from-bus.test.ts": 0.1,
+  "tests/daemon-fixture.test.ts": 0.3,
   "tests/decisions-read-through-reader.test.ts": 0.1,
   "tests/delivery-boundary.test.ts": 1.6,
   "tests/dependency-policy.test.ts": 13.8,

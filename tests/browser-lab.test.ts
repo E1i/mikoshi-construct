@@ -1,7 +1,7 @@
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -54,29 +54,8 @@ const { parseArguments, grantOptional, extensionId, workerRequests, ensureChromi
 
 const UNRESOLVABLE = 'http://lab-nowhere.invalid/'
 
-const FIXTURE_MANIFEST = {
-  manifest_version: 3,
-  name: 'Lab Fixture',
-  version: '1.2.3',
-  permissions: ['storage'],
-  host_permissions: ['http://127.0.0.1/*'],
-  optional_permissions: ['topSites'],
-  background: { service_worker: 'sw.js' },
-  action: { default_popup: 'popup.html' },
-  options_page: 'options.html',
-  content_scripts: [{ matches: ['http://127.0.0.1/covered/*'], js: ['content.js'] }],
-}
-
-const FIXTURE_FILES = {
-  'manifest.json': JSON.stringify(FIXTURE_MANIFEST),
-  'sw.js': [
-    'chrome.runtime.onInstalled.addListener(() => { chrome.storage.local.set({ seeded: \'yes\' }); console.log(\'lab installed\') })',
-    `chrome.runtime.onMessage.addListener((message, sender) => { if (message === 'lab-fetch') { fetch(new URL('/api/ok', sender.url)).catch(() => {}); fetch('${UNRESOLVABLE}').catch(() => {}) } })`,
-  ].join('\n'),
-  'popup.html': '<title>Lab Popup</title><p>popup body</p>',
-  'options.html': '<title>Lab Options</title><p>options body</p>',
-  'content.js': 'document.documentElement.dataset.lab = \'on\'; console.log(\'lab-cs content script\'); chrome.runtime.sendMessage(\'lab-fetch\').catch(() => {})',
-}
+const FIXTURE_EXTENSION = path.resolve(import.meta.dirname, 'fixtures/daemon-run/extension')
+const FIXTURE_MANIFEST = JSON.parse(readFileSync(path.join(FIXTURE_EXTENSION, 'manifest.json'), 'utf8')) as Manifest
 
 describe('arguments', () => {
   it('takes the command, its positional and the flags', () => {
@@ -197,13 +176,11 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
   beforeAll(async () => {
     workspace = mkdtempSync(path.join(tmpdir(), 'browser-lab-test-'))
     extension = path.join(workspace, 'extension')
-    mkdirSync(extension)
-    for (const [name, body] of Object.entries(FIXTURE_FILES))
-      writeFileSync(path.join(extension, name), body)
+    cpSync(FIXTURE_EXTENSION, extension, { recursive: true })
     server = createServer((_request, response) => {
       response.setHeader('content-type', 'text/html')
       response.setHeader('set-cookie', 'lab-login=by-hand; Max-Age=3600; Path=/')
-      response.end(`<title>Served</title><script>console.log('lab-page says'); console.warn('lab-page warns')</script><p>served body</p><p>cookie:${_request.headers.cookie ?? ''}</p>`)
+      response.end(`<title>Served</title><meta name="lab-fetch" content="${UNRESOLVABLE}"><script>console.log('lab-page says'); console.warn('lab-page warns')</script><p>served body</p><p>cookie:${_request.headers.cookie ?? ''}</p>`)
     })
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`

@@ -1,4 +1,5 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import type { AgentOptions, DaemonResult, Evidence } from './daemon-workflow.js'
+import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -10,44 +11,13 @@ import { costJson, costReport, projectKey } from '../src/commands/cost/index.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { commandOf, CORE, evidenceDirectoryOf, REPO_ROOT, run, runWorkflow } from './daemon-workflow.js'
 import { useIsolatedHome } from './isolated-home.js'
 
-interface CommandResult {
-  exitCode: number
-  stdout: string
-  stderr: string
-}
-
-interface Evidence {
-  object: string
-  verdict: string
-  line: string
-  lab: string[]
-  screenshot: string | null
-  console: string | null
-  agent: string | null
-}
-
-interface DaemonResult {
-  status: string
-  run: string
-  objects: Evidence[]
-  unobserved: string[]
-}
-
-interface AgentOptions {
-  label?: string
-  schema?: unknown
-}
-
-const REPO_ROOT = path.resolve(import.meta.dirname, '..')
-const WORKFLOW = 'scripts/construct/daemon.workflow'
-const CORE = ['scripts/construct/daemon-run.mjs', 'scripts/construct/daemon.mjs', 'scripts/construct/daemon-adapter.schema.json']
 const TWINS = ['scripts/construct/daemon-run.mjs', 'scripts/construct/daemon.workflow']
 const ADAPTER = '.construct/daemon/sample'
 const RUN = '20261028T101010123Z-4242'
 const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
-const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...args: string[]) => (...values: unknown[]) => Promise<DaemonResult>
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 
 const directories: string[] = []
@@ -100,25 +70,6 @@ function repository(objects: string[]): string {
   return root
 }
 
-function commandOf(prompt: string): string {
-  const command = prompt.split('\n').find(line => line.startsWith('node scripts/construct/daemon-run.mjs '))
-  if (command == null)
-    throw new Error(`no command in the prompt: ${prompt}`)
-  return command
-}
-
-function run(root: string, command: string): CommandResult {
-  const result = spawnSync(command, { cwd: root, shell: true, encoding: 'utf8' })
-  return { exitCode: result.status ?? 1, stdout: result.stdout, stderr: result.stderr }
-}
-
-function evidenceDirectoryOf(prompt: string): string {
-  const match = prompt.match(/into (\S+)\/ and nowhere else/)
-  if (match?.[1] == null)
-    throw new Error(`no evidence directory in the prompt: ${prompt}`)
-  return match[1]
-}
-
 async function runDaemon(root: string, objects: number, limit?: number, mechanicReturns: unknown = 'observed'): Promise<{ result: DaemonResult, mechanics: string[], widest: number, labCopies: string[] }> {
   const mechanics: string[] = []
   const labCopies: string[] = []
@@ -145,9 +96,8 @@ async function runDaemon(root: string, objects: number, limit?: number, mechanic
     active -= 1
     return 'observed'
   }
-  const source = readFileSync(path.join(REPO_ROOT, WORKFLOW), 'utf8').replace(/^export const meta = \{[\s\S]+?^\}$/m, '')
   const args = { adapter: ADAPTER, run: RUN, ...(limit == null ? {} : { limit }) }
-  const result = await new AsyncFunction('args', 'agent', 'log', 'phase', source)(args, agent, () => {}, () => {})
+  const result = await runWorkflow(args, agent)
   expect(result.objects).toHaveLength(objects)
   return { result, mechanics, widest, labCopies }
 }
