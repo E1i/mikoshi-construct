@@ -13,6 +13,7 @@ const EXPECTED_TIMEOUT_MINUTES: Record<string, Record<string, number>> = {
     'typecheck': 5,
     'vitest': 8,
     'sandbox-list': 5,
+    'browser': 15,
     'docs': 5,
     'package': 5,
     'contract-bump': 5,

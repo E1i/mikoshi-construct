@@ -7,7 +7,11 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const PLAYWRIGHT_CORE = 'playwright-core@1.62.1'
+export const PLAYWRIGHT_CORE = 'playwright-core@1.62.1'
+export const PLAYWRIGHT_CLI = '@playwright/cli@0.1.17'
+const PUBLIC_REGISTRY = 'https://registry.npmjs.org/'
+const NPX_CACHE = path.join(os.homedir(), '.construct', 'browser-lab', 'npm-cache')
+const PROFILE_RUNTIME_FILES = new Set(['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'DevToolsActivePort'])
 const EXIT_HOLDS = 0
 const EXIT_FALSE = 1
 const EXIT_UNOBSERVED = 127
@@ -18,10 +22,10 @@ const DEVTOOLS_PORT_POLL_MS = 50
 const DEVTOOLS_PORT_TIMEOUT_MS = 5000
 const PAGE_TEXT_LIMIT = 2000
 const STORAGE_AREAS = ['local', 'sync', 'session', 'managed']
-const COMMANDS = ['info', 'sw-eval', 'storage', 'logs', 'network', 'popup', 'options', 'page']
-const POSITIONALS_OF = { 'info': [0, 0], 'sw-eval': [1, 1], 'storage': [0, 1], 'logs': [0, 0], 'network': [0, 0], 'popup': [0, 0], 'options': [0, 0], 'page': [1, 1] }
+const COMMANDS = ['info', 'sw-eval', 'storage', 'logs', 'network', 'popup', 'options', 'page', 'hands']
+const POSITIONALS_OF = { 'info': [0, 0], 'sw-eval': [1, 1], 'storage': [0, 1], 'logs': [0, 0], 'network': [0, 0], 'popup': [0, 0], 'options': [0, 0], 'page': [1, 1], 'hands': [1, Number.POSITIVE_INFINITY] }
 const WITHOUT_EXTENSION = new Set(['page'])
-const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1, '--profile': 1 }
+const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1, '--profile': 1, '--route': 2, '--prefix': 1, '--shot': 1, '--profile-from': 1 }
 
 const USAGE = [
   'usage: browser-lab.mjs <command> [--extension <dir>] [--headed] [--profile <dir>]',
@@ -32,7 +36,12 @@ const USAGE = [
   '  network [--page <url>] [--eval <expr>] [--for <ms>]   requests of the service worker (sent, answered, failed) while it opens the page in the same browser and listens',
   '  popup | options           open the page the manifest declares and print its title, text and errors',
   '  page <url> [--wait <sel>] open a page; with --extension, whether a content script of the extension ran in it',
-  '  --profile <dir>           keep the browser profile in <dir> after the run, so a login done once with --headed and the extension storage survive into later runs',
+  '        [--prefix <text>]   console of every level, from the page and from the content-script world, whose text starts with <text>',
+  '        [--route <url-glob> <file>]   answer the page requests matching the glob with the file (repeatable; the service worker requests are not routed)',
+  '        [--shot <file>]     screenshot of the page',
+  '  hands <args…>             run @playwright/cli with the lab copy of the extension and the --profile <dir> given; its own arguments go after --; end with: hands … -- close',
+  '  --profile-from <dir>      run on a fresh copy of a base profile, deleted at the end, so runs can go in parallel; an extension whose manifest has no key gets another id in the copy',
+  '  --profile <dir>         keep the browser profile in <dir> after the run, so a login done once with --headed and the extension storage survive into later runs',
   '  every command prints one JSON object; optional permissions are granted in a lab copy, so no prompt appears',
   '  exit: 0 observed, 1 page saw no content script of the extension, 127 could not observe or a usage error',
 ].join('\n')
@@ -55,10 +64,14 @@ export function parseArguments(argv) {
   const [command, ...rest] = argv
   if (!COMMANDS.includes(command))
     throw new UsageError(command === undefined ? 'a command is required' : `unknown command ${command}`)
-  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined, profile: undefined }
+  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined, profile: undefined, route: [], prefix: undefined, shot: undefined, profileFrom: undefined }
   let index = 0
   while (index < rest.length) {
     const argument = rest[index]
+    if (argument === '--') {
+      options.positionals.push(...rest.slice(index + 1))
+      break
+    }
     if (!argument.startsWith('--')) {
       options.positionals.push(argument)
       index += 1
@@ -66,9 +79,10 @@ export function parseArguments(argv) {
     }
     if (!Object.hasOwn(VALUES_OF, argument))
       throw new UsageError(`unknown argument ${argument}`)
-    const value = rest[index + 1]
-    if (VALUES_OF[argument] === 1 && (value === undefined || value.startsWith('--')))
-      throw new UsageError(`${argument} needs a value`)
+    const given = rest.slice(index + 1, index + 1 + VALUES_OF[argument])
+    if (given.length < VALUES_OF[argument] || given.some(text => text.startsWith('--')))
+      throw new UsageError(`${argument} needs ${VALUES_OF[argument] === 2 ? 'two values' : 'a value'}`)
+    const [value, second] = given
     index += 1 + VALUES_OF[argument]
     switch (argument) {
       case '--extension':
@@ -89,6 +103,18 @@ export function parseArguments(argv) {
       case '--profile':
         options.profile = value
         break
+      case '--profile-from':
+        options.profileFrom = value
+        break
+      case '--route':
+        options.route.push({ pattern: value, file: second })
+        break
+      case '--prefix':
+        options.prefix = value
+        break
+      case '--shot':
+        options.shot = value
+        break
       default:
         options.wait = value
     }
@@ -100,6 +126,12 @@ export function parseArguments(argv) {
     throw new UsageError(`${command} needs --extension <dir>`)
   if (command === 'storage' && options.positionals.length === 1 && !STORAGE_AREAS.includes(options.positionals[0]))
     throw new UsageError(`storage area must be one of ${STORAGE_AREAS.join(', ')}`)
+  if (command !== 'page' && (options.route.length > 0 || options.prefix !== undefined || options.shot !== undefined))
+    throw new UsageError('--route, --prefix and --shot belong to page')
+  if (options.profile !== undefined && options.profileFrom !== undefined)
+    throw new UsageError('--profile and --profile-from exclude each other')
+  if (command === 'hands' && options.profile === undefined)
+    throw new UsageError('hands needs --profile <dir>, the session it opens lives in it')
   return options
 }
 
@@ -141,17 +173,71 @@ function prepareExtension(source, directory) {
   return { directory, manifest: lab.manifest, granted: lab.granted, id: extensionId(lab.manifest, directory) }
 }
 
-async function loadChromium() {
-  const found = spawnSync('npx', ['--yes', '--package', PLAYWRIGHT_CORE, '-c', 'command -v playwright-core'], { encoding: 'utf8' })
+export function npxEnvironment(base = process.env) {
+  return { ...base, npm_config_registry: PUBLIC_REGISTRY, npm_config_cache: NPX_CACHE }
+}
+
+function runNpx(args, options) {
+  return spawnSync('npx', args, { ...options, env: npxEnvironment() })
+}
+
+function npxBinary(spec, name) {
+  const found = runNpx(['--yes', '--package', spec, '-c', `command -v ${name}`], { encoding: 'utf8' })
   const binary = (found.stdout ?? '').trim().split('\n').at(-1)
-  if (found.status !== 0 || binary === '' || binary === undefined)
-    throw new Unobserved(`npx could not provide ${PLAYWRIGHT_CORE}${found.error === undefined ? '' : ` (${found.error.message})`}`)
+  if (found.status !== 0 || binary === '' || binary === undefined) {
+    const stderrTail = (found.stderr ?? '').trim().split('\n').slice(-5).join(' | ')
+    throw new Unobserved(`npx could not provide ${spec}${found.error === undefined ? '' : ` (${found.error.message})`}${stderrTail === '' ? '' : `: ${stderrTail}`}`)
+  }
+  return binary
+}
+
+async function loadChromium() {
+  const binary = npxBinary(PLAYWRIGHT_CORE, 'playwright-core')
   const library = await import(pathToFileURL(path.join(path.dirname(realpathSync(binary)), 'index.mjs')))
   return library.chromium
 }
 
 function installChromium() {
-  spawnSync('npx', ['--yes', PLAYWRIGHT_CORE, 'install', 'chromium'], { stdio: ['ignore', 2, 2] })
+  runNpx(['--yes', PLAYWRIGHT_CORE, 'install', 'chromium'], { stdio: ['ignore', 2, 2] })
+}
+
+export function handsConfig(extensionDirectory, profile, headed) {
+  return {
+    browser: {
+      browserName: 'chromium',
+      userDataDir: profile,
+      launchOptions: {
+        channel: 'chromium',
+        headless: !headed,
+        args: [`--disable-extensions-except=${extensionDirectory}`, `--load-extension=${extensionDirectory}`],
+      },
+    },
+  }
+}
+
+function lastLines(text) {
+  return text.trim().split('\n').slice(-5).join(' | ')
+}
+
+export function handsRefusal(ran) {
+  if (ran.error !== undefined)
+    return `hands failed: ${firstLine(ran.error)}`
+  return `hands failed: exit ${ran.status}; stdout: ${lastLines(ran.stdout ?? '')}; stderr: ${lastLines(ran.stderr ?? '')}`
+}
+
+export function handsArguments(config, positionals) {
+  return positionals[0] === 'open' ? ['--config', config, ...positionals] : positionals
+}
+
+function runHands({ extension, options, profile }) {
+  const binary = npxBinary(PLAYWRIGHT_CLI, 'playwright-cli')
+  const config = path.join(profile, 'hands.config.json')
+  writeFileSync(config, `${JSON.stringify(handsConfig(extension.directory, profile, options.headed), null, 2)}\n`)
+  spawnSync(binary, ['install-browser', 'chromium'], { stdio: ['ignore', 2, 2], env: npxEnvironment() })
+  const ran = spawnSync(binary, handsArguments(config, options.positionals), { encoding: 'utf8', env: npxEnvironment() })
+  if (ran.error !== undefined || ran.status !== 0)
+    throw new Unobserved(handsRefusal(ran))
+  return { id: extension.id, args: options.positionals, output: ran.stdout.trim() }
 }
 
 function sayOnStderr(line) {
@@ -314,8 +400,14 @@ async function listening(options, evaluate) {
   await sleep(options.listenMs)
 }
 
-async function visit(context, url, wait) {
+function consoleWorld(worlds, id) {
+  const world = worlds.find(found => found.id === id)
+  return world?.origin.startsWith('chrome-extension://') ? 'content-script' : 'page'
+}
+
+async function visit(context, url, wait, shot) {
   const page = await context.newPage()
+  const messages = []
   const errors = []
   page.on('pageerror', error => errors.push(firstLine(error)))
   page.on('console', (message) => {
@@ -325,6 +417,9 @@ async function visit(context, url, wait) {
   const worlds = []
   const session = await context.newCDPSession(page)
   session.on('Runtime.executionContextCreated', ({ context: created }) => worlds.push(created))
+  session.on('Runtime.consoleAPICalled', (params) => {
+    messages.push({ ...consoleLine({ params }), world: consoleWorld(worlds, params.executionContextId) })
+  })
   await session.send('Runtime.enable')
   let response
   try {
@@ -335,9 +430,11 @@ async function visit(context, url, wait) {
   catch (error) {
     throw new Unobserved(`${url} could not be observed: ${firstLine(error)}`)
   }
+  if (shot !== undefined)
+    await page.screenshot({ path: shot })
   const title = await page.title()
   const text = (await page.evaluate(() => document.body?.textContent?.trim() ?? '')).slice(0, PAGE_TEXT_LIMIT)
-  return { status: response?.status() ?? null, title, text, errors, worlds }
+  return { status: response?.status() ?? null, title, text, errors, worlds, messages }
 }
 
 function declaredPage(extension, command) {
@@ -394,12 +491,22 @@ const RUNS = {
   },
   'popup': async function ({ context, extension, options }) {
     const url = declaredPage(extension, options.command)
-    const { worlds, ...seen } = await visit(context, url, options.wait)
+    const { worlds, messages, ...seen } = await visit(context, url, options.wait)
     return { id: extension.id, url, ...seen }
   },
   'page': async function ({ context, extension, options }) {
     const [url] = options.positionals
-    const { worlds, ...seen } = await visit(context, url, options.wait)
+    for (const { pattern, file } of options.route) {
+      const body = path.resolve(file)
+      if (!existsSync(body))
+        throw new Unobserved(`the route file ${body} does not exist`)
+      await context.route(pattern, route => route.fulfill({ path: body }))
+    }
+    const { worlds, messages, ...seen } = await visit(context, url, options.wait, options.shot === undefined ? undefined : path.resolve(options.shot))
+    const heard = messages.filter(message => message.text.startsWith(options.prefix ?? ''))
+    seen.console = heard
+    if (options.shot !== undefined)
+      seen.shot = path.resolve(options.shot)
     if (extension === undefined)
       return { url, ...seen }
     const origin = `chrome-extension://${extension.id}`
@@ -408,6 +515,13 @@ const RUNS = {
   },
 }
 RUNS.options = RUNS.popup
+RUNS.hands = runHands
+
+function copyProfile(base, profile) {
+  if (!existsSync(base))
+    throw new Unobserved(`the base profile ${base} does not exist`)
+  cpSync(base, profile, { recursive: true, filter: source => !PROFILE_RUNTIME_FILES.has(path.basename(source)) })
+}
 
 export async function run(options) {
   const kept = options.profile !== undefined
@@ -417,8 +531,10 @@ export async function run(options) {
   const profile = kept ? realpathSync(options.profile) : path.join(workspace, 'profile')
   let context
   try {
+    if (options.profileFrom !== undefined)
+      copyProfile(path.resolve(options.profileFrom), profile)
     const extension = options.extension === undefined ? undefined : prepareExtension(path.resolve(options.extension), path.join(kept ? profile : workspace, 'extension'))
-    context = await launch(options, profile, extension)
+    context = options.command === 'hands' ? undefined : await launch(options, profile, extension)
     const result = await RUNS[options.command]({ context, extension, options, profile })
     return { code: result.injected === false ? EXIT_FALSE : EXIT_HOLDS, result }
   }

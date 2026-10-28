@@ -640,6 +640,31 @@
     "date": "2026-10-27"
   },
   {
+    "target": ".claude/skills/browser-lab/SKILL.md",
+    "sha256": "71a77f88ea573c74d91e946be456e9af17a66cff91ba87eda929f383b070c7d7",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "0ed262c8d36641951f93d0880d88b24d7f297b907849e0deec4ddb8d45c106ed",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "1725d15635eeaddcdee0f41665287c403b9774b2d7279f58cc708813b4bdea26",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "b74ee84b3c99f712f851d33ebe5d0f6460496ae1c261a8d9ffaef5a2af9427bc",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "00125ae082ee5595ab7c405d4b6e19abec27e0a7262c3f3db7de8951f705ee44",
+    "date": "2026-10-28"
+  },
+  {
     "target": "scripts/construct/daemon.mjs",
     "sha256": "2e9ce130f6bd2535caec8333369b173887ffa1a1c7153e3aec2bf24a026656f9",
     "date": "2026-10-28"
