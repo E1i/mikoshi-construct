@@ -185,6 +185,7 @@ interface LabRun {
   status: number | null
   json: Record<string, unknown>
   stderr: string
+  stdout: string
 }
 
 describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension', { concurrent: true }, () => {
@@ -209,6 +210,7 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
   })
 
   afterAll(async () => {
+    server.closeAllConnections()
     await new Promise(resolve => server.close(resolve))
     rmSync(workspace, { recursive: true, force: true })
   })
@@ -238,7 +240,7 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
       stderr += chunk
     })
     const status = await new Promise<number | null>(resolve => child.once('close', resolve))
-    return { status, json: stdout.trim() === '' ? {} : JSON.parse(stdout) as Record<string, unknown>, stderr }
+    return { status, json: stdout.trim() === '' ? {} : JSON.parse(stdout) as Record<string, unknown>, stderr, stdout }
   }
 
   it('loads an unpacked extension headless', async () => {
@@ -380,7 +382,7 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
       expect(opened.stderr).not.toContain('could not observe')
       expect(opened.status).toBe(0)
       const seen = await hands(profile, 'eval', '() => document.documentElement.dataset.lab')
-      expect(seen.json.output).toContain('"on"')
+      expect(String(seen.json.output), `hands eval exit ${String(seen.status)}\nstdout: ${seen.stdout}\nstderr: ${seen.stderr}`).toContain('"on"')
     }
     finally {
       await hands(profile, 'close')

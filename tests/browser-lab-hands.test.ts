@@ -23,6 +23,7 @@ interface HandsConfig {
 
 interface BrowserLab {
   parseArguments: (argv: string[]) => Options
+  handsRefusal: (ran: { status: number | null, stdout?: string, stderr?: string, error?: Error }) => string
   handsConfig: (extensionDirectory: string, profile: string, headed: boolean) => HandsConfig
   npxEnvironment: (base?: Record<string, string>) => Record<string, string>
   PLAYWRIGHT_CORE: string
@@ -30,7 +31,7 @@ interface BrowserLab {
   UsageError: new () => Error
 }
 
-const { parseArguments, handsConfig, npxEnvironment, PLAYWRIGHT_CORE, PLAYWRIGHT_CLI, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
+const { parseArguments, handsRefusal, handsConfig, npxEnvironment, PLAYWRIGHT_CORE, PLAYWRIGHT_CLI, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
 const source = readFileSync(SCRIPT, 'utf8')
 
 describe('the page arguments of the lab', () => {
@@ -80,6 +81,22 @@ describe('hands', () => {
     expect(config.browser.launchOptions.args).toContain('--load-extension=/profile/extension')
     expect(config.browser.launchOptions.args).toContain('--disable-extensions-except=/profile/extension')
     expect(config.browser.launchOptions.headless).toBe(true)
+  })
+})
+
+describe('a refused hands run', () => {
+  it('names the exit code and the last five lines of stdout and stderr', () => {
+    const stdout = 'The browser \'default\' is not open, please run open first\n\n  playwright-cli open [params]'
+    const stderr = ['1', '2', '3', '4', '5', '6'].join('\n')
+    const message = handsRefusal({ status: 1, stdout, stderr })
+    expect(message).toContain('exit 1')
+    expect(message).toContain('The browser \'default\' is not open, please run open first |  | ')
+    expect(message).toContain('stderr: 2 | 3 | 4 | 5 | 6')
+    expect(message).not.toContain('1 | 2')
+  })
+
+  it('names a spawn error', () => {
+    expect(handsRefusal({ status: null, error: new Error('spawn ENOENT') })).toBe('hands failed: spawn ENOENT')
   })
 })
 
