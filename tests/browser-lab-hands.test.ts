@@ -23,6 +23,7 @@ interface HandsConfig {
 
 interface BrowserLab {
   parseArguments: (argv: string[]) => Options
+  handsArguments: (config: string, positionals: string[]) => string[]
   handsRefusal: (ran: { status: number | null, stdout?: string, stderr?: string, error?: Error }) => string
   handsConfig: (extensionDirectory: string, profile: string, headed: boolean) => HandsConfig
   npxEnvironment: (base?: Record<string, string>) => Record<string, string>
@@ -31,7 +32,7 @@ interface BrowserLab {
   UsageError: new () => Error
 }
 
-const { parseArguments, handsRefusal, handsConfig, npxEnvironment, PLAYWRIGHT_CORE, PLAYWRIGHT_CLI, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
+const { parseArguments, handsArguments, handsRefusal, handsConfig, npxEnvironment, PLAYWRIGHT_CORE, PLAYWRIGHT_CLI, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
 const source = readFileSync(SCRIPT, 'utf8')
 
 describe('the page arguments of the lab', () => {
@@ -108,6 +109,17 @@ describe('the npx registry', () => {
   it('the script spawns npx in one place, with that environment', () => {
     expect(source.match(/spawnSync\('npx'/g)).toHaveLength(1)
     expect(source).toMatch(/function runNpx\(args, options\) \{\s+return spawnSync\('npx', args, \{ \.\.\.options, env: npxEnvironment\(\) \}\)/)
+  })
+})
+
+describe('which hands subcommands take --config', () => {
+  it('open gets --config <file> before the positionals', () => {
+    expect(handsArguments('/p/hands.config.json', ['open', 'http://x'])).toEqual(['--config', '/p/hands.config.json', 'open', 'http://x'])
+  })
+
+  it('eval and close get the positionals alone', () => {
+    expect(handsArguments('/p/hands.config.json', ['eval', '() => 1'])).toEqual(['eval', '() => 1'])
+    expect(handsArguments('/p/hands.config.json', ['close'])).toEqual(['close'])
   })
 })
 

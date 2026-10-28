@@ -225,12 +225,16 @@ export function handsRefusal(ran) {
   return `hands failed: exit ${ran.status}; stdout: ${lastLines(ran.stdout ?? '')}; stderr: ${lastLines(ran.stderr ?? '')}`
 }
 
+export function handsArguments(config, positionals) {
+  return positionals[0] === 'open' ? ['--config', config, ...positionals] : positionals
+}
+
 function runHands({ extension, options, profile }) {
   const binary = npxBinary(PLAYWRIGHT_CLI, 'playwright-cli')
   const config = path.join(profile, 'hands.config.json')
   writeFileSync(config, `${JSON.stringify(handsConfig(extension.directory, profile, options.headed), null, 2)}\n`)
   spawnSync(binary, ['install-browser', 'chromium'], { stdio: ['ignore', 2, 2], env: npxEnvironment() })
-  const ran = spawnSync(binary, ['--config', config, ...options.positionals], { encoding: 'utf8', env: npxEnvironment() })
+  const ran = spawnSync(binary, handsArguments(config, options.positionals), { encoding: 'utf8', env: npxEnvironment() })
   if (ran.error !== undefined || ran.status !== 0)
     throw new Unobserved(handsRefusal(ran))
   return { id: extension.id, args: options.positionals, output: ran.stdout.trim() }
