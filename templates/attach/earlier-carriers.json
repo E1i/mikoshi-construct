@@ -708,5 +708,10 @@
     "target": "scripts/construct/daemon.workflow",
     "sha256": "4710b68c5abd22e113ce0ad4759eaf3f12c3b673a170332f28471905545808b5",
     "date": "2026-10-29"
+  },
+  {
+    "target": "scripts/construct/daemon-run.mjs",
+    "sha256": "4300755128294732121a2e54c3187ec10c47d3715da387405c417a8f95008ab1",
+    "date": "2026-10-28"
   }
 ]

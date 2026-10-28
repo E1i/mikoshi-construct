@@ -220,6 +220,16 @@ describe('daemon.workflow and daemon-run.mjs', () => {
     expect(evidenceOf(root, 'alpha')).toMatchObject({ verdict: 'unobserved', line: 'gone', agent: null })
   })
 
+  it('keeps a daemon-<object>-* directory nested below the temporary directory', () => {
+    const root = repository(['alpha'])
+    const nested = path.join(scratch('construct-daemon-parent-'), 'daemon-alpha-nested')
+    mkdirSync(nested)
+
+    run(root, `node scripts/construct/daemon-run.mjs unobserved ${ADAPTER} ${RUN} alpha --line gone --lab ${nested}`)
+
+    expect(existsSync(nested)).toBe(true)
+  })
+
   it('records an object whose success command exits 1 as false with its line', async () => {
     const root = repository(['alpha'])
     write(root, `${ADAPTER}/success.mjs`, 'console.log(\'the badge was missing\')\nprocess.exit(1)\n')
@@ -430,6 +440,26 @@ describe('daemon-run.mjs refusals', () => {
     expect(listed.stderr).toContain('objects ended without an exit code: SIGKILL')
   })
 
+  it('refuses an objects line whose id is not letters, digits, dot, underscore or dash', () => {
+    const root = repository(['alpha', '../escape'])
+
+    const listed = run(root, `node scripts/construct/daemon-run.mjs objects ${ADAPTER}`)
+
+    expect(listed.exitCode).toBe(1)
+    expect(listed.stderr).toContain('objects line 2 has no id of letters, digits')
+    expect(listed.stdout).toBe('')
+  })
+
+  it('refuses an objects line that repeats an id', () => {
+    const root = repository(['alpha', 'beta', 'alpha'])
+
+    const listed = run(root, `node scripts/construct/daemon-run.mjs objects ${ADAPTER}`)
+
+    expect(listed.exitCode).toBe(1)
+    expect(listed.stderr).toContain('objects line 3 repeats the id alpha')
+    expect(listed.stdout).toBe('')
+  })
+
   it('refuses objects --run with a value that is not a run id', () => {
     const root = repository(['alpha'])
 
@@ -461,6 +491,30 @@ describe('the daemon objects in the cost report', () => {
     ])
     const json = costJson({ status: 'empty', runtime: 'claude-code', version: '0', turns: { status: 'not recorded' }, daemon: objects }, false)
     expect(json.daemon).toEqual(objects)
+  })
+
+  it('does not count an evidence.json that parses without a string verdict', () => {
+    const projects = scratch('construct-daemon-projects-')
+    const root = scratch('construct-daemon-cost-')
+    mkdirSync(path.join(projects, projectKey(root)), { recursive: true })
+    write(root, `.construct/daemon/${RUN}/missing/evidence.json`, JSON.stringify({ object: 'missing', agent: null }))
+    write(root, `.construct/daemon/${RUN}/numeric/evidence.json`, JSON.stringify({ object: 'numeric', verdict: 1, agent: null }))
+    write(root, `.construct/daemon/${RUN}/null/evidence.json`, 'null')
+
+    expect(readDaemonObjects(root, projects)).toEqual([])
+  })
+
+  it('omits the daemon key of costReport and costJson when no evidence.json exists', () => {
+    const projects = scratch('construct-daemon-projects-')
+    const root = scratch('construct-daemon-cost-')
+    const shiftRoot = scratch('construct-daemon-shift-')
+    mkdirSync(path.join(projects, projectKey(root)), { recursive: true })
+    mkdirSync(path.join(root, '.construct', 'daemon', RUN, 'alpha'), { recursive: true })
+
+    const report = costReport(root, { projectsDir: projects, shiftRoot, busPath: path.join(shiftRoot, 'bus.db'), env: {}, version: '0' })
+
+    expect('daemon' in report).toBe(false)
+    expect('daemon' in costJson(report, false)).toBe(false)
   })
 
   it('puts the daemon objects under the daemon key of costReport', () => {

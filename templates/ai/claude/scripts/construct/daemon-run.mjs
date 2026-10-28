@@ -72,6 +72,7 @@ function objectDirectory(root, run, object) {
 
 export function parseObjects(stdout) {
   const lines = stdout.split('\n').filter(line => line.trim() !== '')
+  const seen = new Set()
   return lines.map((line, index) => {
     let value
     try {
@@ -82,6 +83,9 @@ export function parseObjects(stdout) {
     }
     if (typeof value !== 'object' || value === null || typeof value.id !== 'string' || !SAFE_ID.test(value.id))
       throw new Refused(`objects line ${index + 1} has no id of letters, digits, '.', '_' or '-': ${line}`)
+    if (seen.has(value.id))
+      throw new Refused(`objects line ${index + 1} repeats the id ${value.id}: ${line}`)
+    seen.add(value.id)
     return value
   })
 }
