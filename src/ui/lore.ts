@@ -237,6 +237,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachDetach: string
   attachGuard: string
   attachLedgerExcluded: string
+  initSettingsSkippedNoExclusion: string
   detachNothingAttached: string
   detachRefusedOrphanBlock: string
   detachRefusedRecordVersion: string
@@ -662,6 +663,7 @@ export const LORE: Lore = {
   attachDetach: 'construct detach',
   attachGuard: 'the agent is refused git commit, push, merge, rebase and tag here; construct detach removes the guard',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
+  initSettingsSkippedNoExclusion: '.claude/settings.json was left as it is, so the browser organ (scripts/construct/browser-lab.mjs) runs inside the sandbox without its exclusion; add "node scripts/construct/browser-lab.mjs *" to sandbox.excludedCommands by hand.',
   detachNothingAttached: 'NO NETRUN OPEN: nothing is attached here.',
   detachRefusedRecordVersion: 'BREACH FAILED // RECORD UNDATED: recordVersion in .construct/attach.json is missing or not a known integer, so which build wrote it cannot be told',
   detachRefusedSeparator: 'BREACH FAILED // RECORD UNREADABLE: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so the block cannot be cut out to the byte',
@@ -1065,6 +1067,7 @@ export const PLAIN_LORE: Lore = {
   attachDetach: 'construct detach',
   attachGuard: 'the agent is refused git commit, push, merge, rebase and tag here; construct detach removes the guard.',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
+  initSettingsSkippedNoExclusion: '.claude/settings.json was left as it is, so the browser organ (scripts/construct/browser-lab.mjs) runs inside the sandbox without its exclusion; add "node scripts/construct/browser-lab.mjs *" to sandbox.excludedCommands by hand.',
   detachNothingAttached: 'Nothing is attached here.',
   detachRefusedRecordVersion: 'Refused: recordVersion in .construct/attach.json is missing or not a positive integer, so which build wrote the record cannot be told; nothing was removed. Found:',
   detachRefusedSeparator: 'Refused: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so .git/info/exclude cannot be restored byte for byte; nothing was removed. Found:',
