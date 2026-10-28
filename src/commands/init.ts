@@ -18,6 +18,7 @@ import { ownedSha } from '../sync/ownership.js'
 import { isValidProjectName, parseLaneCount } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { ATTACH_RECORD_FILE } from './attach/record.js'
+import { BROWSER_LAB_EXCLUDED_COMMAND } from './attach/settings.js'
 import { printDetectReport } from './soulkill.js'
 
 function ownedShasOfBlocks(written: FileOp[]): Record<string, string> {
@@ -264,6 +265,19 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
   return { presetId, ai, projectName, review, reviewModel, lanes, answeredByTheRecord }
 }
 
+const SETTINGS_FILE = '.claude/settings.json'
+
+function settingsExcludeBrowserLab(root: string): boolean {
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(root, SETTINGS_FILE), 'utf8')) as { sandbox?: { excludedCommands?: unknown } } | null
+    const excluded = parsed?.sandbox?.excludedCommands
+    return Array.isArray(excluded) && excluded.includes(BROWSER_LAB_EXCLUDED_COMMAND)
+  }
+  catch {
+    return false
+  }
+}
+
 export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter): Promise<InitResult> {
   const root = path.resolve(options.dir)
   mkdirSync(root, { recursive: true })
@@ -381,8 +395,6 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     ui.line(ui.theme.dim(`  Existing composition models found at ${report.existing.compositionDir}/ — kept there, not moved.`))
   if (plan.conflicts.length > 0)
     ui.glitch('Existing values kept; review these keys by hand:', plan.conflicts)
-  if (skipped.includes('.claude/settings.json'))
-    ui.glitch(ui.lore.initSettingsSkippedNoExclusion)
   if (skips.length > 0 && !report.existing.constructJson)
     ui.glitch(ui.lore.wireHarness, ui.lore.wireHarnessSteps)
 
@@ -398,6 +410,8 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const changing = applied.filter(op => changesTheTree(root, op))
   const next = nextStepAfter(changing, vars)
   const written = applyPlan(root, plan.ops)
+  if (plan.ops.some(op => op.target === SETTINGS_FILE) && !settingsExcludeBrowserLab(root))
+    ui.glitch(ui.lore.initSettingsSkippedNoExclusion)
   const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, ownedShas: ownedShasOfBlocks(written), contracts: preset.contracts, previous, policy, lanes })
   writeManifest(root, manifest)
   const sample = sampleIsHere({ preset, vars, ai, review, omittedGroups: plan.omittedGroups, previous })

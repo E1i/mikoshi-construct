@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
-import { BROWSER_LAB_EXCLUDED_COMMAND } from '../src/commands/attach/settings.js'
+import { ATTACH_RECORD_FILE } from '../src/commands/attach/record.js'
+import { BROWSER_LAB_EXCLUDED_COMMAND, isSettingsHook, readSettings } from '../src/commands/attach/settings.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -89,5 +90,86 @@ describe('init carries the same exclusion', () => {
     await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
     const settings = JSON.parse(readFileSync(path.join(dir, '.claude/settings.json'), 'utf8')) as { sandbox: { excludedCommands: string[] } }
     expect(settings.sandbox.excludedCommands).toEqual([BROWSER_LAB_EXCLUDED_COMMAND])
+  })
+})
+
+function capturedUi(): { lines: string[], ui: ReturnType<typeof createUi> } {
+  const lines: string[] = []
+  return { lines, ui: createUi(resolveTheme({ plain: true }), line => lines.push(line)) }
+}
+
+function existingRepositoryWithSettings(settings: string): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-existing-'))
+  mkdirSync(path.join(dir, '.claude'))
+  writeFileSync(path.join(dir, '.claude/settings.json'), settings)
+  return dir
+}
+
+describe('init names that the organ runs without the exclusion', () => {
+  it('prints the line when .claude/settings.json is skipped', async () => {
+    const dir = existingRepositoryWithSettings('{ "hooks": [] }\n')
+    const captured = capturedUi()
+    const result = await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(result.skipped).toContain('.claude/settings.json')
+    expect(captured.lines.join('\n')).toContain('runs inside the sandbox without its exclusion')
+  })
+
+  it('prints the line when .claude/settings.json is merged and loses the sandbox key', async () => {
+    const dir = existingRepositoryWithSettings(`${JSON.stringify({ hooks: {} })}\n`)
+    const captured = capturedUi()
+    const result = await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(result.written).toContain('.claude/settings.json')
+    expect(captured.lines.join('\n')).toContain('runs inside the sandbox without its exclusion')
+  })
+
+  it('prints nothing about it when init writes the entry', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-sandbox-'))
+    const captured = capturedUi()
+    await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(captured.lines.join('\n')).not.toContain('without its exclusion')
+  })
+})
+
+describe('attach refuses a settings.local.json whose sandbox it cannot extend', () => {
+  function readingOf(settings: unknown): string {
+    const dir = fixture()
+    mkdirSync(path.join(dir, '.claude'), { recursive: true })
+    writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(settings))
+    return readSettings(dir).kind
+  }
+
+  it('reads a non-object sandbox as unreadable', () => {
+    expect(readingOf({ sandbox: 'on' })).toBe('unreadable')
+  })
+
+  it('reads a non-array excludedCommands as unreadable', () => {
+    expect(readingOf({ sandbox: { excludedCommands: 'docker *' } })).toBe('unreadable')
+  })
+
+  it('reads an object sandbox with an array excludedCommands as read', () => {
+    expect(readingOf({ sandbox: { excludedCommands: [] } })).toBe('read')
+  })
+})
+
+describe('a hand-edited sandbox record in the attach record', () => {
+  async function recordedHook(): Promise<Record<string, unknown>> {
+    const dir = fixture()
+    await attach(dir)
+    const record = JSON.parse(readFileSync(path.join(dir, ATTACH_RECORD_FILE), 'utf8')) as { settingsHook: Record<string, unknown> }
+    return record.settingsHook
+  }
+
+  it('is accepted as recorded', async () => {
+    expect(isSettingsHook(await recordedHook())).toBe(true)
+  })
+
+  it('is rejected when it names a command other than browser-lab', async () => {
+    const hook = await recordedHook()
+    expect(isSettingsHook({ ...hook, sandbox: { added: ['rm -rf *'], createdSandbox: true, createdExcluded: true } })).toBe(false)
+  })
+
+  it('is rejected when a flag is not a boolean', async () => {
+    const hook = await recordedHook()
+    expect(isSettingsHook({ ...hook, sandbox: { added: [], createdSandbox: 'yes', createdExcluded: true } })).toBe(false)
   })
 })
