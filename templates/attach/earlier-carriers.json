@@ -693,5 +693,10 @@
     "target": "scripts/construct/daemon-run.mjs",
     "sha256": "ed2147fc787057175688fdd286e69b23b5e4bb0837ccc1f1b9b2ab1aa6a33a3c",
     "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon-run.mjs",
+    "sha256": "16c8dbd2f54934e994a23ca3b47aa8445d32ff6687c46b932b6ce26bb939a8e1",
+    "date": "2026-10-28"
   }
 ]

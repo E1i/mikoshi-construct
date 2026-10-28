@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runAttach } from '../src/commands/attach/index.js'
-import { readDaemonObjects } from '../src/commands/cost/daemon.js'
+import { readDaemonObjects } from '../src/commands/cost/claude-code.js'
 import { costJson, labelledAgentTokens } from '../src/commands/cost/index.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -320,7 +320,27 @@ describe('daemon-run.mjs refusals', () => {
     const verdict = run(root, `node scripts/construct/daemon-run.mjs verdict ${ADAPTER} ${RUN} alpha --agent daemon:${RUN}:alpha`)
 
     expect(verdict.exitCode).toBe(0)
-    expect(evidenceOf(root, 'alpha').verdict).toBe('unobserved')
+    expect(evidenceOf(root, 'alpha')).toMatchObject({ verdict: 'unobserved', line: 'success ended without an exit code: SIGKILL' })
+  })
+
+  it('records an object whose prepare is killed by a signal as unobserved and names the signal', () => {
+    const root = repository(['alpha'])
+    write(root, `${ADAPTER}/prepare.mjs`, SUCCESS_KILLED)
+
+    const prepared = run(root, `node scripts/construct/daemon-run.mjs prepare ${ADAPTER} ${RUN} alpha`)
+
+    expect(prepared.exitCode).toBe(0)
+    expect(evidenceOf(root, 'alpha')).toMatchObject({ verdict: 'unobserved', line: 'prepare ended without an exit code: SIGKILL: ' })
+  })
+
+  it('refuses objects whose listing command is killed by a signal and names the signal', () => {
+    const root = repository(['alpha'])
+    write(root, `${ADAPTER}/objects.mjs`, SUCCESS_KILLED)
+
+    const listed = run(root, `node scripts/construct/daemon-run.mjs objects ${ADAPTER}`)
+
+    expect(listed.exitCode).toBe(1)
+    expect(listed.stderr).toContain('objects ended without an exit code: SIGKILL')
   })
 
   it('refuses objects --run with a value that is not a run id', () => {

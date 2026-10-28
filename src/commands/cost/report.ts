@@ -1,7 +1,7 @@
 import type { Ui } from '../../ui/console.js'
 import type { Signal, SignalStyle } from '../../ui/signal.js'
 import type { CheapClassReading, CheapReading } from './cheap.js'
-import type { DaemonCostReport } from './daemon.js'
+import type { DaemonCostReport } from './claude-code.js'
 import type { LedgerSummary, Reconciliation, TokenCount } from './ledger.js'
 import type { CostReport, CostStatus } from './source.js'
 import type { TurnSummary } from './turns.js'

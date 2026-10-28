@@ -1,4 +1,4 @@
-import type { CostReading, CostSource, Runtime } from './source.js'
+import type { CostReading, CostReport, CostSource, Runtime } from './source.js'
 import type { RunDecomposition, StepAgent } from './steps.js'
 import type { Usage, WorkflowRun } from './usage.js'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
@@ -119,6 +119,45 @@ export function labelledAgentTokens(label: string, projectsDir = claudeProjectsD
   if (transcripts.length === 0)
     return null
   return transcripts.reduce((sum, transcript) => sum + tokensWithoutCacheReads(readAgentRecord(transcript).usage), 0)
+}
+
+export interface DaemonObjectCost {
+  run: string
+  object: string
+  verdict: string
+  agent: string | null
+  tokens: number | null
+}
+
+export type DaemonCostReport = CostReport & { daemon?: DaemonObjectCost[] }
+
+const DAEMON_HOME = path.join('.construct', 'daemon')
+const DAEMON_EVIDENCE_FILE = 'evidence.json'
+
+function directoriesIn(directory: string): string[] {
+  return existsSync(directory) ? readdirSync(directory, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort() : []
+}
+
+function evidenceIn(file: string): { verdict: string, agent: string | null } | null {
+  if (!existsSync(file))
+    return null
+  try {
+    const evidence = JSON.parse(readFileSync(file, 'utf8')) as { verdict?: unknown, agent?: unknown }
+    return typeof evidence.verdict === 'string' ? { verdict: evidence.verdict, agent: typeof evidence.agent === 'string' ? evidence.agent : null } : null
+  }
+  catch {
+    return null
+  }
+}
+
+export function readDaemonObjects(cwd: string, projectsDir: string): DaemonObjectCost[] {
+  const home = path.join(cwd, DAEMON_HOME)
+  return directoriesIn(home).flatMap(run => directoriesIn(path.join(home, run)).flatMap((object) => {
+    const evidence = evidenceIn(path.join(home, run, object, DAEMON_EVIDENCE_FILE))
+    if (evidence == null)
+      return []
+    return [{ run, object, verdict: evidence.verdict, agent: evidence.agent, tokens: evidence.agent == null ? null : labelledAgentTokens(evidence.agent, projectsDir) }]
+  }))
 }
 
 function runOf(sessionDir: string, dir: string): WorkflowRun {

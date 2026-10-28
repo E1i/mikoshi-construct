@@ -43,6 +43,12 @@ function firstLine(...texts) {
   return texts.join('\n').split('\n').map(line => line.trim()).find(line => line !== '') ?? ''
 }
 
+function ended(result) {
+  if (result.exitCode !== null)
+    return `exited ${result.exitCode}`
+  return result.signal === null ? 'ended without an exit code' : `ended without an exit code: ${result.signal}`
+}
+
 export function runId(now = new Date(), pid = process.pid) {
   return `${now.toISOString().replace(/[-:.]/g, '')}-${pid}`
 }
@@ -86,11 +92,11 @@ export function listObjects(argument, run = runId()) {
   if (adapter.extension.build !== undefined) {
     const build = shell(adapter.extension.build, location.root)
     if (build.exitCode !== 0)
-      throw new Refused(`extension.build exited ${build.exitCode}: ${firstLine(build.stderr, build.stdout)}`)
+      throw new Refused(`extension.build ${ended(build)}: ${firstLine(build.stderr, build.stdout)}`)
   }
   const listed = shell(adapter.objects, location.root)
   if (listed.exitCode !== 0)
-    throw new Refused(`objects exited ${listed.exitCode}: ${firstLine(listed.stderr, listed.stdout)}`)
+    throw new Refused(`objects ${ended(listed)}: ${firstLine(listed.stderr, listed.stdout)}`)
   return {
     run,
     adapter: location.name,
@@ -124,7 +130,7 @@ export function prepareObject(argument, run, object, labRoot = os.tmpdir()) {
   const evidence = relative(location.root, directory)
   if (prepared.exitCode === 0)
     return { prepared: true, labCopy, evidence, line: firstLine(prepared.stdout, prepared.stderr) }
-  const line = `prepare exited ${prepared.exitCode}: ${firstLine(prepared.stderr, prepared.stdout)}`
+  const line = `prepare ${ended(prepared)}: ${firstLine(prepared.stderr, prepared.stdout)}`
   writeEvidence(directory, unobservedEvidence(object, line))
   return { prepared: false, labCopy, evidence, line }
 }
@@ -144,7 +150,7 @@ export function judgeObject(argument, run, object, agent) {
   const directory = objectDirectory(location.root, run, object)
   const judged = shell(adapter.success, location.root, [relative(location.root, directory)])
   const verdict = VERDICTS[judged.exitCode] ?? UNOBSERVED
-  const line = judged.exitCode === null ? `success ended without an exit code${judged.signal === null ? '' : `: ${judged.signal}`}` : firstLine(judged.stdout, judged.stderr)
+  const line = judged.exitCode === null ? `success ${ended(judged)}` : firstLine(judged.stdout, judged.stderr)
   return writeEvidence(directory, { object, verdict, line, ...labOutputs(location.root, directory), agent })
 }
 

@@ -1584,8 +1584,14 @@ figure quoted without the version of the binary that measured it says nothing ab
 `--json` prints one object: `schemaVersion` (the version of this key set, not of the CLI), `status`
 (`ok`, `empty`, `unsupported`, `mismatch` or `unknown`),
 `runtime` (`claude-code` or `cursor`), `version` (the CLI that produced the report), `key` and
-`candidates` where the project key is in question, `runs` when there are any, and `ledger` and
+`candidates` where the project key is in question, `runs` when there are any, `daemon` when
+`.construct/daemon/<run>/<object>/evidence.json` files exist, `ledger` and
 `reconciliation` as described below, and `turns` in every report: the turn journal, described below.
+`daemon` holds one element per object whose `evidence.json` parses with a string `verdict`: `run`,
+`object`, `verdict`, `agent` (the label of the object's agent, `null` for an object recorded unobserved
+before an agent started) and `tokens`, the token sum of that agent's transcript without cache reads, `null`
+when `agent` is `null` or no transcript under the projects directory carries that label. The key is in
+`--json` only; the text report does not print it.
 
 ### The run ledger
 
