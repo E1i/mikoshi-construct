@@ -13,7 +13,9 @@ description: >-
   through `browser-lab.mjs hands`, and leaves the lab outputs in the object's evidence directory.
   `verdict` runs the adapter's success there and writes `.construct/daemon/<run>/<object>/evidence.json`:
   the object, the verdict and its line, the lab outputs, the screenshot, the console and the agent's
-  label. The object's cost is read afterwards from that agent's transcript by `labelledAgentTokens`.
+  label. The object's cost is read afterwards: `readDaemonObjects` reads each object's `evidence.json`
+  and joins its agent's transcript tokens through `labelledAgentTokens`, and `costReport` puts the
+  result into the report that `costJson` emits as the `daemon` key of `cost --json`.
 doc: architecture/daemon.md
 boundaries:
   - id: order
@@ -58,7 +60,7 @@ nodes:
     path: scripts/construct/daemon-run.mjs
     boundary: record
   - id: cost
-    label: labelledAgentTokens · the agent's transcript tokens
+    label: readDaemonObjects · each evidence.json joined to its agent's tokens by labelledAgentTokens, emitted by costReport and costJson as the daemon key of cost --json
     path: src/commands/cost/claude-code.ts
     boundary: record
 edges:
