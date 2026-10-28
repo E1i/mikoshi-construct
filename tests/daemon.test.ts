@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runAttach } from '../src/commands/attach/index.js'
 import { readDaemonObjects } from '../src/commands/cost/daemon.js'
-import { labelledAgentTokens, printCost } from '../src/commands/cost/index.js'
+import { costJson, labelledAgentTokens } from '../src/commands/cost/index.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -352,9 +352,7 @@ describe('the daemon objects in the cost report', () => {
       { run: RUN, object: 'alpha', verdict: 'holds', agent: label, tokens: 115 },
       { run: RUN, object: 'broken', verdict: 'unobserved', agent: null, tokens: null },
     ])
-    const lines: string[] = []
-    printCost(createUi(resolveTheme({ plain: true }), text => lines.push(text)), { status: 'empty', runtime: 'claude-code', version: '0', turns: { status: 'not recorded' }, daemon: objects }, false)
-    expect(lines.join('\n')).toContain(`daemon ${RUN}/alpha: holds, 115`)
-    expect(lines.join('\n')).toContain(`daemon ${RUN}/broken: unobserved, unknown`)
+    const json = costJson({ status: 'empty', runtime: 'claude-code', version: '0', turns: { status: 'not recorded' }, daemon: objects }, false)
+    expect(json.daemon).toEqual(objects)
   })
 })
