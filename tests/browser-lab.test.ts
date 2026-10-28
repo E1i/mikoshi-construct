@@ -53,7 +53,6 @@ interface WorkerRequest {
 const { parseArguments, grantOptional, extensionId, workerRequests, ensureChromium, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
 
 const UNRESOLVABLE = 'http://lab-nowhere.invalid/'
-const REFUSED_BY_THE_WORKER = 'http://127.0.0.1:1000/'
 
 const FIXTURE_EXTENSION = path.resolve(import.meta.dirname, 'fixtures/daemon-run/extension')
 const FIXTURE_MANIFEST = JSON.parse(readFileSync(path.join(FIXTURE_EXTENSION, 'manifest.json'), 'utf8')) as Manifest
@@ -181,7 +180,7 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
     server = createServer((_request, response) => {
       response.setHeader('content-type', 'text/html')
       response.setHeader('set-cookie', 'lab-login=by-hand; Max-Age=3600; Path=/')
-      response.end(`<title>Served</title><script>console.log('lab-page says'); console.warn('lab-page warns')</script><p>served body</p><p>cookie:${_request.headers.cookie ?? ''}</p>`)
+      response.end(`<title>Served</title><meta name="lab-fetch" content="${UNRESOLVABLE}"><script>console.log('lab-page says'); console.warn('lab-page warns')</script><p>served body</p><p>cookie:${_request.headers.cookie ?? ''}</p>`)
     })
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -263,7 +262,7 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
   it('network names a failed service worker request', async () => {
     const run = await lab('network', '--page', `${origin}/covered/`, '--for', '3000')
     expect(run.status).toBe(0)
-    expect(run.json.requests).toContainEqual({ url: REFUSED_BY_THE_WORKER, method: 'GET', status: null, failed: expect.stringMatching(/^net::ERR_/) as string })
+    expect(run.json.requests).toContainEqual({ url: UNRESOLVABLE, method: 'GET', status: null, failed: expect.stringMatching(/^net::ERR_/) as string })
   }, BROWSER_RUN_MS)
 
   it('network without a page lists what the evaluated expression fetched', async () => {

@@ -7,7 +7,6 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { commandOf, CORE, evidenceDirectoryOf, REPO_ROOT, run, runWorkflow } from './daemon-workflow.js'
 
@@ -15,17 +14,14 @@ const FIXTURE = path.join(import.meta.dirname, 'fixtures/daemon-run')
 const ADAPTER = '.construct/daemon/fixture'
 const LAB = 'scripts/construct/browser-lab.mjs'
 const BROWSER_LAB_RUNS = process.env.BROWSER_LAB === '1'
-const HANDS_RUN_MS = 120_000
+const LAB_RUN_MS = 120_000
 const DAEMON_RUN_MS = 480_000
-const CONSOLE_TRIES = 5
-const CONSOLE_PAUSE_MS = 1000
 const FIXTURE_LINE = 'daemon-fixture:'
 
-interface HandsRun {
+interface LabRun {
   status: number | null
   stdout: string
   stderr: string
-  output: string
 }
 
 const directories: string[] = []
@@ -72,8 +68,8 @@ function refOfGo(root: string, snapshotOutput: string): string | undefined {
   return snapshot.match(/button "Go" \[ref=([^\]]+)\]/)?.[1]
 }
 
-async function spawnHands(root: string, argv: string[]): Promise<Omit<HandsRun, 'output'>> {
-  const child = spawn(process.execPath, argv, { cwd: root, timeout: HANDS_RUN_MS })
+async function spawnLab(root: string, argv: string[]): Promise<LabRun> {
+  const child = spawn(process.execPath, argv, { cwd: root, timeout: LAB_RUN_MS })
   child.stdout.setEncoding('utf8')
   child.stderr.setEncoding('utf8')
   let stdout = ''
@@ -94,30 +90,29 @@ async function standInMechanic(root: string, prompt: string, object: string, pag
   const extension = labCopyOf(prompt)
   const session = `-s=${object}`
   let outputs = 0
-  async function hands(...cliArguments: string[]): Promise<HandsRun> {
-    const ran = await spawnHands(root, [LAB, 'hands', '--extension', extension, '--profile', profile, '--', ...cliArguments])
+  async function lab(command: string, ...labArguments: string[]): Promise<LabRun> {
+    const ran = await spawnLab(root, [LAB, command, '--extension', extension, '--profile', profile, ...labArguments])
     outputs += 1
     writeFileSync(path.join(evidence, `lab-${outputs}.json`), ran.stdout)
-    transcript.push(`${object} hands ${cliArguments.join(' ')}: exit ${String(ran.status)}\nstdout: ${ran.stdout}\nstderr: ${ran.stderr}`)
-    return { status: ran.status, stdout: ran.stdout, stderr: ran.stderr, output: outputOf(ran.stdout) }
+    transcript.push(`${object} ${command} ${labArguments.join(' ')}: exit ${String(ran.status)}\nstdout: ${ran.stdout}\nstderr: ${ran.stderr}`)
+    return ran
+  }
+  async function hands(...cliArguments: string[]): Promise<string> {
+    return outputOf((await lab('hands', '--', ...cliArguments)).stdout)
   }
   try {
     await hands('open', session, page)
-    const ref = refOfGo(root, (await hands('snapshot', session)).output)
+    const ref = refOfGo(root, await hands('snapshot', session))
     if (ref === undefined)
       return 'no button named Go in the snapshot'
     await hands('click', session, ref)
-    let heard = await hands('console', session)
-    for (let tries = 1; tries < CONSOLE_TRIES && !heard.output.includes(FIXTURE_LINE); tries++) {
-      await sleep(CONSOLE_PAUSE_MS)
-      heard = await hands('console', session)
-    }
-    writeFileSync(path.join(evidence, 'console.json'), heard.stdout)
-    return `clicked ${ref} and read the console`
   }
   finally {
     await hands('close', session)
   }
+  const heard = await lab('page', page, '--prefix', FIXTURE_LINE, '--wait', 'html[data-daemon]')
+  writeFileSync(path.join(evidence, 'console.json'), heard.stdout)
+  return 'clicked Go through hands and read the content-script console with page'
 }
 
 function evidenceOf(root: string, runId: string, object: string): Evidence {
