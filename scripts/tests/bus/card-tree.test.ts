@@ -6,12 +6,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ANSWERED, CARD_STARTED, POLICY_DENIED } from '../../core/events.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { importJournal } from '../../intake/import.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
-import { gitCardTrees, realCardTrees } from '../../ports/card-tree.js'
+import { cardTreeOf, gitCardTrees, realCardTrees } from '../../ports/card-tree.js'
 import { taskWorktree } from '../../ports/worktree-home.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -202,6 +202,68 @@ describe('the card tree', () => {
     vi.stubEnv('CONSTRUCT_WORKTREE_HOME', '')
     expect(realCardTrees().treeOf!('987654')).toBe(path.join(path.dirname(busFile), 'bus', 'worktrees', '987654'))
     vi.unstubAllEnvs()
+  })
+
+  it('an existing fallback tree is brought to the head, not recreated', () => {
+    const bench = mergeBench()
+    bench.gitHub.open({ number: 1099, review: 'failure', ref: BRANCH, head: sha('2') })
+    bench.tick()
+    const calls: string[] = []
+    const trees = {
+      home: '/worktrees',
+      exists: () => true,
+      branchOf: () => BRANCH,
+      recreate: () => calls.push('recreate'),
+      bringTo: (worktree: string, branch: string, head: string) => calls.push(`bringTo ${worktree} ${branch} ${head}`),
+    }
+    expect(cardTreeOf(bench.db, 1199, trees)).toMatchObject({ worktree: taskWorktree('/worktrees', '1199'), branch: BRANCH })
+    expect(calls).toEqual([`bringTo ${taskWorktree('/worktrees', '1199')} ${BRANCH} ${sha('2')}`])
+    bench.close()
+  })
+
+  it('a window card started without a session is answered in its existing tree', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-card-tree-'))
+    const bench = mergeBench()
+    const { repo, pushedHead } = origin(root)
+    const tree = path.join(root, 'bus', 'worktrees', '1199')
+    git(repo, 'worktree', 'add', '-q', tree, BRANCH)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 1199, pr: null, head: null, dedupeKey: `${CARD_STARTED}:1199`, payload: { branch: BRANCH }, legacy: false })
+    const head = pushedHead()
+    bench.gitHub.open({ number: 1099, review: 'failure', ref: BRANCH, head })
+    bench.tick()
+    const recreated: string[] = []
+    const runs: AnswerRun[] = []
+    const answerer = claudeAnswerer(path.join(root, 'answers'), {
+      cardText: () => null,
+      available: () => true,
+      remoteHead: card => git(card.worktree, 'rev-parse', 'HEAD'),
+      spawn: async (run) => {
+        runs.push(run)
+        commit(run.cwd, 'answer.txt')
+        return 0
+      },
+      newSession: () => 'new-session-1',
+      publish: () => {},
+    })
+    const gitTrees = gitCardTrees(repo, path.join(root, 'worktrees'), () => {}, bench.gitHub.client, cardId => path.join(root, 'bus', 'worktrees', cardId))
+    const trees = {
+      ...gitTrees,
+      recreate: (worktree: string, branch: string) => {
+        recreated.push(`${worktree} ${branch}`)
+        throw new Error(`'${branch}' is already used by worktree at '${worktree}'`)
+      },
+    }
+    const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
+    const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
+    expect(outcome).toMatchObject({ kind: 'answered' })
+    expect(recreated).toEqual([])
+    expect(runs.map(run => run.cwd)).toEqual([tree])
+    expect(existsSync(path.join(tree, 'round-1.txt'))).toBe(true)
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
+    expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toMatchObject([{ from: head }])
+    bench.close()
+    rmSync(root, { recursive: true, force: true })
   })
 
   it('an existing card tree behind the task head is brought to the head before the answer runs', async () => {

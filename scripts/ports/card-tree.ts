@@ -100,6 +100,13 @@ export function cardTreeOf(db: DatabaseSync, cardId: number, tools: CardTreeTool
     return recorded
   const branch = tools.branchOf(pr)
   const worktree = recorded?.worktree ?? tools.treeOf?.(String(cardId)) ?? taskWorktree(tools.home, String(cardId))
-  tools.recreate(worktree, branch)
+  if (tools.exists(worktree)) {
+    const head = openHeadOf(db, pr)
+    if (head !== null)
+      tools.bringTo(worktree, branch, head)
+  }
+  else {
+    tools.recreate(worktree, branch)
+  }
   return { session: recorded?.session ?? NO_RECORDED_SESSION, worktree, branch }
 }
