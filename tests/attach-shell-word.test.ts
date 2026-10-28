@@ -1,4 +1,5 @@
 import type { Ui, Writer } from '../src/ui/console.js'
+import type { Theme } from '../src/ui/theme.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,6 +17,7 @@ const ATTACH_ONLY = '.claude/commands/attached-discover.md'
 const CANARY = 'PWNED'
 const NEXT_LABEL = 'Next: '
 const RERUN_PREFIX = 'npx mikoshi-construct '
+const RUN_LABEL = 'then run: '
 const ARGUMENTS_PRINTER = `printf '%s\\0' `
 
 const HOSTILE: Record<string, string> = {
@@ -33,12 +35,19 @@ function sourceOf(target: string): string {
   return path.join(root, target.startsWith('.claude/') ? `_claude/${target.slice('.claude/'.length)}` : target)
 }
 
-function capturing(): { ui: Ui, output: () => string } {
+const PLAIN_THEME = resolveTheme({ plain: true })
+
+const THEMES: Record<string, Theme> = {
+  plain: PLAIN_THEME,
+  lore: { ...PLAIN_THEME, name: 'arasaka' },
+}
+
+function capturing(theme: Theme = PLAIN_THEME): { ui: Ui, output: () => string } {
   let text = ''
   const write: Writer = (chunk) => {
     text += chunk
   }
-  return { ui: createUi(resolveTheme({ plain: true }), write), output: () => text }
+  return { ui: createUi(theme, write), output: () => text }
 }
 
 function nextStep(output: string): string {
@@ -102,6 +111,25 @@ describe('the collision refusal prints commands a shell runs as written', () => 
     const rerun = nextStep(output()).split(` && ${RERUN_PREFIX}`)[1]
     expect(wordsOf(rerun, parent)).toEqual(['attach', '--dir', root, '--yes', '--harness', harness, '--required-check', 'gate'])
     expect(canaryAnywhere(parent)).toBe(false)
+  })
+})
+
+describe('the collision refusal with a path not recognised prints a line a shell parses', () => {
+  it.each(Object.entries(THEMES))('%s: the line parses, the command after it removes only construct-owned paths and names the root', async (_, theme) => {
+    const parent = mkdtempSync(path.join(tmpdir(), 'construct-shell-foreign-'))
+    const root = repository(parent, 'repo', ATTACH_CARRIERS.targets)
+    const [foreign, ...owned] = ATTACH_CARRIERS.targets
+    writeFileSync(path.join(root, foreign), 'mine\n')
+    const { ui, output } = capturing(theme)
+    const result = await runAttach(ui, { dir: root, harness: 'true', requiredCheck: 'gate', yes: true })
+    expect(result.refusal).toBe('collision')
+    const line = nextStep(output())
+    execFileSync('sh', ['-n', '-c', line], { cwd: parent })
+    const [remove, rerun] = line.slice(line.indexOf(RUN_LABEL) + RUN_LABEL.length).split(` && ${RERUN_PREFIX}`)
+    execFileSync('sh', ['-c', remove], { cwd: parent })
+    expect(existsSync(path.join(root, foreign))).toBe(true)
+    expect(owned.some(target => existsSync(path.join(root, target)))).toBe(false)
+    expect(wordsOf(rerun, parent)).toEqual(['attach', '--dir', root, '--yes', '--harness', 'true', '--required-check', 'gate'])
   })
 })
 
