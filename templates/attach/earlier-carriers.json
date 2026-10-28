@@ -638,5 +638,20 @@
     "target": ".claude/skills/intake/SKILL.md",
     "sha256": "7fdd819e690a090cd073a8e4b181aa09ec067fe1d28392fbf2ff355f2e697e72",
     "date": "2026-10-27"
+  },
+  {
+    "target": ".claude/skills/browser-lab/SKILL.md",
+    "sha256": "71a77f88ea573c74d91e946be456e9af17a66cff91ba87eda929f383b070c7d7",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "0ed262c8d36641951f93d0880d88b24d7f297b907849e0deec4ddb8d45c106ed",
+    "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "1725d15635eeaddcdee0f41665287c403b9774b2d7279f58cc708813b4bdea26",
+    "date": "2026-10-28"
   }
 ]

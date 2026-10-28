@@ -11,6 +11,7 @@ export const ALLOWED_DOMAINS = [
   'github.com',
   'e1i.github.io',
   'npmjs.com',
+  'registry.npmjs.org',
   'redocly.com',
   'openapi-ts.dev',
   'claude.com',

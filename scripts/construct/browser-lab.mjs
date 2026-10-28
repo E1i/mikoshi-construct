@@ -184,8 +184,10 @@ function runNpx(args, options) {
 function npxBinary(spec, name) {
   const found = runNpx(['--yes', '--package', spec, '-c', `command -v ${name}`], { encoding: 'utf8' })
   const binary = (found.stdout ?? '').trim().split('\n').at(-1)
-  if (found.status !== 0 || binary === '' || binary === undefined)
-    throw new Unobserved(`npx could not provide ${spec}${found.error === undefined ? '' : ` (${found.error.message})`}`)
+  if (found.status !== 0 || binary === '' || binary === undefined) {
+    const stderrTail = (found.stderr ?? '').trim().split('\n').slice(-5).join(' | ')
+    throw new Unobserved(`npx could not provide ${spec}${found.error === undefined ? '' : ` (${found.error.message})`}${stderrTail === '' ? '' : `: ${stderrTail}`}`)
+  }
   return binary
 }
 
