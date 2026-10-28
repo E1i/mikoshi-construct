@@ -1,0 +1,7 @@
+{
+  "extension": { "directory": "extension", "build": "node .construct/daemon/sample/build.mjs" },
+  "prepare": "node .construct/daemon/sample/prepare.mjs",
+  "objects": "node .construct/daemon/sample/objects.mjs",
+  "mechanic": ".construct/daemon/sample/mechanic.md",
+  "success": "node .construct/daemon/sample/success.mjs"
+}

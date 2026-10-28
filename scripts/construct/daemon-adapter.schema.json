@@ -1,0 +1,48 @@
+{
+  "$id": "daemon-adapter.schema.json",
+  "title": "construct daemon adapter",
+  "description": "The one file, .construct/daemon/<name>/adapter.json, through which a repository connects an adapter to the daemon core. Every path is relative to the repository root and every command runs there.",
+  "type": "object",
+  "required": ["extension", "prepare", "objects", "mechanic", "success"],
+  "additionalProperties": false,
+  "properties": {
+    "extension": {
+      "description": "The unpacked browser extension the core loads.",
+      "type": "object",
+      "required": ["directory"],
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "description": "The directory the browser loads the extension from.",
+          "type": "string",
+          "minLength": 1
+        },
+        "build": {
+          "description": "A command that builds the directory before the browser launches.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "prepare": {
+      "description": "A command run inside the sandbox before the browser launches, given the lab copy path and the object id as its two arguments: config and data substitution, including what a route cannot reach in the service worker.",
+      "type": "string",
+      "minLength": 1
+    },
+    "objects": {
+      "description": "A command printing one JSON object per line, one per object the daemon runs.",
+      "type": "string",
+      "minLength": 1
+    },
+    "mechanic": {
+      "description": "The prompt file for the fresh agent of one object.",
+      "type": "string",
+      "minLength": 1
+    },
+    "success": {
+      "description": "A command given the object's evidence directory: exit 0 or 1 and one line of reason.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
