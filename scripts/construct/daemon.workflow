@@ -69,17 +69,32 @@ function mechanicPrompt(listing, object, prepared) {
   ].join('\n\n')
 }
 
+function oneLine(text) {
+  return String(text).split('\n').map(line => line.trim()).find(line => line !== '') ?? ''
+}
+
+async function recordUnobserved(run, object, line, agentName, labCopy) {
+  const text = oneLine(line)
+  const agentOption = agentName == null ? '' : ` --agent ${quoted(agentName)}`
+  const labOption = labCopy == null ? '' : ` --lab ${quoted(labCopy)}`
+  const recorded = await runCommand(`${RUNNER} unobserved ${quoted(adapter)} ${quoted(run)} ${quoted(object)} --line ${quoted(text)}${agentOption}${labOption}`, { label: `unobserved:${object}`, phase: 'Verdict' })
+  return recorded?.value ?? { object, verdict: 'unobserved', line: text, agent: agentName }
+}
+
 async function observe(listing, object) {
   const { run } = listing
   const prepared = await runCommand(`${RUNNER} prepare ${quoted(adapter)} ${quoted(run)} ${quoted(object)}`, { label: `prepare:${object}`, phase: 'Prepare' })
-  if (prepared?.value?.prepared !== true)
-    return { object, verdict: 'unobserved', line: prepared?.value?.line ?? prepared?.stderr ?? 'prepare did not report', agent: null }
+  if (prepared?.value == null)
+    return recordUnobserved(run, object, prepared?.stderr || 'prepare did not report', null, null)
+  if (prepared.value.prepared !== true)
+    return { object, verdict: 'unobserved', line: prepared.value.line, agent: null }
   const label = agentLabel(run, object)
+  const { labCopy } = prepared.value
   const observed = await agent(mechanicPrompt(listing, object, prepared.value), { label, phase: 'Observe' })
   if (observed == null)
-    return { object, verdict: 'unobserved', line: 'the agent did not return', agent: label }
-  const judged = await runCommand(`${RUNNER} verdict ${quoted(adapter)} ${quoted(run)} ${quoted(object)} --agent ${quoted(label)}`, { label: `verdict:${object}`, phase: 'Verdict' })
-  return judged?.value ?? { object, verdict: 'unobserved', line: judged?.stderr ?? 'verdict did not report', agent: label }
+    return recordUnobserved(run, object, 'the agent did not return', label, labCopy)
+  const judged = await runCommand(`${RUNNER} verdict ${quoted(adapter)} ${quoted(run)} ${quoted(object)} --agent ${quoted(label)} --lab ${quoted(labCopy)}`, { label: `verdict:${object}`, phase: 'Verdict' })
+  return judged?.value ?? recordUnobserved(run, object, judged?.stderr || 'verdict did not report', label, labCopy)
 }
 
 async function bounded(items, width, work) {

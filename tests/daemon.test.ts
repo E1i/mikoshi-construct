@@ -119,14 +119,22 @@ function evidenceDirectoryOf(prompt: string): string {
   return match[1]
 }
 
-async function runDaemon(root: string, objects: number, limit?: number): Promise<{ result: DaemonResult, mechanics: string[], widest: number }> {
+async function runDaemon(root: string, objects: number, limit?: number, mechanicReturns: unknown = 'observed'): Promise<{ result: DaemonResult, mechanics: string[], widest: number, labCopies: string[] }> {
   const mechanics: string[] = []
+  const labCopies: string[] = []
   let active = 0
   let widest = 0
   async function agent(prompt: string, options: AgentOptions = {}): Promise<unknown> {
-    if (options.schema != null)
-      return run(root, commandOf(prompt))
+    if (options.schema != null) {
+      const command = commandOf(prompt)
+      const commandResult = run(root, command)
+      if (command.includes(' prepare '))
+        labCopies.push(...[JSON.parse(commandResult.stdout) as { labCopy: string | null }].flatMap(prepared => prepared.labCopy ?? []))
+      return commandResult
+    }
     mechanics.push(options.label ?? '')
+    if (mechanicReturns == null)
+      return null
     active += 1
     widest = Math.max(widest, active)
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -141,7 +149,7 @@ async function runDaemon(root: string, objects: number, limit?: number): Promise
   const args = { adapter: ADAPTER, run: RUN, ...(limit == null ? {} : { limit }) }
   const result = await new AsyncFunction('args', 'agent', 'log', 'phase', source)(args, agent, () => {}, () => {})
   expect(result.objects).toHaveLength(objects)
-  return { result, mechanics, widest }
+  return { result, mechanics, widest, labCopies }
 }
 
 function evidenceOf(root: string, object: string): Evidence {
@@ -176,6 +184,40 @@ describe('daemon.workflow and daemon-run.mjs', () => {
     expect(mechanics).toEqual([`daemon:${RUN}:alpha`])
     expect(evidenceOf(root, 'broken')).toEqual({ object: 'broken', verdict: 'unobserved', line: 'prepare exited 1: no data for broken', lab: [], screenshot: null, console: null, agent: null })
     expect(result.unobserved).toEqual(['broken'])
+  })
+
+  it('records an object whose mechanic agent returns nothing as unobserved with its agent label', async () => {
+    const root = repository(['alpha'])
+
+    const { result, labCopies } = await runDaemon(root, 1, undefined, null)
+
+    const expected = { object: 'alpha', verdict: 'unobserved', line: 'the agent did not return', lab: [], screenshot: null, console: null, agent: `daemon:${RUN}:alpha` }
+    expect(evidenceOf(root, 'alpha')).toEqual(expected)
+    expect(result.unobserved).toEqual(['alpha'])
+    expect(labCopies).toHaveLength(1)
+    expect(existsSync(labCopies[0] as string)).toBe(false)
+  })
+
+  it('removes the lab copy once the verdict is written and when prepare fails', async () => {
+    const root = repository(['alpha', 'broken'])
+
+    const { labCopies } = await runDaemon(root, 2)
+
+    expect(labCopies).toHaveLength(1)
+    expect(existsSync(labCopies[0] as string)).toBe(false)
+  })
+
+  it('removes only a daemon-<object>-* directory directly under the temporary directory', () => {
+    const root = repository(['alpha'])
+    const elsewhere = scratch('construct-daemon-other-')
+    const misnamed = scratch('daemon-beta-')
+
+    run(root, `node scripts/construct/daemon-run.mjs unobserved ${ADAPTER} ${RUN} alpha --line gone --lab ${elsewhere}`)
+    run(root, `node scripts/construct/daemon-run.mjs unobserved ${ADAPTER} ${RUN} alpha --line gone --lab ${misnamed}`)
+
+    expect(existsSync(elsewhere)).toBe(true)
+    expect(existsSync(misnamed)).toBe(true)
+    expect(evidenceOf(root, 'alpha')).toMatchObject({ verdict: 'unobserved', line: 'gone', agent: null })
   })
 
   it('records an object whose success command exits 1 as false with its line', async () => {
@@ -225,6 +267,19 @@ describe('the cost of a daemon object', () => {
     expect(labelledAgentTokens(index, label)).toBe(100 + 5 + 10 + 200 + 5 + 20)
     expect(labelledAgentTokens(index, `daemon:${RUN}:gamma`)).toBeNull()
     expect(labelledAgentTokens(labelledTranscripts('/other', projects), label)).toBeNull()
+  })
+
+  it('sums every transcript that carries the same label', () => {
+    const projects = scratch('construct-daemon-projects-')
+    const label = `daemon:${RUN}:alpha`
+    const runDirectory = path.join(projects, projectKey('/repo'), 'session-1', 'subagents', 'workflows', 'wf-1')
+    const assistant = (requestId: string, input: number, output: number): string => JSON.stringify({ requestId, timestamp: '2026-10-28T10:00:00Z', message: { role: 'assistant', usage: { input_tokens: input, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: output } } })
+    write(runDirectory, 'agent-a1.jsonl', assistant('r1', 100, 10))
+    write(runDirectory, 'agent-a1.meta.json', JSON.stringify({ description: label }))
+    write(runDirectory, 'agent-a2.jsonl', assistant('r2', 200, 20))
+    write(runDirectory, 'agent-a2.meta.json', JSON.stringify({ description: label }))
+
+    expect(labelledAgentTokens(labelledTranscripts('/repo', projects), label)).toBe(100 + 10 + 200 + 20)
   })
 })
 
@@ -310,6 +365,17 @@ describe('detach and .construct/daemon', () => {
     runDetach(ui, { dir })
 
     expect(exists(dir, `.construct/daemon/${RUN}/alpha/notes/keep.txt`)).toBe(true)
+  })
+
+  it('keeps a directory that is not a run id beside a run directory', async () => {
+    const dir = await attached()
+    writeEvidence(dir)
+    write(dir, '.construct/daemon/notes/a/b.md', 'mine\n')
+
+    runDetach(ui, { dir })
+
+    expect(exists(dir, '.construct/daemon/notes/a/b.md')).toBe(true)
+    expect(exists(dir, `.construct/daemon/${RUN}`)).toBe(false)
   })
 
   it('keeps a run-id-shaped entry that is a file and removes the run directories beside it', async () => {

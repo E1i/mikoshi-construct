@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -24,7 +24,8 @@ const USAGE = [
   'usage: daemon-run.mjs <command> <.construct/daemon/<name> | its adapter.json> …',
   '  objects <adapter> [--run <id>]                 build the extension, list the objects; prints {run, objects, mechanic, extension}',
   '  prepare <adapter> <run> <object>               copy the extension, run the adapter\'s prepare on the copy; prints {prepared, labCopy, evidence}',
-  '  verdict <adapter> <run> <object> --agent <id>  run the adapter\'s success on the evidence directory and write evidence.json',
+  '  verdict <adapter> <run> <object> --agent <id> [--lab <path>]  run the adapter\'s success on the evidence directory, write evidence.json, remove the lab copy',
+  '  unobserved <adapter> <run> <object> --line <text> [--agent <id>] [--lab <path>]  write evidence.json as unobserved, remove the lab copy',
   '  exit: 0 done, 1 the adapter or a step refused, 2 a usage error',
 ].join('\n')
 
@@ -116,8 +117,19 @@ function relative(root, file) {
   return path.relative(root, file).split(path.sep).join('/')
 }
 
-export function unobservedEvidence(object, line) {
-  return { object, verdict: UNOBSERVED, line, lab: [], screenshot: null, console: null, agent: null }
+export function unobservedEvidence(object, line, agent = null) {
+  return { object, verdict: UNOBSERVED, line, lab: [], screenshot: null, console: null, agent }
+}
+
+export function removeLabCopy(object, labCopy) {
+  if (labCopy === undefined || !existsSync(labCopy))
+    return false
+  const resolved = realpathSync(labCopy)
+  const inTemporaryDirectory = path.dirname(resolved) === realpathSync(os.tmpdir())
+  if (!inTemporaryDirectory || !path.basename(resolved).startsWith(`daemon-${object}-`))
+    return false
+  rmSync(resolved, { recursive: true, force: true })
+  return true
 }
 
 export function prepareObject(argument, run, object, labRoot = os.tmpdir()) {
@@ -132,7 +144,15 @@ export function prepareObject(argument, run, object, labRoot = os.tmpdir()) {
     return { prepared: true, labCopy, evidence, line: firstLine(prepared.stdout, prepared.stderr) }
   const line = `prepare ${ended(prepared)}: ${firstLine(prepared.stderr, prepared.stdout)}`
   writeEvidence(directory, unobservedEvidence(object, line))
-  return { prepared: false, labCopy, evidence, line }
+  removeLabCopy(object, labCopy)
+  return { prepared: false, labCopy: null, evidence, line }
+}
+
+export function recordUnobserved(argument, run, object, line, agent = null, lab = undefined) {
+  const { root } = locateAdapter(argument)
+  const evidence = writeEvidence(objectDirectory(root, run, object), unobservedEvidence(object, line, agent))
+  removeLabCopy(object, lab)
+  return evidence
 }
 
 export function labOutputs(root, directory) {
@@ -145,13 +165,15 @@ export function labOutputs(root, directory) {
   }
 }
 
-export function judgeObject(argument, run, object, agent) {
+export function judgeObject(argument, run, object, agent, lab = undefined) {
   const { location, adapter } = readAdapter(argument)
   const directory = objectDirectory(location.root, run, object)
   const judged = shell(adapter.success, location.root, [relative(location.root, directory)])
   const verdict = VERDICTS[judged.exitCode] ?? UNOBSERVED
   const line = judged.exitCode === null ? `success ${ended(judged)}` : firstLine(judged.stdout, judged.stderr)
-  return writeEvidence(directory, { object, verdict, line, ...labOutputs(location.root, directory), agent })
+  const evidence = writeEvidence(directory, { object, verdict, line, ...labOutputs(location.root, directory), agent })
+  removeLabCopy(object, lab)
+  return evidence
 }
 
 function optionValue(rest, flag) {
@@ -177,10 +199,19 @@ export function runCommand(argv) {
     return prepareObject(rest[0], rest[1], rest[2])
   }
   if (command === 'verdict') {
-    const { value: agent, positionals } = optionValue(rest, '--agent')
+    const { value: agent, positionals: withoutAgent } = optionValue(rest, '--agent')
+    const { value: lab, positionals } = optionValue(withoutAgent, '--lab')
     if (positionals.length !== 3 || agent === undefined)
       throw new UsageError('verdict takes an adapter, a run, an object and --agent')
-    return judgeObject(positionals[0], positionals[1], positionals[2], agent)
+    return judgeObject(positionals[0], positionals[1], positionals[2], agent, lab)
+  }
+  if (command === 'unobserved') {
+    const { value: line, positionals: withoutLine } = optionValue(rest, '--line')
+    const { value: agent, positionals: withoutAgent } = optionValue(withoutLine, '--agent')
+    const { value: lab, positionals } = optionValue(withoutAgent, '--lab')
+    if (positionals.length !== 3 || line === undefined)
+      throw new UsageError('unobserved takes an adapter, a run, an object and --line')
+    return recordUnobserved(positionals[0], positionals[1], positionals[2], line, agent ?? null, lab)
   }
   throw new UsageError(command === undefined ? 'no command' : `unknown command: ${command}`)
 }

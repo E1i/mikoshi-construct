@@ -7,7 +7,9 @@ description: >-
   checks the adapter through `checkAdapter` of `daemon.mjs`, builds the extension and lists the
   objects, and names the run. The objects then go through a bounded pool, `limit` at once (2 when
   not given). Per object, `prepare` copies the extension to a lab copy and runs the adapter's
-  prepare on it; a prepare that fails writes `evidence.json` as unobserved and starts no agent.
+  prepare on it; a prepare that fails writes `evidence.json` as unobserved, removes its lab copy and
+  starts no agent. An agent that returns nothing, or a `verdict` that reports nothing, is recorded
+  through `unobserved`. `verdict` and `unobserved` remove the lab copy once the evidence is written.
   Otherwise one fresh agent, labelled `daemon:<run>:<object>`, reads the adapter's mechanic prompt
   and observes through `browser-lab.mjs` on a `--profile-from` copy of the base profile, its hands
   through `browser-lab.mjs hands`, and leaves the lab outputs in the object's evidence directory.
