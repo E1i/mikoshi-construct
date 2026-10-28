@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 const SCRIPT = path.resolve(import.meta.dirname, '..', 'scripts/construct/browser-lab.mjs')
 const BROWSER_RUN_MS = 90_000
+const HANDS_RUN_MS = 240_000
 const BROWSER_LAB_RUNS = process.env.BROWSER_LAB === '1'
 
 interface Manifest {
@@ -74,7 +75,7 @@ const FIXTURE_FILES = {
   ].join('\n'),
   'popup.html': '<title>Lab Popup</title><p>popup body</p>',
   'options.html': '<title>Lab Options</title><p>options body</p>',
-  'content.js': 'document.documentElement.dataset.lab = \'on\'; chrome.runtime.sendMessage(\'lab-fetch\').catch(() => {})',
+  'content.js': 'document.documentElement.dataset.lab = \'on\'; console.log(\'lab-cs content script\'); chrome.runtime.sendMessage(\'lab-fetch\').catch(() => {})',
 }
 
 describe('arguments', () => {
@@ -201,7 +202,7 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
     server = createServer((_request, response) => {
       response.setHeader('content-type', 'text/html')
       response.setHeader('set-cookie', 'lab-login=by-hand; Max-Age=3600; Path=/')
-      response.end(`<title>Served</title><p>served body</p><p>cookie:${_request.headers.cookie ?? ''}</p>`)
+      response.end(`<title>Served</title><script>console.log('lab-page says'); console.warn('lab-page warns')</script><p>served body</p><p>cookie:${_request.headers.cookie ?? ''}</p>`)
     })
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -217,7 +218,15 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
   }
 
   async function labIn(env: Record<string, string>, ...argv: string[]): Promise<LabRun> {
-    const child = spawn(process.execPath, [SCRIPT, ...argv, '--extension', extension], { timeout: BROWSER_RUN_MS - 5000, env: { ...process.env, ...env } })
+    return spawnLab(env, [...argv, '--extension', extension], BROWSER_RUN_MS - 5000)
+  }
+
+  async function hands(profile: string, ...cliArguments: string[]): Promise<LabRun> {
+    return spawnLab({}, ['hands', '--extension', extension, '--profile', profile, '--', ...cliArguments], HANDS_RUN_MS - 5000)
+  }
+
+  async function spawnLab(env: Record<string, string>, argv: string[], timeout: number): Promise<LabRun> {
+    const child = spawn(process.execPath, [SCRIPT, ...argv], { timeout, env: { ...process.env, ...env } })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     let stdout = ''
@@ -328,6 +337,55 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
       rmSync(temporary, { recursive: true, force: true })
     }
   }, BROWSER_RUN_MS)
+
+  it('page sees a console.log of the content script and of the page, of every level, filtered by a prefix', async () => {
+    const all = await lab('page', `${origin}/covered/`, '--wait', 'html[data-lab="on"]')
+    expect(all.json.console).toContainEqual({ level: 'log', text: 'lab-cs content script', world: 'content-script' })
+    expect(all.json.console).toContainEqual({ level: 'log', text: 'lab-page says', world: 'page' })
+    expect(all.json.console).toContainEqual({ level: 'warning', text: 'lab-page warns', world: 'page' })
+    const prefixed = await lab('page', `${origin}/covered/`, '--wait', 'html[data-lab="on"]', '--prefix', 'lab-cs')
+    expect(prefixed.json.console).toEqual([{ level: 'log', text: 'lab-cs content script', world: 'content-script' }])
+  }, BROWSER_RUN_MS)
+
+  it('a route file replaces the page response', async () => {
+    const routed = path.join(workspace, 'routed.html')
+    writeFileSync(routed, '<title>Routed</title><p>routed body</p>')
+    const run = await lab('page', `${origin}/covered/`, '--route', '**/covered/', routed)
+    expect(run.status).toBe(0)
+    expect(run.json).toMatchObject({ title: 'Routed', text: 'routed body' })
+  }, BROWSER_RUN_MS)
+
+  it('--shot writes a screenshot of the page', async () => {
+    const shot = path.join(workspace, 'page.png')
+    const run = await lab('page', `${origin}/elsewhere/`, '--shot', shot)
+    expect(run.json.shot).toBe(shot)
+    expect(readFileSync(shot).subarray(1, 4).toString()).toBe('PNG')
+  }, BROWSER_RUN_MS)
+
+  it('two copies of one base profile open in parallel', async () => {
+    const base = path.join(workspace, 'base-profile')
+    expect((await lab('info', '--profile', base)).status).toBe(0)
+    const copies = await Promise.all([
+      lab('page', `${origin}/covered/`, '--wait', 'html[data-lab="on"]', '--profile-from', base),
+      lab('page', `${origin}/covered/`, '--wait', 'html[data-lab="on"]', '--profile-from', base),
+    ])
+    expect(copies.map(copy => copy.status)).toEqual([0, 0])
+    expect(copies.map(copy => copy.json.injected)).toEqual([true, true])
+  }, BROWSER_RUN_MS * 2)
+
+  it('hands on @playwright/cli 0.1.17 really start Chromium with the unpacked extension loaded', async () => {
+    const profile = path.join(workspace, 'hands-profile')
+    try {
+      const opened = await hands(profile, 'open', `${origin}/covered/`)
+      expect(opened.stderr).not.toContain('could not observe')
+      expect(opened.status).toBe(0)
+      const seen = await hands(profile, 'eval', '() => document.documentElement.dataset.lab')
+      expect(seen.json.output).toContain('"on"')
+    }
+    finally {
+      await hands(profile, 'close')
+    }
+  }, HANDS_RUN_MS)
 
   it('leaves the extension directory it was given untouched', () => {
     expect(JSON.parse(readFileSync(path.join(extension, 'manifest.json'), 'utf8'))).toEqual(FIXTURE_MANIFEST)

@@ -181,6 +181,19 @@ jobs:
       - if: needs.changes.outputs.liveness == 'true'
         run: pnpm exec tsx scripts/ci/sandbox-liveness.ts --ci
 
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/ci/browser-tests-ran.mjs tests/browser-lab.test.ts
+
   docs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -317,7 +330,7 @@ jobs:
           "$CONSTRUCT_BIN" doctor --plain
 
   required:
-    needs: [changes, checks, lint, typecheck, vitest, sandbox-list, docs, package, contract-bump, acceptance]
+    needs: [changes, checks, lint, typecheck, vitest, sandbox-list, browser, docs, package, contract-bump, acceptance]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
