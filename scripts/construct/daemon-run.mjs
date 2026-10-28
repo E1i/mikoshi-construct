@@ -36,7 +36,7 @@ function quoted(argument) {
 
 function shell(command, root, args = []) {
   const result = spawnSync([command, ...args.map(quoted)].join(' '), { cwd: root, shell: true, encoding: 'utf8' })
-  return { exitCode: result.status ?? EXIT_REFUSED, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
+  return { exitCode: result.status, signal: result.signal, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
 }
 
 function firstLine(...texts) {
@@ -80,6 +80,8 @@ export function parseObjects(stdout) {
 }
 
 export function listObjects(argument, run = runId()) {
+  if (!RUN_ID.test(run))
+    throw new UsageError(`${run} is not a run id`)
   const { location, adapter } = readAdapter(argument)
   if (adapter.extension.build !== undefined) {
     const build = shell(adapter.extension.build, location.root)
@@ -142,7 +144,7 @@ export function judgeObject(argument, run, object, agent) {
   const directory = objectDirectory(location.root, run, object)
   const judged = shell(adapter.success, location.root, [relative(location.root, directory)])
   const verdict = VERDICTS[judged.exitCode] ?? UNOBSERVED
-  const line = firstLine(judged.stdout, judged.stderr)
+  const line = judged.exitCode === null ? `success ended without an exit code${judged.signal === null ? '' : `: ${judged.signal}`}` : firstLine(judged.stdout, judged.stderr)
   return writeEvidence(directory, { object, verdict, line, ...labOutputs(location.root, directory), agent })
 }
 

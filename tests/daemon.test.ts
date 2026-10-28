@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runAttach } from '../src/commands/attach/index.js'
-import { labelledAgentTokens } from '../src/commands/cost/index.js'
+import { readDaemonObjects } from '../src/commands/cost/daemon.js'
+import { labelledAgentTokens, printCost } from '../src/commands/cost/index.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -255,5 +256,105 @@ describe('detach and .construct/daemon', () => {
 
     expect(existsSync(path.join(dir, `.construct/daemon/${RUN}/alpha/evidence.json`))).toBe(true)
     expect(existsSync(path.join(dir, `${ADAPTER}/adapter.json`))).toBe(true)
+  })
+
+  async function attached(): Promise<string> {
+    const dir = attachable()
+    expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
+    return dir
+  }
+
+  const exists = (dir: string, file: string): boolean => existsSync(path.join(dir, file))
+
+  it('removes only the run directory and keeps an adapter written after attach', async () => {
+    const dir = await attached()
+    write(dir, `${ADAPTER}/adapter.json`, '{}\n')
+    writeEvidence(dir)
+
+    runDetach(ui, { dir })
+
+    expect(exists(dir, `.construct/daemon/${RUN}`)).toBe(false)
+    expect(exists(dir, `${ADAPTER}/adapter.json`)).toBe(true)
+  })
+
+  it('keeps a run directory holding a git-tracked file', async () => {
+    const dir = await attached()
+    writeEvidence(dir)
+    git(dir, 'add', '-f', `.construct/daemon/${RUN}/alpha/evidence.json`)
+    git(dir, 'commit', '-qm', 'track evidence')
+
+    runDetach(ui, { dir })
+
+    expect(exists(dir, `.construct/daemon/${RUN}/alpha/evidence.json`)).toBe(true)
+  })
+
+  it('keeps a run directory with a subdirectory inside an object directory', async () => {
+    const dir = await attached()
+    writeEvidence(dir)
+    write(dir, `.construct/daemon/${RUN}/alpha/notes/keep.txt`, 'mine\n')
+
+    runDetach(ui, { dir })
+
+    expect(exists(dir, `.construct/daemon/${RUN}/alpha/notes/keep.txt`)).toBe(true)
+  })
+
+  it('keeps a run-id-shaped entry that is a file and removes the run directories beside it', async () => {
+    const dir = await attached()
+    writeEvidence(dir)
+    write(dir, '.construct/daemon/20261028T101010124Z-1', 'a file\n')
+
+    runDetach(ui, { dir })
+
+    expect(exists(dir, '.construct/daemon/20261028T101010124Z-1')).toBe(true)
+    expect(exists(dir, `.construct/daemon/${RUN}`)).toBe(false)
+  })
+})
+
+describe('daemon-run.mjs refusals', () => {
+  const SUCCESS_KILLED = 'process.kill(process.pid, \'SIGKILL\')\n'
+
+  it('records an object whose success command is killed by a signal as unobserved', () => {
+    const root = repository(['alpha'])
+    write(root, `${ADAPTER}/success.mjs`, SUCCESS_KILLED)
+
+    const verdict = run(root, `node scripts/construct/daemon-run.mjs verdict ${ADAPTER} ${RUN} alpha --agent daemon:${RUN}:alpha`)
+
+    expect(verdict.exitCode).toBe(0)
+    expect(evidenceOf(root, 'alpha').verdict).toBe('unobserved')
+  })
+
+  it('refuses objects --run with a value that is not a run id', () => {
+    const root = repository(['alpha'])
+
+    const listed = run(root, `node scripts/construct/daemon-run.mjs objects ${ADAPTER} --run ../escape`)
+
+    expect(listed.exitCode).toBe(2)
+    expect(listed.stderr).toContain('../escape is not a run id')
+    expect(listed.stdout).toBe('')
+  })
+})
+
+describe('the daemon objects in the cost report', () => {
+  it('reads each object\'s agent from evidence.json and reports its transcript tokens', () => {
+    const projects = scratch('construct-daemon-projects-')
+    const root = scratch('construct-daemon-cost-')
+    const runDirectory = path.join(projects, '-repo', 'session-1', 'subagents', 'workflows', 'wf-1')
+    const label = `daemon:${RUN}:alpha`
+    write(runDirectory, 'agent-a1.jsonl', JSON.stringify({ requestId: 'r1', timestamp: '2026-10-28T10:00:00Z', message: { role: 'assistant', usage: { input_tokens: 100, cache_creation_input_tokens: 5, cache_read_input_tokens: 1000, output_tokens: 10 } } }))
+    write(runDirectory, 'agent-a1.meta.json', JSON.stringify({ description: label }))
+    write(root, `.construct/daemon/${RUN}/alpha/evidence.json`, JSON.stringify({ object: 'alpha', verdict: 'holds', agent: label }))
+    write(root, `.construct/daemon/${RUN}/broken/evidence.json`, JSON.stringify({ object: 'broken', verdict: 'unobserved', agent: null }))
+    write(root, `.construct/daemon/${RUN}/torn/evidence.json`, '{')
+
+    const objects = readDaemonObjects(root, projects)
+
+    expect(objects).toEqual([
+      { run: RUN, object: 'alpha', verdict: 'holds', agent: label, tokens: 115 },
+      { run: RUN, object: 'broken', verdict: 'unobserved', agent: null, tokens: null },
+    ])
+    const lines: string[] = []
+    printCost(createUi(resolveTheme({ plain: true }), text => lines.push(text)), { status: 'empty', runtime: 'claude-code', version: '0', turns: { status: 'not recorded' }, daemon: objects }, false)
+    expect(lines.join('\n')).toContain(`daemon ${RUN}/alpha: holds, 115`)
+    expect(lines.join('\n')).toContain(`daemon ${RUN}/broken: unobserved, unknown`)
   })
 })

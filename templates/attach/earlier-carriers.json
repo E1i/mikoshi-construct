@@ -688,5 +688,10 @@
     "target": ".claude/skills/daemon/SKILL.md",
     "sha256": "d298cfa8e508e6c5704d7457958aae448aed867b77fff34a75c09866b5a27b16",
     "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/daemon-run.mjs",
+    "sha256": "ed2147fc787057175688fdd286e69b23b5e4bb0837ccc1f1b9b2ab1aa6a33a3c",
+    "date": "2026-10-28"
   }
 ]

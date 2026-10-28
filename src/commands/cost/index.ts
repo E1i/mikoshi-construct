@@ -10,6 +10,8 @@ import { defaultBusPath } from '../../../scripts/core/bus-path.js'
 import { VERSION } from '../../version.js'
 import { defaultShiftRoot, readCheapClasses } from './cheap.js'
 import { ClaudeCodeCostSource, claudeProjectsDir } from './claude-code.js'
+import type { DaemonCostReport } from './daemon.js'
+import { readDaemonObjects } from './daemon.js'
 import { expectFor } from './expect.js'
 import { hasLedgerFindings, LEDGER_FILE, parseLedgerLine, readLedger, reconcile, summarizeLedger, withoutTokenTotals } from './ledger.js'
 import { resolveRuntime } from './runtime.js'
@@ -45,7 +47,7 @@ export function knownSteps(cwd: string, runs: string[], source: CostSource | nul
   return source != null && source.readable() ? knownRunSteps(cwd, runs, run => source.steps(run)) : readStepCache(cwd)
 }
 
-export function costReport(cwd: string, options: { projectsDir?: string, shiftRoot?: string, busPath?: string, env?: NodeJS.ProcessEnv, version?: string } = {}): CostReport {
+export function costReport(cwd: string, options: { projectsDir?: string, shiftRoot?: string, busPath?: string, env?: NodeJS.ProcessEnv, version?: string } = {}): DaemonCostReport {
   const version = options.version ?? VERSION
   const runtime = resolveRuntime(cwd, options.env ?? process.env)
   const reading = readLedger(cwd)
@@ -60,6 +62,7 @@ export function costReport(cwd: string, options: { projectsDir?: string, shiftRo
   const ledgerRuns = reading.entries.map(entry => entry.run).filter(run => run != null)
   const result = source.read(cwd, ledgerRuns)
   recordedSteps(cwd, ledgerRuns, source)
+  const daemon = readDaemonObjects(cwd, projectsDir)
   const joinable = result.status === 'ok' || result.status === 'empty'
   return {
     runtime,
@@ -67,6 +70,7 @@ export function costReport(cwd: string, options: { projectsDir?: string, shiftRo
     turns,
     cheap,
     ...result,
+    ...(daemon.length > 0 ? { daemon } : {}),
     ...(reported ? { ledger } : {}),
     ...(joinable && (reported || result.runs.length > 0) ? { reconciliation: reconcile(reading.entries, result.runs) } : {}),
   }
