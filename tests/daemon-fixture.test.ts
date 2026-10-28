@@ -1,7 +1,7 @@
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { AgentOptions, Evidence } from './daemon-workflow.js'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -72,35 +72,51 @@ function refOfGo(root: string, snapshotOutput: string): string | undefined {
   return snapshot.match(/button "Go" \[ref=([^\]]+)\]/)?.[1]
 }
 
+async function spawnHands(root: string, argv: string[]): Promise<Omit<HandsRun, 'output'>> {
+  const child = spawn(process.execPath, argv, { cwd: root, timeout: HANDS_RUN_MS })
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', (chunk: string) => {
+    stdout += chunk
+  })
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk
+  })
+  const status = await new Promise<number | null>(resolve => child.once('close', resolve))
+  return { status, stdout, stderr }
+}
+
 async function standInMechanic(root: string, prompt: string, object: string, page: string, profile: string, transcript: string[]): Promise<string> {
   const evidence = path.join(root, evidenceDirectoryOf(prompt))
   mkdirSync(evidence, { recursive: true })
   const extension = labCopyOf(prompt)
   const session = `-s=${object}`
   let outputs = 0
-  function hands(...cliArguments: string[]): HandsRun {
-    const ran = spawnSync(process.execPath, [LAB, 'hands', '--extension', extension, '--profile', profile, '--', ...cliArguments], { cwd: root, encoding: 'utf8', timeout: HANDS_RUN_MS })
+  async function hands(...cliArguments: string[]): Promise<HandsRun> {
+    const ran = await spawnHands(root, [LAB, 'hands', '--extension', extension, '--profile', profile, '--', ...cliArguments])
     outputs += 1
     writeFileSync(path.join(evidence, `lab-${outputs}.json`), ran.stdout)
     transcript.push(`${object} hands ${cliArguments.join(' ')}: exit ${String(ran.status)}\nstdout: ${ran.stdout}\nstderr: ${ran.stderr}`)
     return { status: ran.status, stdout: ran.stdout, stderr: ran.stderr, output: outputOf(ran.stdout) }
   }
   try {
-    hands('open', session, page)
-    const ref = refOfGo(root, hands('snapshot', session).output)
+    await hands('open', session, page)
+    const ref = refOfGo(root, (await hands('snapshot', session)).output)
     if (ref === undefined)
       return 'no button named Go in the snapshot'
-    hands('click', session, ref)
-    let heard = hands('console', session)
+    await hands('click', session, ref)
+    let heard = await hands('console', session)
     for (let tries = 1; tries < CONSOLE_TRIES && !heard.output.includes(FIXTURE_LINE); tries++) {
       await sleep(CONSOLE_PAUSE_MS)
-      heard = hands('console', session)
+      heard = await hands('console', session)
     }
     writeFileSync(path.join(evidence, 'console.json'), heard.stdout)
     return `clicked ${ref} and read the console`
   }
   finally {
-    hands('close', session)
+    await hands('close', session)
   }
 }
 
