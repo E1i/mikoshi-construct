@@ -11,7 +11,7 @@ import { ATTACH_EXIT, ATTACH_RECORD_FILE, EXCLUDE_FILE, pathsInExcludeBlock, pla
 import { originalCopyPath } from '../src/commands/attach/original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, NO_HARNESS } from '../src/commands/attach/record.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
-import { engramRules, WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
+import { BROWSER_LAB_EXCLUDED_COMMAND, engramRules, WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
 import { runDetach } from '../src/commands/detach/index.js'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { printDoctor } from '../src/commands/doctor/report.js'
@@ -565,9 +565,9 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ hooks: { ...WINDOW_HOOKS, PreToolUse: PRE_TOOL_USE_ENTRIES }, permissions: { allow: engramRules(dir, home()) } })
+    expect(readSettings(dir)).toEqual({ hooks: { ...WINDOW_HOOKS, PreToolUse: PRE_TOOL_USE_ENTRIES }, permissions: { allow: engramRules(dir, home()) }, sandbox: { excludedCommands: [BROWSER_LAB_EXCLUDED_COMMAND] } })
     expect(porcelain(dir)).toBe('')
-    expect(readAttachRecord(dir)?.settingsHook).toEqual({ file: SETTINGS_FILE, created: { file: true, hooks: true, preToolUse: true }, entry: GUARD_ENTRY, window: WINDOW_CREATED, engram: { added: engramRules(dir, home()), createdPermissions: true, createdAllow: true } })
+    expect(readAttachRecord(dir)?.settingsHook).toEqual({ file: SETTINGS_FILE, created: { file: true, hooks: true, preToolUse: true }, entry: GUARD_ENTRY, window: WINDOW_CREATED, engram: { added: engramRules(dir, home()), createdPermissions: true, createdAllow: true }, sandbox: { added: [BROWSER_LAB_EXCLUDED_COMMAND], createdSandbox: true, createdExcluded: true } })
     expect(readFileSync(path.join(dir, ATTACH_GUARD.target)).equals(readFileSync(path.join(import.meta.dirname, '../templates/attach/_construct/commit-guard.mjs')))).toBe(true)
     expect(readAttachRecord(dir)?.files[ATTACH_GUARD.target]).toBe(sha256(path.join(dir, ATTACH_GUARD.target)))
   })
@@ -579,7 +579,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ permissions: { allow: [...existing.permissions.allow, ...engramRules(dir, home())] }, hooks: { ...WINDOW_HOOKS, PreToolUse: [...existing.hooks.PreToolUse, ...PRE_TOOL_USE_ENTRIES], Stop: [...existing.hooks.Stop, WINDOW_ENTRIES.Stop] } })
+    expect(readSettings(dir)).toEqual({ permissions: { allow: [...existing.permissions.allow, ...engramRules(dir, home())] }, hooks: { ...WINDOW_HOOKS, PreToolUse: [...existing.hooks.PreToolUse, ...PRE_TOOL_USE_ENTRIES], Stop: [...existing.hooks.Stop, WINDOW_ENTRIES.Stop] }, sandbox: { excludedCommands: [BROWSER_LAB_EXCLUDED_COMMAND] } })
     expect(readAttachRecord(dir)?.settingsHook?.created).toEqual({ file: false, hooks: false, preToolUse: false })
     expect(porcelain(dir)).toBe('')
   })
@@ -590,7 +590,7 @@ describe('the commit guard: attach installs one entry in the untracked settings 
 
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ permissions: { allow: engramRules(dir, home()) }, hooks: { ...WINDOW_HOOKS, PreToolUse: PRE_TOOL_USE_ENTRIES } })
+    expect(readSettings(dir)).toEqual({ permissions: { allow: engramRules(dir, home()) }, hooks: { ...WINDOW_HOOKS, PreToolUse: PRE_TOOL_USE_ENTRIES }, sandbox: { excludedCommands: [BROWSER_LAB_EXCLUDED_COMMAND] } })
     expect(readAttachRecord(dir)?.settingsHook?.created).toEqual({ file: false, hooks: true, preToolUse: true })
   })
 

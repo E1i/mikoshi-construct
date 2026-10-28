@@ -62,7 +62,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
 
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
+    expect(readSettings(dir)).toEqual({ sandbox: { excludedCommands: ['node scripts/construct/browser-lab.mjs *'] }, hooks: { PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
     expect(readFileSync(path.join(dir, ATTACH_WINDOW_HOOKS.target)).equals(readFileSync(TEMPLATE))).toBe(true)
     const record = readAttachRecord(dir)
     expect(Object.keys(record?.files ?? {})).toContain(ATTACH_WINDOW_HOOKS.target)
@@ -79,6 +79,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({
+      sandbox: { excludedCommands: ['node scripts/construct/browser-lab.mjs *'] },
       permissions: { allow: [...existing.permissions.allow, ...engramRules(dir, home())] },
       hooks: { Stop: [own, STOP_ENTRY], SessionStart: [{ matcher: 'startup', ...own }, COMPACT_START_ENTRY], PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], PreCompact: [PRE_COMPACT_ENTRY] },
     })

@@ -59,6 +59,14 @@ export interface EngramPermissions {
   createdAllow: boolean
 }
 
+export interface SandboxExclusion {
+  added: string[]
+  createdSandbox: boolean
+  createdExcluded: boolean
+}
+
+export const BROWSER_LAB_EXCLUDED_COMMAND = 'node scripts/construct/browser-lab.mjs *'
+
 const ENGRAM_TOOLS = ['Read', 'Edit'] as const
 
 export function engramRules(root: string, home: string = homedir()): string[] {
@@ -78,6 +86,7 @@ export interface SettingsHook {
   entry: JsonObject
   window?: WindowEntry[]
   engram?: EngramPermissions
+  sandbox?: SandboxExclusion
   original?: SettingsOriginal
 }
 
@@ -129,6 +138,10 @@ export function readSettings(root: string): SettingsReading {
   if ('permissions' in parsed && !isJsonObject(parsed.permissions))
     return { kind: 'unreadable' }
   if (isJsonObject(parsed.permissions) && 'allow' in parsed.permissions && !Array.isArray(parsed.permissions.allow))
+    return { kind: 'unreadable' }
+  if ('sandbox' in parsed && !isJsonObject(parsed.sandbox))
+    return { kind: 'unreadable' }
+  if (isJsonObject(parsed.sandbox) && 'excludedCommands' in parsed.sandbox && !Array.isArray(parsed.sandbox.excludedCommands))
     return { kind: 'unreadable' }
   const hooks = parsed.hooks
   if (isJsonObject(hooks) && HOOK_EVENTS.some(event => event in hooks && !Array.isArray(hooks[event])))
@@ -205,6 +218,34 @@ function revokeEngram(settings: JsonObject, engram: EngramPermissions): void {
     delete settings.permissions
 }
 
+function excludeBrowserLab(settings: JsonObject): SandboxExclusion {
+  const createdSandbox = !('sandbox' in settings)
+  const sandbox: JsonObject = isJsonObject(settings.sandbox) ? settings.sandbox : {}
+  const createdExcluded = !('excludedCommands' in sandbox)
+  const excluded: unknown[] = Array.isArray(sandbox.excludedCommands) ? sandbox.excludedCommands : []
+  const added = excluded.includes(BROWSER_LAB_EXCLUDED_COMMAND) ? [] : [BROWSER_LAB_EXCLUDED_COMMAND]
+  excluded.push(...added)
+  sandbox.excludedCommands = excluded
+  settings.sandbox = sandbox
+  return { added, createdSandbox, createdExcluded }
+}
+
+function restoreSandbox(settings: JsonObject, exclusion: SandboxExclusion): void {
+  const sandbox = settings.sandbox
+  if (!isJsonObject(sandbox) || !Array.isArray(sandbox.excludedCommands))
+    return
+  const remaining = sandbox.excludedCommands.filter(command => !exclusion.added.includes(command as string))
+  sandbox.excludedCommands = remaining
+  if (exclusion.createdExcluded && remaining.length === 0)
+    delete sandbox.excludedCommands
+  if (exclusion.createdSandbox && Object.keys(sandbox).length === 0)
+    delete settings.sandbox
+}
+
+function isSandboxRecord(value: unknown): boolean {
+  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(command => command === BROWSER_LAB_EXCLUDED_COMMAND) && typeof value.createdSandbox === 'boolean' && typeof value.createdExcluded === 'boolean')
+}
+
 function isEngramRecord(value: unknown): boolean {
   return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(rule => typeof rule === 'string') && typeof value.createdPermissions === 'boolean' && typeof value.createdAllow === 'boolean')
 }
@@ -230,8 +271,9 @@ export function installHookEntries(root: string, reading: SettingsReading): Sett
   })
   settings.hooks = hooks
   const engram = allowEngram(settings, engramRules(root))
+  const sandbox = excludeBrowserLab(settings)
   const afterSha256 = sha256OfBytes(writeSettings(root, settings))
-  return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry, window, engram }, afterSha256 }
+  return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry, window, engram, sandbox }, afterSha256 }
 }
 
 const SHA256_HEX = /^[0-9a-f]{64}$/
@@ -258,7 +300,7 @@ export function isSettingsHook(value: unknown): value is SettingsHook {
   if (!isJsonObject(value) || value.file !== SETTINGS_FILE || !isJsonObject(value.created))
     return false
   const { file, hooks, preToolUse } = value.created
-  if (![file, hooks, preToolUse].every(flag => typeof flag === 'boolean') || !isJsonObject(value.entry) || !namesGuard(value.entry) || !isWindowRecord(value.window) || !isEngramRecord(value.engram))
+  if (![file, hooks, preToolUse].every(flag => typeof flag === 'boolean') || !isJsonObject(value.entry) || !namesGuard(value.entry) || !isWindowRecord(value.window) || !isEngramRecord(value.engram) || !isSandboxRecord(value.sandbox))
     return false
   return value.original === undefined || (file === false && isSettingsOriginal(value.original))
 }
@@ -298,6 +340,8 @@ export function removeHookEntries(root: string, hook: SettingsHook): { fileDelet
   }
   if (hook.engram != null)
     revokeEngram(settings, hook.engram)
+  if (hook.sandbox != null)
+    restoreSandbox(settings, hook.sandbox)
   if (hook.created.hooks && Object.keys(hooks).length === 0)
     delete settings.hooks
   if (hook.created.file && Object.keys(settings).length === 0) {
