@@ -61,10 +61,10 @@ function resolve(references: readonly string[], ids: ReadonlyMap<string, number>
   })
 }
 
-function bodyOf(card: CheckedCard, unclear: readonly UnclearField[], seam: readonly string[], risk: readonly string[]): string {
+function bodyOf(card: CheckedCard, corrections: readonly Correction[], unclear: readonly UnclearField[], seam: readonly string[], risk: readonly string[]): string {
   const notes = [
     ...unclear.map(entry => `${UNCLEAR_PREFIX}${entry.field} — ${entry.reason}`),
-    ...card.corrections.map(correction => `${CORRECTED_PREFIX}${correctionText(correction)}`),
+    ...corrections.map(correction => `${CORRECTED_PREFIX}${correctionText(correction)}`),
     ...seam,
     ...(card.whole === undefined ? [] : [`${WHOLE_PREFIX}${card.whole.trim()}`]),
     ...risk,
@@ -86,15 +86,43 @@ function sorted(ids: Iterable<number>): number[] {
   return [...new Set(ids)].sort((a, b) => a - b)
 }
 
+function duplicateGoals(cards: readonly CheckedCard[]): string[] {
+  const first = new Map<string, string>()
+  return cards.flatMap((card) => {
+    const goal = card.task.trim()
+    const named = first.get(goal)
+    if (named === undefined)
+      first.set(goal, card.name)
+    return named === undefined ? [] : [`${named} and ${card.name} carry the same task text; every card has a goal of its own, so write what ${card.name} changes, or keep the two as one card`]
+  })
+}
+
+function foundationsOf(cards: readonly CheckedCard[], numbers: readonly number[], depends: number[][], sources: SliceSources): Correction[][] {
+  const imports = sliceDepends(cards.map(card => card.touches), sources)
+  return cards.map((card, index) => imports[index]!.flatMap((at) => {
+    const foundation = numbers[at]!
+    if (imports[at]!.includes(index) || depends[index]!.includes(foundation) || depends[at]!.includes(numbers[index]!))
+      return []
+    depends[index]!.push(foundation)
+    return [{ field: 'depends', was: '(absent)', now: `#${foundation}`, reason: `${card.name} imports what ${cards[at]!.name} changes, so the consumer waits for its foundation` }]
+  }))
+}
+
 export function sliceCards(cards: readonly CheckedCard[], numbers: readonly number[], sources: SliceSources): Slice {
   const ids = new Map(cards.map((card, index) => [card.name, numbers[index]!]))
   const reasons: string[] = []
   const depends = cards.map(card => resolve(card.depends, ids, card.name, reasons))
   const blocks = cards.map(card => resolve(card.blocks, ids, card.name, reasons))
+  reasons.push(...duplicateGoals(cards))
+  const foundations = foundationsOf(cards, numbers, depends, sources)
+  const ring = dependsCycle(depends.map(ids => ids.flatMap(id => (numbers.includes(id) ? [numbers.indexOf(id)] : []))))
+  if (ring !== null)
+    reasons.push(`${ring.map(at => cards[at]!.name).join(', ')} depend on each other in a ring, so none of them can start; drop the depends that closes the ring, or keep the cards as one`)
   const sliced = cards.map((card, index) => {
     const id = numbers[index]!
     const blockedHere = cards.flatMap((_, at) => (depends[at]!.includes(id) ? [numbers[at]!] : []))
     const { contour, decision, unclear } = defaulted(card)
+    const corrections = [...card.corrections, ...foundations[index]!]
     const line = cardLine({
       id,
       name: card.name,
@@ -130,12 +158,12 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       creates: card.creates,
       continue: card.continue ?? DEFAULT_CONTINUE,
       who,
-      body: bodyOf(card, unclear, seam, risk),
+      body: bodyOf(card, corrections, unclear, seam, risk),
     })
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')
       reasons.push(`${card.name}: ${parsed.reason}`)
-    return { id, file, line, who, unclear, corrections: card.corrections, seam, risk, slices, text }
+    return { id, file, line, who, unclear, corrections, seam, risk, slices, text }
   })
   return reasons.length > 0 ? { kind: 'refused', reasons } : { kind: 'sliced', cards: sliced }
 }
@@ -149,11 +177,16 @@ function witnessesOfSlice(witnesses: readonly string[], touches: readonly string
   return witnesses.filter(witness => names(witness, touches) || !names(witness, everyTouch))
 }
 
+function sliceGoal(card: CheckedCard, slice: CardSlice, at: number): string {
+  return `Part ${at + 1} of ${card.name}: the change to ${slice.touches.join(', ')} only; every other part is a card of its own.\n\n${card.task}`
+}
+
 function slicedCard(card: CheckedCard, slice: CardSlice, at: number, dependents: (reference: string) => string[]): CheckedCard {
   const witnesses = witnessesOfSlice(card.witnesses, slice.touches, card.touches)
   const { number: _number, ...rest } = card
   return {
     ...rest,
+    task: sliceGoal(card, slice, at),
     name: sliceName(card, at),
     ...(card.branch === undefined ? {} : { branch: `${card.branch}${SLICE_NAME_INFIX}${at + 1}` }),
     touches: slice.touches,
