@@ -68,14 +68,40 @@ function parsedOrNull(text: string): unknown {
   }
 }
 
+function excludedCommandsOf(settings: JsonObject): unknown[] | null {
+  if (!('sandbox' in settings))
+    return []
+  const sandbox = settings.sandbox
+  if (!isJsonObject(sandbox))
+    return null
+  if (!('excludedCommands' in sandbox))
+    return []
+  return Array.isArray(sandbox.excludedCommands) ? sandbox.excludedCommands : null
+}
+
+function mergedSandbox(settings: JsonObject, produced: JsonObject): JsonObject | null {
+  const present = excludedCommandsOf(settings)
+  const incoming = excludedCommandsOf(produced)
+  if (present === null || incoming === null)
+    return null
+  const added = incoming.filter(command => !present.includes(command))
+  if (added.length === 0)
+    return settings
+  const sandbox = isJsonObject(settings.sandbox) ? settings.sandbox : {}
+  return { ...settings, sandbox: { ...sandbox, excludedCommands: [...present, ...added] } }
+}
+
 export function mergeHookSettings(existing: string, incoming: string): string | null {
-  const settings = parsedOrNull(existing)
+  const parsed = parsedOrNull(existing)
   const produced = parsedOrNull(incoming)
-  if (!isJsonObject(settings) || !isJsonObject(produced) || !isJsonObject(produced.hooks))
+  if (!isJsonObject(parsed) || !isJsonObject(produced) || !isJsonObject(produced.hooks))
     return null
-  if ('hooks' in settings && !isJsonObject(settings.hooks))
+  if ('hooks' in parsed && !isJsonObject(parsed.hooks))
     return null
-  const hooks: JsonObject = isJsonObject(settings.hooks) ? structuredClone(settings.hooks) : {}
+  const settings = mergedSandbox(parsed, produced)
+  if (settings === null)
+    return null
+  const hooks: JsonObject = isJsonObject(parsed.hooks) ? structuredClone(parsed.hooks) : {}
   const events = Object.entries(produced.hooks)
   if (events.some(([event, entries]) => !Array.isArray(entries) || (event in hooks && !Array.isArray(hooks[event]))))
     return null

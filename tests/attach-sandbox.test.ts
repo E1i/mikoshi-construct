@@ -114,12 +114,13 @@ describe('init names that the organ runs without the exclusion', () => {
     expect(captured.lines.join('\n')).toContain('runs inside the sandbox without its exclusion')
   })
 
-  it('prints the line when .claude/settings.json is merged and loses the sandbox key', async () => {
+  it('merges the exclusion into an existing .claude/settings.json and prints nothing about it', async () => {
     const dir = existingRepositoryWithSettings(`${JSON.stringify({ hooks: {} })}\n`)
     const captured = capturedUi()
     const result = await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
     expect(result.written).toContain('.claude/settings.json')
-    expect(captured.lines.join('\n')).toContain('runs inside the sandbox without its exclusion')
+    expect(JSON.parse(readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'))).toMatchObject({ sandbox: { excludedCommands: ['node scripts/construct/browser-lab.mjs *'] } })
+    expect(captured.lines.join('\n')).not.toContain('without its exclusion')
   })
 
   it('prints nothing about it when init writes the entry', async () => {
