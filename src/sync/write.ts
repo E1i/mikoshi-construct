@@ -1,7 +1,7 @@
 import type { Strategy } from '../materialize/strategies.js'
 import type { TemplateVariant } from '../materialize/templates.js'
 import type { PathClass, PathClassification, WriteEffect } from './classify.js'
-import { substituteBlock } from '../materialize/strategies.js'
+import { mergeHookSettings, substituteBlock } from '../materialize/strategies.js'
 import { isWritable } from './classify.js'
 import { ownedSha } from './ownership.js'
 
@@ -35,7 +35,11 @@ export function isPending(classification: PathClassification): boolean {
 function contentToWrite(classification: PathClassification, input: WriteInput): string {
   const produced = input.produced[classification.target] ?? ''
   const present = input.present[classification.target]
-  if (classification.strategy !== 'append-block' || present == null)
+  if (present == null)
+    return produced
+  if (classification.strategy === 'merge-hooks')
+    return mergeHookSettings(present, produced) ?? present
+  if (classification.strategy !== 'append-block')
     return produced
   return substituteBlock(present, produced, classification.target)
 }

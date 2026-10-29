@@ -6,7 +6,9 @@ description: >-
   every path into one of the classes in `PATH_CLASSES`, counts them, and hands the report to
   `printSync` or to `syncJson`; it writes nothing. `applySync(root, version)` replays the same
   evidence and writes only what `isWritable` allows — `add`, `update` and `template-moved-on` where
-  the strategy is `create` or `append-block`, never a `merge-json` target, a `conflict`, a
+  the strategy is `create` or `append-block`, and `add` or `update` for the `merge-hooks` settings,
+  where `update` appends the hook entries the repository's settings lack exactly as `init` merges
+  them and keeps every key it has; never a `merge-json` target, a `conflict`, a
   `block-edited`, a `record-vars-edited`, an `unknown`, a `removed` or a `foreign` path — then
   records the owned view and the template variant of each written path in the manifest's `sync`
   branch, and for a block target the owned-view sha and the vars it was written with, leaving the

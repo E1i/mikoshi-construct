@@ -1,6 +1,6 @@
 import type { DoctorResult } from '../src/commands/doctor/index.js'
 import type { Fact, RepositoryModel } from '../src/model/schema.js'
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -9,6 +9,7 @@ import { runDoctor } from '../src/commands/doctor/index.js'
 import { modelPicture } from '../src/commands/graph.js'
 import { runInit } from '../src/commands/init.js'
 import { buildManifest, readManifest, recordedShas, writeManifest } from '../src/manifest.js'
+import { FACTORY_MANIFEST } from '../src/materialize/factory-manifest.js'
 import { MODEL_FILE, MODEL_VERSION, parseModel } from '../src/model/schema.js'
 import { deriveModelState } from '../src/model/state.js'
 import { readModel } from '../src/model/write.js'
@@ -158,7 +159,12 @@ describe('harness.state on the python service of measurement 2a, whose harness r
   })
 
   it('keeps ok true while it reads does-not-cover, because ok answers whether the inspection completed', () => {
-    const result = doctor(pythonService())
+    const root = pythonService()
+    for (const target of FACTORY_MANIFEST.filter(file => !existsSync(path.join(root, file)))) {
+      mkdirSync(path.dirname(path.join(root, target)), { recursive: true })
+      writeFileSync(path.join(root, target), '')
+    }
+    const result = doctor(root)
     expect(result.harness.state).toBe('does-not-cover')
     expect(result.ok).toBe(true)
   })
