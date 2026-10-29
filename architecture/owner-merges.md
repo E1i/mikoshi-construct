@@ -50,11 +50,13 @@ On 2026-10-29, at Eli's instruction (0.46 reconciliation, session 338, card #141
 `own-instructions` to `.claude/**` of this repository, marked `no` under a shard: `templates/ai/**`, `templates/attach/**`
 and `scripts/construct/**` are product delivery and merge under a shard. Eli's boundaries are `security-invariants`, the
 version pull request, the npm publish, `.claude/**` and `.github/workflows/**`, as decided on 2026-10-25.
+The same day, at Eli's instruction (PR #1199, card #1414), the coordinating window added `architecture/owner-merges.md` back to
+`own-instructions`: a change to Eli's own boundaries stays Eli's, as `security-invariants` does.
 
 | kind | paths (globs) | what it covers | example | merges under a shard |
 |---|---|---|---|---|
 | release | — (matched by title: «chore: version packages») | version pull requests | PR #259, PR #265, PR #277 | no |
-| own-instructions | `.claude/**` | this repository's own agent instructions: everything under `.claude/` | PR #244, PR #282, PR #366; issues #257, #269, #271 | no |
+| own-instructions | `.claude/**`, `architecture/owner-merges.md` | this repository's own agent instructions: everything under `.claude/`, and this file, which draws Eli's boundaries | PR #244, PR #282, PR #366; issues #257, #269, #271 | no |
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — | no |
 | workflows | `.github/workflows/**` | every GitHub Actions workflow: what CI runs, with which permissions and secrets | — | no |
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — | no |

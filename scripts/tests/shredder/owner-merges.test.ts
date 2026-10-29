@@ -51,7 +51,7 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     { files: ['.github/workflows/release.yml'], ownerMerged: true },
     { files: ['.github/workflows/ci.yml'], ownerMerged: true },
     { files: ['architecture/security-invariants.md'], ownerMerged: true },
-    { files: ['architecture/owner-merges.md'], ownerMerged: false },
+    { files: ['architecture/owner-merges.md'], ownerMerged: true },
     { files: ['scripts/ladder/launch.ts'], ownerMerged: false },
     { files: ['scripts/ladder/isolation.ts'], ownerMerged: false },
     { files: ['scripts/nodes/launch/header.md'], ownerMerged: false },
@@ -68,7 +68,7 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     expect(kinds.find(kind => kind.kind === 'workflows')?.globs).toEqual(['.github/workflows/**'])
     expect(kinds.find(kind => kind.kind === 'release')?.title).toBe('chore: version packages')
     expect(kinds.find(kind => kind.kind === 'new-write-path')?.notChecked).toBe(true)
-    expect(kinds.find(kind => kind.kind === 'own-instructions')?.globs).toEqual(['.claude/**'])
+    expect(kinds.find(kind => kind.kind === 'own-instructions')?.globs).toEqual(['.claude/**', 'architecture/owner-merges.md'])
     expect(kinds.find(kind => kind.kind === 'agent-permissions')?.globs).toEqual(['contract/factory-permissions.json'])
   })
 
