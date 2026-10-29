@@ -160,7 +160,7 @@ function registerPlan(db: DatabaseSync, event: CardEvent): void {
   if (db.prepare(PLAN_OPENED_BEFORE).get(plan.id) === undefined)
     appendEvent(db, { ...recorded, type: PLAN_OPENED, cardId: null, dedupeKey: `${PLAN_OPENED}:intake:${plan.id}`, payload: { id: plan.id, title: plan.title, goal: plan.goal, plan_file: plan.file } })
   if (db.prepare(ITEM_ADDED_BEFORE).get(plan.id, plan.item) === undefined)
-    appendEvent(db, { ...recorded, type: PLAN_ITEM_ADDED, cardId: null, dedupeKey: `${PLAN_ITEM_ADDED}:intake:${plan.id}:${plan.item}`, payload: { plan: plan.id, item: plan.item, title: String(event.payload.card) } })
+    appendEvent(db, { ...recorded, type: PLAN_ITEM_ADDED, cardId: null, dedupeKey: `${PLAN_ITEM_ADDED}:intake:${plan.id}:${plan.item}`, payload: { plan: plan.id, item: plan.item, title: plan.item } })
   appendEvent(db, { ...recorded, type: PLAN_ITEM_LINKED, cardId: event.cardId, dedupeKey: `${PLAN_ITEM_LINKED}:intake:${plan.id}:${plan.item}:${event.cardId}`, payload: { plan: plan.id, item: plan.item, card: event.cardId } })
 }
 

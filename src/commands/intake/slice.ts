@@ -115,6 +115,9 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
   const blocks = cards.map(card => resolve(card.blocks, ids, card.name, reasons))
   reasons.push(...duplicateGoals(cards))
   const foundations = foundationsOf(cards, numbers, depends, sources)
+  const ring = dependsCycle(depends.map(ids => ids.flatMap(id => (numbers.includes(id) ? [numbers.indexOf(id)] : []))))
+  if (ring !== null)
+    reasons.push(`${ring.map(at => cards[at]!.name).join(', ')} depend on each other in a ring, so none of them can start; drop the depends that closes the ring, or keep the cards as one`)
   const sliced = cards.map((card, index) => {
     const id = numbers[index]!
     const blockedHere = cards.flatMap((_, at) => (depends[at]!.includes(id) ? [numbers[at]!] : []))

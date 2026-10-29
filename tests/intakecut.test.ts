@@ -59,6 +59,11 @@ describe('intake cuts cards that run without window edits', () => {
     expect(consumer.card.depends).toEqual([foundation.card.id])
     expect(foundation.card.blocks).toEqual([consumer.card.id])
     expect(foundation.card.depends).toEqual([])
+
+    const ringFiles = { 'src/a.ts': 'import { b } from \'./b.js\'\nexport const a = b\n', 'src/b.ts': 'import { c } from \'./c.js\'\nexport const b = c\n', 'src/c.ts': 'import { a } from \'./a.js\'\nexport const c = a\n' }
+    const ring = intake(scratch(), { cards: [card('ra', ['src/a.ts'], 'Change a.'), card('rb', ['src/b.ts'], 'Change b.'), card('rc', ['src/c.ts'], 'Change c.')] }, ringFiles, { dryRun: true })
+    expect(ring.status).toBe('refused')
+    expect(detail(ring)).toContain('ra, rb, rc depend on each other in a ring')
   })
 
   it('the witness kind is a field, not the phrase red on main', () => {
@@ -87,7 +92,7 @@ describe('intake cuts cards that run without window edits', () => {
     reduce(db)
     const ids = result.cards.map(each => each.id)
     expect(db.prepare('SELECT plan_id, state, plan_file FROM plans').all()).toEqual([{ plan_id: 'p1', state: 'open', plan_file: path.join(root, 'repo', 'docs/plan.md') }])
-    expect(db.prepare('SELECT item_id, cards FROM plan_items ORDER BY item_id').all()).toEqual([{ item_id: 'A', cards: JSON.stringify([ids[0]]) }, { item_id: 'B', cards: JSON.stringify([ids[1]]) }])
+    expect(db.prepare('SELECT item_id, title, cards FROM plan_items ORDER BY item_id').all()).toEqual([{ item_id: 'A', title: 'A', cards: JSON.stringify([ids[0]]) }, { item_id: 'B', title: 'B', cards: JSON.stringify([ids[1]]) }])
     expect(db.prepare('SELECT DISTINCT actor FROM events WHERE type LIKE \'plan.%\'').all()).toEqual([{ actor: 'owner' }])
     db.close()
 
