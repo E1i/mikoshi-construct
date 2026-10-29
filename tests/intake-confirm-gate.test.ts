@@ -158,7 +158,7 @@ describe('intake confirmation gate', () => {
   })
 
   it('with --auto-confirm a corrected card is parked at once and its corrections and the flag are recorded in the bus', () => {
-    const w = world([card({ number: 12 }), card({ name: 'clean-card' })])
+    const w = world([card({ number: 12 }), card({ name: 'clean-card', task: 'Clean the card.' })])
     const result = intake(w, { autoConfirm: true })
     expect(result.status).toBe('written')
     expect(printed(result).exit).toBe(INTAKE_EXIT.written)

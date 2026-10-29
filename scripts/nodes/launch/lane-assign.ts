@@ -178,20 +178,33 @@ function laneNumbers(count: number): number[] {
   return Array.from({ length: count }, (_, index) => index + 1)
 }
 
+function chainChoice(chained: readonly LiveLane[], current: string | null): LaneChoice {
+  const lanes = [...new Set(chained.map(other => other.lane))].sort(byNumber)
+  const lane = current !== null && lanes.includes(current) ? current : lanes[0]!
+  return { lane, reason: 'chain', after: chained.filter(other => other.lane === lane).map(other => other.cardId) }
+}
+
+function binding(card: LaneCard, chained: readonly LiveLane[], others: readonly LiveLane[]): LiveLane[] {
+  const overlapping = chained.filter(other => overlaps(card.task, other.task))
+  if (overlapping.length > 0)
+    return overlapping
+  return chained.filter(other => others.every(each => each.lane !== other.lane || chainedTo(card, each)))
+}
+
 export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: number, current: string | null = null): LaneChoice {
   const others = live.filter(other => other.cardId !== card.cardId)
   const chained = others.filter(other => withinCount(other.lane, count) && chainedTo(card, other))
-  if (chained.length > 0) {
-    const lanes = [...new Set(chained.map(other => other.lane))].sort(byNumber)
-    const lane = current !== null && lanes.includes(current) ? current : lanes[0]!
-    return { lane, reason: 'chain', after: chained.filter(other => other.lane === lane).map(other => other.cardId) }
-  }
+  const bound = binding(card, chained, others)
+  if (bound.length > 0)
+    return chainChoice(bound, current)
   if (current !== null && withinCount(current, count))
     return { lane: current, reason: 'kept', after: [] }
   const load = new Map(laneNumbers(count).map(number => [number, others.filter(other => other.lane === chainLaneName(number)).length]))
   const free = laneNumbers(count).find(number => load.get(number) === 0)
   if (free !== undefined)
     return { lane: chainLaneName(free), reason: 'free', after: [] }
+  if (chained.length > 0)
+    return chainChoice(chained, current)
   const least = laneNumbers(count).reduce((best, number) => load.get(number)! < load.get(best)! ? number : best)
   return { lane: chainLaneName(least), reason: 'least-loaded', after: [] }
 }
