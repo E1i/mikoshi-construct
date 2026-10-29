@@ -132,7 +132,7 @@ describe('intake fact check', () => {
   it('corrects a wrong path, a taken number and an invalid contour, and a named number is never used', () => {
     const dir = repository(['src/commands/intake/index.ts', 'src/commands/sync/index.ts'])
     const { result, parking } = intake(
-      [card({ number: 12, touches: ['src/command/sync/**'], contour: 'fast' }), card({ name: 'second-card', number: 40, touches: ['src/commands/intake/index.ts'] }), card({ name: 'third-card', touches: ['src/commands/intake/index.ts'] })],
+      [card({ number: 12, touches: ['src/command/sync/**'], contour: 'fast' }), card({ name: 'second-card', number: 40, touches: ['src/commands/intake/index.ts'], task: `${TASK} Second.` }), card({ name: 'third-card', touches: ['src/commands/intake/index.ts'], task: `${TASK} Third.` })],
       { dir, taken: '12' },
     )
     const first = written(result, parking, 13)
@@ -175,7 +175,7 @@ describe('intake fact check', () => {
     const dir = repository(['src/a/util.ts', 'tests/b/util.ts', 'src/commands/intake/index.ts'])
     const { result, parking } = intake([
       card({ touches: ['src/new/feature.ts', 'src/commands/intake/index.ts'], creates: ['src/new/feature.ts', 'src/commands/intake/index.ts'] }),
-      card({ name: 'second-card', touches: ['src/new/feature.ts', 'lib/util.ts', 'src/commands/intake/index.ts'], creates: ['src/new/feature.ts'] }),
+      card({ name: 'second-card', touches: ['src/new/feature.ts', 'lib/util.ts', 'src/commands/intake/index.ts'], creates: ['src/new/feature.ts'], task: `${TASK} Second.` }),
     ], { dir })
     expect(printed(result)).toContain('corrected: creates — src/commands/intake/index.ts → (exists, not new) — src/commands/intake/index.ts already exists')
     const second = written(result, parking, 3)
