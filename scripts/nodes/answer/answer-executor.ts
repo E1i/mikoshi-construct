@@ -120,7 +120,7 @@ export class AnswerExecutor {
   async answer(lease: Lease): Promise<AnswerOutcome> {
     try {
       assertHeld(this.parts.db, lease)
-      const source = answerSourceOf(this.parts.db, lease) ?? this.redWitness(lease)
+      const source = this.sourceOf(lease)
       if (source === null && !this.dirtyOnHead(lease))
         return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
       let widened: Widened | null = null
@@ -160,7 +160,17 @@ export class AnswerExecutor {
     }
   }
 
-  private redWitness(lease: Lease): Answering | null {
+  private sourceOf(lease: Lease): Answering | null {
+    const source = answerSourceOf(this.parts.db, lease)
+    if (source !== null && source.kind !== 'ci')
+      return source
+    const witness = this.redWitness(lease)
+    if (witness === null)
+      return source
+    return source === null ? witness : { ...witness, failedChecks: source.failedChecks }
+  }
+
+  private redWitness(lease: Lease): Answering & { kind: 'changes' } | null {
     if (lease.pr === null || lease.head === null)
       return null
     const red = this.parts.db.prepare(RED_WITNESS_ON_HEAD).get(lease.pr, lease.head) as { detail: unknown } | undefined
