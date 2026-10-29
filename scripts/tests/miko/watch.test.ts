@@ -69,8 +69,8 @@ function fileDeps(file: string, events: BusEvent[] = [], stalls: CardActivity[] 
     deniedUpTo: id => events.filter(event => event.type === POLICY_DENIED && event.id <= id),
     windowPrs: () => windowPrs,
     ownRequest: request => ownRequests.has(request),
-    observedHeads: (pr) => {
-      const observed = events.filter(event => event.type === PR_OBSERVED && event.pr === pr && event.head !== null)
+    observedHeads: (pr, beforeId) => {
+      const observed = events.filter(event => event.type === PR_OBSERVED && event.pr === pr && event.id < beforeId && event.head !== null)
       return [...new Map(observed.map(event => [event.head!, event.id])).entries()].sort((a, b) => a[1] - b[1]).map(([head]) => head)
     },
     stalls: () => [...stalls],
@@ -314,6 +314,19 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       events.push({ id: 3, type: REVIEW_RECORDED, cardId: 1130, pr: 923, head: '64e26987', payload: current })
       events.push({ id: 4, type: CARD_STOPPED, cardId: 1130, pr: 923, head: 'a1b2c3d4', payload: current })
       expect(tick(state, deps)).toEqual([`bus ${REVIEW_RECORDED} card 1130 pr 923 ${current}`, `bus ${CARD_STOPPED} card 1130 pr 923 ${current}`])
+    })
+
+    it('a card.stopped written before the new head was observed wakes the window', () => {
+      const file = journal()
+      const faulted = 'ff4984b3'.padEnd(40, '0')
+      const pushedAfter = '41e90705'.padEnd(40, '0')
+      writeBusEvent(file, PR_OBSERVED, 'netwatch', `observed:${faulted}`, green(faulted), 923, faulted, 1130)
+      const stopped = writeBusEvent(file, CARD_STOPPED, 'reducer', `stopped:${faulted}`, JSON.stringify({ reason: 'fault' }), 923, faulted, 1130)
+      writeBusEvent(file, PR_OBSERVED, 'netwatch', `observed:${pushedAfter}`, green(pushedAfter), 923, pushedAfter, 1130)
+      const deps = busDeps(file)
+      expect(selectOnce({ offset: 0, busId: 1 }, deps, 1130)).toEqual({ line: `bus ${CARD_STOPPED} card 1130 pr 923 ${stopped}`, cursor: { offset: 0, busId: 2 } })
+      const state = watchState({ ...deps, lastBusId: () => 1 })
+      expect(tick(state, deps)).toContain(`bus ${CARD_STOPPED} card 1130 pr 923 ${stopped}`)
     })
 
     it('a merge of a head the PR moved past still wakes the window', () => {
