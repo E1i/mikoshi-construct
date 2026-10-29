@@ -265,6 +265,13 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   detachLeftBehind: (target: string) => string
   detachBookkeeping: string
   detached: (count: number) => string
+  detachGoes: string
+  detachGoesEntry: (target: string, paths: number) => string
+  detachGoesFiles: (count: number) => string
+  detachGoesTotal: (count: number) => string
+  detachConfirm: string
+  detachNeedsTerminal: string
+  detachAborted: string
   mutateApplied: (id: string, file: string) => string
   mutateApplyNext: (id: string) => string
   mutateRefusedNoBaseline: string
@@ -691,6 +698,13 @@ export const LORE: Lore = {
   detachLeftBehind: (target: string) => `left behind: ${target} was not written by attach`,
   detachBookkeeping: 'Not counted: the record .construct/attach.json, .construct/ once empty if attach created it, and the exclude block in .git/info/exclude.',
   detached: (count: number) => `JACKED OUT // NETRUN CLOSED. ${count} paths wiped.`,
+  detachGoes: 'JACKING OUT TAKES EVERYTHING THE NET BROUGHT // run evidence, the window\'s handoff, archive and decisions included:',
+  detachGoesEntry: (target: string, paths: number) => `${target}  ${paths} path${paths === 1 ? '' : 's'}`,
+  detachGoesFiles: (count: number) => `${count} recorded and runtime file${count === 1 ? '' : 's'} in the repository`,
+  detachGoesTotal: (count: number) => `${count} path${count === 1 ? '' : 's'} to wipe.`,
+  detachConfirm: 'Jack out and wipe these paths?',
+  detachNeedsTerminal: 'No terminal to confirm the wipe; pass --yes to jack out without asking.',
+  detachAborted: 'JACK-OUT CALLED OFF // nothing was wiped.',
   mutateApplied: (id: string, file: string) => `ICE CRACKED // ${id} jacked into ${file}.`,
   mutateApplyNext: (id: string) => `Run the suite and hand its report to: construct mutate judge --id ${id} --report <file> --format vitest-json (Vitest's --reporter=json --outputFile=<file>) or --format junit-xml`,
   mutateRefusedNoBaseline: 'BREACH FAILED // NO GREEN BASELINE: run the suite green with the JSON reporter and record it with construct mutate judge --baseline --report <file>',
@@ -1095,6 +1109,13 @@ export const PLAIN_LORE: Lore = {
   detachLeftBehind: (target: string) => `left behind: ${target} was not written by attach and stays.`,
   detachBookkeeping: 'Not counted: the record .construct/attach.json, .construct/ once empty if attach created it, and the exclude block in .git/info/exclude.',
   detached: (count: number) => `Detached. Removed ${count} paths.`,
+  detachGoes: 'detach removes everything attach brought, run evidence and the window\'s handoff, archive and decisions included:',
+  detachGoesEntry: (target: string, paths: number) => `${target}  ${paths} path${paths === 1 ? '' : 's'}`,
+  detachGoesFiles: (count: number) => `${count} recorded and runtime file${count === 1 ? '' : 's'} in the repository`,
+  detachGoesTotal: (count: number) => `${count} path${count === 1 ? '' : 's'} in all.`,
+  detachConfirm: 'Remove these paths?',
+  detachNeedsTerminal: 'No terminal to confirm the removal; pass --yes to detach without asking.',
+  detachAborted: 'Nothing was removed.',
   mutateApplied: (id: string, file: string) => `Applied ${id} to ${file}.`,
   mutateApplyNext: (id: string) => `Run the suite and hand its report to: construct mutate judge --id ${id} --report <file> --format vitest-json (Vitest's --reporter=json --outputFile=<file>) or --format junit-xml`,
   mutateRefusedNoBaseline: 'Refused: no green baseline is recorded. Run the suite with the JSON reporter and record it with construct mutate judge --baseline --report <file>. The file is unchanged.',

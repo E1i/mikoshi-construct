@@ -14,7 +14,7 @@ import { attachExitOf, printEntryProtocol, readAttachRecord, runAttach } from '.
 import { busReaderAt } from './commands/board/bus.js'
 import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, rawSectionsAsked, readBoard, STALE_HOURS } from './commands/board/index.js'
 import { COST_EXIT, costExpect, costJson, costReport, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
-import { DETACH_EXIT, runDetach } from './commands/detach/index.js'
+import { askDetach, DETACH_EXIT } from './commands/detach/index.js'
 import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
@@ -134,12 +134,16 @@ const attach = withKnownFlags(defineCommand({
 
 const detach = withKnownFlags(defineCommand({
   meta: { name: 'detach', description: 'Remove what attach wrote and nothing else: the recorded files, their empty directories, the exclude block and the record (alias: jack-out)' },
-  args: commonArgs,
-  run({ args }) {
+  args: {
+    ...commonArgs,
+    yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: print what goes and remove it without asking', default: false },
+  },
+  async run({ args }) {
     const console = ui(args)
     console.banner(VERSION, args.johnny)
     try {
-      const result = runDetach(console, { dir: args.dir })
+      const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
+      const result = await askDetach(console, { dir: args.dir, yes: args.yes }, prompter)
       process.exitCode = DETACH_EXIT[result.status]
     }
     catch (error) {

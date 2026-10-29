@@ -4,8 +4,9 @@ USAGE construct detach [OPTIONS]
 
 OPTIONS
 
-  --dir=<dir>    Target directory (Default: .)                    
-      --plain    No colors, no lore (CI-friendly) (Default: false)
-     --johnny    Wake up, Netrunner. (Default: false)             
+  --dir=<dir>    Target directory (Default: .)                                                 
+      --plain    No colors, no lore (CI-friendly) (Default: false)                             
+     --johnny    Wake up, Netrunner. (Default: false)                                          
+    -y, --yes    Non-interactive: print what goes and remove it without asking (Default: false)
 
 
