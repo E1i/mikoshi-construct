@@ -5,14 +5,16 @@ import type { HarnessCandidate } from './harness.js'
 import type { AttachHarness } from './record.js'
 import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
 import type { Rollback } from './rollback.js'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { DECISIONS_FILE, repositoryRoot } from '../../../scripts/core/bus-path.js'
 import { DEFAULT_LANES, sha256 } from '../../manifest.js'
 import { AI_TARGETS } from '../../presets/index.js'
 import { parseLaneCount } from '../../ui/prompts.js'
 import { VERSION } from '../../version.js'
-import { deployFactoryBeside } from './beside.js'
+import { deployFactoryBeside, factoryHomeFor } from './beside.js'
 import { browserEntriesHeldAtAttach, directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
 import { carriersItsConstructTracks } from './constructed.js'
 import { writeExcludeBlock } from './exclude.js'
@@ -84,6 +86,22 @@ const REFUSAL_LINE: Record<AttachRefusalReason, (lore: Lore, refusal: AttachRefu
   'cursor': lore => lore.attachRefusedCursor,
   'required-check-unresolvable': lore => lore.attachRefusedRequiredCheck,
   'not-a-command': (lore, { harness = { command: '', word: '' } }) => lore.attachRefusedNotACommand(harness.word, throughPackageRunners(harness.command, harness.word).map(shellWord)),
+}
+
+export const OWNER_DECISIONS_HEADER = '# Owner decisions\n\nAppend-only. One dated line per decision; a later line may supersede an earlier one by naming it, never by editing it.\n'
+
+export function writeOwnerDecisionsBeside(root: string, env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string | undefined {
+  if (repositoryRoot(root) == null)
+    return undefined
+  const factoryHome = factoryHomeFor(root, env, home)
+  if (factoryHome == null)
+    return undefined
+  const file = path.join(factoryHome, DECISIONS_FILE)
+  if (existsSync(file))
+    return undefined
+  mkdirSync(factoryHome, { recursive: true })
+  writeFileSync(file, OWNER_DECISIONS_HEADER, { flag: 'wx' })
+  return file
 }
 
 function explained(ui: Ui, notice: Notice): void {
@@ -238,6 +256,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     return refused(ui, { reason, paths: [SETTINGS_FILE], rolledBack: true }, rollback)
   }
   const factoryBeside = deployFactoryBeside(root)
+  writeOwnerDecisionsBeside(root)
   writeAttachRecord(root, {
     recordVersion: ATTACH_RECORD_VERSION,
     construct: VERSION,

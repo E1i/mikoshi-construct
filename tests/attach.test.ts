@@ -388,11 +388,8 @@ describe('the carriers attach writes are the ones init writes', () => {
     await runInit(ui, { dir: fresh, preset: 'node-library', yes: true, dryRun: false })
     const attached = fixture()
     await runAttach(ui, { dir: attached, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })
-    const attachOnly = '.claude/commands/attached-discover.md'
-    for (const target of ATTACH_CARRIERS.targets.filter(carrier => carrier !== attachOnly))
+    for (const target of ATTACH_CARRIERS.targets)
       expect(readFileSync(path.join(attached, target)).equals(readFileSync(path.join(fresh, target))), target).toBe(true)
-    expect(existsSync(path.join(fresh, attachOnly))).toBe(false)
-    expect(existsSync(path.join(attached, attachOnly))).toBe(true)
   })
 
   it('reports the created paths, the trailer and the next steps without lore in plain mode', async () => {
