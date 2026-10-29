@@ -149,11 +149,19 @@ describe('intake writes the risk line into the card', () => {
   })
 
   it('a card that touches only init or its templates is not R1', () => {
-    const card = only(intake(['src/commands/init.ts', 'templates/base/AGENTS.md.eta', 'templates/harness/package.json.eta', 'templates/presets/node-backend.json', 'templates/stacks/node/tsconfig.json.eta', 'tests/init.test.ts', '.changeset/init.md']))
+    const card = only(intake(['src/commands/init.ts', 'tests/init.test.ts', '.changeset/init.md']))
     expect(linesOf(card.text, RISK_PREFIX)[0]).toMatch(/^risk: R3 /)
   })
 
+  it.each(['templates/base/AGENTS.md.eta', 'templates/harness/package.json.eta', 'templates/presets/node-backend.json', 'templates/stacks/node/tsconfig.json.eta'])('a template sync carries is R1 in the sync context: %s', (touch) => {
+    expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('write into another repository') })
+  })
+
   it.each(['src/commands/attach/index.ts', 'src/commands/sync/index.ts', 'src/sync/write.ts', 'src/commands/detach/index.ts', 'templates/attach/earlier-carriers.json', 'src/materialize/strategies.ts', 'src/materialize/plan.ts', 'src/materialize/apply.ts'])('a card that touches attach, sync or detach stays R1: %s', (touch) => {
+    expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('write into another repository') })
+  })
+
+  it.each(['templates/attach/_construct/commit-guard.mjs', 'templates/attach/entry.md', 'templates/ai/claude/_claude/skills/construct-atlas/SKILL.md'])('a template attach carries is R1 in the attach context: %s', (touch) => {
     expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('write into another repository') })
   })
 
@@ -275,7 +283,7 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
   })
 
   it('leaves slicing to the complexity seam when it proposed slices', () => {
-    const touches = [...Array.from({ length: 4 }, (_, index) => `templates/attach/part-${index}.md`), 'docs/a.md', 'docs/b.md', 'docs/c.md']
+    const touches = [...Array.from({ length: 4 }, (_, index) => `templates/base/part-${index}.md`), 'docs/a.md', 'docs/b.md', 'docs/c.md']
     const card = only(intake(touches, 3))
     expect(linesOf(card.text, SEAM_PREFIX).map(line => line.split(' — ')[0])).toEqual(['seam: complexity'])
     expect(riskReading(touches, true).slices).toEqual([])

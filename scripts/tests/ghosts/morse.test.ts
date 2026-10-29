@@ -132,7 +132,7 @@ describe('the MORSE gate in process', () => {
   })
 
   it('an R1 brief whose hard preflight is green is approved by morse', async () => {
-    await expectApproved(scenario({ touches: 'templates/attach/x.md' }), 'R1')
+    await expectApproved(scenario({ touches: 'templates/base/x.md' }), 'R1')
   })
 
   it('an R1 brief is approved when R4 and R1 touches are mixed', async () => {
@@ -140,7 +140,7 @@ describe('the MORSE gate in process', () => {
   })
 
   it('an R1 brief whose hard preflight is red is refused and writes nothing', async () => {
-    const world = scenario({ touches: 'templates/attach/x.md' })
+    const world = scenario({ touches: 'templates/base/x.md' })
     world.preflight.mockImplementation(() => {
       throw new Error('preflight: the base is red')
     })
@@ -153,9 +153,9 @@ describe('the MORSE gate in process', () => {
   })
 
   it('the other conditions still bind an R1 card', async () => {
-    await expectRefusal(scenario({ touches: 'templates/attach/x.md', body: 'unclear: contour — not stated\n\nDo the thing.' }), /unclear field/)
-    await expectRefusal(scenario({ touches: 'templates/attach/x.md', events: [{ event: 'fall', card: CARD, kind: 'review-hole' }] }), /fell 1 time/)
-    await expectRefusal(scenario({ touches: 'templates/attach/x.md', expectLine: `expect: tokens ≈ 250k, minutes ≈ 12 — effort medium, n=61, median, ${BAND}` }), /above its p75/)
+    await expectRefusal(scenario({ touches: 'templates/base/x.md', body: 'unclear: contour — not stated\n\nDo the thing.' }), /unclear field/)
+    await expectRefusal(scenario({ touches: 'templates/base/x.md', events: [{ event: 'fall', card: CARD, kind: 'review-hole' }] }), /fell 1 time/)
+    await expectRefusal(scenario({ touches: 'templates/base/x.md', expectLine: `expect: tokens ≈ 250k, minutes ≈ 12 — effort medium, n=61, median, ${BAND}` }), /above its p75/)
   })
 
   it('the stored risk: line is not trusted when it says R1 on R3 touches', async () => {
@@ -163,7 +163,7 @@ describe('the MORSE gate in process', () => {
   })
 
   it('the stored risk: line is not trusted when it says R4 on R1 touches', async () => {
-    await expectApproved(scenario({ touches: 'templates/attach/x.md', body: 'risk: R4 — low\n\nDo the thing.' }), 'R1')
+    await expectApproved(scenario({ touches: 'templates/base/x.md', body: 'risk: R4 — low\n\nDo the thing.' }), 'R1')
   })
 
   it('morse refuses a brief with a fall on its card', async () => {
@@ -318,7 +318,7 @@ describe('ghosts:hash for MORSE from the command line', () => {
   })
 
   it('morse reads the card body from the bus', () => {
-    const world = scenario({ touches: 'templates/attach/x.md', body: 'unclear: contour — not stated\n\nDo the thing.' })
+    const world = scenario({ touches: 'templates/base/x.md', body: 'unclear: contour — not stated\n\nDo the thing.' })
     const result = runHash([world.brief, '--by', 'morse', '--card', String(CARD)])
     expect(result.status).toBe(1)
     expect(result.stdout).toBe('')
