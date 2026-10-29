@@ -73,10 +73,14 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string') : []
 }
 
+function ownVerdictKey(lease: Lease): string {
+  return `${REVIEW_RECORDED}:${lease.taskKey}:`
+}
+
 export function earlierVerdict(db: DatabaseSync, lease: Lease): EarlierVerdict | null {
   if (lease.pr === null || lease.head === null)
     return null
-  const row = db.prepare('SELECT payload FROM events WHERE type = ? AND pr = ? AND legacy = 0 ORDER BY id DESC LIMIT 1').get(REVIEW_RECORDED, lease.pr) as { payload: string } | undefined
+  const row = db.prepare('SELECT payload FROM events WHERE type = ? AND pr = ? AND legacy = 0 AND substr(dedupe_key, 1, ?) != ? ORDER BY id DESC LIMIT 1').get(REVIEW_RECORDED, lease.pr, ownVerdictKey(lease).length, ownVerdictKey(lease)) as { payload: string } | undefined
   if (row === undefined)
     return null
   const payload = JSON.parse(row.payload) as { head?: unknown, verdict?: unknown, findings?: unknown }

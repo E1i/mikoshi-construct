@@ -218,7 +218,7 @@ describe('the re-cut of a pull request at the review round limit', () => {
     untouched(fixed)
   })
 
-  it('three red witnesses without a changes review start no re-cut and open the owner wait to check the proof mechanism', () => {
+  it('three red witnesses without a changes review start no re-cut and ask the owner nothing', () => {
     const fixed = fixture(cardText())
     fixed.bench.gitHub.open({ number: PR, head: HEADS[0]!, body: cardBody(PR) })
     fixed.bench.tick()
@@ -227,9 +227,7 @@ describe('the re-cut of a pull request at the review round limit', () => {
     fixed.bench.tick()
     fixed.bench.tick()
 
-    const waits = ownerWaits(fixed.bench.db)
-    expect(waits).toHaveLength(1)
-    expect(waits[0]).toContain('check the proof mechanism')
+    expect(ownerWaits(fixed.bench.db)).toEqual([])
     expect(eventsOf(fixed.bench.db, REVIEW_ROUNDS_SPENT)).toEqual([])
     expect(eventsOf(fixed.bench.db, PR_CLOSED)).toEqual([])
     expect(fixed.outcomes).toEqual([])

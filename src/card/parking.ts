@@ -3,6 +3,7 @@ import { parseTaskFile } from './task-file.js'
 
 export const SHIFT_WHO = 'shift'
 export const WINDOW_WHO = 'window'
+export const WITNESSES_HEADING = 'Witnesses:'
 export const PRIORITIES = ['p0'] as const
 const PARKING_KEYS = ['who', 'priority'] as const
 const PARKING_LINE = /^(who|priority|creates):(.*)$/

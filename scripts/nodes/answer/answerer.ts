@@ -14,6 +14,7 @@ import { readShiftGate } from '../../../src/manifest.js'
 import { defaultBusPath } from '../../core/db.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { readResultFields } from '../../ports/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
@@ -284,11 +285,15 @@ function git(cwd: string, args: string[]): string {
 }
 
 function failedJobLog(card: CardSession, head: string): string | null {
+  const runs = PROCESS_GH_PORT.call(['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree })
+  if (runs.kind !== 'ran')
+    return null
   try {
-    const runs = JSON.parse(execFileSync('gh', ['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) as { databaseId: number }[]
-    if (runs[0] === undefined)
+    const [run] = JSON.parse(runs.stdout) as { databaseId: number }[]
+    if (run === undefined)
       return null
-    return execFileSync('gh', ['run', 'view', String(runs[0].databaseId), '--log-failed'], { cwd: card.worktree, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+    const log = PROCESS_GH_PORT.call(['run', 'view', String(run.databaseId), '--log-failed'], { cwd: card.worktree })
+    return log.kind === 'ran' ? log.stdout : null
   }
   catch {
     return null
@@ -315,6 +320,15 @@ export function treeMergeOf(card: CardSession): TreeMerge {
   }
   catch (error) {
     return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
+  }
+}
+
+export function treeDirtyOf(card: CardSession): boolean {
+  try {
+    return git(card.worktree, ['status', '--porcelain']).trim() !== ''
+  }
+  catch {
+    return false
   }
 }
 

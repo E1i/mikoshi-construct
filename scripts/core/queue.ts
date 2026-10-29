@@ -5,9 +5,8 @@ import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
-import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
+import { PRIORITIES, WINDOW_WHO, WITNESSES_HEADING } from '../../src/card/parking.js'
 import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
-import { WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { roundLimitDecisionOf } from '../policy/round-limit-decision.js'
@@ -735,15 +734,17 @@ export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
 
 const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDIDATES, DIRTY_CANDIDATES, RED_WITNESS_CANDIDATES] as const
 
-const CARDS_ANSWERING_NOW = `SELECT DISTINCT card_id FROM tasks WHERE queue = 'answer' AND state = '${LEASED}'`
+const ANSWERS_LEASED_NOW = `SELECT card_id, task_key FROM tasks WHERE queue = 'answer' AND state = '${LEASED}'`
 
 export function witnessCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return [WITNESS_CANDIDATES_ON_NO_RECORD, WITNESS_CANDIDATES_ON_A_DENIED_BASE, WITNESS_CANDIDATES_ON_MAIN].flatMap(query => openCandidates(db, ts, 'witness', candidateRows(db, query, everyRow)))
 }
 
 export function answerCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  const answering = new Set((db.prepare(CARDS_ANSWERING_NOW).all() as { card_id: number }[]).map(row => Number(row.card_id)))
-  return ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, row => !answering.has(row.card_id))))
+  const leased = db.prepare(ANSWERS_LEASED_NOW).all() as { card_id: number, task_key: string }[]
+  const answering = new Set(leased.map(row => Number(row.card_id)))
+  const leasedKeys = new Set(leased.map(row => row.task_key))
+  return ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow))).filter(task => !answering.has(task.cardId) || leasedKeys.has(keyOf(task)))
 }
 
 export function mergeCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {

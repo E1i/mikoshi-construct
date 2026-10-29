@@ -21,7 +21,7 @@ import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tre
 import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, answerSourceOf } from './answer-source.js'
-import { CardTreeGone, treeMergeOf } from './answerer.js'
+import { CardTreeGone, treeDirtyOf, treeMergeOf } from './answerer.js'
 
 export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed'
 
@@ -214,7 +214,7 @@ export class AnswerExecutor {
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
         return this.asked(lease, answered.owner, scope, card)
-      if (this.parts.dirty?.(card) === true)
+      if ((this.parts.dirty ?? treeDirtyOf)(card))
         return this.leftDirty(lease, card, answered.session)
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, {}, scope)
@@ -252,7 +252,7 @@ export class AnswerExecutor {
       return this.denied(lease, decided)
     if (!leftNoNewHead(decided))
       return this.settled(lease, decisionSource(question, ground), null, card, decided, 0)
-    if (this.parts.dirty?.(card) === true)
+    if ((this.parts.dirty ?? treeDirtyOf)(card))
       return this.leftDirty(lease, card, decided.session)
     completeTask(this.parts.db, this.ts(), lease, scope)
     return { kind: 'decided', taskKey: lease.taskKey, shard: shard.id, question }
