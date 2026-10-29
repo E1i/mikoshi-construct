@@ -893,7 +893,7 @@ describe('construct intake --admit across the lanes of the parking', () => {
     const w = world()
     mkdirSync(path.join(w.repo, 'src', 'atlas'), { recursive: true })
     writeFileSync(path.join(w.repo, 'src', 'atlas', 'map.ts'), '')
-    const card = (name: string, touches: string[]): Record<string, unknown> => ({ name, kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'auto', who: 'shift', touches, task: 'Do the thing.', witnesses: ['`pnpm run quality` is green'] })
+    const card = (name: string, touches: string[]): Record<string, unknown> => ({ name, kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'auto', who: 'shift', touches, task: `Do the thing in ${name}.`, witnesses: ['`pnpm run quality` is green'] })
     const draft = path.join(w.root, 'draft.json')
     writeFileSync(draft, JSON.stringify({ cards: [card('board-run', ['src/board/run.ts', '.changeset/**']), card('atlas-map', ['src/atlas/map.ts', '.changeset/**']), card('board-all', ['src/board/**'])] }))
     const db = openBus(busOf(w))

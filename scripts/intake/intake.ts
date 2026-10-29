@@ -11,6 +11,7 @@ import { runMain } from 'citty'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
+import { PLAN_FIELD } from '../../src/commands/intake/check.js'
 import { printExport, runExport } from '../../src/commands/intake/export.js'
 import { parkedNumbers } from '../../src/commands/intake/numbers.js'
 import { parkingTree } from '../../src/commands/intake/parking-tree.js'
@@ -19,8 +20,9 @@ import { createUi } from '../../src/ui/console.js'
 import { resolveTheme } from '../../src/ui/theme.js'
 import { ForeignBusRefused } from '../core/bus-path.js'
 import { appendCardEvent, cardBodyText, laid } from '../core/card-bodies.js'
-import { BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { CARD_ADMITTED, CARD_MOVED } from '../core/events.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
+import { CARD_ADMITTED, CARD_MOVED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED } from '../core/events.js'
+import { OWNER } from '../core/inbox.js'
 import { openDatabase } from '../core/sqlite.js'
 import { layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
@@ -138,6 +140,30 @@ function admissionOfMove(db: DatabaseSync, move: CardEvent): CardEvent | null {
   }
 }
 
+const PLAN_OPENED_BEFORE = `SELECT 1 FROM events WHERE legacy = 0 AND type = '${PLAN_OPENED}' AND json_extract(payload, '$.id') = ? LIMIT 1`
+
+const ITEM_ADDED_BEFORE = `SELECT 1 FROM events WHERE legacy = 0 AND type = '${PLAN_ITEM_ADDED}' AND json_extract(payload, '$.plan') = ? AND json_extract(payload, '$.item') = ? LIMIT 1`
+
+interface AdmittedPlan { id: string, title: string, goal: string, file: string, item: string }
+
+function admittedPlan(value: unknown): AdmittedPlan | null {
+  const plan = value as Partial<Record<keyof AdmittedPlan, unknown>> | null
+  const fields = [plan?.id, plan?.title, plan?.goal, plan?.file, plan?.item]
+  return fields.every(field => typeof field === 'string' && field !== '') ? plan as AdmittedPlan : null
+}
+
+function registerPlan(db: DatabaseSync, event: CardEvent): void {
+  const plan = event.type === CARD_ADMITTED ? admittedPlan(event.payload[PLAN_FIELD]) : null
+  if (plan === null)
+    return
+  const recorded = { ts: event.ts, actor: OWNER, pr: null, head: null, legacy: false }
+  if (db.prepare(PLAN_OPENED_BEFORE).get(plan.id) === undefined)
+    appendEvent(db, { ...recorded, type: PLAN_OPENED, cardId: null, dedupeKey: `${PLAN_OPENED}:intake:${plan.id}`, payload: { id: plan.id, title: plan.title, goal: plan.goal, plan_file: plan.file } })
+  if (db.prepare(ITEM_ADDED_BEFORE).get(plan.id, plan.item) === undefined)
+    appendEvent(db, { ...recorded, type: PLAN_ITEM_ADDED, cardId: null, dedupeKey: `${PLAN_ITEM_ADDED}:intake:${plan.id}:${plan.item}`, payload: { plan: plan.id, item: plan.item, title: plan.item } })
+  appendEvent(db, { ...recorded, type: PLAN_ITEM_LINKED, cardId: event.cardId, dedupeKey: `${PLAN_ITEM_LINKED}:intake:${plan.id}:${plan.item}:${event.cardId}`, payload: { plan: plan.id, item: plan.item, card: event.cardId } })
+}
+
 function needsAnAdmission(event: CardEvent): boolean {
   return event.type === CARD_MOVED
 }
@@ -148,6 +174,7 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
     if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
     appendCardEvent(db, actor, laid(db, event))
+    registerPlan(db, event)
     const admitted = event.type === CARD_MOVED ? admissionOfMove(db, event) : null
     if (admitted !== null)
       appendCardEvent(db, actor, admitted)
