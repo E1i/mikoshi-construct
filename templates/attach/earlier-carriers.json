@@ -723,5 +723,15 @@
     "target": "scripts/construct/daemon.workflow",
     "sha256": "41fe08ce47d39cd6bc704b2c373cba9b0f8b51208037b14f8a1b3c79c9af03a0",
     "date": "2026-10-28"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "c8fb73518b02416e91b4a0ad3256952f34e93604f21c192d667a95b4451f6f40",
+    "date": "2026-10-29"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "c91b226eee4fa378cfb6a46bba8dab0677c89c8c06ed61dda54f378c02922837",
+    "date": "2026-10-29"
   }
 ]
