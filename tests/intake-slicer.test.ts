@@ -119,16 +119,15 @@ describe('intake slices a three-paragraph retelling into parking cards', () => {
 describe('intake marks what the retelling left unclear and guesses nothing silently', () => {
   const vague = { name: 'vague-card', kind: 'implement', milestone: 'black-ice', size: 'M', who: 'shift', touches: ['src/model/**'], task: 'Make the queue visible somehow.', witnesses: ['a test'], unclear: [{ field: 'milestone', reason: 'attach repository: no milestone of its own, black-ice taken from the closed list' }] }
 
-  it('writes an unclear line per field, defaults only contour and decision, and keeps the card with the window', () => {
+  it('writes an unclear line per field, defaults contour to cheap with no unclear line, defaults decision, and keeps the card with the window', () => {
     const root = scratch()
     const [card] = cards(intake({ cards: [vague] }, '7', path.join(root, 'parking')))
-    expect(card!.line).toBe('#8 vague-card [implement/black-ice/M/ladder/owner] · depends — · blocks —')
+    expect(card!.line).toBe('#8 vague-card [implement/black-ice/M/cheap/owner] · depends — · blocks —')
     expect(card!.who).toBe(WINDOW_WHO)
     expect(card!.text).toContain('who: window\n')
     expect(card!.text.split('\n').filter(line => line.startsWith('unclear: '))).toEqual([
       'unclear: milestone — attach repository: no milestone of its own, black-ice taken from the closed list',
       'unclear: witnesses — \'a test\' names no command; a witness is run by a command',
-      'unclear: contour — not stated in the retelling; set to ladder, the path with a brief and witnesses',
       'unclear: decision — not stated in the retelling; set to owner, so the owner merges',
     ])
     expect(parseParkingFile(card!.file, card!.text)).toMatchObject({ kind: 'parked', parked: { who: WINDOW_WHO } })
@@ -276,9 +275,9 @@ describe('printIntake', () => {
     const lines: string[] = []
     const ui = createUi(resolveTheme({ plain: true }), line => lines.push(line))
     const root = scratch()
-    const result = intake({ cards: [{ ...SLICED.cards[0], contour: undefined }] }, '1', path.join(root, 'parking'))
+    const result = intake({ cards: [{ ...SLICED.cards[0], contour: undefined, decision: undefined }] }, '1', path.join(root, 'parking'))
     expect(printIntake(ui, result)).toBe(INTAKE_EXIT.written)
-    expect(lines.join('\n')).toContain('#2 board-parking [implement/runner/S/ladder/auto]')
+    expect(lines.join('\n')).toContain('#2 board-parking [implement/runner/S/cheap/owner]')
     expect(lines.join('\n')).toContain('1 unclear field marked in the card; it stays with who: window until a person settles them.')
     expect(printIntake(createUi(resolveTheme({ plain: true }), silentWriter), { status: 'refused', refusal: 'noDraft', detail: [] })).toBe(INTAKE_EXIT.refused)
   })
