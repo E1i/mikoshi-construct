@@ -139,6 +139,12 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   syncApplyRetired: string
   baselineMovedToSuccessor: (files: string[]) => string
   factoryFilesMissing: (files: string[]) => string
+  factoryChecklist: (bus: string) => string
+  factoryGoes: string
+  factoryStalls: string
+  factoryItem: Record<string, string>
+  factoryRun: (command: string) => string
+  factoryVerdict: (goes: boolean, stalled: number) => string
   syncApplyRefused: string
   syncApplyWrote: (count: number) => string
   syncApplyNothingWritten: string
@@ -517,6 +523,20 @@ export const LORE: Lore = {
   syncApplyRetired: 'RETIRED \u2014 removed, the new path written in their place',
   baselineMovedToSuccessor: (files: string[]) => `${files.length === 1 ? 'A recorded baseline file is' : `${files.length} recorded baseline files are`} gone from the old path and present at the new one (${files.join(', ')}); not missing: sync --apply records the new path, or the old record stays until then`,
   factoryFilesMissing: (files: string[]) => `The factory reads ${files.length === 1 ? 'a file' : `${files.length} files`} this jack does not carry (${files.join(', ')}). Run: construct sync --apply`,
+  factoryChecklist: (bus: string) => `FACTORY // START CHECK · bus ${bus}`,
+  factoryGoes: 'GOES   ',
+  factoryStalls: 'NO GO  ',
+  factoryItem: {
+    'factory-files': 'every file the factory reads is jacked in',
+    'factory-hooks': 'settings.json carries the eddies guard, prompt and window heartbeat hooks',
+    'pnpm-floor': 'packageManager pins pnpm at or above the mikoshi floor',
+    'pnpm-store-ignored': '.gitignore ignores .pnpm-store/',
+    'window-live': 'a window heartbeat is fresh on the bus',
+    'live-merge': 'allow-live merge is in force',
+    'live-update': 'allow-live update is in force',
+  },
+  factoryRun: (command: string) => `RUN // ${command}`,
+  factoryVerdict: (goes: boolean, stalled: number) => goes ? 'THE FACTORY GOES' : `THE FACTORY DOES NOT GO // ${stalled} RED`,
   syncApplyRefused: 'LEFT TO YOU',
   syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
   syncApplyNothingWritten: 'NOTHING WRITTEN \u2014 the tree already carries what the construct owns.',
@@ -924,6 +944,20 @@ export const PLAIN_LORE: Lore = {
   syncApplyRetired: 'Removed, the new path written in their place',
   baselineMovedToSuccessor: (files: string[]) => `${files.length === 1 ? 'A recorded baseline file is' : `${files.length} recorded baseline files are`} gone from the old path and present at the new one (${files.join(', ')}); not missing: sync --apply records the new path, or the old record stays until then`,
   factoryFilesMissing: (files: string[]) => `The factory reads ${files.length === 1 ? 'a file' : `${files.length} files`} this repository does not carry (${files.join(', ')}). Run: construct sync --apply`,
+  factoryChecklist: (bus: string) => `Factory start check (bus ${bus})`,
+  factoryGoes: 'goes        ',
+  factoryStalls: 'does not go ',
+  factoryItem: {
+    'factory-files': 'every file the factory reads is in the repository',
+    'factory-hooks': 'settings.json carries the eddies guard, prompt and window heartbeat hooks',
+    'pnpm-floor': 'packageManager pins pnpm at or above the mikoshi floor',
+    'pnpm-store-ignored': '.gitignore ignores .pnpm-store/',
+    'window-live': 'a window heartbeat is fresh on the bus',
+    'live-merge': 'allow-live merge is in force',
+    'live-update': 'allow-live update is in force',
+  },
+  factoryRun: (command: string) => `Run: ${command}`,
+  factoryVerdict: (goes: boolean, stalled: number) => goes ? 'The factory goes.' : `The factory does not go: ${stalled} item${stalled === 1 ? '' : 's'} red.`,
   syncApplyRefused: 'Left to you',
   syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
   syncApplyNothingWritten: 'Nothing written: the tree already carries what the construct owns.',

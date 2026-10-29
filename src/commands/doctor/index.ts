@@ -105,6 +105,8 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
 }
 
 export { DISCOVERY_PLACEHOLDER, isMarkerFilled, markerClose, markerOpen } from './discovery.js'
+export type { FactoryChecklist, FactoryItem, FactoryItemName, FactorySituation } from './factory.js'
+export { FACTORY_ITEMS, factoryChecklist } from './factory.js'
 export type { ResultFamily } from './families.js'
 export { DOCTOR_FIELD_FAMILY, RESULT_FAMILIES, RETIRED_IDENTIFIERS } from './families.js'
 export type { ClaimNotCarried, NotCarriedReading } from './not-carried.js'
@@ -114,7 +116,7 @@ export { CLAIM_PLACEMENTS, projectKnowledge } from './projection.js'
 export type { MarkerAuthorship, MarkerReading } from './provenance.js'
 export { discoveryProvenance, MARKER_AUTHORSHIP, markerAuthorship, readingsBy } from './provenance.js'
 export { FileReadings } from './readings.js'
-export { DOCTOR_EXIT, DOCTOR_JSON_SCHEMA_VERSION, doctorJson, printDoctor } from './report.js'
+export { DOCTOR_EXIT, DOCTOR_JSON_SCHEMA_VERSION, doctorJson, factoryChecklistJson, printDoctor, printFactoryChecklist } from './report.js'
 export type { CheckState, CheckVerdict, Level } from './verdict.js'
 export { LEVELS } from './verdict.js'
 export type { VersionGap } from './version-gap.js'

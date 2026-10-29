@@ -498,6 +498,25 @@ are, and it never changes the exit code. A baseline that has moved on is work th
 available with a release, not a fault in the repository. `--json` carries it as `versionGap` with
 `materializedBy`, `readBy` and `pending`, where `pending` is `null` when the replay could not run.
 
+### doctor --factory: will the factory go
+
+`construct doctor --factory` answers one question before you start the factory: will it go. It reads
+each item the factory needs and says **goes** or **does not go**; under every red item it prints the
+command that turns it green. The exit code is `0` when every item goes and `1` while any is red;
+`--json` prints `{ schemaVersion, goes, bus, items: [{ item, slice, goes, command }] }`, `command`
+being `null` on a green item.
+
+| Item | Slice | Goes when | Red → run |
+|------|-------|-----------|-----------|
+| `factory-files` | PARITY | every file the factory reads is in the repository | `construct sync --apply`; `git restore -- <files>` for a recorded file the tree lost, which sync never rewrites |
+| `factory-hooks` | PARITY | `.claude/settings.json` carries the eddies guard and prompt hooks and the window heartbeat | `construct sync --apply` |
+| `pnpm-floor` | PARITY | `packageManager` pins pnpm at or above the pnpm mikoshi pins | `corepack use pnpm@<floor>` |
+| `pnpm-store-ignored` | PARITY | `.gitignore` ignores `.pnpm-store/` | `printf '.pnpm-store/\n' >> .gitignore` |
+| `window-live` | PARITY | the newest window heartbeat on the bus is fresh — the same liveness the board reads | `claude` in the repository |
+| `live-merge`, `live-update` | ONEWORD | `allow-live merge` / `allow-live update` is in force in the owner decisions beside the bus | `construct say "ghost-protocol 6h" && construct-factory --mode ghost-protocol` |
+
+The bus is the one `CONSTRUCT_BUS_DB` names, or the repository's own under `~/.construct`.
+
 ### What doctor does not do
 
 `doctor` executes nothing from the repository it inspects: no child process, no dynamic import of a

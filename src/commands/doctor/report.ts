@@ -1,5 +1,6 @@
 import type { SelectedPath } from '../../model/path.js'
 import type { Ui } from '../../ui/console.js'
+import type { FactoryChecklist, FactoryItem } from './factory.js'
 import type { AttachedReport, DoctorResult } from './index.js'
 import type { ClaimNotCarried } from './not-carried.js'
 import type { ClaimPlacement, HypothesisReading } from './projection.js'
@@ -241,4 +242,28 @@ export function printDoctor(ui: Ui, result: DoctorResult | AttachedReport | null
   printHypotheses(ui, result.hypotheses, result.youAreHere)
   printYouAreHere(ui, result.youAreHere)
   return result.ok ? DOCTOR_EXIT.ok : DOCTOR_EXIT.notOk
+}
+
+export function factoryChecklistJson(checklist: FactoryChecklist): Record<string, unknown> {
+  return { schemaVersion: DOCTOR_JSON_SCHEMA_VERSION, ...checklist }
+}
+
+function factoryItemLine(ui: Ui, item: FactoryItem): string {
+  const verdict = item.goes ? ui.lore.factoryGoes : ui.lore.factoryStalls
+  return `  ${verdict}${item.slice.padEnd(8)}${ui.lore.factoryItem[item.item] ?? item.item}`
+}
+
+export function printFactoryChecklist(ui: Ui, checklist: FactoryChecklist): number {
+  ui.line(ui.theme.accent(ui.lore.factoryChecklist(checklist.bus)))
+  for (const item of checklist.items) {
+    ui.line(item.goes ? factoryItemLine(ui, item) : ui.theme.bold(factoryItemLine(ui, item)))
+    if (item.command !== null)
+      ui.line(ui.theme.dim(`      ${ui.lore.factoryRun(item.command)}`))
+  }
+  const stalled = checklist.items.filter(item => !item.goes).length
+  if (checklist.goes)
+    ui.ok(ui.lore.factoryVerdict(true, 0))
+  else
+    ui.glitch(ui.lore.factoryVerdict(false, stalled))
+  return checklist.goes ? DOCTOR_EXIT.ok : DOCTOR_EXIT.notOk
 }
