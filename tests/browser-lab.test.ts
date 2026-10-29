@@ -334,6 +334,14 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
     expect(run.json).toMatchObject({ title: 'Routed', text: 'routed body' })
   }, BROWSER_RUN_MS)
 
+  it('a route file answers a request of the service worker', async () => {
+    const routed = path.join(workspace, 'routed-config.json')
+    writeFileSync(routed, '{"label":"routed"}')
+    const run = await lab('sw-eval', `fetch('${UNRESOLVABLE}config').then(answer => answer.json())`, '--route', `${UNRESOLVABLE}config`, routed)
+    expect(run.status).toBe(0)
+    expect(run.json.result).toEqual({ label: 'routed' })
+  }, BROWSER_RUN_MS)
+
   it('--shot writes a screenshot of the page', async () => {
     const shot = path.join(workspace, 'page.png')
     const run = await lab('page', `${origin}/elsewhere/`, '--shot', shot)
