@@ -11,7 +11,7 @@ import { leaseNext } from '../../core/lease.js'
 import { importJournal } from '../../intake/import.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
-import { cardTreeOf, gitCardTrees, realCardTrees } from '../../ports/card-tree.js'
+import { cardlessTreeName, cardlessTreeOf, cardTreeOf, gitCardTrees, realCardTrees } from '../../ports/card-tree.js'
 import { taskWorktree } from '../../ports/worktree-home.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -202,6 +202,21 @@ describe('the card tree', () => {
     vi.stubEnv('CONSTRUCT_WORKTREE_HOME', '')
     expect(realCardTrees().treeOf!('987654')).toBe(path.join(path.dirname(busFile), 'bus', 'worktrees', '987654'))
     vi.unstubAllEnvs()
+  })
+
+  it('a tree for a cardless branch is cut through the card-tree path at the tree the tools name, once', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-cardless-tree-'))
+    const { repo } = origin(root)
+    const installed: string[] = []
+    const trees = gitCardTrees(repo, path.join(root, 'worktrees'), cwd => installed.push(cwd), undefined, name => path.join(root, 'bus', 'worktrees', name))
+    const expected = path.join(root, 'bus', 'worktrees', cardlessTreeName(BRANCH))
+    expect(cardlessTreeName(BRANCH)).toBe('branch-feat-card-1199')
+    expect(cardlessTreeOf(BRANCH, trees)).toBe(expected)
+    expect(git(expected, 'branch', '--show-current')).toBe(BRANCH)
+    expect(existsSync(path.join(expected, 'main.txt'))).toBe(true)
+    expect(cardlessTreeOf(BRANCH, trees)).toBe(expected)
+    expect(installed).toEqual([expected])
+    rmSync(root, { recursive: true, force: true })
   })
 
   it('an existing fallback tree is brought to the head, not recreated', () => {

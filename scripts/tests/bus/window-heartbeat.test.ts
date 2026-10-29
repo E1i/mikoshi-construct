@@ -212,6 +212,6 @@ describe('the window heartbeat', () => {
     const row = db.prepare('SELECT actor, payload FROM events WHERE type = ?').get(WINDOW_HEARTBEAT) as { actor: string, payload: string }
     db.close()
     expect(row.actor).toBe(`${WINDOW_ACTOR}window-1`)
-    expect(JSON.parse(row.payload)).toEqual({ session: 'window-1', mode: 'loop', context: 25_500, spent: 1_500 + 24_000 * 1.25 + 21_000 * 0.1 })
+    expect(JSON.parse(row.payload)).toEqual({ session: 'window-1', mode: 'loop', root, context: 25_500, spent: 1_500 + 24_000 * 1.25 + 21_000 * 0.1 })
   })
 })
