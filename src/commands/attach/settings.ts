@@ -22,7 +22,7 @@ export const GUARD_ENTRY: JsonObject = {
 
 const WINDOW_HOOK_TIMEOUT_SECONDS = 10
 
-export const WINDOW_EVENTS = ['Stop', 'PreCompact', 'SessionStart', 'PreToolUse'] as const
+export const WINDOW_EVENTS = ['Stop', 'PreCompact', 'SessionStart', 'PreToolUse', 'PostToolUse'] as const
 
 export type WindowEvent = typeof WINDOW_EVENTS[number]
 
@@ -39,6 +39,7 @@ export const WINDOW_ENTRIES: Readonly<Record<WindowEvent, JsonObject>> = {
   PreCompact: { hooks: [windowHook('pre-compact')] },
   SessionStart: { hooks: [windowHook('session-start')] },
   PreToolUse: { matcher: 'Write|Edit|MultiEdit', hooks: [windowHook('pre-tool-use')] },
+  PostToolUse: { matcher: '*', hooks: [windowHook('heartbeat')] },
 }
 
 export interface WindowEntry {
