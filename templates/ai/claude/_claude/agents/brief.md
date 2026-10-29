@@ -20,11 +20,9 @@ repository, or into a handoff directory shared by the whole machine: the approva
 The approval hashes the `/implement` text, and refuses a brief that has no line starting with `/implement `. The first
 lines of that text are fixed:
 
-```text
 /implement <the task in one paragraph: what changes, the steps, the witnesses, the acceptance>
 Sketch: sketch/<task> @ <40-hex sha>
 expect: tokens ≈ <num>[k|M], minutes ≈ <num> — effort <low|medium|high>, n=<int>, median, p25–p75 <num>–<num>
-```
 
 - Line 1 starts with `/implement ` and carries everything the ladder needs: the ladder never reads the card, so the
   steps and the witnesses are in this text, never only in the card's prose. Reference the card as `#<N>`; a line of the

@@ -8,18 +8,20 @@ that the presets do not produce. The population was first named in the observati
 [The `add` population, named before anything is done about it](observations.md#2026-09-21--the-add-population-named-before-anything-is-done-about-it),
 which records the counts as they stood on its date.
 
-**The population, partitioned.** Across the four available presets, `planMaterialize` produces 102
+**The population, partitioned.** Across the four available presets, `planMaterialize` produces 109
 distinct paths. 37 of them are reached only in an empty directory, through a mount marked
-`onlyWhenEmpty`. The remaining 65 are written into any tree that adopts the construct, and they fall
+`onlyWhenEmpty`. The remaining 72 are written into any tree that adopts the construct, and they fall
 into four kinds:
 
 `construct-subject` — the construct's own material, which cannot misfit because the construct is what
-it describes: `.claude/agents/architect.md`, `.claude/agents/harness.md`,
-`.claude/agents/implementer.md`, `.claude/commands/construct-discover.md`, `.claude/commands/plan.md`,
+it describes: `.claude/agents/architect.md`, `.claude/agents/brief.md`, `.claude/agents/harness.md`,
+`.claude/agents/implementer.md`, `.claude/agents/review.md`, `.claude/agents/scan.md`,
+`.claude/commands/attached-discover.md`, `.claude/commands/construct-discover.md`, `.claude/commands/plan.md`,
+`.claude/commands/status.md`,
 `.claude/rules/conventions.md`, `.claude/rules/css.md`, `.claude/rules/secrets.md`,
-`.claude/rules/tests.md`, `.claude/settings.json`, `.claude/skills/browser-lab/SKILL.md`, `.claude/skills/construct-atlas/SKILL.md`, `.claude/skills/daemon/SKILL.md`, `.claude/skills/implement/SKILL.md`, `.claude/skills/intake/SKILL.md`, `.github/workflows/security.yml`,
+`.claude/rules/tests.md`, `.claude/settings.json`, `.claude/skills/browser-lab/SKILL.md`, `.claude/skills/construct-atlas/SKILL.md`, `.claude/skills/daemon/SKILL.md`, `.claude/skills/implement/SKILL.md`, `.claude/skills/intake/SKILL.md`, `.claude/skills/probe/SKILL.md`, `.github/workflows/security.yml`,
 `.gitignore`, `.gitleaks.toml`, `AGENTS.md`, `CLAUDE.md`, `architecture/checklists.md`,
-`architecture/decisions/README.md`, `architecture/open-questions.md`, `architecture/principles.md`,
+`architecture/decisions/README.md`, `architecture/open-questions.md`, `architecture/owner-merges.md`, `architecture/principles.md`,
 `architecture/security-invariants.md`, `scripts/construct/browser-lab.mjs`, `scripts/construct/browser-witness.mjs`, `scripts/construct/check-acceptance.mjs`, `scripts/construct/check-baseline.mjs`, `scripts/construct/daemon-adapter.schema.json`, `scripts/construct/daemon-run.mjs`, `scripts/construct/daemon.mjs`, `scripts/construct/daemon.workflow`, `scripts/construct/implement.workflow`, `scripts/construct/window-hooks.mjs`.
 
 `harness-adoption` — presumes the repository runs the construct's harness, and is inert or wrong
