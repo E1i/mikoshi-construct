@@ -15,7 +15,7 @@ import { decisionsFileOf, defaultBusPath } from '../../../scripts/core/bus-path.
 import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
 import { endedCards } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
-import { createdPaths, parseParkingFile, WITNESSES_HEADING } from '../../card/parking.js'
+import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
@@ -26,7 +26,7 @@ import { admittedRecord, defaultParking, INTAKE_EXIT, recordIntake } from './ind
 import { parkedNumbers } from './numbers.js'
 import { isWithin, parkingTree } from './parking-tree.js'
 import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
-import { CORRECTED_PREFIX, UNCLEAR_PREFIX } from './slice.js'
+import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
 const WITNESS_ITEM = /^- (.+)$/
 const BLOCKS_SEPARATOR = ' · blocks '

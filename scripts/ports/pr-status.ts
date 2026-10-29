@@ -65,7 +65,7 @@ function stepAndState(event: StepEvent): [string, StatusState] | null {
     case MERGE_DONE: return ['merged', 'success']
     case CARD_STOPPED: return ['stopped', 'failure']
     case WITNESS_RECORDED: return payload.verdict === 'green' ? ['witness green', 'success'] : ['witness red', 'failure']
-    case DECISION_RECORDED: return [`review skipped by D-${String(payload.decision_id)}`, 'success']
+    case DECISION_RECORDED: return [`merge allowed by the owner, D-${String(payload.decision_id)}`, 'success']
     case POLICY_DENIED: return payload.command === 'merge' && payload.refused === true ? [`merge refused: ${String(payload.reason ?? payload.rule)}`, 'failure'] : null
     default: return null
   }

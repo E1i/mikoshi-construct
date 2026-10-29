@@ -307,7 +307,7 @@ describe('the PR status check the bus sets', () => {
     step(db, 'policy.denied', HEAD, { command: 'merge', kind: 'authority', rule: 'owner_by_risk', refused: true }, 'policy')
     const { post, calls } = recorder()
     expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([
-      ['review skipped by D-131', 'success'],
+      ['merge allowed by the owner, D-131', 'success'],
       ['merge refused: owner_by_risk', 'failure'],
     ])
     expect(calls.map(([endpoint]) => endpoint)).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, `repos/{owner}/{repo}/statuses/${HEAD}`])

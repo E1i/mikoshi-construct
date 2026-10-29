@@ -172,7 +172,12 @@ function questionUnderShard(made: MergeBench, now: Date, shard: ShardIssue | nul
 }
 
 function askingAnswerer(question: string): Answerer {
-  return async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: question })
+  let asked = false
+  return async () => {
+    const owner = asked ? null : question
+    asked = true
+    return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner }
+  }
 }
 
 async function askedUnderShard(made: MergeBench, question: string, isolation?: IsolationReader, shard: ShardIssue | null = LIVE_DECISIONS): Promise<AnswerOutcome> {

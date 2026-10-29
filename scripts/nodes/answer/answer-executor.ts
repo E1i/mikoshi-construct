@@ -213,7 +213,7 @@ export class AnswerExecutor {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
-        return this.asked(lease, answered.owner, scope, card)
+        return this.asked(lease, answered.owner, widened, card)
       if ((this.parts.dirty ?? treeDirtyOf)(card))
         return this.leftDirty(lease, card, answered.session)
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
@@ -229,7 +229,8 @@ export class AnswerExecutor {
     return this.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `the answer session ${session} pushed nothing and left uncommitted changes in ${card.worktree}; the answer goes again over that tree` })
   }
 
-  private async asked(lease: Lease, question: string, scope: BusEvent[], card: CardSession): Promise<AnswerOutcome> {
+  private async asked(lease: Lease, question: string, widened: Widened | null, card: CardSession): Promise<AnswerOutcome> {
+    const scope = widened === null ? [] : [widened.event]
     if (!this.ownersQuestion(lease, question))
       return this.stopped(lease, QUESTION_AGENT, question, {}, scope)
     const shard = activeDecisionsShard(this.parts.db, this.parts.clock())
@@ -247,11 +248,13 @@ export class AnswerExecutor {
     const ground = `window shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until}) under ${isolation.level} isolation`
     assertHeld(this.parts.db, lease)
     appendEvent(this.parts.db, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS }))
-    const decided = await this.session(lease, decisionSource(question, ground), null, card, false)
+    const decided = await this.session(lease, decisionSource(question, ground), widened, card, false)
     if ('kind' in decided)
       return this.denied(lease, decided)
     if (!leftNoNewHead(decided))
-      return this.settled(lease, decisionSource(question, ground), null, card, decided, 0)
+      return this.settled(lease, decisionSource(question, ground), widened, card, decided, 0)
+    if (decided.owner !== null)
+      return this.ownersStop(lease, `${decided.owner} (asked again after the ${DECISIONS_SCOPE} shard ${shard.id} decided: ${question})`, scope)
     if ((this.parts.dirty ?? treeDirtyOf)(card))
       return this.leftDirty(lease, card, decided.session)
     completeTask(this.parts.db, this.ts(), lease, scope)

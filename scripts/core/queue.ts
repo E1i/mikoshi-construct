@@ -5,8 +5,8 @@ import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
-import { PRIORITIES, WINDOW_WHO, WITNESSES_HEADING } from '../../src/card/parking.js'
-import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
+import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
+import { AMEND_SOURCE, witnessesOf } from '../../src/commands/intake/admit.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { roundLimitDecisionOf } from '../policy/round-limit-decision.js'
@@ -200,10 +200,11 @@ const WITNESS_CANDIDATES_ON_NO_RECORD = `
 `
 
 const WITNESS_CANDIDATES_ON_MAIN = `
-  SELECT NULL AS pr, body.card_id, (SELECT sha FROM mains ORDER BY event_id DESC LIMIT 1) AS head, ${cardBodyShaOf('body.card_id')} AS card_body, NULL AS witness_base
+  SELECT NULL AS pr, body.card_id, (SELECT sha FROM mains ORDER BY event_id DESC LIMIT 1) AS head, ${cardBodyShaOf('body.card_id')} AS card_body, NULL AS witness_base, body.text
   FROM ${CARD_BODIES} AS body
-  WHERE instr(body.text, '${WITNESSES_HEADING}') > 0 AND EXISTS (SELECT 1 FROM mains)
+  WHERE EXISTS (SELECT 1 FROM mains)
     AND ${cardBodyShaOf('body.card_id')} IS NOT NULL
+    AND EXISTS (SELECT 1 FROM events AS started WHERE started.type = '${CARD_STARTED}' AND started.legacy = 0 AND started.card_id = body.card_id)
     AND NOT EXISTS (SELECT 1 FROM prs WHERE prs.card_id = body.card_id)
     AND NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = body.card_id AND cards.state IN ('closed', 'dropped', 'merged'))
     AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = body.card_id)
@@ -419,6 +420,7 @@ interface Candidate {
   body_sha?: string | null
   card_body?: unknown
   witness_base?: string | null
+  text?: unknown
 }
 
 const REVIEWS_OF_A_PR = `
@@ -488,6 +490,8 @@ export function closedByRounds(db: DatabaseSync, ts: string, queue: Queue, pr: n
 type Admits = (row: Candidate) => boolean
 
 const everyRow: Admits = () => true
+
+const namesWitnesses: Admits = row => typeof row.text === 'string' && witnessesOf(row.text).length > 0
 
 function aMergeCandidate(db: DatabaseSync, ts: string): Admits {
   const decided = decidedPastRoundLimit(db, ts)
@@ -737,7 +741,8 @@ const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDI
 const ANSWERS_LEASED_NOW = `SELECT card_id, task_key FROM tasks WHERE queue = 'answer' AND state = '${LEASED}'`
 
 export function witnessCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  return [WITNESS_CANDIDATES_ON_NO_RECORD, WITNESS_CANDIDATES_ON_A_DENIED_BASE, WITNESS_CANDIDATES_ON_MAIN].flatMap(query => openCandidates(db, ts, 'witness', candidateRows(db, query, everyRow)))
+  const rows = [...candidateRows(db, WITNESS_CANDIDATES_ON_NO_RECORD, everyRow), ...candidateRows(db, WITNESS_CANDIDATES_ON_A_DENIED_BASE, everyRow), ...candidateRows(db, WITNESS_CANDIDATES_ON_MAIN, namesWitnesses)]
+  return openCandidates(db, ts, 'witness', rows)
 }
 
 export function answerCandidates(db: DatabaseSync, ts: string): QueuedTask[] {

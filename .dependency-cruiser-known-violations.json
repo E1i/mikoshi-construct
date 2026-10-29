@@ -2541,6 +2541,20 @@
   },
   {
     "type": "dependency",
+    "from": "scripts/policy/round-limit-decision.ts",
+    "to": "src/commands/intake/slice.ts",
+    "unresolvedTo": "../../src/commands/intake/slice.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "scripts/policy/shredder/reader.ts",
     "to": "src/card/parking.ts",
     "unresolvedTo": "../../../src/card/parking.js",

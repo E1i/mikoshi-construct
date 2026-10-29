@@ -11,7 +11,8 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
-import { defaultBusPath } from '../../core/db.js'
+import { defaultBusPath, openBus } from '../../core/db.js'
+import { assertHeld, StaleLease } from '../../core/lease.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
@@ -66,6 +67,7 @@ export interface AnswerRun {
   stdoutPath: string
   stderrPath: string
   env: NodeJS.ProcessEnv
+  signal?: AbortSignal
 }
 
 export type CardText = (cardId: number) => string | null
@@ -83,6 +85,7 @@ export interface AnswererTools {
   contextWarn?: () => number | null
   diff?: (card: CardSession) => string | null
   ciLog?: (card: CardSession, head: string) => string | null
+  held?: (lease: Lease) => boolean
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -99,6 +102,12 @@ async function beatingWhileRunning(run: () => Promise<number>, beat: () => void,
   }
   finally {
     clearInterval(ticker)
+  }
+}
+
+export class AnswerWithdrawn extends Error {
+  constructor(lease: Lease, session: string) {
+    super(`the answer task ${lease.taskKey} was superseded or withdrawn while its session ${session} ran; the session was stopped`)
   }
 }
 
@@ -349,7 +358,7 @@ function spawnClaude(run: AnswerRun): Promise<number> {
     }
   }
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', outFd, errFd] })
+    const child = spawn('claude', run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', outFd, errFd], signal: run.signal })
     child.on('error', (error) => {
       closeOnce()
       reject(error)
@@ -367,8 +376,27 @@ export class CardTreeGone extends Error {
   }
 }
 
+function busLeaseHeld(busPath: string): (lease: Lease) => boolean {
+  return (lease) => {
+    const db = openBus(busPath)
+    try {
+      assertHeld(db, lease)
+      return true
+    }
+    catch (error) {
+      if (error instanceof StaleLease)
+        return false
+      throw error
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
 export function realAnswererTools(busPath: string = defaultBusPath()): AnswererTools {
   return {
+    held: busLeaseHeld(busPath),
     pulse: busSessionPulse(busPath, () => new Date()),
     cardText: busCardBodies(busPath),
     available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
@@ -407,21 +435,44 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
     const stdoutOf = (step: string): string => path.join(dir, `${session}.${request.lease.leaseGen}${step}.out.jsonl`)
+    const withdrawn = new AbortController()
     const beat = (): void => {
       try {
+        if (tools.held?.(request.lease) === false) {
+          withdrawn.abort()
+          return
+        }
         tools.pulse?.(request.lease, session)
       }
       catch (error) {
         console.error(missedAnswerBeatLine(session, error))
       }
     }
-    const run = (argv: string[], step: string): Promise<number> => beatingWhileRunning(() => tools.spawn({
-      cwd: card.worktree,
-      argv,
-      stdoutPath: stdoutOf(step),
-      stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
-      env: sessionEnv(process.env, request.lease.cardId),
-    }), beat, ANSWER_BEAT_MS)
+    const spawnUnlessWithdrawn = async (argv: string[], step: string): Promise<number> => {
+      if (withdrawn.signal.aborted)
+        return 1
+      try {
+        return await tools.spawn({
+          cwd: card.worktree,
+          argv,
+          stdoutPath: stdoutOf(step),
+          stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
+          env: sessionEnv(process.env, request.lease.cardId),
+          signal: withdrawn.signal,
+        })
+      }
+      catch (error) {
+        if (withdrawn.signal.aborted)
+          return 1
+        throw error
+      }
+    }
+    const run = async (argv: string[], step: string): Promise<number> => {
+      const code = await beatingWhileRunning(async () => spawnUnlessWithdrawn(argv, step), beat, ANSWER_BEAT_MS)
+      if (withdrawn.signal.aborted)
+        throw new AnswerWithdrawn(request.lease, session)
+      return code
+    }
     const code = await run([...settings, ...(resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]))], '')
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)
