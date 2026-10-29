@@ -316,7 +316,7 @@ function goalSlot(facts: BusFacts): string {
 
 function waitText(wait: OwnerWait): string {
   const target = waitTarget(wait)
-  return `${wait.id}${target === null ? '' : ` ${target}`} — ${waitAction(wait)}`
+  return `${wait.id}${target === null ? '' : ` ${target}`} — ${waitAction(wait, PLAIN_LORE)}`
 }
 
 function waitItem(wait: OwnerWait, page: BoardPage): string {
@@ -406,7 +406,7 @@ function rowsSlot(facts: BusFacts): string {
   const cards = backlogCards(facts.cards, facts.at, true)
   return [
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
-    ...laneColumns(cards, facts.lanes).map(lane => laneBody(lane, cards)),
+    ...laneColumns(cards).map(lane => laneBody(lane, cards)),
   ].join('\n')
 }
 

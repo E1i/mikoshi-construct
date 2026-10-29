@@ -338,6 +338,9 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   boardBacklogRow: (card: string, state: string) => string
   boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => string
   boardNoServices: string
+  boardHint: (who: string, command: string) => string
+  boardNoPlan: (hint: string) => string
+  boardFlowEmpty: (hint: string) => string
   boardFooter: (agents: number, failure: string | undefined, queue: number) => string
   boardBusAbsent: (file: string) => string
   boardBusUnreadable: (file: string, reason: string) => string
@@ -764,6 +767,9 @@ export const LORE: Lore = {
   boardBacklogRow: (card: string, state: string) => `  ${card} \u00B7 ${state}`,
   boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => `${role} \u00B7 ${task} \u00B7 ${tree ?? '\u2014'} \u00B7 ${step}`,
   boardNoServices: 'no session is running',
+  boardHint: (who: string, command: string) => `${who} runs: ${command}`,
+  boardNoPlan: (hint: string) => `plan not registered \u00B7 ${hint}`,
+  boardFlowEmpty: (hint: string) => `nothing in the flow \u00B7 ${hint}`,
   boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
   boardBusAbsent: (file: string) => `bus ${file}: absent`,
   boardBusUnreadable: (file: string, reason: string) => `bus ${file}: unreadable (${reason})`,
@@ -1168,6 +1174,9 @@ export const PLAIN_LORE: Lore = {
   boardBacklogRow: (card: string, state: string) => `  ${card} \u00B7 ${state}`,
   boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => `${role} \u00B7 ${task} \u00B7 ${tree ?? '\u2014'} \u00B7 ${step}`,
   boardNoServices: 'no session is running',
+  boardHint: (who: string, command: string) => `${who} runs: ${command}`,
+  boardNoPlan: (hint: string) => `plan not registered \u00B7 ${hint}`,
+  boardFlowEmpty: (hint: string) => `nothing in the flow \u00B7 ${hint}`,
   boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
   boardBusAbsent: (file: string) => `bus ${file}: absent`,
   boardBusUnreadable: (file: string, reason: string) => `bus ${file}: unreadable (${reason})`,
