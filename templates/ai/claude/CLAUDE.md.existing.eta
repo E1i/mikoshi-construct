@@ -14,3 +14,7 @@ architecture, security and reasoning-budget rules in
   with `{{harnessCommand}}`, escalate only when verification proves it was not enough.
 - `construct doctor` (or `npx mikoshi-construct doctor`) — check that the baseline and discovery are
   intact.
+
+Who commits: the coordinating window and the factory commit, push and merge here; the implementer inside `/implement`
+never commits. The owner's boundaries — the kinds of pull request only the owner merges — are the table in
+[architecture/owner-merges.md](architecture/owner-merges.md).

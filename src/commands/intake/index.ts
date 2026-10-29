@@ -2,6 +2,7 @@ import type { CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../../../scripts/co
 import type { BusCardStates } from '../../card/closed.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
+import type { PlanLink } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { SlicedCard } from './slice.js'
 import { Buffer } from 'node:buffer'
@@ -15,7 +16,7 @@ import { parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { textSha } from '../../card/text-sha.js'
 import { laneOf, layLane } from './admit.js'
-import { checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
+import { checkDraft, checkPlan, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, PLAN_FIELD, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
@@ -204,6 +205,9 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const draft = parseDraft(draftText)
   if (draft.kind === 'refused')
     return refused('invalid', draft.reasons)
+  const plan = checkPlan(draft.plan, draft.cards, options.dir)
+  if (plan?.kind === 'refused')
+    return refused('invalid', plan.reasons)
   const invalidPatterns = invalidTestPatterns(draft.cards)
   if (invalidPatterns.length > 0)
     return refused('invalidTestPattern', invalidPatterns)
@@ -246,8 +250,12 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const root = options.parkingRoot ?? defaultParking()
   const written = options.events === undefined ? parkCards(parkedSlice.cards, options.parking, root, at) : parkedSlice.cards.map(card => ({ card, lane: laneOf(root, options.parking) }))
   const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? 'person' : confirmationOf(card, options.autoConfirm))
-  recordIntake(written.map(({ card, lane }) => admittedRecord(card, confirmation(card), at, lane)), options.events)
+  recordIntake(written.map(({ card, lane }, index) => withPlan(admittedRecord(card, confirmation(card), at, lane), plan?.link, cut[index]?.item)), options.events)
   return { status: 'written', parking: options.parking, cards: written.map(({ card }) => card), autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
+}
+
+function withPlan(record: CardEvent, link: PlanLink | undefined, item: string | undefined): CardEvent {
+  return link === undefined || item === undefined ? record : { ...record, payload: { ...record.payload, [PLAN_FIELD]: { ...link, item } } }
 }
 
 function parkCards(cards: readonly SlicedCard[], parking: string, root: string, at: Date): { card: SlicedCard, lane: string | null }[] {

@@ -2,13 +2,14 @@ import type { InForceDecision } from './decisions.js'
 import { OWNER_SOURCE } from './decisions/decisions.js'
 
 const OWNER_PREFIX = `${OWNER_SOURCE.replace(/[[\]]/g, '\\$&')} `
+const UNTIL_TAIL = ' · until \\S+'
 
 export function allowLiveText(queue: string): string {
   return `allow-live ${queue}`
 }
 
 export function namesQueueLive(text: string, queue: string): boolean {
-  return new RegExp(`^(?:${OWNER_PREFIX})?${allowLiveText(queue)}$`).test(text.trim())
+  return new RegExp(`^(?:${OWNER_PREFIX})?${allowLiveText(queue)}(?:${UNTIL_TAIL})?$`).test(text.trim())
 }
 
 export function liveDecisionOf(decisions: readonly InForceDecision[], queue: string): number | null {

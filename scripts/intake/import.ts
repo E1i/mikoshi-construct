@@ -8,7 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { cardIdOf, isFullSha, prOf } from '../core/identifiers.js'
 import { admitFromJournal, parkingLane } from './admissions.js'
 
@@ -71,12 +71,8 @@ export function importJournalFile(db: DatabaseSync, journal: string, laneOnDisk:
   return existsSync(journal) ? importJournal(db, readFileSync(journal, 'utf8'), laneOnDisk, now) : null
 }
 
-export function handoffDir(env: NodeJS.ProcessEnv = process.env): string {
-  return env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
-}
-
 export function journalPath(): string {
-  return path.join(handoffDir(), 'ghosts.jsonl')
+  return path.join(defaultHandoffDir(), 'ghosts.jsonl')
 }
 
 function main(): number {

@@ -17,6 +17,7 @@ import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, 
 import { ownedSha } from '../sync/ownership.js'
 import { isValidProjectName, parseLaneCount } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
+import { writeOwnerDecisionsBeside } from './attach/index.js'
 import { ATTACH_RECORD_FILE } from './attach/record.js'
 import { BROWSER_LAB_EXCLUDED_COMMAND } from './attach/settings.js'
 import { printDetectReport } from './soulkill.js'
@@ -36,6 +37,8 @@ export interface InitOptions {
   reviewModel?: string
   harness?: string
   lanes?: string
+  env?: NodeJS.ProcessEnv
+  home?: string
 }
 
 export interface InitResult {
@@ -418,6 +421,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const born = withoutStillbornClaims(buildModel({ vars, contracts: preset.contracts, sample }), existingModel, root)
   const merged = mergeModel(existingModel, born.model)
   writeModel(root, merged.model)
+  writeOwnerDecisionsBeside(root, options.env, options.home)
   for (const claim of born.stillborn)
     ui.line(ui.theme.dim(`  ${ui.lore.recordClaimNotBorn(claim.claimId, claim.doesNotHold)}`))
   if (merged.retained.length > 0) {

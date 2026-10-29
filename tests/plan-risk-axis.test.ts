@@ -33,21 +33,25 @@ describe('the plan reads risk before it chooses a contour', () => {
     expect(flat).toContain('is a reason to look at the work, not a sign')
   })
 
-  it('has three levels, and the highest asks for the ladder and a human', () => {
+  it('has three levels, the highest asks for a full review and a human merge, and none asks for a contour', () => {
     expect(levels.map(r => r[0])).toEqual(['critical', 'moderate', 'low'])
-    expect(row('critical')[2]).toContain('ladder path')
-    expect(row('critical')[2]).toContain('human')
-    expect(row('low')[2]).not.toContain('ladder')
+    expect(row('critical')[2]).toContain('reads the whole change')
+    expect(row('critical')[2]).toContain('human who merges')
+    for (const level of levels)
+      expect(level[2], level[0]).not.toMatch(/ladder|cheap|contour/)
     expect(new Set(levels.map(r => r[2])).size).toBe(levels.length)
     for (const sign of ['authentication', 'permissions', 'money', 'personal data', 'migration', 'secrets', 'someone else owns', 'core'])
       expect(row('low')[1], sign).not.toContain(sign)
   })
 
-  it('lets the highest sign decide and lets risk raise a contour, never lower one', () => {
+  it('lets the highest sign decide and never lets risk set the contour', () => {
     expect(flat).toContain('The highest sign found decides')
     expect(flat).toContain('When two levels both fit, take the higher')
-    expect(flat).toContain('Risk only raises a contour')
-    expect(flat).toContain('A low-risk task still takes the ladder path when its proof needs it')
+    expect(flat).toContain('Risk sets the review depth and who merges, never the contour')
+    expect(flat).toContain('A critical task still takes the cheap path unless the owner sends it to the ladder')
+    expect(flat).toContain('Every task takes the cheap path, whatever its class and whatever its risk')
+    expect(flat).toContain('`ladder: owner <where the owner gave the word on this task> — <the reason>`')
+    expect(flat).not.toContain('Risk only raises a contour')
     expect(flat.toLowerCase()).not.toContain('take the lower')
     expect(flat).toContain('risk: <level>, <sign>; acceptance:')
   })
