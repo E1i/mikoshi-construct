@@ -107,8 +107,11 @@ export function reviewOf(text: string, session: string): Review {
 
 const ONE_PASS = 'Walk every mutation over the changed lines and report every finding of this pass in one verdict, not in portions.'
 
+const UNCHANGED_HEAD = 'The head is the one the earlier verdict read: the code has not changed since. Report no new finding against the code; check each earlier finding, and judge only what a changed card body or pull request description names.'
+
 function reReviewLines(since: string, head: string | null, findings: readonly string[]): string[] {
   return [
+    ...(since === head ? [UNCHANGED_HEAD] : []),
     `This is a re-review: check that each finding of the earlier verdict is closed, one still open stays a finding, and explore the diff ${since}..${head}.`,
     `A new finding is allowed on the changed lines and on code the change affects: its callers, the modules that depend on it, its tests, and a regression outside the diff that the change causes. Do not re-read the whole pull request without a reason; a new finding on code the change neither touches nor affects, which the first pass already read, is not allowed.`,
     ...findings.map(finding => `Earlier finding: ${finding}`),

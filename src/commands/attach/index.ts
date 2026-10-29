@@ -18,6 +18,7 @@ import { deployFactoryBeside, factoryHomeFor } from './beside.js'
 import { browserEntriesHeldAtAttach, directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
 import { carriersItsConstructTracks } from './constructed.js'
 import { writeExcludeBlock } from './exclude.js'
+import { hostWithoutFactory } from './forge.js'
 import { fileEditingMarks, harnessCandidates, jobRunning, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, DEFAULT_PUSH_POLICY, NO_HARNESS, writeAttachRecord } from './record.js'
@@ -198,7 +199,10 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   }
   const interactive = options.yes ? undefined : prompter
 
-  const asked = options.harness != null ? withJob(options.harness, options.requiredCheck) : interactive == null ? NO_HARNESS : await askHarness(ui, root, interactive, options.requiredCheck)
+  const forgeHost = hostWithoutFactory(root)
+  if (forgeHost != null)
+    ui.glitch(ui.lore.attachFactoryUnavailable(forgeHost))
+  const asked = forgeHost != null || options.harness === NO_HARNESS ? NO_HARNESS : options.harness != null ? withJob(options.harness, options.requiredCheck) : interactive == null ? NO_HARNESS : await askHarness(ui, root, interactive, options.requiredCheck)
   if (asked == null)
     return aborted()
   if (isRefusal(asked))
@@ -208,7 +212,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   const unchecked = asked === NO_HARNESS ? null : checkedHarness(ui, asked.command, (options.env ?? process.env).PATH ?? '')
   if (unchecked != null)
     return refused(ui, unchecked)
-  const derivedJob = options.harness != null && options.requiredCheck == null ? jobRunning(root, options.harness) : undefined
+  const derivedJob = asked !== NO_HARNESS && options.harness != null && options.requiredCheck == null ? jobRunning(root, options.harness) : undefined
   if (derivedJob === null)
     return refused(ui, unresolvableCheckRefusal())
   const harness = asked !== NO_HARNESS && derivedJob != null ? withJob(asked.command, derivedJob) : asked
@@ -255,8 +259,9 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     const reason = installed.kind === 'guarded' ? 'collision' : 'settings-unreadable'
     return refused(ui, { reason, paths: [SETTINGS_FILE], rolledBack: true }, rollback)
   }
-  const factoryBeside = deployFactoryBeside(root)
-  writeOwnerDecisionsBeside(root)
+  const factoryBeside = forgeHost == null ? deployFactoryBeside(root) : undefined
+  if (forgeHost == null)
+    writeOwnerDecisionsBeside(root)
   writeAttachRecord(root, {
     recordVersion: ATTACH_RECORD_VERSION,
     construct: VERSION,

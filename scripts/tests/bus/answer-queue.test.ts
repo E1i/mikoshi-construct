@@ -487,7 +487,7 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  it('an admission that arrives while a plain-key answer task is leased supersedes it and leaves exactly one live answer task', () => {
+  it('an admission that arrives while a plain-key answer task is leased keeps that lease and opens no second answer task', () => {
     const bench = answerBench()
     bench.started(1147)
     bench.gitHub.open({ number: 1047, review: 'failure' })
@@ -498,8 +498,7 @@ describe('the answer queue', () => {
     admitBody(bench, 1147, 'cccc3333')
     bench.tick()
 
-    expect(liveAnswerTasks(bench)).toEqual([{ task_key: `${answer(1147, 1047, sha('a'))}:card-body-cccc3333`, state: 'queued' }])
-    expect(taskState(bench.db, answer(1147, 1047, sha('a'))).state).toBe('superseded')
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: answer(1147, 1047, sha('a')), state: 'leased' }])
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
@@ -568,7 +567,7 @@ describe('the answer queue', () => {
 
     expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', taskKey: answer(1101, 1001, sha('a')), head: PUSHED })
     expect(bench.tools.runs[0]!.argv.at(-1)).toContain('The failed checks: lint, vitest (1/2).')
-    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, worktree: bench.treeOf(1101), resumed: true, source: 'ci', from: sha('a'), to: PUSHED }])
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, worktree: bench.treeOf(1101), resumed: true, source: 'ci', from: sha('a'), to: PUSHED, reentry: true }])
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     bench.close()

@@ -172,7 +172,12 @@ function questionUnderShard(made: MergeBench, now: Date, shard: ShardIssue | nul
 }
 
 function askingAnswerer(question: string): Answerer {
-  return async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: question })
+  let asked = false
+  return async () => {
+    const owner = asked ? null : question
+    asked = true
+    return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner }
+  }
 }
 
 async function askedUnderShard(made: MergeBench, question: string, isolation?: IsolationReader, shard: ShardIssue | null = LIVE_DECISIONS): Promise<AnswerOutcome> {
@@ -585,7 +590,7 @@ describe('the answer node', () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining(`decided under shard ws-1, the card goes on: ${OWNER_QUESTION}`))
   })
 
-  it('an answer stopped on no card tree is requeued and a task of an old head is superseded by deriveQueues beside the node as before', async () => {
+  it('an answer stopped on no card tree is requeued and a leased answer of an old head keeps its lease and its card gets no second answer task', async () => {
     const made = bench()
     const node = nodeOf(made)
     await once(node)
@@ -604,7 +609,8 @@ describe('the answer node', () => {
     made.gitHub.pulls.get(1016)!.head = sha('b')
     await once(node)
     made.tick()
-    expect(taskState(made.db, prKey(1016)).state).toBe('superseded')
+    expect(taskState(made.db, prKey(1016)).state).toBe('leased')
+    expect(answerTasks(made, 1116)).toBe(1)
   })
 
   it('answer skips a candidate cardContract reads as not mine', async () => {
