@@ -189,14 +189,17 @@ describe('the ordered comparison inside recorded, present and produced', () => {
     expect(classifyPath({ target: TARGET, recordedSha: null, present: null, produced: 'x' })?.strategy).toBe('create')
   })
 
-  it('keeps a hook settings file that carries every entry the template writes, and never writes one that does not', () => {
+  it('keeps a hook settings file that carries every entry the template writes, updates one that merges, and never writes one that does not merge', () => {
     const produced = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node hook.mjs stop' }] }] } })
     const merged = JSON.stringify({ model: 'x', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo own' }] }, { hooks: [{ type: 'command', command: 'node hook.mjs stop' }] }] } })
     const carried = classifyPath({ target: '.claude/settings.json', recordedSha: 'recorded', present: merged, produced })
     expect(carried?.class).toBe('keep')
-    const dropped = classifyPath({ target: '.claude/settings.json', recordedSha: 'recorded', present: '{"model":"x"}', produced })!
-    expect(dropped.class).toBe('conflict')
-    expect(isWritable(dropped)).toBe(false)
+    const lacking = classifyPath({ target: '.claude/settings.json', recordedSha: 'recorded', present: '{"model":"x"}', produced })!
+    expect(lacking.class).toBe('update')
+    expect(isWritable(lacking)).toBe(true)
+    const unmergeable = classifyPath({ target: '.claude/settings.json', recordedSha: 'recorded', present: '{"hooks":[]}', produced })!
+    expect(unmergeable.class).toBe('conflict')
+    expect(isWritable(unmergeable)).toBe(false)
   })
 })
 

@@ -6,7 +6,10 @@ import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerAuthorship, MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
+import { FACTORY_MANIFEST } from '../../materialize/factory-manifest.js'
 import { MARKER_AUTHORSHIP, readingsBy } from './provenance.js'
+
+const FACTORY_TARGETS = new Set(FACTORY_MANIFEST)
 
 export const DOCTOR_EXIT = {
   ok: 0,
@@ -218,6 +221,9 @@ export function printDoctor(ui: Ui, result: DoctorResult | AttachedReport | null
     ui.glitch(ui.lore.unreadableFiles, result.unreadableFiles)
   if (result.missingFiles.length > 0)
     ui.glitch('Baseline files are missing.', result.missingFiles)
+  const factoryMissing = result.missingFiles.filter(file => FACTORY_TARGETS.has(file))
+  if (factoryMissing.length > 0)
+    ui.glitch(ui.lore.factoryFilesMissing(factoryMissing))
   if (result.missingDiscovery.length > 0)
     ui.glitch(ui.lore.discoveryIncomplete, ['', 'Missing:', ...result.missingDiscovery.map(marker => `  ${marker}`), '', 'Run: claude → /construct-discover'])
   if (result.warnings.length > 0)
