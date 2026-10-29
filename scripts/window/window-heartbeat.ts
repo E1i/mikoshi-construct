@@ -13,6 +13,7 @@ export const WINDOW_BEAT_MS = 5 * 60_000
 export const LOOP_PROCESS = 'miko:'
 
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
+const PROJECT_VARIABLE = 'CLAUDE_PROJECT_DIR'
 const SESSION_ID = /^[^:\s]+$/
 const SQLITE_BUSY = 5
 const PRIMARY_RESULT_CODE = 0xFF
@@ -32,15 +33,37 @@ const LAST_LOOP_BEATS = `
 
 const LAST_WINDOW_BEAT = `SELECT max(ts) AS ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND ts > ?`
 
+const LIVE_WINDOW_BEATS = `
+  SELECT json_extract(payload, '$.session') AS session, max(ts) AS ts FROM events
+  WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.root') = ? AND json_extract(payload, '$.session') != ?
+  GROUP BY session
+  ORDER BY ts DESC
+`
+
 export interface WindowSession {
   session: string
   mode: WindowMode
+  root?: string
 }
 
 export function windowOf(env: NodeJS.ProcessEnv): WindowSession | null {
   const session = env[SESSION_VARIABLE]?.trim()
   const mode = windowModeOf(env)
-  return mode !== null && session !== undefined && SESSION_ID.test(session) ? { session, mode } : null
+  const root = env[PROJECT_VARIABLE]?.trim()
+  if (mode === null || session === undefined || !SESSION_ID.test(session))
+    return null
+  return root === undefined || root === '' ? { session, mode } : { session, mode, root }
+}
+
+export function otherLiveWindows(db: DatabaseSync, window: WindowSession, nowMs: number): { session: string, ts: string }[] {
+  if (window.root === undefined)
+    return []
+  const beats = db.prepare(LIVE_WINDOW_BEATS).all(window.root, window.session) as { session: string, ts: string }[]
+  return beats.filter(beat => beatsLive(beat.ts, nowMs))
+}
+
+export function anotherWindowLine(root: string, others: { session: string, ts: string }[]): string {
+  return `another window lives in ${root}: ${others.map(other => `session ${other.session} beat at ${other.ts}`).join(', ')}; name it to the owner before writing here`
 }
 
 export function windowSessionOf(env: NodeJS.ProcessEnv): string | null {
@@ -48,14 +71,15 @@ export function windowSessionOf(env: NodeJS.ProcessEnv): string | null {
   return window?.mode === 'loop' ? window.session : null
 }
 
-export type WindowBeatFields = SessionGauges & { mode?: WindowMode }
+export type WindowBeatFields = SessionGauges & { mode?: WindowMode, root?: string }
 
 export function recordWindowHeartbeat(db: DatabaseSync, ts: string, session: string, fields: WindowBeatFields = {}): boolean {
   return appendEvent(db, { ts, type: WINDOW_HEARTBEAT, actor: `${WINDOW_ACTOR}${session}`, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_HEARTBEAT}:${session}:${ts}`, payload: { session, ...fields }, legacy: false })
 }
 
-export function windowBeat(bus: string, window: WindowSession | null, now: () => number, measure: SessionMeasure = measureSession): () => void {
+export function windowBeat(bus: string, window: WindowSession | null, now: () => number, measure: SessionMeasure = measureSession, say: (line: string) => void = line => console.error(line)): () => void {
   let last = Number.NEGATIVE_INFINITY
+  const named = new Set<string>()
   return () => {
     const at = now()
     if (window === null || at - last < WINDOW_BEAT_MS)
@@ -63,7 +87,12 @@ export function windowBeat(bus: string, window: WindowSession | null, now: () =>
     try {
       const db = openBus(bus)
       try {
-        recordWindowHeartbeat(db, new Date(at).toISOString(), window.session, { mode: window.mode, ...measure(window.session) })
+        const others = otherLiveWindows(db, window, at).filter(other => !named.has(other.session))
+        if (window.root !== undefined && others.length > 0) {
+          say(anotherWindowLine(window.root, others))
+          others.forEach(other => named.add(other.session))
+        }
+        recordWindowHeartbeat(db, new Date(at).toISOString(), window.session, { mode: window.mode, ...(window.root === undefined ? {} : { root: window.root }), ...measure(window.session) })
       }
       finally {
         db.close()
