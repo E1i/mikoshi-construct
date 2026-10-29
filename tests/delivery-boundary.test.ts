@@ -10,7 +10,7 @@ import { productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const FACTORY_SOURCE = 'scripts/'
-const SHARED_WITH_THE_PRODUCT = ['scripts/owner/channel.ts', 'scripts/core/bus-path.ts', 'scripts/core/events.ts', 'scripts/core/factory-paths.ts']
+const SHARED_WITH_THE_PRODUCT = ['scripts/owner/channel.ts', 'scripts/core/bus-path.ts', 'scripts/core/events.ts', 'scripts/core/factory-paths.ts', 'scripts/policy/decisions/decisions.ts', 'scripts/policy/live-decision.ts']
 const BUS_STORE_MODULE = 'node:sqlite'
 const BUS_STORE_READER = 'src/commands/cost/bus.ts'
 const SPAWN_MODULE = 'node:child_process'

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
-import { DatabaseSync } from 'node:sqlite'
 import { WINDOW_HEARTBEAT } from '../../scripts/core/events.js'
+import { withReadOnlyBus } from './cost/bus.js'
 
 export const WINDOW_SILENT_MS = 20 * 60_000
 
@@ -17,15 +17,11 @@ const NEWEST_WINDOW_BEAT = `SELECT max(ts) AS ts FROM events WHERE type = '${WIN
 function newestWindowBeat(busFile: string): string | null {
   if (!existsSync(busFile))
     return null
-  const db = new DatabaseSync(busFile, { readOnly: true })
-  try {
+  return withReadOnlyBus(busFile, (db) => {
     if (db.prepare(EVENTS_TABLE).get() === undefined)
       return null
     return (db.prepare(NEWEST_WINDOW_BEAT).get() as { ts: string | null }).ts
-  }
-  finally {
-    db.close()
-  }
+  })
 }
 
 export function factoryLiveness(busFile: string, nowMs: number): FactoryLiveness {

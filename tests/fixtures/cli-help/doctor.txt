@@ -4,9 +4,10 @@ USAGE construct doctor [OPTIONS]
 
 OPTIONS
 
-  --dir=<dir>    Target directory (Default: .)                    
-      --plain    No colors, no lore (CI-friendly) (Default: false)
-     --johnny    Wake up, Netrunner. (Default: false)             
-       --json    Machine-readable report (Default: false)         
+  --dir=<dir>    Target directory (Default: .)                                                                                                  
+      --plain    No colors, no lore (CI-friendly) (Default: false)                                                                              
+     --johnny    Wake up, Netrunner. (Default: false)                                                                                           
+       --json    Machine-readable report (Default: false)                                                                                       
+    --factory    The factory start check: goes or does not go for every item, each red one with the command that turns it green (Default: false)
 
 

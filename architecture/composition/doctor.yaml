@@ -17,7 +17,13 @@ description: >-
   with one you-are-here line. Provenance readings, the version gap and the knowledge family are
   reported, never gated: none sets an exit code, and a replay that cannot run leaves the count
   unestablished rather than failing the command. `doctor` executes nothing from the repository it
-  inspects and writes nothing, including the manifest it just normalised.
+  inspects and writes nothing, including the manifest it just normalised. `doctor --factory` takes
+  the other branch at the entry: `factoryChecklist(root)` reads the factory files, the hooks in
+  `.claude/settings.json`, the pinned pnpm and `.gitignore` through `FileReadings`, the window
+  heartbeat through `factoryLiveness` — the one liveness function the board reads too — and the
+  `allow-live merge` and `allow-live update` decisions in force beside the bus, and
+  `printFactoryChecklist` says goes or does not go for each, a red one with the command that turns it
+  green; the exit code is red while any item is.
 doc: architecture/doctor.md
 boundaries:
   - id: entry
@@ -81,7 +87,22 @@ nodes:
     label: printDoctor · verdicts, the stated boundary, one you-are-here line, exit code
     path: src/commands/doctor/report.ts
     boundary: report
+  - id: factory
+    label: factoryChecklist · PARITY and ONEWORD items, goes or does not go, a ready command per red one
+    path: src/commands/doctor/factory.ts
+    boundary: checks
+  - id: liveness
+    label: factoryLiveness · the newest window heartbeat on the bus
+    path: src/commands/liveness.ts
+    boundary: evidence
+  - id: printFactory
+    label: printFactoryChecklist · one line per item, the command under a red one, exit code
+    path: src/commands/doctor/report.ts
+    boundary: report
 edges:
+  - {from: cli, to: factory, kind: route, label: --factory}
+  - {from: liveness, to: factory, kind: fan-in}
+  - {from: factory, to: printFactory, kind: sequence}
   - {from: cli, to: run, kind: sequence}
   - {from: run, to: manifest, kind: sequence}
   - {from: run, to: model, kind: sequence}

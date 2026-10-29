@@ -15,7 +15,7 @@ import { busReaderAt } from './commands/board/bus.js'
 import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, rawSectionsAsked, readBoard, STALE_HOURS } from './commands/board/index.js'
 import { COST_EXIT, costExpect, costJson, costReport, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
 import { askDetach, DETACH_EXIT } from './commands/detach/index.js'
-import { DOCTOR_EXIT, doctorJson, printDoctor, runDoctor } from './commands/doctor/index.js'
+import { DOCTOR_EXIT, doctorJson, factoryChecklist, factoryChecklistExit, factoryChecklistJson, printDoctor, printFactoryChecklist, runDoctor } from './commands/doctor/index.js'
 import { modelPicture, printGraph } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
 import { printAdmit, runAdmit } from './commands/intake/admit.js'
@@ -179,10 +179,18 @@ const doctor = withKnownFlags(defineCommand({
   args: {
     ...commonArgs,
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
+    factory: { type: 'boolean', description: 'The factory start check: goes or does not go for every item, each red one with the command that turns it green', default: false },
   },
   run({ args }) {
     const console = ui(args, args.json ? stderrWriter : stdoutWriter)
     const failed = reported(console, () => {
+      if (args.factory) {
+        const checklist = factoryChecklist(path.resolve(args.dir))
+        if (args.json)
+          process.stdout.write(`${JSON.stringify(factoryChecklistJson(checklist), null, 2)}\n`)
+        process.exitCode = args.json ? factoryChecklistExit(checklist) : printFactoryChecklist(console, checklist)
+        return
+      }
       const result = runDoctor(args.dir)
       if (args.json) {
         process.stdout.write(`${JSON.stringify(doctorJson(result), null, 2)}\n`)

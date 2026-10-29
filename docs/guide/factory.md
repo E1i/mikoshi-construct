@@ -23,4 +23,8 @@ construct-factory --mode ghost-protocol [--hours <n>]
 - `--live <worker>` needs the owner word `allow-live <worker>`; `--shadow <worker>` needs none.
 - The modes are described in `architecture/window.md`.
 
+Before a start, `construct doctor --factory` says goes or does not go for every item the factory needs,
+and prints under each red one the command that turns it green
+([CLI reference](/cli#doctor-factory-will-the-factory-go)).
+
 The owner's interactive loop is [Miko's window](/guide/miko-window).
