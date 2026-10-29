@@ -1,6 +1,6 @@
 import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
-import { isTest, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
+import { isTest, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
 import { layersIn, readLayerMap } from '../core/layer-map.js'
 import { scansATree } from './tree-scanners.js'
@@ -22,6 +22,7 @@ export const BUS_TESTS = `${FACTORY_FOLDERS.busTests[0]}/`
 const LAYERS = readLayerMap()
 const SCRIPT_DIR = /^scripts\/([^/]+)\//
 const SOURCE_FILE = /\.ts$/
+const CHANGESET_NOTE = /^\.changeset\/[^/]+\.md$/
 const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
 
 export type Graph = ReadonlyMap<string, readonly string[]>
@@ -81,9 +82,12 @@ function scanning(file: string, tests: readonly string[]): string[] {
     .flatMap(([, scanners]) => scanners.filter(test => tests.includes(test)))
 }
 
-export function selectRun(changed: readonly string[], graph: Graph, testText: (test: string) => string): Run {
-  if (changed.length === 0)
+export function selectRun(given: readonly string[], graph: Graph, testText: (test: string) => string): Run {
+  if (given.length === 0)
     return { kind: 'full', why: 'no changed path was given' }
+  const changed = given.filter(file => !CHANGESET_NOTE.test(file))
+  if (changed.length === 0)
+    return { kind: 'layers', layers: [], tests: [] }
   const infrastructure = changed.find(file => TEST_INFRASTRUCTURE.test(file))
   if (infrastructure !== undefined)
     return { kind: 'full', why: `${infrastructure} is test infrastructure every test runs under` }
@@ -96,7 +100,8 @@ export function selectRun(changed: readonly string[], graph: Graph, testText: (t
   const readers = [...graph.keys()].filter(underTestRoot)
   const treeScanners = allTests.filter(test => scansATree(testText(test)))
   const busWide = changed.some(file => BUS_SHARED.includes(file)) ? allTests.filter(test => test.startsWith(BUS_TESTS)) : []
-  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide]
+  const named = changed.flatMap(file => NAMED_READERS[file] ?? []).filter(test => graph.has(test))
+  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named]
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].map(layerOf).filter(layer => layer !== null))].sort()
   const tests = [...closure].filter(isTest).sort()

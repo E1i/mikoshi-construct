@@ -47,6 +47,18 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(selectRun([], GRAPH, () => '').kind).toBe('full')
   })
 
+  it('a changeset path keeps the run on layers and selects no test, while .changeset/config.json still takes the full run', () => {
+    expect(selectRun(['.changeset/hygiene.md'], GRAPH, () => '')).toEqual({ kind: 'layers', layers: [], tests: [] })
+    expect(layersRun(['.changeset/hygiene.md', 'scripts/nodes/merge/merge-worker.ts'])).toEqual(layersRun(['scripts/nodes/merge/merge-worker.ts']))
+    expect(selectRun(['.changeset/config.json'], GRAPH, () => '').kind).toBe('full')
+  })
+
+  it('a change to src/card/risk.ts runs the morse tests that read its rule', () => {
+    const graph: Graph = new Map([...GRAPH, ['src/card/risk.ts', []], ['scripts/tests/morse/cli.test.ts', []], ['scripts/tests/morse/rules.test.ts', []]])
+    const run = selectRun(['src/card/risk.ts'], graph, () => '')
+    expect(run.kind === 'layers' ? run.tests : run.why).toEqual(['scripts/tests/morse/cli.test.ts', 'scripts/tests/morse/rules.test.ts'])
+  })
+
   it('a change to the test infrastructure every test runs under takes the full run', () => {
     const graph: Graph = new Map([...GRAPH, ['scripts/scratch/vitest-bus.ts', []], ['scripts/ci/shard.ts', []]])
     for (const file of ['vitest.config.ts', 'vitest-workspace.ts', 'scripts/scratch/vitest-setup.ts', 'scripts/scratch/vitest-bus.ts', 'scripts/ci/shard.ts', 'scripts/ci/test-weights.json'])

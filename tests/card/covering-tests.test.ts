@@ -1,7 +1,7 @@
 import type { RepositoryFacts } from '../../src/commands/intake/facts.js'
 import { describe, expect, it } from 'vitest'
 import { isTest as layersIsTest } from '../../scripts/ci/layers.js'
-import { COVERING_REASON, coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
+import { COVERING_REASON, coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, RISK_RULE, RISK_RULE_READERS, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
 import { checkDraft } from '../../src/commands/intake/check.js'
 
 const FILES: Record<string, string> = {
@@ -65,6 +65,19 @@ describe('the tests that cover a touched file', () => {
 
   it('package.json is covered by the readers of its scripts', () => {
     expect(covering(['package.json'])).toEqual(PACKAGE_SCRIPT_READERS)
+  })
+
+  it('a change to src/card/risk.ts covers the morse rule fixtures through the morse cli and rules tests', () => {
+    const files: Record<string, string> = {
+      [RISK_RULE]: 'export const RISK = 1\n',
+      'scripts/tests/morse/cli.test.ts': 'execFileSync(TSX, [CLI])\n',
+      'scripts/tests/morse/rules.test.ts': 'export {}\n',
+      'scripts/tests/morse/diff.test.ts': 'export {}\n',
+    }
+    const read = (file: string): string | null => files[file] ?? null
+    const list = Object.keys(files)
+    expect(coveringTests([RISK_RULE], list, importersOf(list, read), read)).toEqual(RISK_RULE_READERS)
+    expect(coveringTests(['src/card/**'], list, importersOf(list, read), read)).toEqual(RISK_RULE_READERS)
   })
 
   it('a touched test helper is covered by the tests that import it, and a touched test starts no walk', () => {

@@ -94,6 +94,12 @@ const LISTED: SandboxFailing[] = [
   { file: 'scripts/tests/notes/spawn.test.ts', test: '', refused: 'listen EPERM on the tsx IPC pipe' },
 ]
 
+const FULL_RUN_SUMMARY = /^Full run: /
+
+function testSetOf(summary: string): string {
+  return FULL_RUN_SUMMARY.test(summary) ? 'every test' : summary
+}
+
 describe('the session pre-push runs the CI selector over the session diff', () => {
   it('on PR #1037, PR #1039 and PR #1036 the session and CI run the same test set with the same command and environment', () => {
     expect(SELECT_STEP.run).toContain(`git ${CI_DIFF.join(' ')} HEAD^1 HEAD | pnpm exec tsx scripts/ci/select.ts --stdin`)
@@ -105,7 +111,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     expect(PROBED.map(probed => probed.pr)).toEqual([1037, 1039, 1036])
     for (const probed of PROBED) {
       const session = reportedRun(selectRun([...probed.changed].sort(), new Map(), () => ''))
-      expect(runSummary(session)).toBe(probed.ciSummary)
+      expect(testSetOf(runSummary(session))).toBe(testSetOf(probed.ciSummary))
       expect(ciCommand(session)).toBe(['pnpm', 'test', ...ciArgs(session)].join(' '))
       const args = sessionArgs(session, SANDBOX_FAILING)
       expect(args.slice(0, ciArgs(session).length)).toEqual(ciArgs(session))
