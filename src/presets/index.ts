@@ -163,8 +163,8 @@ const PRESETS: Record<PresetId, Preset> = {
       HTTP_CONTRACT,
       { group: EXPRESS_APP, into: 'apps/api', onlyWhenEmpty: true },
       { group: EXPRESS_REPO, onlyWhenEmpty: true },
-      { group: 'presets/monorepo/sample', onlyWhenEmpty: true },
       'presets/monorepo/baseline',
+      { group: 'presets/monorepo/sample', onlyWhenEmpty: true },
     ],
     contracts: true,
     available: true,
@@ -249,6 +249,25 @@ export type ReviewProvider = 'claude' | 'none'
 export const REVIEW_PROVIDERS: ReviewProvider[] = ['claude', 'none']
 
 export const DEFAULT_REVIEW_MODEL = 'claude-sonnet-5'
+
+export const MIKOSHI_PNPM = '12.4.2'
+
+const RELEASE_PARTS = [0, 1, 2]
+
+function releaseParts(version: string): number[] {
+  const parts = version.split(/[-+]/)[0]!.split('.')
+  return RELEASE_PARTS.map(index => Number.parseInt(parts[index] ?? '0', 10) || 0)
+}
+
+function isBelow(version: string, floor: string): boolean {
+  const [ours, theirs] = [releaseParts(version), releaseParts(floor)]
+  const differing = RELEASE_PARTS.find(index => ours[index] !== theirs[index])
+  return differing != null && ours[differing]! < theirs[differing]!
+}
+
+export function pinnedPnpm(onThePath: string | null): string {
+  return onThePath == null || isBelow(onThePath, MIKOSHI_PNPM) ? MIKOSHI_PNPM : onThePath
+}
 
 export function reviewGroups(provider: ReviewProvider): string[] {
   return provider === 'claude' ? ['ai/review'] : []
