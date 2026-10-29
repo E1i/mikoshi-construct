@@ -30,8 +30,8 @@ function classificationErrors(files: string[]): string[] {
 
 describe('architecture/owner-merges.md as the window reads it', () => {
   it.each([
-    { files: ['AGENTS.md'], ownerMerged: true },
-    { files: ['AGENTS.md', 'scripts/board/derive.ts'], ownerMerged: true },
+    { files: ['AGENTS.md'], ownerMerged: false },
+    { files: ['AGENTS.md', 'scripts/board/derive.ts'], ownerMerged: false },
     { files: ['templates/ai/shared/AGENTS.md.eta'], ownerMerged: false },
     { files: ['scripts/board/derive.ts', 'architecture/code-matrix.md'], ownerMerged: false },
     { files: ['.claude/agents/implementer.md'], ownerMerged: true },
@@ -42,11 +42,11 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     { files: ['.claude/commands/plan.md'], ownerMerged: true },
     { files: ['.claude/hooks/x.mjs'], ownerMerged: true },
     { files: ['.claude/eddies.json'], ownerMerged: true },
-    { files: ['.claude/statusline.sh'], ownerMerged: false },
+    { files: ['.claude/statusline.sh'], ownerMerged: true },
     { files: ['architecture/ghosts-files.md'], ownerMerged: false },
-    { files: ['scripts/construct/implement.workflow'], ownerMerged: true },
-    { files: ['templates/ai/claude/CLAUDE.md.eta'], ownerMerged: true },
-    { files: ['templates/attach/AGENTS.md.eta'], ownerMerged: true },
+    { files: ['scripts/construct/implement.workflow'], ownerMerged: false },
+    { files: ['templates/ai/claude/CLAUDE.md.eta'], ownerMerged: false },
+    { files: ['templates/attach/AGENTS.md.eta'], ownerMerged: false },
     { files: ['contract/factory-permissions.json'], ownerMerged: true },
     { files: ['.github/workflows/release.yml'], ownerMerged: true },
     { files: ['.github/workflows/ci.yml'], ownerMerged: true },
@@ -68,7 +68,7 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     expect(kinds.find(kind => kind.kind === 'workflows')?.globs).toEqual(['.github/workflows/**'])
     expect(kinds.find(kind => kind.kind === 'release')?.title).toBe('chore: version packages')
     expect(kinds.find(kind => kind.kind === 'new-write-path')?.notChecked).toBe(true)
-    expect(kinds.find(kind => kind.kind === 'own-instructions')?.globs).toEqual(['.claude/agents/**', '.claude/rules/**', '.claude/settings*.json', '.claude/skills/**', '.claude/commands/**', '.claude/hooks/**', '.claude/eddies.json', 'AGENTS.md', 'scripts/construct/**', 'templates/ai/claude/**', 'templates/attach/**', 'architecture/owner-merges.md'])
+    expect(kinds.find(kind => kind.kind === 'own-instructions')?.globs).toEqual(['.claude/**', 'architecture/owner-merges.md'])
     expect(kinds.find(kind => kind.kind === 'agent-permissions')?.globs).toEqual(['contract/factory-permissions.json'])
   })
 

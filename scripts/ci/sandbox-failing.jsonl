@@ -9,6 +9,9 @@
 {"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > bus:bg leaves a review worker the supervisor recorded alone","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > bus:bg returns at once with the pid and the log path","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > bus:bg starts bus:run and every switched-on worker once and leaves a running one alone","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > with a factory running over bus A, a start over bus B starts every process of B","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > a start over bus B takes no start lock of bus A","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > a running process whose bus could not be read is left alone but not counted, so a start that found only such exits 1","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/chain-process.test.ts","test":"stopping a running chain before its restart > the signal reaches every process of a real detached chain group","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/launch-pr.test.ts","test":"a card the bus launches > a launched card reaches an open PR with no hand commit","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/launch-pr.test.ts","test":"a card the bus launches > a launched card's PR body carries the matrix count line of its session report","refused":"spawnSync ps EPERM"}
@@ -315,7 +318,7 @@
 {"file":"scripts/tests/worlds.test.ts","test":"test worlds leave nothing in TMPDIR > a watch world is removed once its test is done, with every temporary of its calls","refused":"mkdtemp under /tmp EPERM"}
 {"file":"tests/attach-entry.test.ts","test":"attach --entry > prints the subtitle, a blank line and the protocol whole, in a directory that is not a repository","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/attach-entry.test.ts","test":"attach --entry > writes nothing into a repository, even with --yes and --harness given","refused":"listen EPERM on the tsx IPC pipe"}
-{"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > attach and its alias: attached 0, refused 1","refused":"listen EPERM on the tsx IPC pipe"}
+{"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > attach and its alias: attached 0, refused 1, required check unresolvable 2","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > board: shown 0, an unreadable --prs 0","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > cost: no session store 3, a store with nothing for this directory 0, a look-alike key only 1","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > detach and its alias: detached 0, nothing attached 0, refused 1","refused":"listen EPERM on the tsx IPC pipe"}

@@ -2,7 +2,6 @@ import type { CostSource, ExpectInput, ImplementSubsample, RoleBand, RunStep, Sa
 import type { LedgerEntry } from '../../src/commands/cost/ledger.js'
 import type { SubagentRecord } from '../../src/commands/cost/turns.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +11,7 @@ import { ClaudeCodeCostSource, expectFor, formatContour as formatContourIn, form
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
 import { readSubagentRecords } from '../../src/commands/cost/turns.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { roleExpects } from './role-sample.js'
 
 export type { ImplementSubsample, SampleRow, SampleSource, StepExpect, Subsample } from '../../src/commands/cost/index.js'
@@ -179,7 +178,7 @@ function main(): void {
     process.exitCode = 1
     return
   }
-  const handoffDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+  const handoffDir = defaultHandoffDir()
   const journal = values.journal ?? path.join(handoffDir, 'ghosts.jsonl')
   const runs = values.runs ?? [LEDGER_FILE]
   const warnings: string[] = []

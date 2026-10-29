@@ -63,7 +63,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'miko:pull': 'pulls main into the window\'s tree when the window runs it, or hands the owner the pull command; its own tests, on scratch git repositories, are its gate',
   'miko:watch': 'blocks until a journal event or a watched PID exits, for the foreman to wait on when run by hand; its own tests are its gate',
   'model:render': 'a writer; model:check is its gate',
-  'prepublishOnly': 'a packaging hook',
+  'prepack': 'a packaging hook',
   'release': 'publishes',
   'release-notes:render': 'a writer; the release index tests are its gate',
   'release:evidence': 'a read-only report on merged cards from the journal, not a verdict on a change',

@@ -3,7 +3,6 @@ import type { PrList, PullRequest } from '../ports/gh.js'
 import type { GhostRowSupervisor } from './status.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -11,7 +10,7 @@ import { parseArgs } from 'node:util'
 import { LEDGER_FILE } from '../../src/commands/cost/ledger.js'
 import { STEP_CACHE_FILE } from '../../src/commands/cost/step-cache.js'
 import { defaultBusPath } from '../core/db.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { journalText, recordGhostLine } from '../core/journal.js'
 import { readTasksFile, startedTree } from '../core/tasks.js'
 import { execGh, listPrs, PROCESS_GH_PORT, readGhJson } from '../ports/gh.js'
@@ -368,7 +367,7 @@ function tasksTargets(tasksData: TasksFile): { targets: Target[], untracked: str
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ args: process.argv.slice(2), options: { 'tasks': { type: 'string' }, 'repo': { type: 'string' }, 'logs': { type: 'string' }, 'ledger-only': { type: 'boolean' } } })
-  const handoffDir = process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+  const handoffDir = defaultHandoffDir()
   const tasksData = values.tasks === undefined ? undefined : readTasksFile(values.tasks)
   const repoRoot = tasksData?.repo ?? toplevel()
   const checkout = mainCheckout(repoRoot)

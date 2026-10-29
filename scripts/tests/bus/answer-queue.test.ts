@@ -322,15 +322,15 @@ describe('the answer queue', () => {
   it('a widen onto an owner path stops as question.owner even after the amend', async () => {
     const bench = answerBench()
     bench.started(914)
-    bench.stopped(914, { reason: 'question.agent', detail: 'the ladder must know the answer queue', widen: ['scripts/construct/implement.workflow'], touches: ['scripts/core/queue.ts'] })
+    bench.stopped(914, { reason: 'question.agent', detail: 'the ladder must know the answer queue', widen: ['.claude/settings.json'], touches: ['scripts/core/queue.ts'] })
     bench.tick()
-    admitCard(bench, 914, ['scripts/core/queue.ts', 'scripts/construct/implement.workflow'], 'ffff6666')
+    admitCard(bench, 914, ['scripts/core/queue.ts', '.claude/settings.json'], 'ffff6666')
     bench.tick()
 
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining('scripts/construct/implement.workflow is an owner path') })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining('.claude/settings.json is an owner path') })
     expect(bench.tools.runs).toHaveLength(0)
     expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([914])
-    expect(eventsOf(bench.db, OWNER_WAIT_OPENED).at(-1)).toEqual({ id: 'Q2', need: 'decision', text: 'card #914 asks: scripts/construct/implement.workflow is an owner path: the ladder must know the answer queue', command: cardDecisionCommand(914), card: 914 })
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED).at(-1)).toEqual({ id: 'Q2', need: 'decision', text: 'card #914 asks: .claude/settings.json is an owner path: the ladder must know the answer queue', command: cardDecisionCommand(914), card: 914 })
     bench.close()
   })
 
@@ -487,7 +487,7 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  it('an admission that arrives while a plain-key answer task is leased supersedes it and leaves exactly one live answer task', () => {
+  it('an admission that arrives while a plain-key answer task is leased keeps that lease and opens no second answer task', () => {
     const bench = answerBench()
     bench.started(1147)
     bench.gitHub.open({ number: 1047, review: 'failure' })
@@ -498,8 +498,7 @@ describe('the answer queue', () => {
     admitBody(bench, 1147, 'cccc3333')
     bench.tick()
 
-    expect(liveAnswerTasks(bench)).toEqual([{ task_key: `${answer(1147, 1047, sha('a'))}:card-body-cccc3333`, state: 'queued' }])
-    expect(taskState(bench.db, answer(1147, 1047, sha('a'))).state).toBe('superseded')
+    expect(liveAnswerTasks(bench)).toEqual([{ task_key: answer(1147, 1047, sha('a')), state: 'leased' }])
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
@@ -568,7 +567,7 @@ describe('the answer queue', () => {
 
     expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', taskKey: answer(1101, 1001, sha('a')), head: PUSHED })
     expect(bench.tools.runs[0]!.argv.at(-1)).toContain('The failed checks: lint, vitest (1/2).')
-    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, worktree: bench.treeOf(1101), resumed: true, source: 'ci', from: sha('a'), to: PUSHED }])
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, worktree: bench.treeOf(1101), resumed: true, source: 'ci', from: sha('a'), to: PUSHED, reentry: true }])
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     bench.close()
@@ -1035,7 +1034,7 @@ describe('the answer executor', () => {
       1123: reserved(1123),
       1124: reserved(1124),
       1125: ownerPath,
-      1126: 'may the card also touch AGENTS.md?',
+      1126: 'may the card also touch .claude/settings.json?',
       1127: 'the finding needs eslint.config.mjs',
       1128: 'may the card also touch scripts/core/lease.ts?',
     }

@@ -44,8 +44,8 @@ describe('the board bus reader', () => {
 
   it('reads every card with its state, lane and card line, in card order', () => {
     expect(facts({ cards: [{ id: 2, state: 'changes', lane: null, line: null }, { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha' }] }).cards).toEqual([
-      { id: 1, state: 'queued', stage: 'planned', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },
-      { id: 2, state: 'changes', stage: 'answer/changes', lane: null, line: null, since: null, body: true, closed: false, closedAt: null },
+      { id: 1, state: 'queued', stage: 'planned', lane: 'a', slot: 'slot-a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },
+      { id: 2, state: 'changes', stage: 'answer/changes', lane: null, slot: null, line: null, since: null, body: true, closed: false, closedAt: null },
     ])
   })
 
@@ -119,18 +119,13 @@ describe('the board bus reader', () => {
     }
   })
 
-  it('a card lane is its latest lane.assigned, not its parking folder, and a merged, closed or dropped card has none', () => {
+  it('a card lane is its parking lane, its latest lane.assigned is a slot, and a merged, closed or dropped card has neither', () => {
     const assigned = (card: number, lane: string, lanes: number): SeedEvent => ({ ts: ago(60_000), type: 'lane.assigned', card, payload: JSON.stringify({ lane, lanes }) })
     const read = facts({
       cards: [{ id: 1, state: 'queued', lane: 'lane-3', line: null }, { id: 2, state: 'merged', lane: 'lane-1', line: null }, { id: 3, state: 'closed', lane: 'lane-2', line: null }, { id: 4, state: 'dropped', lane: 'lane-2', line: null }],
       events: [assigned(1, 'lane-1', 2)],
     })
-    expect(read.cards.map(card => [card.id, card.lane])).toEqual([[1, 'lane-1'], [2, null], [3, null], [4, null]])
-    expect(read.lanes).toBe(2)
-  })
-
-  it('a bus with no lane.assigned reads no lane count', () => {
-    expect(facts({ cards: [{ id: 1, state: 'queued', lane: null, line: null }] }).lanes).toBeNull()
+    expect(read.cards.map(card => [card.id, card.lane, card.slot])).toEqual([[1, 'lane-3', 'slot-1'], [2, null, null], [3, null, null], [4, null, null]])
   })
 
   it('a merged or closed card has no session tile, whatever its last pulse', () => {

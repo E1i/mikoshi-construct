@@ -11,9 +11,11 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
-import { defaultBusPath } from '../../core/db.js'
+import { defaultBusPath, openBus } from '../../core/db.js'
+import { assertHeld, StaleLease } from '../../core/lease.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { readResultFields } from '../../ports/result.js'
 import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
@@ -65,6 +67,7 @@ export interface AnswerRun {
   stdoutPath: string
   stderrPath: string
   env: NodeJS.ProcessEnv
+  signal?: AbortSignal
 }
 
 export type CardText = (cardId: number) => string | null
@@ -81,6 +84,8 @@ export interface AnswererTools {
   context?: (session: string) => number | null
   contextWarn?: () => number | null
   diff?: (card: CardSession) => string | null
+  ciLog?: (card: CardSession, head: string) => string | null
+  held?: (lease: Lease) => boolean
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -97,6 +102,12 @@ async function beatingWhileRunning(run: () => Promise<number>, beat: () => void,
   }
   finally {
     clearInterval(ticker)
+  }
+}
+
+export class AnswerWithdrawn extends Error {
+  constructor(lease: Lease, session: string) {
+    super(`the answer task ${lease.taskKey} was superseded or withdrawn while its session ${session} ran; the session was stopped`)
   }
 }
 
@@ -163,20 +174,39 @@ export function projectDirOf(worktree: string): string {
   return worktree.replace(/[^a-z0-9]/gi, '-')
 }
 
-function sourceLines(source: AnswerSource): string[] {
+function ciLogLines(ciLog: string | null | undefined): string[] {
+  if (ciLog === undefined)
+    return ['Read their logs (gh pr checks, gh run view --log-failed) and fix every one.']
+  if (ciLog === null)
+    return ['The bus could not read the failed-job log; fix every failed check from what the tree shows.']
+  const cut = ciLog.length > DIFF_PROMPT_LIMIT ? `, cut at ${DIFF_PROMPT_LIMIT} characters` : ''
+  return [`The failed-job log the bus read${cut}:`, ciLog.slice(0, DIFF_PROMPT_LIMIT), 'Fix every failure it shows.']
+}
+
+function redCiLines(failedChecks: string[], ciLog: string | null | undefined): string[] {
+  return [
+    failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name.' : `CI is red on this head. The failed checks: ${failedChecks.join(', ')}.`,
+    ...ciLogLines(ciLog),
+  ]
+}
+
+function failedChecksOf(source: AnswerSource): string[] | null {
+  if (source.kind === 'ci')
+    return source.failedChecks
+  return source.kind === 'changes' ? source.failedChecks ?? null : null
+}
+
+function sourceLines(source: AnswerSource, ciLog?: string | null): string[] {
   if (source.kind === 'changes') {
     return [
       source.findings.length === 0 ? 'The review asked for changes and recorded no findings on the bus; read the review on the pull request.' : 'The review asked for changes. Its findings:',
       ...source.findings.map(finding => `- ${finding}`),
       'Address every finding.',
+      ...(source.failedChecks === undefined ? [] : redCiLines(source.failedChecks, ciLog)),
     ]
   }
-  if (source.kind === 'ci') {
-    return [
-      source.failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name; read the checks on the pull request.' : `CI is red on this head. The failed checks: ${source.failedChecks.join(', ')}.`,
-      'Read their logs (gh pr checks, gh run view --log-failed) and fix every one.',
-    ]
-  }
+  if (source.kind === 'ci')
+    return redCiLines(source.failedChecks, ciLog)
   return [`The card stopped with a question for the agent: ${source.detail}`, 'Answer it as the Operator role would and continue the card.']
 }
 
@@ -244,13 +274,13 @@ function gateLine(gate: ShiftGate): string {
   return gate.prepush.length === 0 ? `the card's witnesses` : `the card's witnesses and the pre-push checks this repository declares, ${gate.prepush.join(', ')}`
 }
 
-export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null): string {
+export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null, ciLog?: string | null): string {
   const { lease, source, widened, card } = request
   return [
     `[answer:${lease.taskKey}]`,
     `Card #${lease.cardId}${lease.pr === null ? '' : `, pull request #${lease.pr} at ${lease.head}`}, in its tree ${card.worktree} on ${card.branch}.`,
     ...cardLines(lease.cardId, cardText),
-    ...sourceLines(source),
+    ...sourceLines(source, ciLog),
     ...diffLines(card, diff),
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
     `The card's latest events, oldest first:`,
@@ -271,6 +301,22 @@ function remoteHead(card: CardSession): string | null {
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+}
+
+function failedJobLog(card: CardSession, head: string): string | null {
+  const runs = PROCESS_GH_PORT.call(['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree })
+  if (runs.kind !== 'ran')
+    return null
+  try {
+    const [run] = JSON.parse(runs.stdout) as { databaseId: number }[]
+    if (run === undefined)
+      return null
+    const log = PROCESS_GH_PORT.call(['run', 'view', String(run.databaseId), '--log-failed'], { cwd: card.worktree })
+    return log.kind === 'ran' ? log.stdout : null
+  }
+  catch {
+    return null
+  }
 }
 
 function diffAgainstBase(card: CardSession): string | null {
@@ -296,6 +342,15 @@ export function treeMergeOf(card: CardSession): TreeMerge {
   }
 }
 
+export function treeDirtyOf(card: CardSession): boolean {
+  try {
+    return git(card.worktree, ['status', '--porcelain']).trim() !== ''
+  }
+  catch {
+    return false
+  }
+}
+
 function contextWarnOfEddies(): number | null {
   const warn = realExitReadings({}, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
   return warn === UNKNOWN ? null : warn
@@ -313,7 +368,7 @@ function spawnClaude(run: AnswerRun): Promise<number> {
     }
   }
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', outFd, errFd] })
+    const child = spawn('claude', run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', outFd, errFd], signal: run.signal })
     child.on('error', (error) => {
       closeOnce()
       reject(error)
@@ -331,8 +386,27 @@ export class CardTreeGone extends Error {
   }
 }
 
+function busLeaseHeld(busPath: string): (lease: Lease) => boolean {
+  return (lease) => {
+    const db = openBus(busPath)
+    try {
+      assertHeld(db, lease)
+      return true
+    }
+    catch (error) {
+      if (error instanceof StaleLease)
+        return false
+      throw error
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
 export function realAnswererTools(busPath: string = defaultBusPath()): AnswererTools {
   return {
+    held: busLeaseHeld(busPath),
     pulse: busSessionPulse(busPath, () => new Date()),
     cardText: busCardBodies(busPath),
     available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
@@ -344,6 +418,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
+    ciLog: failedJobLog,
   }
 }
 
@@ -363,27 +438,51 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const cardBody = tools.cardText(request.lease.cardId)
     const gate = readShiftGate(card.worktree)
-    const prompt = answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card))
+    const ciLog = failedChecksOf(request.source) !== null && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
+    const prompt = answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog)
     const settings = settingsFlag(shiftSettings(card.worktree, gate, [ownerQuestion]))
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
     const stdoutOf = (step: string): string => path.join(dir, `${session}.${request.lease.leaseGen}${step}.out.jsonl`)
+    const withdrawn = new AbortController()
     const beat = (): void => {
       try {
+        if (tools.held?.(request.lease) === false) {
+          withdrawn.abort()
+          return
+        }
         tools.pulse?.(request.lease, session)
       }
       catch (error) {
         console.error(missedAnswerBeatLine(session, error))
       }
     }
-    const run = (argv: string[], step: string): Promise<number> => beatingWhileRunning(() => tools.spawn({
-      cwd: card.worktree,
-      argv,
-      stdoutPath: stdoutOf(step),
-      stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
-      env: sessionEnv(process.env, request.lease.cardId),
-    }), beat, ANSWER_BEAT_MS)
+    const spawnUnlessWithdrawn = async (argv: string[], step: string): Promise<number> => {
+      if (withdrawn.signal.aborted)
+        return 1
+      try {
+        return await tools.spawn({
+          cwd: card.worktree,
+          argv,
+          stdoutPath: stdoutOf(step),
+          stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
+          env: sessionEnv(process.env, request.lease.cardId),
+          signal: withdrawn.signal,
+        })
+      }
+      catch (error) {
+        if (withdrawn.signal.aborted)
+          return 1
+        throw error
+      }
+    }
+    const run = async (argv: string[], step: string): Promise<number> => {
+      const code = await beatingWhileRunning(async () => spawnUnlessWithdrawn(argv, step), beat, ANSWER_BEAT_MS)
+      if (withdrawn.signal.aborted)
+        throw new AnswerWithdrawn(request.lease, session)
+      return code
+    }
     const code = await run([...settings, ...(resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]))], '')
     if (code !== 0)
       throw new Error(`the answer session ${session} exited ${code}`)

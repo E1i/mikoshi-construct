@@ -5,8 +5,9 @@ import { existsSync } from 'node:fs'
 import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
+import { unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
@@ -39,8 +40,6 @@ const FALLS = `
 `
 
 const MERGED_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL`
-
-const PROBES_VERIFIED_BY_REPORT = `SELECT DISTINCT card_id FROM events WHERE legacy = 0 AND type = '${CARD_VERIFIED}' AND pr IS NULL AND card_id IS NOT NULL AND json_extract(payload, '$.report') IS NOT NULL`
 
 const LEGACY_MERGED_CARDS = `SELECT DISTINCT card_id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type = 'merge'`
 
@@ -303,7 +302,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const lives = withAssignedLanes(db, cardLives(db))
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
-  const cleared = new Set([...merged, ...cardSet(db, PROBES_VERIFIED_BY_REPORT)])
+  const unsatisfied = unsatisfiedDependencies(db)
   const launching = cardSet(db, OPEN_LAUNCHES)
   const openPrs = cardSet(db, OPEN_PR_CARDS)
   const trees = standingTrees(db, treeLive)
@@ -333,7 +332,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || heldByStall(life, heldByStalls.get(life.lane) ?? []) || !life.depends.every(card => cleared.has(card)) || heldOutside(life, openPrs, trees, beating))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || heldByStall(life, heldByStalls.get(life.lane) ?? []) || unsatisfied(life.depends).length > 0 || heldOutside(life, openPrs, trees, beating))
       continue
     if (bodyNotFoldedYet(db, life.cardId))
       continue

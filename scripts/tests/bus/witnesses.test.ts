@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { cardWitnessesOf } from '../../policy/policy.js'
 import { runOnTree, testTargetOf } from '../../ports/witnesses.js'
 import { realShell, withWorktree } from '../../ports/worktree.js'
 
@@ -32,6 +33,7 @@ const OUTCOMES: Record<string, ShellResult> = {
   fail: { status: 1, output: ' Tests  1 failed (1)\n' },
   crash: { status: 1, output: 'Error: listen EPERM: operation not permitted\n' },
   unloadable: { status: 1, output: ' FAIL  old.test.ts [ old.test.ts ]\nError: Cannot find module \'./gone.js\'\n Test Files  1 failed (1)\n      Tests  no tests\n' },
+  lifecycle: { status: 1, output: '/tree/src/a.ts\n  3:1  error  Unexpected console statement  no-console\n\n✖ 1 problem (1 error, 0 warnings)\n ELIFECYCLE  Command failed with exit code 1.\n' },
 }
 
 function fakeVitest(command: string, cwd: string): ShellResult {
@@ -117,6 +119,12 @@ describe('the witnesses on the base and the head', () => {
     expect(outcome.refusals).toEqual([expect.stringMatching(/^P7: invariant "the old test passes" exits 1 on the clean base/)])
   })
 
+  it('a green refusal carries the output tail, not only its last ELIFECYCLE line', () => {
+    const outcome = witnessOn({ 'old.test.ts': 'the old test=lifecycle\n' }, { 'old.test.ts': 'the old test=pass\n' }, { invariants: [vitest('the old test passes', 'old.test.ts', 'the old test')] })
+
+    expect(outcome.refusals).toEqual([expect.stringMatching(/^P7: invariant "the old test passes" exits 1 on the clean base \w{7}: \/tree\/src\/a\.ts · 3:1 {2}error {2}Unexpected console statement {2}no-console · ✖ 1 problem \(1 error, 0 warnings\) · ELIFECYCLE {2}Command failed with exit code 1\.$/)])
+  })
+
   it('a new invariant is not applicable on the base and green on the head allows the merge', () => {
     const outcome = witnessOn({}, { 'new.test.ts': 'the new test=pass\n' }, { invariants: [vitest('the new test passes', 'new.test.ts', 'the new test')] })
 
@@ -134,5 +142,22 @@ describe('the witnesses on the base and the head', () => {
     expect(testTargetOf(`pnpm exec vitest run tests/a.test.ts -t 'a name'`)).toEqual({ file: 'tests/a.test.ts', name: 'a name' })
     expect(testTargetOf('pnpm exec vitest run tests/a.test.ts')).toEqual({ file: 'tests/a.test.ts', name: null })
     expect(testTargetOf('test -f done.txt')).toBeNull()
+  })
+})
+
+describe('a card witness that fails on base is read as acceptance', () => {
+  const COMMAND = 'pnpm exec vitest run tests/a.test.ts'
+  const cardWith = (item: string): string => `Witnesses:\n- ${item}\n`
+
+  it.each(['fails on base', 'fails on the base', 'fails on main'])('a witness that exits 0 on head and %s is acceptance', (phrase) => {
+    const item = `\`${COMMAND}\` exits 0 on head and ${phrase}`
+
+    expect(cardWitnessesOf(cardWith(item))).toEqual({ acceptance: [{ criterion: item, command: COMMAND }], invariants: [] })
+  })
+
+  it('a witness that names no failure on the base stays an invariant', () => {
+    const item = `\`${COMMAND}\` exits 0 on head and fails nowhere`
+
+    expect(cardWitnessesOf(cardWith(item))).toEqual({ acceptance: [], invariants: [{ criterion: item, command: COMMAND }] })
   })
 })

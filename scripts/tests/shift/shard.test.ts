@@ -70,7 +70,12 @@ async function askedUnderADecisionsShard(question: string): Promise<Asked> {
   appendEvent(db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:905`, payload: { reason: 'question.agent', detail: 'a question on card #905' }, legacy: false })
   const stop = Number((db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
   queueTask(db, ts, { queue: 'answer', cardId: 905, stop })
-  const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: 'a'.repeat(40), after: 'a'.repeat(40), owner: question })
+  let asked = false
+  const answerer: Answerer = async () => {
+    const owner = asked ? null : question
+    asked = true
+    return { session: 'card-session-1', resumed: true, before: 'a'.repeat(40), after: 'a'.repeat(40), owner }
+  }
   const trees: CardTreeTools = { home: world.handoff, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) })
   const outcome = await executor.answer(leaseNext(db, ts, 'answer', 'worker:answer:worker-1')!)
@@ -184,7 +189,7 @@ describe('a shard delegates one owner merge', () => {
     expect(owner.outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: r1Detail })
     expect(owner.decided).toBe(0)
     expect(owner.waits).toEqual([{ need: 'decision', text: `card #905 asks: ${r1Detail}`, command: cardDecisionCommand(905), card_id: 905, state: OPEN_WAIT }])
-    const windowOwn = 'may the card also touch AGENTS.md?'
+    const windowOwn = 'may the card also touch .claude/settings.json?'
     const decided = await askedUnderADecisionsShard(windowOwn)
     expect(decided.outcome).toMatchObject({ kind: 'decided', shard: SHARD, question: windowOwn })
     expect(decided.decided).toBe(1)

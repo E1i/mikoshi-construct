@@ -153,9 +153,13 @@ export class MergeExecutor {
   }
 
   private askForAllowLive(): void {
-    if (liveDecisionOf(decisionsInForceAt(this.parts.db, this.parts.clock()), MERGE_QUEUE) !== null)
+    if (liveDecisionOf(decisionsInForceAt(this.parts.db, this.parts.clock()), MERGE_QUEUE) !== null || this.underTheOwnersWindowShard())
       return
     openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
+  }
+
+  private underTheOwnersWindowShard(): boolean {
+    return activeWindowShards(this.parts.db, this.parts.clock()).some(shard => shard.scope === MERGE_QUEUE)
   }
 
   private askTheOwnerToMerge(lease: Lease, denial: MergeDenial): void {
@@ -343,8 +347,9 @@ export class MergeExecutor {
   private denied(lease: Lease, denial: MergeDenial): MergeOutcome {
     const ts = this.ts()
     const reason = denial.kind === 'technical' ? denial.reason : denial.rule
-    const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial }, legacy: false }
-    if (denial.kind === 'technical' && WAIT_REASONS.has(denial.reason)) {
+    const waits = denial.kind === 'technical' && WAIT_REASONS.has(denial.reason)
+    const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial, ...(waits ? {} : { refused: true }) }, legacy: false }
+    if (waits) {
       releaseTask(this.parts.db, ts, lease, reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }

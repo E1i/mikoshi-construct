@@ -1,12 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { VERIFICATION_WORDS } from '../../core/verification.js'
 import type { WitnessSubject, WitnessVerdict } from '../../policy/policy.js'
 import type { Shell, ShellResult } from '../../ports/worktree.js'
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { stripVTControlCharacters } from 'node:util'
-import { WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_CLOSED, WITNESS_RECORDED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
 import { baseOfKey, LEASE_MS } from '../../core/queue.js'
@@ -19,6 +22,9 @@ import { gitIn, withWorktree } from '../../ports/worktree.js'
 export const WITNESS_UNRUN = 'witness_unrun'
 export const WITNESS_BUDGET_MS = LEASE_MS - RENEW_MS
 const SHELL_BUFFER = 1 << 28
+const LOCKFILE = 'pnpm-lock.yaml'
+const INSTALL = 'pnpm install --frozen-lockfile'
+const VERIFIED_BY_RUNNING_WITNESSES: typeof VERIFICATION_WORDS[number] = 'run'
 
 export interface TimedShellResult extends ShellResult { timedOut: boolean }
 export type TimedShell = (command: string, cwd: string, timeoutMs: number) => TimedShellResult
@@ -118,6 +124,8 @@ export class WitnessExecutor {
     try {
       assertHeld(this.parts.db, lease)
       const subject = witnessSubjectOf(this.parts.db, lease.cardId)
+      if (subject !== null && lease.pr === null && lease.head !== null && isFullSha(lease.head))
+        return this.onMain(lease, subject, lease.head)
       if (subject === null || lease.pr === null || lease.head === null) {
         completeTask(this.parts.db, this.ts(), lease, [])
         return { kind: 'skipped', taskKey: lease.taskKey, why: `card #${lease.cardId} declares no witness with a command, or the task names no pull request head` }
@@ -149,6 +157,38 @@ export class WitnessExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private onMain(lease: Lease, subject: WitnessSubject, main: string): WitnessOutcome {
+    let red: string | null
+    try {
+      red = this.redOnMain(subject, main)
+    }
+    catch (error) {
+      if (error instanceof WitnessTimedOut)
+        return this.unrun(lease, error.message)
+      throw error
+    }
+    const verdict = red === null ? GREEN : RED
+    const detail = red ?? `every card witness green on main at ${main}`
+    const closing = red === null ? [this.closedOnMain(lease, main)] : []
+    completeTask(this.parts.db, this.ts(), lease, [this.recorded(lease, subject, main, verdict, detail), ...closing])
+    return { kind: 'recorded', taskKey: lease.taskKey, verdict, base: main, detail }
+  }
+
+  private redOnMain(subject: WitnessSubject, main: string): string | null {
+    const last: { result: ShellResult | null } = { result: null }
+    const shell = this.budgeted(this.parts.clock().getTime() + WITNESS_BUDGET_MS, last)
+    return this.parts.trees.withTree(main, (tree) => {
+      if (existsSync(path.join(tree, LOCKFILE)) && shell(INSTALL, tree).status !== 0)
+        return withFailureExcerpt(`${INSTALL} failed on main at ${main}`, last.result)
+      const red = [...subject.acceptance, ...subject.invariants].find(witness => shell(witness.command, tree).status !== 0)
+      return red === undefined ? null : withFailureExcerpt(`on main: "${red.criterion}" exits ${last.result?.status ?? 'without a status'} at ${main}`, last.result)
+    })
+  }
+
+  private closedOnMain(lease: Lease, main: string): BusEvent {
+    return { ts: this.ts(), type: CARD_CLOSED, actor: lease.actor, cardId: lease.cardId, pr: null, head: main, dedupeKey: `${CARD_CLOSED}:${lease.cardId}`, payload: { verification: VERIFIED_BY_RUNNING_WITNESSES, witnessedOnMain: main }, legacy: false }
   }
 
   private unrun(lease: Lease, detail: string): WitnessOutcome {

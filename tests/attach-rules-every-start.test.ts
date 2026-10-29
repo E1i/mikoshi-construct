@@ -27,7 +27,7 @@ function project(): string {
 }
 
 function sessionStart(dir: string, source: string, handoff?: string): string {
-  const { CONSTRUCT_CARD: _card, CONSTRUCT_BUS_RAISED: _raised, CLAUDE_CODE_ENTRYPOINT: _entrypoint, CONSTRUCT_HANDOFF: _handoff, ...rest } = process.env
+  const { CONSTRUCT_CARD: _card, CONSTRUCT_BUS_RAISED: _raised, CLAUDE_CODE_ENTRYPOINT: _entrypoint, CONSTRUCT_HANDOFF: _handoff, CONSTRUCT_BUS_DB: _bus, ...rest } = process.env
   const file = path.join(home(), 'rules-every-start-handoff.md')
   if (handoff != null)
     writeFileSync(file, handoff)

@@ -1723,20 +1723,6 @@
   {
     "type": "dependency",
     "from": "scripts/nodes/launch/launch-worker.ts",
-    "to": "scripts/intake/import.ts",
-    "unresolvedTo": "../../intake/import.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
     "to": "scripts/intake/parking-reads.ts",
     "unresolvedTo": "../../intake/parking-reads.js",
     "dependencyTypes": [
@@ -2712,20 +2698,6 @@
     "from": "scripts/ports/task-start.ts",
     "to": "scripts/window/window-prs.ts",
     "unresolvedTo": "../window/window-prs.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ports-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/ports/task-start.ts",
-    "to": "src/card/closed.ts",
-    "unresolvedTo": "../../src/card/closed.js",
     "dependencyTypes": [
       "local",
       "import"

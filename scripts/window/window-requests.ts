@@ -10,6 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { sliceTableItems } from '../../src/commands/intake/check.js'
 import { FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
 import { BOARD_ALARM, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
@@ -29,8 +30,6 @@ export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', PLAN_ITEM_ADDED], ['link', PLAN_ITEM_LINKED], ['remove', PLAN_ITEM_REMOVED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'item', 'title', 'goal', 'file', 'card'] as const
 const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM events WHERE type = '${PLAN_OPENED}' AND legacy = 0 AND actor = 'owner' AND json_extract(payload, '$.id') = ? ORDER BY id LIMIT 1`
-const TABLE_ROW = /^\s*\|/
-const TABLE_RULE = /^\s*\|[\s:|-]+\|\s*$/
 export const ANSWER_SOURCE = 'answer'
 const DECISION_FLAGS: ReadonlyMap<string, string> = new Map([['--card', 'cards'], ['--supersedes', 'supersedes'], ['--until', 'until'], ['--from', 'from']])
 export const WINDOW_ACTOR = 'worker:window:'
@@ -431,15 +430,7 @@ function messageOf(error: unknown): string {
 }
 
 export function sliceItemsOf(file: string): string[] {
-  if (!existsSync(file))
-    return []
-  const lines = readFileSync(file, 'utf8').split('\n')
-  return lines.flatMap((line, at) => {
-    if (!TABLE_ROW.test(line) || TABLE_RULE.test(line) || TABLE_RULE.test(lines[at + 1] ?? ''))
-      return []
-    const first = line.split('|')[1]?.trim() ?? ''
-    return first === '' ? [] : [first]
-  })
+  return existsSync(file) ? sliceTableItems(readFileSync(file, 'utf8')) : []
 }
 
 function flag(argv: readonly string[], name: string): string | undefined {

@@ -545,7 +545,7 @@ describe('board.html', () => {
     expect(header).toContain(`<span>model <b>v${readModelVersion()}</b></span>`)
     expect(header).toMatch(/<span>written <b>[^<]+<\/b><\/span>/)
     expect(header).toContain('<span>refresh <b>—</b></span>')
-    expect(header).toMatch(/<span class="live" id="bus-live"( data-stale)?>bus (live|stale)<\/span>/)
+    expect(header).toMatch(/<span class="live" id="bus-live"( data-stale)?>bus (live|offline)<\/span>/)
     const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
     expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b><\/span>/)
     expect(services).toContain(`<span class="meta right edd-note">eddies: warn line <b>${Math.round(limits.warnRatio! * 100)}%</b></span>`)
@@ -684,7 +684,7 @@ describe('board.html', () => {
     const { contextLimit, sessionSpend } = readEddiesLimits()
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     const edd = /\n\.edd \{([\s\S]*?)\n\}/.exec(style)![1]!
-    expect(edd).toMatch(/grid-template-columns: \S+ minmax\(0, 1fr\) max-content;/)
+    expect(edd).toContain('flex-wrap: wrap;')
     expect(style).toMatch(/\.edd-v \{[^}]*white-space: nowrap/)
     expect(html).toMatch(new RegExp(`<span class="edd-v">182k${contextLimit === null ? '' : '/\\d+(?:\\.\\d)?[kM]'}</span>`))
     expect(html).toMatch(new RegExp(`<span class="edd-v">3M${sessionSpend === null ? '' : '/\\d+(?:\\.\\d)?[kM]'}</span>`))
@@ -741,9 +741,9 @@ describe('board.html', () => {
     expect(html.indexOf('id="slot-waits"')).toBeLessThan(html.indexOf('id="slot-services"'))
     expect(slotsOf(html).get('waits')).toBe([
       '<section class="owner-strip" aria-label="Waits for you"><span class="lbl">waits for you</span>',
-      '<button type="button" class="ask" data-open="card-870" tabindex="0" aria-haspopup="dialog"><span class="kind">D</span><span class="what">Q1 #870 — which path?</span><span class="open-hint">open ›</span></button>',
-      '<span class="ask" data-static><span class="kind">M</span><span class="what">Q2 PR #669 — changes architecture/security-invariants.md</span></span>',
-      '<span class="ask" data-static><span class="kind">C</span><span class="what">Q3 — the merge queue merges with no owner decision in force naming it live: pnpm decisions:add &quot;[owner] allow-live merge&quot;</span></span>',
+      '<button type="button" class="ask" data-open="card-870" tabindex="0" aria-haspopup="dialog"><span class="kind">D</span><span class="what">Q1 #870 — which path? · owner runs: pnpm decisions:add --card #870 &quot;[owner] &lt;decision&gt;&quot;</span><span class="open-hint">open ›</span></button>',
+      '<span class="ask" data-static><span class="kind">M</span><span class="what">Q2 PR #669 — changes architecture/security-invariants.md · owner runs: gh pr merge 669</span></span>',
+      '<span class="ask" data-static><span class="kind">C</span><span class="what">Q3 — the merge queue merges with no owner decision in force naming it live · owner runs: pnpm decisions:add &quot;[owner] allow-live merge&quot;</span></span>',
       '</section>',
     ].join(''))
     expect(templatesOf(html).has('dialog-card-870')).toBe(true)
@@ -751,22 +751,19 @@ describe('board.html', () => {
     expect(/\n\.ask \{([\s\S]*?)\n\}/.exec(style)![1]).toContain('&[data-static] { --_what: var(--dim); }')
   })
 
-  it('a bus pulse older than the threshold shows bus stale, not blinking', () => {
+  it('a bus pulse older than the threshold shows the pulse stale, not blinking', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-board-stale-'))
     roots.push(root)
     const page = (minutes: number): string => pageText(busWithRecords(path.join(root, `bus-${minutes}.db`), { events: [{ ts: minutesAgo(minutes), type: 'netwatch.tick', card: null, payload: '{}' }] }))
     const fresh = page(FRESH_MS / 60_000)
-    expect(fresh).toContain('<span class="live" id="bus-live">bus live</span>')
     expect(fresh).toContain(`<b class="live" id="bus-pulse">pulse ${FRESH_MS / 60_000} min</b>`)
     const stale = page(FRESH_MS / 60_000 + 1)
-    expect(stale).toContain('<span class="live" id="bus-live" data-stale>bus stale</span>')
     expect(stale).toContain(`<b class="live" id="bus-pulse" data-stale>pulse ${FRESH_MS / 60_000 + 1} min</b>`)
-    expect(stale).not.toContain('bus live')
     const style = /<style>([\s\S]*?)<\/style>/.exec(stale)![1]!
     const live = /\n\.live \{([\s\S]*?)\n\}/.exec(style)![1]!
     expect(live).toMatch(/&\[data-stale\] \{ --_fg: var\(--signal\); --_blink: none; \}/)
     expect(live).toMatch(/&::before \{[^}]*animation: var\(--_blink\)/)
-    expect(pageText(busWithRecords(path.join(root, 'silent.db'), {}))).toContain('<span class="live" id="bus-live" data-stale>bus stale</span>')
+    expect(pageText(busWithRecords(path.join(root, 'silent.db'), {}))).toContain('<span class="live" id="bus-live" data-stale>bus offline</span>')
   })
 
   it('the blink stops under prefers-reduced-motion', () => {
@@ -1086,9 +1083,11 @@ describe('board.html', () => {
     expect(projectedShell).toContain(`<span>refresh <b>${TICK_MS / 1000}s</b></span>`)
   })
 
-  it('a broken board-data.js keeps the previous data and shows bus stale', () => {
-    const { html } = projectedWithHandoff()
+  it('a broken board-data.js keeps the previous data and shows bus offline, the word a silent factory renders', () => {
+    const { html } = projectedWithHandoff(NOW, TICK_MS, [{ ts: minutesAgo(2), type: WINDOW_HEARTBEAT, card: null, payload: '{}' }])
     expect(html).toContain('<span class="live" id="bus-live">bus live</span>')
+    const { html: silent } = projectedWithHandoff(NOW, TICK_MS)
+    expect(silent).toContain('<span class="live" id="bus-live" data-stale>bus offline</span>')
     for (const data of ['window.BOARD = {"written": ', 'window.BOARD = 42', 'window.BOARD = {"written": "x", "tickMs": 60000, "slots": null, "filters": []}', null]) {
       const board = boardWindow(html, new MemoryStorage())
       const script = board.tick(data)
@@ -1097,7 +1096,7 @@ describe('board.html', () => {
         expect(board.elements.get(`slot-${name}`)!.innerHTML, `${data} ${name}`).toBe(inner)
       const live = board.elements.get('bus-live')!
       expect(live.attributes.get('data-stale'), String(data)).toBe('')
-      expect(live.textContent).toBe('bus stale')
+      expect(live.textContent).toBe('bus offline')
       expect(board.elements.get('bus-pulse')!.attributes.get('data-stale')).toBe('')
       expect(board.timeouts).toHaveLength(1)
     }

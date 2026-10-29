@@ -14,6 +14,12 @@ function scannedBy(groups: readonly (readonly [readonly string[], readonly strin
 export const TEST_ROOTS = ['tests', FACTORY_FOLDERS.tests[0]]
 export const PACKAGE_MANIFEST = 'package.json'
 export const PACKAGE_SCRIPT_READERS = ['tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts']
+export const RISK_RULE = 'src/card/risk.ts'
+export const RISK_RULE_READERS = [`${FACTORY_FOLDERS.tests[0]}/morse/cli.test.ts`, `${FACTORY_FOLDERS.tests[0]}/morse/rules.test.ts`]
+export const NAMED_READERS: Readonly<Record<string, readonly string[]>> = {
+  [PACKAGE_MANIFEST]: PACKAGE_SCRIPT_READERS,
+  [RISK_RULE]: RISK_RULE_READERS,
+}
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
   'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.factoryPathsTest],
   [`${FACTORY_ROOT}/`]: ['tests/graph-command.test.ts', FACTORY_NAMED.sqliteTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest],
@@ -118,7 +124,9 @@ export function coveringTests(touches: readonly string[], files: readonly string
     }
   }
   const known = new Set(files)
-  const readers = touches.includes(PACKAGE_MANIFEST) ? PACKAGE_SCRIPT_READERS.filter(reader => known.has(reader)) : []
+  const readers = Object.entries(NAMED_READERS)
+    .filter(([file]) => touches.includes(file) || touched.includes(file))
+    .flatMap(([, named]) => named.filter(reader => known.has(reader)))
   return [...new Set([...[...reached].filter(isTest), ...readers, ...scanning(touched, known), ...spawning(touched, files, read)])].sort()
 }
 

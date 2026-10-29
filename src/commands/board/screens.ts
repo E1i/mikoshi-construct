@@ -10,6 +10,23 @@ const WAITS_ROLE = 'waits for you'
 const MINUTE_MS = 60_000
 export const ENDED_SHOWN_HOURS = 12
 const HOUR_MS = 3_600_000
+const BAR_CELLS = 10
+const BAR_DONE = '\u2588'
+const BAR_LEFT = '\u2591'
+const MERGE_COMMAND = 'gh pr merge'
+const DECISION_COMMAND = 'pnpm decisions:add'
+const OWNER_DECISION = '[owner] <decision>'
+const WINDOW_COMMANDS = ['pnpm intake ', 'pnpm bus:request ']
+
+export type HintRunner = 'window' | 'owner'
+
+export interface Hint {
+  who: HintRunner
+  command: string
+}
+
+export const REGISTER_PLAN_HINT: Hint = { who: 'window', command: 'pnpm bus:request plan --op open --plan <id> --title <text> --goal <text> --file <absolute plan file>' }
+export const ADMIT_CARD_HINT: Hint = { who: 'window', command: 'pnpm intake --admit <parking>/<lane>/<N>.md' }
 
 function cardName(card: BusCard): string {
   return card.line === null ? `#${card.id}` : card.line.replace(CARD_PREFIX, '')
@@ -36,9 +53,8 @@ export function flowLines(cards: BusCard[], lore: Lore): string[] {
   return lore.boardFlowColumns.map((title, column) => lore.boardColumnLine(title, live.filter(card => FLOW_STAGES[column]!.includes(card.stage)).map(flowName)))
 }
 
-export function laneColumns(cards: BusCard[], lanes: number | null): (string | null)[] {
-  const chains = Array.from({ length: lanes ?? 0 }, (_, index) => `lane-${index + 1}`)
-  const named = [...new Set([...chains, ...cards.flatMap(card => card.lane === null ? [] : [card.lane])])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+export function laneColumns(cards: BusCard[]): (string | null)[] {
+  const named = [...new Set(cards.flatMap(card => card.lane === null ? [] : [card.lane]))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   return cards.some(card => card.lane === null) ? [...named, null] : named
 }
 
@@ -46,8 +62,8 @@ export function backlogCards(cards: BusCard[], at: string, all: boolean): BusCar
   return all ? cards : cards.filter(card => isLive(card) || endedRecently(card, at))
 }
 
-export function backlogLines(cards: BusCard[], lore: Lore, lanes: number | null = null): string[] {
-  return laneColumns(cards, lanes).flatMap((lane) => {
+export function backlogLines(cards: BusCard[], lore: Lore): string[] {
+  return laneColumns(cards).flatMap((lane) => {
     const inLane = cards.filter(card => card.lane === lane)
     return [lore.boardLaneLine(lane ?? undefined, inLane.length), ...inLane.map(card => lore.boardBacklogRow(cardName(card), card.stage))]
   })
@@ -81,9 +97,36 @@ export function pulseLines(facts: BusFacts, lore: Lore): string[] {
   return [lore.boardServiceLine(BUS_ROLE, 'pulse', undefined, `${pulse} \u00B7 slots in use: ${slotsReading(facts)}`)]
 }
 
-export function goalLines(facts: BusFacts): string[] {
+export function progressBar(delivered: number, total: number): string {
+  const filled = total === 0 ? 0 : Math.round(Math.min(delivered, total) / total * BAR_CELLS)
+  return `[${BAR_DONE.repeat(filled)}${BAR_LEFT.repeat(BAR_CELLS - filled)}]`
+}
+
+export function hintLine(hint: Hint, lore: Lore): string {
+  return lore.boardHint(hint.who, hint.command)
+}
+
+export function planHint(facts: BusFacts): Hint | null {
+  return facts.goal === null && facts.cards.some(isLive) ? REGISTER_PLAN_HINT : null
+}
+
+export function goalLines(facts: BusFacts, lore: Lore): string[] {
   const { goal } = facts
-  return goal === null ? [] : goal.plans.map(plan => planLine(plan, goal.backlog))
+  const hint = planHint(facts)
+  if (hint !== null)
+    return [lore.boardNoPlan(hintLine(hint, lore))]
+  return goal === null ? [] : goal.plans.map(plan => `${progressBar(plan.delivered, plan.total)} ${planLine(plan, goal.backlog)}`)
+}
+
+function impliedCommand(wait: OwnerWait): string {
+  if (wait.need === 'merge' && wait.pr !== null)
+    return `${MERGE_COMMAND} ${wait.pr}`
+  return wait.card === null ? `${DECISION_COMMAND} "${OWNER_DECISION}"` : `${DECISION_COMMAND} --card #${wait.card} "${OWNER_DECISION}"`
+}
+
+export function waitHint(wait: OwnerWait): Hint {
+  const command = wait.command ?? impliedCommand(wait)
+  return { who: WINDOW_COMMANDS.some(prefix => command.startsWith(prefix)) ? 'window' : 'owner', command }
 }
 
 export function waitTarget(wait: OwnerWait): string | null {
@@ -92,17 +135,21 @@ export function waitTarget(wait: OwnerWait): string | null {
   return wait.card === null ? null : `#${wait.card}`
 }
 
-export function waitAction(wait: OwnerWait): string {
-  return wait.command === null ? wait.text : `${wait.text}: ${wait.command}`
+export function waitAction(wait: OwnerWait, lore: Lore): string {
+  return `${wait.text} \u00B7 ${hintLine(waitHint(wait), lore)}`
 }
 
-function waitName(wait: OwnerWait): string {
+function waitName(wait: OwnerWait, lore: Lore): string {
   const target = waitTarget(wait)
-  return `${wait.id} ${wait.need}${target === null ? '' : ` ${target}`} (${waitAction(wait)})`
+  return `${wait.id} ${wait.need}${target === null ? '' : ` ${target}`} (${waitAction(wait, lore)})`
 }
 
 export function waitsLines(facts: BusFacts, lore: Lore): string[] {
-  return facts.waits.length === 0 ? [] : [lore.boardServiceLine(WAITS_ROLE, `${facts.waits.length}`, undefined, facts.waits.map(waitName).join(' \u00B7 '))]
+  return facts.waits.length === 0 ? [] : [lore.boardServiceLine(WAITS_ROLE, `${facts.waits.length}`, undefined, facts.waits.map(wait => waitName(wait, lore)).join(' \u00B7 '))]
+}
+
+export function flowHintLines(cards: BusCard[], lore: Lore): string[] {
+  return cards.some(isLive) ? [] : [lore.boardFlowEmpty(hintLine(ADMIT_CARD_HINT, lore))]
 }
 
 export interface Screen {
@@ -118,8 +165,8 @@ export interface Screens {
 export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
   return {
     screens: [
-      { title: lore.boardTabFlow, lines: [...goalLines(facts), ...waitsLines(facts, lore), ...flowLines(facts.cards, lore)] },
-      { title: lore.boardTabBacklog, lines: backlogLines(backlogCards(facts.cards, facts.at, all), lore, facts.lanes) },
+      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
+      { title: lore.boardTabBacklog, lines: backlogLines(backlogCards(facts.cards, facts.at, all), lore) },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore)] },
     ],
     footer: lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),

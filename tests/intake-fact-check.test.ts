@@ -132,7 +132,7 @@ describe('intake fact check', () => {
   it('corrects a wrong path, a taken number and an invalid contour, and a named number is never used', () => {
     const dir = repository(['src/commands/intake/index.ts', 'src/commands/sync/index.ts'])
     const { result, parking } = intake(
-      [card({ number: 12, touches: ['src/command/sync/**'], contour: 'fast' }), card({ name: 'second-card', number: 40, touches: ['src/commands/intake/index.ts'] }), card({ name: 'third-card', touches: ['src/commands/intake/index.ts'] })],
+      [card({ number: 12, touches: ['src/command/sync/**'], contour: 'fast' }), card({ name: 'second-card', number: 40, touches: ['src/commands/intake/index.ts'], task: `${TASK} Second.` }), card({ name: 'third-card', touches: ['src/commands/intake/index.ts'], task: `${TASK} Third.` })],
       { dir, taken: '12' },
     )
     const first = written(result, parking, 13)
@@ -140,7 +140,7 @@ describe('intake fact check', () => {
     for (const text of [
       'corrected: number — #12 → #13 — #12 is taken by a pull request or issue listed in --taken; numbers are assigned by construct intake',
       'corrected: touches — src/command/sync/** → src/commands/sync/** — \'src/command/sync\' does not exist; \'src/commands/sync\' is the only path named \'sync\'',
-      'corrected: contour — fast → ladder — \'fast\' is not one of cheap, ladder; ladder is the path with a brief and witnesses',
+      'corrected: contour — fast → cheap — \'fast\' is not one of cheap, ladder; every card is cheap unless the owner sends it to the ladder',
     ]) {
       expect(first).toContain(text)
       expect(output).toContain(text)
@@ -175,7 +175,7 @@ describe('intake fact check', () => {
     const dir = repository(['src/a/util.ts', 'tests/b/util.ts', 'src/commands/intake/index.ts'])
     const { result, parking } = intake([
       card({ touches: ['src/new/feature.ts', 'src/commands/intake/index.ts'], creates: ['src/new/feature.ts', 'src/commands/intake/index.ts'] }),
-      card({ name: 'second-card', touches: ['src/new/feature.ts', 'lib/util.ts', 'src/commands/intake/index.ts'], creates: ['src/new/feature.ts'] }),
+      card({ name: 'second-card', touches: ['src/new/feature.ts', 'lib/util.ts', 'src/commands/intake/index.ts'], creates: ['src/new/feature.ts'], task: `${TASK} Second.` }),
     ], { dir })
     expect(printed(result)).toContain('corrected: creates — src/commands/intake/index.ts → (exists, not new) — src/commands/intake/index.ts already exists')
     const second = written(result, parking, 3)
@@ -313,7 +313,7 @@ describe('intake fact check', () => {
     expect(checkDraft([draftCard({ kind: 'probe', decision: 'owner' })], [2], facts())[0]!.decision).toBe('none')
     expect(checkDraft([draftCard({ kind: 'implement', decision: 'none' })], [2], facts())[0]!.decision).toBe('owner')
     for (const contour of CONTOURS)
-      expect(checkDraft([draftCard({ contour })], [2], facts())[0]!.corrections).toEqual([])
+      expect(checkDraft([draftCard({ contour, task: `${TASK}\nladder: owner s337 — two cheap falls, #1 lint and #2 a red witness` })], [2], facts())[0]!.corrections).toEqual([])
     expect(checkDraft([draftCard({ contour: 'fast' })], [2], facts())[0]!.contour).toBe(DEFAULT_CONTOUR)
     const untouched = checkDraft([draftCard({ kind: 'fix', decision: 'owner' })], [2], facts())[0]!
     expect(untouched.decision).toBe('owner')

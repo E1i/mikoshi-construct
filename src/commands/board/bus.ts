@@ -1,7 +1,7 @@
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
-import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, LANE_ASSIGNED, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_MOVED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, LANE_ASSIGNED, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, TERMINAL_LANES, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
 
@@ -35,6 +35,9 @@ const STAGE_OF_STEP: Readonly<Record<string, CardStage>> = { ...STAGE_OF_QUEUE, 
 const SETTLED_STATES = new Set(['merged', 'stopped', 'dropped', 'closed'])
 
 const LANELESS_STATES = ['merged', 'dropped', 'closed']
+const LANE_EVENTS = [CARD_ADMITTED, CARD_MOVED]
+const LAUNCH_LANE = /^lane-(\d+)$/
+const SLOT_PREFIX = 'slot-'
 const LEASED = 'leased'
 const OPEN_TASK_STATES = ['queued', LEASED]
 
@@ -43,6 +46,7 @@ export interface BusCard {
   state: string | null
   stage: CardStage
   lane: string | null
+  slot: string | null
   line: string | null
   since: string | null
   body: boolean
@@ -100,7 +104,6 @@ export interface BusFacts {
   matrices: BusMatrix[]
   failure: string | null
   reviewQueue: number
-  lanes: number | null
 }
 
 export type BusReading
@@ -133,6 +136,7 @@ interface CardRow {
   state: string | null
   pr: number | null
   lane: string | null
+  slot: string | null
   line: string | null
   since: string | null
   body: number
@@ -314,24 +318,30 @@ function stageOf(state: string | null, closed: boolean, queue: string | undefine
   return (queue === undefined ? undefined : STAGE_OF_QUEUE[queue]) ?? STAGE_OF_STATE[state ?? ''] ?? 'planned'
 }
 
-function laneCountOf(db: BusDb): number | null {
-  const row = db.prepare(`SELECT json_extract(payload, '$.lanes') AS lanes FROM events WHERE legacy = 0 AND type = ? ORDER BY id DESC LIMIT 1`).get(LANE_ASSIGNED) as { lanes: unknown } | undefined
-  return typeof row?.lanes === 'number' && Number.isSafeInteger(row.lanes) && row.lanes > 0 ? row.lanes : null
+function slotName(assigned: string | null): string | null {
+  if (assigned === null)
+    return null
+  const number = LAUNCH_LANE.exec(assigned)?.[1]
+  return number === undefined ? `${SLOT_PREFIX}${assigned}` : `${SLOT_PREFIX}${number}`
+}
+
+function latestLaneOf(types: readonly string[]): string {
+  return `SELECT json_extract(a.payload, '$.lane') FROM events a WHERE a.legacy = 0 AND a.type IN (${types.map(() => '?').join(', ')}) AND a.card_id = c.card_id AND json_type(a.payload, '$.lane') = 'text' ORDER BY a.id DESC LIMIT 1`
 }
 
 function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
+  const laneless = `c.state IN (${LANELESS_STATES.map(() => '?').join(', ')})`
   const rows = db.prepare(`
     SELECT c.card_id AS id, c.state, c.pr, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body,
-      CASE WHEN c.state IN (${LANELESS_STATES.map(() => '?').join(', ')}) THEN NULL ELSE (
-        SELECT json_extract(a.payload, '$.lane') FROM events a WHERE a.legacy = 0 AND a.type = ? AND a.card_id = c.card_id ORDER BY a.id DESC LIMIT 1
-      ) END AS lane
+      CASE WHEN ${laneless} THEN NULL ELSE coalesce((${latestLaneOf(LANE_EVENTS)}), b.lane) END AS lane,
+      CASE WHEN ${laneless} THEN NULL ELSE (${latestLaneOf([LANE_ASSIGNED])}) END AS slot
     FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id LEFT JOIN events e ON e.id = c.event_id
     ORDER BY c.card_id
-  `).all(...LANELESS_STATES, LANE_ASSIGNED) as unknown as CardRow[]
+  `).all(...LANELESS_STATES, ...LANE_EVENTS, ...LANELESS_STATES, LANE_ASSIGNED) as unknown as CardRow[]
   const closed = new Map(events.of(CARD_VERIFIED).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
   const queues = queuesIn(db, OPEN_TASK_STATES)
   const leased = queuesIn(db, [LEASED])
-  return rows.map(row => ({ id: row.id, state: row.state, stage: stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane: row.lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
+  return rows.map(row => ({ id: row.id, state: row.state, stage: TERMINAL_LANES.has(row.lane ?? '') ? 'dropped' : stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane: row.lane, slot: slotName(row.slot), line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
 }
 
 const OWNER_WAITS_TABLE = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'owner_waits'`
@@ -422,7 +432,6 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     matrices: checkMatrices(db),
     failure: lastFailure(events),
     reviewQueue: Number(queue.n),
-    lanes: laneCountOf(db),
   }
 }
 

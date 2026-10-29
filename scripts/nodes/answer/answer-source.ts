@@ -19,7 +19,7 @@ export interface WideningRequest {
 
 export type AnswerSource
   = | { kind: 'question', detail: string, widen: WideningRequest | null, events: CardEvent[] }
-    | { kind: 'changes', findings: string[], events: CardEvent[] }
+    | { kind: 'changes', findings: string[], failedChecks?: string[], events: CardEvent[] }
     | { kind: 'ci', failedChecks: string[], events: CardEvent[] }
 
 export interface CardSession {
@@ -81,7 +81,7 @@ function changesOn(db: DatabaseSync, lease: Lease): string[] | null {
   return review === undefined ? [] : strings(parsed(review.payload).findings)
 }
 
-function failedChecksOn(db: DatabaseSync, lease: Lease): string[] | null {
+export function failedChecksOn(db: DatabaseSync, lease: Lease): string[] | null {
   if (lease.pr === null || lease.head === null)
     return null
   const red = db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND head = ? AND ci = 'red'`).get(lease.pr, lease.head)
@@ -97,9 +97,9 @@ export function answerSourceOf(db: DatabaseSync, lease: Lease): AnswerSource | n
   if (question !== null)
     return { kind: 'question', detail: text(question.detail) ?? '', widen: widenOf(question), events }
   const findings = changesOn(db, lease)
-  if (findings !== null)
-    return { kind: 'changes', findings, events }
   const failedChecks = failedChecksOn(db, lease)
+  if (findings !== null)
+    return { kind: 'changes', findings, ...(failedChecks === null ? {} : { failedChecks }), events }
   return failedChecks === null ? null : { kind: 'ci', failedChecks, events }
 }
 
