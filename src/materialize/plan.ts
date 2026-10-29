@@ -37,9 +37,10 @@ function mountTarget(mount: TemplateMount, target: string): string {
   return mount.into == null || mount.into === '.' ? target : `${mount.into.replace(/\/$/, '')}/${target}`
 }
 
-function renderedVars(vars: TemplateVars): Record<string, string> {
+function renderedVars(vars: TemplateVars, emptyTarget: boolean): Record<string, string> {
   return Object.create(vars, {
     harnessCommandYamlScalar: { get: () => yamlScalar(vars.harnessCommand), enumerable: true },
+    sampleWritten: { value: emptyTarget ? 'true' : '', enumerable: true },
   }) as Record<string, string>
 }
 
@@ -167,7 +168,7 @@ export function planMaterialize(root: string, groups: TemplateGroup[], vars: Tem
   const omittedGroups: string[] = []
   const layered = new Map<string, string>()
   const existingVariants = new Map<string, string>()
-  const rendering = renderedVars(vars)
+  const rendering = renderedVars(vars, options.emptyTarget)
   for (const mount of groups.map(toMount)) {
     if (mount.onlyWhenEmpty === true && !options.emptyTarget) {
       omittedGroups.push(mount.group)

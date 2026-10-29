@@ -33,8 +33,16 @@ allowBuilds:
 catalog:
   '@antfu/eslint-config': ^9.5.1
   '@redocly/cli': ^2.52.0
+{{#if sampleWritten}}
+  '@types/express': ^4.17.25
+{{/if}}
   '@types/node': ^{{nodeMajor}}.0.0
   eslint: ^10.10.0
+{{#if sampleWritten}}
+  express: ^4.21.2
+  express-openapi-validator: ^5.6.2
+  light-my-request: ^6.8.0
+{{/if}}
   openapi-typescript: ^7.13.0
   tsx: ^4.23.13
   typescript: ^5.9.3

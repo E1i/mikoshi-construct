@@ -1,10 +1,10 @@
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 import { runInit } from '../src/commands/init.js'
-import { templatesRoot } from '../src/materialize/templates.js'
+import { readManifest } from '../src/manifest.js'
 import { MIKOSHI_PNPM, pinnedPnpm } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -15,6 +15,10 @@ vi.mock('../src/detect/package-manager.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/detect/package-manager.js')>()
   return { ...actual, detectPnpmVersion: () => machinePnpm.version }
 })
+
+const EXISTING_MONOREPO = path.join(import.meta.dirname, 'fixtures/existing-monorepo')
+
+const SAMPLE_WRITTEN = 'sampleWritten'
 
 const SAMPLE_ONLY_CATALOG = ['@types/express', 'express', 'express-openapi-validator', 'light-my-request']
 
@@ -62,10 +66,6 @@ function mikoshiPnpm(): string {
   return own.packageManager!.replace(/^pnpm@/, '')
 }
 
-function workspaceTemplate(group: string): Record<string, unknown> {
-  return parse(readFileSync(path.join(templatesRoot(), group, 'pnpm-workspace.yaml.eta'), 'utf8')) as Record<string, unknown>
-}
-
 describe('a fresh init leaves a main the factory starts from', () => {
   it('the monorepo preset without the sample has no catalog entry without a consumer', async () => {
     const dir = existingTree()
@@ -83,14 +83,20 @@ describe('a fresh init leaves a main the factory starts from', () => {
     expect([...consumed].filter(name => !catalog.includes(name))).toEqual([])
   })
 
-  it('the sample workspace is the baseline workspace plus the sample-only catalog entries', () => {
-    const baseline = workspaceTemplate('presets/monorepo/baseline')
-    const sample = workspaceTemplate('presets/monorepo/sample')
-    const baselineCatalog = baseline.catalog as Record<string, string>
-    const sampleCatalog = sample.catalog as Record<string, string>
-    expect({ ...sample, catalog: undefined }).toEqual({ ...baseline, catalog: undefined })
-    expect(Object.fromEntries(Object.entries(sampleCatalog).filter(([name]) => !SAMPLE_ONLY_CATALOG.includes(name)))).toEqual(baselineCatalog)
-    expect(Object.keys(sampleCatalog).filter(name => !(name in baselineCatalog)).sort()).toEqual(SAMPLE_ONLY_CATALOG)
+  it('init into an existing monorepo keeps its pnpm-workspace.yaml byte for byte and writes no sample', async () => {
+    const dir = scratch()
+    cpSync(EXISTING_MONOREPO, dir, { recursive: true })
+    const before = readFileSync(path.join(dir, 'pnpm-workspace.yaml'), 'utf8')
+    await init(dir, 'monorepo')
+    expect(readFileSync(path.join(dir, 'pnpm-workspace.yaml'), 'utf8')).toBe(before)
+    expect(existsSync(path.join(dir, 'apps/api/src/app.ts'))).toBe(false)
+  })
+
+  it('the sample entries come from a variable the plan derives and init never records', async () => {
+    const dir = scratch()
+    await init(dir, 'monorepo')
+    expect(catalogOf(dir)).toEqual(expect.arrayContaining(SAMPLE_ONLY_CATALOG))
+    expect(readManifest(dir)?.vars).not.toHaveProperty(SAMPLE_WRITTEN)
   })
 
   it('init pins pnpm no lower than mikoshi', async () => {
