@@ -36,7 +36,7 @@ const OWN_GATE = readShiftGate(path.join(import.meta.dirname, '../../..'))
 const benches: MergeBench[] = []
 const roots: string[] = []
 const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
-const OWNER_QUESTION = 'may the card also touch AGENTS.md?'
+const OWNER_QUESTION = 'may the card also touch .claude/settings.json?'
 const R1_QUESTION = 'may the card also touch architecture/owner-merges.md?'
 
 beforeEach(() => {

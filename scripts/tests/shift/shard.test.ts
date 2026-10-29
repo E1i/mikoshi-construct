@@ -184,7 +184,7 @@ describe('a shard delegates one owner merge', () => {
     expect(owner.outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: r1Detail })
     expect(owner.decided).toBe(0)
     expect(owner.waits).toEqual([{ need: 'decision', text: `card #905 asks: ${r1Detail}`, command: cardDecisionCommand(905), card_id: 905, state: OPEN_WAIT }])
-    const windowOwn = 'may the card also touch AGENTS.md?'
+    const windowOwn = 'may the card also touch .claude/settings.json?'
     const decided = await askedUnderADecisionsShard(windowOwn)
     expect(decided.outcome).toMatchObject({ kind: 'decided', shard: SHARD, question: windowOwn })
     expect(decided.decided).toBe(1)
