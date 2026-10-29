@@ -8,7 +8,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const WORKFLOW = 'scripts/construct/implement.workflow'
 const AGENT_DIRS = ['.claude/agents', 'templates/ai/claude/_claude/agents']
 const SCHEMA_OF_AGENT = { architect: 'SPEC', implementer: 'REPORT', harness: 'VERDICT' } as const
-const ROLE_AGENTS_OF_DIR: Record<string, string[]> = { '.claude/agents': ['brief', 'review', 'scan'] }
+const ROLE_AGENTS_OF_DIR: Record<string, string[]> = { '.claude/agents': ['brief', 'review', 'scan'], 'templates/ai/claude/_claude/agents': ['brief', 'review', 'scan'] }
 
 function read(file: string): string {
   return readFileSync(path.join(REPO_ROOT, file), 'utf8')

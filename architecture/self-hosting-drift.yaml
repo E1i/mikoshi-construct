@@ -105,3 +105,37 @@ differences:
       This repository runs its window hooks from its own .claude/hooks scripts, registered in its own
       .claude/settings.json, not from the carrier init writes; the carrier's identity with the attach
       window hook is held by tests/init.test.ts, not by a copy at the root.
+  - path: .claude/agents/brief.md
+    kind: skipped-at-init
+    reason: >-
+      This repository's brief agent names its own approval (pnpm ghosts:hash) and the CI jobs of its own
+      workflows; the template names the repository's bus handoff and the /implement line the approval
+      reads instead. The repository copy is owner-merged and changes only under its own card.
+  - path: .claude/agents/review.md
+    kind: skipped-at-init
+    reason: >-
+      This repository's review agent names its own verdict check (pnpm ghosts:verdict), the verdict
+      schema and reviewDepth; the template ships the same rules worded for a generated repository's bus
+      handoff, without those scripts. The repository copy is owner-merged.
+  - path: .claude/commands/attached-discover.md
+    kind: skipped-at-init
+    reason: >-
+      The repository copy words the one write it allows inside the repository, the high-effort list,
+      after the prohibition; the template states it first. tests/attach.test.ts holds what attach and
+      init write identical to each other.
+  - path: .claude/commands/status.md
+    kind: skipped-at-init
+    reason: >-
+      This repository's status command runs pnpm board from its own scripts; the template runs construct
+      board, which is what a generated repository has.
+  - path: .claude/skills/probe/SKILL.md
+    kind: skipped-at-init
+    reason: >-
+      This repository's probe skill links window.md and AGENTS.md and closes through pnpm task:close; the
+      template keeps the boundaries, the evidence classes and the close without them. The repository
+      copy is owner-merged.
+  - path: architecture/owner-merges.md
+    kind: skipped-at-init
+    reason: >-
+      This repository's table is the owner's own, with the kinds its factory adds; the template is the
+      default a generated repository starts from, which its owner then narrows or widens.
