@@ -2,10 +2,12 @@ import type { FactoryChecklist, FactoryItemName } from '../src/commands/doctor/i
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { runCommand } from 'citty'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BUS_DB_VARIABLE } from '../scripts/core/bus-path.js'
 import { appendEvent, openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
-import { inForce, parseDecisions } from '../scripts/policy/decisions/decisions.js'
+import { DECISION_FORMAT, inForce, parseDecisions } from '../scripts/policy/decisions/decisions.js'
 import { namesQueueLive } from '../scripts/policy/live-decision.js'
 import { DOCTOR_EXIT, DOCTOR_JSON_SCHEMA_VERSION, FACTORY_ITEMS, factoryChecklist, factoryChecklistExit, factoryChecklistJson, printFactoryChecklist } from '../src/commands/doctor/index.js'
 import { liveQueuesIn } from '../src/commands/doctor/live-decisions.js'
@@ -14,6 +16,7 @@ import { WINDOW_SILENT_MS } from '../src/commands/liveness.js'
 import { applySync } from '../src/commands/sync/index.js'
 import { readManifest, writeManifest } from '../src/manifest.js'
 import { MIKOSHI_PNPM } from '../src/presets/index.js'
+import { main } from '../src/program.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { LORE, PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -88,6 +91,54 @@ function editJson(file: string, edit: (json: Record<string, unknown>) => void): 
   const json = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
   edit(json)
   writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`)
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllEnvs()
+})
+
+async function factoryJsonThroughProgram(factory: Factory): Promise<{ exit: typeof process.exitCode, output: string }> {
+  const written: string[] = []
+  const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+    written.push(String(chunk))
+    return true
+  })
+  const previousExit = process.exitCode
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
+  vi.stubEnv(BUS_DB_VARIABLE, factory.bus)
+  try {
+    process.exitCode = undefined
+    await runCommand(main, { rawArgs: ['doctor', '--factory', '--json', '--plain', '--dir', factory.dir] })
+    return { exit: process.exitCode, output: written.join('') }
+  }
+  finally {
+    write.mockRestore()
+    process.exitCode = previousExit
+  }
+}
+
+const GRAMMAR_VALUES: Record<string, string[]> = {
+  'D-N': ['D-2'],
+  '<date>': ['2026-10-30', '2026-10-30 ~11:52Z'],
+  '<decision>': ['[owner] allow-live merge', 'allow-live update', '[owner] allow-live merge and more', '[owner] allow-live update · until 2026-10-30T18:00Z'],
+  'D-K D-L': ['D-1', 'D-1 D-3'],
+  '#A #B': ['#7 #8'],
+  '<YYYY-MM-DDTHH:MMZ>': [IN_FORCE_UNTIL, LAPSED_UNTIL],
+  'D-M': ['D-3'],
+}
+const GRAMMAR_FIELD = new RegExp(`(${Object.keys(GRAMMAR_VALUES).map(field => field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`)
+
+function linesOf(part: string): string[] {
+  return part.split(GRAMMAR_FIELD).reduce<string[]>((lines, piece, index) => lines.flatMap(line => (index % 2 === 1 ? GRAMMAR_VALUES[piece]! : [piece]).map(value => line + value)), [''])
+}
+
+function decisionsFromTheFactoryGrammar(): string[] {
+  const optionals = [...DECISION_FORMAT.matchAll(/ \[([^\]]+)\]/g)]
+  const required = DECISION_FORMAT.slice(0, optionals[0]!.index)
+  const lines = optionals.reduce<string[]>((built, optional) => built.flatMap(line => [line, ...linesOf(` ${optional[1]!}`).map(tail => line + tail)]), linesOf(required))
+  return lines.map(line => `# Owner decisions\n\n- D-1 · 2026-10-30 — [owner] allow-live update\n${line}\n`)
 }
 
 describe('doctor --factory says goes or does not go for every item of PARITY and ONEWORD', () => {
@@ -182,7 +233,7 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
     expect(red(check(factory))).toEqual({ 'pnpm-floor': `corepack use pnpm@${MIKOSHI_PNPM}`, 'pnpm-store-ignored': `printf '.pnpm-store/\\n' >> .gitignore` })
   })
 
-  it('reads the queues live exactly where the factory\'s own decision reader does', () => {
+  it('reads the queues live exactly where the factory\'s own decision reader does, on every line its grammar builds', () => {
     const files = [
       '# Owner decisions\n\n- D-1 · 2026-10-30 — [owner] allow-live merge · until 2026-10-30T18:00Z · decisions:add\n- D-2 · 2026-10-30 — [owner] allow-live update · until 2026-10-30T18:00Z · decisions:add\n',
       '# Owner decisions\n\n- D-1 · 2026-10-30 — [owner] allow-live merge · until 2026-10-30T18:00Z · decisions:add\n- D-2 · 2026-10-30 — [owner] allow-live update · until 2026-10-30T06:00Z · decisions:add\n',
@@ -190,7 +241,7 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
       '# Owner decisions\n\n- D-1 · 2026-10-30 — allow-live update · superseded-by D-2\n- D-2 · 2026-10-30 — allow-live merge\n',
       '# Owner decisions\n\n- D-1 · 2026-10-30 — [owner] allow-live merge is not what this says\n',
     ]
-    for (const text of files) {
+    for (const text of [...files, ...decisionsFromTheFactoryGrammar()]) {
       const theirs = inForce(parseDecisions(text).decisions, NOW)
       const live = liveQueuesIn(text, NOW)
       for (const queue of ['merge', 'update'])
@@ -210,6 +261,18 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
     }
     expect(factoryChecklistExit(check(await readyFactory()))).toBe(DOCTOR_EXIT.ok)
     expect(factoryChecklistExit(check(await initialised()))).toBe(DOCTOR_EXIT.notOk)
+  })
+
+  it('doctor --factory --json through the program writes the checklist to stdout and exits ok only when every item goes', async () => {
+    const ready = await readyFactory()
+    const goes = await factoryJsonThroughProgram(ready)
+    expect(goes.exit).toBe(DOCTOR_EXIT.ok)
+    expect(JSON.parse(goes.output)).toEqual(factoryChecklistJson(check(ready)))
+    const fresh = await initialised()
+    const stalls = await factoryJsonThroughProgram(fresh)
+    expect(stalls.exit).toBe(DOCTOR_EXIT.notOk)
+    expect(JSON.parse(stalls.output)).toEqual(factoryChecklistJson(check(fresh)))
+    expect(JSON.parse(stalls.output).goes).toBe(false)
   })
 
   it('every item has its line in the lore and in the plain lore', () => {
