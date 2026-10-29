@@ -194,7 +194,7 @@ describe('the merge policy', () => {
   it('under D-77 a PR with an owner path, a pass and green CI is merged without a shard', () => {
     const bench = underDecisions(D77)
     const pulls = [
-      { number: 960, body: cardBody(960, 'owner'), files: ['AGENTS.md'] },
+      { number: 960, body: cardBody(960, 'owner'), files: ['contract/factory-permissions.json'] },
       { number: 961, body: cardBody(961, 'owner'), files: ['scripts/policy/policy.ts'] },
     ]
     for (const pull of pulls)
@@ -214,6 +214,7 @@ describe('the merge policy', () => {
       [970, ['.claude/agents/review.md'], 'no_shard_merge'],
       [971, ['.github/workflows/ci.yml'], 'no_shard_merge'],
       [972, ['architecture/security-invariants.md'], 'no_shard_merge'],
+      [973, ['eslint.config.mjs'], 'r1'],
     ]
     for (const [number, files] of cases)
       bench.gitHub.open({ number, review: 'success', body: cardBody(number, 'owner'), files })

@@ -48,7 +48,8 @@ pull request Eli's.
 
 On 2026-10-29, at Eli's instruction (0.46 reconciliation, session 338, card #1414), the coordinating window narrowed
 `own-instructions` to `.claude/**` of this repository, marked `no` under a shard: `templates/ai/**`, `templates/attach/**`
-and `scripts/construct/**` are product delivery and merge under a shard. Eli's boundaries are `security-invariants`, the
+and `scripts/construct/**` are product delivery and merge under a shard. The narrowing reverses the 2026-10-09 line: `.claude/statusline.sh`, like every file under `.claude/`,
+is now owner-merged. Eli's boundaries are `security-invariants`, the
 version pull request, the npm publish, `.claude/**` and `.github/workflows/**`, as decided on 2026-10-25.
 The same day, at Eli's instruction (PR #1199, card #1414), the coordinating window added `architecture/owner-merges.md` back to
 `own-instructions`: a change to Eli's own boundaries stays Eli's, as `security-invariants` does.
