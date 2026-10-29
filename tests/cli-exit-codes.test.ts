@@ -94,7 +94,7 @@ describe.concurrent('every command exits with the code it exits with today, as a
     expect(await run(gitRepository(), 'attach', '--yes', '--harness', 'pnpm run quality')).toBe(2)
   })
 
-  it('detach and its alias: detached 0, nothing attached 0, refused 1, unconfirmed without a terminal 1', async () => {
+  it('detach and its alias: detached 0, nothing attached 0, refused 1', async () => {
     expect(await run((await attached()), 'detach', '--yes')).toBe(0)
     expect(await run((await attached()), 'jack-out', '--yes')).toBe(0)
     expect(await run(world(), 'detach')).toBe(0)
