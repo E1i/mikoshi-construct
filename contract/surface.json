@@ -122,6 +122,10 @@
         },
         "plain": {
           "type": "boolean"
+        },
+        "yes": {
+          "alias": "y",
+          "type": "boolean"
         }
       }
     },
@@ -387,6 +391,7 @@
       "unsupported": 3
     },
     "detach": {
+      "aborted": 1,
       "done": 0,
       "failed": 1,
       "nothing-attached": 0,
