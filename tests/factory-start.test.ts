@@ -342,7 +342,7 @@ function modeBench(active: WindowShard[] = []): ModeBench {
   const root = tempRoot('factory-mode-')
   const events: BusEvent[] = []
   const channel = path.join(root, 'answers')
-  return { events, channel, parts: { busDir: path.join(root, 'bus'), channel, now: () => NOW, uuid: () => SHARD_ID, record: event => events.push(event), activeWindows: () => active } }
+  return { events, channel, parts: { busDir: path.join(root, 'bus'), channel, now: () => NOW, uuid: () => SHARD_ID, record: event => events.push(event), activeWindows: () => active, addDecision: () => ({ code: 0, lines: [] }) } }
 }
 
 function modeCommand(...argv: string[]) {
@@ -379,12 +379,12 @@ describe('the modes of the factory', () => {
     expect(launches.filter(launch => launch.script === 'bus:merge' && launch.args.includes(LIVE_FLAG))).toEqual([])
   })
 
-  it('window to ghost-protocol to window keeps the window live set', () => {
+  it('window to ghost-protocol to window takes every worker live and returns to the window live set', () => {
     const bench = modeBench()
     runMode(modeCommand('--mode', 'window'), bench.parts)
     sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
     runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
-    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+    expect(liveWorkers(bench.parts.busDir)).toEqual([...WORKERS])
 
     runMode(modeCommand('--mode', 'window'), bench.parts)
 
@@ -431,9 +431,9 @@ describe('the modes of the factory', () => {
   it('a ghost-protocol term ending on its own keeps a worker the operator put in shadow', () => {
     const bench = modeBench()
     runMode(modeCommand('--mode', 'window'), bench.parts)
-    switchDetection(bench.parts.busDir, 'review', false)
     sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
     runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+    switchDetection(bench.parts.busDir, 'review', false)
 
     expect(returnToWindowAtTermEnd(bench.parts.busDir, new Date(Date.parse(termEndOf(bench.parts.busDir)!) + 1))).toBe(true)
 

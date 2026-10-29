@@ -4,17 +4,19 @@ import type { BgResult } from './bg.js'
 import type { BusWorker, FactoryMode } from './workers.js'
 import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { BUS_DB_VARIABLE, busDirOf, isOwnerCheckout, OWNER_AGENT, OWNER_AGENT_FILE, pinBus } from '../core/bus-path.js'
+import { BUS_DB_VARIABLE, busDirOf, decisionsFileOf, isOwnerCheckout, OWNER_AGENT, OWNER_AGENT_FILE, pinBus } from '../core/bus-path.js'
 import { appendEvent, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
 import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
+import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
 import { allowLiveText } from '../policy/live-decision.js'
 import { activeWindowShards, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
+import { decisionsAdder } from '../window/window-request-tools.js'
 import { installedPackage, printBg } from './bg.js'
 import { startBus } from './supervisor.js'
 import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
@@ -33,10 +35,12 @@ export const LIVE_SWITCH = '--live'
 export const SHADOW_SWITCH = '--shadow'
 export const SAY_COMMAND = 'construct say'
 export const MODE_SHARD_SCOPE = 'merge'
+export const SHARD_DECIDES_LIVE: readonly BusWorker[] = ['merge', 'update']
 export const USAGE = `usage: ${START_BIN} — starts the factory for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
 
 const REPOSITORY_HASH_LENGTH = 12
 const HOUR_MS = 3_600_000
+const DECISION_TERM_LENGTH = 19
 const MODE_SHARD_ACTOR = 'owner'
 const MODE_ACTOR = 'policy'
 
@@ -171,6 +175,7 @@ export interface ModeParts {
   uuid: () => string
   record: (event: BusEvent) => void
   activeWindows: (now: Date) => WindowShard[]
+  addDecision: (args: string[]) => { code: number, lines: string[] }
 }
 
 function positiveHours(value: string | undefined): number | null {
@@ -259,7 +264,7 @@ function ghostProtocol(parts: ModeParts, hours: number): BgResult {
   }
   let on: BusWorker[]
   try {
-    on = switchMode(parts.busDir, FACTORY_MODES[1], until)
+    on = switchMode(parts.busDir, FACTORY_MODES[1], until, MODE_LIVE[FACTORY_MODES[1]])
   }
   catch (error) {
     const revoked = (() => {
@@ -273,7 +278,22 @@ function ghostProtocol(parts: ModeParts, hours: number): BgResult {
     })()
     return failed([`${FACTORY_MODES[1]} was not switched: ${messageOf(error)}; ${revoked}; owner word ${word.file} ${fateOf(word.release, word.file)}`])
   }
-  return { stdout: [`${START_PREFIX}shard ${id} issued by the owner word ${word.file}, scope ${MODE_SHARD_SCOPE}, until ${until}`, switchedTo(FACTORY_MODES[1], on), `${START_PREFIX}at ${until} the supervisor returns the factory to ${DEFAULT_MODE} on its next tick; ${START_BIN} ${MODE_FLAG} ${DEFAULT_MODE} returns sooner and revokes the shard`], stderr: [], exitCode: 0 }
+  const decided = SHARD_DECIDES_LIVE.map(worker => liveDecisionUnderShard(parts, worker, until))
+  const stderr = decided.flatMap(result => result.code === 0 ? [] : result.lines.map(line => `${START_PREFIX}${line}`))
+  return { stdout: [`${START_PREFIX}shard ${id} issued by the owner word ${word.file}, scope ${MODE_SHARD_SCOPE}, until ${until}`, switchedTo(FACTORY_MODES[1], on), ...decided.flatMap(result => result.code === 0 ? result.lines : []), `${START_PREFIX}at ${until} the supervisor returns the factory to ${DEFAULT_MODE} on its next tick; ${START_BIN} ${MODE_FLAG} ${DEFAULT_MODE} returns sooner and revokes the shard`], stderr, exitCode: stderr.length === 0 ? 0 : 1 }
+}
+
+function decisionTerm(until: string): string {
+  return `${until.slice(0, DECISION_TERM_LENGTH)}Z`
+}
+
+function liveDecisionUnderShard(parts: ModeParts, worker: BusWorker, until: string): { code: number, lines: string[] } {
+  try {
+    return parts.addDecision(['--until', decisionTerm(until), `${OWNER_SOURCE} ${allowLiveText(worker)}`])
+  }
+  catch (error) {
+    return { code: 1, lines: [`${allowLiveText(worker)} was not written: ${messageOf(error)}`] }
+  }
 }
 
 function detecting(now: BusWorker[]): BgResult {
@@ -322,6 +342,15 @@ function withBus<T>(busDb: string, read: (db: ReturnType<typeof openBus>) => T):
   }
 }
 
+export function busDecisionsAdder(busDb: string, now: () => Date): ModeParts['addDecision'] {
+  return (args) => {
+    const file = decisionsFileOf(busDb)
+    if (!existsSync(file))
+      writeFileSync(file, '')
+    return withBus(busDb, db => decisionsAdder(db, file, now)(args))
+  }
+}
+
 async function main(): Promise<void> {
   const command = startCommandOf(process.argv.slice(2))
   if (command === null) {
@@ -338,6 +367,7 @@ async function main(): Promise<void> {
       uuid: randomUUID,
       record: event => withBus(busDb, db => appendEvent(db, event)),
       activeWindows: now => withBus(busDb, db => activeWindowShards(db, now)),
+      addDecision: busDecisionsAdder(busDb, () => new Date()),
     }))
     return
   }
