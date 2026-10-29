@@ -11,6 +11,7 @@ import { PLAN_FOLDS } from '../../scripts/core/reducer.js'
 import { STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
 import { goalOf, planLine } from '../../src/commands/board/goal.js'
 import { goalLines } from '../../src/commands/board/screens.js'
+import { PLAIN_LORE } from '../../src/ui/lore.js'
 
 const NOW = new Date('2026-10-22T12:00:00.000Z')
 const HOUR = 3_600_000
@@ -123,7 +124,7 @@ describe('the plan journal on the board', () => {
     expect(bench.goal().plans).toHaveLength(1)
     bench.plan(PLAN_CLOSED, { plan: PLAN })
     expect(goalOf(bench.db, NOW)).toBeNull()
-    expect(goalLines({ at: NOW.toISOString(), goal: goalOf(bench.db, NOW), waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0, lanes: null })).toEqual([])
+    expect(goalLines({ at: NOW.toISOString(), goal: goalOf(bench.db, NOW), waits: [], pulse: null, slots: [], cards: [], services: [], matrices: [], failure: null, reviewQueue: 0 }, PLAIN_LORE)).toEqual([])
     expect(bench.db.prepare('SELECT plan_id, state FROM plans').all()).toEqual([{ plan_id: PLAN, state: 'closed' }])
   })
 
