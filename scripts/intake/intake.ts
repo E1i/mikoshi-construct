@@ -24,7 +24,7 @@ import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } 
 import { CARD_ADMITTED, CARD_MOVED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { openDatabase } from '../core/sqlite.js'
-import { layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
+import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 
 const INTAKE_SUBCOMMAND = 'intake'
@@ -176,8 +176,8 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
     appendCardEvent(db, actor, laid(db, event))
     registerPlan(db, event)
     const admitted = event.type === CARD_MOVED ? admissionOfMove(db, event) : null
-    if (admitted !== null)
-      appendCardEvent(db, actor, admitted)
+    if (admitted !== null && appendCardEvent(db, actor, admitted))
+      assignMovedLane(db, event.cardId, String(admitted.payload.lane), lanes(), event.ts, actor)
     if (event.type === CARD_ADMITTED || admitted !== null)
       layLanes(db, lanes(), event.ts, actor, event.cardId)
   })
