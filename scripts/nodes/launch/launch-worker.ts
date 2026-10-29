@@ -20,13 +20,14 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { busDirOf, busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
-import { CARD_BODIES, cardBodyText } from '../../core/card-bodies.js'
+import { bodyNotFoldedYet, CARD_BODIES, cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { HANDOFF_DIR_VARIABLE, handoffDirOf } from '../../core/handoff-dir.js'
 import { generationOfKey } from '../../core/identifiers.js'
@@ -53,7 +54,6 @@ import { stampLogOutput } from '../../supervisor/stamp.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, MAX_RESTARTS } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
-import { bodyNotFoldedYet } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
@@ -516,6 +516,9 @@ export class LaunchNode extends Node<LaunchStep> {
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
     const detail = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
     const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
+    const widen = this.outsideTheTouches(start.card_id, questions)
+    if (widen.length > 0)
+      return this.askToWiden(start, card, questions, widen)
     return inTransaction(this.db, () => {
       const ts = this.ts()
       const recorded = this.faultStop(ts, start, `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, detail)
@@ -523,6 +526,24 @@ export class LaunchNode extends Node<LaunchStep> {
         for (const question of questions)
           openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `card #${start.card_id} session ${card.session} asks: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
       }
+      return recorded
+    })
+  }
+
+  private outsideTheTouches(cardId: number, questions: readonly string[]): string[] {
+    const text = cardBodyText(this.db, cardId)
+    const parsed = text === null ? null : parseParkingFile(`${cardId}.md`, text)
+    return parsed?.kind === 'parked' ? pathsOutside(parsed.parked.task.touches, parsed.parked.creates, pathsIn(questions.join('\n'))) : []
+  }
+
+  private askToWiden(start: RunningStart, card: StartedCard, questions: readonly string[], widen: readonly string[]): boolean {
+    const detail = `card #${start.card_id} session ${card.session} ended with no pull request and asks to widen its touches to ${widen.join(', ')}: ${questions.join('; ')}`
+    return inTransaction(this.db, () => {
+      const ts = this.ts()
+      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, payload: { reason: QUESTION_AGENT, detail, widen: [...widen] }, legacy: false })
+      const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
+      if (recorded && task?.state === COMPLETED)
+        this.supersedeTheStoppedLaunch(ts, start.card_id, task)
       return recorded
     })
   }

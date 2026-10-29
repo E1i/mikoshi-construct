@@ -115,6 +115,20 @@
   },
   {
     "type": "dependency",
+    "from": "scripts/core/inbox.ts",
+    "to": "scripts/policy/shards.ts",
+    "unresolvedTo": "../policy/shards.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "core-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "scripts/core/lease.ts",
     "to": "scripts/ports/meter.ts",
     "unresolvedTo": "../ports/meter.js",
@@ -1327,20 +1341,6 @@
   {
     "type": "dependency",
     "from": "scripts/nodes/answer/answer-executor.ts",
-    "to": "src/card/parking.ts",
-    "unresolvedTo": "../../../src/card/parking.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/answer/answer-executor.ts",
     "to": "src/card/risk.ts",
     "unresolvedTo": "../../../src/card/risk.js",
     "dependencyTypes": [
@@ -1679,20 +1679,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-candidates.ts",
-    "to": "src/card/text-sha.ts",
-    "unresolvedTo": "../../../src/card/text-sha.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/nodes/launch/launch-starter.ts",
     "to": "src/card/parking.ts",
     "unresolvedTo": "../../../src/card/parking.js",
@@ -1767,6 +1753,20 @@
     "from": "scripts/nodes/launch/launch-worker.ts",
     "to": "scripts/supervisor/stamp.ts",
     "unresolvedTo": "../../supervisor/stamp.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "src/card/covering-tests.ts",
+    "unresolvedTo": "../../../src/card/covering-tests.js",
     "dependencyTypes": [
       "local",
       "import"

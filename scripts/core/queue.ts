@@ -440,8 +440,14 @@ const BODIES_OWNER_AMENDED_FOR_A_PR = `
     AND card_id IN (SELECT card_id FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND card_id IS NOT NULL)
 `
 
+function bodyThePreviousHeadWasFirstReviewedUnder(reviews: readonly RoundReview[], at: number): unknown {
+  const earlier = reviews.slice(0, at).filter(review => review.head !== reviews[at]!.head)
+  const previous = earlier.at(-1)
+  return previous === undefined ? null : earlier.find(review => review.head === previous.head)!.card_body
+}
+
 function ownerAmendedSinceThePreviousReview(reviews: readonly RoundReview[], at: number, ownerAmended: ReadonlySet<string>): boolean {
-  const before = at > 0 ? reviews[at - 1]!.card_body : null
+  const before = bodyThePreviousHeadWasFirstReviewedUnder(reviews, at)
   const now = reviews[at]!.card_body
   return typeof before === 'string' && typeof now === 'string' && before !== now && ownerAmended.has(now)
 }

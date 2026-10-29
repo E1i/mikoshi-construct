@@ -2,6 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { unspentShardsOf } from '../policy/shards.js'
+import { CARD_BODIES } from './card-bodies.js'
 import { CARD_BLOCKS, defaultBusPath, openBus } from './db.js'
 import { CARD_STOPPED, POLICY_DENIED, QUESTION_OWNER } from './events.js'
 
@@ -34,11 +36,24 @@ function everyBlockerMergedAfter(stop: string): string {
     ))`
 }
 
+function widenedByAnAmendUnderAShard(stop: string): string {
+  return `(json_array_length(${stop}.payload, '$.widen') > 0
+    AND EXISTS (${unspentShardsOf(`${stop}.card_id`, `${stop}.pr`)})
+    AND EXISTS (
+      SELECT 1 FROM ${CARD_BODIES} AS amended
+      WHERE amended.card_id = ${stop}.card_id AND amended.admission_event_id > ${stop}.id
+        AND NOT EXISTS (
+          SELECT 1 FROM json_each(${stop}.payload, '$.widen') AS wanted
+          WHERE NOT EXISTS (SELECT 1 FROM json_each(coalesce(amended.touches, '[]')) AS touched WHERE touched.value = wanted.value)
+        )
+    ))`
+}
+
 export function ownerQuestionAnswered(stop: string): string {
   return `(EXISTS (
       SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named
       WHERE answer.event_id > ${stop}.id AND named.value = ${stop}.card_id
-    ) OR ${everyBlockerMergedAfter(stop)})`
+    ) OR ${everyBlockerMergedAfter(stop)} OR ${widenedByAnAmendUnderAShard(stop)})`
 }
 
 const OWNER_INBOX = `

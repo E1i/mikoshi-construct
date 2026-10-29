@@ -17,6 +17,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { defaultBusDir } from '../../core/bus-path.js'
+import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
@@ -31,8 +32,6 @@ import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { HEADLESS_FLAGS } from '../../ports/session.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
-import { bodyNotFoldedYet } from '../launch/launch-candidates.js'
-import { BODY_NOT_FOLDED } from '../launch/launch-worker.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { answerSourceOf } from './answer-source.js'
 import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
@@ -63,6 +62,7 @@ export interface NotMineDenial {
 }
 
 export const VERDICT_NOT_RECORDED = 'verdict_not_recorded'
+export const AMEND_NOT_FOLDED = 'amend_not_folded'
 
 const CHANGES_RECORDED_ON_HEAD = `SELECT 1 FROM events WHERE type = '${REVIEW_RECORDED}' AND card_id = ? AND head = ? AND json_extract(payload, '$.verdict') = 'changes' LIMIT 1`
 
@@ -143,7 +143,7 @@ export class AnswerNode extends Node<AnswerStep> {
   }
 
   private waitingForTheAmend(lease: Lease): AnswerStep | null {
-    return bodyNotFoldedYet(this.db, lease.cardId) ? this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.answerParts.clock().getTime() + TICK_MS).toISOString()) : null
+    return bodyNotFoldedYet(this.db, lease.cardId) ? this.waitOn(lease, AMEND_NOT_FOLDED, new Date(this.answerParts.clock().getTime() + TICK_MS).toISOString()) : null
   }
 
   protected async handle(lease: Lease): Promise<AnswerStep> {

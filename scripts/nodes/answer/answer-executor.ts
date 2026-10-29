@@ -4,10 +4,9 @@ import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
-import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.js'
+import type { AnswerSource, CardSession } from './answer-source.js'
 import type { Answered, Answerer, TreeMerge } from './answerer.js'
-import { withinTouches } from '../../../src/card/covering-tests.js'
-import { createdPaths } from '../../../src/card/parking.js'
+import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { riskOf } from '../../../src/card/risk.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
@@ -60,20 +59,7 @@ interface Widened {
 
 const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
 
-const WORD_BOUNDARY = /[\s,;:()[\]"'`?!<>]+/
-const TRAILING_DOTS = /\.+$/
-const FILE_EXTENSION = /\.[a-z][\w-]*$/i
-
-export function pathsIn(question: string): string[] {
-  return [...new Set(question.split(WORD_BOUNDARY).map(word => word.replace(TRAILING_DOTS, '')).filter(word => word.includes('/') || FILE_EXTENSION.test(word)))]
-}
-
-export function pathsOutside(scope: AdmittedScope, paths: readonly string[]): string[] {
-  const created = createdPaths(scope.creates)
-  return paths.filter(file => !(withinTouches(file, scope.touches) || created.includes(file)))
-}
-
-export function ownersEvenUnderTheDecision(paths: readonly string[]): string | undefined {
+function ownersEvenUnderTheDecision(paths: readonly string[]): string | undefined {
   return paths.find(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION)
 }
 
@@ -139,7 +125,7 @@ export class AnswerExecutor {
         if (ownerPath !== undefined)
           return this.ownersStop(lease, `${ownerPath} is an owner path: ${source.detail}`)
         const scope = admittedScopeOf(this.parts.db, lease.cardId)
-        const uncovered = scope === null ? source.widen.paths : pathsOutside(scope, source.widen.paths)
+        const uncovered = scope === null ? source.widen.paths : pathsOutside(scope.touches, scope.creates, source.widen.paths)
         if (scope === null || uncovered.length > 0)
           return this.stopped(lease, QUESTION_AGENT, `${uncovered.join(', ')} not in the touches or creates the card was admitted with: ${source.detail}`, { widen: uncovered })
         const reason = `${source.widen.paths.join(', ')}, by the window's amend of the card`
@@ -299,7 +285,7 @@ export class AnswerExecutor {
     const named = pathsIn(question)
     if (scope === null || this.namesAnOwnerPath(named))
       return []
-    return pathsOutside(scope, named)
+    return pathsOutside(scope.touches, scope.creates, named)
   }
 
   private denied(lease: Lease, denial: AnswerDenial): AnswerOutcome {

@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, scopeOf } from '../../scripts/core/factory-paths.js'
+import { createdPaths } from './parking.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 
 function scannedBy(groups: readonly (readonly [readonly string[], readonly string[]])[]): Record<string, readonly string[]> {
@@ -31,6 +32,9 @@ export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
 }
 const LINT_CONFIG = /^eslint\.config\.[cm]?[jt]s$/
 const LINT_RUN = /\bnew\s+ESLint\s*\(|\bcalculateConfigForFile\s*\(/
+const WORD_BOUNDARY = /[\s,;:()[\]"'`?!<>]+/
+const TRAILING_DOTS = /\.+$/
+const FILE_EXTENSION = /\.[a-z][\w-]*$/i
 const TEST_FILE = /\.test\.ts$/
 const MODULE_FILE = /\.[cm]?[jt]s$/
 const RELATIVE_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\b(?:import|require|vi\.(?:mock|doMock|importActual|importMock))\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
@@ -136,6 +140,15 @@ export function coveringTests(touches: readonly string[], files: readonly string
     .filter(([file]) => touches.includes(file) || touched.includes(file))
     .flatMap(([, named]) => named.filter(reader => known.has(reader)))
   return [...new Set([...[...reached].filter(isTest), ...readers, ...scanning(touched, known), ...spawning(touched, files, read), ...linting(touched, files, read)])].sort()
+}
+
+export function pathsIn(text: string): string[] {
+  return [...new Set(text.split(WORD_BOUNDARY).map(word => word.replace(TRAILING_DOTS, '')).filter(word => word.includes('/') || FILE_EXTENSION.test(word)))]
+}
+
+export function pathsOutside(touches: readonly string[], creates: readonly string[], paths: readonly string[]): string[] {
+  const created = createdPaths(creates)
+  return paths.filter(file => !(withinTouches(file, touches) || created.includes(file)))
 }
 
 export class TestCoverage {
