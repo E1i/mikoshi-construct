@@ -205,6 +205,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachHarnessCandidate: (index: number, command: string, source: string) => string
   attachNoHarnessCandidates: string
   attachHarnessNone: string
+  attachFactoryUnavailable: (host: string) => string
   attachNeedsTerminal: string
   attachConfirm: string
   attachRefusedNoGit: string
@@ -586,6 +587,7 @@ export const LORE: Lore = {
   attachHarnessCandidate: (index: number, command: string, source: string) => `${index}. ${command}  \u2190 ${source}`,
   attachNoHarnessCandidates: 'The net read no CI step or package.json script here that runs tests.',
   attachHarnessNone: 'Harness: none \u2014 jacking in without a gate; doctor flags the harness as not covered until one is named.',
+  attachFactoryUnavailable: (host: string) => `NO FACTORY ON THIS NET: the remote lives on ${host}, not GitHub \u2014 jacking in the window alone, no harness, no factory beside it`,
   attachNeedsTerminal: 'No terminal for the interactive flow; pass --yes --harness <command> to run non-interactively.',
   attachConfirm: 'Jack in?',
   attachRefusedNoGit: 'BREACH FAILED // NO NET: not a git repository',
@@ -614,7 +616,7 @@ export const LORE: Lore = {
   attachRefusedRequiredCheck: {
     what: 'BREACH FAILED // CHECK UNRESOLVED: no CI job with a fixed check name runs this gate (none runs it, or it is a matrix, an expression or a reusable workflow)',
     why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded, or a job that was not found, cannot be read from the file.',
-    next: 'Name the CI job with --required-check "<name>". Nothing was written.',
+    next: 'Name the CI job with --required-check "<name>", or attach without a gate with --harness none. Nothing was written.',
   },
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness rewrites the tree: ${marks.join(', ')}`,
@@ -990,6 +992,7 @@ export const PLAIN_LORE: Lore = {
   attachHarnessCandidate: (index: number, command: string, source: string) => `${index}. ${command}  (${source})`,
   attachNoHarnessCandidates: 'No CI step or package.json script here runs tests.',
   attachHarnessNone: 'Harness: none \u2014 attach goes on without a gate, and doctor reports the harness as not covered until one is named.',
+  attachFactoryUnavailable: (host: string) => `The factory is unavailable: the remote is on ${host}, not GitHub. Attach installs the window alone, without the harness and without the factory.`,
   attachNeedsTerminal: 'No terminal for the interactive flow; pass --yes --harness <command> to run non-interactively.',
   attachConfirm: 'Attach these files?',
   attachRefusedNoGit: 'Refused: not a git repository.',
@@ -1018,7 +1021,7 @@ export const PLAIN_LORE: Lore = {
   attachRefusedRequiredCheck: {
     what: 'Refused: the required check cannot be resolved, no CI job with a fixed check name runs this harness (none runs it, or it is a matrix, uses an expression or calls a reusable workflow).',
     why: 'The bus waits for a check run named after the job; a name that only exists once the workflow has expanded, or a job that was not found, cannot be read from the file.',
-    next: 'Name the CI job with --required-check "<name>". Nothing was written.',
+    next: 'Name the CI job with --required-check "<name>", or attach without a gate with --harness none. Nothing was written.',
   },
   attachHarnessEditsFiles: (marks: string[]) => ({
     what: `The harness command edits files: ${marks.join(', ')}.`,
