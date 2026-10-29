@@ -7,9 +7,8 @@ import { appendEvent, openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
 import { inForce, parseDecisions } from '../scripts/policy/decisions/decisions.js'
 import { namesQueueLive } from '../scripts/policy/live-decision.js'
-import { FACTORY_ITEMS, factoryChecklist, printFactoryChecklist } from '../src/commands/doctor/index.js'
+import { DOCTOR_EXIT, DOCTOR_JSON_SCHEMA_VERSION, FACTORY_ITEMS, factoryChecklist, factoryChecklistExit, factoryChecklistJson, printFactoryChecklist } from '../src/commands/doctor/index.js'
 import { liveQueuesIn } from '../src/commands/doctor/live-decisions.js'
-import { DOCTOR_EXIT } from '../src/commands/doctor/report.js'
 import { runInit } from '../src/commands/init.js'
 import { WINDOW_SILENT_MS } from '../src/commands/liveness.js'
 import { applySync } from '../src/commands/sync/index.js'
@@ -25,6 +24,7 @@ const IN_FORCE_UNTIL = '2026-10-30T18:00Z'
 const LAPSED_UNTIL = '2026-10-30T06:00Z'
 const SYNC_APPLY = 'construct sync --apply'
 const BRIEF_AGENT = '.claude/agents/brief.md'
+const REVIEW_AGENT = '.claude/agents/review.md'
 const GHOST_PROTOCOL = 'construct say "ghost-protocol 6h" && construct-factory --mode ghost-protocol'
 
 interface Factory {
@@ -147,6 +147,21 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
     expect(red(check(factory))).toEqual({ 'factory-files': `git restore -- ${BRIEF_AGENT}` })
   })
 
+  it('a recorded file the tree lost beside a file the record never carried names git restore, then construct sync --apply, and following both goes', async () => {
+    const factory = await readyFactory()
+    const manifest = readManifest(factory.dir)!
+    const files = { ...manifest.files }
+    delete files[REVIEW_AGENT]
+    writeManifest(factory.dir, { ...manifest, files })
+    const lost = readFileSync(path.join(factory.dir, BRIEF_AGENT), 'utf8')
+    rmSync(path.join(factory.dir, BRIEF_AGENT))
+    rmSync(path.join(factory.dir, REVIEW_AGENT))
+    expect(red(check(factory))).toEqual({ 'factory-files': `git restore -- ${BRIEF_AGENT} && ${SYNC_APPLY}` })
+    writeFileSync(path.join(factory.dir, BRIEF_AGENT), lost)
+    applySync(factory.dir, VERSION)
+    expect(red(check(factory))).toEqual({})
+  })
+
   it('settings.json without the factory hooks does not go until construct sync --apply', async () => {
     const factory = await readyFactory()
     editJson(path.join(factory.dir, '.claude/settings.json'), (settings) => {
@@ -181,6 +196,20 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
       for (const queue of ['merge', 'update'])
         expect(live.has(queue), `${queue} in ${text}`).toBe(theirs.some(decision => namesQueueLive(decision.body, queue)))
     }
+  })
+
+  it('--json carries schemaVersion, goes, bus and items, and exits ok only when every item goes', async () => {
+    for (const factory of [await readyFactory(), await initialised()]) {
+      const checklist = check(factory)
+      const json = factoryChecklistJson(checklist)
+      expect(Object.keys(json)).toEqual(['schemaVersion', 'goes', 'bus', 'items'])
+      expect(json).toEqual({ schemaVersion: DOCTOR_JSON_SCHEMA_VERSION, goes: checklist.goes, bus: factory.bus, items: checklist.items })
+      expect(Object.keys(checklist.items[0]!)).toEqual(['item', 'slice', 'goes', 'command'])
+      expect(factoryChecklistExit(checklist)).toBe(checklist.goes ? DOCTOR_EXIT.ok : DOCTOR_EXIT.notOk)
+      expect(factoryChecklistExit(checklist)).toBe(printed(checklist).exit)
+    }
+    expect(factoryChecklistExit(check(await readyFactory()))).toBe(DOCTOR_EXIT.ok)
+    expect(factoryChecklistExit(check(await initialised()))).toBe(DOCTOR_EXIT.notOk)
   })
 
   it('every item has its line in the lore and in the plain lore', () => {

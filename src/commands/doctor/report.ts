@@ -248,6 +248,10 @@ export function factoryChecklistJson(checklist: FactoryChecklist): Record<string
   return { schemaVersion: DOCTOR_JSON_SCHEMA_VERSION, ...checklist }
 }
 
+export function factoryChecklistExit(checklist: FactoryChecklist): number {
+  return checklist.goes ? DOCTOR_EXIT.ok : DOCTOR_EXIT.notOk
+}
+
 function factoryItemLine(ui: Ui, item: FactoryItem): string {
   const verdict = item.goes ? ui.lore.factoryGoes : ui.lore.factoryStalls
   return `  ${verdict}${item.slice.padEnd(8)}${ui.lore.factoryItem[item.item] ?? item.item}`
@@ -265,5 +269,5 @@ export function printFactoryChecklist(ui: Ui, checklist: FactoryChecklist): numb
     ui.ok(ui.lore.factoryVerdict(true, 0))
   else
     ui.glitch(ui.lore.factoryVerdict(false, stalled))
-  return checklist.goes ? DOCTOR_EXIT.ok : DOCTOR_EXIT.notOk
+  return factoryChecklistExit(checklist)
 }

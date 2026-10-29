@@ -95,7 +95,10 @@ function factoryFilesCommand(root: string, missing: readonly string[]): string {
   const manifest = readManifest(root)
   const recorded = manifest == null ? {} : recordedShas(manifest)
   const lost = missing.filter(file => recorded[file] != null)
-  return lost.length === 0 ? SYNC_APPLY : `${RESTORE_FROM_GIT} ${lost.join(' ')}`
+  const restore = `${RESTORE_FROM_GIT} ${lost.join(' ')}`
+  if (lost.length === 0)
+    return SYNC_APPLY
+  return lost.length === missing.length ? restore : `${restore} && ${SYNC_APPLY}`
 }
 
 function item(name: FactoryItemName, goes: boolean, command: string): FactoryItem {
