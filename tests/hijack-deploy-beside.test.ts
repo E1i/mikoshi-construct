@@ -322,7 +322,7 @@ describe('the installed package on a foreign clone with its own construct', () =
     expect(existsSync(path.join(home(), OWN_FACTORY_HOME, BUS_FILE))).toBe(true)
     construct('atlas')
     expect(existsSync(path.join(home(), '.construct', 'engram'))).toBe(true)
-    construct('detach')
+    construct('detach', '--yes')
 
     expect(snapshot(dir)).toEqual(before)
     expect(existsSync(path.join(home(), '.construct'))).toBe(false)
