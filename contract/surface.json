@@ -134,6 +134,9 @@
         "dir": {
           "type": "string"
         },
+        "factory": {
+          "type": "boolean"
+        },
         "johnny": {
           "type": "boolean"
         },
