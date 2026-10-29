@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait } from '../../src/commands/board/bus.js'
 import type { ItemStage, PlanProgress } from '../../src/commands/board/goal.js'
+import type { FactoryState } from '../../src/commands/liveness.js'
 import type { CardFields } from '../intake/card-contract.js'
 import type { InForceDecision } from '../policy/decisions.js'
 import type { CardChain } from './card-chain.js'
@@ -12,8 +13,9 @@ import { fileURLToPath } from 'node:url'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { planLine } from '../../src/commands/board/goal.js'
 import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
+import { factoryLiveness } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
-import { VERSION } from '../../src/version.js'
+import { currentVersion } from '../../src/version.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { openDatabase } from '../core/sqlite.js'
@@ -70,6 +72,7 @@ export interface Handoff {
 
 export interface BoardPage {
   version: string
+  liveness: FactoryState
   modelVersion: number | null
   facts: BusFacts
   gauges: Map<string, Gauges>
@@ -104,7 +107,8 @@ const OWNER_STATUS = 'OWNER'
 export const SLOT_PREFIX = 'slot-'
 const BUS_LIVE = 'bus-live'
 const PULSE_ELEMENT_ID = 'bus-pulse'
-const STALE_READING = 'bus stale'
+const OFFLINE_READING = 'bus offline'
+const FACTORY_LIVE: FactoryState = 'live'
 const TITLE_PREFIX = 'construct board · '
 const BACKLOG = 'backlog'
 const DRILL = 'drill'
@@ -316,7 +320,7 @@ function goalSlot(facts: BusFacts): string {
 
 function waitText(wait: OwnerWait): string {
   const target = waitTarget(wait)
-  return `${wait.id}${target === null ? '' : ` ${target}`} — ${waitAction(wait)}`
+  return `${wait.id}${target === null ? '' : ` ${target}`} — ${waitAction(wait, PLAIN_LORE)}`
 }
 
 function waitItem(wait: OwnerWait, page: BoardPage): string {
@@ -406,7 +410,7 @@ function rowsSlot(facts: BusFacts): string {
   const cards = backlogCards(facts.cards, facts.at, true)
   return [
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
-    ...laneColumns(cards, facts.lanes).map(lane => laneBody(lane, cards)),
+    ...laneColumns(cards).map(lane => laneBody(lane, cards)),
   ].join('\n')
 }
 
@@ -439,7 +443,7 @@ function headerReadings(page: BoardPage): string {
     `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>`,
     `<span>written <b>${escaped(facts.at)}</b></span>`,
     `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b></span>`,
-    `<span class="live" id="${BUS_LIVE}"${liveAttribute(facts)}>${busFresh(facts) ? 'bus live' : STALE_READING}</span>`,
+    `<span class="live" id="${BUS_LIVE}"${page.liveness === FACTORY_LIVE ? '' : ' data-stale'}>${page.liveness === FACTORY_LIVE ? 'bus live' : OFFLINE_READING}</span>`,
   ].join('')
 }
 
@@ -716,7 +720,7 @@ const SCRIPT = `
   save()
   function stale() {
     var live = document.getElementById('${BUS_LIVE}')
-    if (live) { live.setAttribute('data-stale', ''); live.textContent = '${STALE_READING}' }
+    if (live) { live.setAttribute('data-stale', ''); live.textContent = '${OFFLINE_READING}' }
     var pulse = document.getElementById('${PULSE_ELEMENT_ID}')
     if (pulse) pulse.setAttribute('data-stale', '')
   }
@@ -906,18 +910,19 @@ header.panel {
 .edd {
   --_bar: var(--wire);
   --_value: var(--text);
-  display: grid;
-  grid-template-columns: 3.25rem minmax(0, 1fr) max-content;
-  gap: var(--space-s);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-s);
   align-items: center;
   color: var(--dim);
   font-size: 0.65rem;
   &[data-hot] { --_bar: var(--amber); --_value: var(--amber); }
   &[data-over] { --_bar: var(--signal); --_value: var(--signal); }
 }
-.edd-k { text-transform: uppercase; letter-spacing: 0.08em; }
-.edd-v { text-align: end; white-space: nowrap; color: var(--_value); }
+.edd-k { flex: 0 0 3.25rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.edd-v { margin-inline-start: auto; text-align: end; white-space: nowrap; color: var(--_value); }
 .edd-bar {
+  flex: 1 1 4rem;
   block-size: 0.375rem;
   position: relative;
   background: var(--line);
@@ -1378,10 +1383,11 @@ export function renderBoard(page: BoardPage): string {
   ].join('\n')
 }
 
-function boardPageOf(db: DatabaseSync, now: Date, handoffFile: string, tickMs: number | null): BoardPage {
+function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null): BoardPage {
   const facts = busFacts(db, now)
   return {
-    version: VERSION,
+    version: currentVersion(),
+    liveness: factoryLiveness(busPath, now.getTime()).state,
     modelVersion: readModelVersion(),
     facts,
     gauges: projectedGauges(db),
@@ -1406,7 +1412,7 @@ export type BoardFormat = 'html' | 'json'
 function boardText(busPath: string, now: Date, handoffFile: string, format: BoardFormat): string {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    return format === 'json' ? busJson(db, now) : renderBoard(boardPageOf(db, now, handoffFile, null))
+    return format === 'json' ? busJson(db, now) : renderBoard(boardPageOf(db, busPath, now, handoffFile, null))
   }
   finally {
     db.close()
@@ -1449,7 +1455,7 @@ export function boardProjection(db: DatabaseSync, busPath: string, tickMs: numbe
     dataFile,
     project: (now) => {
       try {
-        const page = boardPageOf(db, now, handoffFile, tickMs)
+        const page = boardPageOf(db, busPath, now, handoffFile, tickMs)
         writeBoardPage(dataFile, boardDataScript(boardData(page)), files)
         writeBoardPage(file, renderBoard(page), files)
       }

@@ -214,10 +214,18 @@ function closeDowngradeWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredE
     .run(`card #${event.card_id} admitted`, event.id, event.card_id, event.id)
 }
 
+const AMEND_COMMAND = 'pnpm intake --admit '
+
+function closeAmendWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent): void {
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND need = 'command' AND substr(command, 1, ?) = ? AND event_id < ?`)
+    .run(`card #${event.card_id} amended`, event.id, event.card_id, AMEND_COMMAND.length, AMEND_COMMAND, event.id)
+}
+
 function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent): void {
   CARD_FOLDS[CARD_ADMITTED]!(db, event)
   foldCardBody(db, event)
   closeDowngradeWaitsTheAdmissionAnswers(db, event)
+  closeAmendWaitsTheAdmissionAnswers(db, event)
 }
 
 function prOpened(db: DatabaseSync, event: StoredEvent): void {
