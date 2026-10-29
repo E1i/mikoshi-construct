@@ -10,7 +10,9 @@ export type Shell = (command: string, cwd: string) => ShellResult
 
 const SHELL_BUFFER = 1 << 28
 const TAIL_LINES = 20
-const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
+const FROZEN_INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
+const LOCKLESS_INSTALL_ARGS = ['install', '--prefer-offline']
+const LOCKFILE = 'pnpm-lock.yaml'
 const FETCH_MAIN_OVER_HTTPS = ['-c', 'url.https://github.com/.insteadOf=git@github.com:', '-c', 'url.https://github.com/.insteadOf=ssh://git@github.com/', 'fetch', 'origin', 'main']
 const UNABLE_TO_CREATE = /unable to create file (.+?): /g
 
@@ -189,11 +191,12 @@ export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree |
       return { refused: `could not cut ${worktree}: ${recovered.failed}; ${removeTree(deps, repo, worktree, branch)}; nothing written` }
     absent = recovered
   }
+  const installArgs = deps.exists(path.join(worktree, LOCKFILE)) ? FROZEN_INSTALL_ARGS : LOCKLESS_INSTALL_ARGS
   try {
-    deps.install(worktree, INSTALL_ARGS)
+    deps.install(worktree, installArgs)
   }
   catch (error) {
-    return { refused: `pnpm ${INSTALL_ARGS.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written` }
+    return { refused: `pnpm ${installArgs.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written` }
   }
   const left = absent.length === 0 ? '' : `; absent from the tree, kept out of git status with skip-worktree because the sandbox refused the write: ${absent.join(', ')}`
   return { worktree, how: `cut ${worktree} from origin/main${left}`, failedAppend: `${worktree} was cut on ${branch}${left}` }
