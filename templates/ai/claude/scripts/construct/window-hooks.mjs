@@ -30,6 +30,8 @@ const CONSTRUCT_BIN = 'construct'
 const HANDOFF_WRITE_REASON = 'write the handoff with miko handoff write <name> <draft>'
 const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
 const BUS_FILE = 'bus.db'
+const BOARD_FILE = 'board.html'
+const BOARD_EVERY_MINUTES = 5
 const WINDOW_HEARTBEAT = 'window.heartbeat'
 const WINDOW_ACTOR = 'worker:window:'
 const WINDOW_MODE = 'tab'
@@ -182,11 +184,17 @@ export function stopOutput(input, handoff, text) {
   return { decision: 'block', reason: `window-hooks: ${handoff} ends STATUS: CONTINUE; take its next task in this session` }
 }
 
-export function sessionStartOutput(input, handoff, text, rules) {
+export function boardLine(busFile) {
+  if (!existsSync(busFile))
+    return null
+  return `the board: construct board --every ${BOARD_EVERY_MINUTES} in a terminal, or open ${path.join(path.dirname(busFile), BOARD_FILE)}, the page the factory rewrites on every tick; name both to the owner in your first line`
+}
+
+export function sessionStartOutput(input, handoff, text, rules, board = null) {
   const handoffLine = input.source === COMPACT_SOURCE && text !== null
     ? `read ${handoff}; if its last STATUS: line is CONTINUE, continue with its next task without asking the owner; if it is OWNER, ask the owner in this window and wait for the answer in this session`
     : null
-  const parts = [rules, handoffLine].filter(part => part != null)
+  const parts = [rules, board, handoffLine].filter(part => part != null)
   if (parts.length === 0)
     return null
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: parts.join('\n') } }
@@ -276,7 +284,7 @@ export function windowHookOutput(event, input, env, home, now, dir) {
   if (event === 'stop')
     return { stdout: stopOutput(input, handoff, readIfFile(handoff)) }
   if (event === 'session-start')
-    return { stdout: sessionStartOutput(input, handoff, readIfFile(handoff), readIfFile(path.join(dir, RULES_FILE))) }
+    return { stdout: sessionStartOutput(input, handoff, readIfFile(handoff), readIfFile(path.join(dir, RULES_FILE)), boardLine(busFileOf(env, home, dir))) }
   if (event === 'pre-compact')
     return { stdout: preCompactOutput(preCompactLine(handoff, mtimeOrNull(handoff), now)) }
   if (event === 'pre-tool-use')

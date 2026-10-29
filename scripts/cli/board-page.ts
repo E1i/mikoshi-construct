@@ -107,7 +107,6 @@ const OWNER_STATUS = 'OWNER'
 export const SLOT_PREFIX = 'slot-'
 const BUS_LIVE = 'bus-live'
 const PULSE_ELEMENT_ID = 'bus-pulse'
-const STALE_READING = 'bus stale'
 const OFFLINE_READING = 'bus offline'
 const FACTORY_LIVE: FactoryState = 'live'
 const TITLE_PREFIX = 'construct board · '
@@ -721,7 +720,7 @@ const SCRIPT = `
   save()
   function stale() {
     var live = document.getElementById('${BUS_LIVE}')
-    if (live) { live.setAttribute('data-stale', ''); live.textContent = '${STALE_READING}' }
+    if (live) { live.setAttribute('data-stale', ''); live.textContent = '${OFFLINE_READING}' }
     var pulse = document.getElementById('${PULSE_ELEMENT_ID}')
     if (pulse) pulse.setAttribute('data-stale', '')
   }

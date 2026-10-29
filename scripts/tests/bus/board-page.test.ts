@@ -1083,9 +1083,11 @@ describe('board.html', () => {
     expect(projectedShell).toContain(`<span>refresh <b>${TICK_MS / 1000}s</b></span>`)
   })
 
-  it('a broken board-data.js keeps the previous data and shows bus stale', () => {
+  it('a broken board-data.js keeps the previous data and shows bus offline, the word a silent factory renders', () => {
     const { html } = projectedWithHandoff(NOW, TICK_MS, [{ ts: minutesAgo(2), type: WINDOW_HEARTBEAT, card: null, payload: '{}' }])
     expect(html).toContain('<span class="live" id="bus-live">bus live</span>')
+    const { html: silent } = projectedWithHandoff(NOW, TICK_MS)
+    expect(silent).toContain('<span class="live" id="bus-live" data-stale>bus offline</span>')
     for (const data of ['window.BOARD = {"written": ', 'window.BOARD = 42', 'window.BOARD = {"written": "x", "tickMs": 60000, "slots": null, "filters": []}', null]) {
       const board = boardWindow(html, new MemoryStorage())
       const script = board.tick(data)
@@ -1094,7 +1096,7 @@ describe('board.html', () => {
         expect(board.elements.get(`slot-${name}`)!.innerHTML, `${data} ${name}`).toBe(inner)
       const live = board.elements.get('bus-live')!
       expect(live.attributes.get('data-stale'), String(data)).toBe('')
-      expect(live.textContent).toBe('bus stale')
+      expect(live.textContent).toBe('bus offline')
       expect(board.elements.get('bus-pulse')!.attributes.get('data-stale')).toBe('')
       expect(board.timeouts).toHaveLength(1)
     }

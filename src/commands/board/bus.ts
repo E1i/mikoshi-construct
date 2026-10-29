@@ -1,7 +1,7 @@
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
-import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_MOVED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, LANE_ASSIGNED, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_MOVED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, LANE_ASSIGNED, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, TERMINAL_LANES, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
 
@@ -341,7 +341,7 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   const closed = new Map(events.of(CARD_VERIFIED).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
   const queues = queuesIn(db, OPEN_TASK_STATES)
   const leased = queuesIn(db, [LEASED])
-  return rows.map(row => ({ id: row.id, state: row.state, stage: stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane: row.lane, slot: slotName(row.slot), line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
+  return rows.map(row => ({ id: row.id, state: row.state, stage: TERMINAL_LANES.has(row.lane ?? '') ? 'dropped' : stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane: row.lane, slot: slotName(row.slot), line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }))
 }
 
 const OWNER_WAITS_TABLE = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'owner_waits'`
