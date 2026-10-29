@@ -13,7 +13,7 @@ import { commandWord } from './command-word.js'
 
 export const DEFAULT_CONTOUR = 'cheap'
 const LADDER_CONTOUR = 'ladder'
-export const LADDER_PREFIX = 'ladder: '
+const LADDER_PREFIX = 'ladder: '
 const OWNER_LADDER_WORD = /^ladder: owner [^\s—][^—]*— ?\S/
 export const LADDER_GRAMMAR = `a line '${LADDER_PREFIX}owner <where the owner gave the word on this card> — <how many cheap failures and which, or why cheap does not give the proof>' in the card text`
 export const CONTOUR_NOT_FROM_RISK = 'the risk table sets the review depth and who merges, never the contour'
@@ -209,7 +209,7 @@ function numberCorrection(card: DraftCard, assigned: number, facts: CheckFacts):
   return [{ field: 'number', was: `#${named}`, now: `#${assigned}`, reason }]
 }
 
-export function ownerSentToLadder(task: string): boolean {
+function ownerSentToLadder(task: string): boolean {
   return task.split('\n').some(line => OWNER_LADDER_WORD.test(line.trim()))
 }
 

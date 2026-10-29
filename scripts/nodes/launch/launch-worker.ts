@@ -754,8 +754,11 @@ export function busStarterPorts(busPath: string, repo: string, env: NodeJS.Proce
   return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath)
 }
 
-export function handoffLadderSteps(repo: string, env: NodeJS.ProcessEnv, busPath: string, home: string = os.homedir()): LadderSteps {
-  const handoffDir = handoffDirOf(env, home, repo)
+export function repoLadderSteps(repo: string, env: NodeJS.ProcessEnv, busPath: string, home: string = os.homedir()): LadderSteps {
+  return handoffLadderSteps(handoffDirOf(env, home, repo), repo, env, busPath)
+}
+
+export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv, busPath: string): LadderSteps {
   const readIfThere = (file: string): string | null => existsSync(file) ? readFileSync(file, 'utf8') : null
   return {
     stepOf: task => ladderStep({ journal: ghostLinesText(busPath), brief: readIfThere(briefPathOf(handoffDir, task.card)) }, task.card),
@@ -794,7 +797,7 @@ async function main(): Promise<number> {
   const header = readFileSync(HEADER_FILE, 'utf8')
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
-  const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(process.cwd(), env, busPath))
+  const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, repoLadderSteps(process.cwd(), env, busPath))
   return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 

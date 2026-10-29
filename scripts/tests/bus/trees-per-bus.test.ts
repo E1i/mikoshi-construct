@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STARTED } from '../../core/events.js'
-import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { handoffLadderSteps, realStarterPorts } from '../../nodes/launch/launch-worker.js'
 import { cardTree, cardTreeRoots, DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { realRequestTools } from '../../window/window-request-tools.js'
@@ -80,7 +79,7 @@ describe('card trees per bus', () => {
     const bus = path.join(root, '.construct', 'a--one', 'bus.db')
     const tree = path.join(busDirOf(bus), 'worktrees', '987654')
     const task = { card: { id: 987654 } } as ShiftTask
-    const steps = handoffLadderSteps(path.join(root, 'repo'), { [HANDOFF_DIR_VARIABLE]: path.join(root, 'handoff') }, bus)
+    const steps = handoffLadderSteps(path.join(root, 'handoff'), path.join(root, 'repo'), {}, bus)
     expect(steps.tree(task)).toBeNull()
     mkdirSync(tree, { recursive: true })
     expect(steps.tree(task)).toBe(tree)

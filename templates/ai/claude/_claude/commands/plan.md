@@ -7,19 +7,16 @@ Decompose `$ARGUMENTS` into tasks for the reasoning-budget ladder. Use the `arch
 decomposition when the feature touches a contract, a composition model, a high-effort area from
 CLAUDE.md or a security invariant; otherwise reason it out directly.
 
-Choose each task's contour before anything else: the cheapest one that yields the proof the task needs
+Every task takes the cheap path, whatever its class and whatever its risk
 ([architecture/principles.md](../../architecture/principles.md), Reasoning budget).
 
 - **Cheap path**: an ordinary session, the harness and CI, with no brief, no witnesses and no mutations.
-  It fits docs and comments, cosmetics and naming, a one-file change with its local test, and a small
-  fix that an ordinary test proves directly.
-- **Ladder path**: a brief with witnesses, run by `/implement`. It fits a change to the workflow's own
-  mechanism, a result that needs a separate red-before or positive-control witness, several independent
-  surfaces, unattended or parallel work, and a case where an ordinary test cannot rule out a specific
-  incorrect way of doing it.
-- Never choose the ladder only because a task entered this workflow: the price of the proof matches
-  the risk. When the contour is not obvious, estimate it briefly first. The cheap path keeps CI and the
-  repository's merge rules.
+  The cheap path keeps CI and the repository's merge rules.
+- **Ladder path**: a brief with witnesses, run by `/implement`. A task takes it only with the owner's
+  word on that task and a reason written in it, as a line
+  `ladder: owner <where the owner gave the word on this task> — <the reason>`: how many cheap attempts
+  failed and which, or why the cheap path does not give the proof the task needs. Without both, the task
+  stays cheap. Neither this plan nor any automation moves a task to the ladder on its own.
 - The rules below on briefs and witnesses apply to ladder-path tasks.
 - A task is never done twice. The brief proves the witnesses are executable (byte-identical, `bash -n`,
   red on the base for a behavioural reason) and does not implement the task. If the implementation is already done and proven by the witnesses, it becomes the pull request; a separate implementer does not repeat it.
@@ -30,15 +27,16 @@ sends or publishes, and whether that can be undone), never from the words of the
 names of its files. A word such as "payment", "token" or "release" is a reason to look at the work, not a
 sign.
 
-| Risk | Signs in what the change does | Contour it asks for |
+| Risk | Signs in what the change does | Review and merge it asks for |
 |------|-------------------------------|---------------------|
-| critical | authentication, sessions, permissions or access rights; money; personal data; a data migration or a deletion that cannot be rolled back; secrets or cryptography; a publish; a write into a repository or a system someone else owns; a core part that many others depend on | the ladder path, and a human who approves the brief before it runs and merges the result |
-| moderate | a new user-facing capability; an external integration; a schema change whose migration can be rolled back; a change another team has to adopt | the contour the proof needs, as above |
-| low | documentation, logs, tests, tooling, CI that publishes nothing, experiments | nothing beyond the cheap path |
+| critical | authentication, sessions, permissions or access rights; money; personal data; a data migration or a deletion that cannot be rolled back; secrets or cryptography; a publish; a write into a repository or a system someone else owns; a core part that many others depend on | a review that reads the whole change before it merges, and a human who merges the result |
+| moderate | a new user-facing capability; an external integration; a schema change whose migration can be rolled back; a change another team has to adopt | a review of the diff, and the repository's merge rules |
+| low | documentation, logs, tests, tooling, CI that publishes nothing, experiments | the harness and CI |
 
 - The highest sign found decides. Signs are not averaged, and a small diff does not lower them.
 - When two levels both fit, take the higher: too much proof costs little, too little costs the error.
-- Risk only raises a contour. A low-risk task still takes the ladder path when its proof needs it.
+- Risk sets the review depth and who merges, never the contour. A critical task still takes the
+  cheap path unless the owner sends it to the ladder.
 - A critical task names the step that makes it irreversible (running a migration, deleting data,
   publishing) as a criterion of its own, with who runs it; that step is never left to the implementer's
   judgement.

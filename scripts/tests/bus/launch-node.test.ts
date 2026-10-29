@@ -22,7 +22,6 @@ import { DROPPED_CARD, DROPPED_LANE, STOPPED_CARD } from '../../core/card-automa
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, OPEN_WAIT, OWNER_WAITS } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
-import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { recordGhostLine } from '../../core/journal.js'
 import { leaseNext } from '../../core/lease.js'
@@ -1134,7 +1133,7 @@ function ladderWorld(made: MergeBench, handoffState: { brief: string, approved: 
     readTranscript: () => null,
     treeFile: () => null,
   }
-  const steps = handoffLadderSteps(path.join(root, 'repo'), { [WORKTREE_HOME_VARIABLE]: path.join(root, 'worktrees'), [HANDOFF_DIR_VARIABLE]: handoff }, made.busPath)
+  const steps = handoffLadderSteps(handoff, path.join(root, 'repo'), { [WORKTREE_HOME_VARIABLE]: path.join(root, 'worktrees') }, made.busPath)
   const starter = new LadderCardStarter({ launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr', repo: path.join(root, 'repo') }, ports, steps)
   return { starter, spawned, handoff, tree, briefFile }
 }

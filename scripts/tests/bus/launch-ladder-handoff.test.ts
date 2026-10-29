@@ -11,7 +11,7 @@ import { constructHome, repoHome, repoIdOf } from '../../core/bus-path.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_APPROVAL } from '../../core/events.js'
 import { HANDOFF_DIR } from '../../core/handoff-dir.js'
-import { handoffLadderSteps, LaunchNode, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker.js'
+import { LaunchNode, repoLadderSteps, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD_ID = 1399
@@ -73,7 +73,7 @@ describe('launch writes the ladder brief through the per-repo handoff resolver',
     const home = path.join(root, 'home')
     const repo = path.join(root, 'vedeti-memorial')
     mkdirSync(repo, { recursive: true })
-    const steps = handoffLadderSteps(repo, {}, path.join(root, 'bus.db'), home)
+    const steps = repoLadderSteps(repo, {}, path.join(root, 'bus.db'), home)
     const task = { card: CARD, touches: [] } as unknown as Parameters<typeof steps.brief>[0]
     const own = path.join(repoHome(home, repoIdOf(repo)), HANDOFF_DIR)
 
@@ -85,7 +85,7 @@ describe('launch writes the ladder brief through the per-repo handoff resolver',
   it('a named handoff directory still wins over the resolver', () => {
     const root = scratch()
     const named = path.join(root, 'named-handoff')
-    const steps = handoffLadderSteps(path.join(root, 'repo'), { CONSTRUCT_HANDOFF_DIR: named }, path.join(root, 'bus.db'), path.join(root, 'home'))
+    const steps = repoLadderSteps(path.join(root, 'repo'), { CONSTRUCT_HANDOFF_DIR: named }, path.join(root, 'bus.db'), path.join(root, 'home'))
     const task = { card: CARD, touches: [] } as unknown as Parameters<typeof steps.brief>[0]
     expect(path.dirname(steps.brief(task))).toBe(named)
   })
