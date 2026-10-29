@@ -7,6 +7,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
+import { WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { roundLimitDecisionOf } from '../policy/round-limit-decision.js'
@@ -99,7 +100,7 @@ const REVIEWS_OF_AN_OLD_INPUT = `
 
 const LIVE_ANSWERS_WITH_THE_CARD_BODY = `
   SELECT task_key, queue, card_id, pr, head, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
-  WHERE queue = 'answer' AND state IN ('queued', 'leased')
+  WHERE queue = 'answer' AND state = '${QUEUED}'
   ORDER BY task_key
 `
 
@@ -197,6 +198,22 @@ const WITNESS_CANDIDATES_ON_NO_RECORD = `
         AND json_extract(recorded.payload, '$.cardBody') = ${cardBodyShaOf('prs.card_id')}
     )
   ORDER BY pr
+`
+
+const WITNESS_CANDIDATES_ON_MAIN = `
+  SELECT NULL AS pr, body.card_id, (SELECT sha FROM mains ORDER BY event_id DESC LIMIT 1) AS head, ${cardBodyShaOf('body.card_id')} AS card_body, NULL AS witness_base
+  FROM ${CARD_BODIES} AS body
+  WHERE instr(body.text, '${WITNESSES_HEADING}') > 0 AND EXISTS (SELECT 1 FROM mains)
+    AND ${cardBodyShaOf('body.card_id')} IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM prs WHERE prs.card_id = body.card_id)
+    AND NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = body.card_id AND cards.state IN ('closed', 'dropped', 'merged'))
+    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = body.card_id)
+    AND NOT EXISTS (
+      SELECT 1 FROM events AS recorded WHERE recorded.type = '${WITNESS_RECORDED}' AND recorded.legacy = 0
+        AND recorded.card_id = body.card_id AND recorded.pr IS NULL
+        AND json_extract(recorded.payload, '$.cardBody') = ${cardBodyShaOf('body.card_id')}
+    )
+  ORDER BY body.card_id
 `
 
 const LATEST_WITNESS_DENIAL = `
@@ -308,25 +325,31 @@ function windowWaitText(row: WindowQuestionRow): string {
   return `card #${row.card_id} ${why}: ${question}; the window amends the card, and the answer goes on after its card.admitted`
 }
 
-export const REPEATED_RED = 2
+const REENTRY_ANSWERS = `type = '${CARD_ANSWERED}' AND legacy = 0 AND json_extract(payload, '$.reentry') = 1`
 
-const HEADS_RED_AGAIN_WITH_NO_WAIT = `
-  SELECT red.card_id, red.pr, red.head FROM events AS red JOIN prs ON prs.pr = red.pr AND prs.head = red.head
-  WHERE red.type = '${WITNESS_RECORDED}' AND red.legacy = 0 AND prs.state = 'open' AND json_extract(red.payload, '$.verdict') = 'red'
+const REENTRY_HEADS_OF_A_PR = `SELECT DISTINCT json_extract(payload, '$.from') AS head FROM events WHERE ${REENTRY_ANSWERS} AND pr = ?`
+
+const REENTRY_LIMITS_WITH_NO_WAIT = `
+  SELECT prs.card_id, prs.pr FROM prs
+  WHERE prs.state = 'open' AND prs.card_id IS NOT NULL
+    AND EXISTS (SELECT 1 FROM events WHERE ${REENTRY_ANSWERS} AND events.pr = prs.pr)
+    AND NOT EXISTS (SELECT 1 FROM events AS spent WHERE spent.type = '${REVIEW_ROUNDS_SPENT}' AND spent.legacy = 0 AND spent.pr = prs.pr)
     AND NOT EXISTS (
-      SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.pr = red.pr AND instr(json_extract(opened.payload, '$.text'), red.head) > 0
+      SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.pr = prs.pr
+        AND opened.id > (SELECT max(id) FROM events WHERE ${REENTRY_ANSWERS} AND events.pr = prs.pr)
     )
-  GROUP BY red.card_id, red.pr, red.head HAVING count(*) >= ${REPEATED_RED}
-  ORDER BY red.pr
+  ORDER BY prs.pr
 `
 
-export function proofMechanismWaitText(cardId: number, pr: number, head: string): string {
-  return `card #${cardId}: the witness was red again on PR #${pr} at ${head}; a red witness spends no review round and starts no re-cut, so check the proof mechanism`
+export function reentryLimitWaitText(cardId: number, pr: number): string {
+  return `card #${cardId}: PR #${pr} reached the review round limit (D-104) with red CI or red witness answers counted as rounds; the bus answers and merges it no further, so decide it: allow-merge, a re-cut or a drop`
 }
 
-function openProofMechanismWaits(db: DatabaseSync, ts: string): void {
-  for (const row of db.prepare(HEADS_RED_AGAIN_WITH_NO_WAIT).all() as { card_id: number, pr: number, head: string }[])
-    inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: proofMechanismWaitText(row.card_id, row.pr, row.head), card: row.card_id, pr: row.pr }))
+function openReentryLimitWaits(db: DatabaseSync, ts: string): void {
+  for (const row of db.prepare(REENTRY_LIMITS_WITH_NO_WAIT).all() as { card_id: number, pr: number }[]) {
+    if (changesRoundsOf(db, row.pr) >= REVIEW_ROUNDS)
+      inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: reentryLimitWaitText(row.card_id, row.pr), card: row.card_id, pr: row.pr }))
+  }
 }
 
 export const RECUT_GRACE_MS = 10 * 60 * 1000
@@ -382,6 +405,12 @@ const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red'`)
 
 const DIRTY_CANDIDATES = answerCandidatesWhere(`base = '${MAIN_BRANCH}' AND mergeable = 'dirty' AND draft = 0`)
 
+const RED_WITNESS_CANDIDATES = answerCandidatesWhere(`EXISTS (
+    SELECT 1 FROM events AS red WHERE red.id = (
+      SELECT max(latest.id) FROM events AS latest WHERE latest.type = '${WITNESS_RECORDED}' AND latest.legacy = 0 AND latest.pr = prs.pr AND latest.head = prs.head
+    ) AND json_extract(red.payload, '$.verdict') = 'red'
+  )`)
+
 interface Candidate {
   pr: number | null
   card_id: number
@@ -429,10 +458,16 @@ export function roundsOf(reviews: readonly RoundReview[], ownerAmended: Readonly
   return rounds
 }
 
+function reentryRoundsOf(db: DatabaseSync, pr: number, reviews: readonly RoundReview[]): number {
+  const reviewedForChanges = new Set(reviews.filter(review => review.verdict === 'changes').map(review => review.head))
+  return (db.prepare(REENTRY_HEADS_OF_A_PR).all(pr) as { head: string | null }[]).filter(row => !reviewedForChanges.has(row.head)).length
+}
+
 export function changesRoundsOf(db: DatabaseSync, pr: number, next?: RoundReview): number {
   const reviews = db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[]
   const ownerAmended = new Set((db.prepare(BODIES_OWNER_AMENDED_FOR_A_PR).all(pr) as { body: string }[]).map(row => row.body))
-  return roundsOf(next === undefined ? reviews : [...reviews, next], ownerAmended)
+  const counted = next === undefined ? reviews : [...reviews, next]
+  return roundsOf(counted, ownerAmended) + reentryRoundsOf(db, pr, counted)
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']
@@ -488,6 +523,7 @@ const QUEUES_A_MERGE_FINISHES = `'merge', 'close', 'witness'`
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
   WHERE tasks.state IN (${UNFINISHED_STATES}) AND tasks.head IS NOT NULL AND tasks.head != prs.head
+    AND NOT (tasks.queue = 'answer' AND tasks.state = '${LEASED}')
   UNION
   SELECT task_key, queue, card_id, pr, head FROM tasks
   WHERE queue = 'restart' AND state IN ('${QUEUED}', '${LEASED}')
@@ -697,14 +733,17 @@ export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'close', candidateRows(db, CLOSE_CANDIDATES, everyRow))
 }
 
-const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDIDATES, DIRTY_CANDIDATES] as const
+const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDIDATES, DIRTY_CANDIDATES, RED_WITNESS_CANDIDATES] as const
+
+const CARDS_ANSWERING_NOW = `SELECT DISTINCT card_id FROM tasks WHERE queue = 'answer' AND state = '${LEASED}'`
 
 export function witnessCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  return [WITNESS_CANDIDATES_ON_NO_RECORD, WITNESS_CANDIDATES_ON_A_DENIED_BASE].flatMap(query => openCandidates(db, ts, 'witness', candidateRows(db, query, everyRow)))
+  return [WITNESS_CANDIDATES_ON_NO_RECORD, WITNESS_CANDIDATES_ON_A_DENIED_BASE, WITNESS_CANDIDATES_ON_MAIN].flatMap(query => openCandidates(db, ts, 'witness', candidateRows(db, query, everyRow)))
 }
 
 export function answerCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  return ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow)))
+  const answering = new Set((db.prepare(CARDS_ANSWERING_NOW).all() as { card_id: number }[]).map(row => Number(row.card_id)))
+  return ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, row => !answering.has(row.card_id))))
 }
 
 export function mergeCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
@@ -1046,7 +1085,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
       derived.queued.push(row.task_key)
   }
   openWindowWaits(db, ts)
-  openProofMechanismWaits(db, ts)
+  openReentryLimitWaits(db, ts)
   openLostRecutWaits(db, ts)
   for (const tasksOf of candidates(db, ts)) {
     for (const task of tasksOf()) {

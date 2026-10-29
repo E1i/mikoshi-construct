@@ -298,6 +298,37 @@ describe('the PR status check the bus sets', () => {
     db.close()
   })
 
+  it('a skipped review and a merge refusal set a final status', () => {
+    const db = bus()
+    pullRequest(db, HEAD, 'open')
+    appendEvent(db, { ts: NOW.toISOString(), type: 'decision.recorded', actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: 'decision.recorded:131', payload: { decision_id: 131, text: `allow-merge PR #950 at ${HEAD.slice(0, 8)}`, scope: [1091], source: 'owner' }, legacy: false })
+    appendEvent(db, { ts: NOW.toISOString(), type: 'decision.recorded', actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: 'decision.recorded:132', payload: { decision_id: 132, text: 'no merge before the release', scope: [], source: 'owner' }, legacy: false })
+    step(db, 'policy.denied', HEAD, { command: 'merge', kind: 'technical', reason: 'version_pr_open' }, 'policy')
+    step(db, 'policy.denied', HEAD, { command: 'merge', kind: 'authority', rule: 'owner_by_risk', refused: true }, 'policy')
+    const { post, calls } = recorder()
+    expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([
+      ['review skipped by D-131', 'success'],
+      ['merge refused: owner_by_risk', 'failure'],
+    ])
+    expect(calls.map(([endpoint]) => endpoint)).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, `repos/{owner}/{repo}/statuses/${HEAD}`])
+  })
+
+  it('a recorded witness verdict sets a final status', () => {
+    const db = bus()
+    pullRequest(db, HEAD, 'open')
+    step(db, 'task.leased', HEAD, { task_key: 'witness:1091:950', queue: 'witness', lease_gen: 1 })
+    step(db, 'witness.recorded', HEAD, { head: HEAD, base: 'a'.repeat(40), cardBody: 'x', verdict: 'green', detail: '' })
+    step(db, 'task.leased', HEAD, { task_key: 'witness:1091:950', queue: 'witness', lease_gen: 2 })
+    const { post, calls } = recorder()
+    expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([
+      ['witness', 'pending'],
+      ['witness green', 'success'],
+    ])
+    expect(calls.at(-1)).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, { state: 'success', context: STATUS_CONTEXT, description: 'mikoshi: witness green' }])
+    step(db, 'witness.recorded', HEAD, { head: HEAD, base: 'e'.repeat(40), cardBody: 'x', verdict: 'red', detail: 'W1 exited 1' })
+    expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([['witness red', 'failure']])
+  })
+
   it('a status GitHub refuses for now, a 5xx, is not recorded, so the cursor stays and the next run posts it again', () => {
     const db = bus()
     pullRequest(db, HEAD, 'open')

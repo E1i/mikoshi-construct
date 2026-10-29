@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
-import { CARD_STOPPED, COMMAND_EXECUTED, MERGE_DONE, PR_OPENED, PR_STATUS_REFUSED, PR_STATUS_SET, REVIEW_RECORDED, TASK_LEASED } from '../core/events.js'
+import { CARD_STOPPED, COMMAND_EXECUTED, DECISION_RECORDED, MERGE_DONE, POLICY_DENIED, PR_OPENED, PR_STATUS_REFUSED, PR_STATUS_SET, REVIEW_RECORDED, TASK_LEASED, WITNESS_RECORDED } from '../core/events.js'
 import { NODE_CURSORS } from '../core/node.js'
 import { lastEventId } from '../window/operator-work.js'
 import { ghApiPost } from './github.js'
@@ -16,7 +16,9 @@ export const STATUS_BATCH = 20
 export const STATUS_OFF_FILE = 'pr-status.off'
 export const STATUS_CONTEXT = 'mikoshi'
 export const STATUS_ACTOR = 'worker:status:bus'
-export const STEP_EVENTS = [PR_OPENED, TASK_LEASED, REVIEW_RECORDED, 'card.answered', 'update.done', MERGE_DONE, CARD_STOPPED] as const
+export const STEP_EVENTS = [PR_OPENED, TASK_LEASED, REVIEW_RECORDED, 'card.answered', 'update.done', MERGE_DONE, CARD_STOPPED, WITNESS_RECORDED, DECISION_RECORDED, POLICY_DENIED] as const
+
+const ALLOW_MERGE_AT = /allow-merge PR #(\d+) at ([0-9a-f]{7,40})(?![0-9a-f])/
 
 const HEAD_IS_GONE = 422
 
@@ -62,6 +64,9 @@ function stepAndState(event: StepEvent): [string, StatusState] | null {
     case 'update.done': return ['updated', 'pending']
     case MERGE_DONE: return ['merged', 'success']
     case CARD_STOPPED: return ['stopped', 'failure']
+    case WITNESS_RECORDED: return payload.verdict === 'green' ? ['witness green', 'success'] : ['witness red', 'failure']
+    case DECISION_RECORDED: return [`review skipped by D-${String(payload.decision_id)}`, 'success']
+    case POLICY_DENIED: return payload.command === 'merge' && payload.refused === true ? [`merge refused: ${String(payload.reason ?? payload.rule)}`, 'failure'] : null
     default: return null
   }
 }
@@ -79,7 +84,21 @@ function isPermanentRefusal(status: number): boolean {
   return status === HEAD_IS_GONE
 }
 
+const OPEN_HEAD_STARTING_WITH = `SELECT head FROM prs WHERE pr = ? AND state = 'open' AND substr(head, 1, ?) = ?`
+
+function withAllowedPrHead(db: DatabaseSync, event: StepEvent): StepEvent {
+  const text = payloadOf(event.payload).text
+  const named = typeof text === 'string' ? ALLOW_MERGE_AT.exec(text) : null
+  if (named === null)
+    return { ...event, pr: null }
+  const pr = Number(named[1])
+  const row = db.prepare(OPEN_HEAD_STARTING_WITH).get(pr, named[2]!.length, named[2]!) as { head: string } | undefined
+  return row === undefined ? { ...event, pr: null } : { ...event, pr, head: row.head }
+}
+
 function withPrHead(db: DatabaseSync, event: StepEvent): StepEvent {
+  if (event.type === DECISION_RECORDED)
+    return withAllowedPrHead(db, event)
   if (event.type !== PR_OPENED || event.pr === null || headOf(event) !== null)
     return event
   const row = db.prepare('SELECT head FROM prs WHERE pr = ?').get(event.pr) as { head: string | null } | undefined
@@ -100,6 +119,7 @@ export function statusFields(status: StepStatus): Record<string, string> {
 
 const NEXT_STEP_AFTER = `SELECT id, type, pr, head, payload FROM events WHERE legacy = 0 AND id > ? AND type IN (${STEP_EVENTS.map(() => '?').join(', ')}) ORDER BY id LIMIT 1`
 const OPEN_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open'`
+const WITNESS_VERDICT_BEFORE = `SELECT 1 FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND pr = ? AND head = ? AND id < ? LIMIT 1`
 
 function cursorOf(db: DatabaseSync): number {
   db.prepare(`INSERT INTO ${NODE_CURSORS} (kind, event_id) VALUES (?, ?) ON CONFLICT (kind) DO NOTHING`).run(STATUS_CURSOR, lastEventId(db))
@@ -114,12 +134,16 @@ function isOnOpenHead(db: DatabaseSync, status: StepStatus): boolean {
   return db.prepare(OPEN_ON_HEAD).get(status.pr, status.head) !== undefined
 }
 
+function isWitnessLeaseAfterItsVerdict(db: DatabaseSync, event: StepEvent, status: StepStatus): boolean {
+  return event.type === TASK_LEASED && status.step === 'witness' && db.prepare(WITNESS_VERDICT_BEFORE).get(status.pr, status.head, event.id) !== undefined
+}
+
 export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[] {
   const set: StepStatus[] = []
   const nextStep = db.prepare(NEXT_STEP_AFTER)
   for (let event = nextStep.get(cursorOf(db), ...STEP_EVENTS) as StepEvent | undefined; event !== undefined && set.length < batch; event = nextStep.get(event.id, ...STEP_EVENTS) as StepEvent | undefined) {
     const status = stepStatusOf(withPrHead(db, event))
-    if (status === null || !isOnOpenHead(db, status)) {
+    if (status === null || !isOnOpenHead(db, status) || isWitnessLeaseAfterItsVerdict(db, event, status)) {
       moveCursor(db, event.id)
       continue
     }

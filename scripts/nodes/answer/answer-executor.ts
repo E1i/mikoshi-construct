@@ -9,9 +9,9 @@ import type { Answered, Answerer, TreeMerge } from './answerer.js'
 import { withinTouches } from '../../../src/card/covering-tests.js'
 import { createdPaths } from '../../../src/card/parking.js'
 import { riskOf } from '../../../src/card/risk.js'
-import { openBusWait } from '../../core/db.js'
+import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED } from '../../core/events.js'
+import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from '../../policy/policy.js'
 import { activeDecisionsShard, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from '../../policy/shards.js'
@@ -48,7 +48,10 @@ export interface AnswerParts {
   treeMerge?: (card: CardSession) => TreeMerge
   isolation?: IsolationReader
   prompts?: string
+  dirty?: (card: CardSession) => boolean
 }
+
+type Answering = AnswerSource & { reentry?: true }
 
 interface Widened {
   event: BusEvent
@@ -66,6 +69,14 @@ function pathsIn(question: string): string[] {
 }
 
 const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open' AND mergeable = 'dirty'`
+
+const RED_WITNESS_ON_HEAD = `
+  SELECT json_extract(red.payload, '$.detail') AS detail FROM events AS red
+  WHERE red.id = (SELECT max(latest.id) FROM events AS latest WHERE latest.type = '${WITNESS_RECORDED}' AND latest.legacy = 0 AND latest.pr = ? AND latest.head = ?)
+    AND json_extract(red.payload, '$.verdict') = 'red'
+`
+
+const REENTRY_SOURCES: ReadonlySet<AnswerSource['kind']> = new Set(['ci'])
 
 const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone'])
 
@@ -91,6 +102,10 @@ function endedOnContextWarn(answered: Answered | AnswerDenial): answered is Answ
   return !('kind' in answered) && answered.atContextWarn === true && answered.owner === null && leftNoNewHead(answered)
 }
 
+function decisionSource(question: string, ground: string): AnswerSource {
+  return { kind: 'question', detail: `your question went to the window, and the window decided it under ${ground}: the card goes on without the owner. The question was: ${question}`, widen: null, events: [] }
+}
+
 export class AnswerExecutor {
   constructor(private readonly parts: AnswerParts) {}
 
@@ -105,9 +120,9 @@ export class AnswerExecutor {
   async answer(lease: Lease): Promise<AnswerOutcome> {
     try {
       assertHeld(this.parts.db, lease)
-      const source = answerSourceOf(this.parts.db, lease)
+      const source = answerSourceOf(this.parts.db, lease) ?? this.redWitness(lease)
       if (source === null && !this.dirtyOnHead(lease))
-        return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
+        return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
       let widened: Widened | null = null
       if (source?.kind === 'question' && source.widen !== null) {
         const globs = ownerGlobs(this.parts.ownerMerges())
@@ -136,13 +151,23 @@ export class AnswerExecutor {
       const answered = endedOnContextWarn(first) ? await this.session(lease, answering, widened, card, true) : first
       if ('kind' in answered)
         return this.denied(lease, answered)
-      return this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
+      return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
     }
     catch (error) {
       if (error instanceof StaleLease)
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private redWitness(lease: Lease): Answering | null {
+    if (lease.pr === null || lease.head === null)
+      return null
+    const red = this.parts.db.prepare(RED_WITNESS_ON_HEAD).get(lease.pr, lease.head) as { detail: unknown } | undefined
+    if (red === undefined)
+      return null
+    const detail = typeof red.detail === 'string' && red.detail !== '' ? red.detail : 'the bus recorded no detail'
+    return { kind: 'changes', findings: [`the card's witness is red on ${lease.head}: ${detail}`], events: [], reentry: true }
   }
 
   private dirtyOnHead(lease: Lease): boolean {
@@ -184,20 +209,27 @@ export class AnswerExecutor {
     }
   }
 
-  private settled(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): AnswerOutcome {
+  private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): Promise<AnswerOutcome> {
     const scope = widened === null ? [] : [widened.event]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
-        return this.asked(lease, answered.owner, scope)
+        return this.asked(lease, answered.owner, scope, card)
+      if (this.parts.dirty?.(card) === true)
+        return this.leftDirty(lease, card, answered.session)
       const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
       return this.stopped(lease, 'fault', detail, {}, scope)
     }
-    const payload = { session: answered.session, worktree: card.worktree, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...measurementOf(answered, minutes), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
+    const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
+    const payload = { session: answered.session, worktree: card.worktree, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...(reentry ? { reentry: true } : {}), ...measurementOf(answered, minutes), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }
 
-  private asked(lease: Lease, question: string, scope: BusEvent[]): AnswerOutcome {
+  private leftDirty(lease: Lease, card: CardSession, session: string): AnswerOutcome {
+    return this.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `the answer session ${session} pushed nothing and left uncommitted changes in ${card.worktree}; the answer goes again over that tree` })
+  }
+
+  private async asked(lease: Lease, question: string, scope: BusEvent[], card: CardSession): Promise<AnswerOutcome> {
     if (!this.ownersQuestion(lease, question))
       return this.stopped(lease, QUESTION_AGENT, question, {}, scope)
     const shard = activeDecisionsShard(this.parts.db, this.parts.clock())
@@ -213,7 +245,16 @@ export class AnswerExecutor {
     if (isolation.level === 'none')
       return this.ownersStop(lease, `${question} (the ${DECISIONS_SCOPE} shard ${shard.id} is refused without isolation: ${isolation.why})`, scope)
     const ground = `window shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until}) under ${isolation.level} isolation`
-    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS })])
+    assertHeld(this.parts.db, lease)
+    appendEvent(this.parts.db, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS }))
+    const decided = await this.session(lease, decisionSource(question, ground), null, card, false)
+    if ('kind' in decided)
+      return this.denied(lease, decided)
+    if (!leftNoNewHead(decided))
+      return this.settled(lease, decisionSource(question, ground), null, card, decided, 0)
+    if (this.parts.dirty?.(card) === true)
+      return this.leftDirty(lease, card, decided.session)
+    completeTask(this.parts.db, this.ts(), lease, scope)
     return { kind: 'decided', taskKey: lease.taskKey, shard: shard.id, question }
   }
 

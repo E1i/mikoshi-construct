@@ -81,6 +81,7 @@ export interface AnswererTools {
   context?: (session: string) => number | null
   contextWarn?: () => number | null
   diff?: (card: CardSession) => string | null
+  ciLog?: (card: CardSession, head: string) => string | null
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -163,7 +164,16 @@ export function projectDirOf(worktree: string): string {
   return worktree.replace(/[^a-z0-9]/gi, '-')
 }
 
-function sourceLines(source: AnswerSource): string[] {
+function ciLogLines(ciLog: string | null | undefined): string[] {
+  if (ciLog === undefined)
+    return ['Read their logs (gh pr checks, gh run view --log-failed) and fix every one.']
+  if (ciLog === null)
+    return ['The bus could not read the failed-job log; fix every failed check from what the tree shows.']
+  const cut = ciLog.length > DIFF_PROMPT_LIMIT ? `, cut at ${DIFF_PROMPT_LIMIT} characters` : ''
+  return [`The failed-job log the bus read${cut}:`, ciLog.slice(0, DIFF_PROMPT_LIMIT), 'Fix every failure it shows.']
+}
+
+function sourceLines(source: AnswerSource, ciLog?: string | null): string[] {
   if (source.kind === 'changes') {
     return [
       source.findings.length === 0 ? 'The review asked for changes and recorded no findings on the bus; read the review on the pull request.' : 'The review asked for changes. Its findings:',
@@ -173,8 +183,8 @@ function sourceLines(source: AnswerSource): string[] {
   }
   if (source.kind === 'ci') {
     return [
-      source.failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name; read the checks on the pull request.' : `CI is red on this head. The failed checks: ${source.failedChecks.join(', ')}.`,
-      'Read their logs (gh pr checks, gh run view --log-failed) and fix every one.',
+      source.failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name.' : `CI is red on this head. The failed checks: ${source.failedChecks.join(', ')}.`,
+      ...ciLogLines(ciLog),
     ]
   }
   return [`The card stopped with a question for the agent: ${source.detail}`, 'Answer it as the Operator role would and continue the card.']
@@ -244,13 +254,13 @@ function gateLine(gate: ShiftGate): string {
   return gate.prepush.length === 0 ? `the card's witnesses` : `the card's witnesses and the pre-push checks this repository declares, ${gate.prepush.join(', ')}`
 }
 
-export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null): string {
+export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null, ciLog?: string | null): string {
   const { lease, source, widened, card } = request
   return [
     `[answer:${lease.taskKey}]`,
     `Card #${lease.cardId}${lease.pr === null ? '' : `, pull request #${lease.pr} at ${lease.head}`}, in its tree ${card.worktree} on ${card.branch}.`,
     ...cardLines(lease.cardId, cardText),
-    ...sourceLines(source),
+    ...sourceLines(source, ciLog),
     ...diffLines(card, diff),
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
     `The card's latest events, oldest first:`,
@@ -271,6 +281,18 @@ function remoteHead(card: CardSession): string | null {
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+}
+
+function failedJobLog(card: CardSession, head: string): string | null {
+  try {
+    const runs = JSON.parse(execFileSync('gh', ['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) as { databaseId: number }[]
+    if (runs[0] === undefined)
+      return null
+    return execFileSync('gh', ['run', 'view', String(runs[0].databaseId), '--log-failed'], { cwd: card.worktree, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+  }
+  catch {
+    return null
+  }
 }
 
 function diffAgainstBase(card: CardSession): string | null {
@@ -344,6 +366,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
+    ciLog: failedJobLog,
   }
 }
 
@@ -363,7 +386,8 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const cardBody = tools.cardText(request.lease.cardId)
     const gate = readShiftGate(card.worktree)
-    const prompt = answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card))
+    const ciLog = request.source.kind === 'ci' && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
+    const prompt = answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog)
     const settings = settingsFlag(shiftSettings(card.worktree, gate, [ownerQuestion]))
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
