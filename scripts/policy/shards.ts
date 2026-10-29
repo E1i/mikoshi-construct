@@ -14,6 +14,13 @@ export const OWNERS_UNDER_ANY_SHARD: Readonly<Record<string, RegExp>> = {
   'npm-stage': /\bnpm\b/i,
   'security-invariants': /security-invariants/i,
 }
+export const OWNERS_OF_A_STOP: Readonly<Record<string, RegExp>> = {
+  ...OWNERS_UNDER_ANY_SHARD,
+  'claude-config': /(?:^|[^\w.])\.claude\//,
+  'owner-merges': /owner-merges/i,
+  'workflows': /\.github\/workflows/i,
+  'dropped-witness': /\b(?:drop|dropp(?:ed|ing)|remov(?:e|ed|ing))\s[^.?!]*witness|witness(?:es)?\s[^.?!]*\b(?:dropped|removed)\b/i,
+}
 
 export type WindowScope = typeof WINDOW_SCOPES[number]
 
@@ -60,8 +67,16 @@ export function activeDecisionsShard(db: DatabaseSync, now: Date): WindowShard |
   return activeWindowShards(db, now).find(shard => shard.scope === DECISIONS_SCOPE) ?? null
 }
 
+function reservedBy(reservations: Readonly<Record<string, RegExp>>, question: string): string | null {
+  return Object.entries(reservations).find(([, words]) => words.test(question))?.[0] ?? null
+}
+
 export function ownersUnderAnyShard(question: string): string | null {
-  return Object.entries(OWNERS_UNDER_ANY_SHARD).find(([, words]) => words.test(question))?.[0] ?? null
+  return reservedBy(OWNERS_UNDER_ANY_SHARD, question)
+}
+
+export function ownersOfAStop(question: string): string | null {
+  return reservedBy(OWNERS_OF_A_STOP, question)
 }
 
 export function cardDecisionCommand(cardId: number): string {

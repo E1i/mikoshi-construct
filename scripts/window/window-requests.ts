@@ -13,9 +13,9 @@ import { fileURLToPath } from 'node:url'
 import { sliceTableItems } from '../../src/commands/intake/check.js'
 import { FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
+import { BOARD_ALARM, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
-import { OWNER } from '../core/inbox.js'
+import { OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from '../core/queue.js'
 import { storedByKey } from '../core/stored.js'
@@ -24,7 +24,7 @@ import { consumeOwnerWord, OWNER_WORD_NOT_FOUND, ownerChannelOf, USED_WORD } fro
 import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
 import { settledCards } from '../policy/decisions/read.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
-import { decisionsInForceAt } from '../policy/shards.js'
+import { activeDecisionsShard, decisionsInForceAt, ownersOfAStop } from '../policy/shards.js'
 
 export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add'] as const
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', PLAN_ITEM_ADDED], ['link', PLAN_ITEM_LINKED], ['remove', PLAN_ITEM_REMOVED], ['close', PLAN_CLOSED]])
@@ -221,12 +221,26 @@ export class WindowRequests {
     const answer = text(payload.answer)
     if (id === null || answer === null)
       return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer' }
-    const wait = this.db.prepare(`SELECT state FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as { state: string } | undefined
+    const wait = this.db.prepare(`SELECT state, card_id FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as { state: string, card_id: number | null } | undefined
     if (wait === undefined)
       return { done: false, why: `${id} is not an owner wait the bus has reduced` }
-    if (wait.state !== OPEN_WAIT || !closeOwnerWait(this.db, this.clock().toISOString(), QUEUE_ACTOR, id, answer, request))
+    const stop = wait.card_id === null ? undefined : this.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number, payload: string } | undefined
+    const shard = stop === undefined ? null : activeDecisionsShard(this.db, this.clock())
+    const question = stop === undefined ? '' : String((JSON.parse(stop.payload) as Record<string, unknown>).detail ?? '')
+    const reserved = shard === null ? null : ownersOfAStop(question)
+    if (reserved !== null)
+      return { done: false, why: `${id} answers the card #${wait.card_id} stop ${stop!.id} on ${reserved}, which stays the owner's under any shard` }
+    const ts = this.clock().toISOString()
+    const closed = wait.state === OPEN_WAIT && inTransaction(this.db, () => {
+      if (!closeOwnerWait(this.db, ts, QUEUE_ACTOR, id, answer, request))
+        return false
+      if (shard !== null)
+        appendEvent(this.db, { ts, type: SHARD_DECIDED, actor: QUEUE_ACTOR, cardId: wait.card_id, pr: null, head: null, dedupeKey: `${SHARD_DECIDED}:${stop!.id}:${request}`, payload: { shard: shard.id, stop: stop!.id, wait: id, question, answer, ground: `the window's answer to ${id} under shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until})` }, legacy: false })
+      return true
+    })
+    if (!closed)
       return { done: false, why: `${id} is closed already` }
-    return { done: true, why: `closed ${id}: ${answer}` }
+    return { done: true, why: shard === null ? `closed ${id}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop!.id} as a decision under shard ${shard.id}: ${answer}` }
   }
 
   private treeCut(payload: Record<string, unknown>): Executed {

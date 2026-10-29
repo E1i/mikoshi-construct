@@ -20,12 +20,11 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { busDirOf, busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
-import { bodyNotFoldedYet, CARD_BODIES, cardBodyText } from '../../core/card-bodies.js'
+import { bodyNotFoldedYet, CARD_BODIES, cardBodyText, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
@@ -127,6 +126,7 @@ export interface LaunchNodeParts {
   collected?: (card: StartedCard, start: SessionStart) => string | null
   warned?: (card: StartedCard) => boolean
   publish?: (card: StartedCard, start: SessionStart) => void
+  committed?: (card: StartedCard) => boolean
   continuer?: SessionContinuer
   isolation: IsolationReader
   prompts?: string
@@ -393,7 +393,10 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.waitForApproval(start, card)
     if (this.closeProbeByReport(start, card, session) || this.publishAtEddiesWarn(start, card, session))
       return false
-    return this.stopWithoutPullRequest(start, card, session)
+    const published = this.publishACommit(start, card, session)
+    if (published === true)
+      return false
+    return this.stopWithoutPullRequest(start, card, session, published === false ? null : published)
   }
 
   private kindOf(cardId: number): string | null {
@@ -419,6 +422,17 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.db.prepare(STOPPED_SINCE).get(start.card_id, start.id) !== undefined
     const detail = `eddies-warn: card #${start.card_id} session ${card.session} ended at the Eddies warning; the shift committed, pushed and opened its pull request from ${card.worktree} before the stop`
     appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: false, detail }, legacy: false })
+    return true
+  }
+
+  private publishACommit(start: RunningStart, card: StartedCard, session: SessionStart): boolean | string {
+    if (card.contour !== 'cheap' || this.launchParts.publish === undefined || (this.launchParts.warned?.(card) ?? false) || !(this.launchParts.committed?.(card) ?? false))
+      return false
+    this.launchParts.publish(card, session)
+    if (this.db.prepare(PR_SINCE).get(start.card_id, start.id) === undefined)
+      return this.db.prepare(STOPPED_SINCE).get(start.card_id, start.id) !== undefined || `the bus ran tree-pr over the commit in ${card.worktree} and it opened no pull request`
+    const detail = `card #${start.card_id} session ${card.session} ended with no pull request and a commit in ${card.worktree}; the bus ran tree-pr and it opened the pull request`
+    appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: false, published: true, detail }, legacy: false })
     return true
   }
 
@@ -513,10 +527,11 @@ export class LaunchNode extends Node<LaunchStep> {
       TASK_FOLDS[TASK_SUPERSEDED]!(this.db, storedByKey(this.db, event.dedupeKey))
   }
 
-  private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
-    const detail = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
+  private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart, refusal: string | null): boolean {
+    const ended = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
+    const detail = refusal === null ? ended : `${ended}; ${refusal}`
     const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
-    const widen = this.outsideTheTouches(start.card_id, questions)
+    const widen = pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))
     if (widen.length > 0)
       return this.askToWiden(start, card, questions, widen)
     return inTransaction(this.db, () => {
@@ -528,12 +543,6 @@ export class LaunchNode extends Node<LaunchStep> {
       }
       return recorded
     })
-  }
-
-  private outsideTheTouches(cardId: number, questions: readonly string[]): string[] {
-    const text = cardBodyText(this.db, cardId)
-    const parsed = text === null ? null : parseParkingFile(`${cardId}.md`, text)
-    return parsed?.kind === 'parked' ? pathsOutside(parsed.parked.task.touches, parsed.parked.creates, pathsIn(questions.join('\n'))) : []
   }
 
   private askToWiden(start: RunningStart, card: StartedCard, questions: readonly string[], widen: readonly string[]): boolean {
@@ -679,6 +688,15 @@ export function treePrPublisher(treePr: string, launchDir: string, env: NodeJS.P
   }
 }
 
+export function treeHoldsACommit(card: StartedCard): boolean {
+  try {
+    return Number(execFileSync('git', ['-C', card.worktree, 'rev-list', '--count', `${card.base}..HEAD`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()) > 0
+  }
+  catch {
+    return false
+  }
+}
+
 export function reportResultLine(launchDir: string): (start: SessionStart) => string | null {
   return (start) => {
     const report = path.join(launchDir, `report-${start.cardId}.md`)
@@ -693,7 +711,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env), committed: treeHoldsACommit }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {

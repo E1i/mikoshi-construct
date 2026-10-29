@@ -4,7 +4,7 @@ import type { CardEvent } from '../../src/commands/intake/index.js'
 import type { StoredEvent } from './stored.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { isLaneName, laneName, laneNumber } from '../../src/commands/intake/admit.js'
+import { isLaneName, laneName, laneNumber, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { appendEvent } from './db.js'
 import { CARD_ADMITTED, FACTORY_MODE } from './events.js'
@@ -119,6 +119,12 @@ export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: Ca
 
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
   return (db.prepare(`SELECT text FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { text: string } | undefined)?.text ?? null
+}
+
+export function pathsOutsideTheBody(db: DatabaseSync, cardId: number, text: string): string[] {
+  const body = cardBodyText(db, cardId)
+  const parsed = body === null ? null : parseParkingFile(`${cardId}.md`, body)
+  return parsed?.kind === 'parked' ? pathsNamedOutside(parsed.parked, text) : []
 }
 
 export function foldCardBody(db: DatabaseSync, event: StoredEvent): void {

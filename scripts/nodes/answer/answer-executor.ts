@@ -4,7 +4,7 @@ import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
-import type { AnswerSource, CardSession } from './answer-source.js'
+import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.js'
 import type { Answered, Answerer, TreeMerge } from './answerer.js'
 import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { riskOf } from '../../../src/card/risk.js'
@@ -59,6 +59,8 @@ interface Widened {
 
 const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
 
+const ASKS_ABOUT_THE_SCOPE = /\b(?:touches|creates|scope)\b/i
+
 function ownersEvenUnderTheDecision(paths: readonly string[]): string | undefined {
   return paths.find(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION)
 }
@@ -95,6 +97,10 @@ function leftNoNewHead(answered: Answered): boolean {
 
 function endedOnContextWarn(answered: Answered | AnswerDenial): answered is Answered {
   return !('kind' in answered) && answered.atContextWarn === true && answered.owner === null && leftNoNewHead(answered)
+}
+
+export function scopeWideningAsked(question: string, scope: AdmittedScope | null, underAShard: boolean): string[] {
+  return !underAShard || scope === null || !ASKS_ABOUT_THE_SCOPE.test(question) ? [] : pathsOutside(scope.touches, scope.creates, pathsIn(question))
 }
 
 function decisionSource(question: string, ground: string): AnswerSource {
@@ -281,11 +287,10 @@ export class AnswerExecutor {
   }
 
   private windowWidens(lease: Lease, question: string): string[] {
-    const scope = admittedScopeOf(this.parts.db, lease.cardId)
-    const named = pathsIn(question)
-    if (scope === null || this.namesAnOwnerPath(named))
+    if (this.namesAnOwnerPath(pathsIn(question)))
       return []
-    return pathsOutside(scope.touches, scope.creates, named)
+    const shard = unspentShard(this.parts.db, lease.cardId, lease.pr, decisionsInForceAt(this.parts.db, this.parts.clock()))
+    return scopeWideningAsked(question, admittedScopeOf(this.parts.db, lease.cardId), shard !== null)
   }
 
   private denied(lease: Lease, denial: AnswerDenial): AnswerOutcome {
