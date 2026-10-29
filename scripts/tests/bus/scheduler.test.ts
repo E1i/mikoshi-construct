@@ -201,6 +201,11 @@ describe('heavy run scheduler', () => {
       expect(() => slotsOf('vitest', { [slotsVariable('vitest')]: given })).toThrow(/not a positive integer/)
   })
 
+  it('the launch node takes three slots', () => {
+    expect(slotsOf('launch', {})).toBe(3)
+    expect(slotsOf('launch', { CONSTRUCT_BUS_SLOTS_LAUNCH: '1' })).toBe(1)
+  })
+
   it('bus:slot refuses a call that names no kind, no card or no command', () => {
     expect(slotCall(['quality', '--card', '812', '--', 'pnpm', 'run', 'quality'])).toEqual({ kind: 'run', run: 'quality', cardId: 812, command: ['pnpm', 'run', 'quality'] })
     expect(slotCall(['vitest', '--card', '#812', 'pnpm', 'exec', 'vitest'])).toEqual({ kind: 'run', run: 'vitest', cardId: 812, command: ['pnpm', 'exec', 'vitest'] })
