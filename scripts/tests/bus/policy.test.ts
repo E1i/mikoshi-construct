@@ -69,7 +69,7 @@ describe('the merge policy', () => {
   })
 
   it('an auto card that changes an owner path is the owner\'s, whatever its card says', () => {
-    expect(mergePolicy(facts({ files: ['AGENTS.md'] }))).toMatchObject({ kind: 'denied', rule: 'owner_without_shard', detail: expect.stringContaining('changes AGENTS.md') as unknown })
+    expect(mergePolicy(facts({ files: ['.claude/settings.json'] }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge', detail: expect.stringContaining('changes .claude/settings.json') as unknown })
   })
 
   it('an owner card merges only under an active shard', () => {
@@ -194,7 +194,7 @@ describe('the merge policy', () => {
   it('under D-77 a PR with an owner path, a pass and green CI is merged without a shard', () => {
     const bench = underDecisions(D77)
     const pulls = [
-      { number: 960, files: ['.claude/commands/plan.md'] },
+      { number: 960, body: cardBody(960, 'owner'), files: ['AGENTS.md'] },
       { number: 961, body: cardBody(961, 'owner'), files: ['scripts/policy/policy.ts'] },
     ]
     for (const pull of pulls)
@@ -211,7 +211,7 @@ describe('the merge policy', () => {
   it('an R1 PR is denied with kind authority and reaches the inbox', () => {
     const bench = underDecisions(D77)
     const cases: [number, string[], string][] = [
-      [970, ['.claude/agents/review.md'], 'r1'],
+      [970, ['.claude/agents/review.md'], 'no_shard_merge'],
       [971, ['.github/workflows/ci.yml'], 'no_shard_merge'],
       [972, ['architecture/security-invariants.md'], 'no_shard_merge'],
     ]
