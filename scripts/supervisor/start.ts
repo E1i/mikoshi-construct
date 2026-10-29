@@ -13,8 +13,8 @@ import { BUS_DB_VARIABLE, busDirOf, decisionsFileOf, isOwnerCheckout, OWNER_AGEN
 import { appendEvent, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
 import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
-import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
-import { allowLiveText } from '../policy/live-decision.js'
+import { inForce, OWNER_SOURCE, parseDecisions } from '../policy/decisions/decisions.js'
+import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
 import { activeWindowShards, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
 import { decisionsAdder } from '../window/window-request-tools.js'
 import { installedPackage, printBg } from './bg.js'
@@ -176,6 +176,7 @@ export interface ModeParts {
   record: (event: BusEvent) => void
   activeWindows: (now: Date) => WindowShard[]
   addDecision: (args: string[]) => { code: number, lines: string[] }
+  decisionsText: () => string
 }
 
 function positiveHours(value: string | undefined): number | null {
@@ -243,7 +244,14 @@ function windowMode(parts: ModeParts): BgResult {
     }
     catch (error) {
       stderr.push(`${START_PREFIX}merge is off, but shard ${shard.id} was not revoked (${messageOf(error)}); it ends at its term`)
+      continue
     }
+    const ended = endLiveDecisionsOf(parts, shard, now)
+    const lines = ended.lines.map(line => `${START_PREFIX}${line}`)
+    if (ended.code === 0)
+      stdout.push(...lines)
+    else
+      stderr.push(...lines)
   }
   return { stdout, stderr, exitCode: stderr.length === 0 ? 0 : 1 }
 }
@@ -285,6 +293,25 @@ function ghostProtocol(parts: ModeParts, hours: number): BgResult {
 
 function decisionTerm(until: string): string {
   return `${until.slice(0, DECISION_TERM_LENGTH)}Z`
+}
+
+function liveDecisionsOfShard(parts: ModeParts, shard: WindowShard, now: Date): number[] {
+  const term = decisionTerm(shard.until)
+  return inForce(parseDecisions(parts.decisionsText()).decisions, now)
+    .filter(decision => decision.term.until === term && SHARD_DECIDES_LIVE.some(worker => namesQueueLive(decision.body, worker)))
+    .map(decision => decision.number)
+}
+
+function endLiveDecisionsOf(parts: ModeParts, shard: WindowShard, now: Date): { code: number, lines: string[] } {
+  try {
+    const live = liveDecisionsOfShard(parts, shard, now)
+    if (live.length === 0)
+      return { code: 0, lines: [] }
+    return parts.addDecision([...live.flatMap(number => ['--supersedes', `D-${number}`]), `${OWNER_SOURCE} ${SHARD_DECIDES_LIVE.map(allowLiveText).join(' and ')} end with the revocation of shard ${shard.id}`])
+  }
+  catch (error) {
+    return { code: 1, lines: [`the live decisions of shard ${shard.id} were not ended: ${messageOf(error)}; they lapse at ${shard.until}`] }
+  }
 }
 
 function liveDecisionUnderShard(parts: ModeParts, worker: BusWorker, until: string): { code: number, lines: string[] } {
@@ -342,6 +369,10 @@ function withBus<T>(busDb: string, read: (db: ReturnType<typeof openBus>) => T):
   }
 }
 
+export function busDecisionsText(busDb: string): ModeParts['decisionsText'] {
+  return () => readOrNull(decisionsFileOf(busDb)) ?? ''
+}
+
 export function busDecisionsAdder(busDb: string, now: () => Date): ModeParts['addDecision'] {
   return (args) => {
     const file = decisionsFileOf(busDb)
@@ -368,6 +399,7 @@ async function main(): Promise<void> {
       record: event => withBus(busDb, db => appendEvent(db, event)),
       activeWindows: now => withBus(busDb, db => activeWindowShards(db, now)),
       addDecision: busDecisionsAdder(busDb, () => new Date()),
+      decisionsText: busDecisionsText(busDb),
     }))
     return
   }

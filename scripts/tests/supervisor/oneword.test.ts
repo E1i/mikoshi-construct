@@ -9,10 +9,11 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { LIVE_FLAG } from '../../core/node.js'
 import { reduce } from '../../core/reducer.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
+import { decisionsIntake } from '../../policy/decisions-import.js'
 import { liveDecisionOf } from '../../policy/live-decision.js'
 import { activeWindowShards, decisionsInForceAt } from '../../policy/shards.js'
-import { busDecisionsAdder, ghostProtocolWord, runMode, startCommandOf } from '../../supervisor/start.js'
-import { liveWorkers, returnToWindowAtTermEnd, switchedOn, switchWorker, termEndOf, wantedLaunches } from '../../supervisor/workers.js'
+import { busDecisionsAdder, busDecisionsText, ghostProtocolWord, runMode, startCommandOf } from '../../supervisor/start.js'
+import { liveWorkers, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches } from '../../supervisor/workers.js'
 
 const NOW = new Date('2026-10-29T12:00:00.000Z')
 const HOURS = '8'
@@ -26,6 +27,7 @@ afterEach(() => {
 })
 
 interface Bench {
+  busDb: string
   parts: ModeParts
   onBus: <T>(read: (db: DatabaseSync) => T) => T
 }
@@ -49,6 +51,7 @@ function bench(decisionsUnreadable = false): Bench {
   const channel = path.join(root, 'answers')
   sayToOwnerChannel(channel, ghostProtocolWord(Number(HOURS)), NOW)
   return {
+    busDb,
     onBus,
     parts: {
       busDir: path.join(root, 'bus', 'workers'),
@@ -58,6 +61,7 @@ function bench(decisionsUnreadable = false): Bench {
       record: event => onBus(db => appendEvent(db, event)),
       activeWindows: now => onBus(db => activeWindowShards(db, now)),
       addDecision: busDecisionsAdder(busDb, () => NOW),
+      decisionsText: busDecisionsText(busDb),
     },
   }
 }
@@ -103,6 +107,36 @@ describe('oneword: the ghost-protocol word is the only owner word', () => {
     expect(switchedOn(parts.busDir)).toEqual(expect.arrayContaining(['close', 'restart']))
     expect(liveWorkers(parts.busDir)).toEqual(switchedOn(parts.busDir))
     expect(liveScripts(parts.busDir)).toEqual(expect.arrayContaining(['bus:close', 'bus:restart']))
+  })
+
+  it('an early return to window ends the live merge and update decisions with the shard', () => {
+    const { parts, onBus, busDb } = bench()
+    ghostProtocol(parts)
+    const liveAfterImport = (): (number | null)[] => onBus((db) => {
+      decisionsIntake(db, decisionsFileOf(busDb), () => NOW)()
+      reduce(db)
+      const decisions = decisionsInForceAt(db, NOW)
+      return [liveDecisionOf(decisions, 'merge'), liveDecisionOf(decisions, 'update')]
+    })
+    expect(liveAfterImport()).not.toContain(null)
+
+    const result = runMode(command('--mode', 'window'), parts)
+
+    expect(result.exitCode, result.stderr.join('\n')).toBe(0)
+    expect(onBus(db => activeWindowShards(db, NOW))).toEqual([])
+    expect(liveAfterImport()).toEqual([null, null])
+  })
+
+  it('a window to window switch takes a worker it switches off out of live', () => {
+    const { parts } = bench()
+    runMode(command('--mode', 'window'), parts)
+    switchWorker(parts.busDir, 'merge', true)
+    switchDetection(parts.busDir, 'merge', true)
+
+    runMode(command('--mode', 'window'), parts)
+    switchWorker(parts.busDir, 'merge', true)
+
+    expect(liveWorkers(parts.busDir)).not.toContain('merge')
   })
 
   it('the return to window at the term end leaves no switched-off worker live, so merge switched on later is in shadow', () => {

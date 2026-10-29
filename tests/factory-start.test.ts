@@ -342,7 +342,7 @@ function modeBench(active: WindowShard[] = []): ModeBench {
   const root = tempRoot('factory-mode-')
   const events: BusEvent[] = []
   const channel = path.join(root, 'answers')
-  return { events, channel, parts: { busDir: path.join(root, 'bus'), channel, now: () => NOW, uuid: () => SHARD_ID, record: event => events.push(event), activeWindows: () => active, addDecision: () => ({ code: 0, lines: [] }) } }
+  return { events, channel, parts: { busDir: path.join(root, 'bus'), channel, now: () => NOW, uuid: () => SHARD_ID, record: event => events.push(event), activeWindows: () => active, addDecision: () => ({ code: 0, lines: [] }), decisionsText: () => '' } }
 }
 
 function modeCommand(...argv: string[]) {
@@ -428,7 +428,19 @@ describe('the modes of the factory', () => {
     expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
   })
 
-  it('a ghost-protocol term ending on its own keeps a worker the operator put in shadow', () => {
+  it('the ghost-protocol word takes live a worker the operator put in shadow in window', () => {
+    const bench = modeBench()
+    runMode(modeCommand('--mode', 'window'), bench.parts)
+    switchDetection(bench.parts.busDir, 'review', false)
+    sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
+    runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
+
+    expect(liveWorkers(bench.parts.busDir)).toContain('review')
+    expect(returnToWindowAtTermEnd(bench.parts.busDir, new Date(Date.parse(termEndOf(bench.parts.busDir)!) + 1))).toBe(true)
+    expect(liveWorkers(bench.parts.busDir)).toEqual(WINDOW_WORKERS)
+  })
+
+  it('a ghost-protocol term ending on its own keeps a worker the operator put in shadow during the term', () => {
     const bench = modeBench()
     runMode(modeCommand('--mode', 'window'), bench.parts)
     sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
