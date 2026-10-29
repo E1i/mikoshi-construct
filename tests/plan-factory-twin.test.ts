@@ -13,8 +13,9 @@ const FACTORY_RULES = [
   ['the positive control is PR-equivalent', 'positive control is PR-equivalent'],
   ['it runs the required CI checks, not only quality', 'not only `pnpm run quality`'],
   ['the sketch branch is pushed after each milestone', '`sketch/<task>`, committed and pushed after each milestone'],
-  ['the cheap path is the default for the five classes that land on the first attempt', 'cheap is the default for D-small, I-instr, C-ci, P-cli-small and W-world'],
-  ['the ladder for one of those classes needs a reason in the brief', 'the ladder for one of them only with its reason written in the brief'],
+  ['every card is cheap whatever its class and its risk reading', 'Every card is cheap, whatever its class and its risk reading'],
+  ['intake corrects a ladder card without the owner line to cheap', 'corrects a card stated as `ladder` to cheap unless its text carries the `ladder: owner … — …` line'],
+  ['the bus never moves a card to the ladder', 'the bus never moves a card to the ladder on its own'],
   ['a change under .claude/hooks/** is proven on live Claude Code events', 'proven on live Claude Code events, and fixture tests do not replace that'],
 ]
 
