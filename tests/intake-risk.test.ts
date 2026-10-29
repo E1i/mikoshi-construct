@@ -148,6 +148,23 @@ describe('intake writes the risk line into the card', () => {
     expect(linesOf(card.text, SLICE_PREFIX)).toEqual([])
   })
 
+  it('a card that touches only init or its templates is not R1', () => {
+    const card = only(intake(['src/commands/init.ts', 'tests/init.test.ts', '.changeset/init.md']))
+    expect(linesOf(card.text, RISK_PREFIX)[0]).toMatch(/^risk: R3 /)
+  })
+
+  it.each(['templates/base/AGENTS.md.eta', 'templates/harness/package.json.eta', 'templates/presets/node-backend.json', 'templates/stacks/node/tsconfig.json.eta'])('a template sync carries is R1 in the sync context: %s', (touch) => {
+    expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('write into another repository') })
+  })
+
+  it.each(['src/commands/attach/index.ts', 'src/commands/sync/index.ts', 'src/sync/write.ts', 'src/commands/detach/index.ts', 'templates/attach/earlier-carriers.json', 'src/materialize/strategies.ts', 'src/materialize/plan.ts', 'src/materialize/apply.ts'])('a card that touches attach, sync or detach stays R1: %s', (touch) => {
+    expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('write into another repository') })
+  })
+
+  it.each(['templates/attach/_construct/commit-guard.mjs', 'templates/attach/entry.md', 'templates/ai/claude/_claude/skills/construct-atlas/SKILL.md'])('a template attach carries is R1 in the attach context: %s', (touch) => {
+    expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('write into another repository') })
+  })
+
   it('the highest level decides and every touch at it is named', () => {
     const reading = riskReading(['docs/cli.md', 'contract/surface.json', 'src/detect/layout.ts'], false)
     expect(reading.level).toBe('R2')
