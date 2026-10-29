@@ -9,6 +9,9 @@
 {"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > bus:bg leaves a review worker the supervisor recorded alone","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > bus:bg returns at once with the pid and the log path","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > bus:bg starts bus:run and every switched-on worker once and leaves a running one alone","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > with a factory running over bus A, a start over bus B starts every process of B","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > a start over bus B takes no start lock of bus A","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/bus/bg.test.ts","test":"pnpm bus:bg > a running process whose bus could not be read is left alone but not counted, so a start that found only such exits 1","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/chain-process.test.ts","test":"stopping a running chain before its restart > the signal reaches every process of a real detached chain group","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/launch-pr.test.ts","test":"a card the bus launches > a launched card reaches an open PR with no hand commit","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/bus/launch-pr.test.ts","test":"a card the bus launches > a launched card's PR body carries the matrix count line of its session report","refused":"spawnSync ps EPERM"}

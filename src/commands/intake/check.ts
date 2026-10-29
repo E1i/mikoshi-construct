@@ -11,7 +11,12 @@ import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandWord } from './command-word.js'
 
-export const DEFAULT_CONTOUR = 'ladder'
+export const DEFAULT_CONTOUR = 'cheap'
+const LADDER_CONTOUR = 'ladder'
+const LADDER_PREFIX = 'ladder: '
+const OWNER_LADDER_WORD = /^ladder: owner [^\s—][^—]*— ?\S/
+export const LADDER_GRAMMAR = `a line '${LADDER_PREFIX}owner <where the owner gave the word on this card> — <how many cheap failures and which, or why cheap does not give the proof>' in the card text`
+export const CONTOUR_NOT_FROM_RISK = 'the risk table sets the review depth and who merges, never the contour'
 export const CARD_REFERENCE = /^#(\d+)$/
 const BACKTICKED = /`([^`]+)`/g
 const MOVING_REF = /\borigin\/main\b/
@@ -204,10 +209,18 @@ function numberCorrection(card: DraftCard, assigned: number, facts: CheckFacts):
   return [{ field: 'number', was: `#${named}`, now: `#${assigned}`, reason }]
 }
 
+function ownerSentToLadder(task: string): boolean {
+  return task.split('\n').some(line => OWNER_LADDER_WORD.test(line.trim()))
+}
+
 function contourCorrection(card: DraftCard): Correction[] {
-  if (card.contour === undefined || includes(CONTOURS, card.contour))
+  if (card.contour === undefined)
     return []
-  return [{ field: 'contour', was: card.contour, now: DEFAULT_CONTOUR, reason: `'${card.contour}' is not one of ${CONTOURS.join(', ')}; ${DEFAULT_CONTOUR} is the path with a brief and witnesses` }]
+  if (!includes(CONTOURS, card.contour))
+    return [{ field: 'contour', was: card.contour, now: DEFAULT_CONTOUR, reason: `'${card.contour}' is not one of ${CONTOURS.join(', ')}; every card is ${DEFAULT_CONTOUR} unless the owner sends it to the ladder` }]
+  if (card.contour !== LADDER_CONTOUR || ownerSentToLadder(card.task))
+    return []
+  return [{ field: 'contour', was: LADDER_CONTOUR, now: DEFAULT_CONTOUR, reason: `ladder is refused without the owner's word on this card and a reason written in it, ${LADDER_GRAMMAR}; ${CONTOUR_NOT_FROM_RISK}` }]
 }
 
 function ownerReason(touches: readonly string[], owner: OwnerPaths): string | undefined {

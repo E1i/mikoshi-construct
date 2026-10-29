@@ -7,7 +7,7 @@ import type { Sketch } from './sketch.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import os, { tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -15,7 +15,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { riskReading } from '../../src/card/risk.js'
 import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { defaultBusPath } from '../core/db.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { recordGhostLine } from '../core/journal.js'
 import { busCardBodies } from '../intake/parking-reads.js'
 import { approvalEvent, approvalSha256, approvedHashPath, canonicalImplementText, cardNumberOf, carriedReason, contourSuggestion, fallsOf, journalEvents, MORSE, morseCarryOf, revocationOf, suggestionEvent } from './approval.js'
@@ -303,7 +303,7 @@ function hashArgs(argv: string[]): HashArgs | string {
 }
 
 export function handoffJournalPath(): string {
-  return path.join(process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff'), 'ghosts.jsonl')
+  return path.join(defaultHandoffDir(), 'ghosts.jsonl')
 }
 
 async function main(): Promise<void> {

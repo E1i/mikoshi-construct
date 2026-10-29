@@ -733,5 +733,10 @@
     "target": "scripts/construct/browser-lab.mjs",
     "sha256": "c91b226eee4fa378cfb6a46bba8dab0677c89c8c06ed61dda54f378c02922837",
     "date": "2026-10-29"
+  },
+  {
+    "target": ".claude/commands/plan.md",
+    "sha256": "eced60a4010c84288e0853ff2afc8f625badba423a692dc6e19806b9fc41f60d",
+    "date": "2026-10-29"
   }
 ]
