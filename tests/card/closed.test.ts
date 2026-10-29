@@ -1,5 +1,55 @@
-import { describe, expect, it } from 'vitest'
+import type { BusEvent } from '../../scripts/core/db.js'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { unsatisfiedDependencies } from '../../scripts/core/card-automaton.js'
+import { appendEvent, openBus } from '../../scripts/core/db.js'
+import { CARD_VERIFIED } from '../../scripts/core/events.js'
+import { reduce } from '../../scripts/core/reducer.js'
 import { closedFromBus, closedTasks, endedCards, JOURNAL_HISTORY_ENDS, mergedTasks, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
+
+const busRoots: string[] = []
+
+afterEach(() => {
+  for (const root of busRoots.splice(0))
+    rmSync(root, { recursive: true, force: true })
+})
+
+function unsatisfiedIn(events: Omit<BusEvent, 'ts' | 'head' | 'dedupeKey'>[], depends: number[]): number[] {
+  const root = mkdtempSync(path.join(tmpdir(), 'satisfied-'))
+  busRoots.push(root)
+  const db = openBus(path.join(root, 'bus.db'))
+  try {
+    events.forEach((event, at) => appendEvent(db, { ...event, ts: `2026-10-11T00:00:0${at}.000Z`, head: null, dedupeKey: `${event.type}:${event.cardId}:${at}` }))
+    reduce(db)
+    return unsatisfiedDependencies(db)(depends)
+  }
+  finally {
+    db.close()
+  }
+}
+
+describe('unsatisfiedDependencies, the one predicate launch and task:start read', () => {
+  it('a probe closed by report is a satisfied dependency from its card.verified on, before the close node writes card.closed', () => {
+    const verified = { type: CARD_VERIFIED, actor: 'worker:task-close:by-hand', cardId: 1, pr: null, payload: { verification: 'run', report: '/reports/1.md' }, legacy: false }
+    expect(unsatisfiedIn([verified], [1, 2])).toEqual([2])
+  })
+
+  it('a card.verified that names a pull request satisfies nothing by itself', () => {
+    expect(unsatisfiedIn([{ type: CARD_VERIFIED, actor: 'worker:task-close:by-hand', cardId: 3, pr: 30, payload: { verification: 'run', pr: 30 }, legacy: false }], [3])).toEqual([3])
+  })
+
+  it('a merge line or a probe path line closed by report in the journal half of history is a satisfied dependency, a path line naming a PR is not, nor a merge line written once that half ended', () => {
+    const lines = [
+      { type: 'merge', actor: 'worker:legacy:journal', cardId: 5, pr: 50, payload: { event: 'merge', task: '5', pr: 50 }, legacy: true },
+      { type: 'path', actor: 'worker:legacy:journal', cardId: 6, pr: null, payload: { event: 'path', task: '6', verification: 'run', report: '/reports/6.md' }, legacy: true },
+      { type: 'path', actor: 'worker:legacy:journal', cardId: 7, pr: 70, payload: { event: 'path', task: '7', verification: 'run', pr: 70 }, legacy: true },
+      { type: 'merge', actor: 'worker:legacy:journal', cardId: 8, pr: 80, payload: { event: 'merge', task: '8', pr: 80, ts: JOURNAL_HISTORY_ENDS }, legacy: true },
+    ]
+    expect(unsatisfiedIn(lines, [5, 6, 7, 8])).toEqual([7, 8])
+  })
+})
 
 describe('closedTasks and mergedTasks without a journal', () => {
   it('closedTasks and mergedTasks read the bus card states with no journal text', () => {
