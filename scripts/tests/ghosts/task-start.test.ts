@@ -17,6 +17,7 @@ const BACKFILL_ACTOR = 'worker:backfill:window'
 const SESSION = '0d538601-aaaa-bbbb-cccc-1234567890ab'
 const NOW = new Date('2026-10-02T08:00:00.000Z')
 const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
+const LOCKED = { 'pnpm-lock.yaml': 'lockfileVersion: \'9.0\'\n' }
 
 function card(id: number, bracket = 'implement/ghosts/S/cheap/auto'): string {
   return `#${id} task-${id} [${bracket}] · depends — · blocks —`
@@ -64,7 +65,7 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, '-c', 'user.name=world', '-c', 'user.email=world@example.invalid', ...args], { encoding: 'utf8', stdio: 'pipe' })
 }
 
-function newWorld(): World {
+function newWorld(files: Record<string, string> = {}): World {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'task-start-world-')))
   roots.push(root)
   const origin = path.join(root, 'origin.git')
@@ -74,6 +75,8 @@ function newWorld(): World {
   git(origin, ['init', '-q', '--bare', '-b', 'main'])
   git(root, ['clone', '-q', origin, repo])
   writeFileSync(path.join(repo, 'README.md'), 'world\n')
+  for (const [name, content] of Object.entries(files))
+    writeFileSync(path.join(repo, name), content)
   git(repo, ['checkout', '-q', '-b', 'main'])
   git(repo, ['add', '.'])
   git(repo, ['commit', '-q', '-m', 'world'])
@@ -452,7 +455,7 @@ describe('w1: task:start cuts the tree and writes the start', () => {
 
 describe('w3: task:start installs the dependencies in the new tree', () => {
   it('w3: runs pnpm install --frozen-lockfile --prefer-offline once, in the cut tree, before the start', () => {
-    const world = newWorld()
+    const world = newWorld(LOCKED)
     const installs: [string, string[]][] = []
     const result = runTaskStart(['feat/i1', '--card', card(31)], depsOf(world, SESSION, installs))
     expect(result.exitCode).toBe(0)
@@ -461,7 +464,7 @@ describe('w3: task:start installs the dependencies in the new tree', () => {
   })
 
   it('w3: a failed install refuses with its first line, writes no start, and removes the tree and the branch so a retry starts clean', () => {
-    const world = newWorld()
+    const world = newWorld(LOCKED)
     const deps: TaskStartDeps = {
       ...depsOf(world),
       install: () => {
@@ -476,6 +479,13 @@ describe('w3: task:start installs the dependencies in the new tree', () => {
     expect(existsSync(worktree)).toBe(false)
     expect(git(world.repo, ['branch', '--list', 'feat/i2']).trim()).toBe('')
     expect(runTaskStart(['feat/i2', '--card', card(32)], depsOf(world)).exitCode).toBe(0)
+  })
+  it('task:start installs without --frozen-lockfile when the cut tree has no pnpm-lock.yaml', () => {
+    const world = newWorld()
+    const installs: [string, string[]][] = []
+    const result = runTaskStart(['feat/i1', '--card', card(31)], depsOf(world, SESSION, installs))
+    expect(result.exitCode).toBe(0)
+    expect(installs).toEqual([[path.join(world.root, 'mc-31'), ['install', '--prefer-offline']]])
   })
 })
 
