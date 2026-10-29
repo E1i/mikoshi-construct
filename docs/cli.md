@@ -1399,6 +1399,8 @@ everything before it writes anything, so a refusal leaves the tree exactly as it
 npx mikoshi-construct detach
 ```
 
+Before it removes anything, detach prints what goes — each daemon run directory under `.construct/daemon`, the factory's directory beside the repository with its handoff, the handoff's archive and the owner decisions, each with its number of paths, and the total — and asks `Remove these paths?`; with `--yes` it prints the same list and removes without asking, and without a terminal and without `--yes` it removes nothing and exits `1`.
+
 ### The three states
 
 | State | What detach does | Exit |

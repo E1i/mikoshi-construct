@@ -1,10 +1,14 @@
 id: detach
 title: construct detach composition
 description: >-
-  `runDetach(ui, options)` in `src/commands/detach/index.ts` is the composition root: every read —
-  the record, the exclude block, the git index, the class of each recorded file, the kept copy of the
-  settings file (path confined, sha256 checked) and the classification of the runtime files — happens
-  before any write, and each refusal leaves the tree as it found it; then the guard entry (restored from
+  `askDetach(ui, options, prompter)` in `src/commands/detach/index.ts` is the composition root: it runs
+  plan → preview → confirm or `--yes` → apply. `planDetach` does every read — the record, the exclude
+  block, the git index, the class of each recorded file, the kept copy of the settings file (path
+  confined, sha256 checked) and the classification of the runtime files — before any write, and each
+  refusal leaves the tree as it found it. The preview lists what goes, each daemon run directory, the
+  factory's directory beside the repository with its handoff, archive and decisions, and the Engram,
+  with its number of paths and the total; then a confirmation, or `--yes`, and without either nothing is
+  removed and detach exits as aborted. Only then the factory beside the repository, the guard entry (restored from
   the copy or cut), the files, their emptied directories, the runtime files, the run directories,
   `.construct/browser`, the copy, the exclude block and the record are removed in that order. Dotted edges
   are wiring, solid edges are the flow.
@@ -16,6 +20,8 @@ boundaries:
     label: Read · before any write
   - id: classify
     label: Classify
+  - id: confirm
+    label: Preview and confirm
   - id: remove
     label: Remove
 nodes:
@@ -23,10 +29,14 @@ nodes:
     label: construct detach (citty, alias jack-out)
     path: src/program.ts
     boundary: entry
-  - id: run
-    label: runDetach
+  - id: ask
+    label: askDetach
     path: src/commands/detach/index.ts
     boundary: entry
+  - id: run
+    label: planDetach
+    path: src/commands/detach/index.ts
+    boundary: read
   - id: record
     label: readAttachRecord
     path: src/commands/attach/record.ts
@@ -59,6 +69,14 @@ nodes:
     label: ATTACH_RUNTIME_FILES
     path: src/commands/attach/carriers.ts
     boundary: classify
+  - id: preview
+    label: 'previewDetach: run directories, the factory beside, the Engram, each with its paths, and the total'
+    path: src/commands/detach/preview.ts
+    boundary: confirm
+  - id: confirm
+    label: 'confirm or --yes; declined or no terminal → aborted, nothing removed'
+    path: src/commands/detach/index.ts
+    boundary: confirm
   - id: restore
     label: 'guard entry out: the copy''s bytes when the file is as attach left it, else cut'
     path: src/commands/detach/restore.ts
@@ -80,7 +98,8 @@ nodes:
     path: src/commands/attach/original.ts
     boundary: remove
 edges:
-  - {from: cli, to: run, kind: sequence}
+  - {from: cli, to: ask, kind: sequence, label: prompter when a terminal}
+  - {from: ask, to: run, kind: sequence, label: plan}
   - {from: run, to: record, kind: sequence}
   - {from: run, to: exclude, kind: wires, label: block paths}
   - {from: run, to: indexreader, kind: sequence, label: record found; unreadable index → refused}
@@ -88,7 +107,9 @@ edges:
   - {from: classify, to: settings, kind: sequence, label: then the guard entry}
   - {from: settings, to: copy, kind: sequence, label: then the kept copy}
   - {from: copy, to: runtime, kind: sequence, label: then the runtime files}
-  - {from: runtime, to: restore, kind: sequence, label: nothing changed; entry out first}
+  - {from: runtime, to: preview, kind: sequence, label: nothing changed}
+  - {from: preview, to: confirm, kind: sequence}
+  - {from: confirm, to: restore, kind: sequence, label: apply; entry out first}
   - {from: restore, to: remove, kind: sequence}
   - {from: indexreader, to: settings, kind: wires, label: tracked set}
   - {from: indexreader, to: runtime, kind: wires, label: tracked set}

@@ -5,15 +5,16 @@ then run `pnpm composition:render`; `pnpm composition:check` fails when the diag
 drift apart.
 
 <!-- composition:detach -->
-`runDetach(ui, options)` in `src/commands/detach/index.ts` is the composition root: every read — the record, the exclude block, the git index, the class of each recorded file, the kept copy of the settings file (path confined, sha256 checked) and the classification of the runtime files — happens before any write, and each refusal leaves the tree as it found it; then the guard entry (restored from the copy or cut), the files, their emptied directories, the runtime files, the run directories, `.construct/browser`, the copy, the exclude block and the record are removed in that order. Dotted edges are wiring, solid edges are the flow.
+`askDetach(ui, options, prompter)` in `src/commands/detach/index.ts` is the composition root: it runs plan → preview → confirm or `--yes` → apply. `planDetach` does every read — the record, the exclude block, the git index, the class of each recorded file, the kept copy of the settings file (path confined, sha256 checked) and the classification of the runtime files — before any write, and each refusal leaves the tree as it found it. The preview lists what goes, each daemon run directory, the factory's directory beside the repository with its handoff, archive and decisions, and the Engram, with its number of paths and the total; then a confirmation, or `--yes`, and without either nothing is removed and detach exits as aborted. Only then the factory beside the repository, the guard entry (restored from the copy or cut), the files, their emptied directories, the runtime files, the run directories, `.construct/browser`, the copy, the exclude block and the record are removed in that order. Dotted edges are wiring, solid edges are the flow.
 
 ```mermaid
 flowchart LR
   subgraph b_entry["Entry"]
     cli["construct detach (citty, alias jack-out)"]
-    run["runDetach"]
+    ask["askDetach"]
   end
   subgraph b_read["Read · before any write"]
+    run["planDetach"]
     record["readAttachRecord"]
     exclude["pathsInExcludeBlock, removeExcludeBlock"]
     indexreader["readTrackedPaths · .git/index, .git/config"]
@@ -25,6 +26,10 @@ flowchart LR
     runtime["runtime files: on the list, untracked, not held at attach"]
     runtimelist["ATTACH_RUNTIME_FILES"]
   end
+  subgraph b_confirm["Preview and confirm"]
+    preview["previewDetach: run directories, the factory beside, the Engram, each with its paths, and the total"]
+    confirm["confirm or --yes; declined or no terminal → aborted, nothing removed"]
+  end
   subgraph b_remove["Remove"]
     restore["guard entry out: the copy's bytes when the file is as attach left it, else cut"]
     remove["files by sha, empty directories, runtime files, run directories, .construct/browser, exclude block, record"]
@@ -32,7 +37,8 @@ flowchart LR
     directories["removeEmptyDirectories"]
     original["drop the copy, its key directory, the attach directory when empty"]
   end
-  cli --> run
+  cli -->|"prompter when a terminal"| ask
+  ask -->|"plan"| run
   run --> record
   run -.->|"block paths"| exclude
   run -->|"record found; unreadable index → refused"| indexreader
@@ -40,7 +46,9 @@ flowchart LR
   classify -->|"then the guard entry"| settings
   settings -->|"then the kept copy"| copy
   copy -->|"then the runtime files"| runtime
-  runtime -->|"nothing changed; entry out first"| restore
+  runtime -->|"nothing changed"| preview
+  preview --> confirm
+  confirm -->|"apply; entry out first"| restore
   restore --> remove
   indexreader -.->|"tracked set"| settings
   indexreader -.->|"tracked set"| runtime

@@ -8,7 +8,7 @@ import { openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
 import { readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { engramRules, WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -111,7 +111,7 @@ describe('detach takes the window hooks out', () => {
     expect(readSettings(dir)).toMatchObject({ hooks: { PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] } })
     expect(existsSync(path.join(dir, ATTACH_WINDOW_HOOKS.target))).toBe(true)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(before)
     expect(existsSync(path.join(dir, ATTACH_WINDOW_HOOKS.target))).toBe(false)
@@ -125,7 +125,7 @@ describe('detach takes the window hooks out', () => {
     const settings = readSettings(dir) as { hooks: Record<string, unknown>, env?: unknown }
     writeSettings(dir, JSON.stringify({ ...settings, env: { A: '1' } }))
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({ hooks: { Stop: [own] }, env: { A: '1' } })
   })
@@ -134,7 +134,7 @@ describe('detach takes the window hooks out', () => {
     const dir = fixture()
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
     expect(git(dir, 'status', '--porcelain')).toBe('')
@@ -146,7 +146,7 @@ describe('detach takes the window hooks out', () => {
     const settings = readSettings(dir) as { hooks: Record<string, unknown> }
     writeSettings(dir, JSON.stringify({ hooks: { ...settings.hooks, Stop: [windowEntry('stop --loud')] } }))
 
-    expect(runDetach(ui, { dir })).toMatchObject({ status: 'refused', refusal: 'changed' })
+    expect(await askDetach(ui, { dir, yes: true })).toMatchObject({ status: 'refused', refusal: 'changed' })
     expect(existsSync(path.join(dir, ATTACH_WINDOW_HOOKS.target))).toBe(true)
   })
 })

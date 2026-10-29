@@ -7,7 +7,7 @@ import { ATLAS_EXIT, AtlasRefusedUnconstructed, printAtlas, runAtlas } from '../
 import { readRemoteBlob } from '../src/atlas/remote.js'
 import { EDITOR_PRESETS, editorTemplate } from '../src/atlas/source-link.js'
 import { readAttachRecord, runAttach } from '../src/commands/attach/index.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { FAILED_EXIT, reported } from '../src/failure.js'
 import { readAtlasRecord } from '../src/manifest.js'
@@ -232,7 +232,7 @@ describe('construct detach after construct atlas', () => {
     const dir = foreignRepository()
     await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })
     expect(existsSync(atlasOf(dir).page)).toBe(true)
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(git(dir, 'status', '--porcelain', '--ignored')).not.toContain('.construct/')
   })
 })
