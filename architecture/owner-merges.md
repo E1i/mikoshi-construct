@@ -46,10 +46,15 @@ every shard and every decision: the bus reads the mark from this table before it
 other than `yes` or `no` on a kind the pull request falls under, a missing column, or a table the bus cannot read leaves the
 pull request Eli's.
 
+On 2026-10-29, at Eli's instruction (0.46 reconciliation, session 338, card #1414), the coordinating window narrowed
+`own-instructions` to `.claude/**` of this repository, marked `no` under a shard: `templates/ai/**`, `templates/attach/**`
+and `scripts/construct/**` are product delivery and merge under a shard. Eli's boundaries are `security-invariants`, the
+version pull request, the npm publish, `.claude/**` and `.github/workflows/**`, as decided on 2026-10-25.
+
 | kind | paths (globs) | what it covers | example | merges under a shard |
 |---|---|---|---|---|
 | release | — (matched by title: «chore: version packages») | version pull requests | PR #259, PR #265, PR #277 | no |
-| own-instructions | `.claude/agents/**`, `.claude/rules/**`, `.claude/settings*.json`, `.claude/skills/**`, `.claude/commands/**`, `.claude/hooks/**`, `.claude/eddies.json`, `AGENTS.md`, `scripts/construct/**`, `templates/ai/claude/**`, `templates/attach/**`, `architecture/owner-merges.md` | the agents' instructions: the agent files, the rules, the settings, the skills, the commands, the hooks and the agent's limits in `.claude/eddies.json`, this repository's `AGENTS.md`, the ladder script, their templates in `templates/ai/claude/`, what `attach` hands the agent from `templates/attach/`, and this file | PR #244, PR #282, PR #366; issues #257, #269, #271 | yes |
+| own-instructions | `.claude/**` | this repository's own agent instructions: everything under `.claude/` | PR #244, PR #282, PR #366; issues #257, #269, #271 | no |
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — | no |
 | workflows | `.github/workflows/**` | every GitHub Actions workflow: what CI runs, with which permissions and secrets | — | no |
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — | no |
