@@ -2,6 +2,7 @@ import type { Manifest } from '../../manifest.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { recordedShas, sha256 } from '../../manifest.js'
+import { factoryTargetsFor } from '../../materialize/factory-manifest.js'
 import { SUCCESSORS } from '../../presets/index.js'
 import { FileReadings } from './readings.js'
 
@@ -28,5 +29,16 @@ export function baselineVerdict(root: string, manifest: Manifest, readings: File
     if (content != null && sha256(content) !== hash)
       modifiedFiles.push(file)
   }
+  for (const target of factoryFilesAbsent(root, manifest)) {
+    if (!missingFiles.includes(target))
+      missingFiles.push(target)
+  }
   return { missingFiles, movedFiles, modifiedFiles }
+}
+
+export function factoryFilesAbsent(root: string, manifest: Manifest): string[] {
+  const targets = factoryTargetsFor(manifest.ai)
+  const recorded = recordedShas(manifest)
+  const constructCarriesFactory = targets.some(target => recorded[target] != null)
+  return constructCarriesFactory ? targets.filter(target => !existsSync(path.join(root, target))) : []
 }

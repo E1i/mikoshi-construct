@@ -3,7 +3,7 @@ import type { Strategy } from '../materialize/strategies.js'
 import type { TemplateVariant } from '../materialize/templates.js'
 import type { OwnedKey } from './ownership.js'
 import type { EstablishedVariant } from './variant.js'
-import { carriesHookSettings, strategyFor } from '../materialize/strategies.js'
+import { carriesHookSettings, mergeHookSettings, strategyFor } from '../materialize/strategies.js'
 import { SUCCESSORS } from '../presets/index.js'
 import { blockSpansDocument, carriesConstructBlock, matchesRecordedSha, ownedKeys, ownedSha, ownedText } from './ownership.js'
 
@@ -73,6 +73,12 @@ function compareRecordedBlock(target: string, present: string, produced: string,
   return ownedText(target, present) === ownedText(target, produced) ? 'keep' : 'template-moved-on'
 }
 
+function hookSettingsClass(present: string, produced: string): PathClass {
+  if (carriesHookSettings(present, produced))
+    return 'keep'
+  return mergeHookSettings(present, produced) == null ? 'conflict' : 'update'
+}
+
 function shapeSuggests(target: string, present: string): TemplateVariant {
   return blockSpansDocument(target, present) ? 'default' : 'existing'
 }
@@ -116,7 +122,7 @@ export function classifyPath(state: PathState): PathClassification | null {
   }
 
   if (strategy === 'merge-hooks')
-    return classified(carriesHookSettings(present, produced) ? 'keep' : 'conflict')
+    return classified(hookSettingsClass(present, produced))
 
   if (recordedSha == null)
     return classified('conflict')
@@ -132,9 +138,10 @@ export function classifyPath(state: PathState): PathClassification | null {
 
 const WRITABLE_CLASSES = new Set<PathClass>(['add', 'update', 'template-moved-on'])
 const WRITABLE_STRATEGIES = new Set<Strategy>(['create', 'append-block'])
+const HOOK_WRITABLE_CLASSES = new Set<PathClass>(['add', 'update'])
 
 function willBeWritten(strategy: Strategy, value: PathClass): boolean {
-  return WRITABLE_CLASSES.has(value) && (WRITABLE_STRATEGIES.has(strategy) || (strategy === 'merge-hooks' && value === 'add'))
+  return WRITABLE_CLASSES.has(value) && (WRITABLE_STRATEGIES.has(strategy) || (strategy === 'merge-hooks' && HOOK_WRITABLE_CLASSES.has(value)))
 }
 
 function writeEffectFor(strategy: Strategy, value: PathClass): WriteEffect | null {

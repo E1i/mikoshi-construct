@@ -138,6 +138,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   syncApplyWritten: string
   syncApplyRetired: string
   baselineMovedToSuccessor: (files: string[]) => string
+  factoryFilesMissing: (files: string[]) => string
   syncApplyRefused: string
   syncApplyWrote: (count: number) => string
   syncApplyNothingWritten: string
@@ -522,6 +523,7 @@ export const LORE: Lore = {
   syncApplyWritten: 'WRITTEN',
   syncApplyRetired: 'RETIRED \u2014 removed, the new path written in their place',
   baselineMovedToSuccessor: (files: string[]) => `${files.length === 1 ? 'A recorded baseline file is' : `${files.length} recorded baseline files are`} gone from the old path and present at the new one (${files.join(', ')}); not missing: sync --apply records the new path, or the old record stays until then`,
+  factoryFilesMissing: (files: string[]) => `The factory reads ${files.length === 1 ? 'a file' : `${files.length} files`} this jack does not carry (${files.join(', ')}). Run: construct sync --apply`,
   syncApplyRefused: 'LEFT TO YOU',
   syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
   syncApplyNothingWritten: 'NOTHING WRITTEN \u2014 the tree already carries what the construct owns.',
@@ -935,6 +937,7 @@ export const PLAIN_LORE: Lore = {
   syncApplyWritten: 'Written',
   syncApplyRetired: 'Removed, the new path written in their place',
   baselineMovedToSuccessor: (files: string[]) => `${files.length === 1 ? 'A recorded baseline file is' : `${files.length} recorded baseline files are`} gone from the old path and present at the new one (${files.join(', ')}); not missing: sync --apply records the new path, or the old record stays until then`,
+  factoryFilesMissing: (files: string[]) => `The factory reads ${files.length === 1 ? 'a file' : `${files.length} files`} this repository does not carry (${files.join(', ')}). Run: construct sync --apply`,
   syncApplyRefused: 'Left to you',
   syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
   syncApplyNothingWritten: 'Nothing written: the tree already carries what the construct owns.',
