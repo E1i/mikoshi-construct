@@ -356,16 +356,23 @@ export function ensureChromium(chromium, { exists = existsSync, install = instal
   install()
 }
 
+export const SERVICE_WORKER_NETWORK_OFF = 'PLAYWRIGHT_DISABLE_SERVICE_WORKER_NETWORK'
+
+export function routeServiceWorkers(env, contextOptions) {
+  delete env[SERVICE_WORKER_NETWORK_OFF]
+  return { ...contextOptions, serviceWorkers: 'allow' }
+}
+
 async function launch(options, profile, extension) {
   const chromium = await loadChromium()
   ensureChromium(chromium)
   const loading = extension === undefined ? [] : [`--disable-extensions-except=${extension.directory}`, `--load-extension=${extension.directory}`]
   try {
-    return await chromium.launchPersistentContext(profile, {
+    return await chromium.launchPersistentContext(profile, routeServiceWorkers(process.env, {
       channel: 'chromium',
       headless: !options.headed,
       args: [...loading, '--remote-debugging-port=0'],
-    })
+    }))
   }
   catch (error) {
     const missing = /Executable doesn't exist/.test(String(error.message))

@@ -17,11 +17,13 @@ interface RoutedContext {
 interface BrowserLab {
   parseArguments: (argv: string[]) => { route: { pattern: string, file: string }[] }
   routeRequests: (context: RoutedContext, routes: { pattern: string, file: string }[]) => Promise<void>
+  routeServiceWorkers: (env: Record<string, string | undefined>, contextOptions: Record<string, unknown>) => Record<string, unknown>
+  SERVICE_WORKER_NETWORK_OFF: string
   UsageError: new () => Error
   Unobserved: new () => Error
 }
 
-const { parseArguments, routeRequests, UsageError, Unobserved } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
+const { parseArguments, routeRequests, routeServiceWorkers, SERVICE_WORKER_NETWORK_OFF, UsageError, Unobserved } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
 
 const workspace = mkdtempSync(path.join(tmpdir(), 'browser-lab-route-'))
 const CONFIG = path.join(workspace, 'config.json')
@@ -46,6 +48,9 @@ describe('--route', () => {
     await handlers[0]!.handler({ fulfill: answer => void answers.push(answer) })
     expect(handlers.map(({ pattern }) => pattern)).toEqual(['**/config'])
     expect(answers).toEqual([{ path: CONFIG }])
+    const env: Record<string, string | undefined> = { [SERVICE_WORKER_NETWORK_OFF]: '1', KEPT: 'yes' }
+    expect(routeServiceWorkers(env, { serviceWorkers: 'block', headless: true })).toEqual({ serviceWorkers: 'allow', headless: true })
+    expect(env).toEqual({ KEPT: 'yes' })
   })
 
   it.each([['info'], ['storage'], ['logs'], ['network'], ['popup'], ['options']])('%s takes --route', (command) => {
