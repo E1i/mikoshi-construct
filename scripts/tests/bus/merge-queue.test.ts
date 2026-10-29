@@ -278,7 +278,7 @@ describe('the merge worker', () => {
     recorded(bench, 'worker:review:reviewer-1')
     ownerPulls(bench, [
       { number: 980, files: ['scripts/ladder/approve.ts'] },
-      { number: 982, files: ['.claude/agents/review.md'] },
+      { number: 982, files: ['eslint.config.mjs'] },
     ])
     for (const pr of [980, 982])
       expect(shardUnderD82(bench, pr)).toBe(0)
@@ -292,19 +292,20 @@ describe('the merge worker', () => {
     bench.close()
   })
 
-  it('before its until, a shard --under D-N leaves security-invariants and a workflow the owner\'s, with policy.denied authority', async () => {
+  it('before its until, a shard --under D-N leaves security-invariants, a workflow and .claude/** the owner\'s, with policy.denied authority', async () => {
     const bench = delegatedBench()
     recorded(bench, 'worker:review:reviewer-1')
     ownerPulls(bench, [
       { number: 981, files: ['architecture/security-invariants.md'] },
       { number: 983, files: ['.github/workflows/ci.yml'] },
+      { number: 984, files: ['.claude/agents/review.md'] },
     ])
-    for (const pr of [981, 983])
+    for (const pr of [981, 983, 984])
       expect(shardUnderD82(bench, pr)).toBe(0)
     bench.tick()
 
     const worker = mergeNode(bench)
-    expect([await step(worker), await step(worker)]).toMatchObject([981, 983].map(() => ({ kind: 'denied', denial: { kind: 'authority', rule: 'no_shard_merge' }, next: 'withdrawn' })))
+    expect([await step(worker), await step(worker), await step(worker)]).toMatchObject([981, 983, 984].map(() => ({ kind: 'denied', denial: { kind: 'authority', rule: 'no_shard_merge' }, next: 'withdrawn' })))
     expect(eventsOf(bench.db, MERGE_DONE)).toEqual([])
     expect(eventsOf(bench.db, SHARD_USED)).toEqual([])
     bench.close()
