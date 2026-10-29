@@ -743,5 +743,10 @@
     "target": "scripts/construct/daemon.workflow",
     "sha256": "97dcfde27db00aeb9d87e10797a0687f91c0004dfda884bf21e0c1aa75b636a8",
     "date": "2026-10-29"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "be682de6ac706d90d1d261454efa77591b2b33e50d38dcc07a686c1c8d0fed03",
+    "date": "2026-10-29"
   }
 ]
