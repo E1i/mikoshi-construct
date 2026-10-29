@@ -105,6 +105,23 @@ differences:
       This repository runs its window hooks from its own .claude/hooks scripts, registered in its own
       .claude/settings.json, not from the carrier init writes; the carrier's identity with the attach
       window hook is held by tests/init.test.ts, not by a copy at the root.
+  - path: scripts/construct/eddies.mjs
+    kind: absent-at-root
+    reason: >-
+      This repository runs its budget guard from .claude/hooks/eddies.mjs, which also writes the
+      factory's handoff lines; the template ships the guard without the factory-only commands, and
+      tests/parity-settings.test.ts holds that it names none of them.
+  - path: scripts/construct/eddies-measure.mjs
+    kind: absent-at-root
+    reason: >-
+      This repository measures spend from .claude/hooks/eddies-measure.mjs; the carrier init writes is
+      byte-identical to it, which tests/parity-settings.test.ts holds, not a copy at the root.
+  - path: scripts/construct/window-heartbeat.mjs
+    kind: absent-at-root
+    reason: >-
+      This repository writes window.heartbeat from scripts/window/window-heartbeat.ts, run by its own
+      window scripts; a generated repository writes window.heartbeat through the carrier init
+      writes, which tests/parity-settings.test.ts runs against a bus.
   - path: .claude/agents/brief.md
     kind: skipped-at-init
     reason: >-
