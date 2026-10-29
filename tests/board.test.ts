@@ -225,6 +225,7 @@ describe('construct board', () => {
     expect(lines).toEqual([
       'construct 0.44.0',
       'Flow',
+      'plan not registered · window runs: pnpm bus:request plan --op open --plan <id> --title <text> --goal <text> --file <absolute plan file>',
       'planned (1): #1',
       'in work (1): #2',
       'in review (1): #3',
