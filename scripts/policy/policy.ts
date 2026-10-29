@@ -241,7 +241,7 @@ export const WITNESS_REASON = 'witness'
 export const GREEN = 'green'
 export const RED = 'red'
 
-const RED_ON_THE_BASE = /\bred on (?:main|the base)\b/
+const RED_ON_THE_BASE = /\b(?:red on (?:main|the base)|fails on (?:main|the base|base))\b/
 const BACKTICKED = /`([^`]+)`/g
 
 export type WitnessVerdict = typeof GREEN | typeof RED

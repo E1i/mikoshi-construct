@@ -3,7 +3,7 @@ import type { HeavyRun } from '../core/identifiers.js'
 import type { Lease } from '../core/lease.js'
 import { completeTask, expireLeases, leaseWhileFree, RENEW_MS, renewLease, StaleLease } from '../core/lease.js'
 
-export const SLOTS = { quality: 2, vitest: 2, review: 3, answer: 3, merge: 1, update: 1, close: 1, launch: 1, witness: 1 } as const
+export const SLOTS = { quality: 2, vitest: 2, review: 3, answer: 3, merge: 1, update: 1, close: 1, launch: 3, witness: 1 } as const
 export type SlotKind = keyof typeof SLOTS
 export const SLOTS_VARIABLE_PREFIX = 'CONSTRUCT_BUS_SLOTS_'
 export const SLOT_POLL_MS = 5_000
