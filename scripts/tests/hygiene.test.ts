@@ -13,7 +13,7 @@ describe('hygiene of the package and the bus processes', () => {
   it('package.json builds dist on pack, so npm pack never ships a stale build', () => {
     const scripts = (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
 
-    expect(scripts.prepack).toBe('pnpm build')
+    expect(scripts.prepack).toBe('pnpm --silent build --silent')
     expect(scripts.prepublishOnly).toBeUndefined()
   })
 
