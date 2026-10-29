@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ATTACH_RECORD_FILE, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { engramRules } from '../src/commands/attach/settings.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { engramFile } from '../src/model/discovery.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -53,7 +53,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     expect(allowOf(dir)).toEqual(['Read', 'Edit'].map(tool => `${tool}(/${engramDirectory}/**)`))
     expect(allowOf(dir)).toEqual(engramRules(dir, home()))
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(() => readFileSync(path.join(dir, SETTINGS_FILE))).toThrow()
   })
 
@@ -67,7 +67,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     expect(allowOf(dir)).toHaveLength(3)
     expect(allowOf(dir)[0]).toBe('Bash(ls)')
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     const after = JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as unknown
     expect(after).toEqual(owner)
   })
@@ -83,7 +83,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     expect(allowOf(dir)).toEqual(['Bash(ls)', alreadyAllowed, ...missing])
     dropOriginalCopy(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(allowOf(dir)).toEqual(owner.permissions.allow)
   })
 
@@ -97,7 +97,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     expect(allowOf(dir)).toEqual(owner.permissions.allow)
     dropOriginalCopy(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(allowOf(dir)).toEqual(owner.permissions.allow)
   })
 
@@ -111,7 +111,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     expect(allowOf(dir)).toHaveLength(2)
     dropOriginalCopy(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(owner)
   })
 
@@ -125,7 +125,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     expect(allowOf(dir)).toHaveLength(2)
     dropOriginalCopy(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(owner)
   })
 
@@ -141,7 +141,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
     expect(allowOf(dir)).toHaveLength(2)
     dropOriginalCopy(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(owner)
   })
 
@@ -156,7 +156,7 @@ describe('attach allows the repository\'s own Engram directory', () => {
       delete hook.engram
     })
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     const after = JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as { hooks?: unknown, model: string }
     expect(after.model).toBe('opus')
     expect(after.hooks).toBeUndefined()

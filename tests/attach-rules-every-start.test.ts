@@ -6,7 +6,7 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { engramRules, WINDOW_ENTRIES } from '../src/commands/attach/settings.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { ATTACH_WINDOW_HOOKS } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -79,6 +79,6 @@ describe('the engram permissions hold no Write rule', () => {
     expect(settings.permissions.allow.some(rule => rule.startsWith('Write('))).toBe(false)
     expect(settings.permissions.allow).toEqual(engramRules(dir, home()))
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
   })
 })

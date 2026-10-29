@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readAttachRecord, runAttach } from '../src/commands/attach/index.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { ATTACH_WINDOW_HOOKS } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -53,7 +53,7 @@ describe('attach carries the window hooks and rules with push none', () => {
     const dir = fixture()
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(existsSync(path.join(dir, ATTACH_WINDOW_HOOKS.rules))).toBe(false)
     expect(existsSync(path.join(dir, ATTACH_WINDOW_HOOKS.target))).toBe(false)

@@ -95,9 +95,10 @@ describe.concurrent('every command exits with the code it exits with today, as a
   })
 
   it('detach and its alias: detached 0, nothing attached 0, refused 1', async () => {
-    expect(await run((await attached()), 'detach')).toBe(0)
-    expect(await run((await attached()), 'jack-out')).toBe(0)
+    expect(await run((await attached()), 'detach', '--yes')).toBe(0)
+    expect(await run((await attached()), 'jack-out', '--yes')).toBe(0)
     expect(await run(world(), 'detach')).toBe(0)
+    expect(await run((await attached()), 'detach')).toBe(1)
     const orphan = (await attached())
     rmSync(path.join(orphan.dir, '.construct/attach.json'))
     expect(await run(orphan, 'detach')).toBe(1)

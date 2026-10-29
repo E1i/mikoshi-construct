@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runAttach } from '../src/commands/attach/index.js'
-import { readTrackedPaths, runDetach } from '../src/commands/detach/index.js'
+import { askDetach, readTrackedPaths } from '../src/commands/detach/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -168,7 +168,7 @@ describe('an index detach cannot read is a refusal with its own reason', () => {
       const before = listing(dir)
       const { ui: plain, output } = capturing()
 
-      const result = runDetach(plain, { dir })
+      const result = await askDetach(plain, { dir, yes: true })
 
       expect(result.status).toBe('refused')
       expect(result.refusal).toBe(unreadable.reason)

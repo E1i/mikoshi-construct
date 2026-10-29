@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { ATTACH_RECORD_FILE } from '../src/commands/attach/record.js'
 import { BROWSER_LAB_EXCLUDED_COMMAND, isSettingsHook, readSettings } from '../src/commands/attach/settings.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -46,7 +46,7 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
   it('returns a settings.local.json that did not exist to not existing', async () => {
     const dir = fixture()
     await attach(dir)
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(() => readFileSync(path.join(dir, SETTINGS_FILE))).toThrow()
   })
 
@@ -57,7 +57,7 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
     writeFileSync(path.join(dir, SETTINGS_FILE), original)
     await attach(dir)
     expect(excludedOf(dir)).toEqual([BROWSER_LAB_EXCLUDED_COMMAND])
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(original)
   })
 
@@ -68,7 +68,7 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(held))
     await attach(dir)
     expect(excludedOf(dir)).toEqual(['docker *', BROWSER_LAB_EXCLUDED_COMMAND])
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(held)
   })
 
@@ -79,7 +79,7 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(held))
     await attach(dir)
     expect(excludedOf(dir)).toEqual([BROWSER_LAB_EXCLUDED_COMMAND])
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(held)
   })
 })

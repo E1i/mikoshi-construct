@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runAtlas } from '../src/atlas/index.js'
 import { runAttach } from '../src/commands/attach/index.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { ATTACH_CARRIERS } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -77,7 +77,7 @@ describe('the Atlas in an attached repository', () => {
   it('detach removes the atlas carriers', async () => {
     const dir = foreignRepository()
     await runAttach(ui, { dir, harness: 'node --version', requiredCheck: 'gate', yes: true })
-    const result = runDetach(ui, { dir })
+    const result = await askDetach(ui, { dir, yes: true })
     expect(result.status).toBe('done')
     for (const target of ATLAS_CARRIERS)
       expect(existsSync(path.join(dir, target)), target).toBe(false)
