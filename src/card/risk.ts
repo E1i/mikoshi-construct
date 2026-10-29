@@ -44,6 +44,7 @@ const CORE: readonly (readonly [string, string])[] = [
   ['templates/ai/claude/scripts/construct', LADDER],
   ['templates/attach', FOREIGN_WRITE],
   ['templates/ai', FOREIGN_WRITE],
+  ['src/materialize', FOREIGN_WRITE],
   ['src/sync', FOREIGN_WRITE],
   ['src/manifest.ts', FOREIGN_WRITE],
   ['src/presets', CARRIERS],
