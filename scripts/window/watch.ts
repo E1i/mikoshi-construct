@@ -93,7 +93,7 @@ export interface WatchDeps {
   deniedUpTo: (id: number) => BusEvent[]
   windowPrs: () => ReadonlySet<number>
   ownRequest: (request: number) => boolean
-  observedHeads: (pr: number) => string[]
+  observedHeads: (pr: number, beforeId: number) => string[]
   stalls: () => CardActivity[]
   stuck: () => StuckPr[]
   wokenStalls: () => ReadonlyMap<number, number>
@@ -322,7 +322,7 @@ function sessionLeaseLapsed(payload: Record<string, unknown>): boolean {
 export function ofSupersededHead(event: BusEvent, deps: Pick<WatchDeps, 'observedHeads'>): boolean {
   if (!HEAD_BOUND_EVENTS.includes(event.type) || event.pr === null || event.head === null)
     return false
-  const heads = deps.observedHeads(event.pr)
+  const heads = deps.observedHeads(event.pr, event.id)
   const current = heads.at(-1)
   return current !== undefined && current !== event.head && heads.includes(event.head)
 }
@@ -536,10 +536,10 @@ function deniedUpTo(bus: string, id: number): BusEvent[] {
   }
 }
 
-function observedHeads(bus: string, pr: number): string[] {
+function observedHeads(bus: string, pr: number, beforeId: number): string[] {
   const db = openBus(bus)
   try {
-    const rows = db.prepare('SELECT head FROM events WHERE type = ? AND pr = ? AND head IS NOT NULL GROUP BY head ORDER BY MAX(id)').all(PR_OBSERVED, pr) as unknown as Array<{ head: string }>
+    const rows = db.prepare('SELECT head FROM events WHERE type = ? AND pr = ? AND id < ? AND head IS NOT NULL GROUP BY head ORDER BY MAX(id)').all(PR_OBSERVED, pr, beforeId) as unknown as Array<{ head: string }>
     return rows.map(row => row.head)
   }
   finally {
@@ -639,7 +639,7 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     deniedUpTo: id => deniedUpTo(bus, id),
     windowPrs: () => windowPrs(bus),
     ownRequest: request => ownRequest(bus, actor, request),
-    observedHeads: pr => observedHeads(bus, pr),
+    observedHeads: (pr, beforeId) => observedHeads(bus, pr, beforeId),
     stalls: () => stalls(bus, Date.now()),
     stuck: () => stuckPrs(bus),
     wokenStalls: () => readWokenStalls(woken),
