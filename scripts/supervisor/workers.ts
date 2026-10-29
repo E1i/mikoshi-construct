@@ -25,7 +25,7 @@ export const MODE_WORKERS: Readonly<Record<FactoryMode, readonly BusWorker[]>> =
 
 export const MODE_LIVE: Readonly<Record<FactoryMode, readonly BusWorker[]>> = {
   'window': ['review', 'launch', 'answer', 'witness'],
-  'ghost-protocol': [],
+  'ghost-protocol': WORKERS,
 }
 
 export function isFactoryMode(name: string): name is FactoryMode {
@@ -101,7 +101,7 @@ function writeWorkers(busDir: string, on: BusWorker[], live: BusWorker[], until:
 export function switchMode(busDir: string, mode: FactoryMode, until: string | null = null, seededLive: readonly BusWorker[] = []): BusWorker[] {
   const on = WORKERS.filter(worker => MODE_WORKERS[mode].includes(worker))
   const live = liveWorkers(busDir)
-  writeWorkers(busDir, on, WORKERS.filter(worker => live.includes(worker) || seededLive.includes(worker)), until)
+  writeWorkers(busDir, on, on.filter(worker => live.includes(worker) || seededLive.includes(worker)), until)
   return on
 }
 

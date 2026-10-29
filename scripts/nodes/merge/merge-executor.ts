@@ -153,9 +153,13 @@ export class MergeExecutor {
   }
 
   private askForAllowLive(): void {
-    if (liveDecisionOf(decisionsInForceAt(this.parts.db, this.parts.clock()), MERGE_QUEUE) !== null)
+    if (liveDecisionOf(decisionsInForceAt(this.parts.db, this.parts.clock()), MERGE_QUEUE) !== null || this.underTheOwnersWindowShard())
       return
     openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
+  }
+
+  private underTheOwnersWindowShard(): boolean {
+    return activeWindowShards(this.parts.db, this.parts.clock()).some(shard => shard.scope === MERGE_QUEUE)
   }
 
   private askTheOwnerToMerge(lease: Lease, denial: MergeDenial): void {
