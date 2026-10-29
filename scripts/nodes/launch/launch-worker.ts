@@ -28,6 +28,7 @@ import { CARD_BODIES, cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
+import { handoffDirOf } from '../../core/handoff-dir.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { ghostLinesText } from '../../core/journal.js'
 import { failTask } from '../../core/lease.js'
@@ -36,7 +37,6 @@ import { eddiesJournalPath, reportPath } from '../../core/places.js'
 import { COMPLETED, generationField, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { storedByKey } from '../../core/stored.js'
-import { handoffDir } from '../../intake/import.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../../ladder/ladder.js'
@@ -229,6 +229,8 @@ const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITT
 
 export const AMENDED_AFTER_START = 'amended-after-start'
 
+export const WITHDRAWN_TO_CHEAP = 'withdrawn-to-cheap'
+
 const BODY_AMENDED_SINCE = `
   SELECT b.text_sha AS amended, (SELECT json_extract(e.payload, '$.textSha') FROM events AS e
     WHERE e.type = '${CARD_ADMITTED}' AND e.legacy = 0 AND e.card_id = b.card_id AND e.id < ? AND json_valid(e.payload) AND json_type(e.payload, '$.textSha') = 'text'
@@ -284,6 +286,11 @@ export class LaunchNode extends Node<LaunchStep> {
       const card = startedCardOf(start.payload)
       if (card === null)
         continue
+      if (this.movedToCheap(start, card)) {
+        if (this.withdrawFromLadder(start, card))
+          stopped.push(start.card_id)
+        continue
+      }
       if (this.endedWithoutPullRequest(start, card)) {
         if (this.db.prepare(STOPPED_SINCE).get(start.card_id, start.id) === undefined && this.stopEnded(start, card))
           stopped.push(start.card_id)
@@ -413,6 +420,34 @@ export class LaunchNode extends Node<LaunchStep> {
     const detail = `eddies-warn: card #${start.card_id} session ${card.session} ended at the Eddies warning; the shift committed, pushed and opened its pull request from ${card.worktree} before the stop`
     appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: false, detail }, legacy: false })
     return true
+  }
+
+  private movedToCheap(start: RunningStart, card: StartedCard): boolean {
+    if (card.contour !== 'ladder')
+      return false
+    const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
+    return admitted !== undefined && (JSON.parse(admitted.payload) as Record<string, unknown>).contour === 'cheap'
+  }
+
+  private withdrawFromLadder(start: RunningStart, card: StartedCard): boolean {
+    if (this.sessionProcess(card) === 'live')
+      this.starters.ladder?.stop(card)
+    if (this.sessionProcess(card) !== 'gone')
+      return false
+    const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string }
+    const { lane, decision, contour, depends } = JSON.parse(admitted.payload) as Record<string, unknown>
+    const detail = `${WITHDRAWN_TO_CHEAP}: card #${start.card_id} was moved to cheap; its ladder session ${card.session} at step ${card.step ?? '-'} is withdrawn and the card queues again on the cheap path`
+    return inTransaction(this.db, () => {
+      const ts = this.ts()
+      const dedupe = `${WITHDRAWN_TO_CHEAP}:${start.dedupe_key}`
+      if (!appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${dedupe}`, payload: { reason: 'fault', code: WITHDRAWN_TO_CHEAP, detail }, legacy: false }))
+        return false
+      const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
+      if (task?.state === COMPLETED)
+        this.supersedeTheStoppedLaunch(ts, start.card_id, task)
+      appendEvent(this.db, { ts, type: CARD_ADMITTED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${dedupe}`, payload: { lane, decision, contour, depends, admission: dedupe }, legacy: false })
+      return true
+    })
   }
 
   private waitForApproval(start: RunningStart, card: StartedCard): boolean {
@@ -719,7 +754,8 @@ export function busStarterPorts(busPath: string, repo: string, env: NodeJS.Proce
   return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath)
 }
 
-export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS.ProcessEnv, busPath: string): LadderSteps {
+export function handoffLadderSteps(repo: string, env: NodeJS.ProcessEnv, busPath: string, home: string = os.homedir()): LadderSteps {
+  const handoffDir = handoffDirOf(env, home, repo)
   const readIfThere = (file: string): string | null => existsSync(file) ? readFileSync(file, 'utf8') : null
   return {
     stepOf: task => ladderStep({ journal: ghostLinesText(busPath), brief: readIfThere(briefPathOf(handoffDir, task.card)) }, task.card),
@@ -758,7 +794,7 @@ async function main(): Promise<number> {
   const header = readFileSync(HEADER_FILE, 'utf8')
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
-  const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(handoffDir(env), process.cwd(), env, busPath))
+  const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, handoffLadderSteps(process.cwd(), env, busPath))
   return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
 }
 

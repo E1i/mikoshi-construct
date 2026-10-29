@@ -140,7 +140,7 @@ describe('intake fact check', () => {
     for (const text of [
       'corrected: number — #12 → #13 — #12 is taken by a pull request or issue listed in --taken; numbers are assigned by construct intake',
       'corrected: touches — src/command/sync/** → src/commands/sync/** — \'src/command/sync\' does not exist; \'src/commands/sync\' is the only path named \'sync\'',
-      'corrected: contour — fast → ladder — \'fast\' is not one of cheap, ladder; ladder is the path with a brief and witnesses',
+      'corrected: contour — fast → cheap — \'fast\' is not one of cheap, ladder; every card is cheap unless the owner sends it to the ladder',
     ]) {
       expect(first).toContain(text)
       expect(output).toContain(text)
@@ -313,7 +313,7 @@ describe('intake fact check', () => {
     expect(checkDraft([draftCard({ kind: 'probe', decision: 'owner' })], [2], facts())[0]!.decision).toBe('none')
     expect(checkDraft([draftCard({ kind: 'implement', decision: 'none' })], [2], facts())[0]!.decision).toBe('owner')
     for (const contour of CONTOURS)
-      expect(checkDraft([draftCard({ contour })], [2], facts())[0]!.corrections).toEqual([])
+      expect(checkDraft([draftCard({ contour, task: `${TASK}\nladder: owner s337 — two cheap falls, #1 lint and #2 a red witness` })], [2], facts())[0]!.corrections).toEqual([])
     expect(checkDraft([draftCard({ contour: 'fast' })], [2], facts())[0]!.contour).toBe(DEFAULT_CONTOUR)
     const untouched = checkDraft([draftCard({ kind: 'fix', decision: 'owner' })], [2], facts())[0]!
     expect(untouched.decision).toBe('owner')

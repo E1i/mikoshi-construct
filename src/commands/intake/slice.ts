@@ -41,8 +41,6 @@ const SLICE_NAME_INFIX = '-slice-'
 function defaulted(card: DraftCard): { contour: string, decision: string, unclear: UnclearField[] } {
   const unclear = [...card.unclear]
   const contour = card.contour ?? DEFAULT_CONTOUR
-  if (card.contour === undefined)
-    unclear.push({ field: 'contour', reason: `not stated in the retelling; set to ${DEFAULT_CONTOUR}, the path with a brief and witnesses` })
   let decision = card.decision
   if (decision === undefined && card.kind === 'probe')
     decision = PROBE_DECISION
