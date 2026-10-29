@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, PR_CLOSED, PR_OBSERVED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
@@ -63,11 +63,25 @@ class Bench {
     return this
   }
 
-  merge(id: number): this {
+  stop(id: number): this {
+    this.append(CARD_STOPPED, id, null, `${CARD_STOPPED}:${id}`, { reason: 'question.agent' })
+    return this
+  }
+
+  open(id: number): this {
     const pr = id + 1000
     this.append(PR_OBSERVED, id, pr, `${PR_OBSERVED}:${pr}`, { card_id: id, base: 'main', head: HEAD, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }, HEAD)
-    this.append(PR_CLOSED, id, pr, `${PR_CLOSED}:${pr}`, { merged: true })
     return this
+  }
+
+  close(id: number, merged: boolean): this {
+    const pr = id + 1000
+    this.append(PR_CLOSED, id, pr, `${PR_CLOSED}:${pr}`, { merged })
+    return this
+  }
+
+  merge(id: number): this {
+    return this.open(id).close(id, true)
   }
 
   lay(): this {
@@ -134,5 +148,23 @@ describe('shared touches across lanes', () => {
     expect(bench.launchable()).toEqual([3])
     bench.start(3)
     expect(bench.launchable()).toEqual([])
+  })
+})
+
+describe('an open pull request holds its lane and touches', () => {
+  it('a card after a card whose pull request is open does not launch while that pull request is open', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').admit(2, 'src/a.ts')
+    expect([bench.lane(1), bench.lane(2)]).toEqual(['lane-1', 'lane-1'])
+    bench.start(1).open(1).stop(1)
+    expect(bench.launchable()).toEqual([])
+    bench.close(1, false)
+    expect(bench.launchable()).toEqual([2])
+  })
+
+  it('a card sharing touches on another lane waits for the open pull request too', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).open(1).stop(1).admit(2, 'src/a.ts').move(2, 'lane-2')
+    expect(bench.launchable()).toEqual([])
+    bench.close(1, true)
+    expect(bench.launchable()).toEqual([2])
   })
 })

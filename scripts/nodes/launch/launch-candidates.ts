@@ -295,11 +295,12 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const taken: ShiftTask[] = []
   for (const life of lives.values()) {
     const running = runs(life) && !merged.has(life.cardId) && !ended.has(life.cardId)
+    const holds = running || launching.has(life.cardId) || openPrs.has(life.cardId)
     if (life.lane !== null && stalled.has(life.cardId))
       heldByStalls.set(life.lane, [...(heldByStalls.get(life.lane) ?? []), life])
-    else if (life.lane !== null && (running || launching.has(life.cardId)))
+    else if (life.lane !== null && holds)
       busy.add(life.lane)
-    if ((running || launching.has(life.cardId)) && life.task !== null)
+    if (holds && life.task !== null)
       taken.push(life.task)
   }
   const chosen: LaunchCandidate[] = []
