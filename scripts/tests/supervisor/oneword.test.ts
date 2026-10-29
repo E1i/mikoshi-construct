@@ -1,19 +1,25 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ModeParts } from '../../supervisor/start.js'
+import type { MergeBench } from '../bus/merge-bench.js'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decisionsFileOf } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
+import { OWNER_WAIT_OPENED, REVIEW_RECORDED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
 import { LIVE_FLAG } from '../../core/node.js'
 import { reduce } from '../../core/reducer.js'
+import { MERGE_QUEUE } from '../../nodes/merge/merge-executor.js'
+import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
 import { decisionsIntake } from '../../policy/decisions-import.js'
-import { liveDecisionOf } from '../../policy/live-decision.js'
-import { activeWindowShards, decisionsInForceAt } from '../../policy/shards.js'
+import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
+import { activeWindowShards, decisionsInForceAt, windowShardEnded } from '../../policy/shards.js'
 import { busDecisionsAdder, busDecisionsText, ghostProtocolWord, runMode, startCommandOf } from '../../supervisor/start.js'
 import { liveWorkers, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches } from '../../supervisor/workers.js'
+import { sha } from '../bus/github-fake.js'
+import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const NOW = new Date('2026-10-29T12:00:00.000Z')
 const HOURS = '8'
@@ -159,5 +165,57 @@ describe('oneword: the ghost-protocol word is the only owner word', () => {
     expect(result.stderr.join('\n')).toContain('allow-live merge was not written')
     expect(result.stderr.join('\n')).toContain('allow-live update was not written')
     expect(liveWorkers(parts.busDir)).toEqual(expect.arrayContaining(['merge', 'update']))
+  })
+})
+
+describe('oneword: the merge node asks for no second word under the owner\'s shard', () => {
+  const merges: MergeBench[] = []
+
+  afterEach(() => {
+    for (const made of merges.splice(0))
+      made.close()
+  })
+
+  function passedPullRequest(): MergeBench {
+    const made = mergeBench()
+    merges.push(made)
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:live`, payload: { head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
+    return made
+  }
+
+  function windowShard(made: MergeBench, ended: boolean): void {
+    const ts = made.clock.now().toISOString()
+    const until = new Date(Date.parse(ts) + Number(HOURS) * 3_600_000).toISOString()
+    appendEvent(made.db, { ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:window-1`, payload: { id: 'window-1', by: 'owner', run: null, window: true, scope: MERGE_QUEUE, until }, legacy: false })
+    if (ended)
+      appendEvent(made.db, windowShardEnded(SHARD_REVOKED, 'policy', 'window-1', made.clock.now()))
+  }
+
+  async function liveMergeRounds(made: MergeBench): Promise<void> {
+    made.gitHub.open({ number: 970, review: 'success' })
+    made.tick()
+    const node = new MergeNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: {} })
+    for (let round = 0; round < 3; round += 1) {
+      const controller = new AbortController()
+      await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    }
+  }
+
+  it('a live merge under the owner\'s ghost-protocol shard opens no allow-live wait', async () => {
+    const made = passedPullRequest()
+    windowShard(made, false)
+
+    await liveMergeRounds(made)
+
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED).filter(wait => wait.command === allowLiveCommand(MERGE_QUEUE))).toEqual([])
+  })
+
+  it('a live merge after the shard is revoked asks for allow-live again', async () => {
+    const made = passedPullRequest()
+    windowShard(made, true)
+
+    await liveMergeRounds(made)
+
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual(expect.arrayContaining([expect.objectContaining({ need: 'command', command: allowLiveCommand(MERGE_QUEUE) })]))
   })
 })
