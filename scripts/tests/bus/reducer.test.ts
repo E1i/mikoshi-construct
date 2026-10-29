@@ -9,7 +9,7 @@ import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } fro
 import { CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { cardIdOfDescription } from '../../core/identifiers.js'
 import { ghostLines } from '../../core/journal.js'
-import { proofMechanismWaitText } from '../../core/queue.js'
+import { reentryLimitWaitText } from '../../core/queue.js'
 import { DIRTY_ROWS, projectionDump, reduce, REDUCE_BATCH, reducedThrough, SNAPSHOT } from '../../core/reducer.js'
 import { WATERMARKS } from '../../core/watermark.js'
 import { recordFall } from '../../ladder/supervise.js'
@@ -684,9 +684,9 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 
-  it('a check the proof mechanism wait is opened, not rejected', () => {
+  it('the round limit wait of red re-entries is opened, not rejected', () => {
     const db = newBus()
-    const id = openOwnerWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'decision', text: proofMechanismWaitText(1290, 904, HEAD), card: 1290, pr: 904 })
+    const id = openOwnerWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'decision', text: reentryLimitWaitText(1290, 904), card: 1290, pr: 904 })
     expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
     expect(waits(db)).toEqual([{ id, need: 'decision', command: null, card_id: 1290, pr: 904, state: 'open', answer: null }])
     db.close()
