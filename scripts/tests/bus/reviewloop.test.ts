@@ -269,6 +269,66 @@ describe('the review loop', () => {
     made.close()
   })
 
+  function redCiAnswerBench(cardId: number, pr: number, review: { review?: 'failure' } = {}): { made: ReturnType<typeof mergeBench>, prompts: string[], logsRead: string[], answer: () => Promise<AnswerOutcome> } {
+    const made = mergeBench()
+    const worktree = scratch('bus-red-ci-tree-')
+    const prompts: string[] = []
+    const logsRead: string[] = []
+    const heads = [sha('a'), sha('e')]
+    const answerer = claudeAnswerer(scratch('bus-red-ci-answers-'), {
+      cardText: () => null,
+      available: () => true,
+      remoteHead: () => heads.shift() ?? null,
+      spawn: async (run) => {
+        prompts.push(run.argv.at(-1)!)
+        return 0
+      },
+      newSession: () => 'new-session-1',
+      publish: () => {},
+      ciLog: (_card, head) => {
+        logsRead.push(head)
+        return 'FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2'
+      },
+    })
+    const cardTrees: CardTreeTools = { home: worktree, exists: existsSync, branchOf: () => `feat/card-${cardId}`, recreate: () => {}, bringTo: () => {} }
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}`, payload: { session: 'card-session-1', worktree, branch: `feat/card-${cardId}`, base: sha('1') }, legacy: false })
+    made.gitHub.open({ number: pr, required: 'failure', failed: ['vitest 4/4'], ...review })
+    const answer = async (): Promise<AnswerOutcome> => {
+      made.tick()
+      made.tick()
+      const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+      return executor.answer(lease)
+    }
+    return { made, prompts, logsRead, answer }
+  }
+
+  it('an answer on a PR with review changes and a red CI carries the findings and the failed-job log', async () => {
+    const { made, prompts, logsRead, answer } = redCiAnswerBench(1209, 1109, { review: 'failure' })
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1209, pr: 1109, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:1109`, payload: { head: sha('a'), verdict: 'changes', reviewer_session: 'reviewer-1', findings: ['the source is one kind'] }, legacy: false })
+
+    expect(await answer()).toMatchObject({ kind: 'answered' })
+    expect(logsRead).toEqual([sha('a')])
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('- the source is one kind')
+    expect(prompts[0]).toContain('The failed checks: vitest 4/4.')
+    expect(prompts[0]).toContain('FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2')
+    made.close()
+  })
+
+  it('an answer on a PR with a red witness and a red CI carries the witness and the failed-job log', async () => {
+    const { made, prompts, logsRead, answer } = redCiAnswerBench(1210, 1110)
+    made.tick()
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:worker-1', cardId: 1210, pr: 1110, head: sha('a'), dedupeKey: `${WITNESS_RECORDED}:red-1110`, payload: { head: sha('a'), base: sha('1'), cardBody: 'x', verdict: 'red', detail: 'W1 exited 1' }, legacy: false })
+
+    expect(await answer()).toMatchObject({ kind: 'answered' })
+    expect(logsRead).toEqual([sha('a')])
+    expect(prompts[0]).toContain(`the card's witness is red on ${sha('a')}: W1 exited 1`)
+    expect(prompts[0]).toContain('The failed checks: vitest 4/4.')
+    expect(prompts[0]).toContain('FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2')
+    made.close()
+  })
+
   it('a spent round limit asks the owner and never merges', () => {
     const made = mergeBench()
     made.gitHub.open({ number: 1062, review: 'success' })

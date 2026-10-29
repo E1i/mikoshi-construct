@@ -738,5 +738,10 @@
     "target": ".claude/commands/plan.md",
     "sha256": "eced60a4010c84288e0853ff2afc8f625badba423a692dc6e19806b9fc41f60d",
     "date": "2026-10-29"
+  },
+  {
+    "target": "scripts/construct/daemon.workflow",
+    "sha256": "97dcfde27db00aeb9d87e10797a0687f91c0004dfda884bf21e0c1aa75b636a8",
+    "date": "2026-10-29"
   }
 ]

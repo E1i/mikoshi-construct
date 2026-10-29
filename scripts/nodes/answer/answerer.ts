@@ -183,20 +183,30 @@ function ciLogLines(ciLog: string | null | undefined): string[] {
   return [`The failed-job log the bus read${cut}:`, ciLog.slice(0, DIFF_PROMPT_LIMIT), 'Fix every failure it shows.']
 }
 
+function redCiLines(failedChecks: string[], ciLog: string | null | undefined): string[] {
+  return [
+    failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name.' : `CI is red on this head. The failed checks: ${failedChecks.join(', ')}.`,
+    ...ciLogLines(ciLog),
+  ]
+}
+
+function failedChecksOf(source: AnswerSource): string[] | null {
+  if (source.kind === 'ci')
+    return source.failedChecks
+  return source.kind === 'changes' ? source.failedChecks ?? null : null
+}
+
 function sourceLines(source: AnswerSource, ciLog?: string | null): string[] {
   if (source.kind === 'changes') {
     return [
       source.findings.length === 0 ? 'The review asked for changes and recorded no findings on the bus; read the review on the pull request.' : 'The review asked for changes. Its findings:',
       ...source.findings.map(finding => `- ${finding}`),
       'Address every finding.',
+      ...(source.failedChecks === undefined ? [] : redCiLines(source.failedChecks, ciLog)),
     ]
   }
-  if (source.kind === 'ci') {
-    return [
-      source.failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name.' : `CI is red on this head. The failed checks: ${source.failedChecks.join(', ')}.`,
-      ...ciLogLines(ciLog),
-    ]
-  }
+  if (source.kind === 'ci')
+    return redCiLines(source.failedChecks, ciLog)
   return [`The card stopped with a question for the agent: ${source.detail}`, 'Answer it as the Operator role would and continue the card.']
 }
 
@@ -428,7 +438,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const cardBody = tools.cardText(request.lease.cardId)
     const gate = readShiftGate(card.worktree)
-    const ciLog = request.source.kind === 'ci' && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
+    const ciLog = failedChecksOf(request.source) !== null && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
     const prompt = answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog)
     const settings = settingsFlag(shiftSettings(card.worktree, gate, [ownerQuestion]))
     mkdirSync(dir, { recursive: true })

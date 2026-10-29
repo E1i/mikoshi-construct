@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { cardWitnessesOf } from '../../policy/policy.js'
 import { runOnTree, testTargetOf } from '../../ports/witnesses.js'
 import { realShell, withWorktree } from '../../ports/worktree.js'
 
@@ -141,5 +142,22 @@ describe('the witnesses on the base and the head', () => {
     expect(testTargetOf(`pnpm exec vitest run tests/a.test.ts -t 'a name'`)).toEqual({ file: 'tests/a.test.ts', name: 'a name' })
     expect(testTargetOf('pnpm exec vitest run tests/a.test.ts')).toEqual({ file: 'tests/a.test.ts', name: null })
     expect(testTargetOf('test -f done.txt')).toBeNull()
+  })
+})
+
+describe('a card witness that fails on base is read as acceptance', () => {
+  const COMMAND = 'pnpm exec vitest run tests/a.test.ts'
+  const cardWith = (item: string): string => `Witnesses:\n- ${item}\n`
+
+  it.each(['fails on base', 'fails on the base', 'fails on main'])('a witness that exits 0 on head and %s is acceptance', (phrase) => {
+    const item = `\`${COMMAND}\` exits 0 on head and ${phrase}`
+
+    expect(cardWitnessesOf(cardWith(item))).toEqual({ acceptance: [{ criterion: item, command: COMMAND }], invariants: [] })
+  })
+
+  it('a witness that names no failure on the base stays an invariant', () => {
+    const item = `\`${COMMAND}\` exits 0 on head and fails nowhere`
+
+    expect(cardWitnessesOf(cardWith(item))).toEqual({ acceptance: [], invariants: [{ criterion: item, command: COMMAND }] })
   })
 })

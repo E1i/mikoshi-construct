@@ -292,7 +292,7 @@ describe('the launch node', () => {
     admit(made, 970, 'lane-a')
     admit(made, 971, 'lane-b')
     made.tick()
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: { CONSTRUCT_BUS_SLOTS_LAUNCH: '1' }, isolation: sandboxed })
     expect(node.slots).toBe(1)
 
     await once(node)

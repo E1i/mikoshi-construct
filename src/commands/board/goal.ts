@@ -1,5 +1,5 @@
 import type { BusDb } from '../cost/bus.js'
-import { OPEN_PLAN, TERMINAL_LANES } from '../../../scripts/core/events.js'
+import { CARD_ADMITTED, CARD_MOVED, OPEN_PLAN, TERMINAL_LANES } from '../../../scripts/core/events.js'
 
 export const ITEM_STAGES = ['not_created', 'queued', 'in_progress', 'review', 'delivered'] as const
 const RECENT_HOURS = 24
@@ -35,6 +35,7 @@ interface CardRow {
   state: string | null
   pr_state: string | null
   queue: string | null
+  lane: string | null
   at: string | null
 }
 
@@ -50,8 +51,10 @@ interface ItemRow {
 
 const CARD_READINGS = `
   SELECT cards.card_id AS id, cards.state, prs.state AS pr_state, coalesce(merge.ts, own.ts) AS at,
-    (SELECT tasks.queue FROM tasks WHERE tasks.card_id = cards.card_id AND tasks.state IN ('queued', 'leased') ORDER BY tasks.id DESC LIMIT 1) AS queue
+    (SELECT tasks.queue FROM tasks WHERE tasks.card_id = cards.card_id AND tasks.state IN ('queued', 'leased') ORDER BY tasks.id DESC LIMIT 1) AS queue,
+    coalesce((SELECT json_extract(lane.payload, '$.lane') FROM events AS lane WHERE lane.legacy = 0 AND lane.type IN ('${CARD_ADMITTED}', '${CARD_MOVED}') AND lane.card_id = cards.card_id AND json_type(lane.payload, '$.lane') = 'text' ORDER BY lane.id DESC LIMIT 1), bodies.lane) AS lane
   FROM cards LEFT JOIN prs ON prs.pr = cards.pr
+    LEFT JOIN card_bodies AS bodies ON bodies.card_id = cards.card_id
     LEFT JOIN events AS own ON own.id = cards.event_id
     LEFT JOIN events AS merge ON merge.id = prs.event_id AND prs.state = '${MERGED}'
 `
@@ -59,7 +62,7 @@ const CARD_READINGS = `
 function markOf(row: CardRow): CardMark {
   if (row.state === MERGED || row.pr_state === MERGED)
     return 'delivered'
-  if (DROPPED_STATES.has(row.state ?? ''))
+  if (DROPPED_STATES.has(row.state ?? '') || TERMINAL_LANES.has(row.lane ?? ''))
     return 'dropped'
   if (REVIEW_STATES.has(row.state ?? '') || REVIEW_QUEUES.has(row.queue ?? ''))
     return 'review'
