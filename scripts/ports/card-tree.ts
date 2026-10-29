@@ -87,6 +87,20 @@ export function realCardTrees(): CardTreeTools {
   return gitCardTrees(process.cwd(), worktreeHome(process.env), cwd => pnpmInstall(cwd, INSTALL_ARGS), ghApi(process.cwd()), id => cardTree(process.env, defaultBusPath(), id))
 }
 
+const BRANCH_SEPARATORS = /[^\w.-]+/g
+
+export function cardlessTreeName(branch: string): string {
+  return `branch-${branch.replace(BRANCH_SEPARATORS, '-')}`
+}
+
+export function cardlessTreeOf(branch: string, tools: CardTreeTools): string {
+  const name = cardlessTreeName(branch)
+  const worktree = tools.treeOf?.(name) ?? taskWorktree(tools.home, name)
+  if (!tools.exists(worktree))
+    tools.recreate(worktree, branch)
+  return worktree
+}
+
 export function cardTreeOf(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null {
   const recorded = cardSessionOf(db, cardId)
   const pr = openPrOfCard(db, cardId)

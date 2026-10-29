@@ -16,7 +16,8 @@ import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
 import { realRoleStopObserver } from './role-bus.js'
 import { windowEndObserver } from './role-end.js'
 import { tabWindowOf } from './tab.js'
-import { dirtyOpenCardTrees, liveAgentsOf } from './window-agents.js'
+import { dirtyOpenCardTrees, liveAgentsOf, sessionTranscriptOf, stoppedTasksIn } from './window-agents.js'
+import { SESSION_VARIABLE } from './window-requests.js'
 
 export const FRESH_MS = 2 * 60 * 1000
 export const LOOP_SCRIPT = path.normalize(FACTORY_RUNTIME.mikoLoopEntry)
@@ -24,6 +25,7 @@ export const BUILT_LOOP_SCRIPT = LOOP_SCRIPT.replace(/\.ts$/, '.js')
 export const NOT_AT_A_STOP_CONDITION = 'not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card'
 export const TAB_THRESHOLD = 'in a tab window a threshold ends no session: continue in this session; compaction carries it on from the handoff (PreCompact insures it, SessionStart compact returns the continue prompt); nothing ended'
 export const SANDBOX_REFUSAL = 'outside the pnpm miko loop the sandbox lets this command neither find nor signal any process: nothing ended; run the session under pnpm miko'
+const MESSAGES_BEFORE_THE_OWNER_SPOKE = 1
 const CLAUDE = 'claude'
 const ARGV_HEAD_NAMING_THE_PROGRAM = 2
 
@@ -54,6 +56,53 @@ export interface MikoExitDeps {
   tab?: boolean
   liveAgents?: () => string[]
   dirtyTrees?: () => string[]
+  ownerMessages?: () => number | null
+}
+
+interface TranscriptEntry {
+  type?: unknown
+  isMeta?: unknown
+  isSidechain?: unknown
+  message?: { content?: unknown }
+}
+
+function isOwnerText(content: unknown): boolean {
+  if (typeof content === 'string')
+    return !content.startsWith('<')
+  const parts = Array.isArray(content) ? content as { type?: unknown }[] : []
+  return parts.some(part => part?.type === 'text') && !parts.some(part => part?.type === 'tool_result')
+}
+
+export function ownerMessagesOf(transcript: string): number {
+  return transcript.split('\n').filter((line) => {
+    try {
+      const entry = JSON.parse(line) as TranscriptEntry | null
+      return entry?.type === 'user' && entry.isMeta !== true && entry.isSidechain !== true && isOwnerText(entry.message?.content)
+    }
+    catch {
+      return false
+    }
+  }).length
+}
+
+function ownerMessagesIn(transcript: string | null): number | null {
+  if (transcript === null)
+    return null
+  try {
+    return ownerMessagesOf(readFileSync(transcript, 'utf8'))
+  }
+  catch {
+    return null
+  }
+}
+
+export function doneWaitsForTheOwner(): string {
+  return `${MIKO_HANDOFF_NAME} says STATUS: DONE and the owner has not written in this session yet: wait for the owner's first message here and take its task, or end when the owner says so; nothing ended`
+}
+
+function ownerHasNotSpoken(deps: MikoExitDeps): boolean {
+  const messages = deps.ownerMessages?.() ?? null
+  return messages !== null && messages <= MESSAGES_BEFORE_THE_OWNER_SPOKE
 }
 
 export function parsePs(text: string): ProcessRow[] {
@@ -214,6 +263,10 @@ export function runMikoExit(deps: MikoExitDeps): number {
     deps.err(`${PREFIX}${decision.refuse}`)
     return 1
   }
+  if (decision.reason === 'done' && ownerHasNotSpoken(deps)) {
+    deps.err(`${PREFIX}${doneWaitsForTheOwner()}`)
+    return 1
+  }
   const unfinished = unfinishedWork(deps)
   if (unfinished !== null) {
     deps.err(`${PREFIX}${unfinished}; nothing ended`)
@@ -263,6 +316,7 @@ function mtimeOf(file: string): number | undefined {
 
 export function realMikoExitDeps(handoff: string): MikoExitDeps {
   const root = projectRoot(process.env)
+  const transcript = (): string | null => sessionTranscriptOf(os.homedir(), process.env[SESSION_VARIABLE])
   const table = (): ProcessRow[] => parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' }))
   return {
     pid: process.pid,
@@ -284,8 +338,9 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
     observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
     endWindow: windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) }),
     tab: tabWindowOf(process.env) !== null,
-    liveAgents: () => liveAgentsOf(root, process.env),
+    liveAgents: () => liveAgentsOf(root, process.env, stoppedTasksIn(transcript())),
     dirtyTrees: () => dirtyOpenCardTrees(process.env, defaultBusPath()),
+    ownerMessages: () => ownerMessagesIn(transcript()),
   }
 }
 

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { WINDOW_WHO } from '../../src/card/parking.js'
@@ -32,7 +32,54 @@ function agentLines(text: string): AgentLine[] {
   })
 }
 
-export function liveAgentsOf(root: string, env: NodeJS.ProcessEnv = process.env): string[] {
+const TASK_STOP = 'TaskStop'
+const PLAIN_SESSION = /^[\w-]+$/
+
+export function sessionTranscriptOf(home: string, session: string | undefined): string | null {
+  if (session === undefined || !PLAIN_SESSION.test(session))
+    return null
+  const projects = path.join(home, '.claude', 'projects')
+  try {
+    return readdirSync(projects).map(project => path.join(projects, project, `${session}.jsonl`)).find(existsSync) ?? null
+  }
+  catch {
+    return null
+  }
+}
+
+function toolUsesOf(line: string): unknown[] {
+  try {
+    const content = (JSON.parse(line) as { message?: { content?: unknown } } | null)?.message?.content
+    return Array.isArray(content) ? content : []
+  }
+  catch {
+    return []
+  }
+}
+
+export function stoppedTasksOf(transcript: string): Set<string> {
+  const stopped = new Set<string>()
+  for (const line of transcript.split('\n')) {
+    for (const use of toolUsesOf(line) as { type?: unknown, name?: unknown, input?: { task_id?: unknown } }[]) {
+      if (use?.type === 'tool_use' && use.name === TASK_STOP && typeof use.input?.task_id === 'string')
+        stopped.add(use.input.task_id)
+    }
+  }
+  return stopped
+}
+
+export function stoppedTasksIn(transcript: string | null): Set<string> {
+  if (transcript === null)
+    return new Set()
+  try {
+    return stoppedTasksOf(readFileSync(transcript, 'utf8'))
+  }
+  catch {
+    return new Set()
+  }
+}
+
+export function liveAgentsOf(root: string, env: NodeJS.ProcessEnv = process.env, stopped: Set<string> = new Set()): string[] {
   const session = env[SESSION_VARIABLE]
   let text: string
   try {
@@ -50,7 +97,7 @@ export function liveAgentsOf(root: string, env: NodeJS.ProcessEnv = process.env)
     else if (event === 'stop')
       live.delete(id)
   }
-  return [...live.values()]
+  return [...live].filter(([id]) => !stopped.has(id)).map(([, name]) => name)
 }
 
 function dirtinessOf(tree: string): string | null {
