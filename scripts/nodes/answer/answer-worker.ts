@@ -19,7 +19,7 @@ import { parseParkingFile } from '../../../src/card/parking.js'
 import { defaultBusDir } from '../../core/bus-path.js'
 import { defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { assertHeld, failTask, queuedCards, StaleLease } from '../../core/lease.js'
 import { Node, runNode } from '../../core/node.js'
 import { answerCandidates } from '../../core/queue.js'
@@ -31,13 +31,15 @@ import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { HEADLESS_FLAGS } from '../../ports/session.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
+import { bodyNotFoldedYet } from '../launch/launch-candidates.js'
+import { BODY_NOT_FOLDED } from '../launch/launch-worker.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { answerSourceOf } from './answer-source.js'
 import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
 
 const ANSWERS_DIR = path.join(defaultBusDir(), 'answers')
 
-export const ANSWER_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_STOPPED, CARD_ANSWERED, CARD_STARTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE] as const
+export const ANSWER_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_STOPPED, CARD_ANSWERED, CARD_STARTED, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE] as const
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE])
 const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_OBSERVED, PR_CLOSED, REVIEW_RECORDED])
@@ -140,9 +142,13 @@ export class AnswerNode extends Node<AnswerStep> {
     return this.verdictNotRecordedYet(lease) ? this.waitOn(lease, VERDICT_NOT_RECORDED, new Date(this.answerParts.clock().getTime() + TICK_MS).toISOString()) : null
   }
 
+  private waitingForTheAmend(lease: Lease): AnswerStep | null {
+    return bodyNotFoldedYet(this.db, lease.cardId) ? this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.answerParts.clock().getTime() + TICK_MS).toISOString()) : null
+  }
+
   protected async handle(lease: Lease): Promise<AnswerStep> {
     try {
-      return this.withdrawnIfNotMine(lease) ?? this.waitingForTheVerdict(lease) ?? await this.executor.answer(lease)
+      return this.withdrawnIfNotMine(lease) ?? this.waitingForTheAmend(lease) ?? this.waitingForTheVerdict(lease) ?? await this.executor.answer(lease)
     }
     catch (error) {
       const detail = messageOf(error)

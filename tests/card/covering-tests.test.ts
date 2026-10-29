@@ -50,6 +50,21 @@ describe('the tests that cover a touched file', () => {
     expect(coveringTests(['scripts/nodes/launch/tree-pr.ts'], list, importersOf(list, read), read)).toEqual(['scripts/tests/shift/spawned.test.ts', 'tests/decisions-read-through-reader.test.ts'])
   })
 
+  it('a test that reads a touched file by path covers it', () => {
+    const files: Record<string, string> = {
+      'eslint.config.mjs': 'export default []\n',
+      'scripts/ci/gate.yaml': 'steps: []\n',
+      'scripts/tests/lint/policy.test.ts': 'const eslint = new ESLint({ cwd: process.cwd() })\n',
+      'tests/config-resolved.test.ts': 'await eslint.calculateConfigForFile(path.join(root, \'src/a.ts\'))\n',
+      'scripts/tests/ci/gate.test.ts': 'readFileSync(path.join(root, \'scripts\', \'ci\', \'gate.yaml\'), \'utf8\')\n',
+      'scripts/tests/ci/unrelated.test.ts': 'export {}\n',
+    }
+    const read = (file: string): string | null => files[file] ?? null
+    const list = Object.keys(files)
+    expect(coveringTests(['eslint.config.mjs'], list, importersOf(list, read), read)).toEqual(['scripts/tests/lint/policy.test.ts', 'tests/config-resolved.test.ts'])
+    expect(coveringTests(['scripts/ci/gate.yaml'], list, importersOf(list, read), read)).toEqual(['scripts/tests/ci/gate.test.ts'])
+  })
+
   it('a test reaches a touched file through vi.mock, require or a re-export split over lines', () => {
     const files: Record<string, string> = {
       'src/x.ts': 'export const X = 1\n',
