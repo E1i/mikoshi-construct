@@ -9,7 +9,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { ATTACH_RECORD_VERSION, NO_HARNESS } from '../src/commands/attach/record.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
@@ -94,7 +94,7 @@ describe('a4: attach then detach is the identity on a clean repository', () => {
     const record = await attached(dir)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expectSameSnapshot(snapshot(dir), before)
@@ -117,7 +117,7 @@ describe('the ledger directory: detach removes it only when the record says atta
     await attached(dir)
     expect(readAttachRecord(dir)?.ledgerCreated).toBe(false)
 
-    const result = runDetach(ui, { dir })
+    const result = await askDetach(ui, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expect(existsSync(path.join(dir, '.construct'))).toBe(true)
@@ -128,7 +128,7 @@ describe('the ledger directory: detach removes it only when the record says atta
     await attached(dir)
     expect(readAttachRecord(dir)?.ledgerCreated).toBe(true)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)
   })
 })
@@ -141,7 +141,7 @@ describe('a5: without a record', () => {
     const before = listing(dir)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('nothing-attached')
     expect(output()).toContain(PLAIN_LORE.detachNothingAttached)
@@ -155,7 +155,7 @@ describe('a5: without a record', () => {
     const before = snapshot(dir)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('orphan-block')
@@ -177,7 +177,7 @@ describe('a6: what attach did not write is never removed', () => {
     writeFileSync(path.join(dir, '.claude/settings.local.json'), '{}\n')
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('done')
     const after = snapshot(dir)
@@ -202,7 +202,7 @@ describe('a carrier that is not what attach wrote', () => {
     rmSync(path.join(dir, '.claude/commands/plan.md'))
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expect(output()).toContain(PLAIN_LORE.detachAlreadyAbsent('.claude/commands/plan.md'))
@@ -218,7 +218,7 @@ describe('a carrier that is not what attach wrote', () => {
     const before = snapshot(dir)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('changed')
@@ -237,7 +237,7 @@ describe('a carrier that is not what attach wrote', () => {
     git(dir, 'commit', '-qm', 'adopt the ladder')
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expect(existsSync(path.join(dir, ADOPTED))).toBe(true)
@@ -268,7 +268,7 @@ describe('a4 over an exclude file git did not shape: the separator in the record
 
       const record = await attached(dir)
       expect(readAttachRecord(dir)?.excludeSeparator).toBe(prior.separator)
-      expect(runDetach(ui, { dir }).status).toBe('done')
+      expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
       expectSameSnapshot(snapshot(dir), before)
       expect(readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8')).toBe(prior.content)
@@ -313,15 +313,15 @@ describe('the record version detach reads', () => {
     expect((await runAttach(ui, { dir, yes: false }, declining)).status).toBe('done')
     expect(readAttachRecord(dir)).toMatchObject({ recordVersion: ATTACH_RECORD_VERSION, harness: NO_HARNESS })
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expectSameSnapshot(snapshot(dir), before)
   })
 
-  it('detaches from a frozen version-1 record written by an earlier build, keeping .construct/, which that record does not say it created', () => {
+  it('detaches from a frozen version-1 record written by an earlier build, keeping .construct/, which that record does not say it created', async () => {
     const dir = fixture()
     const recorded = withFrozenRecordV1(dir)
 
-    const result = runDetach(ui, { dir })
+    const result = await askDetach(ui, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expect([...result.removed].sort()).toEqual([...recorded].sort())
@@ -335,7 +335,7 @@ describe('the record version detach reads', () => {
     const before = listing(dir)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('record-ahead')
@@ -351,7 +351,7 @@ describe('the record version detach reads', () => {
       const before = listing(dir)
       const { ui: plain, output } = capturing()
 
-      const result = runDetach(plain, { dir })
+      const result = await askDetach(plain, { dir, yes: true })
 
       expect(result.status).toBe('refused')
       expect(result.refusal).toBe('record-version')
@@ -373,7 +373,7 @@ describe('the bytes before the block are no longer the separator attach wrote', 
     const before = listing(dir)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('separator-mismatch')
@@ -399,7 +399,7 @@ describe('a record whose separator cannot be trusted', () => {
       const before = listing(dir)
       const { ui: plain, output } = capturing()
 
-      const result = runDetach(plain, { dir })
+      const result = await askDetach(plain, { dir, yes: true })
 
       expect(result.status).toBe('refused')
       expect(result.refusal).toBe('separator')
@@ -417,7 +417,7 @@ describe('the exclude file after detach', () => {
     await attached(dir)
     appendFileSync(path.join(dir, EXCLUDE_FILE), 'mine/\n')
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8')).toBe('mine/\n')
   })
@@ -428,7 +428,7 @@ describe('the exclude file after detach', () => {
     await attached(dir)
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(existsSync(path.join(dir, EXCLUDE_FILE))).toBe(false)
   })
@@ -466,7 +466,7 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
     writeSettings(dir, settings)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('done')
     const after = readSettings(dir) as { hooks: { PreToolUse: unknown[] } }
@@ -482,7 +482,7 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
     await attached(dir)
     writeSettings(dir, { ...readSettings(dir), permissions: { allow: ['Bash(ls:*)'] } })
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({ permissions: { allow: ['Bash(ls:*)'] } })
   })
@@ -494,7 +494,7 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
     const before = snapshot(dir)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('changed')
@@ -510,7 +510,7 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
     writeSettings(dir, { hooks: { PreToolUse: [] } })
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expect(output()).toContain(PLAIN_LORE.detachAlreadyAbsent(PLAIN_LORE.detachSettingsEntry))
@@ -526,7 +526,7 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
     const bytes = readFileSync(path.join(dir, SETTINGS_FILE))
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expect(readFileSync(path.join(dir, SETTINGS_FILE)).equals(bytes)).toBe(true)
@@ -547,7 +547,7 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
       const before = snapshot(dir)
       const { ui: plain, output } = capturing()
 
-      const result = runDetach(plain, { dir })
+      const result = await askDetach(plain, { dir, yes: true })
 
       expect(result.status).toBe('refused')
       expect(result.refusal).toBe('hook-record')
@@ -563,7 +563,7 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
     const before = snapshot(dir)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('refused')
     expect(result.refusal).toBe('settings-unreadable')
@@ -571,13 +571,13 @@ describe('the commit guard: detach takes out the entry attach added and nothing 
     expectSameSnapshot(snapshot(dir), before)
   })
 
-  it('the commit guard: a version-1 record seeks no entry and leaves the settings file alone', () => {
+  it('the commit guard: a version-1 record seeks no entry and leaves the settings file alone', async () => {
     const dir = fixture()
     withFrozenRecordV1(dir)
     writeSettings(dir, { hooks: { PreToolUse: [GUARD_ENTRY] } })
     const bytes = readFileSync(path.join(dir, SETTINGS_FILE))
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(dir, SETTINGS_FILE)).equals(bytes)).toBe(true)
   })
@@ -630,7 +630,7 @@ describe('detach leaves no trace of the guest in the repository or under the hom
     await attached(dir)
     writeRuntime(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(statusWithIgnored(dir)).toBe(before)
     expect(statusWithIgnored(dir)).toBe('')
@@ -645,7 +645,7 @@ describe('detach leaves no trace of the guest in the repository or under the hom
       await attached(dir)
       writeRuntime(dir)
 
-      expect(runDetach(ui, { dir }).status).toBe('done')
+      expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
       expect(readFileSync(path.join(dir, SETTINGS_FILE)).equals(Buffer.from(original))).toBe(true)
       expect(statusWithIgnored(dir)).toBe(before)
@@ -663,7 +663,7 @@ describe('detach leaves no trace of the guest in the repository or under the hom
       delete (record.settingsHook as Record<string, unknown>).original
     })
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(`${JSON.stringify(host, null, 2)}\n`)
     expect(existsSync(copy)).toBe(true)
@@ -678,7 +678,7 @@ describe('detach leaves no trace of the guest in the repository or under the hom
     edited.permissions.allow.push('Bash(make:*)')
     writeSettings(dir, edited)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({ permissions: { allow: ['Bash(ls:*)', 'Bash(make:*)'] } })
     expect(existsSync(copy)).toBe(false)
@@ -692,7 +692,7 @@ describe('detach leaves no trace of the guest in the repository or under the hom
     const copy = keptCopy(dir)
     writeHostSettings(dir, '{"mine":true}')
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('{"mine":true}')
     expect(existsSync(copy)).toBe(false)
@@ -717,7 +717,7 @@ describe('the copy attach kept is checked before detach writes anything', () => 
       const homeBefore = listing(home())
       const settingsBefore = readFileSync(path.join(dir, SETTINGS_FILE))
 
-      const result = runDetach(ui, { dir })
+      const result = await askDetach(ui, { dir, yes: true })
 
       expect(result.status, name).toBe('refused')
       expect(result.refusal, name).toBe('original-copy')
@@ -735,7 +735,7 @@ describe('the copy attach kept is checked before detach writes anything', () => 
     const copy = keptCopy(dir)
     writeFileSync(copy, 'tampered')
 
-    expect(runDetach(ui, { dir }).status).toBe('refused')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('refused')
 
     expect(readFileSync(copy, 'utf8')).toBe('tampered')
   })
@@ -746,7 +746,7 @@ describe('the copy attach kept is checked before detach writes anything', () => 
     await attached(dir)
     const copy = keptCopy(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(existsSync(copy)).toBe(false)
     expect(existsSync(path.dirname(copy))).toBe(false)
@@ -767,7 +767,7 @@ describe('the copy attach kept is checked before detach writes anything', () => 
     })
     const before = snapshot(dir)
 
-    const result = runDetach(ui, { dir })
+    const result = await askDetach(ui, { dir, yes: true })
 
     expect(result.refusal).toBe('original-copy')
     expect(readFileSync(victim, 'utf8')).toBe('not a copy\n')
@@ -784,7 +784,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     git(dir, 'commit', '-qm', 'track the ledger')
     const { ui: plain, output } = capturing()
 
-    expect(runDetach(plain, { dir }).status).toBe('done')
+    expect((await askDetach(plain, { dir, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(dir, '.construct/runs.jsonl'), 'utf8')).toBe('{"run":"tracked"}\n')
     expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/runs.jsonl'))
@@ -798,7 +798,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     expect(readAttachRecord(dir)?.ledgerHeld).toEqual(['.construct/runs.jsonl'])
     writeFileSync(path.join(dir, '.construct/steps.jsonl'), '{}\n')
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(dir, '.construct/runs.jsonl'), 'utf8')).toBe('{"run":"mine"}\n')
     expect(present(dir, '.construct/steps.jsonl')).toBe(false)
@@ -810,7 +810,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     writeFileSync(path.join(dir, '.construct/notes.txt'), 'mine\n')
     const { ui: plain, output } = capturing()
 
-    expect(runDetach(plain, { dir }).status).toBe('done')
+    expect((await askDetach(plain, { dir, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(dir, '.construct/notes.txt'), 'utf8')).toBe('mine\n')
     expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/notes.txt'))
@@ -827,7 +827,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     writeFileSync(path.join(dir, withNote, 'notes.txt'), 'mine\n')
     writeFileSync(path.join(dir, offPattern, '1280.png'), '')
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(present(dir, `${withNote}/1280.png`)).toBe(true)
     expect(present(dir, `${withNote}/notes.txt`)).toBe(true)
@@ -840,7 +840,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     writeRuntime(dir)
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.removed).toEqual(expect.arrayContaining([`${RUN_DIRECTORY}/1280.png`, RUN_DIRECTORY, '.construct/browser', ...RUNTIME_FILES]))
     expect(removedLines(output())).toEqual(expect.arrayContaining([`${RUN_DIRECTORY}/1280.png`, RUN_DIRECTORY, '.construct/browser']))
@@ -854,7 +854,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     await attached(dir)
     const { ui: plain, output } = capturing()
 
-    expect(runDetach(plain, { dir }).status).toBe('done')
+    expect((await askDetach(plain, { dir, yes: true })).status).toBe('done')
 
     expect(present(dir, `${RUN_DIRECTORY}/1280.png`)).toBe(true)
     expect(present(dir, RUN_DIRECTORY)).toBe(true)
@@ -875,7 +875,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     writeFileSync(path.join(dir, later, '1280.png'), '')
     const { ui: plain, output } = capturing()
 
-    const result = runDetach(plain, { dir })
+    const result = await askDetach(plain, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expect(result.removed).toEqual(expect.arrayContaining([`${later}/1280.png`, later]))
@@ -894,7 +894,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     mkdirSync(path.join(dir, later), { recursive: true })
     writeFileSync(path.join(dir, later, 'notes.txt'), 'mine\n')
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(present(dir, `${later}/notes.txt`)).toBe(true)
   })
@@ -909,7 +909,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     utimesSync(path.join(dir, earlier), now, now)
     utimesSync(path.join(dir, earlier, '1280.png'), now, now)
 
-    const result = runDetach(ui, { dir })
+    const result = await askDetach(ui, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expect(result.removed).not.toContain(earlier)
@@ -925,7 +925,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     })
     writeRuntime(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(present(dir, `${RUN_DIRECTORY}/1280.png`)).toBe(true)
   })
@@ -936,7 +936,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     await attached(dir)
     const { ui: plain, output } = capturing()
 
-    expect(runDetach(plain, { dir }).status).toBe('done')
+    expect((await askDetach(plain, { dir, yes: true })).status).toBe('done')
 
     expect(output()).toContain(PLAIN_LORE.detachOriginalRestored(SETTINGS_FILE))
     expect(output()).not.toContain(PLAIN_LORE.detachEntryRemoved(SETTINGS_FILE))
@@ -950,7 +950,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     })
     writeRuntime(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(present(dir, '.construct')).toBe(false)
   })
@@ -964,7 +964,7 @@ describe('the runtime files the ladder writes come off a closed list', () => {
     })
     writeRuntime(dir)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     for (const target of [...RUNTIME_FILES, `${RUN_DIRECTORY}/1280.png`])
       expect(present(dir, target), target).toBe(true)

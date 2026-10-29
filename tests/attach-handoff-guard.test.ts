@@ -6,7 +6,7 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { WINDOW_ENTRIES } from '../src/commands/attach/settings.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { useIsolatedHome } from './isolated-home.js'
@@ -115,7 +115,7 @@ describe('detach removes the guard entry from the list the window entry shares',
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(preToolUseList(dir)).toHaveLength(2)
     expect(preToolUseList(dir)).toContainEqual(WINDOW_ENTRIES.PreToolUse)
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(() => readFileSync(path.join(dir, SETTINGS_FILE))).toThrow()
     expect(home()).toBeTruthy()
   })
@@ -127,7 +127,7 @@ describe('detach removes the guard entry from the list the window entry shares',
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify({ hooks: { PreToolUse: [user] } }))
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     expect(preToolUseList(dir)).toHaveLength(3)
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(preToolUseList(dir)).toEqual([user])
   })
 })

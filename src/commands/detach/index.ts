@@ -187,14 +187,6 @@ export function planDetach(ui: Ui, options: DetachOptions): DetachResult | Detac
   return { preview, apply }
 }
 
-export function runDetach(ui: Ui, options: DetachOptions): DetachResult {
-  const plan = planDetach(ui, options)
-  if (!isPlan(plan))
-    return plan
-  printDetachPreview(ui, plan.preview)
-  return plan.apply()
-}
-
 export async function askDetach(ui: Ui, options: AskedDetachOptions, prompter?: Pick<Prompter, 'confirm'>): Promise<DetachResult> {
   const plan = planDetach(ui, options)
   if (!isPlan(plan))

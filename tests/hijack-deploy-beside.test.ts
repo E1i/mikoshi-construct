@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { BUS_DB_VARIABLE, BUS_DIR, BUS_FILE } from '../scripts/core/bus-path.js'
 import { runAtlas } from '../src/atlas/index.js'
 import { readAttachRecord, runAttach } from '../src/commands/attach/index.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { writeEngram } from '../src/model/discovery.js'
 import { MODEL_FILE, MODEL_VERSION } from '../src/model/schema.js'
 import { ATTACH_CARRIERS, ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../src/presets/index.js'
@@ -114,7 +114,7 @@ describe('attach on a repository that carries its own construct', () => {
 
     await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     expect(readAttachRecord(dir)?.factoryBeside).toBeUndefined()
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(factoryHome, BUS_FILE), 'utf8')).toBe('already here')
   })
@@ -162,7 +162,7 @@ describe('detach removes what the factory deployed beside the repository and not
     writeFileSync(path.join(factoryHome, BUS_DIR, 'supervisor.log'), 'ran\n')
     expect(existsSync(engram)).toBe(true)
 
-    const result = runDetach(ui, { dir })
+    const result = await askDetach(ui, { dir, yes: true })
 
     expect(result.status).toBe('done')
     expect(snapshot(dir)).toEqual(before)
@@ -180,7 +180,7 @@ describe('detach removes what the factory deployed beside the repository and not
     mkdirSync(agents, { recursive: true })
     writeFileSync(path.join(agents, 'dev.someone.else.plist'), `<string>${path.join(home(), '.construct', 'example--own-construct-two', BUS_FILE)}</string>\n`)
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(existsSync(path.join(agents, 'dev.someone.else.plist'))).toBe(true)
   })
 
@@ -191,7 +191,7 @@ describe('detach removes what the factory deployed beside the repository and not
     mkdirSync(agents, { recursive: true })
     symlinkSync(path.join(agents, 'gone.target'), path.join(agents, 'dev.dangling.plist'))
 
-    expect(runDetach(ui, { dir })).toEqual({ status: 'refused', refusal: 'factory-kept-alive', removed: [] })
+    expect(await askDetach(ui, { dir, yes: true })).toEqual({ status: 'refused', refusal: 'factory-kept-alive', removed: [] })
     expect(existsSync(path.join(home(), OWN_FACTORY_HOME, BUS_FILE))).toBe(true)
   })
 
@@ -204,7 +204,7 @@ describe('detach removes what the factory deployed beside the repository and not
     const worktrees = git(dir, 'worktree', 'list', '--porcelain')
     const config = readFileSync(path.join(dir, '.git', 'config'), 'utf8')
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect(git(dir, 'branch', '--list')).toBe(branches)
     expect(git(dir, 'worktree', 'list', '--porcelain')).toBe(worktrees)
@@ -217,7 +217,7 @@ describe('detach removes what the factory deployed beside the repository and not
 
     await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     expect(readAttachRecord(dir)?.factoryBeside?.createdFrom).toBe(path.join(home(), '.construct'))
-    runDetach(ui, { dir })
+    await askDetach(ui, { dir, yes: true })
 
     expect(existsSync(path.join(home(), '.construct'))).toBe(false)
     expect(existsSync(home())).toBe(true)
@@ -228,7 +228,7 @@ describe('detach removes what the factory deployed beside the repository and not
 
     await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     writeEngram(dir, { attached: true, home: home() })
-    runDetach(ui, { dir })
+    await askDetach(ui, { dir, yes: true })
 
     expect(existsSync(path.join(home(), '.construct'))).toBe(false)
   })
@@ -240,7 +240,7 @@ describe('detach removes what the factory deployed beside the repository and not
 
     await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })
     writeEngram(dir, { attached: true, home: home() })
-    runDetach(ui, { dir })
+    await askDetach(ui, { dir, yes: true })
 
     expect(existsSync(engramRoot)).toBe(true)
   })
@@ -253,7 +253,7 @@ describe('detach removes what the factory deployed beside the repository and not
     chmodSync(factoryHome, 0o500)
 
     try {
-      expect(runDetach(ui, { dir })).toEqual({ status: 'refused', refusal: 'beside-unremovable', removed: [] })
+      expect(await askDetach(ui, { dir, yes: true })).toEqual({ status: 'refused', refusal: 'beside-unremovable', removed: [] })
       expect(snapshot(dir)).toEqual(attached)
       expect(readAttachRecord(dir)?.factoryBeside?.home).toBe(factoryHome)
     }
@@ -261,7 +261,7 @@ describe('detach removes what the factory deployed beside the repository and not
       chmodSync(factoryHome, 0o700)
     }
 
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(existsSync(factoryHome)).toBe(false)
   })
 
@@ -276,7 +276,7 @@ describe('detach removes what the factory deployed beside the repository and not
     writeFileSync(path.join(agents, 'dev.mikoshi.factory.own-construct.plist'), `<string>${path.join(factoryHome, BUS_FILE)}</string>\n`)
     writeFileSync(path.join(agents, 'dev.someone.else.plist'), '<string>/elsewhere/bus.db</string>\n')
 
-    const result = runDetach(ui, { dir })
+    const result = await askDetach(ui, { dir, yes: true })
 
     expect(result).toEqual({ status: 'refused', refusal: 'factory-kept-alive', removed: [] })
     expect(snapshot(dir)).toEqual(attached)

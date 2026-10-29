@@ -8,7 +8,7 @@ import { runAttach } from '../src/commands/attach/index.js'
 import { labelledAgentTokens, labelledTranscripts } from '../src/commands/cost/claude-code.js'
 import { readDaemonObjects } from '../src/commands/cost/daemon.js'
 import { costJson, costReport, projectKey } from '../src/commands/cost/index.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { commandOf, CORE, evidenceDirectoryOf, REPO_ROOT, run, runWorkflow } from './daemon-workflow.js'
@@ -281,7 +281,7 @@ describe('detach and .construct/daemon', () => {
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     writeEvidence(dir)
 
-    const result = runDetach(ui, { dir })
+    const result = await askDetach(ui, { dir, yes: true })
 
     expect(result.removed).toEqual(expect.arrayContaining([`.construct/daemon/${RUN}/alpha/evidence.json`, `.construct/daemon/${RUN}/alpha`, `.construct/daemon/${RUN}`, '.construct/daemon']))
     expect(existsSync(path.join(dir, '.construct/daemon'))).toBe(false)
@@ -293,7 +293,7 @@ describe('detach and .construct/daemon', () => {
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     writeEvidence(dir)
 
-    runDetach(ui, { dir })
+    await askDetach(ui, { dir, yes: true })
 
     expect(existsSync(path.join(dir, `.construct/daemon/${RUN}/alpha/evidence.json`))).toBe(true)
     expect(existsSync(path.join(dir, `${ADAPTER}/adapter.json`))).toBe(true)
@@ -312,7 +312,7 @@ describe('detach and .construct/daemon', () => {
     write(dir, `${ADAPTER}/adapter.json`, '{}\n')
     writeEvidence(dir)
 
-    runDetach(ui, { dir })
+    await askDetach(ui, { dir, yes: true })
 
     expect(exists(dir, `.construct/daemon/${RUN}`)).toBe(false)
     expect(exists(dir, `${ADAPTER}/adapter.json`)).toBe(true)
@@ -324,7 +324,7 @@ describe('detach and .construct/daemon', () => {
     git(dir, 'add', '-f', `.construct/daemon/${RUN}/alpha/evidence.json`)
     git(dir, 'commit', '-qm', 'track evidence')
 
-    runDetach(ui, { dir })
+    await askDetach(ui, { dir, yes: true })
 
     expect(exists(dir, `.construct/daemon/${RUN}/alpha/evidence.json`)).toBe(true)
   })
@@ -334,7 +334,7 @@ describe('detach and .construct/daemon', () => {
     writeEvidence(dir)
     write(dir, `.construct/daemon/${RUN}/alpha/notes/keep.txt`, 'mine\n')
 
-    runDetach(ui, { dir })
+    await askDetach(ui, { dir, yes: true })
 
     expect(exists(dir, `.construct/daemon/${RUN}/alpha/notes/keep.txt`)).toBe(true)
   })
@@ -344,7 +344,7 @@ describe('detach and .construct/daemon', () => {
     writeEvidence(dir)
     write(dir, '.construct/daemon/notes/a/b.md', 'mine\n')
 
-    runDetach(ui, { dir })
+    await askDetach(ui, { dir, yes: true })
 
     expect(exists(dir, '.construct/daemon/notes/a/b.md')).toBe(true)
     expect(exists(dir, `.construct/daemon/${RUN}`)).toBe(false)
@@ -355,7 +355,7 @@ describe('detach and .construct/daemon', () => {
     writeEvidence(dir)
     write(dir, '.construct/daemon/20261028T101010124Z-1', 'a file\n')
 
-    runDetach(ui, { dir })
+    await askDetach(ui, { dir, yes: true })
 
     expect(exists(dir, '.construct/daemon/20261028T101010124Z-1')).toBe(true)
     expect(exists(dir, `.construct/daemon/${RUN}`)).toBe(false)

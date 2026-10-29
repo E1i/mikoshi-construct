@@ -12,7 +12,7 @@ import { originalCopyPath } from '../src/commands/attach/original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, NO_HARNESS } from '../src/commands/attach/record.js'
 import { rollbackAttach } from '../src/commands/attach/rollback.js'
 import { BROWSER_LAB_EXCLUDED_COMMAND, engramRules, WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
-import { runDetach } from '../src/commands/detach/index.js'
+import { askDetach } from '../src/commands/detach/index.js'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { printDoctor } from '../src/commands/doctor/report.js'
 import { runInit } from '../src/commands/init.js'
@@ -502,7 +502,7 @@ describe('attach decides without reading the stack (#232)', () => {
     const result = await runAttach(ui, { dir, harness: 'make check', requiredCheck: REQUIRED_CHECK, yes: true })
 
     expect(result.status).toBe('done')
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(listing(dir)).toEqual(before)
   })
 
@@ -781,7 +781,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     const dir = fixture()
     writeSettings(dir, HOST_SETTINGS)
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
-    expect(runDetach(ui, { dir }).status).toBe('done')
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
 
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: REQUIRED_CHECK, yes: true })).status).toBe('done')
   })
@@ -828,7 +828,7 @@ describe('the pre-image of a host settings file: attach keeps a copy outside the
     const moved = `${dir}-moved`
     renameSync(dir, moved)
 
-    expect(runDetach(ui, { dir: moved }).status).toBe('done')
+    expect((await askDetach(ui, { dir: moved, yes: true })).status).toBe('done')
 
     expect(readFileSync(path.join(moved, SETTINGS_FILE), 'utf8')).toBe(HOST_SETTINGS)
     expect(filesInHome()).toEqual([])
