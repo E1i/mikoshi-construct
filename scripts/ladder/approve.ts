@@ -3,14 +3,13 @@ import type { CardBodyReader } from '../intake/parking-reads.js'
 import type { BuildRunner } from './hash.js'
 import type { Preflight } from './preflight.js'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { riskReading } from '../../src/card/risk.js'
 import { defaultBusPath } from '../core/db.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { recordGhostLine } from '../core/journal.js'
 import { readTasksFile } from '../core/tasks.js'
 import { busCardBodies } from '../intake/parking-reads.js'
@@ -189,12 +188,8 @@ export function approveArgs(argv: string[]): ApproveArgs {
   throw new Error(USAGE)
 }
 
-function constructDir(name: string): string {
-  return path.join(os.homedir(), '.construct', name)
-}
-
 async function main(): Promise<void> {
-  const handoffDir = process.env[HANDOFF_DIR_VARIABLE] ?? constructDir('handoff')
+  const handoffDir = defaultHandoffDir()
   try {
     const args = approveArgs(process.argv.slice(2))
     if (args.kind === 'list')

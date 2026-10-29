@@ -3,18 +3,23 @@ import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../node
 import type { ProcessTable } from '../../nodes/restart/chain-process.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeBench } from './merge-bench.js'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import os, { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { constructHome, repoHome, repoIdOf } from '../../core/bus-path.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_APPROVAL } from '../../core/events.js'
-import { HANDOFF_DIR } from '../../core/handoff-dir.js'
-import { LaunchNode, repoLadderSteps, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker.js'
+import { HANDOFF_DIR, HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
+import { journalPath } from '../../intake/import.js'
+import { handoffJournalPath } from '../../ladder/hash.js'
+import { LaunchNode, realStarterPorts, repoHandoffEnv, repoLadderSteps, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD_ID = 1399
+const LADDER_TOOLS = ['scripts/ladder/approve.ts', 'scripts/ladder/verdict.ts', 'scripts/ladder/hash.ts', 'scripts/ladder/cleanup.ts', 'scripts/ladder/expect-sample.ts', 'scripts/intake/import.ts']
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const LANE = 'lane-x'
 const CARD: Card = { id: CARD_ID, name: 'a-card', kind: 'implement', milestone: 'construct', size: 'M', contour: 'ladder', decision: 'owner', depends: [], blocks: [], line: `#${CARD_ID} a-card [implement/construct/M/ladder/owner] · depends — · blocks —` }
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
@@ -28,6 +33,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   for (const made of benches.splice(0))
     made.close()
   for (const root of roots.splice(0))
@@ -88,6 +94,39 @@ describe('launch writes the ladder brief through the per-repo handoff resolver',
     const steps = repoLadderSteps(path.join(root, 'repo'), { CONSTRUCT_HANDOFF_DIR: named }, path.join(root, 'bus.db'), path.join(root, 'home'))
     const task = { card: CARD, touches: [] } as unknown as Parameters<typeof steps.brief>[0]
     expect(path.dirname(steps.brief(task))).toBe(named)
+  })
+
+  it('the launched session carries the resolved handoff directory, so approve, hash, verdict and cleanup read where launch wrote the brief', () => {
+    const root = scratch()
+    const home = path.join(root, 'home')
+    const repo = path.join(root, 'vedeti-memorial')
+    mkdirSync(repo, { recursive: true })
+    const env = repoHandoffEnv({}, repo, home)
+    const steps = repoLadderSteps(repo, env, path.join(root, 'bus.db'), home)
+    const task = { card: CARD, touches: [] } as unknown as Parameters<typeof steps.brief>[0]
+    const sessionEnv = realStarterPorts(repo, env, '', () => 'u', () => null, () => [], null, path.join(root, 'bus.db')).envOf(CARD_ID)
+    expect(sessionEnv[HANDOFF_DIR_VARIABLE]).toBe(path.join(repoHome(home, repoIdOf(repo)), HANDOFF_DIR))
+    expect(sessionEnv[HANDOFF_DIR_VARIABLE]).toBe(path.dirname(steps.brief(task)))
+  })
+  it('with the variable unset, the ladder tools resolve the same per-repo handoff directory launch writes to', () => {
+    const root = scratch()
+    const home = path.join(root, 'home')
+    const repo = path.join(root, 'vedeti-memorial')
+    mkdirSync(repo, { recursive: true })
+    vi.stubEnv(HANDOFF_DIR_VARIABLE, '')
+    vi.spyOn(os, 'homedir').mockReturnValue(home)
+    vi.spyOn(process, 'cwd').mockReturnValue(repo)
+    const own = path.join(repoHome(home, repoIdOf(repo)), HANDOFF_DIR)
+    expect(path.dirname(handoffJournalPath())).toBe(own)
+    expect(path.dirname(journalPath())).toBe(own)
+  })
+
+  it('no ladder tool falls back to ~/.construct/handoff on its own', () => {
+    for (const tool of LADDER_TOOLS) {
+      const source = readFileSync(path.join(REPO_ROOT, tool), 'utf8')
+      expect(source, tool).toContain('defaultHandoffDir()')
+      expect(source, tool).not.toMatch(/'\.construct', 'handoff'|constructDir\('handoff'\)|HANDOFF_DIR_VARIABLE\]/)
+    }
   })
 })
 

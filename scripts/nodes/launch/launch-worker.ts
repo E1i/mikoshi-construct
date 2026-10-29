@@ -28,7 +28,7 @@ import { CARD_BODIES, cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
-import { handoffDirOf } from '../../core/handoff-dir.js'
+import { HANDOFF_DIR_VARIABLE, handoffDirOf } from '../../core/handoff-dir.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { ghostLinesText } from '../../core/journal.js'
 import { failTask } from '../../core/lease.js'
@@ -754,6 +754,10 @@ export function busStarterPorts(busPath: string, repo: string, env: NodeJS.Proce
   return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath)
 }
 
+export function repoHandoffEnv(env: NodeJS.ProcessEnv, repo: string, home: string = os.homedir()): NodeJS.ProcessEnv {
+  return { ...env, [HANDOFF_DIR_VARIABLE]: handoffDirOf(env, home, repo) }
+}
+
 export function repoLadderSteps(repo: string, env: NodeJS.ProcessEnv, busPath: string, home: string = os.homedir()): LadderSteps {
   return handoffLadderSteps(handoffDirOf(env, home, repo), repo, env, busPath)
 }
@@ -792,7 +796,7 @@ export function launchIsolationCommand(claude: string): string[] {
 
 async function main(): Promise<number> {
   const busPath = defaultBusPath()
-  const env = process.env
+  const env = repoHandoffEnv(process.env, process.cwd())
   const places = launchPlaces(os.homedir(), process.cwd(), busPath)
   const header = readFileSync(HEADER_FILE, 'utf8')
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)

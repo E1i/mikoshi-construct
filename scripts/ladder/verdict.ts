@@ -4,14 +4,13 @@ import type { ReviewStatus, StatusPublisher } from '../ports/github-status.js'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { riskReading } from '../../src/card/risk.js'
 import { readContourSchema, violations } from '../contract/contours.js'
-import { HANDOFF_DIR_VARIABLE } from '../core/handoff-dir.js'
+import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { journalText, recordGhostLine } from '../core/journal.js'
 import { reviewCarry } from '../nodes/update/review-carry.js'
 import { ghStatusPublisher, REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
@@ -347,7 +346,7 @@ function report(checked: VerdictCheck | DispositionCheck): void {
 async function main(): Promise<void> {
   const { positionals, values } = parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: { 'dir': { type: 'string' }, 'commit': { type: 'string' }, 'repo': { type: 'string' }, 'merge-follow-up': { type: 'string' }, 'task': { type: 'string' }, 'pr': { type: 'string' }, 'by': { type: 'string' }, 'from': { type: 'string' } } })
   if (values['merge-follow-up'] !== undefined) {
-    const dir = values.dir ?? process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+    const dir = values.dir ?? defaultHandoffDir()
     report(await recordDisposition({ task: values.task, pr: values.pr, followUp: values['merge-follow-up'], by: values.by }, dir))
     return
   }
@@ -364,7 +363,7 @@ async function main(): Promise<void> {
     report(await recordVerdict(verdictPath, values.dir ?? path.dirname(verdictPath), { commit, repo }, ghStatusPublisher(repo)))
     return
   }
-  const dir = values.dir ?? process.env[HANDOFF_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'handoff')
+  const dir = values.dir ?? defaultHandoffDir()
   const fetched = fetchVerdictFromRef(values.from, repo, verdictPath, dir)
   report(fetched.ok ? await recordVerdict(fetched.verdictPath, dir, { commit, repo }, ghStatusPublisher(repo)) : fetched)
 }
