@@ -1723,20 +1723,6 @@
   {
     "type": "dependency",
     "from": "scripts/nodes/launch/launch-worker.ts",
-    "to": "scripts/intake/import.ts",
-    "unresolvedTo": "../../intake/import.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
     "to": "scripts/intake/parking-reads.ts",
     "unresolvedTo": "../../intake/parking-reads.js",
     "dependencyTypes": [
