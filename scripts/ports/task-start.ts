@@ -10,7 +10,6 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { mergedFromBus } from '../../src/card/closed.js'
 import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
@@ -18,12 +17,11 @@ import { bodySha, bodyShaWithoutTouches } from '../../src/commands/intake/confir
 import { readMilestones } from '../../src/manifest.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { NOT_A_BACKFILL } from '../core/backfill-source.js'
+import { unsatisfiedDependencies } from '../core/card-automaton.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from '../core/entry.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../core/events.js'
-import { busHistory } from '../core/journal.js'
 import { cardBodyAdmissionOf, LEASED } from '../core/queue.js'
-import { busCardStates } from '../core/tasks.js'
 import { busCardBodies } from '../intake/parking-reads.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
@@ -80,6 +78,18 @@ interface AdmittedRow { ts: string, dedupe_key: string, payload: string }
 
 const LAUNCH_LEASE = `SELECT 1 FROM tasks WHERE queue = 'launch' AND state = '${LEASED}' AND card_id = ?`
 const STARTER_SESSION_BY_HAND = 'by-hand'
+
+function unsatisfiedIn(bus: string, depends: readonly number[]): number[] {
+  if (!existsSync(bus))
+    return [...depends]
+  const db = openBus(bus)
+  try {
+    return unsatisfiedDependencies(db)(depends)
+  }
+  finally {
+    db.close()
+  }
+}
 
 function heldByWindow(bus: string): number[] {
   const db = openBus(bus)
@@ -313,10 +323,9 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const id = String(card.id)
   if (!SAFE_BRANCH.test(branch))
     return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
-  const merged = mergedFromBus(busHistory(deps.bus), busCardStates(deps.bus))
-  const unmerged = card.depends.filter(dependency => !merged.has(String(dependency)))
-  if (unmerged.length > 0)
-    return refuse(`card #${id} depends on ${unmerged.map(dependency => `#${dependency}`).join(', ')}, which are not merged; nothing written`)
+  const unsatisfied = unsatisfiedIn(deps.bus, card.depends)
+  if (unsatisfied.length > 0)
+    return refuse(`card #${id} depends on ${unsatisfied.map(dependency => `#${dependency}`).join(', ')}, which are not merged and not closed by a report; nothing written`)
   let admitted: Admission
   try {
     admitted = admission(deps.bus, card, args.waiver)
