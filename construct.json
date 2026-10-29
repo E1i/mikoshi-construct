@@ -16,7 +16,7 @@
     "usage": true
   },
   "contracts": null,
-  "lanes": 4,
+  "lanes": 5,
   "vars": {
     "projectName": "mikoshi-construct",
     "scope": "@mikoshi-construct",
