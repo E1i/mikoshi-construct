@@ -88,6 +88,7 @@ describe('intake cuts cards that run without window edits', () => {
     const ids = result.cards.map(each => each.id)
     expect(db.prepare('SELECT plan_id, state, plan_file FROM plans').all()).toEqual([{ plan_id: 'p1', state: 'open', plan_file: path.join(root, 'repo', 'docs/plan.md') }])
     expect(db.prepare('SELECT item_id, cards FROM plan_items ORDER BY item_id').all()).toEqual([{ item_id: 'A', cards: JSON.stringify([ids[0]]) }, { item_id: 'B', cards: JSON.stringify([ids[1]]) }])
+    expect(db.prepare('SELECT DISTINCT actor FROM events WHERE type LIKE \'plan.%\'').all()).toEqual([{ actor: 'owner' }])
     db.close()
 
     const bare = intake(scratch(), { ...draft, plan: { ...plan, file: 'docs/bare.md' } }, files, { dryRun: true })
