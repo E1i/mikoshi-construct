@@ -41,12 +41,12 @@ const USAGE = [
   '  popup | options           open the page the manifest declares and print its title, text and errors',
   '  page <url> [--wait <sel>] open a page; with --extension, whether a content script of the extension ran in it',
   '        [--prefix <text>]   console of every level, from the page and from the content-script world, whose text starts with <text>',
-  '        [--route <url-glob> <file>]   answer the page requests matching the glob with the file (repeatable; the service worker requests are not routed)',
   '        [--shot <file>]     screenshot of the page',
   '  hands <args…>             run @playwright/cli with the lab copy of the extension and the --profile <dir> given; its own arguments go after --; end with: hands … -- close',
   '        [--evidence <dir>]  hands runs with <dir> as its working directory; hands … -- close writes the console of the session since its open to <dir>/console.json, and nothing when close fails, which keeps the session for another close',
   '  --profile-from <dir>      run on a fresh copy of a base profile, deleted at the end, so runs can go in parallel; an extension whose manifest has no key gets another id in the copy',
   '                            a hands copy whose session never closed is swept by the next hands run once it has been idle for six hours',
+  '  --route <url-glob> <file>   answer the requests matching the glob with the file, those of the pages and of the service worker alike (repeatable; every command but hands)',
   '  --profile <dir>         keep the browser profile in <dir> after the run, so a login done once with --headed and the extension storage survive into later runs',
   '  every command prints one JSON object; optional permissions are granted in a lab copy, so no prompt appears',
   '  exit: 0 observed, 1 page saw no content script of the extension, 127 could not observe or a usage error',
@@ -136,8 +136,10 @@ export function parseArguments(argv) {
     throw new UsageError(`${command} needs --extension <dir>`)
   if (command === 'storage' && options.positionals.length === 1 && !STORAGE_AREAS.includes(options.positionals[0]))
     throw new UsageError(`storage area must be one of ${STORAGE_AREAS.join(', ')}`)
-  if (command !== 'page' && (options.route.length > 0 || options.prefix !== undefined || options.shot !== undefined))
-    throw new UsageError('--route, --prefix and --shot belong to page')
+  if (command !== 'page' && (options.prefix !== undefined || options.shot !== undefined))
+    throw new UsageError('--prefix and --shot belong to page')
+  if (command === 'hands' && options.route.length > 0)
+    throw new UsageError('--route does not reach hands, the browser of hands is opened by @playwright/cli')
   if (options.profile !== undefined && options.profileFrom !== undefined)
     throw new UsageError('--profile and --profile-from exclude each other')
   if (command === 'hands' && options.profile === undefined && options.profileFrom === undefined)
@@ -354,16 +356,23 @@ export function ensureChromium(chromium, { exists = existsSync, install = instal
   install()
 }
 
+export const SERVICE_WORKER_NETWORK_OFF = 'PLAYWRIGHT_DISABLE_SERVICE_WORKER_NETWORK'
+
+export function routeServiceWorkers(env, contextOptions) {
+  delete env[SERVICE_WORKER_NETWORK_OFF]
+  return { ...contextOptions, serviceWorkers: 'allow' }
+}
+
 async function launch(options, profile, extension) {
   const chromium = await loadChromium()
   ensureChromium(chromium)
   const loading = extension === undefined ? [] : [`--disable-extensions-except=${extension.directory}`, `--load-extension=${extension.directory}`]
   try {
-    return await chromium.launchPersistentContext(profile, {
+    return await chromium.launchPersistentContext(profile, routeServiceWorkers(process.env, {
       channel: 'chromium',
       headless: !options.headed,
       args: [...loading, '--remote-debugging-port=0'],
-    })
+    }))
   }
   catch (error) {
     const missing = /Executable doesn't exist/.test(String(error.message))
@@ -599,12 +608,6 @@ const RUNS = {
   },
   'page': async function ({ context, extension, options }) {
     const [url] = options.positionals
-    for (const { pattern, file } of options.route) {
-      const body = path.resolve(file)
-      if (!existsSync(body))
-        throw new Unobserved(`the route file ${body} does not exist`)
-      await context.route(pattern, route => route.fulfill({ path: body }))
-    }
     const { worlds, messages, ...seen } = await visit(context, url, options.wait, options.shot === undefined ? undefined : path.resolve(options.shot))
     const heard = messages.filter(message => message.text.startsWith(options.prefix ?? ''))
     seen.console = heard
@@ -619,6 +622,15 @@ const RUNS = {
 }
 RUNS.options = RUNS.popup
 RUNS.hands = runHands
+
+export async function routeRequests(context, routes) {
+  for (const { pattern, file } of routes) {
+    const body = path.resolve(file)
+    if (!existsSync(body))
+      throw new Unobserved(`the route file ${body} does not exist`)
+    await context.route(pattern, route => route.fulfill({ path: body }))
+  }
+}
 
 function copyProfile(base, profile) {
   if (!existsSync(base))
@@ -644,6 +656,8 @@ export async function run(options) {
       copyProfile(path.resolve(options.profileFrom), profile)
     const extension = options.extension === undefined ? undefined : prepareExtension(path.resolve(options.extension), path.join(kept ? profile : workspace, 'extension'))
     context = options.command === 'hands' ? undefined : await launch(options, profile, extension)
+    if (context !== undefined)
+      await routeRequests(context, options.route)
     const result = await RUNS[options.command]({ context, extension, options, profile })
     closed = closing
     return { code: result.injected === false ? EXIT_FALSE : EXIT_HOLDS, result }
