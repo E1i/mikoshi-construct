@@ -19,7 +19,7 @@ export const RISK_MEANING: Record<RiskLevel, string> = {
 
 const LADDER = 'the ladder mechanism a task runs on'
 const APPROVAL_RULES = 'the rules by which a brief is approved'
-const FOREIGN_WRITE = 'what init, attach, sync or detach write into another repository'
+const FOREIGN_WRITE = 'what attach, sync or detach write into another repository'
 const CARRIERS = 'the registration of the carriers attach delivers'
 const SECURITY = 'a security invariant'
 const CONTRACT = 'a contract or a recorded shape that others read'
@@ -42,12 +42,11 @@ const CORE: readonly (readonly [string, string])[] = [
   ['templates/ai/claude/_claude/skills/implement', LADDER],
   ['templates/ai/claude/_claude/agents', LADDER],
   ['templates/ai/claude/scripts/construct', LADDER],
-  ['templates', FOREIGN_WRITE],
-  ['src/materialize', FOREIGN_WRITE],
+  ['templates/attach', FOREIGN_WRITE],
+  ['templates/ai', FOREIGN_WRITE],
   ['src/sync', FOREIGN_WRITE],
   ['src/manifest.ts', FOREIGN_WRITE],
   ['src/presets', CARRIERS],
-  ['src/commands/init.ts', FOREIGN_WRITE],
   ['src/commands/attach', FOREIGN_WRITE],
   ['src/commands/sync', FOREIGN_WRITE],
   ['src/commands/detach', FOREIGN_WRITE],

@@ -1030,7 +1030,7 @@ describe('the answer executor', () => {
     const reserved = (cardId: number): string => `card #${cardId} reserved by the owner: may the answer go on?`
     const questions: Record<number, string> = {
       1120: 'may the card also touch scripts/core/lease.ts, scripts/tests/bus/lease.test.ts and package.json?',
-      1121: 'the finding needs src/materialize/plan.ts.',
+      1121: 'the finding needs src/sync/write.ts.',
       1122: ownerPath,
       1123: reserved(1123),
       1124: reserved(1124),

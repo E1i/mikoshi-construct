@@ -50,7 +50,7 @@ describe('no touches is a full review', () => {
 
   it('the deeper of the touches and the changed files decides', () => {
     expect(reviewOf(['docs/cli.md'], ['docs/cli.md'])).toEqual({ risk: 'R4', depth: 'none' })
-    expect(reviewOf(['docs/cli.md'], ['src/materialize/plan.ts'])).toEqual({ risk: 'R1', depth: 'full' })
+    expect(reviewOf(['docs/cli.md'], ['src/sync/write.ts'])).toEqual({ risk: 'R1', depth: 'full' })
   })
 })
 

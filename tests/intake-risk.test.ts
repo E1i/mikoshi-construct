@@ -148,6 +148,15 @@ describe('intake writes the risk line into the card', () => {
     expect(linesOf(card.text, SLICE_PREFIX)).toEqual([])
   })
 
+  it('a card that touches only init or its templates is not R1', () => {
+    const card = only(intake(['src/commands/init.ts', 'src/materialize/plan.ts', 'templates/base/AGENTS.md.eta', 'templates/harness/package.json.eta', 'tests/init.test.ts', '.changeset/init.md']))
+    expect(linesOf(card.text, RISK_PREFIX)[0]).not.toMatch(/^risk: R1 /)
+  })
+
+  it.each(['src/commands/attach/index.ts', 'src/commands/sync/index.ts', 'src/sync/write.ts', 'src/commands/detach/index.ts', 'templates/attach/earlier-carriers.json'])('a card that touches attach, sync or detach stays R1: %s', (touch) => {
+    expect(riskOf(touch)).toMatchObject({ level: 'R1', why: expect.stringContaining('write into another repository') })
+  })
+
   it('the highest level decides and every touch at it is named', () => {
     const reading = riskReading(['docs/cli.md', 'contract/surface.json', 'src/detect/layout.ts'], false)
     expect(reading.level).toBe('R2')
@@ -266,7 +275,7 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
   })
 
   it('leaves slicing to the complexity seam when it proposed slices', () => {
-    const touches = [...Array.from({ length: 4 }, (_, index) => `templates/base/part-${index}.md`), 'docs/a.md', 'docs/b.md', 'docs/c.md']
+    const touches = [...Array.from({ length: 4 }, (_, index) => `templates/attach/part-${index}.md`), 'docs/a.md', 'docs/b.md', 'docs/c.md']
     const card = only(intake(touches, 3))
     expect(linesOf(card.text, SEAM_PREFIX).map(line => line.split(' — ')[0])).toEqual(['seam: complexity'])
     expect(riskReading(touches, true).slices).toEqual([])
