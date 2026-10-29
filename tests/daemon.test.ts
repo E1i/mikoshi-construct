@@ -70,8 +70,9 @@ function repository(objects: string[]): string {
   return root
 }
 
-async function runDaemon(root: string, objects: number, limit?: number, mechanicReturns: unknown = 'observed'): Promise<{ result: DaemonResult, mechanics: string[], widest: number, labCopies: string[] }> {
+async function runDaemon(root: string, objects: number, limit?: number, mechanicReturns: unknown = 'observed'): Promise<{ result: DaemonResult, mechanics: string[], prompts: string[], widest: number, labCopies: string[] }> {
   const mechanics: string[] = []
+  const prompts: string[] = []
   const labCopies: string[] = []
   let active = 0
   let widest = 0
@@ -84,6 +85,7 @@ async function runDaemon(root: string, objects: number, limit?: number, mechanic
       return commandResult
     }
     mechanics.push(options.label ?? '')
+    prompts.push(prompt)
     if (mechanicReturns == null)
       return null
     active += 1
@@ -99,7 +101,7 @@ async function runDaemon(root: string, objects: number, limit?: number, mechanic
   const args = { adapter: ADAPTER, run: RUN, ...(limit == null ? {} : { limit }) }
   const result = await runWorkflow(args, agent)
   expect(result.objects).toHaveLength(objects)
-  return { result, mechanics, widest, labCopies }
+  return { result, mechanics, prompts, widest, labCopies }
 }
 
 function evidenceOf(root: string, object: string): Evidence {
@@ -124,6 +126,16 @@ describe('daemon.workflow and daemon-run.mjs', () => {
     }
     expect(evidenceOf(root, 'alpha')).toEqual(expected)
     expect(result.objects).toEqual([expected])
+  })
+
+  it('the prompt says hands paths resolve against the evidence directory', async () => {
+    const root = repository(['alpha'])
+
+    const { prompts } = await runDaemon(root, 1)
+
+    const directory = `.construct/daemon/${RUN}/alpha`
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain(`hands runs with its working directory in ${directory}, so a path you pass to hands, a screenshot or a file to upload, resolves against the evidence directory`)
   })
 
   it('records an object whose prepare fails as unobserved and starts no agent for it', async () => {
