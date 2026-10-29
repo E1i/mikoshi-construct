@@ -511,10 +511,12 @@ function handsLab({ failClose = false } = {}): HandsLab {
     '  fs.mkdirSync(\'.playwright-cli\', { recursive: true })',
     '  fs.appendFileSync(\'.playwright-cli/console-1.log\', \'[LOG] \' + args.filter(arg => arg !== \'--config\' && !arg.endsWith(\'hands.config.json\')).join(\' \') + \'\\n\')',
     '}',
-    ...(failClose ? ['if (args.includes(\'close\')) process.exit(1)'] : []),
+    `if (args.includes('close') && fs.existsSync(${JSON.stringify(path.join(root, 'fail-close'))})) process.exit(1)`,
     'console.log(\'ok\')',
     '',
   ].join('\n'))
+  if (failClose)
+    write(root, 'fail-close', '')
   chmodSync(path.join(bin, 'npx'), 0o755)
   chmodSync(path.join(bin, 'playwright-cli'), 0o755)
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` }
@@ -649,6 +651,7 @@ describe('the hands core of the browser lab', () => {
 
   it('a failed close writes no console.json', () => {
     const lab = handsLab({ failClose: true })
+    write(lab.root, 'evidence/a/console.json', '{"session":"a","console":["[LOG] an earlier run"]}\n')
     lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
 
     const closed = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
@@ -656,5 +659,75 @@ describe('the hands core of the browser lab', () => {
     expect(closed.status).toBe(127)
     expect(closed.stderr).toContain('hands failed: exit 1')
     expect(existsSync(path.join(lab.root, 'evidence/a/console.json'))).toBe(false)
+  })
+
+  it('a close retried after a failed close still reads only the console logs of its own run', () => {
+    const lab = handsLab({ failClose: true })
+    write(lab.root, 'evidence/a/.playwright-cli/console-0.log', '[LOG] an earlier run\n')
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+    const [profile] = lab.calls().map(userDataDirectory) as [string]
+    expect(lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close').status).toBe(127)
+    expect(existsSync(profile)).toBe(true)
+    rmSync(path.join(lab.root, 'fail-close'))
+
+    const retried = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+
+    expect(retried.status, retried.stderr).toBe(0)
+    expect(JSON.parse(readFileSync(path.join(lab.root, 'evidence/a/console.json'), 'utf8'))).toEqual({
+      session: 'a',
+      console: ['[LOG] -s a open http://x', '[LOG] -s a close', '[LOG] -s a close'],
+    })
+    expect(existsSync(profile)).toBe(false)
+  })
+
+  it('a close with no record of its open refuses and writes no console.json', () => {
+    const lab = handsLab()
+    write(lab.root, 'evidence/a/.playwright-cli/console-0.log', '[LOG] an earlier run\n')
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+    const [profile] = lab.calls().map(userDataDirectory) as [string]
+    rmSync(path.join(profile, 'hands.console-before.json'))
+
+    const closed = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+
+    expect(closed.status).toBe(127)
+    expect(closed.stderr).toContain('no record of the console logs')
+    expect(existsSync(path.join(lab.root, 'evidence/a/console.json'))).toBe(false)
+    expect(existsSync(profile)).toBe(false)
+  })
+
+  it('a session idle for longer than the sweep keeps its own copy and its record of the open', () => {
+    const lab = handsLab()
+    write(lab.root, 'evidence/a/.playwright-cli/console-0.log', '[LOG] an earlier run\n')
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+    const [profile] = lab.calls().map(userDataDirectory) as [string]
+    const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000)
+    utimesSync(path.join(profile, 'hands.config.json'), sevenHoursAgo, sevenHoursAgo)
+
+    const resumed = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'click', 'e1')
+
+    expect(resumed.status, resumed.stderr).toBe(0)
+    expect(existsSync(path.join(profile, 'hands.console-before.json'))).toBe(true)
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+    expect(JSON.parse(readFileSync(path.join(lab.root, 'evidence/a/console.json'), 'utf8')).console).toEqual(['[LOG] -s a open http://x', '[LOG] -s a click e1', '[LOG] -s a close'])
+  })
+
+  it('a stale copy the sweep cannot remove does not stop the hands run', () => {
+    const lab = handsLab()
+    const stuck = path.join(realpathSync(tmpdir()), `browser-lab-hands-stuck-${path.basename(lab.root)}`)
+    write(stuck, 'locked/file', 'x')
+    const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000)
+    utimesSync(stuck, sevenHoursAgo, sevenHoursAgo)
+    chmodSync(path.join(stuck, 'locked'), 0o555)
+    try {
+      const ran = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+
+      expect(ran.status, ran.stderr).toBe(0)
+      expect(existsSync(path.join(stuck, 'locked/file'))).toBe(true)
+      lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+    }
+    finally {
+      chmodSync(path.join(stuck, 'locked'), 0o755)
+      rmSync(stuck, { recursive: true, force: true })
+    }
   })
 })

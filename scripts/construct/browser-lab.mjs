@@ -44,7 +44,7 @@ const USAGE = [
   '        [--route <url-glob> <file>]   answer the page requests matching the glob with the file (repeatable; the service worker requests are not routed)',
   '        [--shot <file>]     screenshot of the page',
   '  hands <args…>             run @playwright/cli with the lab copy of the extension and the --profile <dir> given; its own arguments go after --; end with: hands … -- close',
-  '        [--evidence <dir>]  hands runs with <dir> as its working directory; hands … -- close writes the console of the session since its open to <dir>/console.json, and nothing when close fails',
+  '        [--evidence <dir>]  hands runs with <dir> as its working directory; hands … -- close writes the console of the session since its open to <dir>/console.json, and nothing when close fails, which keeps the session for another close',
   '  --profile-from <dir>      run on a fresh copy of a base profile, deleted at the end, so runs can go in parallel; an extension whose manifest has no key gets another id in the copy',
   '                            a hands copy whose session never closed is swept by the next hands run once it has been idle for six hours',
   '  --profile <dir>         keep the browser profile in <dir> after the run, so a login done once with --headed and the extension storage survive into later runs',
@@ -54,6 +54,7 @@ const USAGE = [
 
 export class UsageError extends Error {}
 export class Unobserved extends Error {}
+class ClosedWithoutConsole extends Unobserved {}
 
 function firstLine(error) {
   return String(error?.message ?? error).split('\n')[0]
@@ -274,14 +275,20 @@ function lastTouched(copy) {
   return statSync(existsSync(config) ? config : copy, { throwIfNoEntry: false })?.mtimeMs
 }
 
-function sweepStaleHandsCopies(root, now = Date.now()) {
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.startsWith(HANDS_COPY_PREFIX))
-      continue
-    const copy = path.join(root, entry.name)
+function removeIfStale(copy, now) {
+  try {
     const touched = lastTouched(copy)
     if (touched !== undefined && now - touched > STALE_HANDS_COPY_MS)
       rmSync(copy, { recursive: true, force: true })
+  }
+  catch {}
+}
+
+function sweepStaleHandsCopies(root, current, now = Date.now()) {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const copy = path.join(root, entry.name)
+    if (entry.isDirectory() && entry.name.startsWith(HANDS_COPY_PREFIX) && copy !== current)
+      removeIfStale(copy, now)
   }
 }
 
@@ -296,13 +303,9 @@ function rememberConsoleLogsBeforeOpen(evidence, profile) {
     writeFileSync(marker, `${JSON.stringify(consoleLogs(evidence))}\n`)
 }
 
-function takeConsoleLogsBeforeOpen(profile) {
+function consoleLogsBeforeOpen(profile) {
   const marker = path.join(profile, CONSOLE_LOGS_BEFORE_OPEN)
-  if (!existsSync(marker))
-    return []
-  const before = JSON.parse(readFileSync(marker, 'utf8'))
-  rmSync(marker, { force: true })
-  return before
+  return existsSync(marker) ? JSON.parse(readFileSync(marker, 'utf8')) : undefined
 }
 
 function writeConsole(evidence, session, before) {
@@ -324,12 +327,19 @@ function runHands({ extension, options, profile }) {
     if (command === 'open')
       rememberConsoleLogsBeforeOpen(evidence, profile)
   }
+  const closing = evidence !== undefined && command === 'close'
+  if (closing)
+    rmSync(path.join(evidence, 'console.json'), { force: true })
   const ran = spawnSync(binary, handsArguments(config, options.positionals), { cwd: evidence, encoding: 'utf8', env: npxEnvironment() })
-  const before = command === 'close' ? takeConsoleLogsBeforeOpen(profile) : []
   if (ran.error !== undefined || ran.status !== 0)
     throw new Unobserved(handsRefusal(ran))
-  if (evidence !== undefined && command === 'close')
+  if (closing) {
+    const before = consoleLogsBeforeOpen(profile)
+    if (before === undefined)
+      throw new ClosedWithoutConsole(`hands closed session ${session}, but ${profile} holds no record of the console logs in ${evidence} at its open (an open without --evidence or from an older lab), so no console.json is written: this session's logs cannot be told from an earlier run's`)
     writeConsole(evidence, session, before)
+    rmSync(path.join(profile, CONSOLE_LOGS_BEFORE_OPEN), { force: true })
+  }
   return { id: extension.id, args: options.positionals, output: ran.stdout.trim() }
 }
 
@@ -618,14 +628,16 @@ function copyProfile(base, profile) {
 
 export async function run(options) {
   const sessionCopy = options.command === 'hands' && options.profileFrom !== undefined
-  if (sessionCopy)
-    sweepStaleHandsCopies(handsCopyRoot())
   const keptProfile = sessionCopy ? handsProfile(options) : options.profile
+  if (sessionCopy)
+    sweepStaleHandsCopies(handsCopyRoot(), keptProfile)
   const kept = keptProfile !== undefined
   if (kept)
     mkdirSync(keptProfile, { recursive: true })
   const workspace = kept ? undefined : realpathSync(mkdtempSync(path.join(os.tmpdir(), 'browser-lab-')))
   const profile = kept ? realpathSync(keptProfile) : path.join(workspace, 'profile')
+  const closing = sessionCopy && handsCommandAndSession(options.positionals).command === 'close'
+  let closed = false
   let context
   try {
     if (options.profileFrom !== undefined && !(sessionCopy && existsSync(path.join(profile, 'hands.config.json'))))
@@ -633,13 +645,18 @@ export async function run(options) {
     const extension = options.extension === undefined ? undefined : prepareExtension(path.resolve(options.extension), path.join(kept ? profile : workspace, 'extension'))
     context = options.command === 'hands' ? undefined : await launch(options, profile, extension)
     const result = await RUNS[options.command]({ context, extension, options, profile })
+    closed = closing
     return { code: result.injected === false ? EXIT_FALSE : EXIT_HOLDS, result }
+  }
+  catch (error) {
+    closed = closing && error instanceof ClosedWithoutConsole
+    throw error
   }
   finally {
     await context?.close().catch(() => {})
     if (!kept)
       rmSync(workspace, { recursive: true, force: true })
-    if (sessionCopy && handsCommandAndSession(options.positionals).command === 'close')
+    if (closed)
       rmSync(profile, { recursive: true, force: true })
   }
 }
