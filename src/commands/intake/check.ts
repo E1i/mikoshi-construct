@@ -1,6 +1,7 @@
 import type { Kind } from '../../card/grammar.js'
-import type { DraftCard, UnclearField } from './draft.js'
+import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { runsLine } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
@@ -10,6 +11,7 @@ import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandWord } from './command-word.js'
+import { isWithin } from './parking-tree.js'
 
 export const DEFAULT_CONTOUR = 'cheap'
 const LADDER_CONTOUR = 'ladder'
@@ -142,6 +144,20 @@ function tableCells(text: string, headerStart: string): string[][] {
   const rows = lines.slice(header + 2)
   const end = rows.findIndex(line => !line.startsWith('|'))
   return (end === -1 ? rows : rows.slice(0, end)).map(row => row.split('|').slice(1, -1).map(cell => cell.trim()))
+}
+
+const TABLE_ROW = /^\s*\|/
+const TABLE_RULE = /^\s*\|[\s:|-]+\|\s*$/
+export const SLICE_TABLE_SHAPE = 'a markdown table whose first column names each item: a header row \'| item | what it changes |\', a rule row \'|---|---|\', then one row per item, \'| <item id> | <what the item changes> |\''
+
+export function sliceTableItems(text: string): string[] {
+  const lines = text.split('\n')
+  return lines.flatMap((line, at) => {
+    if (!TABLE_ROW.test(line) || TABLE_RULE.test(line) || TABLE_RULE.test(lines[at + 1] ?? ''))
+      return []
+    const first = line.split('|')[1]?.trim() ?? ''
+    return first === '' ? [] : [first]
+  })
 }
 
 function globsIn(cell: string | undefined): string[] {
@@ -499,4 +515,47 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
 
 export function checkDraft(cards: readonly DraftCard[], numbers: readonly number[], facts: CheckFacts): CheckedCard[] {
   return cards.map((card, index) => checkCard(card, numbers[index]!, facts))
+}
+
+export const PLAN_FIELD = 'plan'
+
+export interface PlanLink {
+  id: string
+  title: string
+  goal: string
+  file: string
+}
+
+export type CheckedPlan = { kind: 'plan', link: PlanLink } | { kind: 'refused', reasons: string[] }
+
+function planFileRefusal(plan: DraftPlan, file: string, dir: string): string | null {
+  if (path.isAbsolute(plan.file) || !isWithin(dir, file))
+    return `plan ${plan.id}: ${plan.file} is outside the repository ${dir}; keep the plan file in the repository and name it by its path from the root`
+  if (!existsSync(file))
+    return `plan ${plan.id}: ${plan.file} does not exist in the repository`
+  return null
+}
+
+function itemRefusals(cards: readonly DraftCard[], plan: DraftPlan, items: readonly string[]): string[] {
+  return cards.flatMap((card) => {
+    if (card.item === undefined)
+      return [`${card.name}: names no 'item' of plan ${plan.id}; every card of a planned draft links to the row of the slice table it carries`]
+    return items.includes(card.item) ? [] : [`${card.name}: item '${card.item}' has no row in the slice table of ${plan.file}; add the row, or name one of ${items.join(', ')}`]
+  })
+}
+
+export function checkPlan(plan: DraftPlan | undefined, cards: readonly DraftCard[], dir: string): CheckedPlan | null {
+  if (plan === undefined) {
+    const named = cards.filter(card => card.item !== undefined).map(card => card.name)
+    return named.length === 0 ? null : { kind: 'refused', reasons: [`${named.join(', ')} name an 'item', but the draft names no 'plan' to hold it`] }
+  }
+  const file = path.resolve(dir, plan.file)
+  const fileRefused = planFileRefusal(plan, file, dir)
+  if (fileRefused !== null)
+    return { kind: 'refused', reasons: [fileRefused] }
+  const items = sliceTableItems(readFileSync(file, 'utf8'))
+  if (items.length === 0)
+    return { kind: 'refused', reasons: [`plan ${plan.id}: ${plan.file} has no slice table; add ${SLICE_TABLE_SHAPE}`] }
+  const reasons = itemRefusals(cards, plan, items)
+  return reasons.length > 0 ? { kind: 'refused', reasons } : { kind: 'plan', link: { ...plan, file } }
 }
