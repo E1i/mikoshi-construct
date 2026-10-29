@@ -38,7 +38,7 @@ export function baselineVerdict(root: string, manifest: Manifest, readings: File
 
 export function factoryFilesAbsent(root: string, manifest: Manifest): string[] {
   const targets = factoryTargetsFor(manifest.ai)
-  const absent = targets.filter(target => !existsSync(path.join(root, target)))
-  const carriesNoFactory = absent.length === targets.length
-  return carriesNoFactory ? [] : absent
+  const recorded = recordedShas(manifest)
+  const constructCarriesFactory = targets.some(target => recorded[target] != null)
+  return constructCarriesFactory ? targets.filter(target => !existsSync(path.join(root, target))) : []
 }

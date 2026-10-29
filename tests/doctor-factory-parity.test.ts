@@ -73,6 +73,15 @@ describe('doctor reads the tree against the factory manifest', () => {
     expect(doctor(dir).missingFiles).toEqual([])
   })
 
+  it('reads factory paths the repository holds as its own, with none of them recorded, as not driven by the factory', async () => {
+    const dir = await initialised('claude')
+    const manifest = readManifest(dir)!
+    const files = Object.fromEntries(Object.entries(manifest.files).filter(([file]) => !FACTORY_MANIFEST.includes(file)))
+    writeManifest(dir, { ...manifest, files })
+    rmSync(path.join(dir, UNRECORDED), { force: true })
+    expect(doctor(dir).missingFiles).toEqual([])
+  })
+
   it('owes nothing to the factory in a repository without the Claude Code runtime', async () => {
     const dir = await initialised('cursor')
     const factory = new Set(FACTORY_MANIFEST)
