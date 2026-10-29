@@ -87,7 +87,7 @@ describe('construct intake --admit derives the decision from architecture/owner-
     const result = admit(w, file, { autoConfirm: true })
     expect(result.status).toBe('admitted')
     expect(cardOf(file)).toBe('card: #81 card-81 [implement/runner/S/cheap/owner] · depends — · blocks —')
-    expect(readFileSync(file, 'utf8')).toContain('corrected: decision — auto → owner — .claude/skills/intake/SKILL.md meets .claude/skills/** of architecture/owner-merges.md')
+    expect(readFileSync(file, 'utf8')).toContain('corrected: decision — auto → owner — .claude/skills/intake/SKILL.md meets .claude/** of architecture/owner-merges.md')
   })
 
   it('a prefix touch over an owner glob makes the card owner', () => {

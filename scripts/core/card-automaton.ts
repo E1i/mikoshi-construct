@@ -4,7 +4,8 @@ import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { isBackfill } from './backfill-source.js'
 import { appendEvent } from './db.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES } from './events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES, WITNESS_RECORDED } from './events.js'
+import { legacyHistory } from './legacy-history.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
@@ -175,8 +176,53 @@ function foldAnswered(db: DatabaseSync, event: StoredEvent): void {
   claimed(db, event, ANSWERED, backInWork(db, cardId))
 }
 
+const CLOSED_BY_REPORT = `type = '${CARD_VERIFIED}' AND legacy = 0 AND pr IS NULL AND card_id IS NOT NULL AND json_extract(payload, '$.report') IS NOT NULL`
+
+const GREEN_VERDICT = 'green'
+
+const LATEST_WITNESS_ON_MAIN = `SELECT json_extract(payload, '$.verdict') AS verdict FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND card_id = ? AND pr IS NULL ORDER BY id DESC LIMIT 1`
+
 function closedByReport(db: DatabaseSync, cardId: number): boolean {
-  return db.prepare(`SELECT 1 FROM events WHERE type = ? AND legacy = 0 AND card_id = ? AND pr IS NULL AND json_extract(payload, '$.report') IS NOT NULL LIMIT 1`).get(CARD_VERIFIED, cardId) !== undefined
+  return db.prepare(`SELECT 1 FROM events WHERE ${CLOSED_BY_REPORT} AND card_id = ? LIMIT 1`).get(cardId) !== undefined
+}
+
+function witnessedOnMain(db: DatabaseSync, cardId: number): boolean {
+  const latest = db.prepare(LATEST_WITNESS_ON_MAIN).get(cardId) as { verdict: unknown } | undefined
+  return latest?.verdict === GREEN_VERDICT
+}
+
+const SATISFIED_IN_THE_BUS = `
+  SELECT card_id FROM cards WHERE state IN ('${MERGED_CARD}', '${CLOSED_CARD}')
+  UNION SELECT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL
+  UNION SELECT card_id FROM events WHERE ${CLOSED_BY_REPORT}
+`
+
+function satisfiedInTheBus(db: DatabaseSync): Set<number> {
+  return new Set((db.prepare(SATISFIED_IN_THE_BUS).all() as { card_id: number }[]).map(row => Number(row.card_id)))
+}
+
+type JournalLine = ReturnType<typeof legacyHistory>[number]
+
+function satisfiedInTheJournal(history: readonly JournalLine[]): Set<number> {
+  const probeClosedByReport = (entry: JournalLine): boolean => entry.event === 'path' && typeof entry.verification === 'string' && typeof entry.report === 'string' && entry.pr === undefined
+  return new Set(history.filter(entry => typeof entry.task === 'string' && (entry.event === 'merge' || probeClosedByReport(entry))).map(entry => Number(entry.task)))
+}
+
+export type UnsatisfiedDependencies = (depends: readonly number[]) => number[]
+
+export function unsatisfiedDependencies(db: DatabaseSync): UnsatisfiedDependencies {
+  let inTheBus: Set<number> | undefined
+  let inTheJournal: Set<number> | undefined
+  return (depends) => {
+    if (depends.length === 0)
+      return []
+    inTheBus ??= satisfiedInTheBus(db)
+    const open = depends.filter(dependency => !inTheBus!.has(dependency))
+    if (open.length === 0)
+      return []
+    inTheJournal ??= satisfiedInTheJournal(legacyHistory(db))
+    return open.filter(dependency => !inTheJournal!.has(dependency))
+  }
 }
 
 function sharedByADecision(db: DatabaseSync, cardId: number, pr: number | null): boolean {
@@ -188,7 +234,7 @@ function sharedByADecision(db: DatabaseSync, cardId: number, pr: number | null):
 
 function foldClosed(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_CLOSED} needs a card_id`)
-  if (stateOf(db, cardId) !== MERGED_CARD && linkedPrState(db, cardId) !== 'merged' && !(event.pr === null && closedByReport(db, cardId)) && !sharedByADecision(db, cardId, event.pr))
+  if (stateOf(db, cardId) !== MERGED_CARD && linkedPrState(db, cardId) !== 'merged' && !(event.pr === null && (closedByReport(db, cardId) || witnessedOnMain(db, cardId))) && !sharedByADecision(db, cardId, event.pr))
     reject(`card ${cardId} is ${stateOf(db, cardId) ?? 'without state'} and its pull request is not merged, and ${CARD_CLOSED} closes only a merged card`)
   moveCard(db, cardId, CLOSED_CARD, event.id)
 }
