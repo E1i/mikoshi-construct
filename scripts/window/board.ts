@@ -8,7 +8,7 @@ import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { WAITING } from '../core/chain.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_LEASED, WINDOW_HEARTBEAT } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, SHARD_DECIDED, TASK_COMPLETED, TASK_LEASED, WINDOW_HEARTBEAT } from '../core/events.js'
 import { QUEUES } from '../core/identifiers.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { grantOrder, RENEW_MS } from '../core/lease.js'
@@ -119,6 +119,14 @@ export interface ActiveShard extends WindowShard {
   leftMinutes: number
 }
 
+export interface ShardDecision {
+  card: number
+  shard: string
+  wait: string
+  answer: string
+  ts: string
+}
+
 export interface Board {
   at: string
   goal: Goal | null
@@ -128,6 +136,7 @@ export interface Board {
   lanes: LaneRow[]
   window: ComponentHealth
   shard: ActiveShard | null
+  shardDecisions: ShardDecision[]
   execution: ExecutionRow[]
   health: ComponentHealth[]
   progress: Progress
@@ -206,6 +215,14 @@ const LEASED_TASKS = `
   SELECT tasks.task_key, tasks.card_id, tasks.lease_gen, leased.actor, leased.ts FROM tasks
   LEFT JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
   WHERE tasks.queue = ? AND tasks.state = '${LEASED}' ORDER BY tasks.id
+`
+
+const SHOWN_SHARD_DECISIONS = 20
+
+const WINDOW_SHARD_DECISIONS = `
+  SELECT card_id, ts, json_extract(payload, '$.shard') AS shard, json_extract(payload, '$.wait') AS wait, json_extract(payload, '$.answer') AS answer FROM events
+  WHERE type = '${SHARD_DECIDED}' AND legacy = 0 AND card_id IS NOT NULL AND json_extract(payload, '$.stop') IS NOT NULL
+  ORDER BY id DESC LIMIT ${SHOWN_SHARD_DECISIONS}
 `
 
 const LAST_GAUGES = `
@@ -422,6 +439,11 @@ function activeShard(db: DatabaseSync, now: Date): ActiveShard | null {
   return shard === undefined ? null : { ...shard, leftMinutes: Math.ceil((Date.parse(shard.until) - now.getTime()) / 60_000) }
 }
 
+export function shardDecisions(db: DatabaseSync): ShardDecision[] {
+  return (db.prepare(WINDOW_SHARD_DECISIONS).all() as { card_id: number, ts: string, shard: unknown, wait: unknown, answer: unknown }[])
+    .map(row => ({ card: row.card_id, shard: String(row.shard), wait: String(row.wait), answer: String(row.answer), ts: row.ts }))
+}
+
 function taskQueues(db: DatabaseSync, orders: LeaseOrders): TaskQueue[] {
   return QUEUES.map(queue => ({
     queue,
@@ -467,6 +489,7 @@ export function readBoard(sources: BoardSources): Board {
     lanes: laneBlock(chains),
     window: health.find(component => component.name === 'Operator')!,
     shard: activeShard(db, now),
+    shardDecisions: shardDecisions(db),
     execution: executionBlock(db, now, chains, down),
     health,
     progress: progressOf(db, now, health, queue.blocked, queue.ready),

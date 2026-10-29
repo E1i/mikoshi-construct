@@ -4,7 +4,8 @@ import type { CardEvent } from '../../src/commands/intake/index.js'
 import type { StoredEvent } from './stored.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { isLaneName, laneName, laneNumber } from '../../src/commands/intake/admit.js'
+import { isLaneName, laneName, laneNumber, pathsNamedOutside } from '../../src/commands/intake/admit.js'
+import { NOT_A_BACKFILL } from './backfill-source.js'
 import { appendEvent } from './db.js'
 import { CARD_ADMITTED, FACTORY_MODE } from './events.js'
 
@@ -120,6 +121,12 @@ export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
   return (db.prepare(`SELECT text FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { text: string } | undefined)?.text ?? null
 }
 
+export function pathsOutsideTheBody(db: DatabaseSync, cardId: number, text: string): string[] {
+  const body = cardBodyText(db, cardId)
+  const parsed = body === null ? null : parseParkingFile(`${cardId}.md`, body)
+  return parsed?.kind === 'parked' ? pathsNamedOutside(parsed.parked, text) : []
+}
+
 export function foldCardBody(db: DatabaseSync, event: StoredEvent): void {
   const payload = payloadOrNull(event)
   const text = payload?.text
@@ -135,4 +142,24 @@ export function foldCardBody(db: DatabaseSync, event: StoredEvent): void {
       lane = excluded.lane, who = excluded.who, priority = excluded.priority, branch = excluded.branch, touches = excluded.touches,
       creates = excluded.creates, card_line = excluded.card_line, contour = excluded.contour, decision = excluded.decision, depends = excluded.depends
   `).run(event.card_id, event.id, text, payload.textSha, lane, columns.who, columns.priority, columns.branch, columns.touches, columns.creates, columns.card_line, columns.contour, columns.decision, columns.depends)
+}
+
+const LATEST_ADMISSION = `
+  SELECT id, payload FROM events
+  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND ${NOT_A_BACKFILL}
+  ORDER BY id DESC LIMIT 1
+`
+
+const FOLDED_ADMISSION = `SELECT admission_event_id FROM ${CARD_BODIES} WHERE card_id = ?`
+
+function carriesABody(payload: Record<string, unknown>): boolean {
+  return typeof payload.text === 'string' && payload.textSha === textSha(payload.text)
+}
+
+export function bodyNotFoldedYet(db: DatabaseSync, cardId: number): boolean {
+  const admission = db.prepare(LATEST_ADMISSION).get(cardId) as { id: number, payload: string } | undefined
+  if (admission === undefined || !carriesABody(JSON.parse(admission.payload) as Record<string, unknown>))
+    return false
+  const folded = db.prepare(FOLDED_ADMISSION).get(cardId) as { admission_event_id: number } | undefined
+  return folded === undefined || Number(folded.admission_event_id) < Number(admission.id)
 }

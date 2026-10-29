@@ -3,10 +3,9 @@ import type { ParkedTask } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
 import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
-import { textSha } from '../../../src/card/text-sha.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { unsatisfiedDependencies } from '../../core/card-automaton.js'
-import { CARD_BODIES } from '../../core/card-bodies.js'
+import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
@@ -62,14 +61,6 @@ const STARTED_TREES = `
   WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, '$.worktree') = 'text'
   ORDER BY id
 `
-
-const LATEST_ADMISSION = `
-  SELECT id, payload FROM events
-  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND ${NOT_A_BACKFILL}
-  ORDER BY id DESC LIMIT 1
-`
-
-const FOLDED_BODY = `SELECT admission_event_id FROM ${CARD_BODIES} WHERE card_id = ?`
 
 const LAST_SESSION_BEATS = `
   SELECT card_id, max(ts) AS ts FROM events
@@ -149,18 +140,6 @@ function parkedOf(row: LifeRow, payload: Record<string, unknown>): ParkedTask | 
     return null
   const parsed = parseParkingFile(`${row.card_id}.md`, payload.text)
   return parsed.kind === 'parked' ? parsed.parked : null
-}
-
-function carriesABody(payload: Record<string, unknown>): boolean {
-  return typeof payload.text === 'string' && payload.textSha === textSha(payload.text)
-}
-
-export function bodyNotFoldedYet(db: DatabaseSync, cardId: number): boolean {
-  const admission = db.prepare(LATEST_ADMISSION).get(cardId) as { id: number, payload: string } | undefined
-  if (admission === undefined || !carriesABody(payloadOf({ payload: admission.payload })))
-    return false
-  const folded = db.prepare(FOLDED_BODY).get(cardId) as { admission_event_id: number } | undefined
-  return folded === undefined || Number(folded.admission_event_id) < Number(admission.id)
 }
 
 function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[]): boolean {
