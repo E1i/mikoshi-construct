@@ -442,7 +442,7 @@ describe('construct init and the tab-window hooks', () => {
     const settings = readSettingsOf(dir) as HookSettings & { permissions: unknown }
     expect(settings.permissions).toEqual(own.permissions)
     expect(commandsOf(settings, 'Stop')).toEqual(['echo own-stop', windowCommand('stop')])
-    expect(commandsOf(settings, 'PostToolUse')).toEqual(['echo own-post'])
+    expect(commandsOf(settings, 'PostToolUse')).toEqual(['echo own-post', 'node "$CLAUDE_PROJECT_DIR"/scripts/construct/window-heartbeat.mjs'])
     expect(commandsOf(settings, 'PreCompact')).toEqual([windowCommand('pre-compact')])
     expect(commandsOf(settings, 'SessionStart')).toEqual([windowCommand('session-start')])
 

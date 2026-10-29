@@ -1,10 +1,57 @@
 {
+  "permissions": {
+    "allow": [
+      "Edit(/**)",
+      "Write(/**)"
+    ],
+    "ask": [
+      "Edit(/.claude/settings*.json)",
+      "Write(/.claude/settings*.json)",
+      "Edit(/.claude/eddies.json)",
+      "Write(/.claude/eddies.json)"
+    ]
+  },
   "sandbox": {
     "excludedCommands": [
       "node scripts/construct/browser-lab.mjs *"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/construct/eddies.mjs guard",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/construct/window-heartbeat.mjs",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/scripts/construct/eddies.mjs prompt",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

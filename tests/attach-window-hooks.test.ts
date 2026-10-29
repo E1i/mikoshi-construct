@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
+import { openBus } from '../scripts/core/db.js'
+import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
 import { readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { engramRules, WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
 import { runDetach } from '../src/commands/detach/index.js'
@@ -33,6 +35,7 @@ const STOP_ENTRY = windowEntry('stop')
 const PRE_COMPACT_ENTRY = windowEntry('pre-compact')
 const COMPACT_START_ENTRY = windowEntry('session-start')
 const HANDOFF_GUARD_ENTRY = windowEntry('pre-tool-use', 'Write|Edit|MultiEdit')
+const HEARTBEAT_ENTRY = windowEntry('heartbeat', '*')
 
 function git(dir: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' })
@@ -62,7 +65,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
 
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ sandbox: { excludedCommands: ['node scripts/construct/browser-lab.mjs *'] }, hooks: { PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
+    expect(readSettings(dir)).toEqual({ sandbox: { excludedCommands: ['node scripts/construct/browser-lab.mjs *'] }, hooks: { PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY], PostToolUse: [HEARTBEAT_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
     expect(readFileSync(path.join(dir, ATTACH_WINDOW_HOOKS.target)).equals(readFileSync(TEMPLATE))).toBe(true)
     const record = readAttachRecord(dir)
     expect(Object.keys(record?.files ?? {})).toContain(ATTACH_WINDOW_HOOKS.target)
@@ -81,9 +84,9 @@ describe('attach puts the tab-window hooks into the working repository', () => {
     expect(readSettings(dir)).toEqual({
       sandbox: { excludedCommands: ['node scripts/construct/browser-lab.mjs *'] },
       permissions: { allow: [...existing.permissions.allow, ...engramRules(dir, home())] },
-      hooks: { Stop: [own, STOP_ENTRY], SessionStart: [{ matcher: 'startup', ...own }, COMPACT_START_ENTRY], PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], PreCompact: [PRE_COMPACT_ENTRY] },
+      hooks: { Stop: [own, STOP_ENTRY], SessionStart: [{ matcher: 'startup', ...own }, COMPACT_START_ENTRY], PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], PostToolUse: [HEARTBEAT_ENTRY] },
     })
-    expect(readAttachRecord(dir)?.settingsHook?.window?.map(({ event, created }) => [event, created])).toEqual([['Stop', false], ['PreCompact', true], ['SessionStart', false], ['PreToolUse', false]])
+    expect(readAttachRecord(dir)?.settingsHook?.window?.map(({ event, created }) => [event, created])).toEqual([['Stop', false], ['PreCompact', true], ['SessionStart', false], ['PreToolUse', false], ['PostToolUse', true]])
   })
 
   it('attach refuses a repository whose settings already name the window hooks, with nothing left behind', async () => {
@@ -155,7 +158,7 @@ function handoff(text: string): string {
 }
 
 function hook(event: string, input: unknown, env: NodeJS.ProcessEnv = {}): { stdout: string, stderr: string, status: number | null } {
-  const { CONSTRUCT_CARD: _card, CONSTRUCT_BUS_RAISED: _raised, CLAUDE_CODE_ENTRYPOINT: _entrypoint, CONSTRUCT_HANDOFF: _handoff, ...rest } = process.env
+  const { CONSTRUCT_CARD: _card, CONSTRUCT_BUS_RAISED: _raised, CLAUDE_CODE_ENTRYPOINT: _entrypoint, CONSTRUCT_HANDOFF: _handoff, CONSTRUCT_BUS_DB: _bus, ...rest } = process.env
   const run = spawnSync(process.execPath, [TEMPLATE, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...rest, HOME: home(), CONSTRUCT_HANDOFF_DIR: home(), ...env } })
   return { stdout: run.stdout, stderr: run.stderr, status: run.status }
 }
@@ -207,6 +210,34 @@ describe('the window hooks script ships self-contained', () => {
     const run = hook('pre-compact', { trigger: 'auto' })
     expect(run.status).toBe(0)
     expect((JSON.parse(run.stdout) as { systemMessage: string }).systemMessage).toContain(file)
+  })
+
+  it('heartbeat writes one window.heartbeat into the repository bus per beat interval', () => {
+    const bus = path.join(home(), 'bus.db')
+    openBus(bus).close()
+    expect(hook('heartbeat', { session_id: 'tab-1' }, { CONSTRUCT_BUS_DB: bus }).stderr).toBe('')
+    expect(hook('heartbeat', { session_id: 'tab-1' }, { CONSTRUCT_BUS_DB: bus }).stderr).toBe('')
+    const db = openBus(bus)
+    const rows = db.prepare('SELECT actor, payload FROM events WHERE type = ?').all(WINDOW_HEARTBEAT) as { actor: string, payload: string }[]
+    db.close()
+    expect(rows.map(row => row.actor)).toEqual(['worker:window:tab-1'])
+    expect(JSON.parse(rows[0]!.payload)).toMatchObject({ session: 'tab-1', mode: 'tab' })
+  })
+
+  it('heartbeat leaves an absent or empty bus as it found it, and writes nothing for a card session', () => {
+    const absent = path.join(home(), 'absent-bus.db')
+    expect(hook('heartbeat', { session_id: 'tab-1' }, { CONSTRUCT_BUS_DB: absent }).stderr).toBe('')
+    expect(existsSync(absent)).toBe(false)
+    const empty = path.join(home(), 'empty-bus.db')
+    writeFileSync(empty, '')
+    expect(hook('heartbeat', { session_id: 'tab-1' }, { CONSTRUCT_BUS_DB: empty }).stderr).toBe('')
+    expect(readFileSync(empty, 'utf8')).toBe('')
+    const bus = path.join(home(), 'card-bus.db')
+    openBus(bus).close()
+    hook('heartbeat', { session_id: 'card-1' }, { CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '1395' })
+    const db = openBus(bus)
+    expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(WINDOW_HEARTBEAT)).toEqual({ n: 0 })
+    db.close()
   })
 
   it('pre-compact names a missing handoff in a systemMessage', () => {
