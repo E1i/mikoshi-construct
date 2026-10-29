@@ -1,7 +1,7 @@
 import type { RepositoryFacts } from '../../src/commands/intake/facts.js'
 import { describe, expect, it } from 'vitest'
 import { isTest as layersIsTest } from '../../scripts/ci/layers.js'
-import { COVERING_REASON, coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, RISK_RULE, RISK_RULE_READERS, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
+import { COVERING_REASON, coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, pathsIn, pathsOutside, RISK_RULE, RISK_RULE_READERS, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
 import { checkDraft } from '../../src/commands/intake/check.js'
 
 const FILES: Record<string, string> = {
@@ -48,6 +48,27 @@ describe('the tests that cover a touched file', () => {
     const read = (file: string): string | null => files[file] ?? null
     const list = Object.keys(files)
     expect(coveringTests(['scripts/nodes/launch/tree-pr.ts'], list, importersOf(list, read), read)).toEqual(['scripts/tests/shift/spawned.test.ts', 'tests/decisions-read-through-reader.test.ts'])
+  })
+
+  it('a test that reads a touched file by path covers it', () => {
+    const files: Record<string, string> = {
+      'eslint.config.mjs': 'export default []\n',
+      'scripts/ci/gate.yaml': 'steps: []\n',
+      'scripts/tests/lint/policy.test.ts': 'const eslint = new ESLint({ cwd: process.cwd() })\n',
+      'tests/config-resolved.test.ts': 'await eslint.calculateConfigForFile(path.join(root, \'src/a.ts\'))\n',
+      'scripts/tests/ci/gate.test.ts': 'readFileSync(path.join(root, \'scripts\', \'ci\', \'gate.yaml\'), \'utf8\')\n',
+      'scripts/tests/ci/unrelated.test.ts': 'export {}\n',
+    }
+    const read = (file: string): string | null => files[file] ?? null
+    const list = Object.keys(files)
+    expect(coveringTests(['eslint.config.mjs'], list, importersOf(list, read), read)).toEqual(['scripts/tests/lint/policy.test.ts', 'tests/config-resolved.test.ts'])
+    expect(coveringTests(['scripts/ci/gate.yaml'], list, importersOf(list, read), read)).toEqual(['scripts/tests/ci/gate.test.ts'])
+  })
+
+  it('the paths a question names that the touches and creates leave out', () => {
+    const named = pathsIn('may I change scripts/tests/lint/policy.test.ts, src/a.ts and eslint.config.mjs? see src/a.ts.')
+    expect(named).toEqual(['scripts/tests/lint/policy.test.ts', 'src/a.ts', 'eslint.config.mjs'])
+    expect(pathsOutside(['src/**'], ['eslint.config.mjs'], named)).toEqual(['scripts/tests/lint/policy.test.ts'])
   })
 
   it('a test reaches a touched file through vi.mock, require or a re-export split over lines', () => {

@@ -13,7 +13,7 @@ import { planMaterialize } from '../materialize/plan.js'
 import { repositoryCarriesTheSample } from '../materialize/sample.js'
 import { withoutStillbornClaims } from '../model/birth.js'
 import { buildModel, mergeModel, readModel, writeModel } from '../model/write.js'
-import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, groupsFor, isPresetId, keysGivenADefault, PRESET_LIST, sampleGroups, sampleMounts, workspacePackagesFor } from '../presets/index.js'
+import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, groupsFor, isPresetId, keysGivenADefault, pinnedPnpm, PRESET_LIST, sampleGroups, sampleMounts, workspacePackagesFor } from '../presets/index.js'
 import { ownedSha } from '../sync/ownership.js'
 import { isValidProjectName, parseLaneCount } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
@@ -350,7 +350,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     compositionDir: report.existing.compositionDir ?? DEFAULT_COMPOSITION_DIR,
     harnessCommand,
     packageManager: 'pnpm',
-    pnpmVersion: report.pnpmVersion ?? '',
+    pnpmVersion: pinnedPnpm(report.pnpmVersion),
     reviewModel,
     constructVersion: VERSION,
     ...preset.vars(report, projectName, policy),

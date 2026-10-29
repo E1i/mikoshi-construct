@@ -14,6 +14,7 @@ import process from 'node:process'
 import { decisionsFileOf, defaultBusPath } from '../../../scripts/core/bus-path.js'
 import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
 import { endedCards } from '../../card/closed.js'
+import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
@@ -37,6 +38,10 @@ const LANE_NAME = /^(?:(?:lane|night)(?:-[\w.-]+)?|\d{4}-\d{2}-\d{2}-[a-z]+)$/
 
 export function isLaneName(name: string): boolean {
   return LANE_NAME.test(name)
+}
+
+export function pathsNamedOutside(parked: ParkedTask, text: string): string[] {
+  return pathsOutside(parked.task.touches, parked.creates, pathsIn(text))
 }
 
 export function laneOf(root: string, dir: string): string | null {

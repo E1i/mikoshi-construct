@@ -1327,20 +1327,6 @@
   {
     "type": "dependency",
     "from": "scripts/nodes/answer/answer-executor.ts",
-    "to": "src/card/parking.ts",
-    "unresolvedTo": "../../../src/card/parking.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/answer/answer-executor.ts",
     "to": "src/card/risk.ts",
     "unresolvedTo": "../../../src/card/risk.js",
     "dependencyTypes": [
@@ -1670,20 +1656,6 @@
     "dependencyTypes": [
       "local",
       "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/launch/launch-candidates.ts",
-    "to": "src/card/text-sha.ts",
-    "unresolvedTo": "../../../src/card/text-sha.js",
-    "dependencyTypes": [
-      "local",
       "import"
     ],
     "rule": {
