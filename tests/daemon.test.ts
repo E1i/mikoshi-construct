@@ -1,6 +1,6 @@
 import type { AgentOptions, DaemonResult, Evidence } from './daemon-workflow.js'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -495,7 +495,7 @@ interface HandsLab {
   hands: (...argv: string[]) => { status: number | null, stderr: string }
 }
 
-function handsLab(): HandsLab {
+function handsLab({ failClose = false } = {}): HandsLab {
   const root = realpathSync(scratch('construct-hands-root-'))
   const bin = path.join(root, 'bin')
   const record = path.join(root, 'calls.jsonl')
@@ -511,6 +511,7 @@ function handsLab(): HandsLab {
     '  fs.mkdirSync(\'.playwright-cli\', { recursive: true })',
     '  fs.appendFileSync(\'.playwright-cli/console-1.log\', \'[LOG] \' + args.filter(arg => arg !== \'--config\' && !arg.endsWith(\'hands.config.json\')).join(\' \') + \'\\n\')',
     '}',
+    ...(failClose ? ['if (args.includes(\'close\')) process.exit(1)'] : []),
     'console.log(\'ok\')',
     '',
   ].join('\n'))
@@ -601,5 +602,59 @@ describe('the hands core of the browser lab', () => {
       session: 'a',
       console: ['[LOG] -s a open http://x', '[LOG] -s a click e1', '[LOG] -s a close'],
     })
+  })
+
+  it('a profile copy left by a session that never closed is swept', () => {
+    const lab = handsLab()
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+    const [abandoned] = lab.calls().map(userDataDirectory) as [string]
+    const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000)
+    utimesSync(path.join(abandoned, 'hands.config.json'), sevenHoursAgo, sevenHoursAgo)
+
+    const next = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/b', '--', '-s', 'b', 'open', 'http://x')
+
+    expect(next.status, next.stderr).toBe(0)
+    expect(existsSync(abandoned)).toBe(false)
+    const current = userDataDirectory(lab.calls().at(-1) as HandsCall)
+    expect(existsSync(current)).toBe(true)
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/b', '--', '-s', 'b', 'close')
+  })
+
+  it('a profile copy whose session is still active is not swept', () => {
+    const lab = handsLab()
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+    const [active] = lab.calls().map(userDataDirectory) as [string]
+
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/b', '--', '-s', 'b', 'open', 'http://x')
+
+    expect(existsSync(active)).toBe(true)
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/b', '--', '-s', 'b', 'close')
+  })
+
+  it('close reads only the console logs of its own run', () => {
+    const lab = handsLab()
+    write(lab.root, 'evidence/a/.playwright-cli/console-0.log', '[LOG] an earlier run\n')
+    const consoleFile = path.join(lab.root, 'evidence/a/console.json')
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+
+    const closed = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+
+    expect(closed.status, closed.stderr).toBe(0)
+    expect(JSON.parse(readFileSync(consoleFile, 'utf8'))).toEqual({
+      session: 'a',
+      console: ['[LOG] -s a open http://x', '[LOG] -s a close'],
+    })
+  })
+
+  it('a failed close writes no console.json', () => {
+    const lab = handsLab({ failClose: true })
+    lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'open', 'http://x')
+
+    const closed = lab.hands('--profile-from', lab.base, '--evidence', 'evidence/a', '--', '-s', 'a', 'close')
+
+    expect(closed.status).toBe(127)
+    expect(closed.stderr).toContain('hands failed: exit 1')
+    expect(existsSync(path.join(lab.root, 'evidence/a/console.json'))).toBe(false)
   })
 })
