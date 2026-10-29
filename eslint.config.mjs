@@ -25,6 +25,7 @@ const CORE_FILES_SRC_MAY_IMPORT = ['bus-path', 'eddies', 'events', 'factory-path
 const ALLOWED_FACTORY_IMPORTS = {
   'src/card': ['core/factory-paths.js'],
   'src/commands': CORE_FILES_SRC_MAY_IMPORT,
+  'src/commands/doctor': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/live-decision.js'],
   'src/program.ts': [...CORE_FILES_SRC_MAY_IMPORT, 'owner/channel.js'],
 }
 
@@ -66,7 +67,7 @@ const doctorReadsThroughOneReader = {
   ignores: ['src/commands/doctor/readings.ts'],
   rules: {
     'no-restricted-imports': ['error', {
-      patterns: dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns,
+      patterns: [dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns[0], factoryReach('src/commands/doctor')],
       paths: [{ name: 'node:fs', importNames: ['readFileSync', 'readdirSync'], message: READS_GO_THROUGH_ONE_READER }],
     }],
   },

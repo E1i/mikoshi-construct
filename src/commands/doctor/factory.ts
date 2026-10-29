@@ -2,11 +2,12 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { busPathOf, DECISIONS_FILE, decisionsFileOf, isOwnerCheckout } from '../../../scripts/core/bus-path.js'
+import { inForce, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
+import { namesQueueLive } from '../../../scripts/policy/live-decision.js'
 import { readManifest, recordedShas } from '../../manifest.js'
 import { FACTORY_MANIFEST } from '../../materialize/factory-manifest.js'
 import { MIKOSHI_PNPM, pinnedPnpm } from '../../presets/index.js'
 import { factoryLiveness } from '../liveness.js'
-import { liveQueuesIn } from './live-decisions.js'
 import { FileReadings } from './readings.js'
 
 export const FACTORY_SLICES = ['PARITY', 'ONEWORD'] as const
@@ -87,8 +88,8 @@ function ignoresPnpmStore(readings: FileReadings): boolean {
 }
 
 function liveQueues(decisionsFile: string, now: Date): (queue: string) => boolean {
-  const live = liveQueuesIn(new FileReadings(path.dirname(decisionsFile)).read(DECISIONS_FILE) ?? '', now)
-  return queue => live.has(queue)
+  const decisions = inForce(parseDecisions(new FileReadings(path.dirname(decisionsFile)).read(DECISIONS_FILE) ?? '').decisions, now)
+  return queue => decisions.some(decision => namesQueueLive(decision.body, queue))
 }
 
 function factoryFilesCommand(root: string, missing: readonly string[]): string {

@@ -7,10 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BUS_DB_VARIABLE } from '../scripts/core/bus-path.js'
 import { appendEvent, openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
-import { DECISION_FORMAT, inForce, parseDecisions } from '../scripts/policy/decisions/decisions.js'
-import { namesQueueLive } from '../scripts/policy/live-decision.js'
 import { DOCTOR_EXIT, DOCTOR_JSON_SCHEMA_VERSION, FACTORY_ITEMS, factoryChecklist, factoryChecklistExit, factoryChecklistJson, printFactoryChecklist } from '../src/commands/doctor/index.js'
-import { liveQueuesIn } from '../src/commands/doctor/live-decisions.js'
 import { runInit } from '../src/commands/init.js'
 import { WINDOW_SILENT_MS } from '../src/commands/liveness.js'
 import { applySync } from '../src/commands/sync/index.js'
@@ -119,28 +116,6 @@ async function factoryJsonThroughProgram(factory: Factory): Promise<{ exit: type
   }
 }
 
-const GRAMMAR_VALUES: Record<string, string[]> = {
-  'D-N': ['D-2'],
-  '<date>': ['2026-10-30', '2026-10-30 ~11:52Z'],
-  '<decision>': ['[owner] allow-live merge', 'allow-live update', '[owner] allow-live merge and more', '[owner] allow-live update · until 2026-10-30T18:00Z'],
-  'D-K D-L': ['D-1', 'D-1 D-3'],
-  '#A #B': ['#7 #8'],
-  '<YYYY-MM-DDTHH:MMZ>': [IN_FORCE_UNTIL, LAPSED_UNTIL],
-  'D-M': ['D-3'],
-}
-const GRAMMAR_FIELD = new RegExp(`(${Object.keys(GRAMMAR_VALUES).map(field => field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`)
-
-function linesOf(part: string): string[] {
-  return part.split(GRAMMAR_FIELD).reduce<string[]>((lines, piece, index) => lines.flatMap(line => (index % 2 === 1 ? GRAMMAR_VALUES[piece]! : [piece]).map(value => line + value)), [''])
-}
-
-function decisionsFromTheFactoryGrammar(): string[] {
-  const optionals = [...DECISION_FORMAT.matchAll(/ \[([^\]]+)\]/g)]
-  const required = DECISION_FORMAT.slice(0, optionals[0]!.index)
-  const lines = optionals.reduce<string[]>((built, optional) => built.flatMap(line => [line, ...linesOf(` ${optional[1]!}`).map(tail => line + tail)]), linesOf(required))
-  return lines.map(line => `# Owner decisions\n\n- D-1 · 2026-10-30 — [owner] allow-live update\n${line}\n`)
-}
-
 describe('doctor --factory says goes or does not go for every item of PARITY and ONEWORD', () => {
   it('a fresh init with a fresh window heartbeat and the ghost-protocol decisions goes on every item', async () => {
     const checklist = check(await readyFactory())
@@ -231,22 +206,6 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
     const gitignore = path.join(factory.dir, '.gitignore')
     writeFileSync(gitignore, readFileSync(gitignore, 'utf8').replace('.pnpm-store/\n', ''))
     expect(red(check(factory))).toEqual({ 'pnpm-floor': `corepack use pnpm@${MIKOSHI_PNPM}`, 'pnpm-store-ignored': `printf '.pnpm-store/\\n' >> .gitignore` })
-  })
-
-  it('reads the queues live exactly where the factory\'s own decision reader does, on every line its grammar builds', () => {
-    const files = [
-      '# Owner decisions\n\n- D-1 · 2026-10-30 — [owner] allow-live merge · until 2026-10-30T18:00Z · decisions:add\n- D-2 · 2026-10-30 — [owner] allow-live update · until 2026-10-30T18:00Z · decisions:add\n',
-      '# Owner decisions\n\n- D-1 · 2026-10-30 — [owner] allow-live merge · until 2026-10-30T18:00Z · decisions:add\n- D-2 · 2026-10-30 — [owner] allow-live update · until 2026-10-30T06:00Z · decisions:add\n',
-      '# Owner decisions\n\n- D-1 · 2026-10-30 — [owner] allow-live merge · until 2026-10-30T18:00Z · decisions:add\n- D-2 · 2026-10-30 — [owner] allow-live merge and allow-live update end with the revocation of shard s · supersedes D-1 · decisions:add\n',
-      '# Owner decisions\n\n- D-1 · 2026-10-30 — allow-live update · superseded-by D-2\n- D-2 · 2026-10-30 — allow-live merge\n',
-      '# Owner decisions\n\n- D-1 · 2026-10-30 — [owner] allow-live merge is not what this says\n',
-    ]
-    for (const text of [...files, ...decisionsFromTheFactoryGrammar()]) {
-      const theirs = inForce(parseDecisions(text).decisions, NOW)
-      const live = liveQueuesIn(text, NOW)
-      for (const queue of ['merge', 'update'])
-        expect(live.has(queue), `${queue} in ${text}`).toBe(theirs.some(decision => namesQueueLive(decision.body, queue)))
-    }
   })
 
   it('--json carries schemaVersion, goes, bus and items, and exits ok only when every item goes', async () => {
