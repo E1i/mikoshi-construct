@@ -57,11 +57,13 @@ const TEXT_ADMISSIONS = `
   ORDER BY id DESC LIMIT 2
 `
 
-const LATEST_ASSIGNMENT = `SELECT id, json_extract(payload, '$.lane') AS lane FROM events WHERE legacy = 0 AND type = '${LANE_ASSIGNED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
+const LATEST_ASSIGNMENT = `SELECT id, json_extract(payload, '$.lane') AS lane, json_extract(payload, '$.reason') AS reason, json_extract(payload, '$.after') AS after FROM events WHERE legacy = 0 AND type = '${LANE_ASSIGNED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
+
+const LATEST_ADMISSION = `SELECT max(id) AS id FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ?`
 
 const LATEST_END = `SELECT max(id) AS id FROM events WHERE legacy = 0 AND card_id = ? AND type IN ('${CARD_DROPPED}', '${CARD_CLOSED}', '${MERGE_DONE}')`
 
-export type LaneReason = 'chain' | 'kept' | 'free' | 'least-loaded'
+export type LaneReason = 'chain' | 'kept' | 'free' | 'least-loaded' | 'moved'
 
 export interface LaneCard {
   cardId: number
@@ -191,15 +193,16 @@ function binding(card: LaneCard, chained: readonly LiveLane[], others: readonly 
   return chained.filter(other => others.every(each => each.lane !== other.lane || chainedTo(card, each)))
 }
 
-export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: number, current: string | null = null): LaneChoice {
+export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: number, current: string | null = null, occupying: readonly LiveLane[] = live): LaneChoice {
   const others = live.filter(other => other.cardId !== card.cardId)
+  const occupants = occupying.filter(other => other.cardId !== card.cardId)
   const chained = others.filter(other => withinCount(other.lane, count) && chainedTo(card, other))
   const bound = binding(card, chained, others)
   if (bound.length > 0)
     return chainChoice(bound, current)
   if (current !== null && withinCount(current, count))
     return { lane: current, reason: 'kept', after: [] }
-  const load = new Map(laneNumbers(count).map(number => [number, others.filter(other => other.lane === chainLaneName(number)).length]))
+  const load = new Map(laneNumbers(count).map(number => [number, occupants.filter(other => other.lane === chainLaneName(number)).length]))
   const free = laneNumbers(count).find(number => load.get(number) === 0)
   if (free !== undefined)
     return { lane: chainLaneName(free), reason: 'free', after: [] }
@@ -242,7 +245,7 @@ function laneCardOf(db: DatabaseSync, cardId: number): LaneCard {
   return { cardId, depends: dependsOf(payload), task: taskOf(cardId, payload) }
 }
 
-interface Assignment { id: number, lane: unknown }
+interface Assignment { id: number, lane: unknown, reason: unknown, after: string | null }
 
 function latestAssignment(db: DatabaseSync, cardId: number): Assignment | undefined {
   return db.prepare(LATEST_ASSIGNMENT).get(cardId) as Assignment | undefined
@@ -274,13 +277,50 @@ function assign(db: DatabaseSync, cardId: number, admission: number, choice: Lan
   return appendEvent(db, { ts, type: LANE_ASSIGNED, actor, cardId, pr: null, head: null, dedupeKey: `${LANE_ASSIGNED}:${admission}:${previous}`, payload: { ...choice, lanes: count, admission }, legacy: false })
 }
 
+function afterOf(assignment: Assignment): number[] {
+  const after = assignment.after === null ? [] : JSON.parse(assignment.after) as unknown
+  return Array.isArray(after) ? after.filter(each => typeof each === 'number') : []
+}
+
+function notStarted(row: AdmittedRow): boolean {
+  return NOT_STARTED_STATES.includes(row.state)
+}
+
+function chainedOnlyThroughEnded(db: DatabaseSync, row: AdmittedRow, rows: readonly AdmittedRow[]): boolean {
+  const assignment = latestAssignment(db, row.card_id)
+  if (!notStarted(row) || assignment === undefined || assignment.reason !== 'chain')
+    return false
+  const live = new Set(rows.map(each => each.card_id))
+  return afterOf(assignment).every(parent => !live.has(parent))
+}
+
+function keptWhere(db: DatabaseSync, cardId: number, current: string | null, count: number): boolean {
+  return current !== null && (withinCount(current, count) || latestAssignment(db, cardId)?.reason === 'moved')
+}
+
+function releasedChoice(db: DatabaseSync, card: LaneCard, rows: readonly AdmittedRow[], count: number): LaneChoice {
+  const started = new Set(rows.filter(row => !notStarted(row)).map(row => row.card_id))
+  const live = liveLanes(db)
+  const binders = live.filter(other => started.has(other.cardId) || card.depends.includes(other.cardId))
+  return chooseLane(card, binders, count, null, live)
+}
+
+export function assignMovedLane(db: DatabaseSync, cardId: number, lane: string, count: number, ts: string, actor: string): boolean {
+  const admission = (db.prepare(LATEST_ADMISSION).get(cardId) as { id: number | null }).id
+  return admission !== null && assign(db, cardId, Number(admission), { lane, reason: 'moved', after: [] }, count, ts, actor)
+}
+
 export function layOutLanes(db: DatabaseSync, count: number, ts: string, actor: string): number {
   let assigned = 0
-  for (const row of liveRows(db)) {
+  const rows = liveRows(db)
+  for (const row of rows) {
     const current = currentLane(db, row.card_id)
-    if (current !== null && withinCount(current, count))
+    const released = current !== null && chainedOnlyThroughEnded(db, row, rows)
+    if (keptWhere(db, row.card_id, current, count) && !released)
       continue
-    if (assign(db, row.card_id, Number(row.admission), chooseLane(laneCardOf(db, row.card_id), liveLanes(db), count), count, ts, actor))
+    const card = laneCardOf(db, row.card_id)
+    const choice = released ? releasedChoice(db, card, rows, count) : chooseLane(card, liveLanes(db), count)
+    if (assign(db, row.card_id, Number(row.admission), choice, count, ts, actor))
       assigned += 1
   }
   return assigned
