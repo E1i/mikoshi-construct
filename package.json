@@ -106,7 +106,7 @@
     "mutate": "node --import tsx scripts/cli/mutate.ts",
     "morse:approve": "node --import tsx scripts/ladder/morse-approve.ts",
     "morse:predict": "node --import tsx scripts/morse/cli.ts predict",
-    "prepublishOnly": "pnpm build",
+    "prepack": "pnpm --silent build --silent",
     "privacy:check": "node --import tsx scripts/privacy/check.ts",
     "quality": "node --import tsx scripts/quality/lock.ts node --import tsx scripts/scratch/run.ts pnpm run quality:steps",
     "quality:steps": "pnpm composition:check && pnpm model:check && pnpm privacy:check && pnpm layers:check && pnpm lint && pnpm typecheck && pnpm test && pnpm docs:build && pnpm docs:pending && pnpm docs:anchors",

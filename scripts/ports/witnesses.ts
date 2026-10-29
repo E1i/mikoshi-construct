@@ -45,6 +45,8 @@ const FAILED_TESTS = /\b\d+ failed\b/
 const TESTS_LINE = /^\s*Tests\s/
 // eslint-disable-next-line no-control-regex
 const ANSI = /\u001B\[[0-9;]*m/g
+const REFUSAL_TAIL_LINES = 6
+const TAIL_JOINER = ' · '
 const VITEST = /\bvitest\b/
 const TEST_FILE = /^[\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?$/
 const TEST_NAME = /\s(?:-t|--testNamePattern)[=\s]+(?:'([^']*)'|"([^"]*)"|(\S+))/
@@ -110,8 +112,12 @@ function baseRedRefusal(witness: Witness, result: ShellResult, base: string): st
   return null
 }
 
+function outputTail(output: string): string {
+  return tailLines(output.replace(ANSI, ''), REFUSAL_TAIL_LINES).split('\n').map(line => line.trim()).join(TAIL_JOINER) || 'no output'
+}
+
 function greenRefusal(label: string, witness: Witness, result: ShellResult, where: string): string | null {
-  return result.status === 0 ? null : `${label} "${witness.criterion}" exits ${result.status ?? 'without a status'} on ${where}: ${lastLine(result.output)}`
+  return result.status === 0 ? null : `${label} "${witness.criterion}" exits ${result.status ?? 'without a status'} on ${where}: ${outputTail(result.output)}`
 }
 
 function headRefusal(label: string, witness: Witness, result: ShellResult, where: string): string | null {

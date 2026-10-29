@@ -19,6 +19,12 @@ import { gitWitnessTrees, realTimedShell, WitnessExecutor } from './witness-exec
 export const PREFIX = prefixOf('witness')
 export const WITNESS_ON = [REDUCED, PR_OBSERVED, PR_OPENED, CARD_ADMITTED] as const
 
+export const CI_ENVIRONMENT = { CI: 'true' } as const
+
+export function inCiEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.assign(env, CI_ENVIRONMENT)
+}
+
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED])
 
 export interface WitnessNodeParts {
@@ -83,6 +89,7 @@ export async function runWitnessWorker(argv: string[], run: WitnessRun): Promise
 }
 
 async function main(): Promise<number> {
+  inCiEnvironment(process.env)
   return runWitnessWorker(process.argv.slice(2), { busPath: defaultBusPath(), repo: process.cwd(), session: randomUUID(), pause: sleep })
 }
 
