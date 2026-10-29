@@ -14,14 +14,14 @@ import { busDirOf, pinBus } from '../core/bus-path.js'
 import { RUNNING_CARD } from '../core/card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { CARD_CONTINUED, CARD_STARTED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
-import { FACTORY_NAMED, FACTORY_RUNTIME } from '../core/factory-paths.js'
+import { FACTORY_NAMED, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, WORKER_HUNG } from '../core/lease.js'
 import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { CHECK_MS } from '../ports/netwatch.js'
-import { flagsInArgs, instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
+import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
@@ -49,6 +49,31 @@ export const SUPERVISOR_LAUNCH: DetachedLaunch = {
   instanceFile: SUPERVISOR_INSTANCE_FILE,
   startLock: 'bus-bg-supervise.lock',
   log: 'supervisor.log',
+}
+
+const BUILT_BUS_ENTRIES = [FACTORY_RUNTIME.busRunEntry, FACTORY_RUNTIME.busSupervisor, ...Object.values(FACTORY_WORKERS)]
+  .map(entry => `/${BUILD_DIR}/${entry.replace(/\.ts$/, BUILT_MODULE)}`)
+
+export function packageOfBusProcess(args: string): string | null {
+  for (const token of args.split(/\s+/)) {
+    const entry = BUILT_BUS_ENTRIES.find(built => token.endsWith(built))
+    if (entry !== undefined)
+      return token.slice(0, -entry.length)
+  }
+  return null
+}
+
+export function foreignBusLines(processes: readonly RunningProcess[], ownPackage: string): string[] {
+  return processes.flatMap((candidate) => {
+    const root = packageOfBusProcess(candidate.args)
+    return root === null || path.resolve(root) === path.resolve(ownPackage)
+      ? []
+      : [`${PREFIX}pid ${candidate.pid} is a bus process from another package, ${root}, not from ${path.resolve(ownPackage)}: this supervisor neither counts nor stops it; kill ${candidate.pid} once nothing of that package should run`]
+  })
+}
+
+function ownPackage(): string {
+  return installedPackage() ?? process.cwd()
 }
 
 export interface MainAdvance {
@@ -937,6 +962,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   }
   const code = gitCode(cwd)
+  foreignBusLines(processes(), ownPackage()).forEach(line => console.log(line))
   recordStarted(db, new Date().toISOString(), code, line => console.log(line))
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
@@ -1001,7 +1027,7 @@ const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath())
 export async function startBus(busDir: string = pinnedBusDir(), processes: ProcessList = psList()): Promise<BgResult> {
   const judged = await restartSilentSupervisorOnBus(busDir, processes)
   const started = runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], process.env, processes, startReviewWorker)
-  return { ...started, stdout: [...judged, ...started.stdout] }
+  return { ...started, stdout: [...foreignBusLines(processes(), ownPackage()), ...judged, ...started.stdout] }
 }
 
 async function main(): Promise<void> {
