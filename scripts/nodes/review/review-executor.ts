@@ -73,10 +73,14 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string') : []
 }
 
+function ownVerdictKey(lease: Lease): string {
+  return `${REVIEW_RECORDED}:${lease.taskKey}:`
+}
+
 export function earlierVerdict(db: DatabaseSync, lease: Lease): EarlierVerdict | null {
   if (lease.pr === null || lease.head === null)
     return null
-  const row = db.prepare('SELECT payload FROM events WHERE type = ? AND pr = ? AND head != ? AND legacy = 0 ORDER BY id DESC LIMIT 1').get(REVIEW_RECORDED, lease.pr, lease.head) as { payload: string } | undefined
+  const row = db.prepare('SELECT payload FROM events WHERE type = ? AND pr = ? AND legacy = 0 AND substr(dedupe_key, 1, ?) != ? ORDER BY id DESC LIMIT 1').get(REVIEW_RECORDED, lease.pr, ownVerdictKey(lease).length, ownVerdictKey(lease)) as { payload: string } | undefined
   if (row === undefined)
     return null
   const payload = JSON.parse(row.payload) as { head?: unknown, verdict?: unknown, findings?: unknown }
@@ -105,18 +109,37 @@ export function recordLeftovers(db: DatabaseSync, actor: string, ts: string, lef
 
 export const AMEND_KEEPS_CHANGES = 'A pass cannot lift a changes verdict on the same head and pull request body: the amend of the card changed no code. Push a new head.'
 
-function changesUnderThePullRequestBody(db: DatabaseSync, lease: Lease): boolean {
-  const prBody = reviewInputOfKey(lease.taskKey)?.prBody
-  if (prBody === undefined || lease.pr === null || lease.head === null)
+function changesUnderTheSameBodies(db: DatabaseSync, lease: Lease): boolean {
+  const input = reviewInputOfKey(lease.taskKey)
+  if (input?.prBody === undefined || lease.pr === null || lease.head === null)
     return false
   const rows = db.prepare(`SELECT dedupe_key FROM events WHERE type = ? AND pr = ? AND head = ? AND legacy = 0 AND json_extract(payload, '$.verdict') = 'changes'`).all(REVIEW_RECORDED, lease.pr, lease.head) as { dedupe_key: string }[]
-  return rows.some(row => reviewInputOfKey(row.dedupe_key.split(':').slice(1, -1).join(':'))?.prBody === prBody)
+  return rows.some((row) => {
+    const earlier = reviewInputOfKey(row.dedupe_key.split(':').slice(1, -1).join(':'))
+    return earlier?.prBody === input.prBody && earlier.cardBody === input.cardBody
+  })
 }
 
 function keptChanges(db: DatabaseSync, lease: Lease, review: Review): Review {
-  return review.verdict === 'pass' && changesUnderThePullRequestBody(db, lease)
+  return review.verdict === 'pass' && changesUnderTheSameBodies(db, lease)
     ? { ...review, verdict: 'changes', findings: [AMEND_KEEPS_CHANGES] }
     : review
+}
+
+function closedOnTheHead(db: DatabaseSync, lease: Lease): Set<string> {
+  const rows = db.prepare(`SELECT json_extract(payload, '$.findings') AS findings FROM events WHERE type = ? AND pr = ? AND head = ? AND legacy = 0 ORDER BY id`).all(REVIEW_RECORDED, lease.pr, lease.head) as { findings: string | null }[]
+  const rounds = rows.map(row => new Set(strings(row.findings === null ? [] : JSON.parse(row.findings))))
+  return new Set(rounds.slice(0, -1).flatMap((listed, at) => [...listed].filter(finding => !rounds[at + 1]!.has(finding))))
+}
+
+function notReopened(db: DatabaseSync, lease: Lease, review: Review): Review {
+  if (review.verdict !== 'changes' || lease.pr === null || lease.head === null)
+    return review
+  const closed = closedOnTheHead(db, lease)
+  const findings = review.findings.filter(finding => !closed.has(finding))
+  if (findings.length === review.findings.length)
+    return review
+  return findings.length === 0 ? { ...review, verdict: 'pass', findings } : { ...review, findings }
 }
 
 export function roundLimitLine(pr: number, rounds: number): string {
@@ -195,7 +218,7 @@ export class ReviewExecutor {
     if ('kind' in reviewed)
       return this.denied(lease, reviewed)
     const { plan } = reviewed
-    const review = keptChanges(db, lease, reviewed.review)
+    const review = keptChanges(db, lease, notReopened(db, lease, reviewed.review))
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)

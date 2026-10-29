@@ -28,6 +28,18 @@ const FRESH_MS = 2 * 60 * 1000
 const NEEDS_CONSTRUCT = '--needs-construct'
 const CONSTRUCT_BIN = 'construct'
 const HANDOFF_WRITE_REASON = 'write the handoff with miko handoff write <name> <draft>'
+const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
+const BUS_FILE = 'bus.db'
+const WINDOW_HEARTBEAT = 'window.heartbeat'
+const WINDOW_ACTOR = 'worker:window:'
+const WINDOW_MODE = 'tab'
+export const WINDOW_BEAT_MS = 5 * 60 * 1000
+const BUS_BUSY_MS = 1000
+const BEAT_SESSION = /^[^:\s]{1,128}$/
+const SQLITE_EXPERIMENTAL_WARNING = 'SQLite is an experimental feature'
+const EVENTS_TABLE = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'events'`
+const LAST_SESSION_BEAT = `SELECT max(ts) AS ts FROM events WHERE type = ? AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.session') = ?`
+const INSERT_BEAT = 'INSERT OR IGNORE INTO events (ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, 0)'
 
 function executable(file) {
   try {
@@ -145,7 +157,7 @@ export function statusOf(text) {
   return text.split(/\r?\n/).flatMap(line => STATUS_LINE.exec(line)?.[1] ?? []).at(-1) ?? null
 }
 
-function parsed(text) {
+export function parsed(text) {
   try {
     const input = JSON.parse(text)
     return input !== null && typeof input === 'object' ? input : {}
@@ -200,6 +212,63 @@ export function handoffWriteOutput(input, handoffDir, dir) {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: HANDOFF_WRITE_REASON } }
 }
 
+export function busFileOf(env, home, dir) {
+  return env[BUS_DB_VARIABLE] || path.join(home, CONSTRUCT_HOME_DIR, repoIdOf(dir), BUS_FILE)
+}
+
+function loadSqlite() {
+  const emitWarning = process.emitWarning
+  process.emitWarning = (warning, ...rest) => {
+    if (!String(warning?.message ?? warning).startsWith(SQLITE_EXPERIMENTAL_WARNING))
+      Reflect.apply(emitWarning, process, [warning, ...rest])
+  }
+  try {
+    return process.getBuiltinModule?.('node:sqlite') ?? null
+  }
+  catch {
+    return null
+  }
+  finally {
+    process.emitWarning = emitWarning
+  }
+}
+
+export function beatDue(lastTs, now) {
+  return lastTs == null || now - Date.parse(lastTs) >= WINDOW_BEAT_MS
+}
+
+export function writeWindowBeat(busFile, session, root, now, gauges = () => ({})) {
+  if (typeof session !== 'string' || !BEAT_SESSION.test(session) || !existsSync(busFile))
+    return false
+  const sqlite = loadSqlite()
+  if (sqlite == null)
+    return false
+  const db = new sqlite.DatabaseSync(busFile, { timeout: BUS_BUSY_MS })
+  try {
+    if (db.prepare(EVENTS_TABLE).get() === undefined)
+      return false
+    if (!beatDue(db.prepare(LAST_SESSION_BEAT).get(WINDOW_HEARTBEAT, session)?.ts ?? null, now))
+      return false
+    const ts = new Date(now).toISOString()
+    const payload = JSON.stringify({ session, mode: WINDOW_MODE, root, ...gauges() })
+    db.prepare(INSERT_BEAT).run(ts, WINDOW_HEARTBEAT, `${WINDOW_ACTOR}${session}`, `${WINDOW_HEARTBEAT}:${session}:${ts}`, payload)
+    return true
+  }
+  finally {
+    db.close()
+  }
+}
+
+export function heartbeatLine(busFile, session, root, now, gauges) {
+  try {
+    writeWindowBeat(busFile, session, root, now, gauges)
+    return null
+  }
+  catch (error) {
+    return `window-hooks: no window.heartbeat written to ${busFile}: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
 export function windowHookOutput(event, input, env, home, now, dir) {
   if (!tabWindow(env))
     return {}
@@ -212,10 +281,12 @@ export function windowHookOutput(event, input, env, home, now, dir) {
     return { stdout: preCompactOutput(preCompactLine(handoff, mtimeOrNull(handoff), now)) }
   if (event === 'pre-tool-use')
     return { stdout: handoffWriteOutput(input, handoffDirOf(env, home, dir), dir) }
-  return { stderr: `window-hooks: ${event ?? 'no event'} is not one of stop, session-start, pre-compact, pre-tool-use; nothing run` }
+  if (event === 'heartbeat')
+    return { stderr: heartbeatLine(busFileOf(env, home, dir), input.session_id, dir, now) }
+  return { stderr: `window-hooks: ${event ?? 'no event'} is not one of stop, session-start, pre-compact, pre-tool-use, heartbeat; nothing run` }
 }
 
-async function readStdin() {
+export async function readStdin() {
   const chunks = []
   for await (const chunk of process.stdin)
     chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
