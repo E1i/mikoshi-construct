@@ -46,6 +46,7 @@ import { commandWords, realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf, storedInput } from '../../ports/prompt-store.js'
 import { sessionEnv } from '../../ports/session.js'
+import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { cardTree } from '../../ports/worktree-home.js'
 import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../supervisor/bg.js'
 import { heartbeatEnv, lastHeartbeat } from '../../supervisor/heartbeat.js'
@@ -841,7 +842,7 @@ async function main(): Promise<number> {
   const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, repoLadderSteps(process.cwd(), env, busPath))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude)) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(places.claude), { sandbox: CARD_SESSION_SANDBOX }) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

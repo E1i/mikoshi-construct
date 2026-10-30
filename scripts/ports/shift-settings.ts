@@ -1,13 +1,15 @@
 import type { ShiftGate } from '../../src/manifest.js'
 
+export const CARD_SESSION_SANDBOX = { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } } as const
+
 export interface ShiftSettings {
-  sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false }
+  sandbox: typeof CARD_SESSION_SANDBOX
   permissions: { allow: string[] }
 }
 
 export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = []): ShiftSettings {
   return {
-    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+    sandbox: CARD_SESSION_SANDBOX,
     permissions: {
       allow: [
         ...gate.prepush.map(command => `Bash(${command})`),

@@ -875,7 +875,7 @@ describe('the launch queue', () => {
     const [args, card] = (await written(stub.argsFile)).trim().split('\n')
     const settings = /^--permission-mode dontAsk --setting-sources project,local --settings (\{.*\}) --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
     expect(JSON.parse(settings ?? 'null')).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
     })
     expect(card).toBe('card=934')
