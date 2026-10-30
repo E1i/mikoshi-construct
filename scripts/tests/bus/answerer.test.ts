@@ -41,7 +41,7 @@ function settingsOf(run: AnswerRun): unknown {
 
 function treeSettings(worktree: string, ownerQuestion: string): unknown {
   return {
-    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } },
     permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
   }
 }

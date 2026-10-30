@@ -27,7 +27,11 @@ describe('the settings a card session is started with in a repository after cons
   afterAll(() => rmSync(tree, { recursive: true, force: true }))
 
   it('keep the sandbox on with no way to start without it or to run a command outside it', () => {
-    expect(shiftSettings(tree, readShiftGate(tree)).sandbox).toEqual({ enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false })
+    expect(shiftSettings(tree, readShiftGate(tree)).sandbox).toMatchObject({ enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false })
+  })
+
+  it('bus sessions may bind a local port and reach no new host', () => {
+    expect(shiftSettings(tree, readShiftGate(tree)).sandbox).toEqual({ enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } })
   })
 
   it('allow exactly the gate commands of the tree\'s construct config and edits inside the card tree, and no other rule', () => {

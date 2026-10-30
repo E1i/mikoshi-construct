@@ -397,7 +397,7 @@ describe('the session a refusal returns the card to', () => {
 
     const argv = readFileSync(seen, 'utf8').trim().split('\n')
     expect(JSON.parse(argv[argv.indexOf('--settings') + 1]!)).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
     })
   })
