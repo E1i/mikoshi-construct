@@ -9,6 +9,7 @@ export type SettingsLayer = Record<string, unknown> | null
 
 export interface IsolationFacts {
   managed: SettingsLayer
+  flag: SettingsLayer
   local: SettingsLayer
   project: SettingsLayer
   user: SettingsLayer
@@ -41,7 +42,7 @@ function fieldsOf(value: unknown): Fields | null {
 }
 
 function sandboxLayers(facts: IsolationFacts): Fields[] {
-  return [facts.managed, facts.local, facts.project, facts.user].map(layer => fieldsOf(fieldsOf(layer)?.sandbox) ?? {})
+  return [facts.managed, facts.flag, facts.local, facts.project, facts.user].map(layer => fieldsOf(fieldsOf(layer)?.sandbox) ?? {})
 }
 
 function networkLayers(sandboxes: Fields[]): Fields[] {
@@ -153,11 +154,12 @@ export function settingsPaths(env: NodeJS.ProcessEnv, cwd: string, platform: str
   }
 }
 
-export function readIsolationFacts(env: NodeJS.ProcessEnv, cwd: string, command: string[]): IsolationFacts {
+export function readIsolationFacts(env: NodeJS.ProcessEnv, cwd: string, command: string[], flag: SettingsLayer = null): IsolationFacts {
   const platform = os.platform()
   const paths = settingsPaths(env, cwd, platform, os.homedir())
   return {
     managed: paths.managed === null ? null : readLayer(paths.managed),
+    flag,
     local: readLayer(paths.local),
     project: readLayer(paths.project),
     user: readLayer(paths.user),
@@ -169,6 +171,6 @@ export function readIsolationFacts(env: NodeJS.ProcessEnv, cwd: string, command:
   }
 }
 
-export function realIsolationReader(env: NodeJS.ProcessEnv, cwd: string, command: string[]): IsolationReader {
-  return () => runtimeIsolation(readIsolationFacts(env, cwd, command))
+export function realIsolationReader(env: NodeJS.ProcessEnv, cwd: string, command: string[], flag: SettingsLayer = null): IsolationReader {
+  return () => runtimeIsolation(readIsolationFacts(env, cwd, command, flag))
 }

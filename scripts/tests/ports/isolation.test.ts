@@ -22,7 +22,7 @@ afterEach(() => {
 const ENABLED_AND_CLOSED = { sandbox: { enabled: true, allowUnsandboxedCommands: false } }
 
 function facts(over: Partial<IsolationFacts> = {}): IsolationFacts {
-  return { managed: null, local: null, project: null, user: ENABLED_AND_CLOSED, platform: 'darwin', sandboxExec: true, bwrap: true, socat: true, command: [], ...over }
+  return { managed: null, flag: null, local: null, project: null, user: ENABLED_AND_CLOSED, platform: 'darwin', sandboxExec: true, bwrap: true, socat: true, command: [], ...over }
 }
 
 function closed(sandbox: Record<string, unknown>): IsolationFacts {
@@ -75,6 +75,9 @@ const ROWS: Record<string, { facts: IsolationFacts, expected: Expected }> = {
   'a directory only named like tsx stays a gap': { facts: closed({ network: { allowUnixSockets: ['/tmp/tsx-501/docker.sock', 'tsx-501'] } }), expected: { level: 'partial', gaps: ['sandbox.network.allowUnixSockets'] } },
   'allowUnixSockets in a lower layer stays a gap': { facts: facts({ managed: { sandbox: { enabled: true, allowUnsandboxedCommands: false, network: { allowUnixSockets: [] } } }, user: { sandbox: { network: { allowUnixSockets: ['/x.sock'] } } } }), expected: { level: 'partial', gaps: ['sandbox.network.allowUnixSockets'] } },
   'allowLocalBinding reads partial': { facts: closed({ network: { allowLocalBinding: true } }), expected: { level: 'partial', gaps: ['sandbox.network.allowLocalBinding'] } },
+  'the card session --settings layer names its local binding': { facts: facts({ flag: { sandbox: { enabled: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } } } }), expected: { level: 'partial', gaps: ['sandbox.network.allowLocalBinding'] } },
+  'a managed layer outweighs the --settings layer': { facts: facts({ managed: { sandbox: { network: { allowLocalBinding: false } } }, flag: { sandbox: { network: { allowLocalBinding: true } } } }), expected: { level: 'full' } },
+  'the --settings layer outweighs a local layer': { facts: facts({ flag: { sandbox: { allowUnsandboxedCommands: false } }, local: { sandbox: { allowUnsandboxedCommands: true } } }), expected: { level: 'full' } },
   'enableWeakerNestedSandbox reads partial': { facts: closed({ enableWeakerNestedSandbox: true }), expected: { level: 'partial', gaps: ['sandbox.enableWeakerNestedSandbox'] } },
   'enableWeakerNestedSandbox false keeps full': { facts: closed({ enableWeakerNestedSandbox: false }), expected: { level: 'full' } },
   'every gap is named in a fixed order': {

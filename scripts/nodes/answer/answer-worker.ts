@@ -31,6 +31,7 @@ import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { HEADLESS_FLAGS } from '../../ports/session.js'
+import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { answerSourceOf } from './answer-source.js'
@@ -204,7 +205,7 @@ async function main(): Promise<number> {
     cardText: busCardBodies(busPath),
     session: randomUUID(),
     pause: sleep,
-    isolation: realIsolationReader(process.env, cwd, answerIsolationCommand()),
+    isolation: realIsolationReader(process.env, cwd, answerIsolationCommand(), { sandbox: CARD_SESSION_SANDBOX }),
   })
 }
 
