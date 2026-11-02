@@ -19,10 +19,10 @@ import { ownerGlobs } from '../../policy/widening.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
 import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
-import { admittedScopeOf, answerSourceOf } from './answer-source.js'
-import { CardTreeGone, treeDirtyOf, treeMergeOf } from './answerer.js'
+import { admittedScopeOf, answerSourceOf, ownerHoldOf } from './answer-source.js'
+import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, treeDirtyOf, treeMergeOf } from './answerer.js'
 
-export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed'
+export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'held_for_owner' | 'outside_touches'
 
 export interface AnswerDenial {
   kind: 'technical'
@@ -48,6 +48,7 @@ export interface AnswerParts {
   isolation?: IsolationReader
   prompts?: string
   dirty?: (card: CardSession) => boolean
+  liveSession?: (card: CardSession) => string | null
 }
 
 type Answering = AnswerSource & { reentry?: true }
@@ -55,6 +56,7 @@ type Answering = AnswerSource & { reentry?: true }
 interface Widened {
   event: BusEvent
   reason: string
+  paths: string[]
 }
 
 const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
@@ -75,7 +77,7 @@ const RED_WITNESS_ON_HEAD = `
 
 const REENTRY_SOURCES: ReadonlySet<AnswerSource['kind']> = new Set(['ci'])
 
-const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone'])
+const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone', 'held_for_owner'])
 
 const MS_PER_MINUTE = 60_000
 
@@ -107,6 +109,12 @@ function decisionSource(question: string, ground: string): AnswerSource {
   return { kind: 'question', detail: `your question went to the window, and the window decided it under ${ground}: the card goes on without the owner. The question was: ${question}`, widen: null, events: [] }
 }
 
+function reasonOfFailure(error: unknown): AnswerTechnicalReason {
+  if (error instanceof CardTreeGone)
+    return 'card_tree_gone'
+  return error instanceof AnswerOutsideTouches ? 'outside_touches' : 'answer_failed'
+}
+
 export class AnswerExecutor {
   constructor(private readonly parts: AnswerParts) {}
 
@@ -124,6 +132,9 @@ export class AnswerExecutor {
       const source = this.sourceOf(lease)
       if (source === null && !this.dirtyOnHead(lease))
         return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
+      const hold = ownerHoldOf(this.parts.db, lease.cardId)
+      if (hold !== null)
+        return this.heldForTheOwner(lease, hold)
       let widened: Widened | null = null
       if (source?.kind === 'question' && source.widen !== null) {
         const globs = ownerGlobs(this.parts.ownerMerges())
@@ -135,13 +146,16 @@ export class AnswerExecutor {
         if (scope === null || uncovered.length > 0)
           return this.stopped(lease, QUESTION_AGENT, `${uncovered.join(', ')} not in the touches or creates the card was admitted with: ${source.detail}`, { widen: uncovered })
         const reason = `${source.widen.paths.join(', ')}, by the window's amend of the card`
-        widened = { reason, event: this.event(lease, SCOPE_WIDENED, { paths: source.widen.paths, admission: scope.admission, detail: source.detail }) }
+        widened = { reason, paths: source.widen.paths, event: this.event(lease, SCOPE_WIDENED, { paths: source.widen.paths, admission: scope.admission, detail: source.detail }) }
       }
       const card = this.tree(lease)
       if (card === null)
         return this.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started, no start line with a worktree and a branch, and no open pull request` })
       if ('kind' in card)
         return this.denied(lease, card)
+      const live = (this.parts.liveSession ?? liveSessionIn)(card)
+      if (live !== null)
+        return this.heldForTheOwner(lease, live)
       const merge = source === null ? (this.parts.treeMerge ?? treeMergeOf)(card) : null
       if (merge?.kind === 'unreadable')
         return this.waiting(lease, card, merge.why)
@@ -150,7 +164,7 @@ export class AnswerExecutor {
       const first = await this.session(lease, answering, widened, card, false)
       const answered = endedOnContextWarn(first) ? await this.session(lease, answering, widened, card, true) : first
       if ('kind' in answered)
-        return this.denied(lease, answered)
+        return this.refusedOrDenied(lease, answered, widened)
       return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
     }
     catch (error) {
@@ -212,11 +226,27 @@ export class AnswerExecutor {
 
   private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean): Promise<Answered | AnswerDenial> {
     try {
-      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh })
+      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened) })
     }
     catch (error) {
-      return { kind: 'technical', reason: error instanceof CardTreeGone ? 'card_tree_gone' : 'answer_failed', detail: messageOf(error) }
+      return { kind: 'technical', reason: reasonOfFailure(error), detail: messageOf(error) }
     }
+  }
+
+  private outsideTouchesOf(lease: Lease, widened: Widened | null): (paths: readonly string[]) => string[] {
+    const scope = admittedScopeOf(this.parts.db, lease.cardId)
+    const widenedPaths = widened?.paths ?? []
+    return paths => scope === null ? [...paths] : pathsOutside([...scope.touches, ...widenedPaths], scope.creates, paths)
+  }
+
+  private refusedOrDenied(lease: Lease, denial: AnswerDenial, widened: Widened | null): AnswerOutcome {
+    if (denial.reason !== 'outside_touches')
+      return this.denied(lease, denial)
+    return this.ownersStop(lease, `${denial.detail}; the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event])
+  }
+
+  private heldForTheOwner(lease: Lease, detail: string): AnswerOutcome {
+    return this.denied(lease, { kind: 'technical', reason: 'held_for_owner', detail: `${detail}; the answer node takes no card the owner holds` })
   }
 
   private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): Promise<AnswerOutcome> {
@@ -260,7 +290,7 @@ export class AnswerExecutor {
     appendEvent(this.parts.db, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS }))
     const decided = await this.session(lease, decisionSource(question, ground), widened, card, false)
     if ('kind' in decided)
-      return this.denied(lease, decided)
+      return this.refusedOrDenied(lease, decided, widened)
     if (!leftNoNewHead(decided))
       return this.settled(lease, decisionSource(question, ground), widened, card, decided, 0)
     if (decided.owner !== null)

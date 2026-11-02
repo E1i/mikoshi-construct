@@ -5,7 +5,9 @@ import type { Queue } from './identifiers.js'
 import type { HolderStart, Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
+import { execFileSync } from 'node:child_process'
 import { setImmediate as nextTurn } from 'node:timers/promises'
+import { fileURLToPath } from 'node:url'
 import { RateLimited } from '../ports/meter.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { ownStart, recordProcessHeartbeat } from '../supervisor/heartbeat.js'
@@ -80,6 +82,16 @@ export interface NodeParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
   self?: HolderStart
+  codeSha?: () => string | null
+}
+
+export function loadedCodeSha(): string | null {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: fileURLToPath(new URL('.', import.meta.url)), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  }
+  catch {
+    return null
+  }
 }
 
 export interface Equivalence {
@@ -215,6 +227,7 @@ export abstract class Node<S extends NodeStep> {
   private startedAt: string | null = null
   private startRecorded = false
   private ticksUntilDerive = 0
+  private codeSha: string | null = null
 
   constructor(readonly kind: NodeKind, protected readonly parts: NodeParts) {
     this.actor = `worker:${kind}:${parts.session}`
@@ -256,6 +269,7 @@ export abstract class Node<S extends NodeStep> {
 
   async run(ctx: NodeContext): Promise<void> {
     this.before()
+    this.codeSha = (this.parts.codeSha ?? loadedCodeSha)()
     this.startedAt = this.ts()
     this.recordStart()
     this.openCursor()
@@ -398,7 +412,7 @@ export abstract class Node<S extends NodeStep> {
       return null
     const ts = this.ts()
     expireLeases(this.db, ts)
-    if (drainOpen(this.db, ts, this.kind))
+    if (drainOpen(this.db, ts, this.kind, this.codeSha))
       return null
     return leaseNext(this.db, ts, this.kind, this.actor, this.leaseOrder())
   }

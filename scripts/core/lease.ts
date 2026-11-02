@@ -440,18 +440,18 @@ export function judgeHolders(db: DatabaseSync, ts: string, startOf: ProcessStart
   return reading
 }
 
-export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string, node: string): void {
-  appendEvent(db, { ts, type: LEASES_DRAINING, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${LEASES_DRAINING}:${node}:${sha}:${until}`, payload: { sha, until, node }, legacy: false })
+export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string, node: string, from: string | null = null): void {
+  appendEvent(db, { ts, type: LEASES_DRAINING, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${LEASES_DRAINING}:${node}:${sha}:${until}`, payload: { sha, until, node, ...(from === null ? {} : { from }) }, legacy: false })
 }
 
 export function closeDrain(db: DatabaseSync, ts: string, sha: string, node: string): void {
   openDrain(db, ts, sha, ts, node)
 }
 
-export function drainOpen(db: DatabaseSync, ts: string, node: string): boolean {
+export function drainOpen(db: DatabaseSync, ts: string, node: string, codeSha: string | null = null): boolean {
   const row = db.prepare(LAST_DRAIN_SINCE_RESTART).get(node, node) as { payload: string } | undefined
   if (row === undefined)
     return false
-  const until = (JSON.parse(row.payload) as { until?: unknown }).until
-  return typeof until === 'string' && until > ts
+  const { until, sha } = JSON.parse(row.payload) as { until?: unknown, sha?: unknown }
+  return typeof until === 'string' && until > ts && (codeSha === null || codeSha !== sha)
 }
