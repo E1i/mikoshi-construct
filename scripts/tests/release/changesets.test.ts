@@ -68,6 +68,12 @@ describe('the version changesets will release is read once, from main and the ve
     expect(releaseVersionFrom({ versionPr: '0.45.1', main: '0.45.1', pending: [changeset('minor')] })).toBe('0.46.0')
   })
 
+  it('reads a leftover version PR branch below main\'s version as no open version PR', () => {
+    expect(releaseVersionFrom({ versionPr: '0.45.1', main: '0.46.0', pending: [changeset('minor')] })).toBe('0.47.0')
+    expect(releaseVersionFrom({ versionPr: '0.9.9', main: '0.10.0', pending: [] })).toBe('0.10.0')
+    expect(releaseVersionFrom({ versionPr: '0.10.0', main: '0.9.9', pending: [] })).toBe('0.10.0')
+  })
+
   it('with nothing pending the release version is main\'s own, and a changeset naming another package or no bump raises nothing', () => {
     expect(releaseVersionFrom({ versionPr: null, main: '0.45.1', pending: [] })).toBe('0.45.1')
     expect(releaseVersionFrom({ versionPr: null, main: '0.45.1', pending: [changeset('major', 'other'), '---\n---\n'] })).toBe('0.45.1')

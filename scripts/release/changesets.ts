@@ -63,7 +63,7 @@ export function bumpOf(changeset: string, pkg = RELEASE_PACKAGE): Bump | null {
 }
 
 export function raisedVersion(version: string, bump: Bump): string {
-  const [major = 0, minor = 0, patch = 0] = version.split('-')[0]!.split('.').map(Number)
+  const [major = 0, minor = 0, patch = 0] = versionParts(version)
   if (bump === 'major')
     return `${major + 1}.0.0`
   if (bump === 'minor')
@@ -71,8 +71,20 @@ export function raisedVersion(version: string, bump: Bump): string {
   return `${major}.${minor}.${patch + 1}`
 }
 
+function versionParts(version: string): number[] {
+  const [major = 0, minor = 0, patch = 0] = version.split('-')[0]!.split('.').map(Number)
+  return [major, minor, patch]
+}
+
+export function isHigherVersion(version: string, than: string): boolean {
+  const left = versionParts(version)
+  const right = versionParts(than)
+  const differing = left.findIndex((part, index) => part !== right[index])
+  return differing !== -1 && left[differing]! > right[differing]!
+}
+
 export function releaseVersionFrom(sources: ReleaseSources, pkg = RELEASE_PACKAGE): string {
-  if (sources.versionPr !== null && sources.versionPr !== sources.main)
+  if (sources.versionPr !== null && isHigherVersion(sources.versionPr, sources.main))
     return sources.versionPr
   const highest = sources.pending.map(text => bumpOf(text, pkg)).reduce<number>((top, bump) => Math.max(top, bump === null ? -1 : BUMPS.indexOf(bump)), -1)
   return highest === -1 ? sources.main : raisedVersion(sources.main, BUMPS[highest]!)
