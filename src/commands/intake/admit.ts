@@ -23,7 +23,7 @@ import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, TOUCHES_HEADER } from './confirm.js'
 import { withoutWitnessKind, witnessKindField } from './draft.js'
 import { DirectoryFacts } from './facts.js'
-import { admittedRecord, defaultParking, INTAKE_EXIT, recordIntake } from './index.js'
+import { admittedRecord, defaultParking, INTAKE_EXIT, knownCards, recordIntake } from './index.js'
 import { parkedNumbers } from './numbers.js'
 import { isWithin, parkingTree } from './parking-tree.js'
 import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
@@ -388,7 +388,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const ended = endedCards(cards)
   const [checked] = checkDraft([draft], [card.id], {
     taken: new Set(),
-    parked: new Set([...parked, ...[...(cards?.keys() ?? [])].map(Number)]),
+    parked: knownCards(parked, cards),
     done: ended,
     merged: ended,
     repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),

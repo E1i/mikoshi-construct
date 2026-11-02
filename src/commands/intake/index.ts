@@ -222,7 +222,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const ended = endedCards(cards)
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
-    parked: new Set(parked),
+    parked: knownCards(parked, cards),
     done: ended,
     merged: ended,
     repository,
@@ -252,6 +252,10 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? 'person' : confirmationOf(card, options.autoConfirm))
   recordIntake(written.map(({ card, lane }, index) => withPlan(admittedRecord(card, confirmation(card), at, lane), plan?.link, cut[index]?.item)), options.events)
   return { status: 'written', parking: options.parking, cards: written.map(({ card }) => card), autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
+}
+
+export function knownCards(parked: Iterable<number>, bus: BusCardStates | undefined): Set<number> {
+  return new Set([...parked, ...admittedNumbers(bus)])
 }
 
 function withPlan(record: CardEvent, link: PlanLink | undefined, item: string | undefined): CardEvent {
