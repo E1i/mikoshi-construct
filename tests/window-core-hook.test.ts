@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -31,16 +31,25 @@ function run(root: string | null) {
   return spawnSync('node', [HOOK], { input: '{}', env, encoding: 'utf8' })
 }
 
-function tabSession(source: string): { additionalContext: string, handoff: string } {
+function projectOutsideCardTrees(): string {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-window-core-project-')))
+  roots.push(root)
+  for (const linked of ['scripts', 'node_modules', 'architecture'])
+    symlinkSync(path.join(REPO_ROOT, linked), path.join(root, linked))
+  return root
+}
+
+function tabSession(source: string): { additionalContext: string, handoff: string, project: string } {
   const handoffDir = mkdtempSync(path.join(tmpdir(), 'construct-window-core-handoff-'))
   roots.push(handoffDir)
   writeFileSync(path.join(handoffDir, MIKO_HANDOFF_NAME), '# Handoff\n\nSTATUS: CONTINUE\n')
-  const env = { ...process.env, HOME: handoffDir, CONSTRUCT_WORKTREE_HOME: path.join(handoffDir, 'worktrees'), CONSTRUCT_BUS_DB: path.join(handoffDir, 'bus.db'), CLAUDE_PROJECT_DIR: REPO_ROOT, CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir, CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_RAISED: '', [ENTRYPOINT_VARIABLE]: 'cli', [CARD_VARIABLE]: '', [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }
-  const result = spawnSync('node', [HOOK], { input: JSON.stringify({ hook_event_name: 'SessionStart', source }), env, encoding: 'utf8' })
+  const project = projectOutsideCardTrees()
+  const env = { ...process.env, HOME: handoffDir, CONSTRUCT_WORKTREE_HOME: path.join(handoffDir, 'worktrees'), CONSTRUCT_BUS_DB: path.join(handoffDir, 'bus.db'), CLAUDE_PROJECT_DIR: project, CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir, CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_RAISED: '', [ENTRYPOINT_VARIABLE]: 'cli', [CARD_VARIABLE]: '', [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }
+  const result = spawnSync('node', [HOOK], { cwd: project, input: JSON.stringify({ hook_event_name: 'SessionStart', source }), env, encoding: 'utf8' })
   expect(result.status).toBe(0)
   const lines = result.stdout.split('\n').filter(line => line !== '')
   expect(lines).toHaveLength(1)
-  return { ...(JSON.parse(lines[0]) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput, handoff: path.join(handoffDir, MIKO_HANDOFF_NAME) }
+  return { ...(JSON.parse(lines[0]) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput, handoff: path.join(handoffDir, MIKO_HANDOFF_NAME), project }
 }
 
 afterEach(() => {
@@ -93,7 +102,7 @@ describe('the window-core SessionStart hook', () => {
   it('a tab window on SessionStart with source compact returns the continue prompt and the wake-up as additionalContext', () => {
     const core = readFileSync(path.join(REPO_ROOT, 'architecture', 'window-core.md'), 'utf8')
     const output = tabSession('compact')
-    expect(output.additionalContext).toBe(`${core}\n\n${repositoryContinuePrompt(REPO_ROOT, output.handoff)}\n\n${WAKE_UP}\n`)
+    expect(output.additionalContext).toBe(`${core}\n\n${repositoryContinuePrompt(output.project, output.handoff)}\n\n${WAKE_UP}\n`)
   }, 20_000)
 
   it('a tab window on SessionStart with source startup, resume or clear returns the window core and the wake-up', () => {
