@@ -10,7 +10,7 @@ import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../.
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
-import { commandWord } from './command-word.js'
+import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
 import { witnessKindField } from './draft.js'
 import { isWithin } from './parking-tree.js'
 
@@ -23,15 +23,9 @@ export const CONTOUR_NOT_FROM_RISK = 'the risk table sets the review depth and w
 export const CARD_REFERENCE = /^#(\d+)$/
 const BACKTICKED = /`([^`]+)`/g
 const MOVING_REF = /\borigin\/main\b/
-const TEST_NAME_ARGUMENT = /(?:^|\s)(?:-t|--testNamePattern)(?:=|\s+)(?:'([^']*)'|"((?:[^"\\]|\\.)*)"|(\S+))/g
 const PROSE_STEP = /→|->|\b(?:PR body|by hand|manually)\b/i
-const HOME_REFERENCE = /^~(?:\/|$)|\$\{?HOME\b/
-const ARGUMENT_PREFIX = /^(?:[\w-]+=|\d*[<>]+&?|['"(])+/
-const TRAILING_QUOTES = /['")]+$/
 const DEVICE_ROOT = '/dev/'
-const OUTPUT_REDIRECT = /(?:\d|&)?>>?\s*\S+/g
 const INFORMATION_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help'])
-const CURRENT_DIRECTORY_PREFIX = /^\.\//
 const TREE_READING_COMMANDS = new Set(['pnpm', 'npm', 'npx', 'yarn', 'node', 'git', 'vitest', 'tsx', 'tsc', 'eslint'])
 const CHANGE_WITNESS_WORDING = /\b(?:red on (?:main|the base|base)|fails on (?:main|the base|base))\b/i
 const CHANGE_WITNESS_KIND = 'acceptance'
@@ -409,18 +403,11 @@ function proseUnclear(witness: string): UnclearField[] {
   return step === undefined ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" is written as prose: '${step}' is a step no command runs; a witness is a command and its exit` }]
 }
 
-function argumentsOf(command: string): string[] {
-  const read = command.replace(TEST_NAME_ARGUMENT, ' ').replace(OUTPUT_REDIRECT, ' ')
-  const word = commandWord(read)
-  const words = read.trim().split(/\s+/)
-  return words.filter((_, index) => index !== words.indexOf(word ?? '')).map(token => token.replace(ARGUMENT_PREFIX, '').replace(TRAILING_QUOTES, '')).filter(token => token !== '')
-}
-
 function outsidePath(command: string): string | undefined {
   const word = commandWord(command)
   if (word !== undefined && HOME_REFERENCE.test(word))
     return word
-  return argumentsOf(command).find(token => HOME_REFERENCE.test(token) || (path.isAbsolute(token) && !token.startsWith(DEVICE_ROOT)))
+  return commandArguments(command).find(token => HOME_REFERENCE.test(token) || (path.isAbsolute(token) && !token.startsWith(DEVICE_ROOT)))
 }
 
 function outsidePathsUnclear(commands: readonly string[], witness: string): UnclearField[] {
@@ -432,15 +419,6 @@ function outsidePathsUnclear(commands: readonly string[], witness: string): Uncl
 
 interface WitnessReach { repository: RepositoryFacts, created: readonly string[] }
 
-function pathsNamedBy(command: string, readable: (relative: string) => boolean): string[] {
-  const word = commandWord(command) ?? ''
-  const named = argumentsOf(command)
-  return (word.includes('/') ? [word, ...named] : named)
-    .filter(token => !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token))
-    .map(token => token.replace(CURRENT_DIRECTORY_PREFIX, ''))
-    .filter(readable)
-}
-
 function namedPaths(command: string, reach: WitnessReach): string[] {
   return pathsNamedBy(command, relative => reach.repository.exists(relative) || reach.created.includes(relative))
 }
@@ -448,7 +426,7 @@ function namedPaths(command: string, reach: WitnessReach): string[] {
 function readsTheTree(command: string, reach: WitnessReach): boolean {
   const word = commandWord(command) ?? ''
   if (TREE_READING_COMMANDS.has(word)) {
-    const named = argumentsOf(command)
+    const named = commandArguments(command)
     return named.length === 0 || named.some(token => !INFORMATION_FLAGS.has(token))
   }
   return namedPaths(command, reach).length > 0
@@ -463,7 +441,7 @@ export function isChangeWitness(witness: string): boolean {
 }
 
 function baseGreenUnclear(card: DraftCard, commands: readonly string[], witness: string, reach: WitnessReach): UnclearField[] {
-  if (card.kind !== IMPLEMENT_KIND || !isChangeWitness(witness) || commands.some(command => namedPaths(command, reach).length > 0))
+  if (card.kind !== IMPLEMENT_KIND || !isChangeWitness(witness) || commands.some(command => namesATest(command) || namedPaths(command, reach).length > 0))
     return []
   return [{ field: 'witnesses', reason: `witness "${witness.trim()}" is to be red on the base, but it names no path of the repository or of the card's creates; a whole-tree command is green on a clean base, so the witness cannot be red on the base: name the file the change makes red, or list it under creates` }]
 }

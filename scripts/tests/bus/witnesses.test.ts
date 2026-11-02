@@ -70,7 +70,7 @@ function witnessOn(base: Record<string, string>, head: Record<string, string>, t
       if (problem !== null)
         outcome.refusals.push(`${step}: ${problem}`)
     }, time: (_name, run) => run() },
-    { acceptance: task.acceptance ?? [], invariants: task.invariants ?? [], harnessCommand: null, sketchSha: headSha, changed: [], witnessesDir: tree },
+    { acceptance: task.acceptance ?? [], invariants: task.invariants ?? [], harnessCommand: null, sketchSha: headSha, changed: [], witnessesDir: tree, creates: [] },
   ))
   return outcome
 }
