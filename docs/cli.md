@@ -2119,11 +2119,14 @@ created when missing, or `.` for the root itself). The card is found by number i
 subdirectories; a number found in more than one place is refused naming every path. The card must pass
 the parking grammar. A move is held only by the bus: a run with no bus wired refuses with exit `1`, moves
 nothing and names `pnpm intake --move`, so the published CLI, which has no bus, always refuses a move. With
-a bus, the file is moved unchanged, so it is the same record with no new number, and a `card.moved` is
-written to the bus with no journal line; a card the bus holds no `card.admitted` for is refused and the file
-goes back. A move into `archive`, `dropped` or `superseded` is a drop: it writes `card.dropped` instead,
-which ends the card as `dropped` unless it is already merged, closed or dropped, and it is taken for a card
-the bus never admitted too. A move to the directory the card already sits in leaves the file where it is
+a bus, the file is moved unchanged, so it is the same record with no new number, and the bus gets one
+event with no journal line. A move into a launch lane — `lane-*`, `night-*`, or a dated lane with a
+one-letter suffix such as `2026-10-30-a` — writes `card.moved`; a card the bus holds no `card.admitted` for
+is refused and the file goes back. A move into any other directory is a drop: `archive`, `dropped`,
+`superseded`, a plain subdirectory such as `notes`, a dated directory with a word suffix such as
+`2026-10-30-folded`, and the root `.` all write `card.dropped` instead, which takes the card off the queue
+and ends it as `dropped` unless it is already merged, closed or dropped, and it is taken for a card the bus
+never admitted too. A move to the directory the card already sits in leaves the file where it is
 and writes the same event all the same. A card with no file under the root that the bus holds admitted
 text for is moved in the bus alone: the event is written and no file appears. A move to a lane admits the
 card again with the text the bus holds, and the file's text only when the bus holds none. The printed line names the event the bus holds. With `--draft`, `--taken` or `--admit` the move refuses.
