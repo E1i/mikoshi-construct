@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -65,6 +65,7 @@ function hookBeside(s: Scratch, measure: 'intact' | 'throwing'): string {
   const dir = path.join(path.dirname(s.root), 'hooks')
   mkdirSync(dir, { recursive: true })
   copyFileSync(HOOK, path.join(dir, 'eddies.mjs'))
+  copyFileSync(path.join(path.dirname(HOOK), 'tab-window.mjs'), path.join(dir, 'tab-window.mjs'))
   if (measure === 'intact')
     copyFileSync(path.join(path.dirname(HOOK), 'eddies-measure.mjs'), path.join(dir, 'eddies-measure.mjs'))
   else
@@ -73,6 +74,8 @@ function hookBeside(s: Scratch, measure: 'intact' | 'throwing'): string {
 }
 
 const REFUSED_UNMEASURED = /^eddies: .*; refused — a guard that cannot measure lets nothing through\n$/
+const REFUSED_WITH_ITS_STACK = /^eddies: nothing measured \(measure-error\); refused — a guard that cannot measure lets nothing through\nError: broken on load\n {4}at [\s\S]*\n$/
+const OWN_ERROR = 'measure-error'
 
 function contextOf(result: { stdout: string }): unknown {
   const output = JSON.parse(result.stdout) as { hookSpecificOutput?: { hookEventName?: string, additionalContext?: unknown } }
@@ -432,13 +435,13 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
   }
 
   for (const [name, { arrange, input = {}, projectDir, script, reason }] of Object.entries(UNMEASURED)) {
-    it(`refuses a tool call with exit 2 and one stderr line when ${name}, recording the unread reason where it can`, () => {
+    it(`refuses a tool call with exit 2 and one stderr line, or the line and the stack of its own error, when ${name}, recording the unread reason where it can`, () => {
       const s = scratch()
       arrange(s)
       const result = hook(s, 'guard', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' }, ...input }, script?.(s) ?? HOOK, projectDir?.(s) ?? s.root)
 
       expect(result).toMatchObject({ status: 2, stdout: '' })
-      expect(result.stderr).toMatch(REFUSED_UNMEASURED)
+      expect(result.stderr).toMatch(reason === OWN_ERROR ? REFUSED_WITH_ITS_STACK : REFUSED_UNMEASURED)
       expect(lines(s).filter(line => line.event === 'unread').map(line => line.reason)).toEqual(reason == null ? [] : [reason])
     })
   }
@@ -542,5 +545,58 @@ describe('eddies: a tab window runs to the compaction point and continues from t
     expect(call(atThePoint, 'Agent', { prompt: 'p' })).toMatchObject({ status: 2, stderr: expect.stringContaining('limit 300000 (autoCompactWindow in .claude/settings.json)') })
     for (const other of [undeclared, card, loop])
       expect(call(other, 'Agent', { prompt: 'p' })).toMatchObject({ status: 2, stderr: expect.stringContaining('limit 150000 (contextLimit in .claude/eddies.json)') })
+  })
+})
+
+function inCardTreeOfABus(s: Scratch): Scratch {
+  const bus = path.dirname(s.root)
+  writeFileSync(path.join(bus, 'bus.db'), '')
+  const tree = path.join(bus, 'bus', 'worktrees', '1436')
+  mkdirSync(path.dirname(tree), { recursive: true })
+  renameSync(s.root, tree)
+  return { ...s, root: tree }
+}
+
+function prompted(s: Scratch): ReturnType<typeof hook> {
+  return hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+}
+
+describe('eddies: one decision tells a tab window from a card session', () => {
+  it('a guard call in a tab window with a real transcript is measured, not refused as measure-error', () => {
+    const s = tabWindow({}, { autoCompactWindow: 300000 }, [{ input: 200000 }])
+
+    expect(call(s, 'Agent', { prompt: 'p' })).toMatchObject({ status: 0, stderr: '' })
+    expect(lines(s).filter(line => line.event === 'unread')).toEqual([])
+  })
+
+  it('a card session started without CONSTRUCT_CARD in a card tree is held to contextLimit, not to the compaction point', () => {
+    const inBusTree = inCardTreeOfABus(tabWindow({}, { autoCompactWindow: 300000 }, [{ input: 200000 }]))
+    const underWorktreeHome = tabWindow({}, { autoCompactWindow: 300000 }, [{ input: 200000 }])
+    const named = { ...underWorktreeHome, env: { ...underWorktreeHome.env, CONSTRUCT_WORKTREE_HOME: path.dirname(underWorktreeHome.root) } }
+
+    for (const card of [inBusTree, named]) {
+      expect(call(card, 'Agent', { prompt: 'p' })).toMatchObject({ status: 2, stderr: expect.stringContaining('limit 150000 (contextLimit in .claude/eddies.json)') })
+      expect(prompted(card).stdout).not.toContain('no pnpm miko:exit')
+    }
+  })
+
+  it('the context warn of a tab window comes again in the cycle after a compaction, and only after one', () => {
+    const s = tabWindow({}, { autoCompactWindow: 200000 }, [{ input: 170000 }])
+    const warn = expect.stringContaining('eddies: session-context warn — context 170000')
+
+    expect(prompted(s).stdout).toEqual(warn)
+    expect(prompted(s).stdout).toBe('')
+    expect(hook(s, 'compact', { hook_event_name: 'SessionStart', source: 'startup' })).toMatchObject({ status: 0, stdout: '', stderr: '' })
+    expect(prompted(s).stdout).toBe('')
+    expect(hook(s, 'compact', { hook_event_name: 'SessionStart', source: 'compact' })).toMatchObject({ status: 0, stdout: '', stderr: '' })
+    expect(prompted(s).stdout).toEqual(warn)
+    expect(lines(s).filter(line => line.event === 'budget-warn').map(line => line.level)).toEqual(['session-context', 'session-context'])
+  })
+
+  it('records the stack of its own error in the unread line, not only measure-error', () => {
+    const s = scratch()
+    hook(s, 'guard', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } }, hookBeside(s, 'throwing'))
+
+    expect(lines(s)).toEqual([expect.objectContaining({ event: 'unread', reason: OWN_ERROR, stack: expect.stringMatching(/^Error: broken on load\n {4}at /) })])
   })
 })

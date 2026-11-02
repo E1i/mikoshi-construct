@@ -4,24 +4,15 @@ import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { isCardSession, tabCandidate, underTheLoop } from './tab-window.mjs'
 
 const SESSION_ID = /^[\w-]{1,128}$/
 const REFUSED = 1
 const TURN_WATCH_TIMEOUT_MS = 10_000
 const TURN_WATCH_LINE = 'turn-watch:'
 
-const HEADLESS_ENTRYPOINT = 'sdk-cli'
-
-function underTheLoop(env) {
-  return env.MIKO_WINDOW === '1' || Boolean(env.MIKO_LOOP_PID) || Boolean(env.MIKO_EXIT_REQUEST)
-}
-
-function tabCandidate(env) {
-  return env.CLAUDE_CODE_ENTRYPOINT !== HEADLESS_ENTRYPOINT && env.CONSTRUCT_BUS_RAISED !== '1'
-}
-
 export function windowMarked(env) {
-  return !env.CONSTRUCT_CARD && (underTheLoop(env) || tabCandidate(env))
+  return !isCardSession(env) && (underTheLoop(env) || tabCandidate(env))
 }
 
 export function stopInputOf(text) {

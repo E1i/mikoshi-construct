@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -7,6 +7,7 @@ import process from 'node:process'
 export const EDDIES_JOURNAL_FILE = '.construct/eddies.jsonl'
 
 const MEASURE_MODULE = './eddies-measure.mjs'
+const TAB_WINDOW_MODULE = './tab-window.mjs'
 const CONFIG_FILE = '.claude/eddies.json'
 const SETTINGS_FILE = '.claude/settings.json'
 const COMPACT_WINDOW_VARIABLE = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW'
@@ -14,13 +15,11 @@ const COMPACT_WINDOW_SETTING = 'autoCompactWindow'
 const COMPACT_WINDOW_MIN = 100000
 const COMPACT_WINDOW_MAX = 1000000
 const ENVIRONMENT = 'the environment'
-const TAB_MARK_DIR = '.construct/eddies.d/tab'
 const TAB_WARN_ACTION = 'write the handoff, then carry on — the context compacts at the compaction point and this session continues from the handoff on STATUS: CONTINUE, no pnpm miko:exit'
 const WARNED_DIR = '.construct/eddies.d/warned'
 const TASK_CACHE_DIR = '.construct/eddies.d/task'
 const HANDOFF_DIR_VARIABLE = 'CONSTRUCT_HANDOFF_DIR'
 const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
-const CARD_VARIABLE = 'CONSTRUCT_CARD'
 const GHOST_JOURNAL = 'ghosts.jsonl'
 const JOURNAL_VERSION = 1
 const THRESHOLDS = ['contextLimit', 'sessionSpend', 'agentSpend', 'runSpend', 'warnRatio']
@@ -31,7 +30,10 @@ const RETURN_TOOL = 'SubagentHandback'
 const SESSION_ACTION = 'no new work — write the handoff and stop'
 const AGENT_ACTION = 'return what you have now'
 const WARN_ACTION = 'finish the current step, save (milestone commit / handoff), start no new work'
-const MIKO_EXIT_LEVEL = 'session-context'
+const CONTEXT_LEVEL = 'session-context'
+const MIKO_EXIT_LEVEL = CONTEXT_LEVEL
+const COMPACT_SOURCE = 'compact'
+const OWN_ERROR = 'measure-error'
 const MIKO_EXIT_LINE = 'eddies: then end this session with pnpm miko:exit — the exit rule of scripts/window/exit.ts holds at this context warn; under the pnpm miko loop the next session starts from the handoff\n'
 const CONTINUE_PROMPT = 'Прочитай handoff задачи целиком и продолжай с места остановки'
 const PLAIN_ID = /^[\w-]{1,128}$/
@@ -40,6 +42,8 @@ const WINDOW = 'window'
 const AGENT_TRANSCRIPT_MISSING = 'agent-transcript-missing'
 
 class Unread extends Error {}
+
+let tabWindow = null
 
 function plainId(value) {
   return typeof value === 'string' && PLAIN_ID.test(value) ? value : null
@@ -163,10 +167,6 @@ function subagentsDirOf(transcript) {
   return path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')
 }
 
-function isTabWindow(root, session) {
-  return session != null && existsSync(path.join(root, TAB_MARK_DIR, session))
-}
-
 function compactWindowOf(value) {
   const tokens = typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value) : value
   return Number.isInteger(tokens) && tokens >= COMPACT_WINDOW_MIN && tokens <= COMPACT_WINDOW_MAX ? tokens : null
@@ -190,7 +190,8 @@ function compactionPointOf(root) {
 }
 
 function contextThresholdOf(root, config, caller) {
-  const point = isTabWindow(root, caller.session_id) ? compactionPointOf(root) : null
+  const { isTabWindowIn, worktreeHomesOf } = tabWindowModule()
+  const point = caller.session_id != null && isTabWindowIn(process.env, root, worktreeHomesOf(process.env)) ? compactionPointOf(root) : null
   return point == null ? { limit: config.contextLimit, limitName: 'contextLimit' } : { ...point, compacts: true }
 }
 
@@ -200,7 +201,7 @@ function sessionGauges({ addTokens, agentTranscriptsUnder, CONTEXT_BASIS, contex
   const spend = addTokens({ ...parent.tokens }, others)
   const recipient = `${caller.session_id}.${caller.agent_id ?? WINDOW}`
   return [
-    { level: 'session-context', key: recipient, name: 'context', value: contextOf(parent.last), ...contextThresholdOf(root, config), tokens: parent.last, basis: CONTEXT_BASIS, action: SESSION_ACTION },
+    { level: 'session-context', key: recipient, name: 'context', value: contextOf(parent.last), ...contextThresholdOf(root, config, caller), tokens: parent.last, basis: CONTEXT_BASIS, action: SESSION_ACTION },
     { level: 'session-spend', key: recipient, name: 'spent', value: spentOf(spend), limitName: 'sessionSpend', limit: config.sessionSpend, tokens: spend, basis: SPEND_BASIS, action: SESSION_ACTION },
   ]
 }
@@ -280,13 +281,8 @@ function sessionHandoffOf() {
   return file != null && file !== '' ? file : path.join(handoffDir(), 'miko.md')
 }
 
-function isCardSession() {
-  const card = process.env[CARD_VARIABLE]
-  return card != null && card !== ''
-}
-
 function continueLineOf(root, gauge) {
-  if (!isCardSession()) {
+  if (!tabWindowModule().isCardSession(process.env)) {
     const handoff = sessionHandoffOf()
     const writeLine = `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\n`
     if (gauge.compacts)
@@ -348,13 +344,18 @@ function reasonOf(error) {
   if (error instanceof Unread)
     return error.message
   const code = error?.code
-  return typeof code === 'string' && PLAIN_REASON.test(code) ? `transcript-${code}` : 'measure-error'
+  return typeof code === 'string' && PLAIN_REASON.test(code) ? `transcript-${code}` : OWN_ERROR
+}
+
+function stackOf(error) {
+  return reasonOf(error) === OWN_ERROR ? String(error?.stack ?? error) : null
 }
 
 function recordUnread(root, input, hook, error) {
   try {
     const caller = callerOf(input)
-    journal(root, { event: 'unread', hook, reason: reasonOf(error), session_id: caller.session_id, agent_id: caller.agent_id })
+    const stack = stackOf(error)
+    journal(root, { event: 'unread', hook, reason: reasonOf(error), ...(stack == null ? {} : { stack }), session_id: caller.session_id, agent_id: caller.agent_id })
     return true
   }
   catch {
@@ -377,6 +378,15 @@ function sessionWarnings(measure, root, input, config) {
     .filter(warning => warning != null)
 }
 
+function forgetContextWarnings(_measure, root, input) {
+  const session = plainId(input.session_id)
+  const dir = path.join(root, WARNED_DIR)
+  if (input.source !== COMPACT_SOURCE || session == null || !existsSync(dir))
+    return
+  for (const marker of readdirSync(dir).filter(name => name.startsWith(`${CONTEXT_LEVEL}.${session}.`)))
+    rmSync(path.join(dir, marker), { force: true })
+}
+
 async function hookInput() {
   try {
     return parsedInput(await readInput())
@@ -391,7 +401,7 @@ function refuse(line) {
   process.exitCode = 2
 }
 
-async function run(hook, { act, failClosed }) {
+async function run(hook, { act, failClosed, measured }) {
   const input = await hookInput()
   if (input == null) {
     process.stderr.write('eddies: the hook input could not be read as a JSON object; refused\n')
@@ -408,15 +418,18 @@ async function run(hook, { act, failClosed }) {
         process.stderr.write('eddies: CLAUDE_PROJECT_DIR is not a directory; nothing measured\n')
       return
     }
-    act(await import(MEASURE_MODULE), root, input, readConfig(root))
+    act(measured ? await import(MEASURE_MODULE) : null, root, input, measured ? readConfig(root) : null)
   }
   catch (error) {
     const recorded = root != null && recordUnread(root, input, hook, error)
     const line = `eddies: nothing measured (${reasonOf(error)})${recorded ? '' : ', and the line recording it was not written'}`
+    const stack = stackOf(error)
     if (failClosed)
       refuse(line)
     else if (!recorded)
       process.stderr.write(`${line}\n`)
+    if (stack != null && (failClosed || !recorded))
+      process.stderr.write(`${stack}\n`)
   }
 }
 
@@ -436,7 +449,11 @@ function prompt(measure, root, input, config) {
   process.stdout.write(sessionWarnings(measure, root, input, config).join(''))
 }
 
-const MODES = { guard: { act: guard, failClosed: true }, prompt: { act: prompt, failClosed: false } }
+const MODES = {
+  guard: { act: guard, failClosed: true, measured: true },
+  prompt: { act: prompt, failClosed: false, measured: true },
+  compact: { act: forgetContextWarnings, failClosed: false, measured: false },
+}
 
 if (Object.hasOwn(MODES, process.argv[2]))
   void run(`eddies-${process.argv[2]}`, MODES[process.argv[2]])

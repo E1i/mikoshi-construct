@@ -1,18 +1,12 @@
 import { existsSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
+import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../.claude/hooks/tab-window.mjs'
 import { busDirOf } from '../core/bus-path.js'
 import { BUSY_TIMEOUT_MS } from '../core/db.js'
 import { CARD_STARTED } from '../core/events.js'
 import { openDatabase } from '../core/sqlite.js'
 
-export const WORKTREE_HOME_VARIABLE = 'CONSTRUCT_WORKTREE_HOME'
-export const DEFAULT_WORKTREE_HOME = path.join(os.homedir(), '.construct', 'worktrees')
-
-export function worktreeHome(env: NodeJS.ProcessEnv): string {
-  const set = env[WORKTREE_HOME_VARIABLE]
-  return set === undefined || set === '' ? DEFAULT_WORKTREE_HOME : set
-}
+export { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome }
 
 export function taskWorktree(home: string, id: string): string {
   return path.join(home, `mc-${id}`)
