@@ -51,7 +51,7 @@ function bench(): { parts: ModeParts, onBus: <T>(read: (db: DatabaseSync) => T) 
 }
 
 describe('shardscope: the ghost-protocol shard lets the window answer card questions', () => {
-  it(`ghost-protocol issues a mergedecisions shard, read as the ${DECISIONS_SCOPE} scope`, () => {
+  it(`ghost-protocol issues a ${DECISIONS_SCOPE} shard, which the regex witness selects as ghost-protocol issues a mergedecisions shard`, () => {
     const { parts, onBus } = bench()
     const parsed = startCommandOf(['--mode', 'ghost-protocol', '--hours', String(HOURS)])
     if (parsed === null || parsed.kind === 'start')
