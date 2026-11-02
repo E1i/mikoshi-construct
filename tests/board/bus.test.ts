@@ -1,16 +1,19 @@
 import type { BusFacts, BusReading } from '../../src/commands/board/bus.js'
 import type { BusSeed, SeedCard, SeedEvent } from './bus-fixture.js'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../../scripts/core/db.js'
 import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
 import { reduce } from '../../scripts/core/reducer.js'
+import { busCardEvents } from '../../scripts/intake/intake.js'
 import { requestFromWindow, WindowRequests } from '../../scripts/window/window-requests.js'
 import { busReaderAt, latestCardEvents, openTasks, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
 import { flowLines } from '../../src/commands/board/screens.js'
 import { withReadOnlyBus } from '../../src/commands/cost/bus.js'
+import { runAdmit } from '../../src/commands/intake/admit.js'
+import { runMove } from '../../src/commands/intake/move.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { checkMatrix, subagent, writeBus } from './bus-fixture.js'
 
@@ -296,6 +299,31 @@ describe('the board bus reader', () => {
       { queue: 'merge', used: 1, total: 1 },
       { queue: 'review', used: 1, total: null },
     ])
+  })
+
+  it('a card moved into parking reads dropped, not planned in its parking directory', () => {
+    const root = scratch()
+    const parking = path.join(root, 'parking')
+    const file = path.join(parking, 'lane-window', '1425.md')
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, 'card: #1425 folded-slice [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/folded-slice\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nFold the slice.\n')
+    mkdirSync(path.join(root, 'repo', 'src'), { recursive: true })
+    writeFileSync(path.join(root, 'repo', 'src', 'a.ts'), '')
+    const busFile = path.join(root, 'bus.db')
+    const db = openBus(busFile)
+    try {
+      const events = busCardEvents(db, 'by-hand', () => 1)
+      expect(runAdmit({ file, dir: path.join(root, 'repo'), dryRun: false, autoConfirm: true, parkingRoot: parking, events }, () => NOW).status).toBe('admitted')
+      expect(runMove({ move: '#1425', to: '2026-10-30-folded', draft: undefined, taken: undefined, admit: undefined, parking, events }, () => NOW).status).toBe('moved')
+      reduce(db)
+    }
+    finally {
+      db.close()
+    }
+    const reading = busReaderAt(busFile, () => NOW)()
+    if (reading.status !== 'read')
+      throw new Error(`the bus was ${reading.status}`)
+    expect(reading.facts.cards).toMatchObject([{ id: 1425, state: 'dropped', stage: 'dropped', lane: null }])
   })
 
   it('reports a missing file as absent and a file it cannot query as unreadable, with the reason', () => {

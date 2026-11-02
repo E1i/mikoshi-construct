@@ -2,13 +2,15 @@ import type { Ui } from '../../ui/console.js'
 import type { CardAdmissionsPort, CardEventPort } from './index.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync } from 'node:fs'
 import path from 'node:path'
-import { CARD_DROPPED, CARD_MOVED, TERMINAL_LANES } from '../../../scripts/core/events.js'
+import { CARD_DROPPED, CARD_MOVED } from '../../../scripts/core/events.js'
 import { parseParkingFile } from '../../card/parking.js'
+import { laneOf } from './admit.js'
 import { bodySha } from './confirm.js'
 import { INTAKE_EXIT, recordIntake } from './index.js'
 
 export const CARD_NUMBER = /^#?(\d+)$/
 const SLICED_STUB = /^sliced into (#\d+(?:,\s*#\d+)*)$/
+const DATED_PARKING = /^\d{4}-\d{2}-\d{2}-[a-z]{2,}$/
 
 export interface MoveOptions {
   move: string | undefined
@@ -53,12 +55,17 @@ function slicingOf(text: string): Slicing | null {
   return children === undefined ? null : { reason, children: children.split(',').map(child => Number(child.trim().slice(1))) }
 }
 
-function moveType(targetDir: string, slicing: Slicing | null): typeof CARD_MOVED | typeof CARD_DROPPED {
-  return slicing !== null || TERMINAL_LANES.has(path.basename(targetDir)) ? CARD_DROPPED : CARD_MOVED
+function isLaunchLane(parking: string, targetDir: string): boolean {
+  const lane = laneOf(parking, targetDir)
+  return lane !== null && !DATED_PARKING.test(lane)
+}
+
+function moveType(parking: string, targetDir: string, slicing: Slicing | null): typeof CARD_MOVED | typeof CARD_DROPPED {
+  return slicing === null && isLaunchLane(parking, targetDir) ? CARD_MOVED : CARD_DROPPED
 }
 
 function recordMove(options: MoveOptions, number: number, moved: Moved, slicing: Slicing | null, ts: string): void {
-  const type = moveType(moved.to, slicing)
+  const type = moveType(options.parking, moved.to, slicing)
   const lane = path.basename(moved.to)
   recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${lane}:${ts}`, payload: { ...moved, lane, ...slicing } }], options.events)
 }
@@ -66,7 +73,7 @@ function recordMove(options: MoveOptions, number: number, moved: Moved, slicing:
 function moveInBus(options: MoveOptions, number: number, text: string, now: () => Date): MoveResult {
   const to = path.resolve(options.parking, options.to!)
   recordMove(options, number, { from: null, to, bodySha: bodySha(text) }, null, now().toISOString())
-  return { status: 'moved', from: `#${number}`, to, event: moveType(to, null) }
+  return { status: 'moved', from: `#${number}`, to, event: moveType(options.parking, to, null) }
 }
 
 export function runMove(options: MoveOptions, now: () => Date = () => new Date()): MoveResult {
@@ -102,7 +109,7 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
     renameSync(from, target)
   const ts = now().toISOString()
   const moved = { from: path.dirname(from), to: targetDir, bodySha: bodySha(text) }
-  const type = moveType(targetDir, slicing)
+  const type = moveType(options.parking, targetDir, slicing)
   try {
     recordMove(options, number, moved, slicing, ts)
   }
