@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -56,11 +56,20 @@ function handoffEnv(status: string | null): NodeJS.ProcessEnv {
 
 const HEADLESS = { [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT }
 
+function projectOutsideCardTrees(): string {
+  const project = realpathSync(mkdtempSync(path.join(tmpdir(), 'stop-hook-project-')))
+  roots.push(project)
+  for (const linked of ['scripts', 'node_modules'])
+    symlinkSync(path.join(REPO_ROOT, linked), path.join(project, linked))
+  return project
+}
+
 function stopRun(bus: string, input: object, env: NodeJS.ProcessEnv = {}): { status: number | null, stdout: string, stderr: string } {
+  const project = projectOutsideCardTrees()
   const run = spawnSync(process.execPath, [HOOK], {
-    cwd: REPO_ROOT,
+    cwd: project,
     input: JSON.stringify({ hook_event_name: 'Stop', ...input }),
-    env: { ...process.env, CLAUDE_PROJECT_DIR: REPO_ROOT, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', [ENTRYPOINT_VARIABLE]: 'cli', CONSTRUCT_BUS_RAISED: '', CONSTRUCT_HANDOFF: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '', ...handoffEnv(null), ...env },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: project, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', [ENTRYPOINT_VARIABLE]: 'cli', CONSTRUCT_BUS_RAISED: '', CONSTRUCT_HANDOFF: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '', ...handoffEnv(null), ...env },
     encoding: 'utf8',
   })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
