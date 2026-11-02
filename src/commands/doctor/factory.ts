@@ -1,7 +1,8 @@
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { busPathOf, constructHome, DECISIONS_FILE, decisionsFileOf, isOwnerCheckout, repoHome, repoIdOf } from '../../../scripts/core/bus-path.js'
+import { busPathOf, DECISIONS_FILE, decisionsFileOf, isOwnerCheckout } from '../../../scripts/core/bus-path.js'
+import { handoffDirOf } from '../../../scripts/core/handoff-dir.js'
 import { inForce, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { namesQueueLive } from '../../../scripts/policy/live-decision.js'
 import { readManifest, recordedShas } from '../../manifest.js'
@@ -41,8 +42,6 @@ const LOCAL_SETTINGS = '.claude/settings.local.json'
 const WIDENING_PERMISSIONS = ['allow', 'additionalDirectories', 'defaultMode'] as const
 const WINDOW_HANDOFF = 'miko.md'
 const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
-const HANDOFF_DIR_VARIABLE = 'CONSTRUCT_HANDOFF_DIR'
-const HANDOFF_DIR = 'handoff'
 const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
 const CONTINUE = 'CONTINUE'
 const PNPM_STORE_LINE = '.pnpm-store/'
@@ -124,8 +123,7 @@ function named(env: NodeJS.ProcessEnv, variable: string): string | null {
 }
 
 function windowHandoffOf(situation: FactorySituation, root: string): string {
-  const handoffs = named(situation.env, HANDOFF_DIR_VARIABLE) ?? path.join(isOwnerCheckout(root) ? constructHome(situation.home) : repoHome(situation.home, repoIdOf(root)), HANDOFF_DIR)
-  return named(situation.env, HANDOFF_VARIABLE) ?? path.join(handoffs, WINDOW_HANDOFF)
+  return named(situation.env, HANDOFF_VARIABLE) ?? path.join(handoffDirOf(situation.env, situation.home, root), WINDOW_HANDOFF)
 }
 
 function lastStatus(handoff: string): string | null {
