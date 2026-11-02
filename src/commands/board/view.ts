@@ -1,3 +1,4 @@
+import type { BoardDrain } from './drain.js'
 import type { Item } from './items.js'
 
 export const STALE_HOURS = 4
@@ -32,6 +33,7 @@ export interface BoardView {
   merged: Row[]
   hidden: number
   summary: Summary
+  drains: BoardDrain[]
 }
 
 export function ageSince(at: Date, now: Date): Age | undefined {
@@ -86,7 +88,7 @@ function count(rows: Row[], state: string): number {
   return rows.filter(row => row.state === state).length
 }
 
-export function buildView(items: Item[], now: Date, options: { all: boolean, staleHours: number }): BoardView {
+export function buildView(items: Item[], now: Date, options: { all: boolean, staleHours: number, drains?: BoardDrain[] }): BoardView {
   const rows = items.map(item => rowOf(item, now, options.all, options.staleHours))
   const table = rows.filter(row => row.shown && row.state !== 'merged').sort(oldestFirst)
   const open = table.filter(isOpen)
@@ -96,6 +98,7 @@ export function buildView(items: Item[], now: Date, options: { all: boolean, sta
     table,
     merged: merged.filter(row => row.shown).sort(newestFirst),
     hidden: rows.filter(row => !row.shown).length,
+    drains: options.drains ?? [],
     summary: {
       open: open.length,
       running: count(open, 'running'),

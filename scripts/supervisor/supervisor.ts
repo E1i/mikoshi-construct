@@ -203,7 +203,7 @@ export interface SupervisorParts {
 
 export interface Drain {
   held: (running: DetachedLaunch[]) => string[]
-  open: (sha: string, untilMs: number, draining: DetachedLaunch[]) => void
+  open: (sha: string, untilMs: number, draining: DetachedLaunch[], from: string) => void
   close: (sha: string, drained: DetachedLaunch[]) => void
 }
 
@@ -221,6 +221,12 @@ interface RestartScope {
 interface Drained {
   waits: boolean
   lines: string[]
+  free: DetachedLaunch[]
+}
+
+interface EarlyRestart {
+  sha: string
+  scripts: Set<string>
 }
 
 function namesOf(scope: RestartScope): string[] {
@@ -243,6 +249,7 @@ export class BusSupervisor {
   private waiting: { sha: string, since: number, reported: boolean } | null = null
   private draining: { sha: string, since: number } | null = null
   private opened: DetachedLaunch[] = []
+  private early: EarlyRestart | null = null
   private localMain: string | null
 
   constructor(private readonly parts: SupervisorParts, private seen: number) {
@@ -353,9 +360,10 @@ export class BusSupervisor {
     }
     const drained = this.drain(head, scope)
     if (drained.waits)
-      return [...lines, ...drained.lines]
-    const restarted = await this.restart(scope, head)
+      return [...lines, ...drained.lines, ...await this.restartEarly(drained.free, head)]
+    const restarted = await this.restart({ ...scope, launches: scope.launches.filter(launch => !this.restartedEarly(launch, head)) }, head)
     this.draining = null
+    this.early = null
     this.settle(head)
     if (scope.self)
       this.outdatedBy = head
@@ -387,31 +395,53 @@ export class BusSupervisor {
     return now
   }
 
+  private restartedEarly(launch: DetachedLaunch, head: string): boolean {
+    return this.early?.sha === head && this.early.scripts.has(launch.script)
+  }
+
+  private async restartEarly(free: DetachedLaunch[], head: string): Promise<string[]> {
+    if (free.length === 0)
+      return []
+    if (this.early?.sha !== head)
+      this.early = { sha: head, scripts: new Set() }
+    for (const launch of free)
+      this.early.scripts.add(launch.script)
+    const relaunched = await this.relaunch(free, head, () => {})
+    const notBack = relaunched.down.length === 0 ? '' : `; not brought back: ${relaunched.down.join(', ')}`
+    return [`${PREFIX}${free.map(launchName).join(', ')} hold no lease in flight; restarted on ${head} at once, and they lease new tasks while the drain waits${notBack}`, ...relaunched.lines]
+  }
+
   private drain(head: string, scope: RestartScope): Drained {
     const drain = this.parts.drain
     if (drain === undefined)
-      return { waits: false, lines: [] }
+      return { waits: false, lines: [], free: [] }
     const processes = this.parts.processes()
-    const held = drain.held(scope.launches.filter(launch => runningInstance(processes, launch.markers) !== undefined))
+    const holding = scope.launches.flatMap((launch) => {
+      const keys = runningInstance(processes, launch.markers) === undefined ? [] : drain.held([launch])
+      return keys.length === 0 ? [] : [{ launch, keys }]
+    })
+    const held = holding.flatMap(holder => holder.keys)
     const draining = this.draining
     if (held.length === 0) {
       this.draining = null
-      return { waits: false, lines: [] }
+      return { waits: false, lines: [], free: [] }
     }
+    const holders = holding.map(holder => holder.launch)
+    const free = scope.launches.filter(launch => !holders.includes(launch) && !this.restartedEarly(launch, head))
     const now = this.parts.now()
     if (draining?.sha !== head) {
       const since = draining?.since ?? now
-      drain.open(head, since + DRAIN_LIMIT_MS, scope.launches)
-      this.opened = [...new Set([...this.opened, ...scope.launches])]
+      drain.open(head, since + DRAIN_LIMIT_MS, holders, this.codeSha)
+      this.opened = [...new Set([...this.opened, ...holders])]
       this.draining = { sha: head, since }
-      const takers = scope.every ? 'no worker takes a new one' : `${namesOf(scope).join(', ')} take no new one`
+      const takers = holders.length === this.parts.known.length ? 'no worker takes a new one' : `${holders.map(launch => launch.script).join(', ')} take no new one`
       if (now - since < DRAIN_LIMIT_MS)
-        return { waits: true, lines: [`${PREFIX}the restart onto ${head} waits for the leases in flight to finish, and ${takers}: ${held.join(', ')}`] }
+        return { waits: true, free, lines: [`${PREFIX}the restart onto ${head} waits for the leases in flight to finish, and ${takers}: ${held.join(', ')}`] }
     }
     else if (now - draining.since < DRAIN_LIMIT_MS) {
-      return { waits: true, lines: [] }
+      return { waits: true, free, lines: [] }
     }
-    return { waits: false, lines: [`${PREFIX}the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${head} anyway, and these are freed as ${TASK_EXPIRED}: ${held.join(', ')}`] }
+    return { waits: false, free: [], lines: [`${PREFIX}the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${head} anyway, and these are freed as ${TASK_EXPIRED}: ${held.join(', ')}`] }
   }
 
   private pullFailure(): string | null {
@@ -430,10 +460,18 @@ export class BusSupervisor {
   }
 
   private async restart(scope: RestartScope, head: string): Promise<Restarted> {
-    const scripts = new Set(scope.launches.map(launch => launch.script))
+    return this.relaunch(scope.launches, head, () => {
+      if (!scope.self && this.opened.length > 0)
+        this.parts.drain?.close(head, this.opened)
+      this.opened = []
+    })
+  }
+
+  private async relaunch(launches: DetachedLaunch[], head: string, beforeStart: () => void): Promise<Restarted> {
+    const scripts = new Set(launches.map(launch => launch.script))
     const wanted = this.parts.wanted().filter(launch => scripts.has(launch.script))
     const processes = this.parts.processes()
-    const running = scope.launches.flatMap((launch) => {
+    const running = launches.flatMap((launch) => {
       const instance = runningInstance(processes, launch.markers)
       return instance === undefined ? [] : [{ launch, instance }]
     })
@@ -441,9 +479,7 @@ export class BusSupervisor {
       await this.parts.stop(instance, launch)
     const stopped = running.map(({ launch }) => launch)
     const freed = this.parts.freeLeases?.(stopped) ?? []
-    if (!scope.self && this.opened.length > 0)
-      this.parts.drain?.close(head, this.opened)
-    this.opened = []
+    beforeStart()
     const down: string[] = []
     const lines = wanted.flatMap((launch) => {
       const name = launchName(launch)
@@ -531,10 +567,10 @@ export function busDrain(db: DatabaseSync, ts: () => string, startOf?: ProcessSt
         judgeHolders(db, ts(), startOf)
       return leasesHeldBy(db, workerKindsOf(running))
     },
-    open: (sha, untilMs, draining) => {
+    open: (sha, untilMs, draining, from) => {
       const at = ts()
       for (const node of workerKindsOf(draining))
-        openDrain(db, at, sha, new Date(untilMs).toISOString(), node)
+        openDrain(db, at, sha, new Date(untilMs).toISOString(), node, from)
     },
     close: (sha, drained) => {
       const at = ts()
