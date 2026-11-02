@@ -229,6 +229,40 @@ describe('a test rides in the slice whose change it witnesses', () => {
   })
 })
 
+describe('intake keeps a card whole by itself where risk slices would be one change', () => {
+  const sessionbind = { name: 'sessionbind', kind: 'implement', milestone: 'black-ice', size: 'XS', contour: 'cheap', decision: 'auto', who: 'shift', touches: ['architecture/security-invariants.md', 'docs/cli.md'], task: 'Bus card sessions may bind localhost.', witnesses: ['`pnpm exec vitest run tests/isolation.test.ts` exits 0'] }
+
+  it('an XS draft with R1 and R4 touches parks as one card with whole:', () => {
+    const parking = path.join(scratch(), 'parking')
+    const result = intake({ cards: [sessionbind] }, '1423', parking)
+    const written = cards(result)
+    expect(result.status).toBe('written')
+    expect(written).toHaveLength(1)
+    expect(written[0]!.slices).toEqual([])
+    expect(written[0]!.who).toBe('shift')
+    expect(written[0]!.text).toContain('whole: intake keeps an XS card whole')
+    expect(written[0]!.risk.filter(line => line.startsWith('seam: ') || line.startsWith('slice: '))).toEqual([])
+    expect(readdirSync(parking).filter(file => TASK_FILE.test(file))).toEqual(['1424.md'])
+  })
+
+  it('a larger card pairing a security-invariants row with its code parks as one card with whole:', () => {
+    const [card] = cards(intake({ cards: [{ ...sessionbind, size: 'S', touches: ['architecture/security-invariants.md', 'src/card/bind.ts', 'tests/card/bind.test.ts'] }] }, '1423', path.join(scratch(), 'parking')))
+    expect(card!.slices).toEqual([])
+    expect(card!.text).toContain('whole: intake keeps a security-invariants row and the code that changes it whole')
+  })
+
+  it('a whole the draft states is kept over the one intake would set', () => {
+    const [card] = cards(intake({ cards: [{ ...sessionbind, whole: 'the owner kept it whole' }] }, '1423', path.join(scratch(), 'parking'), { dryRun: true }))
+    expect(card!.text.split('\n').filter(line => line.startsWith('whole: '))).toEqual(['whole: the owner kept it whole'])
+  })
+
+  it('an S card with other R1 code and documentation is still sliced by risk', () => {
+    const [card] = cards(intake({ cards: [{ ...sessionbind, size: 'S', touches: ['architecture/security-invariants.md', 'src/commands/detach/index.ts', 'docs/cli.md'] }] }, '1423', path.join(scratch(), 'parking'), { dryRun: true }))
+    expect(card!.slices).toHaveLength(2)
+    expect(card!.text).not.toContain('whole: ')
+  })
+})
+
 describe('intake refuses what it cannot number or check', () => {
   it('refuses without --taken, since a card number is shared with pull requests and issues', () => {
     const root = scratch()

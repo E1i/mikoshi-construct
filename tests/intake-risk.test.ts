@@ -175,7 +175,7 @@ describe('intake writes the risk line into the card', () => {
 
 describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
   it('slices by the risk seam when the complexity seam proposed no slices', () => {
-    const touches = ['architecture/security-invariants.md', 'src/commands/intake/slice.ts', 'docs/cli.md', 'tests/intake-risk.test.ts']
+    const touches = ['architecture/composition/init.yaml', 'src/commands/intake/slice.ts', 'docs/cli.md', 'tests/intake-risk.test.ts']
     const result = intake(touches)
     const card = only(result)
     expect(card.who).toBe(WINDOW_WHO)
@@ -185,7 +185,7 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
     expect(seam[0]).toMatch(/^seam: risk — /)
     expect(seam[0]).toContain('a person confirms the slices or keeps the card whole')
     expect(linesOf(card.text, SLICE_PREFIX)).toEqual([
-      'slice: 1 R1 — architecture/security-invariants.md',
+      'slice: 1 R1 — architecture/composition/init.yaml',
       'slice: 2 R3 — src/commands/intake/slice.ts, docs/cli.md, tests/intake-risk.test.ts',
     ])
     const out: string[] = []
@@ -292,7 +292,7 @@ describe('a card that mixes R1 with R3–R4 is offered a risk seam', () => {
 })
 
 describe('a proposed risk seam waits for the confirmation token corrections wait for', () => {
-  const touches = ['architecture/security-invariants.md', 'src/commands/intake/slice.ts', 'docs/cli.md']
+  const touches = ['architecture/composition/init.yaml', 'src/commands/intake/slice.ts', 'docs/cli.md']
 
   it('parks nothing until a person confirms the token, then records the confirmation as a person\'s', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'intake-risk-'))
