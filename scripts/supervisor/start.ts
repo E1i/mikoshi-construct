@@ -15,7 +15,7 @@ import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
 import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
 import { inForce, OWNER_SOURCE, parseDecisions } from '../policy/decisions/decisions.js'
 import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
-import { activeWindowShards, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
+import { activeWindowShards, DECISIONS_SCOPE, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
 import { decisionsAdder } from '../window/window-request-tools.js'
 import { installedPackage, printBg } from './bg.js'
 import { startBus } from './supervisor.js'
@@ -34,7 +34,7 @@ export const HOURS_FLAG = '--hours'
 export const LIVE_SWITCH = '--live'
 export const SHADOW_SWITCH = '--shadow'
 export const SAY_COMMAND = 'construct say'
-export const MODE_SHARD_SCOPE = 'merge'
+export const MODE_SHARD_SCOPE = DECISIONS_SCOPE
 export const SHARD_DECIDES_LIVE: readonly BusWorker[] = ['merge', 'update']
 export const USAGE = `usage: ${START_BIN} — starts the factory for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
 
