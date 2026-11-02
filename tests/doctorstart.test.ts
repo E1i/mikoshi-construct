@@ -3,9 +3,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { OWNER_AGENT_FILE } from '../scripts/core/bus-path.js'
 import { appendEvent, openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
+import { sessionHandoffOf } from '../scripts/window/handoff-write.js'
+import { HANDOFF_VARIABLE, OWNER_COMMANDS, PACKAGE_COMMANDS, statusOf } from '../scripts/window/loop.js'
 import { DOCTOR_EXIT, factoryChecklist, printFactoryChecklist } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -112,8 +115,33 @@ describe('doctor --factory checks that the factory can start without the owner',
       expect(exit).toBe(DOCTOR_EXIT.notOk)
       expect(text).toContain(PLAIN_LORE.factoryItem['card-permissions'])
     }
-    localSettings(factory, '{ not json')
-    expect(red(check(factory))).toEqual({ 'card-permissions': EDIT_LOCAL_SETTINGS })
+    for (const unreadable of ['{ not json', 'null', '[]', '"allow"', '{"permissions":["Bash(gh pr merge:*)"]}']) {
+      localSettings(factory, unreadable)
+      expect(red(check(factory)), unreadable).toEqual({ 'card-permissions': EDIT_LOCAL_SETTINGS })
+    }
+  })
+
+  it('doctor --factory reads the handoff the window writes and judges its STATUS: as the window loop does', async () => {
+    const factory = await readyFactory()
+    const named = path.join(scratch('construct-doctorstart-named-'), 'named.md')
+    const situations: NodeJS.ProcessEnv[] = [{}, { [HANDOFF_DIR_VARIABLE]: factory.handoffs }, { [HANDOFF_DIR_VARIABLE]: factory.handoffs, [HANDOFF_VARIABLE]: named }]
+    for (const env of situations) {
+      const file = sessionHandoffOf(env, factory.home, factory.dir)!
+      mkdirSync(path.dirname(file), { recursive: true })
+      const at = (text: string): FactoryChecklist => {
+        writeFileSync(file, text)
+        return factoryChecklist(factory.dir, { env: { CONSTRUCT_BUS_DB: factory.bus, ...env }, home: factory.home, now: NOW })
+      }
+      for (const text of ['STATUS: CONTINUE\n', 'STATUS: OWNER\nSTATUS: CONTINUE\n', 'STATUS: CONTINUE\nSTATUS: OWNER\n', 'STATUS: CONTINUE\nSTATUS: LATER\n', ' STATUS: CONTINUE\n', 'STATUS:CONTINUE\n', 'STATUS: CONTINUED\n', 'no status\n'])
+        expect(red(at(text))['window-continue'] === undefined, JSON.stringify({ env, text })).toBe(statusOf(text) === 'CONTINUE')
+      expect(red(at('STATUS: OWNER\n'))['window-continue']).toBe(`${PACKAGE_COMMANDS.write} ${file} <draft ending STATUS: CONTINUE>`)
+    }
+    mkdirSync(path.dirname(path.join(factory.dir, OWNER_AGENT_FILE)), { recursive: true })
+    writeFileSync(path.join(factory.dir, OWNER_AGENT_FILE), '')
+    const owned = sessionHandoffOf({}, factory.home, factory.dir)!
+    mkdirSync(path.dirname(owned), { recursive: true })
+    writeFileSync(owned, 'STATUS: OWNER\n')
+    expect(red(factoryChecklist(factory.dir, { env: { CONSTRUCT_BUS_DB: factory.bus }, home: factory.home, now: NOW }))['window-continue']).toBe(`${OWNER_COMMANDS.write} ${owned} <draft ending STATUS: CONTINUE>`)
   })
 
   it('every new item names in both lores what would make it go', () => {

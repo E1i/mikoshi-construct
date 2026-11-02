@@ -102,11 +102,19 @@ function present(value: unknown): boolean {
   return value !== undefined && value !== null && !(Array.isArray(value) && value.length === 0)
 }
 
+function plainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 function widensCardSessions(readings: FileReadings): boolean {
-  const local = readings.readJson(LOCAL_SETTINGS)
-  if (local === null)
+  if (readings.read(LOCAL_SETTINGS) === null)
     return readings.unreadable(LOCAL_SETTINGS)
-  const permissions = (local.permissions ?? {}) as Record<string, unknown>
+  const local: unknown = readings.readJson(LOCAL_SETTINGS)
+  if (!plainObject(local))
+    return true
+  const permissions = local.permissions ?? {}
+  if (!plainObject(permissions))
+    return true
   return local.sandbox !== undefined || WIDENING_PERMISSIONS.some(key => present(permissions[key]))
 }
 
