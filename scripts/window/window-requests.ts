@@ -379,7 +379,10 @@ export class WindowRequests {
       const goal = text(payload.goal)
       if (title === null || goal === null || file === null || !path.isAbsolute(file) || !existsSync(file))
         return `${type} needs a --title, a --goal and an absolute --file that exists`
-      return { id: plan, title, goal, plan_file: file }
+      const version = planVersionOf(readFileSync(file, 'utf8'))
+      if (version === null)
+        return `${type} needs a version: line in ${file}; the plan sets the release version`
+      return { id: plan, title, goal, plan_file: file, version }
     }
     if (type === PLAN_CLOSED)
       return { plan }
@@ -441,6 +444,10 @@ function decisionRequestOf(argv: readonly string[]): Record<string, unknown> | n
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+export function planVersionOf(planText: string): string | null {
+  return /^version:[ \t]*(\S+)[ \t]*$/m.exec(planText)?.[1] ?? null
 }
 
 export function sliceItemsOf(file: string): string[] {
