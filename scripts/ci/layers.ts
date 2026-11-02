@@ -23,6 +23,7 @@ const LAYERS = readLayerMap()
 const SCRIPT_DIR = /^scripts\/([^/]+)\//
 const SOURCE_FILE = /\.ts$/
 const CHANGESET_NOTE = /^\.changeset\/[^/]+\.md$/
+export const CHANGESET_READERS: readonly string[] = ['tests/changesets-one-line.test.ts']
 const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
 
 export type Graph = ReadonlyMap<string, readonly string[]>
@@ -86,8 +87,9 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   if (given.length === 0)
     return { kind: 'full', why: 'no changed path was given' }
   const changed = given.filter(file => !CHANGESET_NOTE.test(file))
+  const changesetReaders = changed.length < given.length ? CHANGESET_READERS.filter(test => graph.has(test)) : []
   if (changed.length === 0)
-    return { kind: 'layers', layers: [], tests: [] }
+    return { kind: 'layers', layers: [], tests: [...changesetReaders] }
   const infrastructure = changed.find(file => TEST_INFRASTRUCTURE.test(file))
   if (infrastructure !== undefined)
     return { kind: 'full', why: `${infrastructure} is test infrastructure every test runs under` }
@@ -101,7 +103,7 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const treeScanners = allTests.filter(test => scansATree(testText(test)))
   const busWide = changed.some(file => BUS_SHARED.includes(file)) ? allTests.filter(test => test.startsWith(BUS_TESTS)) : []
   const named = changed.flatMap(file => NAMED_READERS[file] ?? []).filter(test => graph.has(test))
-  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named]
+  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named, ...changesetReaders]
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].map(layerOf).filter(layer => layer !== null))].sort()
   const tests = [...closure].filter(isTest).sort()
