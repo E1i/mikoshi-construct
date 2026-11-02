@@ -3,17 +3,21 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { CardFields } from '../../intake/card-contract.js'
 import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { VerdictOnHead } from '../../ports/snapshot.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
-import { appendEvent } from '../../core/db.js'
+import { pathsOutsideTheBody } from '../../core/card-bodies.js'
+import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, UPDATE_DONE } from '../../core/events.js'
+import { CARD_STOPPED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
+import { MERGE_REFUSED } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
+import { cardDecisionCommand } from '../../policy/shards.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter } from '../../ports/meter.js'
 import { MAIN_BRANCH, MERGEABLE_OF_STATE, verdictOf } from '../../ports/snapshot.js'
@@ -28,10 +32,12 @@ const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: '
 
 export const MERGES_WITHOUT_UPDATE = 'merges_without_update'
 const UPDATE_COMMAND = 'update_branch'
+const MERGE_MAIN_COMMAND = 'merge_main'
+const MAIN_REF = `origin/${MAIN_BRANCH}`
 
-export type UpdateCommand = typeof UPDATE_COMMAND | 'publish'
+export type UpdateCommand = typeof UPDATE_COMMAND | typeof MERGE_MAIN_COMMAND | 'publish'
 
-export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE | typeof KEPT_BY_PUSH_POLICY
+export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE | typeof KEPT_BY_PUSH_POLICY
 
 export interface UpdateDenial {
   kind: 'technical'
@@ -44,7 +50,24 @@ export type Carry = ({ carried: VerdictOnHead } | { carried: null, why: string }
 export type UpdateOutcome
   = | { kind: 'updated', taskKey: string, from: string, to: string | null, carry: Carry }
     | { kind: 'denied', taskKey: string, denial: UpdateDenial, next: AfterFailure }
+    | { kind: 'stopped', taskKey: string, reason: typeof QUESTION_OWNER, detail: string }
     | { kind: 'fenced', taskKey: string }
+
+export interface ConflictingCard {
+  cardId: number
+  branch: string
+  outsideTheCard: (files: string[]) => string[]
+  head: string
+}
+
+export type MainMerge
+  = | { kind: 'merged', to: string, tookMain: string[] }
+    | { kind: 'inside', files: string[] }
+    | { kind: 'refused', why: string }
+
+export type MergeMain = (card: ConflictingCard) => MainMerge
+
+export type TreeGit = (cwd: string, args: string[]) => string
 
 export interface UpdateParts {
   db: DatabaseSync
@@ -55,6 +78,7 @@ export interface UpdateParts {
   settle: () => void
   rerun?: RerunMode
   pushPolicy?: () => PushPolicy
+  mergeMain?: MergeMain
 }
 
 export interface ManualUpdate {
@@ -99,9 +123,10 @@ interface Before {
   files: DiffFile[]
 }
 
-type Checked = { kind: 'ready', before: Before } | { kind: 'denied', denial: UpdateDenial }
+type Checked = { kind: 'ready', before: Before } | { kind: 'conflicting' } | { kind: 'denied', denial: UpdateDenial }
 
 const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable', MERGES_WITHOUT_UPDATE])
+const WITHDRAWN_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set([NOT_MINE, KEPT_BY_PUSH_POLICY, MERGE_REFUSED])
 
 function technical(reason: UpdateTechnicalReason, detail: string): UpdateDenial {
   return { kind: 'technical', reason, detail }
@@ -137,6 +162,90 @@ function parentsOf(meter: Meter, commit: string): string[] {
   return parents.flatMap(parent => parent.sha === undefined ? [] : [parent.sha])
 }
 
+function unmergedIn(git: TreeGit, tree: string): string[] {
+  return git(tree, ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(file => file !== '')
+}
+
+function onMain(git: TreeGit, tree: string, file: string): boolean {
+  try {
+    git(tree, ['cat-file', '-e', `${MAIN_REF}:${file}`])
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function takeMain(git: TreeGit, tree: string, file: string): void {
+  if (onMain(git, tree, file))
+    git(tree, ['checkout', MAIN_REF, '--', file])
+  else
+    git(tree, ['rm', '-q', '--', file])
+}
+
+function abortMerge(git: TreeGit, tree: string): void {
+  try {
+    git(tree, ['merge', '--abort'])
+  }
+  catch {}
+}
+
+function mergeMainIn(git: TreeGit, tree: string, card: ConflictingCard): MainMerge {
+  const at = git(tree, ['rev-parse', 'HEAD'])
+  if (at !== card.head)
+    return { kind: 'refused', why: `the tree ${tree} stands at ${at}, not at the head ${card.head}` }
+  if (git(tree, ['status', '--porcelain']) !== '')
+    return { kind: 'refused', why: `the tree ${tree} has changes of its own` }
+  git(tree, ['fetch', '-q', 'origin', MAIN_BRANCH])
+  let tookMain: string[] = []
+  try {
+    git(tree, ['merge', '-q', '--no-edit', MAIN_REF])
+  }
+  catch (error) {
+    const files = unmergedIn(git, tree)
+    if (files.length === 0) {
+      abortMerge(git, tree)
+      return { kind: 'refused', why: messageOf(error) }
+    }
+    const outside = card.outsideTheCard(files)
+    const inside = files.filter(file => !outside.includes(file))
+    if (inside.length > 0) {
+      abortMerge(git, tree)
+      return { kind: 'inside', files: inside }
+    }
+    for (const file of files)
+      takeMain(git, tree, file)
+    git(tree, ['commit', '-q', '--no-edit'])
+    tookMain = files
+  }
+  return pushedOrUndone(git, tree, card, tookMain)
+}
+
+function pushedOrUndone(git: TreeGit, tree: string, card: ConflictingCard, tookMain: string[]): MainMerge {
+  const to = git(tree, ['rev-parse', 'HEAD'])
+  try {
+    git(tree, ['push', '-q', 'origin', `HEAD:refs/heads/${card.branch}`])
+  }
+  catch (error) {
+    git(tree, ['reset', '-q', '--hard', card.head])
+    return { kind: 'refused', why: `the push of the merge ${to} to ${card.branch} failed, and the tree went back to ${card.head}: ${messageOf(error)}` }
+  }
+  return { kind: 'merged', to, tookMain }
+}
+
+export function mainMergeInCardTree(git: TreeGit, treeOf: (cardId: number) => string): MergeMain {
+  return (card) => {
+    const tree = treeOf(card.cardId)
+    try {
+      return mergeMainIn(git, tree, card)
+    }
+    catch (error) {
+      abortMerge(git, tree)
+      return { kind: 'refused', why: messageOf(error) }
+    }
+  }
+}
+
 export class UpdateExecutor {
   constructor(private readonly parts: UpdateParts) {}
 
@@ -153,12 +262,15 @@ export class UpdateExecutor {
       assertHeld(this.parts.db, lease)
       if (this.parts.pushPolicy?.() === 'none')
         return this.denied(lease, technical(KEPT_BY_PUSH_POLICY, `push policy none: the bus does not update #${lease.pr}`))
-      const foreign = notMine(cardContract(this.parts.db, lease.cardId), 'update')
+      const card = cardContract(this.parts.db, lease.cardId)
+      const foreign = notMine(card, 'update')
       if (foreign !== null)
         return this.denied(lease, technical(NOT_MINE, foreign))
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
+      if (checked.kind === 'conflicting')
+        return this.conflicting(lease, card)
       this.allowed(lease)
       const refused = this.requested(lease)
       if (refused !== null)
@@ -183,6 +295,8 @@ export class UpdateExecutor {
       const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
       if (mergeable === undefined)
         return { kind: 'denied', denial: technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}`) }
+      if (mergeable === 'dirty' && this.parts.mergeMain !== undefined)
+        return { kind: 'conflicting' }
       const refused = this.parts.rerun === 'by-layers' ? this.byLayers(meter, pull, lease, mergeable) : this.notBehind(lease, mergeable)
       if (refused !== null)
         return { kind: 'denied', denial: refused }
@@ -274,8 +388,32 @@ export class UpdateExecutor {
     return { kind: 'updated', taskKey: lease.taskKey, from: lease.head!, to, carry }
   }
 
-  private allowed(lease: Lease): void {
-    appendEvent(this.parts.db, { ts: this.ts(), type: POLICY_ALLOWED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_ALLOWED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: UPDATE_COMMAND, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false })
+  private conflicting(lease: Lease, card: CardFields | null): UpdateOutcome {
+    if (card === null)
+      return this.denied(lease, technical(MERGE_REFUSED, `card #${lease.cardId} has no admitted body, so its branch and touches are unknown`))
+    this.allowed(lease, MERGE_MAIN_COMMAND)
+    const merge = this.parts.mergeMain!({ cardId: lease.cardId, branch: card.branch, outsideTheCard: files => pathsOutsideTheBody(this.parts.db, lease.cardId, files.join('\n')), head: lease.head! })
+    this.executed(lease, MERGE_MAIN_COMMAND, merge.kind === 'merged' ? { ok: true } : { ok: false, error: merge.kind === 'refused' ? merge.why : `conflicts inside the card's touches: ${merge.files.join(', ')}` })
+    if (merge.kind === 'refused')
+      return this.denied(lease, technical(MERGE_REFUSED, merge.why))
+    if (merge.kind === 'inside')
+      return this.ownersStop(lease, `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head} inside the card's own touches: ${merge.files.join(', ')}`)
+    const why = merge.tookMain.length === 0 ? `a merge of ${MAIN_BRANCH} into the card tree` : `a merge of ${MAIN_BRANCH} into the card tree that took ${MAIN_BRANCH} on ${merge.tookMain.join(', ')}`
+    const carry: Carry = { carried: null, why, clean: false }
+    const event: BusEvent = { ts: this.ts(), type: UPDATE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${UPDATE_DONE}:${lease.taskKey}`, payload: { from: lease.head, to: merge.to, ...carry, tookMain: merge.tookMain, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false }
+    completeTask(this.parts.db, this.ts(), lease, [event])
+    return { kind: 'updated', taskKey: lease.taskKey, from: lease.head!, to: merge.to, carry }
+  }
+
+  private ownersStop(lease: Lease, detail: string): UpdateOutcome {
+    const ask = { need: 'decision' as const, text: `card #${lease.cardId} asks: ${detail}`, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
+    const stop: BusEvent = { ts: this.ts(), type: CARD_STOPPED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_STOPPED}:${lease.taskKey}:${lease.leaseGen}`, payload: { reason: QUESTION_OWNER, detail }, legacy: false }
+    completeTask(this.parts.db, this.ts(), lease, [stop], db => openBusWait(db, this.ts(), lease.actor, ask))
+    return { kind: 'stopped', taskKey: lease.taskKey, reason: QUESTION_OWNER, detail }
+  }
+
+  private allowed(lease: Lease, command: UpdateCommand = UPDATE_COMMAND): void {
+    appendEvent(this.parts.db, { ts: this.ts(), type: POLICY_ALLOWED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_ALLOWED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false })
   }
 
   private executed(lease: Lease, command: UpdateCommand, result: CommandResult): void {
@@ -289,7 +427,7 @@ export class UpdateExecutor {
       releaseTask(this.parts.db, ts, lease, denial.reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === NOT_MINE || denial.reason === KEPT_BY_PUSH_POLICY }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

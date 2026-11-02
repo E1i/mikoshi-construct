@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { Queue } from '../../core/identifiers.js'
 import type { Lease } from '../../core/lease.js'
 import type { StoredEvent } from '../../core/stored.js'
@@ -15,7 +16,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, 
 import { taskKey } from '../../core/identifiers.js'
 import { inboxText, ownerInbox } from '../../core/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../core/lease.js'
-import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, queueTask } from '../../core/queue.js'
+import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, MERGE_REFUSED, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { Rejection } from '../../core/stored.js'
 import { importJournal } from '../../intake/import.js'
@@ -37,6 +38,10 @@ const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
 const CARD_SESSION = 'card-session-1'
 const PUSHED = sha('e')
 const answer = (cardId: number, pr?: number, head?: string): string => taskKey({ queue: 'answer', cardId, pr, head })
+
+function updateRefusedTheMerge(bench: { db: DatabaseSync, clock: { now: () => Date } }, cardId: number, pr: number, head: string): void {
+  appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: POLICY_DENIED, actor: 'policy', cardId, pr, head, dedupeKey: `${POLICY_DENIED}:update-${pr}-${head}`, payload: { command: 'update_branch', kind: 'technical', reason: MERGE_REFUSED, detail: 'the card tree could not take main' }, legacy: false })
+}
 
 interface Tools {
   runs: AnswerRun[]
@@ -1078,7 +1083,7 @@ describe('the answer executor', () => {
     bench.close()
   })
 
-  it('a pull request that turns dirty after its last round gets an answer task to resolve the conflict on its current head', async () => {
+  it('a pull request that turns dirty after its last round gets an answer task to resolve the conflict on its current head once the update node refused to merge main', async () => {
     const bench = answerBench()
     bench.started(1130)
     bench.gitHub.open({ number: 1030, review: 'failure' })
@@ -1086,6 +1091,7 @@ describe('the answer executor', () => {
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: answer(1130, 1030, sha('a')), head: PUSHED })
 
     bench.gitHub.open({ number: 1030, head: PUSHED, review: 'success', mergeable_state: 'dirty' })
+    updateRefusedTheMerge(bench, 1130, 1030, PUSHED)
     bench.started(1131)
     bench.gitHub.open({ number: 1031, head: sha('b'), mergeable_state: 'dirty', draft: true })
     bench.tick()
@@ -1098,7 +1104,7 @@ describe('the answer executor', () => {
     expect(answerSourceOf(bench.db, lease)).toBeNull()
     expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', taskKey: answer(1130, 1030, PUSHED), head: sha('f') })
     expect(bench.tools.runs[1]!.argv.at(-1)).toContain(`pull request #1030 conflicts with main at ${PUSHED}`)
-    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([{ command: 'update_branch', kind: 'technical', reason: MERGE_REFUSED, detail: 'the card tree could not take main' }])
     bench.close()
   })
 
@@ -1106,6 +1112,7 @@ describe('the answer executor', () => {
     const bench = answerBench()
     bench.started(1132)
     bench.gitHub.open({ number: 1032, head: PUSHED, review: 'success', mergeable_state: 'dirty' })
+    updateRefusedTheMerge(bench, 1132, 1032, PUSHED)
     bench.tick()
     bench.tools.merge = { kind: 'mid-merge', files: ['scripts/core/queue.ts', 'package.json'] }
     bench.tools.heads = [PUSHED, sha('f')]
@@ -1124,6 +1131,7 @@ describe('the answer executor', () => {
     const bench = answerBench()
     bench.started(1133)
     bench.gitHub.open({ number: 1033, head: PUSHED, mergeable_state: 'dirty' })
+    updateRefusedTheMerge(bench, 1133, 1033, PUSHED)
     bench.tick()
     bench.tools.merge = { kind: 'unreadable', why: 'not a git repository' }
 
