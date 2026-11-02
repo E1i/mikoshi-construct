@@ -96,6 +96,16 @@ describe('an answer that ends with no new commit, no owner question and a clean 
     expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining(`empty answer 1 of the review round limit ${REVIEW_ROUNDS}`) as unknown }, next: 'queued' })
   })
 
+  it('the count of empty answers starts again after a failure of another kind', async () => {
+    const card = cardWhoseAnswerLeavesNothing(['empty', 'dirty', 'empty'])
+
+    expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining(`empty answer 1 of the review round limit ${REVIEW_ROUNDS}`) as unknown } })
+    expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
+    const last = await card.executor.answer(card.lease()!)
+
+    expect(last).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: expect.stringContaining(`1 empty answers in a row and ${FAILURES_TO_STOP} failures in a row of any kind`) as unknown })
+  })
+
   it('an empty answer that would be the task\'s last failure opens the owner wait naming both counts, not a bare fault', async () => {
     const card = cardWhoseAnswerLeavesNothing([...Array.from({ length: FAILURES_TO_STOP - 1 }).fill('dirty') as AnswerEnd[], 'empty'])
 
