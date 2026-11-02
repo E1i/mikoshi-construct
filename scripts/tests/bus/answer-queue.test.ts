@@ -424,7 +424,7 @@ describe('the answer queue', () => {
     bench.stopped(1080, { reason: 'question.agent', detail: 'the first question' }, 980, sha('a'))
     bench.tick()
     const first = bench.question(1080, 980, sha('a'))
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: first, denial: { reason: 'answer_failed' } })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: first, denial: { reason: 'left_nothing' } })
 
     bench.started(1080, 'card-session-2')
     bench.stopped(1080, { reason: 'question.agent', detail: 'the second question' }, 980, sha('a'))
@@ -457,7 +457,7 @@ describe('the answer queue', () => {
     expect(asking.taskKey).toBe(`${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`)
     completeTask(bench.db, bench.clock.now().toISOString(), asking, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: asking.actor, cardId: 1146, pr: 1046, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${asking.taskKey}:${asking.leaseGen}`, payload: { reason: 'question.agent', detail: 'widen touches to the worker test' }, legacy: false }])
     bench.tick()
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing' } })
     bench.tick()
     expect(answerTasks('queued')).toEqual([expect.stringContaining(':card-body-aaaa1111:stop-')])
 
@@ -670,7 +670,7 @@ describe('the answer queue', () => {
     bench.started(1150)
     bench.gitHub.open({ number: 1050, review: 'failure' })
     bench.tick()
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing' } })
     bench.started(1151)
     bench.stopped(1151, { reason: 'question.agent', detail: 'which reader owns the session id?' }, 1051, sha('a'))
     bench.gitHub.open({ number: 1051, review: 'failure' })
@@ -680,7 +680,7 @@ describe('the answer queue', () => {
     const live = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND state IN ('queued', 'leased') ORDER BY task_key`).all() as { task_key: string }[]).map(row => row.task_key)
     expect(live).toEqual([answer(1150, 1050, sha('a')), bench.question(1151, 1051, sha('a'))])
     expect(bench.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'answer'`).get()).toEqual({ n: 2 })
-    expect(eventsOf(bench.db, 'task.failed')).toMatchObject([{ reason: 'answer_failed', next: 'queued' }])
+    expect(eventsOf(bench.db, 'task.failed')).toMatchObject([{ reason: 'left_nothing', next: 'queued' }])
     bench.close()
   })
 
@@ -693,7 +693,7 @@ describe('the answer queue', () => {
     const key = answer(1160, 1060, sha('a'))
 
     for (let failure = 1; failure < REVIEW_ROUNDS; failure++) {
-      expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: key, denial: { reason: 'answer_failed' }, next: 'queued' })
+      expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: key, denial: { reason: 'left_nothing' }, next: 'queued' })
       bench.tick()
       bench.tick()
       expect(taskState(bench.db, key)).toMatchObject({ state: 'queued', failures: failure })
@@ -711,20 +711,19 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  it('an open owner question raised after a faulted answer holds its retry for the owner', async () => {
+  it('an open owner question raised after an empty answer reaches the owner inbox while the retry stays queued', async () => {
     const bench = answerBench()
     bench.tools.heads = [sha('a'), sha('a')]
     bench.started(1180)
     bench.gitHub.open({ number: 1080, review: 'failure' })
     bench.tick()
     const key = answer(1180, 1080, sha('a'))
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: key, denial: { reason: 'answer_failed' } })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: key, denial: { reason: 'left_nothing' } })
     bench.stopped(1180, { reason: 'question.owner', detail: 'may the card touch architecture/owner-merges.md?' }, 1080, sha('a'))
     bench.tick()
     bench.tick()
 
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: key, denial: { reason: 'held_for_owner' }, next: 'withdrawn' })
-    expect(bench.tools.runs).toHaveLength(1)
+    expect(taskState(bench.db, key).state).toBe('queued')
     expect(eventsOf(bench.db, TASK_REQUEUED)).toEqual([])
     expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1180])
     bench.close()
@@ -878,7 +877,7 @@ describe('the answer queue', () => {
     const key = answer(1171, 1071, sha('a'))
     const detail = `the answer session ${CARD_SESSION} left ${key} at ${sha('a')}`
 
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed', detail: expect.stringContaining(detail) } })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining(detail) } })
     expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([])
     bench.tick()
 
@@ -1002,7 +1001,7 @@ describe('the answer executor', () => {
     bench.gitHub.open({ number: 998, review: 'failure' })
     bench.tick()
 
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing' } })
     expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([])
     bench.close()
   })

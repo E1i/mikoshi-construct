@@ -11,9 +11,8 @@ import { riskOf } from '../../../src/card/risk.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
-import { OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
-import { latestTurnOf, REVIEW_ROUNDS } from '../../core/queue.js'
+import { FAILURES_TO_STOP, REVIEW_ROUNDS } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from '../../policy/policy.js'
 import { activeDecisionsShard, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
@@ -24,7 +23,7 @@ import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, answerSourceOf, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, treeDirtyOf, treeMergeOf } from './answerer.js'
 
-export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'held_for_owner' | 'outside_touches'
+export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches'
 
 export interface AnswerDenial {
   kind: 'technical'
@@ -71,9 +70,17 @@ function ownersEvenUnderTheDecision(paths: readonly string[]): string | undefine
 
 const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open' AND mergeable = 'dirty'`
 
-const OWNER_QUESTION_IS_THE_LATEST_TURN = `SELECT 1 FROM (${OPEN_OWNER_STOP_OF_CARD}) AS open WHERE open.id = ${latestTurnOf('?')}`
-
 const FAILURES_IN_A_ROW = 'SELECT failures FROM tasks WHERE task_key = ?'
+
+const LEFT_NOTHING = 'left_nothing'
+
+const DENIALS_OF_THE_TASK = `type = '${POLICY_DENIED}' AND substr(dedupe_key, 1, length(:prefix)) = :prefix`
+
+const EMPTY_ANSWERS_IN_A_ROW = `
+  SELECT count(*) AS n FROM events
+  WHERE ${DENIALS_OF_THE_TASK} AND json_extract(payload, '$.reason') = '${LEFT_NOTHING}'
+    AND id > coalesce((SELECT max(id) FROM events WHERE ${DENIALS_OF_THE_TASK} AND json_extract(payload, '$.reason') != '${LEFT_NOTHING}'), 0)
+`
 
 const RED_WITNESS_ON_HEAD = `
   SELECT json_extract(red.payload, '$.detail') AS detail FROM events AS red
@@ -141,8 +148,6 @@ export class AnswerExecutor {
       const hold = ownerHoldOf(this.parts.db, lease.cardId)
       if (hold !== null)
         return this.heldForTheOwner(lease, hold)
-      if (this.ownerQuestionOpen(lease))
-        return this.heldForTheOwner(lease, `card #${lease.cardId} stands on an owner question nobody has answered yet`)
       let widened: Widened | null = null
       if (source?.kind === 'question' && source.widen !== null) {
         const globs = ownerGlobs(this.parts.ownerMerges())
@@ -278,15 +283,19 @@ export class AnswerExecutor {
 
   private leftNothing(lease: Lease, answered: Answered, scope: BusEvent[]): AnswerOutcome {
     const cause = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'} with no new commit, no owner question and a clean tree`
-    const attempt = this.failuresInARow(lease) + 1
-    if (attempt < REVIEW_ROUNDS)
-      return this.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `${cause}; the answer goes again, attempt ${attempt} of the review round limit ${REVIEW_ROUNDS}` })
-    const detail = `${cause}, ${attempt} answers in a row: the review round limit ${REVIEW_ROUNDS} is reached and the bus answers the card no further`
+    const empty = this.emptyAnswersInARow(lease) + 1
+    const failures = this.failuresInARow(lease) + 1
+    if (empty < REVIEW_ROUNDS && failures < FAILURES_TO_STOP)
+      return this.denied(lease, { kind: 'technical', reason: LEFT_NOTHING, detail: `${cause}; the answer goes again, empty answer ${empty} of the review round limit ${REVIEW_ROUNDS}` })
+    const limit = empty >= REVIEW_ROUNDS
+      ? `${empty} empty answers in a row reach the review round limit ${REVIEW_ROUNDS}`
+      : `${empty} empty answers in a row and ${failures} failures in a row of any kind reach the ${FAILURES_TO_STOP} failures that stop the task`
+    const detail = `${cause}: ${limit}, and the bus answers the card no further`
     return this.ownersStop(lease, detail, scope, `card #${lease.cardId} stands on a faulted answer: ${detail}; decide it: a re-cut, an amend of the card or a drop`)
   }
 
-  private ownerQuestionOpen(lease: Lease): boolean {
-    return this.parts.db.prepare(OWNER_QUESTION_IS_THE_LATEST_TURN).get(lease.cardId, lease.cardId) !== undefined
+  private emptyAnswersInARow(lease: Lease): number {
+    return Number((this.parts.db.prepare(EMPTY_ANSWERS_IN_A_ROW).get({ prefix: `${POLICY_DENIED}:${lease.taskKey}:` }) as { n: number }).n)
   }
 
   private failuresInARow(lease: Lease): number {

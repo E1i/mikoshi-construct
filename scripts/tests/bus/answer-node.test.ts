@@ -446,7 +446,7 @@ describe('the answer node', () => {
     }
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
 
-    expect(await executor.answer(lease())).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing' } })
     expect(requests.map(request => request.fresh)).toEqual([false, true])
   })
 
