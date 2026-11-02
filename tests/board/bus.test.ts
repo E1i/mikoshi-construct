@@ -47,8 +47,8 @@ describe('the board bus reader', () => {
 
   it('reads every card with its state, lane and card line, in card order', () => {
     expect(facts({ cards: [{ id: 2, state: 'changes', lane: null, line: null }, { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha' }] }).cards).toEqual([
-      { id: 1, state: 'queued', stage: 'planned', lane: 'a', slot: 'slot-a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },
-      { id: 2, state: 'changes', stage: 'answer/changes', lane: null, slot: null, line: null, since: null, body: true, closed: false, closedAt: null },
+      { id: 1, state: 'queued', stage: 'planned', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },
+      { id: 2, state: 'changes', stage: 'answer/changes', lane: null, line: null, since: null, body: true, closed: false, closedAt: null },
     ])
   })
 
@@ -113,7 +113,7 @@ describe('the board bus reader', () => {
       expect(waitsOnTheBoard()).toEqual([{ id: 'Q1', need: 'decision', text: 'which path for #1213?', command: null, card: 1213, pr: null, since: NOW.toISOString() }])
       requestFromWindow(db, NOW.toISOString(), 'window-1', { kind: 'owner.wait.close', id: 'Q1', answer: 'the first path' })
       expect(requests.run().map(outcome => outcome.detail)).toEqual(['closed Q1: the first path'])
-      expect(waitsOnTheBoard()).toHaveLength(1)
+      expect(waitsOnTheBoard()).toEqual([])
       reduce(db)
       expect(waitsOnTheBoard()).toEqual([])
     }
@@ -122,13 +122,13 @@ describe('the board bus reader', () => {
     }
   })
 
-  it('a card lane is its parking lane, its latest lane.assigned is a slot, and a merged, closed or dropped card has neither', () => {
+  it('a card lane is its latest lane.assigned, and a merged, closed or dropped card has none', () => {
     const assigned = (card: number, lane: string, lanes: number): SeedEvent => ({ ts: ago(60_000), type: 'lane.assigned', card, payload: JSON.stringify({ lane, lanes }) })
     const read = facts({
       cards: [{ id: 1, state: 'queued', lane: 'lane-3', line: null }, { id: 2, state: 'merged', lane: 'lane-1', line: null }, { id: 3, state: 'closed', lane: 'lane-2', line: null }, { id: 4, state: 'dropped', lane: 'lane-2', line: null }],
       events: [assigned(1, 'lane-1', 2)],
     })
-    expect(read.cards.map(card => [card.id, card.lane, card.slot])).toEqual([[1, 'lane-3', 'slot-1'], [2, null, null], [3, null, null], [4, null, null]])
+    expect(read.cards.map(card => [card.id, card.lane])).toEqual([[1, 'lane-1'], [2, null], [3, null], [4, null]])
   })
 
   it('a merged or closed card has no session tile, whatever its last pulse', () => {

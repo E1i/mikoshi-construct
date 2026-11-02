@@ -1,8 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { OwnerWaitNeed } from './bus-readings.js'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { parseCard } from '../../src/card/grammar.js'
+import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAIT_NEEDS, OWNER_WAITS } from './bus-readings.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
@@ -234,13 +236,9 @@ export function appendEvent(db: DatabaseSync, event: BusEvent): boolean {
   return Number(result.changes) === 1
 }
 
-export const OWNER_WAITS = 'owner_waits'
-export const OWNER_WAIT_NEEDS = ['decision', 'merge', 'command'] as const
-export const OPEN_WAIT = 'open'
-export const CLOSED_WAIT = 'closed'
+export { CLOSED_WAIT, OPEN_WAIT, OWNER_WAIT_NEEDS, OWNER_WAITS }
+export type { OwnerWaitNeed }
 export const WAIT_ID = /^Q(\d+)$/
-
-export type OwnerWaitNeed = typeof OWNER_WAIT_NEEDS[number]
 
 export interface OwnerWaitAsk {
   need: OwnerWaitNeed

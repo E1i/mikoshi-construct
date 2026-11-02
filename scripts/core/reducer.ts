@@ -148,9 +148,6 @@ function prClosed(db: DatabaseSync, event: StoredEvent): void {
 }
 
 const ENDED_CARD_STATES: ReadonlySet<string | null> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
-function questionAMergeSpares(wait = ''): string {
-  return `${wait}need = 'decision' AND ${wait}id NOT LIKE '${DOWNGRADE_WAIT_PREFIX}%'`
-}
 
 function endedCardAnswer(cardId: number, state: string | null): string {
   return `card #${cardId} ${state}`
@@ -162,15 +159,13 @@ function closeWaitsOfAnEndedCard(db: DatabaseSync, cardId: number | null, eventI
   const state = (db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state ?? null
   if (!ENDED_CARD_STATES.has(state))
     return
-  const sparingItsQuestions = state === MERGED_CARD ? ` AND NOT (${questionAMergeSpares()})` : ''
-  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ?${sparingItsQuestions}`)
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ?`)
     .run(endedCardAnswer(cardId, state), eventId, cardId)
 }
 
 const OPEN_WAITS_OF_ENDED_CARDS = `
   SELECT wait.id, wait.card_id, card.state FROM owner_waits AS wait JOIN cards AS card ON card.card_id = wait.card_id
   WHERE wait.state = '${OPEN_WAIT}' AND card.state IN (SELECT value FROM json_each(?))
-    AND NOT (card.state = '${MERGED_CARD}' AND ${questionAMergeSpares('wait.')})
   ORDER BY wait.id
 `
 

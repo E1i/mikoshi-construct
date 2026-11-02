@@ -6,7 +6,7 @@ import { backlogCards, backlogLines, boardScreens, flowLines, goalLines, matrixL
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
 function card(id: number, state: string | null, lane: string | null = null, line: string | null = null, stage: CardStage = 'planned'): BusCard {
-  return { id, state, stage, lane, slot: null, line, since: null, body: true, closed: false, closedAt: null }
+  return { id, state, stage, lane, line, since: null, body: true, closed: false, closedAt: null }
 }
 
 function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ShiftTask } from '../../../src/card/task-file.js'
+import type { Assignment } from '../../core/bus-readings.js'
 import type { OverlapCatch } from './launch-candidates.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -7,8 +8,9 @@ import path from 'node:path'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
-import { appendEvent, OPEN_WAIT, OWNER_WAITS } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, MERGE_DONE, POLICY_DENIED } from '../../core/events.js'
+import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
+import { appendEvent } from '../../core/db.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { taskConflicts } from './overlap.js'
 
@@ -57,11 +59,7 @@ const TEXT_ADMISSIONS = `
   ORDER BY id DESC LIMIT 2
 `
 
-const LATEST_ASSIGNMENT = `SELECT id, json_extract(payload, '$.lane') AS lane, json_extract(payload, '$.reason') AS reason, json_extract(payload, '$.after') AS after FROM events WHERE legacy = 0 AND type = '${LANE_ASSIGNED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
-
 const LATEST_ADMISSION = `SELECT max(id) AS id FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ?`
-
-const LATEST_END = `SELECT max(id) AS id FROM events WHERE legacy = 0 AND card_id = ? AND type IN ('${CARD_DROPPED}', '${CARD_CLOSED}', '${MERGE_DONE}')`
 
 export type LaneReason = 'chain' | 'kept' | 'free' | 'least-loaded' | 'moved'
 
@@ -251,19 +249,7 @@ function laneCardOf(db: DatabaseSync, cardId: number): LaneCard {
   return { cardId, depends: dependsOf(payload), task: taskOf(cardId, payload) }
 }
 
-interface Assignment { id: number, lane: unknown, reason: unknown, after: string | null }
-
-function latestAssignment(db: DatabaseSync, cardId: number): Assignment | undefined {
-  return db.prepare(LATEST_ASSIGNMENT).get(cardId) as Assignment | undefined
-}
-
-export function currentLane(db: DatabaseSync, cardId: number): string | null {
-  const assigned = latestAssignment(db, cardId)
-  if (assigned === undefined || typeof assigned.lane !== 'string')
-    return null
-  const ended = (db.prepare(LATEST_END).get(cardId) as { id: number | null }).id
-  return ended !== null && Number(ended) > Number(assigned.id) ? null : assigned.lane
-}
+export { currentLane }
 
 interface AdmittedRow { card_id: number, admission: number, state: string | null }
 
