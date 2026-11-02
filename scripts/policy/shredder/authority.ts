@@ -1,5 +1,6 @@
 import type { OwnerMergeKind, PolicyRow, WindowRow } from './reader.js'
 import type { Row, Unresolved } from './row.js'
+import { OWNER_MERGES } from '../policy.js'
 import { matchGlob } from './glob.js'
 
 export interface OwnerMerges {
@@ -19,6 +20,11 @@ export function notCheckedKinds(ownerMergeKinds: OwnerMergeKind[]): string[] {
 
 export function ownerMerges(write: string[], ownerMergeKinds: OwnerMergeKind[]): OwnerMerges {
   const result: OwnerMerges = { ownerMerged: false, why: [], unresolved: [] }
+  if (write.includes(OWNER_MERGES)) {
+    result.why.push(`owner-merges ${OWNER_MERGES}: whatever its table says`)
+    result.ownerMerged = true
+    result.unresolved.push({ level: 'DECISION_REQUIRED', reason: `owner merges (${OWNER_MERGES})`, source: 'owner-merges.md' })
+  }
   for (const kind of ownerMergeKinds) {
     if (kind.globs.length === 0)
       continue
