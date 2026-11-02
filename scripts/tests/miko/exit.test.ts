@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
 import { ancestors, exitDecision, FRESH_MS, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
@@ -144,6 +145,30 @@ describe('pnpm miko:exit ends the claude of the current Mikoshi window', () => {
     expect(journal(dir)).toEqual([expect.objectContaining({ event: 'session-exit', session_id: SESSION, reason: 'context', start: { input: CONTEXT_WARN, cache_write: 0, cache_read: 0 } })])
     expect(readdirSync(path.dirname(mikoHandoff(path.join(dir, '.construct', 'handoff')))).filter(name => name.startsWith('miko-exit.'))).toEqual([])
   }, 20_000)
+
+  it('miko exit at the eddies threshold with a fresh CONTINUE handoff exits 0', async () => {
+    const dir = scratch()
+    const limits = { ...LIMITS, contextLimit: 150000 }
+    writeFileSync(path.join(dir, '.claude', 'eddies.json'), JSON.stringify(limits))
+    transcript(dir, [usageLine('2026-11-02T00:00:00.000Z', 'r1', { input: limits.contextLimit * limits.warnRatio + 474 })])
+    writeFileSync(path.join(dir, '.construct', 'handoff', MIKO_HANDOFF_NAME), '# Handoff\n\nnext task: #650 brief\n\nSTATUS: CONTINUE\n')
+    const request = path.join(dir, 'exit-request')
+    const child = spawn(process.execPath, ['--import', pathToFileURL(path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href, EXIT], {
+      cwd: dir,
+      env: { ...process.env, HOME: dir, CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PROJECT_DIR: '', CONSTRUCT_HANDOFF_DIR: path.join(dir, '.construct', 'handoff'), CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CONSTRUCT_CARD: '', MIKO_WINDOW: '1', MIKO_LOOP_PID: '1', MIKO_EXIT_REQUEST: request },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    let stderr = ''
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk
+    })
+    const code = await new Promise<number | null>(resolve => child.on('close', resolve))
+
+    expect({ code, stderr }).toMatchObject({ code: 0, stderr: expect.stringContaining('the loop ends the session at the context limit') })
+    expect(existsSync(request)).toBe(true)
+    expect(journal(dir)).toEqual([expect.objectContaining({ reason: 'context' })])
+  }, 30_000)
 
   it('refuses when miko.md is older than two minutes', async () => {
     const dir = home(['quiet exit 1'])
