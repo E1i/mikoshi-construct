@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
-import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, REVIEW_RECORDED } from '../../core/events.js'
 import { latestTurnOf } from '../../core/queue.js'
 
 export const LATEST_EVENTS = 20
@@ -149,6 +149,18 @@ function startLineOf(db: DatabaseSync, cardId: number): CardSession | null {
 
 export function cardSessionOf(db: DatabaseSync, cardId: number): CardSession | null {
   return startedOf(db, cardId) ?? startLineOf(db, cardId)
+}
+
+const LATEST_HOLD = `SELECT type, json_extract(payload, '$.reason') AS reason FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_HELD}', '${CARD_RELEASED}') ORDER BY id DESC LIMIT 1`
+
+const DRAFT_PR = `SELECT pr FROM prs WHERE card_id = ? AND state = 'open' AND draft = 1 ORDER BY pr DESC LIMIT 1`
+
+export function ownerHoldOf(db: DatabaseSync, cardId: number): string | null {
+  const hold = db.prepare(LATEST_HOLD).get(cardId) as { type: string, reason: unknown } | undefined
+  if (hold?.type === CARD_HELD)
+    return `card #${cardId} is held for the owner: ${text(hold.reason) ?? 'the hold names no reason'}`
+  const draft = db.prepare(DRAFT_PR).get(cardId) as { pr: number } | undefined
+  return draft === undefined ? null : `card #${cardId} has the draft pull request #${Number(draft.pr)}, which is the owner's until it is marked ready`
 }
 
 export function openPrOfCard(db: DatabaseSync, cardId: number): number | null {

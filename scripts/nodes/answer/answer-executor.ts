@@ -19,10 +19,10 @@ import { ownerGlobs } from '../../policy/widening.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
 import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
-import { admittedScopeOf, answerSourceOf } from './answer-source.js'
-import { CardTreeGone, treeDirtyOf, treeMergeOf } from './answerer.js'
+import { admittedScopeOf, answerSourceOf, ownerHoldOf } from './answer-source.js'
+import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, treeDirtyOf, treeMergeOf } from './answerer.js'
 
-export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed'
+export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'held_for_owner' | 'outside_touches'
 
 export interface AnswerDenial {
   kind: 'technical'
@@ -48,6 +48,7 @@ export interface AnswerParts {
   isolation?: IsolationReader
   prompts?: string
   dirty?: (card: CardSession) => boolean
+  liveSession?: (card: CardSession) => boolean
 }
 
 type Answering = AnswerSource & { reentry?: true }
@@ -75,7 +76,7 @@ const RED_WITNESS_ON_HEAD = `
 
 const REENTRY_SOURCES: ReadonlySet<AnswerSource['kind']> = new Set(['ci'])
 
-const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone'])
+const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone', 'held_for_owner'])
 
 const MS_PER_MINUTE = 60_000
 
@@ -107,6 +108,12 @@ function decisionSource(question: string, ground: string): AnswerSource {
   return { kind: 'question', detail: `your question went to the window, and the window decided it under ${ground}: the card goes on without the owner. The question was: ${question}`, widen: null, events: [] }
 }
 
+function reasonOfFailure(error: unknown): AnswerTechnicalReason {
+  if (error instanceof CardTreeGone)
+    return 'card_tree_gone'
+  return error instanceof AnswerOutsideTouches ? 'outside_touches' : 'answer_failed'
+}
+
 export class AnswerExecutor {
   constructor(private readonly parts: AnswerParts) {}
 
@@ -124,6 +131,9 @@ export class AnswerExecutor {
       const source = this.sourceOf(lease)
       if (source === null && !this.dirtyOnHead(lease))
         return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
+      const hold = ownerHoldOf(this.parts.db, lease.cardId)
+      if (hold !== null)
+        return this.heldForTheOwner(lease, hold)
       let widened: Widened | null = null
       if (source?.kind === 'question' && source.widen !== null) {
         const globs = ownerGlobs(this.parts.ownerMerges())
@@ -142,6 +152,8 @@ export class AnswerExecutor {
         return this.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started, no start line with a worktree and a branch, and no open pull request` })
       if ('kind' in card)
         return this.denied(lease, card)
+      if ((this.parts.liveSession ?? liveSessionIn)(card))
+        return this.heldForTheOwner(lease, `a live session runs in the tree ${card.worktree} of card #${lease.cardId}`)
       const merge = source === null ? (this.parts.treeMerge ?? treeMergeOf)(card) : null
       if (merge?.kind === 'unreadable')
         return this.waiting(lease, card, merge.why)
@@ -212,11 +224,20 @@ export class AnswerExecutor {
 
   private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean): Promise<Answered | AnswerDenial> {
     try {
-      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh })
+      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease) })
     }
     catch (error) {
-      return { kind: 'technical', reason: error instanceof CardTreeGone ? 'card_tree_gone' : 'answer_failed', detail: messageOf(error) }
+      return { kind: 'technical', reason: reasonOfFailure(error), detail: messageOf(error) }
     }
+  }
+
+  private outsideTouchesOf(lease: Lease): (paths: readonly string[]) => string[] {
+    const scope = admittedScopeOf(this.parts.db, lease.cardId)
+    return paths => scope === null ? [] : pathsOutside(scope.touches, scope.creates, paths)
+  }
+
+  private heldForTheOwner(lease: Lease, detail: string): AnswerOutcome {
+    return this.denied(lease, { kind: 'technical', reason: 'held_for_owner', detail: `${detail}; the answer node takes no card the owner holds` })
   }
 
   private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): Promise<AnswerOutcome> {
