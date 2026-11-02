@@ -2,6 +2,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { busPathOf, DECISIONS_FILE, decisionsFileOf, isOwnerCheckout } from '../../../scripts/core/bus-path.js'
+import { handoffDirOf } from '../../../scripts/core/handoff-dir.js'
 import { inForce, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { namesQueueLive } from '../../../scripts/policy/live-decision.js'
 import { readManifest, recordedShas } from '../../manifest.js'
@@ -18,7 +19,9 @@ export const FACTORY_ITEMS = {
   'factory-hooks': 'PARITY',
   'pnpm-floor': 'PARITY',
   'pnpm-store-ignored': 'PARITY',
+  'card-permissions': 'PARITY',
   'window-live': 'PARITY',
+  'window-continue': 'ONEWORD',
   'live-merge': 'ONEWORD',
   'live-update': 'ONEWORD',
 } as const satisfies Record<string, FactorySlice>
@@ -29,11 +32,18 @@ export const RESTORE_FROM_GIT = 'git restore --'
 export const PIN_PNPM_FLOOR = `corepack use pnpm@${MIKOSHI_PNPM}`
 export const IGNORE_PNPM_STORE = `printf '.pnpm-store/\\n' >> .gitignore`
 export const OPEN_A_WINDOW = 'claude'
+export const EDIT_LOCAL_SETTINGS = '$EDITOR .claude/settings.local.json'
 export const GHOST_PROTOCOL_HOURS = 6
 export const OWNER_WORD = `ghost-protocol ${GHOST_PROTOCOL_HOURS}h`
 export const SWITCH_TO_GHOST_PROTOCOL = `construct say "${OWNER_WORD}" && construct-factory --mode ghost-protocol`
 
 const SETTINGS = '.claude/settings.json'
+const LOCAL_SETTINGS = '.claude/settings.local.json'
+const WIDENING_PERMISSIONS = ['allow', 'additionalDirectories', 'defaultMode'] as const
+const WINDOW_HANDOFF = 'miko.md'
+const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
+const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
+const CONTINUE = 'CONTINUE'
 const PNPM_STORE_LINE = '.pnpm-store/'
 const PNPM_PIN = /^pnpm@(\d+\.\d+\.\d+)/
 
@@ -87,6 +97,44 @@ function ignoresPnpmStore(readings: FileReadings): boolean {
   return (readings.read('.gitignore') ?? '').split(/\r?\n/).some(line => line.trim() === PNPM_STORE_LINE)
 }
 
+function present(value: unknown): boolean {
+  return value !== undefined && value !== null && !(Array.isArray(value) && value.length === 0)
+}
+
+function plainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function widensCardSessions(readings: FileReadings): boolean {
+  if (readings.read(LOCAL_SETTINGS) === null)
+    return readings.unreadable(LOCAL_SETTINGS)
+  const local: unknown = readings.readJson(LOCAL_SETTINGS)
+  if (!plainObject(local))
+    return true
+  const permissions = local.permissions ?? {}
+  if (!plainObject(permissions))
+    return true
+  return local.sandbox !== undefined || WIDENING_PERMISSIONS.some(key => present(permissions[key]))
+}
+
+function named(env: NodeJS.ProcessEnv, variable: string): string | null {
+  const value = env[variable]
+  return value === undefined || value === '' ? null : value
+}
+
+function windowHandoffOf(situation: FactorySituation, root: string): string {
+  return named(situation.env, HANDOFF_VARIABLE) ?? path.join(handoffDirOf(situation.env, situation.home, root), WINDOW_HANDOFF)
+}
+
+function lastStatus(handoff: string): string | null {
+  const text = new FileReadings(path.dirname(handoff)).read(path.basename(handoff)) ?? ''
+  return text.split(/\r?\n/).flatMap(line => STATUS_LINE.exec(line)?.[1] ?? []).at(-1) ?? null
+}
+
+function writeContinueCommand(root: string, handoff: string): string {
+  return `${isOwnerCheckout(root) ? 'pnpm handoff:write' : 'miko handoff write'} ${handoff} <draft ending STATUS: ${CONTINUE}>`
+}
+
 function liveQueues(decisionsFile: string, now: Date): (queue: string) => boolean {
   const decisions = inForce(parseDecisions(new FileReadings(path.dirname(decisionsFile)).read(DECISIONS_FILE) ?? '').decisions, now)
   return queue => decisions.some(decision => namesQueueLive(decision.body, queue))
@@ -110,13 +158,16 @@ export function factoryChecklist(root: string, situation: FactorySituation = { e
   const readings = new FileReadings(root)
   const bus = busPathOf(situation.env, situation.home, root, isOwnerCheckout(root))
   const live = liveQueues(decisionsFileOf(bus), situation.now)
+  const handoff = windowHandoffOf(situation, root)
   const missing = FACTORY_MANIFEST.filter(file => readings.read(file) === null)
   const items = [
     item('factory-files', missing.length === 0, factoryFilesCommand(root, missing)),
     item('factory-hooks', carriesFactoryHooks(readings), SYNC_APPLY),
     item('pnpm-floor', pnpmAtTheFloor(readings), PIN_PNPM_FLOOR),
     item('pnpm-store-ignored', ignoresPnpmStore(readings), IGNORE_PNPM_STORE),
+    item('card-permissions', !widensCardSessions(readings), EDIT_LOCAL_SETTINGS),
     item('window-live', factoryLiveness(bus, situation.now.getTime()).state === 'live', OPEN_A_WINDOW),
+    item('window-continue', lastStatus(handoff) === CONTINUE, writeContinueCommand(root, handoff)),
     item('live-merge', live('merge'), SWITCH_TO_GHOST_PROTOCOL),
     item('live-update', live('update'), SWITCH_TO_GHOST_PROTOCOL),
   ]
