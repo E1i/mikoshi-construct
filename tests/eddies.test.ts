@@ -51,7 +51,7 @@ function hook(s: Scratch, mode: string, input: Record<string, unknown> | string,
   const started = performance.now()
   const result = spawnSync('node', [script, mode], {
     input: typeof input === 'string' ? input : JSON.stringify({ session_id: SESSION, transcript_path: s.transcript, cwd: s.root, ...input }),
-    env: { ...process.env, CONSTRUCT_CARD: undefined, CONSTRUCT_HANDOFF: undefined, CLAUDE_PROJECT_DIR: projectDir, CONSTRUCT_HANDOFF_DIR: s.handoff, ...s.env },
+    env: { ...process.env, CONSTRUCT_CARD: undefined, CONSTRUCT_HANDOFF: undefined, CLAUDE_CODE_AUTO_COMPACT_WINDOW: undefined, CLAUDE_PROJECT_DIR: projectDir, CONSTRUCT_HANDOFF_DIR: s.handoff, ...s.env },
     encoding: 'utf8',
   })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, ms: performance.now() - started }
@@ -113,6 +113,15 @@ function continueLine(s: Scratch): string {
 function cardContinueLine(s: Scratch): string {
   return `eddies: to continue in a new window — cd '${s.root}' && claude '${CONTINUE_PROMPT}'\n`
 }
+const TAB_ENV = { MIKO_WINDOW: '', MIKO_LOOP_PID: '', MIKO_EXIT_REQUEST: '', CONSTRUCT_BUS_RAISED: '', CLAUDE_CODE_ENTRYPOINT: 'cli' }
+
+function tabWindow(compaction: Record<string, string>, settings: Record<string, unknown> | null, parent: Usage[]): Scratch {
+  const s = scratch(LIMITS, parent)
+  if (settings !== null)
+    writeFileSync(path.join(s.root, '.claude', 'settings.json'), `${JSON.stringify(settings)}\n`)
+  return { ...s, env: { ...TAB_ENV, ...compaction } }
+}
+
 const WARN_FIELDS = ['v', 'event', 'level', 'spent', 'limit', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'measurement_basis', 'session_id', 'agent_id', 'agent_type', 'run_id', 'warn_ratio', 'at']
 const STOP_FIELDS = ['event', 'level', 'reason', 'tool', 'spent', 'limit', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'measurement_basis', 'session_id', 'agent_id', 'agent_type', 'run_id', 'at']
 
@@ -507,4 +516,31 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(second.ms).toBeLessThan(5000)
     process.stdout.write(`W9 second call: ${Math.round(second.ms)} ms\n`)
   }, 60_000)
+})
+
+describe('eddies: a tab window runs to the compaction point and continues from the handoff', () => {
+  it('a tab window at the context threshold reaches compaction and continues from the handoff', () => {
+    const s = tabWindow({}, { autoCompactWindow: 200000 }, [{ input: 170000 }])
+    const handoff = path.join(s.handoff, MIKO_HANDOFF_NAME)
+    const warned = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+
+    expect(warned).toMatchObject({ status: 0, stdout: `eddies: session-context warn — context 170000 / warn threshold 160000 (limit 200000, autoCompactWindow in .claude/settings.json); write the handoff, then carry on — the context compacts at the compaction point and this session continues from the handoff on STATUS: CONTINUE, no pnpm miko:exit\neddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\n` })
+    expect(call(s, 'Agent', { prompt: 'p' })).toMatchObject({ status: 0, stderr: '' })
+    expect(stops(s)).toEqual([])
+  })
+
+  it('eddies does not forbid new work below the compaction point', () => {
+    const fromEnv = tabWindow({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: '300000' }, { autoCompactWindow: 100000 }, [{ input: 200000 }])
+    const fromSettings = tabWindow({}, { autoCompactWindow: 300000 }, [{ input: 200000 }])
+    const atThePoint = tabWindow({}, { autoCompactWindow: 300000 }, [{ input: 300000 }])
+    const undeclared = tabWindow({}, null, [{ input: 200000 }])
+    const card = { ...fromSettings, env: { ...fromSettings.env, CONSTRUCT_CARD: '1436' } }
+    const loop = { ...fromSettings, env: { ...fromSettings.env, MIKO_WINDOW: '1' } }
+
+    expect(call(fromEnv, 'Agent', { prompt: 'p' })).toMatchObject({ status: 0, stderr: '' })
+    expect(call(fromSettings, 'Agent', { prompt: 'p' })).toMatchObject({ status: 0, stderr: '' })
+    expect(call(atThePoint, 'Agent', { prompt: 'p' })).toMatchObject({ status: 2, stderr: expect.stringContaining('limit 300000 (autoCompactWindow in .claude/settings.json)') })
+    for (const other of [undeclared, card, loop])
+      expect(call(other, 'Agent', { prompt: 'p' })).toMatchObject({ status: 2, stderr: expect.stringContaining('limit 150000 (contextLimit in .claude/eddies.json)') })
+  })
 })

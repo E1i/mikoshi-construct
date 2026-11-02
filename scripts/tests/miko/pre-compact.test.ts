@@ -124,6 +124,23 @@ describe('preCompact keeps the handoff of a tab window fresh before the context 
     expect(archived(w)).toEqual(['0001.md'])
   }, 30_000)
 
+  it('pre-compact checks the handoff is fresh', () => {
+    const fresh = world()
+    written(fresh)
+    const stale = world()
+    writeFileSync(stale.handoff, 'STATUS: CONTINUE\n')
+    age(stale, FRESH_MS + 60_000)
+
+    const freshRun = relay(fresh, 'pre-compact')
+    const staleRun = relay(stale, 'pre-compact')
+
+    expect({ status: freshRun.status, stdout: freshRun.stdout }).toEqual({ status: 0, stdout: '' })
+    expect(freshRun.stderr).toContain(FRESH)
+    expect({ status: staleRun.status, stdout: staleRun.stdout }).toEqual({ status: 1, stdout: '' })
+    expect(staleRun.stderr).toContain(`is unchanged and older than ${FRESH_MS / 1000}s`)
+    expect(readFileSync(stale.handoff, 'utf8')).toBe('STATUS: CONTINUE\n')
+  }, 30_000)
+
   it('the relay hook runs no script it does not name', () => {
     const w = world()
     const run = relay(w, 'exit')

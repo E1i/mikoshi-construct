@@ -41,6 +41,8 @@ async function main() {
   }
   process.stdout.write(run.stdout ?? '')
   process.stderr.write(run.stderr ?? '')
+  if (run.status !== 0)
+    process.exitCode = 1
 }
 
 function isMain() {

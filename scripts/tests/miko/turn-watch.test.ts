@@ -16,6 +16,7 @@ import { recordWindowHeartbeat, WINDOW_BEAT_MS } from '../../window/window-heart
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const TURN_WATCH = path.join(REPO_ROOT, 'scripts', 'window', 'turn-watch.ts')
+const TURN_WATCH_HOOK = path.join(REPO_ROOT, '.claude', 'hooks', 'turn-watch.mjs')
 const NOW = Date.parse('2026-10-21T10:00:00.000Z')
 const roots: string[] = []
 
@@ -149,4 +150,20 @@ describe('the loop window waits on a watch, a tab window on the STATUS of its ha
   it('a card session is not blocked', () => {
     expect(hook({ ...marked, CLAUDE_CODE_SESSION_ID: 's-card', CONSTRUCT_CARD: '1197' })).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
   })
+})
+
+describe('turn-watch tells a tab window from a card session by the tree it runs in', () => {
+  function stop(worktreeHome: string): { status: number | null, stdout: string } {
+    const dir = mkdtempSync(path.join(tmpdir(), 'turn-watch-tree-'))
+    roots.push(dir)
+    writeFileSync(path.join(dir, MIKO_HANDOFF_NAME), '# Handoff\n\nSTATUS: CONTINUE\n')
+    const env = { ...process.env, HOME: dir, CONSTRUCT_WORKTREE_HOME: worktreeHome, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CLAUDE_PROJECT_DIR: REPO_ROOT, [HANDOFF_DIR_VARIABLE]: dir, CONSTRUCT_HANDOFF: '', CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', MIKO_LOOP_PID: '', MIKO_EXIT_REQUEST: '', [RAISED_VARIABLE]: '', [ENTRYPOINT_VARIABLE]: 'cli' }
+    const run = spawnSync(process.execPath, [TURN_WATCH_HOOK], { cwd: REPO_ROOT, env, input: JSON.stringify({ session_id: 's-tree', stop_hook_active: false }), encoding: 'utf8' })
+    return { status: run.status, stdout: run.stdout }
+  }
+
+  it('a card session without CONSTRUCT_CARD is not asked for miko:watch by turn-watch', () => {
+    expect(stop(path.dirname(REPO_ROOT))).toEqual({ status: 0, stdout: '' })
+    expect(stop(path.join(tmpdir(), 'no-card-trees-here'))).toEqual({ status: 0, stdout: `${JSON.stringify({ decision: 'block', reason: `[miko] ${TAB_CONTINUE}` })}\n` })
+  }, 30_000)
 })

@@ -9,7 +9,7 @@ import { defaultBusPath, openBus } from '../core/db.js'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
 import { sessionHandoffOf } from './handoff-write.js'
 import { PREFIX } from './loop.js'
-import { handoffStatusOf, tabWindowOf } from './tab.js'
+import { cardTreeHomes, handoffStatusOf, tabWindowIn } from './tab.js'
 import { WINDOW_BEAT_MS, windowSessionOf } from './window-heartbeat.js'
 
 export const NOT_A_WINDOW = 'turn-watch: not a window session; no watch is required'
@@ -79,8 +79,8 @@ function busBeat(bus: string): (session: string) => string | null {
   }
 }
 
-export function realTurnWatchDeps(env: NodeJS.ProcessEnv): TurnWatchDeps {
-  const tab = tabWindowOf(env)
+export function realTurnWatchDeps(env: NodeJS.ProcessEnv, dir: string = process.cwd()): TurnWatchDeps {
+  const tab = tabWindowIn(env, dir, cardTreeHomes(env, defaultBusPath()))
   const handoff = sessionHandoffOf(env, os.homedir())
   return {
     session: tab?.session ?? windowSessionOf(env),

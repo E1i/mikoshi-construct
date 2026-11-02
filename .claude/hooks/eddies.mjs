@@ -8,6 +8,14 @@ export const EDDIES_JOURNAL_FILE = '.construct/eddies.jsonl'
 
 const MEASURE_MODULE = './eddies-measure.mjs'
 const CONFIG_FILE = '.claude/eddies.json'
+const SETTINGS_FILE = '.claude/settings.json'
+const COMPACT_WINDOW_VARIABLE = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW'
+const COMPACT_WINDOW_SETTING = 'autoCompactWindow'
+const COMPACT_WINDOW_MIN = 100000
+const COMPACT_WINDOW_MAX = 1000000
+const ENVIRONMENT = 'the environment'
+const HEADLESS_ENTRYPOINT = 'sdk-cli'
+const TAB_WARN_ACTION = 'write the handoff, then carry on — the context compacts at the compaction point and this session continues from the handoff on STATUS: CONTINUE, no pnpm miko:exit'
 const WARNED_DIR = '.construct/eddies.d/warned'
 const TASK_CACHE_DIR = '.construct/eddies.d/task'
 const HANDOFF_DIR_VARIABLE = 'CONSTRUCT_HANDOFF_DIR'
@@ -155,13 +163,45 @@ function subagentsDirOf(transcript) {
   return path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')
 }
 
+function isTabWindow() {
+  const env = process.env
+  return !isCardSession() && env.MIKO_WINDOW !== '1' && !env.MIKO_LOOP_PID && !env.MIKO_EXIT_REQUEST && env.CONSTRUCT_BUS_RAISED !== '1' && env.CLAUDE_CODE_ENTRYPOINT !== HEADLESS_ENTRYPOINT
+}
+
+function compactWindowOf(value) {
+  const tokens = typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value) : value
+  return Number.isInteger(tokens) && tokens >= COMPACT_WINDOW_MIN && tokens <= COMPACT_WINDOW_MAX ? tokens : null
+}
+
+function declaredCompactWindow(root) {
+  try {
+    return parsedInput(readFileSync(path.join(root, SETTINGS_FILE), 'utf8'))?.[COMPACT_WINDOW_SETTING]
+  }
+  catch {
+    return undefined
+  }
+}
+
+function compactionPointOf(root) {
+  const fromEnvironment = compactWindowOf(process.env[COMPACT_WINDOW_VARIABLE])
+  if (fromEnvironment != null)
+    return { limit: fromEnvironment, limitName: COMPACT_WINDOW_VARIABLE, source: ENVIRONMENT }
+  const fromSettings = compactWindowOf(declaredCompactWindow(root))
+  return fromSettings == null ? null : { limit: fromSettings, limitName: COMPACT_WINDOW_SETTING, source: SETTINGS_FILE }
+}
+
+function contextThresholdOf(root, config) {
+  const point = isTabWindow() ? compactionPointOf(root) : null
+  return point == null ? { limit: config.contextLimit, limitName: 'contextLimit' } : { ...point, compacts: true }
+}
+
 function sessionGauges({ addTokens, agentTranscriptsUnder, CONTEXT_BASIS, contextOf, readTranscript, SPEND_BASIS, spentOf, sumTranscripts }, root, transcript, config, caller) {
   const parent = readTranscript(root, transcript)
   const others = sumTranscripts(root, agentTranscriptsUnder(subagentsDirOf(transcript)))
   const spend = addTokens({ ...parent.tokens }, others)
   const recipient = `${caller.session_id}.${caller.agent_id ?? WINDOW}`
   return [
-    { level: 'session-context', key: recipient, name: 'context', value: contextOf(parent.last), limitName: 'contextLimit', limit: config.contextLimit, tokens: parent.last, basis: CONTEXT_BASIS, action: SESSION_ACTION },
+    { level: 'session-context', key: recipient, name: 'context', value: contextOf(parent.last), ...contextThresholdOf(root, config), tokens: parent.last, basis: CONTEXT_BASIS, action: SESSION_ACTION },
     { level: 'session-spend', key: recipient, name: 'spent', value: spentOf(spend), limitName: 'sessionSpend', limit: config.sessionSpend, tokens: spend, basis: SPEND_BASIS, action: SESSION_ACTION },
   ]
 }
@@ -229,7 +269,7 @@ function warnOnce(root, gauge, caller, config) {
 }
 
 function warningOf(gauge, config) {
-  return `eddies: ${gauge.level} warn — ${gauge.name} ${Math.round(gauge.value)} / warn threshold ${Math.round(gauge.limit * config.warnRatio)} (limit ${gauge.limit}, ${gauge.limitName} in ${CONFIG_FILE}); ${WARN_ACTION}\n`
+  return `eddies: ${gauge.level} warn — ${gauge.name} ${Math.round(gauge.value)} / warn threshold ${Math.round(gauge.limit * config.warnRatio)} (limit ${gauge.limit}, ${gauge.limitName} in ${gauge.source ?? CONFIG_FILE}); ${gauge.compacts ? TAB_WARN_ACTION : WARN_ACTION}\n`
 }
 
 function shellQuoted(text) {
@@ -250,6 +290,8 @@ function continueLineOf(root, gauge) {
   if (!isCardSession()) {
     const handoff = sessionHandoffOf()
     const writeLine = `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\n`
+    if (gauge.compacts)
+      return writeLine
     const unset = process.env[HANDOFF_VARIABLE] == null || process.env[HANDOFF_VARIABLE] === ''
     const exitLine = gauge.level === MIKO_EXIT_LEVEL ? MIKO_EXIT_LINE : ''
     return unset ? `${writeLine}${exitLine}eddies: to continue in a new window — cd ${shellQuoted(root)} && pnpm miko\n` : writeLine
@@ -300,7 +342,7 @@ function stopLine({ gauge, caller }, tool) {
 }
 
 function refusalOf({ gauge }) {
-  return `eddies: ${gauge.level} stop — ${gauge.name} ${gauge.value} / limit ${gauge.limit} (${gauge.limitName} in ${CONFIG_FILE}); ${gauge.action}\n`
+  return `eddies: ${gauge.level} stop — ${gauge.name} ${gauge.value} / limit ${gauge.limit} (${gauge.limitName} in ${gauge.source ?? CONFIG_FILE}); ${gauge.action}\n`
 }
 
 function reasonOf(error) {
