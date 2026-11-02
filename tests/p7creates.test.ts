@@ -134,8 +134,13 @@ describe('the base run over a witness the card creates the paths of', () => {
   })
 
   it('an invariant red on the base that names no repository path is refused on the clean base', () => {
-    for (const command of ['grep -qx alpha /no/such/file', 'grep -qx alpha nowhere'])
-      expect(invariantOn(command).refusals[0]).toMatch(/^P7: invariant "alpha is written" exits 2 on the clean base/)
+    for (const command of ['grep -qx alpha /no/such/file', 'grep -qx alpha nowhere']) {
+      const outcome = invariantOn(command)
+
+      expect(outcome.refusals[0]).toMatch(/^P7: invariant "alpha is written" exits 2 on the clean base \w{7}: grep: /)
+      expect(outcome.log.filter(line => line.includes('over paths the head creates'))).toEqual([])
+      expect(outcome.refusals.filter(refusal => refusal.includes('positive control'))).toEqual([])
+    }
   })
 
   it('reads a path the head creates from the card\'s creates, as intake does', () => {
