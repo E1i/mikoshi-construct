@@ -1,7 +1,6 @@
 import type { Ui } from '../../ui/console.js'
 import type { LedgerReading } from '../cost/ledger.js'
 import type { BusReader, BusReading } from './bus.js'
-import type { BoardDrain } from './drain.js'
 import type { PrsReading } from './prs.js'
 import type { BoardView } from './view.js'
 import { existsSync } from 'node:fs'
@@ -40,7 +39,6 @@ export interface BoardReading {
   geek: boolean
   all: boolean
   bus: BusReading | undefined
-  drains: BoardDrain[]
   ledgerPresent: boolean
   ledger: LedgerReading
   prs: PrsReading
@@ -70,12 +68,11 @@ export function readBoard(dir: string, options: BoardOptions): BoardReading {
     geek: options.geek ?? false,
     all: options.all,
     bus,
-    drains: bus?.status === 'read' ? drainsAt(bus.file, now) : [],
     ledgerPresent: existsSync(path.join(dir, LEDGER_FILE)),
     ledger,
     prs,
     implement: existsSync(path.join(dir, IMPLEMENT_SKILL)),
-    view: buildView(items, now, options),
+    view: buildView(items, now, { ...options, drains: bus?.status === 'read' ? drainsAt(bus.file, now) : [] }),
   }
 }
 
@@ -133,7 +130,7 @@ export function printBoard(ui: Ui, reading: BoardReading): number {
   if (reading.header !== undefined)
     ui.line(ui.lore.boardHeader(reading.header.version, reading.header.mode))
   if (reading.bus !== undefined && !(reading.geek && reading.bus.status === 'read')) {
-    for (const line of [...busLines(ui, reading.bus, reading.all), ...drainLines(reading.drains)])
+    for (const line of [...busLines(ui, reading.bus, reading.all), ...drainLines(ui.lore, reading.view.drains)])
       ui.line(line)
     if (reading.bus.status === 'read')
       return BOARD_EXIT.shown

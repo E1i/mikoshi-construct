@@ -1,3 +1,4 @@
+import type { Lore } from '../../ui/lore.js'
 import type { BusDb } from '../cost/bus.js'
 import { LEASES_DRAINING, RESTARTED } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
@@ -46,6 +47,9 @@ export function drainsAt(file: string, now: Date): BoardDrain[] {
 
 const short = (sha: string): string => sha.slice(0, SHORT_SHA)
 
-export function drainLines(drains: readonly BoardDrain[]): string[] {
-  return drains.map(drain => `drain ${drain.node}: ${drain.from === null ? 'the old sha' : short(drain.from)} takes no new lease until ${drain.until}, the restart onto ${short(drain.sha)} waits for its leases in flight`)
+const DRAIN_ROLE = 'drain'
+const UNRECORDED_SHA = '?'
+
+export function drainLines(lore: Lore, drains: readonly BoardDrain[]): string[] {
+  return drains.map(drain => lore.boardServiceLine(DRAIN_ROLE, drain.node, undefined, `${drain.from === null ? UNRECORDED_SHA : short(drain.from)} \u2192 ${short(drain.sha)} until ${drain.until}`))
 }

@@ -38,7 +38,7 @@ describe('the board drain reader', () => {
     const file = busWith(db => openDrain(db, OPENED, NEW_MAIN, UNTIL, 'answer', OLD_MAIN))
 
     expect(drainsAt(file, NOW)).toEqual([{ node: 'answer', sha: NEW_MAIN, from: OLD_MAIN, until: UNTIL }])
-    expect(boardLines(file)).toContain(`drain answer: aaaaaaa takes no new lease until ${UNTIL}, the restart onto bbbbbbb waits for its leases in flight`)
+    expect(boardLines(file)).toContain(`drain \u00B7 answer \u00B7 \u2014 \u00B7 aaaaaaa \u2192 bbbbbbb until ${UNTIL}`)
   })
 
   it('a closed drain, a lapsed one and one from before the last restart are not shown', () => {
@@ -51,7 +51,7 @@ describe('the board drain reader', () => {
     })
 
     expect(drainsAt(file, NOW)).toEqual([])
-    expect(boardLines(file).join('\n')).not.toContain('drain ')
+    expect(boardLines(file).join('\n')).not.toContain('drain \u00B7')
   })
 
   it('an unreadable bus shows no drain rather than failing the board', () => {
