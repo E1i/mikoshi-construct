@@ -24,6 +24,7 @@ export interface TreeTask {
   sketchSha: string | null
   changed: string[] | null
   witnessesDir: string
+  creates?: string[]
 }
 
 const NOT_RUN_STATUSES = [126, 127]
@@ -105,6 +106,11 @@ function absentOnBase(tree: string, witness: Witness): boolean {
 
 function addedOnHead(tree: string, base: string, head: string | null): string[] {
   return head === null ? [] : gitIn(tree, ['diff', '--name-only', '--diff-filter=A', base, head]).split('\n').filter(file => file !== '')
+}
+
+function createdOnHead(tree: string, base: string, task: TreeTask): string[] {
+  const declared = (task.creates ?? []).map(entry => entry.replace(TRAILING_SLASHES, '')).filter(entry => !existsSync(path.join(tree, entry)))
+  return [...new Set([...addedOnHead(tree, base, task.sketchSha), ...declared])]
 }
 
 function isCreated(tree: string, relative: string, added: readonly string[]): boolean {
@@ -239,7 +245,7 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
   const baseShort = base.slice(0, 7)
   const harnessRuns = task.sketchSha !== null && task.changed !== null
   const declared = harnessRuns ? invariantsBesideHarness(run, task) : task.invariants
-  const added = addedOnHead(tree, base, task.sketchSha)
+  const added = createdOnHead(tree, base, task)
   const absent = new Set([...task.acceptance, ...declared].filter(witness => absentOnBase(tree, witness)))
   const presentOnBase = (witnesses: Witness[]): Witness[] => witnesses.filter(witness => !absent.has(witness))
   const redOverCreated: Witness[] = []

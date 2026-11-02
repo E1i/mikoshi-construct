@@ -8,6 +8,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runOnTree } from '../scripts/ports/witnesses.js'
 import { realShell, withWorktree } from '../scripts/ports/worktree.js'
+import { witnessDowngrades } from '../src/commands/intake/admit.js'
 import { checkDraft, isChangeWitness } from '../src/commands/intake/check.js'
 
 const CREATED = 'zerotouch/alpha.md'
@@ -48,6 +49,12 @@ describe('intake over the witnesses of a card', () => {
     expect(witnessReasons(draftCard({ witnesses: ['`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0 on head and fails on base'] }), ['scripts/a.ts', 'tests/a.test.ts'])).toEqual([])
   })
 
+  it('a file-less vitest name witness is not marked as cannot be red on the base', () => {
+    for (const command of ['pnpm exec vitest run -t \'depends on a card merged in an archived month\'', 'pnpm exec vitest run --testNamePattern="a name"'])
+      expect(witnessReasons(draftCard({ witnesses: [`\`${command}\` exits 0 on head; red on main`] }))).toEqual([])
+    expect(witnessReasons(draftCard({ witnesses: ['`pnpm exec vitest run` exits 0 on head; red on main'] }))).toEqual([expect.stringContaining('cannot be red on the base')])
+  })
+
   it('a witness over a path the card creates is not marked unclear', () => {
     const witnesses = [`\`${OVER_CREATED}\` exits 0 on head and fails on base`, `\`${OVER_CREATED}\` exits 0`]
 
@@ -76,7 +83,10 @@ function commit(repo: string, files: Record<string, string>): string {
 
 interface Outcome { refusals: string[], log: string[] }
 
-function invariantOn(command: string, baseFiles: Record<string, string> = {}, headFiles: Record<string, string> = { [CREATED]: 'alpha\n' }): Outcome {
+interface Run { headFiles?: Record<string, string>, creates?: string[], sketch?: boolean }
+
+function invariantOn(command: string, baseFiles: Record<string, string> = {}, run: Run = {}): Outcome {
+  const { headFiles = { [CREATED]: 'alpha\n' }, creates, sketch = true } = run
   const root = mkdtempSync(path.join(tmpdir(), 'p7creates-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
@@ -89,7 +99,7 @@ function invariantOn(command: string, baseFiles: Record<string, string> = {}, he
       if (problem !== null)
         outcome.refusals.push(`${step}: ${problem}`)
     }, time: (_name, run) => run() },
-    { acceptance: [], invariants: [{ criterion: 'alpha is written', command }], harnessCommand: null, sketchSha: head, changed: [], witnessesDir: tree },
+    { acceptance: [], invariants: [{ criterion: 'alpha is written', command }], harnessCommand: null, sketchSha: sketch ? head : null, changed: sketch ? [] : null, witnessesDir: tree, creates },
   ))
   return outcome
 }
@@ -105,7 +115,7 @@ describe('the base run over a witness the card creates the paths of', () => {
   })
 
   it('keeps a red invariant over a directory the base already has, though the head adds a file under it', () => {
-    expect(invariantOn('grep -rqx alpha docs', { 'docs/a.md': 'beta\n' }, { 'docs/b.md': 'alpha\n' }).refusals).toEqual([expect.stringMatching(/^P7: invariant "alpha is written" exits 1 on the clean base/)])
+    expect(invariantOn('grep -rqx alpha docs', { 'docs/a.md': 'beta\n' }, { headFiles: { 'docs/b.md': 'alpha\n' } }).refusals).toEqual([expect.stringMatching(/^P7: invariant "alpha is written" exits 1 on the clean base/)])
     expect(invariantOn('grep -rqx alpha zerotouch').refusals).toEqual([])
   })
 
@@ -116,6 +126,23 @@ describe('the base run over a witness the card creates the paths of', () => {
       expect(invariantOn(`! ${command}`).refusals).toEqual([expect.stringMatching(/^P8: invariant "alpha is written" exits 1 on the sketch/)])
     }
   })
+
+  it('a witness the head creates the file for but stays red on is refused as a positive control', () => {
+    const outcome = invariantOn(OVER_CREATED, {}, { headFiles: { [CREATED]: 'beta\n' } })
+
+    expect(outcome.refusals).toEqual([expect.stringMatching(/^P8: positive control "alpha is written" exits 1 on the sketch/)])
+  })
+
+  it('an invariant red on the base that names no repository path is refused on the clean base', () => {
+    for (const command of ['grep -qx alpha /no/such/file', 'grep -qx alpha nowhere'])
+      expect(invariantOn(command).refusals[0]).toMatch(/^P7: invariant "alpha is written" exits 2 on the clean base/)
+  })
+
+  it('reads a path the head creates from the card\'s creates, as intake does', () => {
+    expect(invariantOn(OVER_CREATED, {}, { sketch: false, creates: [CREATED] }).refusals).toEqual([])
+    expect(invariantOn(OVER_CREATED, {}, { sketch: false }).refusals).toEqual([expect.stringMatching(/^P7: invariant "alpha is written" exits 2 on the clean base/)])
+    expect(invariantOn('grep -qx alpha README.md', {}, { sketch: false, creates: ['README.md'] }).refusals).toEqual([expect.stringMatching(/^P7: invariant "alpha is written" exits 1 on the clean base/)])
+  })
 })
 
 describe('one reading of a change witness', () => {
@@ -123,5 +150,12 @@ describe('one reading of a change witness', () => {
     for (const witness of ['`x` Red on main', '`x` red on the base', '`x` exits 0 on head and fails on base', '`x` · acceptance'])
       expect(isChangeWitness(witness)).toBe(true)
     expect(isChangeWitness('`x` exits 0')).toBe(false)
+  })
+
+  it('intake --admit reads a downgrade by the predicate intake reads a change witness by', () => {
+    const change = '`x` exits 0 on head and fails on base'
+
+    expect(witnessDowngrades([change], [`${change} · invariant`])).toEqual([change])
+    expect(witnessDowngrades([change], [change])).toEqual([])
   })
 })
