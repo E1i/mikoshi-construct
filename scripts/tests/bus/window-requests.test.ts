@@ -45,6 +45,7 @@ interface Room {
   root: string
   cut: { branch: string, cardLine: string }[]
   causes: (string | null)[]
+  releaseVersion: string | null
   requests: (tools?: Partial<RequestTools>) => WindowRequests
 }
 
@@ -64,6 +65,7 @@ function room(bench: MergeBench = mergeBench()): Room {
     root,
     cut: [],
     causes: [],
+    releaseVersion: '0.47.0',
     requests: tools => new WindowRequests(bench.db, bench.clock.now, {
       treeOf: cardId => path.join(root, 'worktrees', `mc-${cardId}`),
       exists: existsSync,
@@ -77,7 +79,7 @@ function room(bench: MergeBench = mergeBench()): Room {
       closePr: request => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).close(request),
       closeDropped: () => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).closeDropped(),
       ...tools,
-    }, channelOf(made)),
+    }, channelOf(made), () => made.releaseVersion),
   }
   rooms.push(made)
   return made
@@ -416,6 +418,22 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(reduce(made.bench.db).rejected).toBe(1)
     expect(made.bench.db.prepare('SELECT item_id, cards FROM plan_items').all()).toEqual([{ item_id: 'S1', cards: '[901]' }])
     expect(ownerInbox(made.bench.db)).toEqual([])
+  })
+
+  it('plan.opened carries the version changesets will release, read when the plan opens, and no plan opens while that version cannot be read', () => {
+    const made = room()
+    const planFile = path.join(made.root, 'plan.md')
+    writeFileSync(planFile, '# Plan\n\n| slice | what |\n|---|---|\n| S1 | the journal |\n')
+    const open = (plan: string): void => {
+      expect(runRequest(['plan', '--op', 'open', '--plan', plan, '--title', plan, '--goal', 'g', '--file', planFile], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
+    }
+    made.releaseVersion = '0.46.0'
+    open('p-046')
+    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([['done', 'plan.opened p-046']])
+    made.releaseVersion = null
+    open('p-047')
+    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([['refused', 'plan.opened could not fetch and read the version changesets will release from origin/main and origin/changeset-release/main']])
+    expect(made.bench.db.prepare(`SELECT json_extract(payload, '$.id') AS id, json_extract(payload, '$.version') AS version FROM events WHERE type = 'plan.opened'`).all()).toEqual([{ id: 'p-046', version: '0.46.0' }])
   })
 
   it('a plan request whose --op names an Object.prototype member is refused with the plan usage and writes no event', () => {
