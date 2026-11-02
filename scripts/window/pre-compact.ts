@@ -10,7 +10,7 @@ import { FRESH_MS } from './exit.js'
 import { PREV_LABEL, STATE_LABELS } from './handoff-check.js'
 import { sessionHandoffOf } from './handoff-write.js'
 import { PREFIX } from './loop.js'
-import { tabWindowOf } from './tab.js'
+import { cardTreeHomes, tabWindowIn } from './tab.js'
 
 export const PRE_COMPACT = 'pre-compact:'
 export const NOT_A_TAB = `${PRE_COMPACT} not a tab window; nothing insured`
@@ -108,10 +108,10 @@ function handoffWriteOf(env: NodeJS.ProcessEnv): (handoff: string, draft: string
   }
 }
 
-export function realPreCompactDeps(env: NodeJS.ProcessEnv): PreCompactDeps {
+export function realPreCompactDeps(env: NodeJS.ProcessEnv, dir: string = process.cwd()): PreCompactDeps {
   return {
-    window: tabWindowOf(env),
-    handoff: sessionHandoffOf(env, os.homedir()),
+    window: tabWindowIn(env, dir, cardTreeHomes(env, defaultBusPath())),
+    handoff: sessionHandoffOf(env, os.homedir(), dir),
     mtime: mtimeOf,
     now: () => Date.now(),
     read: file => readFileSync(file, 'utf8'),

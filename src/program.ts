@@ -424,7 +424,7 @@ function intakeCommand(bus: BusPorts | undefined) {
           return
         }
         if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
-          if (events === undefined && !args.dryRun && busExpected()) {
+          if (events === undefined && busExpected()) {
             console.flatline(console.lore.intakeAdmitNeedsBus)
             process.exitCode = INTAKE_EXIT.refused
             return
@@ -432,7 +432,7 @@ function intakeCommand(bus: BusPorts | undefined) {
           process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
           return
         }
-        if (events === undefined && !args.dryRun && busExpected()) {
+        if (events === undefined && busExpected()) {
           console.flatline(console.lore.intakeDraftNeedsBus)
           process.exitCode = INTAKE_EXIT.refused
           return
