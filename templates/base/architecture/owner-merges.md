@@ -9,7 +9,8 @@ or removes kinds.
 Rule of application: **the owner merges a pull request if at least one file it changes matches at least one glob of a
 kind marked `no`; an empty cell means the kind is not checked by paths.** (`release` is matched by its title.) A value
 other than `yes` or `no` on a kind the pull request falls under, a missing column, or a table that cannot be read
-leaves the pull request the owner's.
+leaves the pull request the owner's. A pull request that changes this file is the owner's under every shard whatever
+this table says, and an owner «I merge it» on a pull request is recorded as the decision `#N reserved`.
 
 | kind | paths (globs) | what it covers | merges under a shard |
 |---|---|---|---|
@@ -17,6 +18,6 @@ leaves the pull request the owner's.
 | own-instructions | `.claude/**`, `architecture/owner-merges.md` | this repository's own agent instructions, and this file, which draws the owner's boundaries | no |
 | agent-permissions | `.claude/settings*.json` | what the agents in this repository may run | no |
 | workflows | `.github/workflows/**` | every GitHub Actions workflow: what CI runs, with which permissions and secrets | no |
-| security-invariants | `architecture/security-invariants.md` | the security invariants and the check that enforces each | no |
+| security-invariants | `architecture/security-invariants.md`, `scripts/ports/shift-settings.ts`, `scripts/ports/isolation.ts` | the security invariants and the check that enforces each, and the sandbox settings of the sessions the bus launches | no |
 
 Everything else is merged by the window that gated it, under a shard.
