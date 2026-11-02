@@ -1,0 +1,126 @@
+import type { Lease } from '../../core/lease.js'
+import type { MergeBench } from './merge-bench.js'
+import { afterEach, describe, expect, it } from 'vitest'
+import { appendEvent } from '../../core/db.js'
+import { REVIEW_RECORDED } from '../../core/events.js'
+import { closedByRounds, REVIEW_ROUNDS } from '../../core/queue.js'
+import { answerSourceOf } from '../../nodes/answer/answer-source.js'
+import { recordDecision } from '../../policy/decisions.js'
+import { continueFixesDecisionOf, pushedAfterContinueFixes } from '../../policy/round-limit-decision.js'
+import { sha } from './github-fake.js'
+import { liveBench } from './merge-bench.js'
+
+const PR = 971
+const CARD = PR + 100
+const HEAD = sha('a')
+const PUSHED = sha('b')
+const DECISION = 121
+const FINDING = 'scripts/a.ts:run drops the second row'
+const benches: MergeBench[] = []
+
+afterEach(() => {
+  for (const bench of benches.splice(0))
+    bench.close()
+})
+
+function review(bench: MergeBench, head: string, verdict: 'changes' | 'pass', round: string, findings: string[] = []): void {
+  appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: `worker:review:${round}`, cardId: CARD, pr: PR, head, dedupeKey: `${REVIEW_RECORDED}:${round}`, payload: { head, verdict, reviewer_session: round, findings }, legacy: false })
+}
+
+function roundLimited(): MergeBench {
+  const bench = liveBench()
+  benches.push(bench)
+  bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
+  for (let round = 1; round < REVIEW_ROUNDS; round += 1)
+    review(bench, sha(String(round)), 'changes', `round-${round}`)
+  review(bench, HEAD, 'changes', `round-${REVIEW_ROUNDS}`, [FINDING])
+  bench.tick()
+  return bench
+}
+
+function decide(bench: MergeBench, text: string): void {
+  recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: DECISION, text, cards: [] })
+}
+
+function queued(bench: MergeBench): { queue: string, head: string }[] {
+  return bench.db.prepare(`SELECT queue, head FROM tasks WHERE pr = ? AND state = 'queued' ORDER BY queue`).all(PR) as { queue: string, head: string }[]
+}
+
+function leaseOf(bench: MergeBench): Lease {
+  const row = bench.db.prepare(`SELECT task_key, lease_gen FROM tasks WHERE pr = ? AND queue = 'answer' AND state = 'queued'`).get(PR) as { task_key: string, lease_gen: number }
+  return { taskKey: row.task_key, queue: 'answer', cardId: CARD, pr: PR, head: HEAD, leaseGen: row.lease_gen, actor: 'worker:answer:test' } as Lease
+}
+
+describe('continue-fixes past the review round limit', () => {
+  it('continue after the round limit queues an answer on the current head', () => {
+    const bench = roundLimited()
+
+    expect(queued(bench)).toEqual([])
+
+    decide(bench, `[owner] continue-fixes PR #${PR} at ${HEAD}`)
+    bench.tick()
+
+    expect(queued(bench)).toEqual([{ queue: 'answer', head: HEAD }])
+    expect(answerSourceOf(bench.db, leaseOf(bench))).toMatchObject({ kind: 'changes', findings: [FINDING] })
+    expect(closedByRounds(bench.db, bench.clock.now().toISOString(), 'merge', PR, HEAD)).toBe(true)
+  })
+
+  it('the push after a continue gets a review, and merges only after a pass on it', () => {
+    const bench = roundLimited()
+    decide(bench, `[owner] continue-fixes PR #${PR} at ${HEAD}`)
+    bench.tick()
+    bench.gitHub.open({ number: PR, head: PUSHED, review: 'failure' })
+    bench.tick()
+    const ts = (): string => bench.clock.now().toISOString()
+
+    expect(closedByRounds(bench.db, ts(), 'review', PR, PUSHED)).toBe(false)
+    expect(closedByRounds(bench.db, ts(), 'answer', PR, PUSHED)).toBe(true)
+    expect(queued(bench).filter(task => task.queue === 'merge')).toEqual([])
+
+    review(bench, PUSHED, 'pass', 'after-continue')
+    bench.gitHub.open({ number: PR, head: PUSHED, review: 'success' })
+    bench.tick()
+
+    expect(queued(bench).filter(task => task.queue === 'merge')).toEqual([{ queue: 'merge', head: PUSHED }])
+  })
+
+  it('a changes review on the push after a continue closes the rounds again', () => {
+    const bench = roundLimited()
+    decide(bench, `[owner] continue-fixes PR #${PR} at ${HEAD}`)
+    bench.tick()
+    bench.gitHub.open({ number: PR, head: PUSHED, review: 'failure' })
+    bench.tick()
+    review(bench, PUSHED, 'changes', 'after-continue', [FINDING])
+    bench.gitHub.open({ number: PR, head: sha('c'), review: 'failure' })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+
+    for (const queue of ['review', 'answer', 'merge'] as const)
+      expect(closedByRounds(bench.db, ts, queue, PR, sha('c')), queue).toBe(true)
+    expect(closedByRounds(bench.db, ts, 'answer', PR, PUSHED)).toBe(true)
+  })
+
+  it('a decision on another head or PR, or under allow-merge, continues nothing', () => {
+    for (const text of [`continue-fixes PR #${PR} at ${sha('e')}`, `continue-fixes PR #${PR + 1} at ${HEAD}`, `continue-fixes PR #${PR} at ${HEAD.slice(0, 12)}`, `[owner] do not continue-fixes PR #${PR} at ${HEAD}`]) {
+      const bench = roundLimited()
+      decide(bench, text)
+      bench.tick()
+
+      expect(queued(bench), text).toEqual([])
+    }
+  })
+
+  it('reads the continued head through clean updates and counts one round after it', () => {
+    const decisions = [{ decisionId: DECISION, text: `continue-fixes PR #${PR} at ${HEAD}`, cards: [] }]
+    const observedHeads = [sha('1'), HEAD, sha('d'), PUSHED, sha('c')]
+    const cleanUpdates = [{ from: HEAD, to: sha('d') }]
+
+    expect(continueFixesDecisionOf(decisions, PR, sha('d'), cleanUpdates)).toBe(DECISION)
+    expect(continueFixesDecisionOf(decisions, PR, PUSHED, cleanUpdates)).toBeNull()
+    expect(pushedAfterContinueFixes(decisions, PR, PUSHED, { observedHeads, cleanUpdates, changesHeads: new Set([HEAD]) })).toBe(true)
+    expect(pushedAfterContinueFixes(decisions, PR, sha('d'), { observedHeads, cleanUpdates, changesHeads: new Set() })).toBe(false)
+    expect(pushedAfterContinueFixes(decisions, PR, sha('c'), { observedHeads, cleanUpdates, changesHeads: new Set([PUSHED]) })).toBe(false)
+    expect(pushedAfterContinueFixes(decisions, PR, sha('1'), { observedHeads, cleanUpdates, changesHeads: new Set() })).toBe(false)
+    expect(pushedAfterContinueFixes(decisions, PR, sha('f'), { observedHeads, cleanUpdates, changesHeads: new Set() })).toBe(false)
+  })
+})
