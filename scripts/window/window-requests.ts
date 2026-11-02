@@ -25,6 +25,7 @@ import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
 import { settledCards } from '../policy/decisions/read.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
 import { activeDecisionsShard, decisionsInForceAt, ownersOfAStop } from '../policy/shards.js'
+import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
 
 export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add'] as const
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', PLAN_ITEM_ADDED], ['link', PLAN_ITEM_LINKED], ['remove', PLAN_ITEM_REMOVED], ['close', PLAN_CLOSED]])
@@ -127,7 +128,7 @@ function text(value: unknown): string | null {
 }
 
 export class WindowRequests {
-  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly tools: RequestTools, private readonly ownerChannel: string = ownerChannelOf(os.homedir())) {}
+  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly tools: RequestTools, private readonly ownerChannel: string = ownerChannelOf(os.homedir()), private readonly releaseVersion: () => string | null = () => readReleaseVersion()) {}
 
   run(): RequestOutcome[] {
     const answered = pendingRequests(this.db).map(request => this.answer(request))
@@ -379,9 +380,9 @@ export class WindowRequests {
       const goal = text(payload.goal)
       if (title === null || goal === null || file === null || !path.isAbsolute(file) || !existsSync(file))
         return `${type} needs a --title, a --goal and an absolute --file that exists`
-      const version = planVersionOf(readFileSync(file, 'utf8'))
+      const version = this.releaseVersion()
       if (version === null)
-        return `${type} needs a version: line in ${file}; the plan sets the release version`
+        return `${type} could not read the version changesets will release from ${MAIN_REF} and ${VERSION_PR_REF}`
       return { id: plan, title, goal, plan_file: file, version }
     }
     if (type === PLAN_CLOSED)
@@ -444,10 +445,6 @@ function decisionRequestOf(argv: readonly string[]): Record<string, unknown> | n
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-export function planVersionOf(planText: string): string | null {
-  return /^version:[ \t]*(\S+)[ \t]*$/m.exec(planText)?.[1] ?? null
 }
 
 export function sliceItemsOf(file: string): string[] {

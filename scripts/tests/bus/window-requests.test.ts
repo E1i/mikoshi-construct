@@ -29,7 +29,7 @@ import { decisionsInForceAt } from '../../policy/shards.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { decisionsAdder, worktreesHolding } from '../../window/window-request-tools.js'
-import { ANSWER_SOURCE, planVersionOf, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../window/window-requests.js'
+import { ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -45,6 +45,7 @@ interface Room {
   root: string
   cut: { branch: string, cardLine: string }[]
   causes: (string | null)[]
+  releaseVersion: string | null
   requests: (tools?: Partial<RequestTools>) => WindowRequests
 }
 
@@ -64,6 +65,7 @@ function room(bench: MergeBench = mergeBench()): Room {
     root,
     cut: [],
     causes: [],
+    releaseVersion: '0.47.0',
     requests: tools => new WindowRequests(bench.db, bench.clock.now, {
       treeOf: cardId => path.join(root, 'worktrees', `mc-${cardId}`),
       exists: existsSync,
@@ -77,7 +79,7 @@ function room(bench: MergeBench = mergeBench()): Room {
       closePr: request => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).close(request),
       closeDropped: () => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).closeDropped(),
       ...tools,
-    }, channelOf(made)),
+    }, channelOf(made), () => made.releaseVersion),
   }
   rooms.push(made)
   return made
@@ -393,7 +395,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
   it('a plan request writes the owner\'s plan event, and moves into the plan only an item with a row in the slice table of its plan file', () => {
     const made = room()
     const planFile = path.join(made.root, 'plan-0.45.md')
-    writeFileSync(planFile, '# Plan 0.45\n\nversion: 0.45\n\n| slice | what |\n|---|---|\n| S1 | the journal |\n| S2 | the board line |\n\n| other | table |\n| --- | --- |\n| T1 | aside |\n')
+    writeFileSync(planFile, '# Plan 0.45\n\n| slice | what |\n|---|---|\n| S1 | the journal |\n| S2 | the board line |\n\n| other | table |\n| --- | --- |\n| T1 | aside |\n')
     expect(sliceItemsOf(planFile)).toEqual(['S1', 'S2', 'T1'])
     const asked = (...argv: string[]): void => {
       expect(runRequest(['plan', ...argv], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
@@ -418,21 +420,20 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(ownerInbox(made.bench.db)).toEqual([])
   })
 
-  it('plan.opened carries the version line of plan.md, and a plan file without one opens no plan', () => {
+  it('plan.opened carries the version changesets will release, read when the plan opens, and no plan opens while that version cannot be read', () => {
     const made = room()
-    const versioned = path.join(made.root, 'plan-0.46.md')
-    const unversioned = path.join(made.root, 'plan-0.47.md')
-    writeFileSync(versioned, '# Plan 0.46\n\nversion: 0.46\n\n| slice | what |\n|---|---|\n| S1 | the journal |\n')
-    writeFileSync(unversioned, '# Plan 0.47\n\nThe version: comes later.\n')
-    expect(planVersionOf('# Plan\nversion:   0.46.1  \n')).toBe('0.46.1')
-    expect(planVersionOf('# Plan\n  version: 0.46\n')).toBeNull()
-    for (const [plan, file] of [['p-046', versioned], ['p-047', unversioned]])
-      expect(runRequest(['plan', '--op', 'open', '--plan', plan!, '--title', plan!, '--goal', 'g', '--file', file!], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
-    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([
-      ['done', 'plan.opened p-046'],
-      ['refused', `plan.opened needs a version: line in ${unversioned}; the plan sets the release version`],
-    ])
-    expect(made.bench.db.prepare(`SELECT json_extract(payload, '$.id') AS id, json_extract(payload, '$.version') AS version FROM events WHERE type = 'plan.opened'`).all()).toEqual([{ id: 'p-046', version: '0.46' }])
+    const planFile = path.join(made.root, 'plan.md')
+    writeFileSync(planFile, '# Plan\n\n| slice | what |\n|---|---|\n| S1 | the journal |\n')
+    const open = (plan: string): void => {
+      expect(runRequest(['plan', '--op', 'open', '--plan', plan, '--title', plan, '--goal', 'g', '--file', planFile], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
+    }
+    made.releaseVersion = '0.46.0'
+    open('p-046')
+    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([['done', 'plan.opened p-046']])
+    made.releaseVersion = null
+    open('p-047')
+    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([['refused', 'plan.opened could not read the version changesets will release from origin/main and origin/changeset-release/main']])
+    expect(made.bench.db.prepare(`SELECT json_extract(payload, '$.id') AS id, json_extract(payload, '$.version') AS version FROM events WHERE type = 'plan.opened'`).all()).toEqual([{ id: 'p-046', version: '0.46.0' }])
   })
 
   it('a plan request whose --op names an Object.prototype member is refused with the plan usage and writes no event', () => {
