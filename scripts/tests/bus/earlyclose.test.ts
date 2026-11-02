@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
 import { leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
@@ -51,19 +51,40 @@ function greenOnTheBase(): World {
   return { repo, db, main: git(repo, 'rev-parse', 'HEAD') }
 }
 
-function started(w: World): void {
-  appendEvent(w.db, { ts: TS, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}:${SESSION}`, payload: { session: SESSION, branch: 'feat/earlyclose' }, legacy: false })
+interface Mark { legacy?: boolean, at?: number }
+
+function started(w: World, { legacy = false, at = 1 }: Mark = {}): void {
+  appendEvent(w.db, { ts: TS, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}:${SESSION}:${at}`, payload: { session: SESSION, branch: 'feat/earlyclose' }, legacy })
   reduce(w.db)
 }
 
-function sessionEnded(w: World): void {
-  appendEvent(w.db, { ts: TS, type: CARD_SESSION_ENDED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${CARD}:${SESSION}`, payload: { session: SESSION, stopped: false, detail: 'the session exited' }, legacy: false })
+function continued(w: World): void {
+  appendEvent(w.db, { ts: TS, type: CARD_CONTINUED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CONTINUED}:${CARD}:${SESSION}`, payload: { session: SESSION }, legacy: false })
+  reduce(w.db)
+}
+
+function sessionEnded(w: World, { legacy = false, at = 1 }: Mark = {}): void {
+  appendEvent(w.db, { ts: TS, type: CARD_SESSION_ENDED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${CARD}:${SESSION}:${at}`, payload: { session: SESSION, stopped: false, detail: 'the session exited' }, legacy })
+  reduce(w.db)
+}
+
+function stopped(w: World): void {
+  appendEvent(w.db, { ts: TS, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: 'question_owner', detail: 'the owner decides' }, legacy: false })
   reduce(w.db)
 }
 
 function prOpened(w: World): void {
   appendEvent(w.db, { ts: TS, type: PR_OBSERVED, actor: 'netwatch', cardId: CARD, pr: PR, head: w.main, dedupeKey: `${PR_OBSERVED}:${PR}:${w.main}`, payload: { card_id: CARD, base: 'main', head: w.main, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: 'a'.repeat(64) }, legacy: false })
   reduce(w.db)
+}
+
+function prClosed(w: World, merged: boolean): void {
+  appendEvent(w.db, { ts: TS, type: PR_CLOSED, actor: 'netwatch', cardId: CARD, pr: PR, head: w.main, dedupeKey: `${PR_CLOSED}:${PR}`, payload: { merged }, legacy: false })
+  reduce(w.db)
+}
+
+function prState(db: DatabaseSync): string | undefined {
+  return (db.prepare('SELECT state FROM prs WHERE pr = ?').get(PR) as { state: string } | undefined)?.state
 }
 
 function witnessOnMain(w: World): void {
@@ -82,7 +103,7 @@ function verdicts(db: DatabaseSync): string[] {
   return (db.prepare('SELECT payload FROM events WHERE type = ? AND card_id = ?').all(WITNESS_RECORDED, CARD) as { payload: string }[]).map(row => (JSON.parse(row.payload) as { verdict: string }).verdict)
 }
 
-describe('a witness green on main closes only a card nobody is still working on', () => {
+describe('a witness green on main closes a card only when no session runs for it and no pull request of its own is open', () => {
   it('a witness green on the base does not close a card with a live session', () => {
     const w = greenOnTheBase()
     started(w)
@@ -92,15 +113,41 @@ describe('a witness green on main closes only a card nobody is still working on'
     expect(closes(w.db)).toBe(0)
   })
 
-  it('a witness green on the base does not close a card with an open pull request of its own', () => {
+  it('a session continued after it ended is live again, and the card stays open', () => {
     const w = greenOnTheBase()
     started(w)
     sessionEnded(w)
-    prOpened(w)
+    continued(w)
     witnessOnMain(w)
 
     expect(verdicts(w.db)).toEqual(['green'])
     expect(closes(w.db)).toBe(0)
+  })
+
+  it('a legacy session end does not end a live session', () => {
+    const w = greenOnTheBase()
+    started(w)
+    sessionEnded(w, { legacy: true })
+    witnessOnMain(w)
+
+    expect(closes(w.db)).toBe(0)
+  })
+
+  it('a legacy session start after a live one does not hide the live one', () => {
+    const w = greenOnTheBase()
+    started(w)
+    started(w, { legacy: true, at: 2 })
+    witnessOnMain(w)
+
+    expect(closes(w.db)).toBe(0)
+  })
+
+  it('a legacy session start is no live session, and the card closes', () => {
+    const w = greenOnTheBase()
+    started(w, { legacy: true })
+    witnessOnMain(w)
+
+    expect(closes(w.db)).toBe(1)
   })
 
   it('closes the card once its session ended and it opened no pull request', () => {
@@ -109,6 +156,51 @@ describe('a witness green on main closes only a card nobody is still working on'
     sessionEnded(w)
     witnessOnMain(w)
 
+    expect(closes(w.db)).toBe(1)
+  })
+
+  it('closes the card once its session stopped', () => {
+    const w = greenOnTheBase()
+    started(w)
+    stopped(w)
+    witnessOnMain(w)
+
+    expect(closes(w.db)).toBe(1)
+  })
+
+  it('a witness green on the base does not close a card with an open pull request of its own', () => {
+    const w = greenOnTheBase()
+    started(w)
+    sessionEnded(w)
+    prOpened(w)
+    witnessOnMain(w)
+
+    expect(prState(w.db)).toBe('open')
+    expect(verdicts(w.db)).toEqual(['green'])
+    expect(closes(w.db)).toBe(0)
+  })
+
+  it('closes a card whose own pull request merged', () => {
+    const w = greenOnTheBase()
+    started(w)
+    sessionEnded(w)
+    prOpened(w)
+    prClosed(w, true)
+    witnessOnMain(w)
+
+    expect(prState(w.db)).toBe('merged')
+    expect(closes(w.db)).toBe(1)
+  })
+
+  it('closes a card whose own pull request was closed without merging, so the abandoned PR does not hold it open forever', () => {
+    const w = greenOnTheBase()
+    started(w)
+    sessionEnded(w)
+    prOpened(w)
+    prClosed(w, false)
+    witnessOnMain(w)
+
+    expect(prState(w.db)).toBe('closed')
     expect(closes(w.db)).toBe(1)
   })
 })

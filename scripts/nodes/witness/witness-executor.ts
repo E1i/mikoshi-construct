@@ -118,16 +118,16 @@ const SESSION_ENDS = `'${CARD_STOPPED}', '${CARD_SESSION_ENDED}'`
 
 const LIVE_SESSION = `
   SELECT 1 FROM events AS started
-  WHERE started.card_id = ? AND started.legacy = 0 AND started.type IN (${SESSION_STARTS})
+  WHERE started.card_id = ? AND started.type IN (${SESSION_STARTS})
     AND started.id = (SELECT MAX(id) FROM events WHERE card_id = started.card_id AND legacy = 0 AND type IN (${SESSION_STARTS}))
     AND NOT EXISTS (SELECT 1 FROM events AS ended WHERE ended.card_id = started.card_id AND ended.legacy = 0 AND ended.id > started.id AND ended.type IN (${SESSION_ENDS}))
   LIMIT 1
 `
 
-const UNMERGED_PR_OF_ITS_OWN = `SELECT 1 FROM prs WHERE card_id = ? AND (state IS NULL OR state <> 'merged') LIMIT 1`
+const OPEN_PR_OF_ITS_OWN = `SELECT 1 FROM prs WHERE card_id = ? AND state = 'open' LIMIT 1`
 
 function closableOnMain(db: DatabaseSync, cardId: number): boolean {
-  return db.prepare(LIVE_SESSION).get(cardId) === undefined && db.prepare(UNMERGED_PR_OF_ITS_OWN).get(cardId) === undefined
+  return db.prepare(LIVE_SESSION).get(cardId) === undefined && db.prepare(OPEN_PR_OF_ITS_OWN).get(cardId) === undefined
 }
 
 export class WitnessExecutor {
