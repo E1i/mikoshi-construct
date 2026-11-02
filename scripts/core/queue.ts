@@ -142,11 +142,26 @@ export const MERGE_CANDIDATES_BEHIND = mergeCandidatesWhere(`verdict_on_head = '
 
 export const NEEDS_UPDATE = 'needs_update'
 
+export const MERGE_REFUSED = 'merge_refused'
+
 const GREEN_BEHIND_BY_CARD_PRIORITY = `
   SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
   LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
   WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'behind' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
     AND prs.ci = 'green'
+  ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
+`
+
+const AN_ANSWER_IN_FLIGHT = `EXISTS (
+  SELECT 1 FROM tasks AS answering WHERE answering.queue = 'answer' AND answering.card_id = prs.card_id
+    AND answering.state IN ('${QUEUED}', '${LEASED}')
+)`
+
+const CONFLICTING_BY_CARD_PRIORITY = `
+  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
+  LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
+  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'dirty' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
+    AND NOT ${AN_ANSWER_IN_FLIGHT}
   ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
 `
 
@@ -403,7 +418,10 @@ const CHANGES_CANDIDATES = answerCandidatesWhere(`verdict_on_head = 'changes'`)
 
 const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red'`)
 
-const DIRTY_CANDIDATES = answerCandidatesWhere(`base = '${MAIN_BRANCH}' AND mergeable = 'dirty' AND draft = 0`)
+const DIRTY_THE_UPDATE_COULD_NOT_MERGE = answerCandidatesWhere(`base = '${MAIN_BRANCH}' AND mergeable = 'dirty' AND draft = 0 AND EXISTS (
+    SELECT 1 FROM events AS refused WHERE refused.type = '${POLICY_DENIED}' AND refused.legacy = 0 AND refused.pr = prs.pr AND refused.head = prs.head
+      AND json_extract(refused.payload, '$.reason') = '${MERGE_REFUSED}'
+  )`)
 
 const RED_WITNESS_CANDIDATES = answerCandidatesWhere(`EXISTS (
     SELECT 1 FROM events AS red WHERE red.id = (
@@ -735,14 +753,15 @@ export function reviewCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
 
 export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
   const sent = rerun === 'by-layers' ? candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) : []
-  return openCandidates(db, ts, 'update', [...candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)), ...sent].slice(0, 1))
+  const conflicting = candidateRows(db, CONFLICTING_BY_CARD_PRIORITY, everyRow)
+  return openCandidates(db, ts, 'update', [...candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)), ...sent, ...conflicting].slice(0, 1))
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'close', candidateRows(db, CLOSE_CANDIDATES, everyRow))
 }
 
-const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDIDATES, DIRTY_CANDIDATES, RED_WITNESS_CANDIDATES] as const
+const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDIDATES, DIRTY_THE_UPDATE_COULD_NOT_MERGE, RED_WITNESS_CANDIDATES] as const
 
 const ANSWERS_LEASED_NOW = `SELECT card_id, task_key FROM tasks WHERE queue = 'answer' AND state = '${LEASED}'`
 
