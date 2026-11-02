@@ -32,9 +32,11 @@ export const STALL_MS = 20 * 60_000
 export const BUS_ALIVE_MS = 2 * 60_000
 export const IN_FLIGHT_CARDS = [RUNNING_CARD, IN_REVIEW_CARD]
 export const POLL_MS = 500
-export const USAGE = 'usage: pnpm miko:watch [--once [--card <N>]]'
+export const USAGE = 'usage: pnpm miko:watch [--once [--card <N>] | --tail]'
 export const ONCE = '--once'
 export const CARD = '--card'
+export const TAIL = '--tail'
+export const CATCHUP_LAG = 100
 export const WATCHING = 'miko:watch: what is already there is read; watching for what comes next'
 export const WATCHING_FROM_CURSOR = 'miko:watch: reading from the --once cursor; watching'
 export const LEGACY_CURSOR = 'miko-watch.json'
@@ -111,9 +113,12 @@ export interface Delivery {
 export interface WatchArgs {
   once: boolean
   card?: number
+  tail?: true
 }
 
 export function parseWatchArgs(args: string[]): WatchArgs | undefined {
+  if (args.includes(TAIL))
+    return args.length === 1 ? { once: false, tail: true } : undefined
   let afterCard = false
   let once = false
   let card: number | undefined
@@ -365,11 +370,43 @@ export function cardOfEvent(event: BusEvent): number | null {
   return /^[1-9]\d*$/.test(id) ? Number(id) : null
 }
 
+export function caughtUpLine(from: number, to: number): string {
+  return `miko:watch: the cursor was ${to - from} bus events behind (bus id ${from} → ${to}); the latest waking event per card and PR follows, older ones are collapsed`
+}
+
+export function tailLine(from: number, to: number): string {
+  return `miko:watch: the cursor moved to the bus tail, bus id ${from} → ${to}; earlier events are not delivered`
+}
+
+function latestKey(event: BusEvent): string {
+  const card = cardOfEvent(event)
+  if (card !== null)
+    return `card ${card}`
+  return event.pr === null ? `type ${event.type}` : `pr ${event.pr}`
+}
+
+function catchUp(cursor: WatchCursor, deps: WatchDeps, seen: BusMemory, end: number, card: number | undefined): Delivery {
+  const latest = new Map<string, BusEvent>()
+  for (const event of deps.busEventsAfter(cursor.busId)) {
+    if (event.id > end)
+      break
+    if (wakesTheWindow(seen, event) && !ofSupersededHead(event, deps) && (card === undefined || cardOfEvent(event) === card))
+      latest.set(latestKey(event), event)
+  }
+  const atEnd = { ...cursor, busId: end }
+  if (latest.size === 0)
+    return { line: null, cursor: atEnd }
+  const lines = [...latest.values()].sort((a, b) => a.id - b.id).map(busLine)
+  return { line: [caughtUpLine(cursor.busId, end), ...lines].join('\n'), cursor: atEnd }
+}
+
 export function selectOnce(cursor: WatchCursor, deps: WatchDeps, card?: number): Delivery | undefined {
   const end = deps.lastBusId()
   if (end < cursor.busId)
     throw new WatchRefusal(`miko:watch: the bus ${deps.bus} ends at event ${end}, before the cursor's event ${cursor.busId}; it was replaced or cut`)
   const seen = busMemoryUpTo(deps, cursor.busId)
+  if (end - cursor.busId > CATCHUP_LAG)
+    return catchUp(cursor, deps, seen, end, card)
   let skipped: Delivery | undefined
   for (const event of deps.busEventsAfter(cursor.busId)) {
     if (event.id > end)
@@ -650,12 +687,33 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
   }
 }
 
-export async function runOnce(handoff: string, deps: WatchDeps, card?: number): Promise<void> {
+function openOnceStore(handoff: string, deps: WatchDeps): OnceStore {
   const legacy = path.join(handoff, LEGACY_CURSOR)
   const store = OnceStore.open(path.join(handoff, ONCE_STORE), { file: legacy, text: legacyCursor(legacy) }, () => ({ offset: 0, busId: deps.lastBusId() }))
+  if (store.opened.kind === 'migrated')
+    rmSync(legacy, { force: true })
+  return store
+}
+
+export function runTail(handoff: string, deps: WatchDeps): string {
+  const store = openOnceStore(handoff, deps)
   try {
-    if (store.opened.kind === 'migrated')
-      rmSync(legacy, { force: true })
+    const cursor = store.cursor()
+    const end = deps.lastBusId()
+    if (end < cursor.busId)
+      throw new WatchRefusal(`miko:watch: the bus ${deps.bus} ends at event ${end}, before the cursor's event ${cursor.busId}; it was replaced or cut`)
+    store.write({ ...cursor, busId: end })
+    store.commit()
+    return tailLine(cursor.busId, end)
+  }
+  finally {
+    store.close()
+  }
+}
+
+export async function runOnce(handoff: string, deps: WatchDeps, card?: number): Promise<void> {
+  const store = openOnceStore(handoff, deps)
+  try {
     console.error(store.openedLine())
     console.error(WATCHING_FROM_CURSOR)
     await deliverOnce(store, deps, card)
@@ -686,7 +744,10 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   mkdirSync(handoff, { recursive: true })
   const deps = productionDeps(handoff, defaultBusPath())
   try {
-    await (args.once ? runOnce(handoff, deps, args.card) : watchForever(deps))
+    if (args.tail)
+      console.log(runTail(handoff, deps))
+    else
+      await (args.once ? runOnce(handoff, deps, args.card) : watchForever(deps))
   }
   catch (error) {
     if (!(error instanceof WatchRefusal))

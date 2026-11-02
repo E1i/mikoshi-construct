@@ -159,8 +159,14 @@ export function heldByStall(card: LaneCard, holders: readonly LaneCard[]): boole
   return holders.some(holder => card.task === null || holder.task === null || chainedTo(card, holder))
 }
 
+const REBUILT_ON_REBASE = new Set(['package.json', 'pnpm-lock.yaml'])
+
+function laneTouches(task: ShiftTask): ShiftTask {
+  return { ...task, touches: task.touches.filter(entry => !REBUILT_ON_REBASE.has(path.posix.basename(entry))) }
+}
+
 function overlaps(a: ShiftTask | null, b: ShiftTask | null): boolean {
-  return a !== null && b !== null && taskConflicts([a, b]).length > 0
+  return a !== null && b !== null && taskConflicts([laneTouches(a), laneTouches(b)]).length > 0
 }
 
 function chainedTo(card: LaneCard, other: LaneCard): boolean {
