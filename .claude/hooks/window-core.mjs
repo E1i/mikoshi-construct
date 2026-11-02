@@ -6,8 +6,7 @@ import process from 'node:process'
 
 const CORE_FILE = 'architecture/window-core.md'
 const MISSING_WARNING = 'WINDOW-CORE MISSING: DO NOT COMMIT. DO NOT MERGE. STOP.'
-const COMPACT_SOURCE = 'compact'
-const COMPACT_START_TIMEOUT_MS = 4_000
+const COMPACT_START_TIMEOUT_MS = 8_000
 
 function emit(output) {
   process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', ...output.context }, ...output.top })}\n`)
@@ -29,21 +28,10 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8')
 }
 
-function sourceOf(input) {
-  try {
-    return JSON.parse(input)?.source
-  }
-  catch {
-    return undefined
-  }
-}
-
-function compactContext(root, input) {
-  if (sourceOf(input) !== COMPACT_SOURCE)
-    return ''
+function startContext(root, input) {
   const run = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'scripts', 'window', 'compact-start.ts')], { cwd: root, input, encoding: 'utf8', timeout: COMPACT_START_TIMEOUT_MS })
   if (run.error !== undefined || run.status !== 0) {
-    process.stderr.write(`window-core: compact-start gave no continue prompt (${run.error?.message ?? `exit ${run.status ?? run.signal}`})\n`)
+    process.stderr.write(`window-core: compact-start gave no start context (${run.error?.message ?? `exit ${run.status ?? run.signal}`})\n`)
     return ''
   }
   const prompt = (run.stdout ?? '').trim()
@@ -72,7 +60,7 @@ async function main() {
   catch (error) {
     process.stderr.write(`window-core: stdin unread: ${error instanceof Error ? error.message : String(error)}\n`)
   }
-  emit({ context: { additionalContext: `${text}${compactContext(root, input)}` }, top: {} })
+  emit({ context: { additionalContext: `${text}${startContext(root, input)}` }, top: {} })
 }
 
 void main()

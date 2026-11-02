@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 export const RELAYED_SCRIPTS = ['pre-compact']
 const RELAY_TIMEOUT_MS = 25_000
+const REFUSAL_LINE = 'pre-compact: the insurance handoff was refused'
+const ADVISORY_EXIT = 1
 
 export function relayArgv(root, script) {
   return ['--import', 'tsx', path.join(root, 'scripts', 'window', `${script}.ts`)]
@@ -41,6 +43,12 @@ async function main() {
   }
   process.stdout.write(run.stdout ?? '')
   process.stderr.write(run.stderr ?? '')
+  if (run.status === 0)
+    return
+  if ((run.stderr ?? '').includes(REFUSAL_LINE))
+    process.exitCode = ADVISORY_EXIT
+  else
+    process.stderr.write(`miko-relay hook: ${script} ended with exit ${run.status ?? run.signal} before it checked the handoff; compaction goes on unchecked\n`)
 }
 
 function isMain() {

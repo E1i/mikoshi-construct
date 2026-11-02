@@ -154,6 +154,13 @@ describe('what the factory build reaches from its entries', () => {
     expect(Object.entries(SPAWNED_BY_THE_FACTORY).filter(([spawned, by]) => !graph.includes(spawned) || !graph.includes(by)).map(([spawned]) => spawned)).toEqual([])
     expect(Object.entries(READ_BESIDE_THE_MODULE).filter(([asset, by]) => !assets.includes(asset) || !graph.includes(by)).map(([asset]) => asset)).toEqual([])
   })
+
+  it('copies a plain .mjs module a factory script imports as it is, and never hands it to tsup as an entry', () => {
+    const shared = path.join('.claude', 'hooks', 'tab-window.mjs')
+
+    expect(factoryAssets()).toContain(shared)
+    expect(factoryGraph()).not.toContain(shared)
+  })
 })
 
 describe('the factory in the published package', () => {

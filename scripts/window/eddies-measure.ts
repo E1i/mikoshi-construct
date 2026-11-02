@@ -8,7 +8,7 @@ import { transcriptContext } from './operator-boundary.js'
 export const UNKNOWN = 'unknown'
 export const SESSION_EXIT_EVENT = 'session-exit'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
-const PROJECT_VARIABLE = 'CLAUDE_PROJECT_DIR'
+export const PROJECT_VARIABLE = 'CLAUDE_PROJECT_DIR'
 const CONFIG_FILE = path.join('.claude', 'eddies.json')
 const EDDIES_JOURNAL_FILE = path.join('.construct', 'eddies.jsonl')
 const JOURNAL_VERSION = 1
