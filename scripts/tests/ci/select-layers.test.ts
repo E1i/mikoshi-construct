@@ -47,10 +47,19 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(selectRun([], GRAPH, () => '').kind).toBe('full')
   })
 
-  it('a changeset path keeps the run on layers and selects no test, while .changeset/config.json still takes the full run', () => {
+  it('a changeset path keeps the run on layers and adds no test the graph lacks, while .changeset/config.json still takes the full run', () => {
     expect(selectRun(['.changeset/hygiene.md'], GRAPH, () => '')).toEqual({ kind: 'layers', layers: [], tests: [] })
     expect(layersRun(['.changeset/hygiene.md', 'scripts/nodes/merge/merge-worker.ts'])).toEqual(layersRun(['scripts/nodes/merge/merge-worker.ts']))
     expect(selectRun(['.changeset/config.json'], GRAPH, () => '').kind).toBe('full')
+  })
+
+  it('a change with a changeset note selects the changeset tests', () => {
+    const reader = 'tests/changesets-one-line.test.ts'
+    const graph: Graph = new Map([...GRAPH, [reader, []]])
+    expect(selectRun(['.changeset/hygiene.md'], graph, () => '')).toEqual({ kind: 'layers', layers: [], tests: [reader] })
+    const run = selectRun(['.changeset/hygiene.md', 'scripts/nodes/merge/merge-worker.ts'], graph, () => '')
+    expect(run).toEqual({ kind: 'layers', layers: ['bus:merge'], tests: ['scripts/tests/bus/merge-worker.test.ts', reader] })
+    expect(selectRun(['scripts/nodes/merge/merge-worker.ts'], graph, () => '')).toEqual({ kind: 'layers', layers: ['bus:merge'], tests: ['scripts/tests/bus/merge-worker.test.ts'] })
   })
 
   it('a change to src/card/risk.ts runs the morse tests that read its rule', () => {
