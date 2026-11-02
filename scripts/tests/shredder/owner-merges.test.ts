@@ -52,6 +52,8 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     { files: ['.github/workflows/ci.yml'], ownerMerged: true },
     { files: ['architecture/security-invariants.md'], ownerMerged: true },
     { files: ['architecture/owner-merges.md'], ownerMerged: true },
+    { files: ['scripts/ports/shift-settings.ts'], ownerMerged: true },
+    { files: ['scripts/ports/isolation.ts'], ownerMerged: true },
     { files: ['scripts/ladder/launch.ts'], ownerMerged: false },
     { files: ['scripts/ladder/isolation.ts'], ownerMerged: false },
     { files: ['scripts/nodes/launch/header.md'], ownerMerged: false },

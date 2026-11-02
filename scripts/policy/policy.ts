@@ -127,12 +127,18 @@ function noShardMerge(facts: MergeFacts): MergeVerdict | null {
   return null
 }
 
+function changesOwnerMerges(facts: MergeFacts): MergeVerdict | null {
+  return facts.files.includes(OWNER_MERGES)
+    ? denied('no_shard_merge', `changes ${OWNER_MERGES}, which draws the owner's boundaries and stays the owner's under every shard whatever either table says`)
+    : null
+}
+
 function reserved(facts: MergeFacts): MergeVerdict | null {
   const kinds = readOwnerMergeKinds(facts.ownerMergesText)
   const releaseTitle = kinds.find(kind => kind.kind === RELEASE_KIND)?.title ?? null
   if (VERSION_BRANCH.test(facts.headRef) || (releaseTitle !== null && facts.title === releaseTitle))
     return denied('version_pr', `${facts.headRef} is a version pull request and stays the owner's`)
-  const ownersUnderEveryShard = reservedCardOf(facts) ?? noShardMerge(facts)
+  const ownersUnderEveryShard = reservedCardOf(facts) ?? changesOwnerMerges(facts) ?? noShardMerge(facts)
   if (ownersUnderEveryShard !== null || delegatedByShard(facts) !== null)
     return ownersUnderEveryShard
   if (facts.windowShard !== null)

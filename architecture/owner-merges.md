@@ -53,6 +53,11 @@ is now owner-merged. Eli's boundaries are `security-invariants`, the
 version pull request, the npm publish, `.claude/**` and `.github/workflows/**`, as decided on 2026-10-25.
 The same day, at Eli's instruction (PR #1199, card #1414), the coordinating window added `architecture/owner-merges.md` back to
 `own-instructions`: a change to Eli's own boundaries stays Eli's, as `security-invariants` does.
+On 2026-11-03, at Eli's instruction (owner s364, card #1450), the coordinating window added `scripts/ports/shift-settings.ts`
+and `scripts/ports/isolation.ts` to `security-invariants`: a change to the sandbox settings of the sessions is Eli's by
+itself, whether or not the pull request touches `architecture/security-invariants.md`. The bus treats a pull request that changes this file as Eli's under every shard whatever
+this table says, on the base or on the head, so a pull request is never judged by the row it replaces; an owner «I merge
+it» on a pull request is recorded as the decision `#N reserved`, which reserves card #N under every shard.
 
 | kind | paths (globs) | what it covers | example | merges under a shard |
 |---|---|---|---|---|
@@ -60,7 +65,7 @@ The same day, at Eli's instruction (PR #1199, card #1414), the coordinating wind
 | own-instructions | `.claude/**`, `architecture/owner-merges.md` | this repository's own agent instructions: everything under `.claude/`, and this file, which draws Eli's boundaries | PR #244, PR #282, PR #366; issues #257, #269, #271 | no |
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — | no |
 | workflows | `.github/workflows/**` | every GitHub Actions workflow: what CI runs, with which permissions and secrets | — | no |
-| security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md` | `architecture/security-invariants.md` and the template copies | — | no |
+| security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md`, `scripts/ports/shift-settings.ts`, `scripts/ports/isolation.ts` | `architecture/security-invariants.md` and the template copies, and the sandbox settings of the sessions the bus launches: what a session may read, write, reach and bind | PR #1223 | no |
 | agent-permissions | `contract/factory-permissions.json` | the agents' permissions | — | yes |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that `init`, `attach`, `sync` or `detach` writes into another repository: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 | yes |
 
