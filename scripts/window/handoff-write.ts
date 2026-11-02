@@ -2,6 +2,7 @@ import type { WindowShard } from '../policy/shards.js'
 import type { Board } from './board.js'
 import type { ExitReadings, Reading } from './eddies-measure.js'
 import type { ParkedDepends } from './handoff-check.js'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -344,16 +345,34 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
     deps.write(day.file, day.kept)
     deps.out(`${PREFIX}${day.file}: ${dayBytes(day.kept)} bytes, ${day.moved} bytes moved to ${day.archive}`)
   }
-  if (archived !== null && previous !== null) {
-    deps.makeDir(archiveDir)
-    deps.writeNew(archived, previous)
-  }
-  const staged = `${handoff}.writing`
+  const claimed = archived === null || previous === null ? null : claimArchive(archived, previous, deps)
+  const claimedPrev = claimed === null ? prev : path.relative(path.dirname(handoff), claimed)
+  const final = claimedPrev === prev ? text : withPrev(text, claimedPrev)
+  const staged = `${handoff}.${randomUUID()}.writing`
   deps.makeDir(path.dirname(handoff))
-  deps.write(staged, text.endsWith('\n') ? text : `${text}\n`)
+  deps.write(staged, final.endsWith('\n') ? final : `${final}\n`)
   deps.rename(staged, handoff)
-  deps.out(`${PREFIX}${handoff}: ${handoffBytes(text)} bytes, ${PREV_LABEL}: ${prev}, ${stateSource(reading)}`)
+  deps.out(`${PREFIX}${handoff}: ${handoffBytes(final)} bytes, ${PREV_LABEL}: ${claimedPrev}, ${stateSource(reading)}`)
   return 0
+}
+
+function isTaken(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === 'EEXIST'
+}
+
+function claimArchive(first: string, previous: string, deps: Pick<HandoffWriteDeps, 'makeDir' | 'writeNew'>): string {
+  const dir = path.dirname(first)
+  deps.makeDir(dir)
+  for (let name = path.basename(first); ; name = nextArchive([name])) {
+    try {
+      deps.writeNew(path.join(dir, name), previous)
+      return path.join(dir, name)
+    }
+    catch (error) {
+      if (!isTaken(error))
+        throw error
+    }
+  }
 }
 
 function errorLine(error: unknown): string {

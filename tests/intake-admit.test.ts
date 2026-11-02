@@ -971,14 +971,14 @@ describe('construct intake --admit through the CLI entry', () => {
     expect(inBus || refusedAndNamed).toBe(true)
   })
 
-  it('intake --admit --dry-run through the CLI entry beside a bus is never refused and writes nothing', async () => {
+  it('intake --admit --dry-run through the CLI entry beside a bus is refused like the write and writes nothing', async () => {
     const w = world()
     const file = park(w, 80, CLEAN)
     openBus(busOf(w)).close()
     vi.stubEnv(BUS_DB_VARIABLE, busOf(w))
     const { exit, output } = await admitThroughEntry(w, file, ['--dry-run'])
-    expect(exit).not.toBe(INTAKE_EXIT.refused)
-    expect(output).not.toContain('construct-intake --admit instead')
+    expect(exit).toBe(INTAKE_EXIT.refused)
+    expect(output).toContain('construct-intake --admit instead')
     expect(admittedEvents(w)).toBe(0)
   })
 
