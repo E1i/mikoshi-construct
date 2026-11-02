@@ -5,7 +5,7 @@ import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
-import type { DraftCard, WitnessKind } from './draft.js'
+import type { DraftCard } from './draft.js'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -19,9 +19,9 @@ import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
 import { readMilestones } from '../../manifest.js'
-import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, TOUCHES_HEADER } from './confirm.js'
-import { withoutWitnessKind, witnessKindField } from './draft.js'
+import { withoutWitnessKind } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedRecord, defaultParking, INTAKE_EXIT, knownCards, recordIntake } from './index.js'
 import { parkedNumbers } from './numbers.js'
@@ -164,8 +164,6 @@ export type AdmitResult
     | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
     | { status: 'ownerWait', file: string, card: SlicedCard, downgrades: string[], inBus: boolean, dryRun: boolean }
 
-const RED_ON_MAIN = /[;,]?\s*red on main/i
-const ACCEPTANCE: WitnessKind = 'acceptance'
 const ANY_FORM_OF_FAILING_ON_MAIN = /(?:\s*[;,—–-])?\s*(?:red|non-zero) on main/i
 const DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетеля'
 const DECISION_LINE = /^- D-[1-9]\d* · /
@@ -185,15 +183,11 @@ function witnessCore(witness: string): string {
   return withoutWitnessKind(witness).replace(ANY_FORM_OF_FAILING_ON_MAIN, '').trim()
 }
 
-export function isAcceptanceWitness(witness: string): boolean {
-  return (witnessKindField(witness) ?? (RED_ON_MAIN.test(witness) ? ACCEPTANCE : undefined)) === ACCEPTANCE
-}
-
 export function witnessDowngrades(previous: readonly string[], next: readonly string[]): string[] {
-  const acceptanceByCore = new Map(next.map(witness => [witnessCore(witness), isAcceptanceWitness(witness)]))
+  const acceptanceByCore = new Map(next.map(witness => [witnessCore(witness), isChangeWitness(witness)]))
   return previous.filter((witness) => {
     const acceptance = acceptanceByCore.get(witnessCore(witness))
-    return acceptance === undefined || (isAcceptanceWitness(witness) && !acceptance)
+    return acceptance === undefined || (isChangeWitness(witness) && !acceptance)
   })
 }
 

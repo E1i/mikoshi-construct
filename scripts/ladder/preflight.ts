@@ -126,7 +126,7 @@ export function runPreflight(input: PreflightInput, env: PreflightEnv = processE
     refuseOn('P5', immutableRefusal(changed ?? [], built.immutable))
     withWorktree(env.repo, base, tree => runOnTree(
       { tree, base, shell: env.shell, log: env.log, refuse: refuseOn, time },
-      { acceptance: built.witnesses, invariants, harnessCommand: built.harness.command, sketchSha, changed, witnessesDir: witnessesDirOf(input.briefPath) },
+      { acceptance: built.witnesses, invariants, harnessCommand: built.harness.command, sketchSha, changed, witnessesDir: witnessesDirOf(input.briefPath), creates: [] },
     ))
   }
   finally {
