@@ -76,7 +76,7 @@ function noFacts(overrides: Partial<BusFacts>): BusFacts {
 }
 
 function liveCard(id: number): BusCard {
-  return { id, state: 'queued', stage: 'planned', lane: 'lane-21', slot: null, line: null, since: null, body: true, closed: false, closedAt: null }
+  return { id, state: 'queued', stage: 'planned', lane: 'lane-21', line: null, since: null, body: true, closed: false, closedAt: null }
 }
 
 function tempDir(): string {
@@ -162,9 +162,10 @@ describe('the board tells the truth and hints', () => {
     const busPath = busWith([
       { ts: ago(30 * MINUTE), type: LANE_ASSIGNED, card: 1395, payload: JSON.stringify({ lane: 'lane-1', lanes: 4 }) },
       { ts: ago(20 * MINUTE), type: CARD_MOVED, card: 1395, payload: JSON.stringify({ lane: 'lane-21' }) },
+      { ts: ago(20 * MINUTE), type: LANE_ASSIGNED, card: 1395, payload: JSON.stringify({ lane: 'lane-21', reason: 'moved', after: [], lanes: 4 }) },
     ], [{ id: 1395, state: 'queued', lane: null, line: '#1395 moved' }])
     const facts = factsOf(busPath)
-    expect(facts.cards.map(card => [card.id, card.lane, card.slot])).toEqual([[1395, 'lane-21', 'slot-1']])
+    expect(facts.cards.map(card => [card.id, card.lane])).toEqual([[1395, 'lane-21']])
     const backlog = backlogLines(facts.cards, PLAIN_LORE)
     expect(backlog).toEqual(['lane-21 (1)', '  #1395 moved · planned'])
     expect(backlog.join('\n')).not.toContain('lane-1 ')
@@ -195,6 +196,7 @@ describe('the board tells the truth and hints', () => {
   it('an absorbed slice parked in a terminal lane leaves planned on the board and in the plan', () => {
     const busPath = busWith([
       { ts: ago(20 * MINUTE), type: CARD_MOVED, card: 1368, payload: JSON.stringify({ lane: 'superseded' }) },
+      { ts: ago(20 * MINUTE), type: LANE_ASSIGNED, card: 1368, payload: JSON.stringify({ lane: 'superseded', reason: 'moved', after: [], lanes: 4 }) },
     ], [{ id: 1368, state: 'queued', lane: 'lane-21', line: '#1368 absorbed' }, { id: 1369, state: 'queued', lane: 'archive', line: '#1369 archived' }, { id: 1371, state: 'queued', lane: 'lane-21', line: '#1371 live' }])
     const facts = factsOf(busPath)
     expect(facts.cards.map(card => [card.id, card.stage])).toEqual([[1368, 'dropped'], [1369, 'dropped'], [1371, 'planned']])
