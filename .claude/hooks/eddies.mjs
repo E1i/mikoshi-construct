@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,7 +14,7 @@ const COMPACT_WINDOW_SETTING = 'autoCompactWindow'
 const COMPACT_WINDOW_MIN = 100000
 const COMPACT_WINDOW_MAX = 1000000
 const ENVIRONMENT = 'the environment'
-const HEADLESS_ENTRYPOINT = 'sdk-cli'
+const TAB_MARK_DIR = '.construct/eddies.d/tab'
 const TAB_WARN_ACTION = 'write the handoff, then carry on — the context compacts at the compaction point and this session continues from the handoff on STATUS: CONTINUE, no pnpm miko:exit'
 const WARNED_DIR = '.construct/eddies.d/warned'
 const TASK_CACHE_DIR = '.construct/eddies.d/task'
@@ -163,9 +163,8 @@ function subagentsDirOf(transcript) {
   return path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')
 }
 
-function isTabWindow() {
-  const env = process.env
-  return !isCardSession() && env.MIKO_WINDOW !== '1' && !env.MIKO_LOOP_PID && !env.MIKO_EXIT_REQUEST && env.CONSTRUCT_BUS_RAISED !== '1' && env.CLAUDE_CODE_ENTRYPOINT !== HEADLESS_ENTRYPOINT
+function isTabWindow(root, session) {
+  return session != null && existsSync(path.join(root, TAB_MARK_DIR, session))
 }
 
 function compactWindowOf(value) {
@@ -190,8 +189,8 @@ function compactionPointOf(root) {
   return fromSettings == null ? null : { limit: fromSettings, limitName: COMPACT_WINDOW_SETTING, source: SETTINGS_FILE }
 }
 
-function contextThresholdOf(root, config) {
-  const point = isTabWindow() ? compactionPointOf(root) : null
+function contextThresholdOf(root, config, caller) {
+  const point = isTabWindow(root, caller.session_id) ? compactionPointOf(root) : null
   return point == null ? { limit: config.contextLimit, limitName: 'contextLimit' } : { ...point, compacts: true }
 }
 

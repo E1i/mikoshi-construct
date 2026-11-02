@@ -141,6 +141,13 @@ describe('preCompact keeps the handoff of a tab window fresh before the context 
     expect(readFileSync(stale.handoff, 'utf8')).toBe('STATUS: CONTINUE\n')
   }, 30_000)
 
+  it('the relay hook passes a crash of pre-compact through as exit 0 with an unchecked line, not as the advisory refusal exit', () => {
+    const w = world()
+    const run = spawnSync(process.execPath, [RELAY, 'pre-compact'], { cwd: w.dir, env: { ...w.env, CLAUDE_PROJECT_DIR: w.dir }, input: JSON.stringify({ hook_event_name: 'PreCompact', trigger: 'auto' }), encoding: 'utf8' })
+    expect({ status: run.status, stdout: run.stdout }).toEqual({ status: 0, stdout: '' })
+    expect(run.stderr).toContain('before it checked the handoff; compaction goes on unchecked')
+  }, 30_000)
+
   it('the relay hook runs no script it does not name', () => {
     const w = world()
     const run = relay(w, 'exit')
