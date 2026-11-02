@@ -10,7 +10,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { busDirOf, pinBus } from '../core/bus-path.js'
+import { busDirOf, pinBus, snapshotPathOf } from '../core/bus-path.js'
 import { RUNNING_CARD } from '../core/card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { CARD_CONTINUED, CARD_STARTED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
@@ -21,7 +21,9 @@ import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { CHECK_MS } from '../ports/netwatch.js'
-import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
+import { alive, BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
+import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
+import { BusSnapshot } from './bus-snapshot.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
@@ -900,6 +902,8 @@ export interface SupervisingParts {
   supervisor: BusSupervisor
   keeper: WorkerKeeper
   judge?: LivenessJudge
+  heal?: BusHealer
+  snapshot?: BusSnapshot
   relaunch: () => BgResult
   print: (line: string) => void
   pause: () => Promise<unknown>
@@ -916,7 +920,8 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, parts.relaunch())
-    for (const line of [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? []]])
+    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? []]]
+    for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
     if (replacement.replaced)
       return
@@ -998,12 +1003,15 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   }
   const code = gitCode(cwd)
+  const nodes = new RecordedNodes(busPath, { signal, alive, pause: sleep, now: () => new Date() })
+  const start = (launch: DetachedLaunch): BgResult => nodes.started(launch, startReviewWorker(launch, busDir, process.env, processes))
+  const wanted = (): DetachedLaunch[] => nodes.held() ? [] : wantedLaunches(busDir, reviewPreflight, inForceDecisions(db))
   foreignBusLines(processes(), ownPackage()).forEach(line => console.log(line))
   recordStarted(db, new Date().toISOString(), code, line => console.log(line))
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
-    wanted: () => wantedLaunches(busDir, reviewPreflight, inForceDecisions(db)),
-    start: launch => startReviewWorker(launch, busDir, process.env, processes),
+    wanted,
+    start,
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
     freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
     drain: busDrain(db, () => new Date().toISOString(), psStartOf),
@@ -1015,8 +1023,8 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     now: () => Date.now(),
   }, startingBaseline(db, code))
   const keeper = new WorkerKeeper({
-    wanted: () => wantedLaunches(busDir, reviewPreflight, inForceDecisions(db)),
-    start: launch => startReviewWorker(launch, busDir, process.env, processes),
+    wanted,
+    start,
     processes,
     reduce: () => runReducer(cwd),
     journal,
@@ -1028,11 +1036,13 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     await superviseUntilReplaced({
       supervisor,
       keeper,
-      judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wantedLaunches(busDir, reviewPreflight, inForceDecisions(db))), name => restartSilent(name, wantedLaunches(busDir, reviewPreflight, inForceDecisions(db)), {
+      judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), name => restartSilent(name, wanted(), {
         processes,
-        start: launch => startReviewWorker(launch, busDir, process.env, processes),
+        start,
         stop: (running, launch) => stopInstance(running, launch.markers, processes),
       }), psStartOf),
+      heal: new BusHealer({ busPath, nodes, now: () => new Date(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
+      snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
       relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, psOutsideOwnGroup()),
       print: line => console.log(line),
       pause: () => sleep(CHECK_MS),

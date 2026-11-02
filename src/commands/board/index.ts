@@ -1,12 +1,14 @@
 import type { Ui } from '../../ui/console.js'
 import type { LedgerReading } from '../cost/ledger.js'
 import type { BusReader, BusReading } from './bus.js'
+import type { BoardHeal } from './heal.js'
 import type { PrsReading } from './prs.js'
 import type { BoardView } from './view.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { LEDGER_FILE, readLedger } from '../cost/ledger.js'
 import { drainLines, drainsAt } from './drain.js'
+import { healAt, healLines } from './heal.js'
 import { ladderItems, prItems } from './items.js'
 import { PRS_COMMAND, readPrs } from './prs.js'
 import { screenLines } from './screens.js'
@@ -39,6 +41,7 @@ export interface BoardReading {
   geek: boolean
   all: boolean
   bus: BusReading | undefined
+  heal?: BoardHeal | null
   ledgerPresent: boolean
   ledger: LedgerReading
   prs: PrsReading
@@ -68,6 +71,7 @@ export function readBoard(dir: string, options: BoardOptions): BoardReading {
     geek: options.geek ?? false,
     all: options.all,
     bus,
+    heal: bus?.status === 'read' ? healAt(bus.file, now) : null,
     ledgerPresent: existsSync(path.join(dir, LEDGER_FILE)),
     ledger,
     prs,
@@ -130,7 +134,7 @@ export function printBoard(ui: Ui, reading: BoardReading): number {
   if (reading.header !== undefined)
     ui.line(ui.lore.boardHeader(reading.header.version, reading.header.mode))
   if (reading.bus !== undefined && !(reading.geek && reading.bus.status === 'read')) {
-    for (const line of [...busLines(ui, reading.bus, reading.all), ...drainLines(ui.lore, reading.view.drains)])
+    for (const line of [...busLines(ui, reading.bus, reading.all), ...drainLines(ui.lore, reading.view.drains), ...healLines(ui.lore, reading.heal ?? null)])
       ui.line(line)
     if (reading.bus.status === 'read')
       return BOARD_EXIT.shown
