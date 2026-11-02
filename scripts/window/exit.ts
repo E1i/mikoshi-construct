@@ -11,7 +11,7 @@ import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
-import { appendExitLine, exitLineOf, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
+import { appendExitLine, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
 import { realRoleStopObserver } from './role-bus.js'
 import { windowEndObserver } from './role-end.js'
@@ -314,8 +314,12 @@ function mtimeOf(file: string): number | undefined {
   }
 }
 
+export function exitRootOf(env: NodeJS.ProcessEnv, cwd: string): string {
+  return projectRoot({ [PROJECT_VARIABLE]: env[PROJECT_VARIABLE] || cwd })
+}
+
 export function realMikoExitDeps(handoff: string): MikoExitDeps {
-  const root = projectRoot(process.env)
+  const root = exitRootOf(process.env, process.cwd())
   const transcript = (): string | null => sessionTranscriptOf(os.homedir(), process.env[SESSION_VARIABLE])
   const table = (): ProcessRow[] => parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' }))
   return {
