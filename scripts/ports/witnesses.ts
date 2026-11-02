@@ -107,9 +107,11 @@ function addedOnHead(tree: string, base: string, head: string | null): string[] 
   return head === null ? [] : gitIn(tree, ['diff', '--name-only', '--diff-filter=A', base, head]).split('\n').filter(file => file !== '')
 }
 
-function isCreated(relative: string, added: readonly string[]): boolean {
+function isCreated(tree: string, relative: string, added: readonly string[]): boolean {
   const scope = relative.replace(TRAILING_SLASHES, '')
-  return added.some(file => file === scope || file.startsWith(`${scope}/`))
+  if (added.includes(scope))
+    return true
+  return !existsSync(path.join(tree, scope)) && added.some(file => file.startsWith(`${scope}/`))
 }
 
 function pathsNamed(command: string, readable: (relative: string) => boolean): string[] {
@@ -117,8 +119,9 @@ function pathsNamed(command: string, readable: (relative: string) => boolean): s
 }
 
 function overCreatedPaths(tree: string, witness: Witness, added: readonly string[]): boolean {
-  const named = pathsNamed(witness.command, relative => isCreated(relative, added) || existsSync(path.join(tree, relative)))
-  return named.length > 0 && named.every(relative => isCreated(relative, added))
+  const created = (relative: string): boolean => isCreated(tree, relative, added)
+  const named = pathsNamed(witness.command, relative => created(relative) || existsSync(path.join(tree, relative)))
+  return named.length > 0 && named.every(created)
 }
 
 function reportsFailedTest(output: string): boolean {

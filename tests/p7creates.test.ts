@@ -76,13 +76,13 @@ function commit(repo: string, files: Record<string, string>): string {
 
 interface Outcome { refusals: string[], log: string[] }
 
-function invariantOn(command: string): Outcome {
+function invariantOn(command: string, baseFiles: Record<string, string> = {}, headFiles: Record<string, string> = { [CREATED]: 'alpha\n' }): Outcome {
   const root = mkdtempSync(path.join(tmpdir(), 'p7creates-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
   execFileSync('git', ['init', '-q', repo])
-  const base = commit(repo, { 'README.md': 'base\n' })
-  const head = commit(repo, { [CREATED]: 'alpha\n' })
+  const base = commit(repo, { 'README.md': 'base\n', ...baseFiles })
+  const head = commit(repo, headFiles)
   const outcome: Outcome = { refusals: [], log: [] }
   withWorktree(repo, base, tree => runOnTree(
     { tree, base, shell: realShell, log: line => outcome.log.push(line), refuse: (step, problem) => {
@@ -102,6 +102,11 @@ describe('the base run over a witness the card creates the paths of', () => {
     expect(taken.refusals).toEqual([])
     expect(taken.log).toContainEqual(expect.stringMatching(/^invariant "alpha is written": red on the base \w{7} over paths the head creates, and nothing else; a change witness/))
     expect(invariantOn(`grep -qx alpha README.md ${CREATED}`).refusals).toEqual([expect.stringMatching(/^P7: invariant "alpha is written" exits \d+ on the clean base/)])
+  })
+
+  it('keeps a red invariant over a directory the base already has, though the head adds a file under it', () => {
+    expect(invariantOn('grep -rqx alpha docs', { 'docs/a.md': 'beta\n' }, { 'docs/b.md': 'alpha\n' }).refusals).toEqual([expect.stringMatching(/^P7: invariant "alpha is written" exits 1 on the clean base/)])
+    expect(invariantOn('grep -rqx alpha zerotouch').refusals).toEqual([])
   })
 
   it('reads the paths of a witness as intake reads them, in every written form', () => {
