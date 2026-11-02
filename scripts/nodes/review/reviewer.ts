@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { prepareTree } from '../../ports/prepare-tree.js'
 import { readResultFields } from '../../ports/result.js'
 import { reviewModelOf, sessionModelOf, spawnSession, withoutCard } from '../../ports/session.js'
 
@@ -76,10 +77,6 @@ export const PREFIX = '[bus:review] '
 
 const VERDICTS = new Set<string>(['pass', 'changes'])
 
-export const PREPARE_TREE = ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts']
-
-export const PREPARE_MS = 10 * 60_000
-
 export const REVIEW_CEILING_MINUTES = 20
 
 export const REVIEW_CEILING_MS = REVIEW_CEILING_MINUTES * 60_000
@@ -87,10 +84,6 @@ export const REVIEW_CEILING_MS = REVIEW_CEILING_MINUTES * 60_000
 export const REVIEW_BEAT_MS = 60_000
 
 export type SessionPulse = (lease: Lease, session: string) => void
-
-export const PROXY_ENV_KEYS = ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy']
-
-export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', ...PROXY_ENV_KEYS]
 
 export const HEAD_MOVED = 'HEAD'
 
@@ -184,14 +177,6 @@ function worktrees(repo: string): string[] {
     .map(line => line.slice('worktree '.length))
 }
 
-export function prepareEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(PREPARE_ENV_KEYS.filter(key => env[key] !== undefined).map(key => [key, env[key]]))
-}
-
-function prepare(tree: string): void {
-  execFileSync(PREPARE_TREE[0]!, PREPARE_TREE.slice(1), { cwd: tree, env: prepareEnv(process.env), timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
-}
-
 export function statusLines(porcelainZ: string): string[] {
   const fields = porcelainZ.split('\0').filter(field => field !== '')
   const lines: string[] = []
@@ -214,7 +199,7 @@ function state(tree: string): TreeState {
   return { head: read(['rev-parse', 'HEAD']).trim(), status: statusLines(read(['status', '--porcelain', '-z'])) }
 }
 
-export const GIT_TREE_TOOLS: TreeTools = { git, worktrees, prepare, state }
+export const GIT_TREE_TOOLS: TreeTools = { git, worktrees, prepare: prepareTree, state }
 
 function pathOfStatus(line: string): string {
   return line.slice(3)
