@@ -11,7 +11,9 @@ import { riskOf } from '../../../src/card/risk.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
+import { OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
+import { latestTurnOf, REVIEW_ROUNDS } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from '../../policy/policy.js'
 import { activeDecisionsShard, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
@@ -68,6 +70,10 @@ function ownersEvenUnderTheDecision(paths: readonly string[]): string | undefine
 }
 
 const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open' AND mergeable = 'dirty'`
+
+const OWNER_QUESTION_IS_THE_LATEST_TURN = `SELECT 1 FROM (${OPEN_OWNER_STOP_OF_CARD}) AS open WHERE open.id = ${latestTurnOf('?')}`
+
+const FAILURES_IN_A_ROW = 'SELECT failures FROM tasks WHERE task_key = ?'
 
 const RED_WITNESS_ON_HEAD = `
   SELECT json_extract(red.payload, '$.detail') AS detail FROM events AS red
@@ -135,6 +141,8 @@ export class AnswerExecutor {
       const hold = ownerHoldOf(this.parts.db, lease.cardId)
       if (hold !== null)
         return this.heldForTheOwner(lease, hold)
+      if (this.ownerQuestionOpen(lease))
+        return this.heldForTheOwner(lease, `card #${lease.cardId} stands on an owner question nobody has answered yet`)
       let widened: Widened | null = null
       if (source?.kind === 'question' && source.widen !== null) {
         const globs = ownerGlobs(this.parts.ownerMerges())
@@ -256,8 +264,7 @@ export class AnswerExecutor {
         return this.asked(lease, answered.owner, widened, card)
       if ((this.parts.dirty ?? treeDirtyOf)(card))
         return this.leftDirty(lease, card, answered.session)
-      const detail = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'}`
-      return this.stopped(lease, 'fault', detail, {}, scope)
+      return this.leftNothing(lease, answered, scope)
     }
     const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
     const payload = { session: answered.session, worktree: card.worktree, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...(reentry ? { reentry: true } : {}), ...measurementOf(answered, minutes), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
@@ -267,6 +274,24 @@ export class AnswerExecutor {
 
   private leftDirty(lease: Lease, card: CardSession, session: string): AnswerOutcome {
     return this.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `the answer session ${session} pushed nothing and left uncommitted changes in ${card.worktree}; the answer goes again over that tree` })
+  }
+
+  private leftNothing(lease: Lease, answered: Answered, scope: BusEvent[]): AnswerOutcome {
+    const cause = `the answer session ${answered.session} left ${lease.taskKey} at ${answered.after ?? 'no pushed head'} with no new commit, no owner question and a clean tree`
+    const attempt = this.failuresInARow(lease) + 1
+    if (attempt < REVIEW_ROUNDS)
+      return this.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `${cause}; the answer goes again, attempt ${attempt} of the review round limit ${REVIEW_ROUNDS}` })
+    const detail = `${cause}, ${attempt} answers in a row: the review round limit ${REVIEW_ROUNDS} is reached and the bus answers the card no further`
+    return this.ownersStop(lease, detail, scope, `card #${lease.cardId} stands on a faulted answer: ${detail}; decide it: a re-cut, an amend of the card or a drop`)
+  }
+
+  private ownerQuestionOpen(lease: Lease): boolean {
+    return this.parts.db.prepare(OWNER_QUESTION_IS_THE_LATEST_TURN).get(lease.cardId, lease.cardId) !== undefined
+  }
+
+  private failuresInARow(lease: Lease): number {
+    const row = this.parts.db.prepare(FAILURES_IN_A_ROW).get(lease.taskKey) as { failures: number } | undefined
+    return row?.failures ?? 0
   }
 
   private async asked(lease: Lease, question: string, widened: Widened | null, card: CardSession): Promise<AnswerOutcome> {
@@ -320,8 +345,8 @@ export class AnswerExecutor {
     return { kind: 'stopped', taskKey: lease.taskKey, reason, detail }
   }
 
-  private ownersStop(lease: Lease, detail: string, scope: BusEvent[] = []): AnswerOutcome {
-    const ask = { need: 'decision' as const, text: `card #${lease.cardId} asks: ${detail}`, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
+  private ownersStop(lease: Lease, detail: string, scope: BusEvent[] = [], text = `card #${lease.cardId} asks: ${detail}`): AnswerOutcome {
+    const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
     const widen = this.windowWidens(lease, detail)
     return this.stopped(lease, QUESTION_OWNER, detail, widen.length === 0 ? {} : { widen }, scope, db => openBusWait(db, this.ts(), lease.actor, ask))
   }

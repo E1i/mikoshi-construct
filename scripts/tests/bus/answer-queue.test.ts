@@ -12,11 +12,11 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_RELEASED, TASK_REQUEUED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_OWNER, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_RELEASED, TASK_REQUEUED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { inboxText, ownerInbox } from '../../core/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../core/lease.js'
-import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, MERGE_REFUSED, queueTask } from '../../core/queue.js'
+import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, MERGE_REFUSED, queueTask, REVIEW_ROUNDS } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { Rejection } from '../../core/stored.js'
 import { importJournal } from '../../intake/import.js'
@@ -424,14 +424,15 @@ describe('the answer queue', () => {
     bench.stopped(1080, { reason: 'question.agent', detail: 'the first question' }, 980, sha('a'))
     bench.tick()
     const first = bench.question(1080, 980, sha('a'))
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: first, reason: 'fault' })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: first, denial: { reason: 'answer_failed' } })
 
     bench.started(1080, 'card-session-2')
     bench.stopped(1080, { reason: 'question.agent', detail: 'the second question' }, 980, sha('a'))
     bench.tick()
     const second = bench.question(1080, 980, sha('a'))
     expect(second).not.toBe(first)
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: second, session: 'card-session-2', head: PUSHED })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', taskKey: first, session: 'card-session-2', head: PUSHED })
+    bench.gitHub.open({ number: 980, head: PUSHED })
 
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
@@ -456,14 +457,14 @@ describe('the answer queue', () => {
     expect(asking.taskKey).toBe(`${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`)
     completeTask(bench.db, bench.clock.now().toISOString(), asking, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: asking.actor, cardId: 1146, pr: 1046, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${asking.taskKey}:${asking.leaseGen}`, payload: { reason: 'question.agent', detail: 'widen touches to the worker test' }, legacy: false }])
     bench.tick()
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'fault' })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
     bench.tick()
-    expect(answerTasks('queued')).toEqual([])
+    expect(answerTasks('queued')).toEqual([expect.stringContaining(':card-body-aaaa1111:stop-')])
 
     admit('bbbb2222')
     bench.tick()
 
-    expect(answerTasks('queued')).toEqual([`${answer(1146, 1046, sha('a'))}:card-body-bbbb2222`])
+    expect(answerTasks('queued')).toEqual([expect.stringMatching(new RegExp(`^${answer(1146, 1046, sha('a'))}:card-body-bbbb2222:stop-\\d+$`))])
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
@@ -669,7 +670,7 @@ describe('the answer queue', () => {
     bench.started(1150)
     bench.gitHub.open({ number: 1050, review: 'failure' })
     bench.tick()
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'fault' })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
     bench.started(1151)
     bench.stopped(1151, { reason: 'question.agent', detail: 'which reader owns the session id?' }, 1051, sha('a'))
     bench.gitHub.open({ number: 1051, review: 'failure' })
@@ -679,30 +680,29 @@ describe('the answer queue', () => {
     const live = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND state IN ('queued', 'leased') ORDER BY task_key`).all() as { task_key: string }[]).map(row => row.task_key)
     expect(live).toEqual([answer(1150, 1050, sha('a')), bench.question(1151, 1051, sha('a'))])
     expect(bench.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'answer'`).get()).toEqual({ n: 2 })
-    expect(eventsOf(bench.db, 'task.requeued')).toHaveLength(1)
+    expect(eventsOf(bench.db, 'task.failed')).toMatchObject([{ reason: 'answer_failed', next: 'queued' }])
     bench.close()
   })
 
-  it('after a fault the task is set again, and the third failure writes board.alarm and no owner inbox item', async () => {
+  it('an answer that leaves no new head is set again, and the one at the round limit opens an owner wait instead of a board.alarm', async () => {
     const bench = answerBench()
-    bench.tools.heads = Array.from({ length: 2 * FAILURES_TO_STOP }, () => sha('a'))
+    bench.tools.heads = Array.from({ length: 2 * REVIEW_ROUNDS }, () => sha('a'))
     bench.started(1160)
     bench.gitHub.open({ number: 1060, review: 'failure' })
     bench.tick()
     const key = answer(1160, 1060, sha('a'))
 
-    for (let failure = 1; failure <= FAILURES_TO_STOP; failure++) {
-      expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: key, reason: 'fault' })
-      expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
+    for (let failure = 1; failure < REVIEW_ROUNDS; failure++) {
+      expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: key, denial: { reason: 'answer_failed' }, next: 'queued' })
       bench.tick()
       bench.tick()
-      if (failure < FAILURES_TO_STOP)
-        expect(taskState(bench.db, key)).toMatchObject({ state: 'queued', failures: failure })
+      expect(taskState(bench.db, key)).toMatchObject({ state: 'queued', failures: failure })
     }
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: key, reason: QUESTION_OWNER })
 
     expect(taskState(bench.db, key).state).toBe('completed')
-    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ task_key: key, reason: 'fault', failures: FAILURES_TO_STOP, detail: expect.stringContaining(key) }])
-    expect(ownerInbox(bench.db)).toEqual([])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
+    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1160])
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     const live = projectionDump(bench.db)
@@ -711,19 +711,20 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  it('an open owner question raised after a fault holds the faulted answer task', async () => {
+  it('an open owner question raised after a faulted answer holds its retry for the owner', async () => {
     const bench = answerBench()
     bench.tools.heads = [sha('a'), sha('a')]
     bench.started(1180)
     bench.gitHub.open({ number: 1080, review: 'failure' })
     bench.tick()
     const key = answer(1180, 1080, sha('a'))
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: key, reason: 'fault' })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: key, denial: { reason: 'answer_failed' } })
     bench.stopped(1180, { reason: 'question.owner', detail: 'may the card touch architecture/owner-merges.md?' }, 1080, sha('a'))
     bench.tick()
     bench.tick()
 
-    expect(taskState(bench.db, key).state).toBe('completed')
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: key, denial: { reason: 'held_for_owner' }, next: 'withdrawn' })
+    expect(bench.tools.runs).toHaveLength(1)
     expect(eventsOf(bench.db, TASK_REQUEUED)).toEqual([])
     expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1180])
     bench.close()
@@ -868,7 +869,7 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  it('an answer that leaves no new head while changes stand on the current head stops the card with the reason in the detail and shows it on the board', async () => {
+  it('an answer that leaves no new head while changes stand on the current head goes again with the reason in its denial and stops nothing on the board', async () => {
     const bench = answerBench()
     bench.tools.heads = [sha('a'), sha('a')]
     bench.started(1171)
@@ -877,12 +878,12 @@ describe('the answer queue', () => {
     const key = answer(1171, 1071, sha('a'))
     const detail = `the answer session ${CARD_SESSION} left ${key} at ${sha('a')}`
 
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'fault', detail })
-    expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail }])
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed', detail: expect.stringContaining(detail) } })
+    expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([])
     bench.tick()
 
     const row = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).execution.find(each => each.card === 1171)
-    expect(row).toMatchObject({ pr: 1071, stage: 'fixes', markers: [`stopped fault: ${detail}`] })
+    expect(row).toMatchObject({ pr: 1071, stage: 'fixes', markers: [] })
     bench.close()
   })
 
@@ -994,14 +995,14 @@ describe('the answer executor', () => {
     bench.close()
   })
 
-  it('a session that pushes no new head stops the card with fault', async () => {
+  it('a session that pushes no new head is set again instead of stopping the card', async () => {
     const bench = answerBench()
     bench.tools.heads = [sha('a'), sha('a')]
     bench.started(1098)
     bench.gitHub.open({ number: 998, review: 'failure' })
     bench.tick()
 
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'fault' })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
     expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([])
     bench.close()
   })
