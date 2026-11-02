@@ -7,6 +7,7 @@ import { openBus } from '../scripts/core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardEvents } from '../scripts/intake/intake.js'
+import { launchCandidates } from '../scripts/nodes/launch/launch-candidates.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
 import { printMove, runMove } from '../src/commands/intake/move.js'
@@ -30,10 +31,10 @@ function world(): { parking: string, journal: string } {
   return { parking, journal: path.join(root, 'handoff', 'ghosts.jsonl') }
 }
 
-function park(dir: string, id: number, body = 'Do the thing.'): string {
+function park(dir: string, id: number, body = 'Do the thing.', who = 'window'): string {
   mkdirSync(dir, { recursive: true })
   const file = path.join(dir, `${id}.md`)
-  writeFileSync(file, `card: #${id} card-${id} [implement/black-ice/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-${id}\ntouches: src/a.ts\ncontinue: stop\nwho: window\n\n${body}\n`)
+  writeFileSync(file, `card: #${id} card-${id} [implement/black-ice/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-${id}\ntouches: src/a.ts\ncontinue: stop\nwho: ${who}\n\n${body}\n`)
   return file
 }
 
@@ -61,7 +62,7 @@ function printed(result: ReturnType<typeof runMove>): { lines: string[], exit: n
 }
 
 describe('intake --move', () => {
-  it('moves a card to another directory and back', () => {
+  it('moves a card to a parking directory and back, and each move takes the card off the queue', () => {
     const w = world()
     const file = park(w.parking, 700)
     const text = readFileSync(file, 'utf8')
@@ -74,8 +75,8 @@ describe('intake --move', () => {
     expect(readFileSync(file, 'utf8')).toBe(text)
     expect(existsSync(moved)).toBe(false)
     expect(bus).toMatchObject([
-      { type: CARD_MOVED, cardId: 700, payload: { from: w.parking, to: path.join(w.parking, 'after-0.42'), bodySha: bodySha(text) } },
-      { type: CARD_MOVED, cardId: 700, payload: { from: path.join(w.parking, 'after-0.42'), to: w.parking, bodySha: bodySha(text) } },
+      { type: CARD_DROPPED, cardId: 700, payload: { from: w.parking, to: path.join(w.parking, 'after-0.42'), bodySha: bodySha(text) } },
+      { type: CARD_DROPPED, cardId: 700, payload: { from: path.join(w.parking, 'after-0.42'), to: w.parking, bodySha: bodySha(text) } },
     ])
     expect(journalLines(w.journal)).toEqual([])
   })
@@ -113,16 +114,16 @@ describe('intake --move', () => {
     expect(journalLines(w.journal)).toEqual([])
   })
 
-  it('a move into the folder that already holds the card writes card.moved and leaves the file where it is', () => {
+  it('a move into the lane that already holds the card writes card.moved and leaves the file where it is', () => {
     const w = world()
-    const file = park(path.join(w.parking, 'notes'), 709)
+    const file = park(path.join(w.parking, 'lane-9'), 709)
     const text = readFileSync(file, 'utf8')
     const bus: CardEvent[] = []
-    const result = move(w, 709, 'notes', event => bus.push(event))
+    const result = move(w, 709, 'lane-9', event => bus.push(event))
     expect(result).toEqual({ status: 'recordedInPlace', file, event: CARD_MOVED })
     expect(printed(result).lines.join('\n')).toContain('the file was not moved')
     expect(readFileSync(file, 'utf8')).toBe(text)
-    expect(bus).toMatchObject([{ type: CARD_MOVED, cardId: 709, payload: { from: path.dirname(file), to: path.dirname(file), lane: 'notes' } }])
+    expect(bus).toMatchObject([{ type: CARD_MOVED, cardId: 709, payload: { from: path.dirname(file), to: path.dirname(file), lane: 'lane-9' } }])
   })
 
   it('a move into dropped writes card.dropped, not card.moved, also when the card already sits there', () => {
@@ -171,6 +172,39 @@ describe('intake --move', () => {
     })).toThrow('refused by the bus')
     expect(existsSync(file)).toBe(true)
     expect(existsSync(path.join(w.parking, 'archive', '712.md'))).toBe(true)
+  })
+
+  it.each(['2026-10-30-folded', 'after-0.42', 'notes', '.'])('a card moved into parking is no launch candidate: a move into %s writes card.dropped, never a fresh card.admitted', (to) => {
+    const w = world()
+    const db = openBus(path.join(path.dirname(w.parking), 'bus.db'))
+    try {
+      const events = busCardEvents(db, 'by-hand', () => 1)
+      const file = park(path.join(w.parking, 'lane-window'), 1425, 'Fold the slice.', 'shift')
+      const repo = path.join(path.dirname(w.parking), 'repo')
+      mkdirSync(path.join(repo, 'src'), { recursive: true })
+      writeFileSync(path.join(repo, 'src', 'a.ts'), '')
+      expect(runAdmit({ file, dir: repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
+      reduce(db)
+      expect(launchCandidates(db, () => false).map(candidate => candidate.cardId)).toEqual([1425])
+      const result = runMove({ move: '#1425', to, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)
+      expect(result).toMatchObject({ status: 'moved', event: CARD_DROPPED })
+      expect(reduce(db).rejected).toBe(0)
+      const types = db.prepare('SELECT type FROM events WHERE card_id = 1425 ORDER BY id').all() as { type: string }[]
+      expect(types.map(row => row.type).filter(type => type.startsWith('card.'))).toEqual([CARD_ADMITTED, CARD_DROPPED])
+      expect(db.prepare('SELECT state FROM cards WHERE card_id = 1425').get()).toEqual({ state: 'dropped' })
+      expect(launchCandidates(db, () => false).map(candidate => candidate.cardId)).toEqual([])
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it.each(['lane-3', 'night-2', '2026-10-30-a'])('a move into the launch lane %s writes card.moved', (lane) => {
+    const w = world()
+    park(w.parking, 714)
+    const bus: CardEvent[] = []
+    expect(move(w, 714, lane, event => bus.push(event))).toMatchObject({ status: 'moved', event: CARD_MOVED })
+    expect(bus).toMatchObject([{ type: CARD_MOVED, cardId: 714, payload: { lane } }])
   })
 
   it('a bus-wired move says the bus holds the move', () => {

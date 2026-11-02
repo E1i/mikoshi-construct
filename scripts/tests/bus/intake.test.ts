@@ -270,12 +270,12 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(admitted).toMatchObject({ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: 'lane-8', depends: [], decision: 'auto', contour: 'cheap' } })
   })
 
-  it('a move into a directory that is no lane writes card.moved alone', () => {
+  it('a move into a directory that is no lane takes the card off the queue with card.dropped alone', () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     expect(admitThroughThePorts(w, park(w, 'lane-7'))).toBe('admitted')
     expect(withPort(w, events => runMove({ move: '#90', to: 'notes', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => NOW)).status).toBe('moved')
-    expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_MOVED])
+    expect(cardEvents(w).map(event => event.type)).toEqual([CARD_ADMITTED, CARD_DROPPED])
   })
 
   it('a move of a card with no card.admitted in the bus is refused, and the file stays where it was', () => {
