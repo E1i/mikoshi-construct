@@ -382,7 +382,7 @@ export class WindowRequests {
         return `${type} needs a --title, a --goal and an absolute --file that exists`
       const version = this.releaseVersion()
       if (version === null)
-        return `${type} could not read the version changesets will release from ${MAIN_REF} and ${VERSION_PR_REF}`
+        return `${type} could not fetch and read the version changesets will release from ${MAIN_REF} and ${VERSION_PR_REF}`
       return { id: plan, title, goal, plan_file: file, version }
     }
     if (type === PLAN_CLOSED)

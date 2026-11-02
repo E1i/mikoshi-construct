@@ -432,7 +432,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([['done', 'plan.opened p-046']])
     made.releaseVersion = null
     open('p-047')
-    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([['refused', 'plan.opened could not read the version changesets will release from origin/main and origin/changeset-release/main']])
+    expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([['refused', 'plan.opened could not fetch and read the version changesets will release from origin/main and origin/changeset-release/main']])
     expect(made.bench.db.prepare(`SELECT json_extract(payload, '$.id') AS id, json_extract(payload, '$.version') AS version FROM events WHERE type = 'plan.opened'`).all()).toEqual([{ id: 'p-046', version: '0.46.0' }])
   })
 

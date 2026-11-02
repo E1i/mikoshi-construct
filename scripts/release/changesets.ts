@@ -98,13 +98,19 @@ function versionAt(git: GitRead, ref: string): string | null {
   return typeof version === 'string' ? version : null
 }
 
+export const RELEASE_FETCH = ['fetch', '--quiet', '--prune', 'origin', `+refs/heads/main:refs/remotes/${MAIN_REF}`, '+refs/heads/changeset-release/*:refs/remotes/origin/changeset-release/*']
+
+function versionPrBuiltOnMain(git: GitRead): string | null {
+  return git(['merge-base', '--is-ancestor', MAIN_REF, VERSION_PR_REF]) === null ? null : versionAt(git, VERSION_PR_REF)
+}
+
 export function readReleaseSources(git: GitRead): ReleaseSources | null {
   const main = versionAt(git, MAIN_REF)
   if (main === null)
     return null
   const listing = git(['ls-tree', '--name-only', `${MAIN_REF}:${CHANGESET_DIR}`]) ?? ''
   const pending = pendingChangesets(listing.split('\n').filter(entry => entry !== '')).map(file => git(['show', `${MAIN_REF}:${CHANGESET_DIR}/${file}`]) ?? '')
-  return { versionPr: versionAt(git, VERSION_PR_REF), main, pending }
+  return { versionPr: versionPrBuiltOnMain(git), main, pending }
 }
 
 export function gitIn(repo: string): GitRead {
@@ -115,6 +121,8 @@ export function gitIn(repo: string): GitRead {
 }
 
 export function readReleaseVersion(git: GitRead = gitIn(process.cwd())): string | null {
+  if (git(RELEASE_FETCH) === null)
+    return null
   const sources = readReleaseSources(git)
   return sources === null ? null : releaseVersionFrom(sources)
 }
