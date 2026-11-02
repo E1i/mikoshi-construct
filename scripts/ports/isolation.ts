@@ -41,8 +41,12 @@ function fieldsOf(value: unknown): Fields | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Fields : null
 }
 
+function sandboxOf(layer: SettingsLayer): Fields {
+  return fieldsOf(fieldsOf(layer)?.sandbox) ?? {}
+}
+
 function sandboxLayers(facts: IsolationFacts): Fields[] {
-  return [facts.managed, facts.flag, facts.local, facts.project, facts.user].map(layer => fieldsOf(fieldsOf(layer)?.sandbox) ?? {})
+  return [facts.managed, facts.flag, facts.local, facts.project, facts.user].map(sandboxOf)
 }
 
 function networkLayers(sandboxes: Fields[]): Fields[] {
@@ -77,7 +81,17 @@ function causesOf(facts: IsolationFacts, enabled: unknown): string[] {
   return causes
 }
 
-function gapsOf(sandboxes: Fields[]): string[] {
+function isTsxPipe(socket: unknown): boolean {
+  return typeof socket === 'string' && TSX_PIPE_PATH.test(socket)
+}
+
+function socketsNamed(facts: IsolationFacts): unknown[] {
+  const cardSession = union(networkLayers([sandboxOf(facts.flag)]), 'allowUnixSockets')
+  const others = union(networkLayers([facts.managed, facts.local, facts.project, facts.user].map(sandboxOf)), 'allowUnixSockets')
+  return [...cardSession, ...others.filter(socket => !isTsxPipe(socket))]
+}
+
+function gapsOf(sandboxes: Fields[], sockets: unknown[]): string[] {
   const network = networkLayers(sandboxes)
   const gaps: string[] = []
   if (scalar(sandboxes, 'allowUnsandboxedCommands') !== false)
@@ -87,7 +101,6 @@ function gapsOf(sandboxes: Fields[]): string[] {
     gaps.push(`sandbox.excludedCommands names ${excluded.map(String).join(', ')}; they run outside the sandbox`)
   if (setBeyondFalse(scalar(network, 'allowAllUnixSockets')))
     gaps.push('sandbox.network.allowAllUnixSockets is set; every unix socket is reachable')
-  const sockets = union(network, 'allowUnixSockets').filter(socket => typeof socket !== 'string' || !TSX_PIPE_PATH.test(socket))
   if (sockets.length > 0)
     gaps.push(`sandbox.network.allowUnixSockets names ${sockets.map(String).join(', ')}`)
   if (setBeyondFalse(scalar(network, 'allowLocalBinding')))
@@ -102,7 +115,7 @@ export function runtimeIsolation(facts: IsolationFacts): Isolation {
   const causes = causesOf(facts, scalar(sandboxes, 'enabled'))
   if (causes.length > 0)
     return { level: 'none', why: causes.join('; ') }
-  const gaps = gapsOf(sandboxes)
+  const gaps = gapsOf(sandboxes, socketsNamed(facts))
   return { level: gaps.length === 0 ? 'full' : 'partial', mechanism: 'claude-code-sandbox', gaps }
 }
 

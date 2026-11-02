@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runInit } from '../../../src/commands/init.js'
@@ -30,8 +30,9 @@ describe('the settings a card session is started with in a repository after cons
     expect(shiftSettings(tree, readShiftGate(tree)).sandbox).toMatchObject({ enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false })
   })
 
-  it('bus sessions may bind a local port and reach no new host', () => {
-    expect(shiftSettings(tree, readShiftGate(tree)).sandbox.network).toEqual({ allowLocalBinding: true })
+  it('bus sessions may listen on the tsx pipe and no other socket', () => {
+    const uid = userInfo().uid
+    expect(shiftSettings(tree, readShiftGate(tree)).sandbox.network).toEqual({ allowLocalBinding: true, allowUnixSockets: [`/tmp/claude-${uid}/tsx-${uid}`] })
   })
 
   it('allow exactly the gate commands of the tree\'s construct config and edits inside the card tree, and no other rule', () => {

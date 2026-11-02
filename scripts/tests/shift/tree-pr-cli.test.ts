@@ -7,6 +7,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_PERMISSION_MODE } from '../../nodes/launch/launch-starter.js'
 import { busCardStopped, busPrOpened, claudeResume, PREFIX, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
+import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 
 const roots: string[] = []
 
@@ -397,7 +398,7 @@ describe('the session a refusal returns the card to', () => {
 
     const argv = readFileSync(seen, 'utf8').trim().split('\n')
     expect(JSON.parse(argv[argv.indexOf('--settings') + 1]!)).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
     })
   })

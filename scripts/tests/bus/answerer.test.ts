@@ -6,6 +6,7 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools } from '../../nodes/answer/answerer.js'
+import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 
 const CARD_SESSION = 'card-session-1207'
 const NEW_SESSION = 'new-session-1'
@@ -41,7 +42,7 @@ function settingsOf(run: AnswerRun): unknown {
 
 function treeSettings(worktree: string, ownerQuestion: string): unknown {
   return {
-    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } },
+    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
     permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
   }
 }
