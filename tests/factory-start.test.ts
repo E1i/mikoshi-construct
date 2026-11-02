@@ -484,7 +484,7 @@ describe('the modes of the factory', () => {
     expect(result.exitCode, result.stderr.join('\n')).toBe(0)
     expect(modeOf(bench.parts.busDir)).toBe('ghost-protocol')
     expect(switchedOn(bench.parts.busDir)).toEqual([...WORKERS])
-    expect(bench.events.map(event => [event.type, event.payload])).toEqual([[SHARD_ISSUED, { id: SHARD_ID, by: said, run: null, window: true, scope: 'merge', until: '2026-10-25T20:00:00.000Z' }]])
+    expect(bench.events.map(event => [event.type, event.payload])).toEqual([[SHARD_ISSUED, { id: SHARD_ID, by: said, run: null, window: true, scope: 'merge+decisions', until: '2026-10-25T20:00:00.000Z' }]])
     expect(existsSync(`${said}${USED_WORD}`)).toBe(true)
     expect(runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), modeBench().parts).exitCode).toBe(1)
   })
