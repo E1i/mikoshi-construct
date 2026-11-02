@@ -701,6 +701,16 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
     expect(ownerWaits(w)).toEqual([])
   })
 
+  it('a negated witness with the inverted exit is not a downgrade', () => {
+    const run = `pnpm exec vitest run tests/a.test.ts -t 'the thing'`
+    const w = world()
+    const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(`\`${run}\` exits 1 on head and 0 on base`))
+    admitThroughBus(w, file, { decisions: decisionsOf(w) })
+    park(w, 80, CLEAN, 'src/board/**', bodyWith(`\`! ${run}\` exits 0 on head and fails on base`))
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(ownerWaits(w)).toEqual([])
+  })
+
   it('a new card with no previous body opens no owner wait', () => {
     const w = world()
     const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(INVARIANT))
@@ -718,6 +728,16 @@ describe('witnessDowngrades', () => {
     const before = '`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0; non-zero on main'
     expect(witnessDowngrades([before], ['`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0 — red on main'])).toEqual([])
     expect(witnessDowngrades([before], ['`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0, red on main'])).toEqual([])
+  })
+
+  it('the negation of the same command with the inverted exit is the same fact, and an inverted expectation is not', () => {
+    const run = '`pnpm exec vitest run tests/a.test.ts -t \'x\'`'
+    const negated = '`! pnpm exec vitest run tests/a.test.ts -t \'x\'`'
+    expect(witnessDowngrades([`${run} exits 1 on head and 0 on base`], [`${negated} exits 0 on head and fails on base`])).toEqual([])
+    expect(witnessDowngrades([`${negated} exits 0 on head and fails on base`], [`${run} exits 1 on head and 0 on base`])).toEqual([])
+    expect(witnessDowngrades([`${run} exits 0; red on main`], [`${negated} exits 1 on head and 0 on base`])).toEqual([])
+    expect(witnessDowngrades([`${run} exits 1 on head and 0 on base`], [`${negated} exits 0`])).toEqual([`${run} exits 1 on head and 0 on base`])
+    expect(witnessDowngrades([`${run} exits 1 on head and 0 on base`], [`${run} exits 0 on head and fails on base`])).toEqual([`${run} exits 1 on head and 0 on base`])
   })
 
   it('rewording a red on main witness into the non-zero on main form is a downgrade', () => {

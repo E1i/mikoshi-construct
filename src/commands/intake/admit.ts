@@ -186,11 +186,40 @@ function witnessCore(witness: string): string {
   return withoutWitnessKind(witness).replace(ANY_FORM_OF_FAILING_ON_MAIN, '').trim()
 }
 
+type Outcome = 'pass' | 'fail' | 'any'
+
+interface WitnessFact { command: string, head: Outcome, base: Outcome }
+
+const BACKTICKED_COMMAND = /`([^`]+)`/g
+const NEGATED_COMMAND = /^!\s+/
+const FAILS_ON_HEAD = /\bexits 1\b(?! on (?:the )?(?:base|main)\b)|\b(?:fails|red) on (?:the )?head\b/i
+const PASSES_ON_BASE = /\b(?:exits )?0 on (?:the )?(?:base|main)\b/i
+const INVERTED: Record<Outcome, Outcome> = { pass: 'fail', fail: 'pass', any: 'any' }
+
+function witnessFact(witness: string): WitnessFact | null {
+  const commands = [...witness.matchAll(BACKTICKED_COMMAND)].map(match => match[1]!.trim())
+  if (commands.length !== 1)
+    return null
+  const wording = witness.replace(BACKTICKED_COMMAND, '')
+  const head: Outcome = FAILS_ON_HEAD.test(wording) ? 'fail' : 'pass'
+  const base: Outcome = isChangeWitness(witness) ? 'fail' : PASSES_ON_BASE.test(wording) ? 'pass' : 'any'
+  const command = commands[0]!.replace(NEGATED_COMMAND, '')
+  return command === commands[0] ? { command, head, base } : { command, head: INVERTED[head], base: INVERTED[base] }
+}
+
+function sameFact(left: WitnessFact, right: WitnessFact): boolean {
+  return left.command === right.command && left.head === right.head && left.base === right.base
+}
+
 export function witnessDowngrades(previous: readonly string[], next: readonly string[]): string[] {
   const acceptanceByCore = new Map(next.map(witness => [witnessCore(witness), isChangeWitness(witness)]))
+  const nextFacts = next.flatMap(witness => witnessFact(witness) ?? [])
   return previous.filter((witness) => {
     const acceptance = acceptanceByCore.get(witnessCore(witness))
-    return acceptance === undefined || (isChangeWitness(witness) && !acceptance)
+    if (acceptance !== undefined && !(isChangeWitness(witness) && !acceptance))
+      return false
+    const fact = witnessFact(witness)
+    return fact === null || !nextFacts.some(other => sameFact(fact, other))
   })
 }
 

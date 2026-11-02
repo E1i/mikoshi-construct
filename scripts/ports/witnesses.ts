@@ -90,7 +90,13 @@ export function testTargetOf(command: string): TestTarget | null {
   return { file, name: named === null ? null : named[1] ?? named[2] ?? named[3] }
 }
 
+function isNegated(witness: Witness): boolean {
+  return NEGATION.test(witness.command.trim())
+}
+
 function absentOnBase(tree: string, witness: Witness): boolean {
+  if (isNegated(witness))
+    return false
   const target = testTargetOf(witness.command)
   if (target === null)
     return false
@@ -139,7 +145,7 @@ function baseRedRefusal(witness: Witness, result: ShellResult, base: string): st
     return `witness "${witness.criterion}" exits 0 on the clean base ${base}: it is green before any change, so no implementation can make it red`
   if (NO_TEST_MATCHED.test(result.output))
     return `witness "${witness.criterion}" matched no test on the base ${base} while its test file and name are there (${lastLine(result.output)}): a witness that runs no test is not red for a reason`
-  if (testTargetOf(witness.command) !== null && !reportsFailedTest(result.output))
+  if (!isNegated(witness) && testTargetOf(witness.command) !== null && !reportsFailedTest(result.output))
     return `witness "${witness.criterion}" exits ${result.status} on the base ${base} with no failing test (${lastLine(result.output)}): a crash or an environment error is not red for a reason`
   return null
 }
@@ -155,6 +161,8 @@ function greenRefusal(label: string, witness: Witness, result: ShellResult, wher
 function headRefusal(label: string, witness: Witness, result: ShellResult, where: string): string | null {
   if (NO_TEST_MATCHED.test(result.output))
     return `${label} "${witness.criterion}" matched no test on ${where} (${lastLine(result.output)}): a witness that runs no test proves nothing`
+  if (result.status === 0 && isNegated(witness) && testTargetOf(witness.command) !== null && !reportsFailedTest(result.output))
+    return `${label} "${witness.criterion}" exits 0 on ${where} only because its negated test run failed with no failing test (${lastLine(result.output)}): a crash or an environment error is not the failure it names`
   return greenRefusal(label, witness, result, where)
 }
 
