@@ -218,8 +218,19 @@ function mergeMainIn(git: TreeGit, tree: string, card: ConflictingCard): MainMer
     git(tree, ['commit', '-q', '--no-edit'])
     tookMain = files
   }
-  git(tree, ['push', '-q', 'origin', `HEAD:refs/heads/${card.branch}`])
-  return { kind: 'merged', to: git(tree, ['rev-parse', 'HEAD']), tookMain }
+  return pushedOrUndone(git, tree, card, tookMain)
+}
+
+function pushedOrUndone(git: TreeGit, tree: string, card: ConflictingCard, tookMain: string[]): MainMerge {
+  const to = git(tree, ['rev-parse', 'HEAD'])
+  try {
+    git(tree, ['push', '-q', 'origin', `HEAD:refs/heads/${card.branch}`])
+  }
+  catch (error) {
+    git(tree, ['reset', '-q', '--hard', card.head])
+    return { kind: 'refused', why: `the push of the merge ${to} to ${card.branch} failed, and the tree went back to ${card.head}: ${messageOf(error)}` }
+  }
+  return { kind: 'merged', to, tookMain }
 }
 
 export function mainMergeInCardTree(git: TreeGit, treeOf: (cardId: number) => string): MergeMain {

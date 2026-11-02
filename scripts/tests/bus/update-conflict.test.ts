@@ -144,4 +144,22 @@ describe('the update node on a pull request in conflict with main', () => {
     expect(answerCandidates(bench.db, bench.clock.now().toISOString())).toMatchObject([{ queue: 'answer', cardId: 1195, pr: 1095, head: conflict.head }])
     bench.close()
   })
+
+  it('a merge whose push fails leaves the tree back at the leased head and nothing pushed', () => {
+    const { bench, conflict, lease, executor } = conflictBench(CHANGESET, 1096)
+    const elsewhere = path.join(path.dirname(conflict.origin), 'elsewhere')
+    execFileSync('git', ['clone', '-q', '-b', conflict.branch, conflict.origin, elsewhere], { stdio: 'ignore' })
+    write(elsewhere, 'moved.txt', 'moved\n')
+    const moved = commitAll(elsewhere, 'the card branch moves')
+    git(elsewhere, ['push', '-q', 'origin', conflict.branch])
+
+    const leased = lease()!
+    expect(executor.update(leased)).toMatchObject({ kind: 'denied', denial: { reason: 'merge_refused', detail: expect.stringContaining(`the tree went back to ${conflict.head}`) } })
+    expect(git(conflict.tree, ['rev-parse', 'HEAD'])).toBe(conflict.head)
+    expect(git(conflict.tree, ['status', '--porcelain'])).toBe('')
+    expect(git(conflict.origin, ['rev-parse', `refs/heads/${conflict.branch}`])).toBe(moved)
+    expect(eventsOf(bench.db, UPDATE_DONE)).toEqual([])
+    expect(taskState(bench.db, leased.taskKey).state).toBe('withdrawn')
+    bench.close()
+  })
 })
