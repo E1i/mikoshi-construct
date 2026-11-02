@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CARD_CLOSED, CARD_STOPPED, MERGE_DONE, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_CLOSED, CARD_STOPPED, MERGE_DONE, PR_CLOSED, REVIEW_RECORDED, WORKER_DOWN } from '../../core/events.js'
+import { WatchRefusal } from '../../window/watch-refusal.js'
 import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { busLine, CATCHUP_LAG, caughtUpLine, deliverOnce, parseWatchArgs, runTail, selectOnce, TAIL, tailLine } from '../../window/watch.js'
 
@@ -46,8 +47,8 @@ function memoryDeps(events: BusEvent[], end: () => number, emitted: string[] = [
   }
 }
 
-function event(id: number, type: string, cardId: number, pr: number): BusEvent {
-  return { id, type, cardId, pr, head: null, payload: JSON.stringify({ n: id }) }
+function event(id: number, type: string, cardId: number | null, pr: number | null, head: string | null = null): BusEvent {
+  return { id, type, cardId, pr, head, payload: JSON.stringify({ n: id }) }
 }
 
 function storeAt(handoff: string, busId: number): OnceStore {
@@ -83,6 +84,38 @@ describe('watch --once catches up a lagging cursor', () => {
     expect(selectOnce({ offset: 0, busId: TAIL_ID }, quiet)).toEqual({ line: busLine(live), cursor: { offset: 0, busId: TAIL_ID + 1 } })
     expect(selectOnce({ offset: 0, busId: TAIL_ID - CATCHUP_LAG }, memoryDeps(stale, () => TAIL_ID))).toBeUndefined()
     expect(selectOnce({ offset: 0, busId: CURSOR }, memoryDeps(stale, () => TAIL_ID), 2)).toEqual({ line: [caughtUpLine(CURSOR, TAIL_ID), busLine(stale[3]!)].join('\n'), cursor: { offset: 0, busId: TAIL_ID } })
+  })
+
+  it('a catch-up keeps the latest event per card, per pull request without a card and per type without either, in bus order, up to the tail and never of a superseded head', () => {
+    const SUPERSEDED_PR = 15
+    const events = [
+      event(CURSOR + 10, CARD_STOPPED, 1, 11),
+      event(CURSOR + 20, MERGE_DONE, 2, 12),
+      event(CURSOR + 30, REVIEW_RECORDED, 1, 11),
+      event(CURSOR + 40, REVIEW_RECORDED, 3, SUPERSEDED_PR, 'old'),
+      event(CURSOR + 50, MERGE_DONE, null, 16),
+      event(CURSOR + 60, PR_CLOSED, null, 16),
+      event(CURSOR + 70, WORKER_DOWN, null, null),
+      event(CURSOR + 75, CARD_CLOSED, null, null),
+      event(CURSOR + 80, WORKER_DOWN, null, null),
+      event(TAIL_ID + 5, CARD_STOPPED, 4, 17),
+    ]
+    const deps = { ...memoryDeps(events, () => TAIL_ID), observedHeads: (pr: number) => pr === SUPERSEDED_PR ? ['old', 'new'] : [] }
+    const kept = [events[1]!, events[2]!, events[5]!, events[7]!, events[8]!]
+    expect(selectOnce({ offset: 0, busId: CURSOR }, deps)).toEqual({ line: [caughtUpLine(CURSOR, TAIL_ID), ...kept.map(busLine)].join('\n'), cursor: { offset: 0, busId: TAIL_ID } })
+  })
+
+  it('--tail refuses a bus that ends before the cursor and leaves the cursor where it was', () => {
+    const handoff = handoffDir()
+    storeAt(handoff, CURSOR).close()
+    expect(() => runTail(handoff, memoryDeps([], () => CURSOR - 1))).toThrow(WatchRefusal)
+    const store = storeAt(handoff, 0)
+    try {
+      expect(store.cursor()).toEqual({ offset: 0, busId: CURSOR })
+    }
+    finally {
+      store.close()
+    }
   })
 
   it('the agent moves the cursor to the bus tail with one command', () => {
