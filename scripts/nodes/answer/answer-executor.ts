@@ -48,7 +48,7 @@ export interface AnswerParts {
   isolation?: IsolationReader
   prompts?: string
   dirty?: (card: CardSession) => boolean
-  liveSession?: (card: CardSession) => boolean
+  liveSession?: (card: CardSession) => string | null
 }
 
 type Answering = AnswerSource & { reentry?: true }
@@ -56,6 +56,7 @@ type Answering = AnswerSource & { reentry?: true }
 interface Widened {
   event: BusEvent
   reason: string
+  paths: string[]
 }
 
 const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
@@ -145,15 +146,16 @@ export class AnswerExecutor {
         if (scope === null || uncovered.length > 0)
           return this.stopped(lease, QUESTION_AGENT, `${uncovered.join(', ')} not in the touches or creates the card was admitted with: ${source.detail}`, { widen: uncovered })
         const reason = `${source.widen.paths.join(', ')}, by the window's amend of the card`
-        widened = { reason, event: this.event(lease, SCOPE_WIDENED, { paths: source.widen.paths, admission: scope.admission, detail: source.detail }) }
+        widened = { reason, paths: source.widen.paths, event: this.event(lease, SCOPE_WIDENED, { paths: source.widen.paths, admission: scope.admission, detail: source.detail }) }
       }
       const card = this.tree(lease)
       if (card === null)
         return this.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started, no start line with a worktree and a branch, and no open pull request` })
       if ('kind' in card)
         return this.denied(lease, card)
-      if ((this.parts.liveSession ?? liveSessionIn)(card))
-        return this.heldForTheOwner(lease, `a live session runs in the tree ${card.worktree} of card #${lease.cardId}`)
+      const live = (this.parts.liveSession ?? liveSessionIn)(card)
+      if (live !== null)
+        return this.heldForTheOwner(lease, live)
       const merge = source === null ? (this.parts.treeMerge ?? treeMergeOf)(card) : null
       if (merge?.kind === 'unreadable')
         return this.waiting(lease, card, merge.why)
@@ -162,7 +164,7 @@ export class AnswerExecutor {
       const first = await this.session(lease, answering, widened, card, false)
       const answered = endedOnContextWarn(first) ? await this.session(lease, answering, widened, card, true) : first
       if ('kind' in answered)
-        return this.denied(lease, answered)
+        return this.refusedOrDenied(lease, answered, widened)
       return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
     }
     catch (error) {
@@ -224,16 +226,23 @@ export class AnswerExecutor {
 
   private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean): Promise<Answered | AnswerDenial> {
     try {
-      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease) })
+      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened) })
     }
     catch (error) {
       return { kind: 'technical', reason: reasonOfFailure(error), detail: messageOf(error) }
     }
   }
 
-  private outsideTouchesOf(lease: Lease): (paths: readonly string[]) => string[] {
+  private outsideTouchesOf(lease: Lease, widened: Widened | null): (paths: readonly string[]) => string[] {
     const scope = admittedScopeOf(this.parts.db, lease.cardId)
-    return paths => scope === null ? [] : pathsOutside(scope.touches, scope.creates, paths)
+    const widenedPaths = widened?.paths ?? []
+    return paths => scope === null ? [...paths] : pathsOutside([...scope.touches, ...widenedPaths], scope.creates, paths)
+  }
+
+  private refusedOrDenied(lease: Lease, denial: AnswerDenial, widened: Widened | null): AnswerOutcome {
+    if (denial.reason !== 'outside_touches')
+      return this.denied(lease, denial)
+    return this.ownersStop(lease, `${denial.detail}; the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event])
   }
 
   private heldForTheOwner(lease: Lease, detail: string): AnswerOutcome {
@@ -281,7 +290,7 @@ export class AnswerExecutor {
     appendEvent(this.parts.db, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS }))
     const decided = await this.session(lease, decisionSource(question, ground), widened, card, false)
     if ('kind' in decided)
-      return this.denied(lease, decided)
+      return this.refusedOrDenied(lease, decided, widened)
     if (!leftNoNewHead(decided))
       return this.settled(lease, decisionSource(question, ground), widened, card, decided, 0)
     if (decided.owner !== null)

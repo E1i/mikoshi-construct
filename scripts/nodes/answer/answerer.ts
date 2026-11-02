@@ -87,7 +87,7 @@ export interface AnswererTools {
   diff?: (card: CardSession) => string | null
   ciLog?: (card: CardSession, head: string) => string | null
   held?: (lease: Lease) => boolean
-  pending?: (card: CardSession) => string[]
+  pending?: (card: CardSession, since: string) => string[]
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -369,7 +369,11 @@ function porcelainEntries(output: string): PendingPath[] {
   return pending
 }
 
-export function pendingPathsOf(card: CardSession): string[] {
+function committedSince(card: CardSession, since: string): string[] {
+  return git(card.worktree, ['log', '--cc', '--name-only', '--format=', `${since}..HEAD`]).split('\n').filter(file => file !== '')
+}
+
+function uncommitted(card: CardSession): string[] {
   const changed = porcelainEntries(git(card.worktree, ['status', '--porcelain', '-z', '--untracked-files=all']))
   if (treeMergeOf(card).kind !== 'mid-merge')
     return changed.map(each => each.file)
@@ -377,18 +381,34 @@ export function pendingPathsOf(card: CardSession): string[] {
   return changed.filter(each => each.untracked || differFromTheMergedBranch.has(each.file)).map(each => each.file)
 }
 
-const LSOF_PATH_FIELD = 'n'
+export function pendingPathsOf(card: CardSession, since: string): string[] {
+  return [...new Set([...committedSince(card, since), ...uncommitted(card)])]
+}
 
-export function liveSessionIn(card: CardSession): boolean {
-  let listing: string
+const LSOF_PATH_FIELD = 'n'
+const LSOF_FOUND_NONE = 1
+
+export type ProcessCwds = { kind: 'listed', listing: string } | { kind: 'unreadable', why: string }
+
+export function claudeCwds(): ProcessCwds {
   try {
-    listing = execFileSync('lsof', ['-a', '-c', 'claude', '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    return { kind: 'listed', listing: execFileSync('lsof', ['-a', '-c', 'claude', '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
   }
-  catch {
-    return false
+  catch (error) {
+    const failed = error as { status?: unknown, stdout?: unknown }
+    if (failed.status === LSOF_FOUND_NONE)
+      return { kind: 'listed', listing: typeof failed.stdout === 'string' ? failed.stdout : '' }
+    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
   }
+}
+
+export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = claudeCwds): string | null {
+  const read = cwds()
+  if (read.kind === 'unreadable')
+    return `the sessions running in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`
   const tree = existsSync(card.worktree) ? realpathSync(card.worktree) : card.worktree
-  return listing.split('\n').some(line => line.startsWith(LSOF_PATH_FIELD) && line.slice(LSOF_PATH_FIELD.length) === tree)
+  const inside = read.listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length)).find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
+  return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
 export function treeDirtyOf(card: CardSession): boolean {
@@ -539,7 +559,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const steps = ['']
     const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
     const refuseOutsideTouches = (): void => {
-      const outside = request.outsideTouches?.(tools.pending?.(card) ?? []) ?? []
+      const outside = request.outsideTouches?.(tools.pending?.(card, before ?? `origin/${MAIN_BRANCH}`) ?? []) ?? []
       if (outside.length > 0)
         throw new AnswerOutsideTouches(request.lease, outside)
     }
