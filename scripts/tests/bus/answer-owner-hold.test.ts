@@ -285,6 +285,16 @@ describe('the paths an answer commit would push', () => {
     expect(pendingPathsOf(treeAt(dir)).sort()).toEqual(['answered.ts', 'kept.ts'])
   })
 
+  it('a path the answer commits after a merge of main is still pending', () => {
+    const dir = cardAndMainDiverged()
+    gitIn(dir, 'merge', '-q', '--no-edit', 'origin/main')
+    writeFileSync(path.join(dir, 'outside.ts'), 'answer\n')
+    gitIn(dir, 'add', '-A')
+    gitIn(dir, 'commit', '-q', '-m', 'answer')
+
+    expect(pendingPathsOf(treeAt(dir)).sort()).toEqual(['kept.ts', 'outside.ts'])
+  })
+
   it('a rebase onto main adds none of main\'s paths to the pending ones', () => {
     const dir = cardAndMainDiverged()
     gitIn(dir, 'rebase', '-q', 'origin/main')
