@@ -34,6 +34,7 @@ import { taskConflicts } from '../../nodes/launch/overlap.js'
 import { renderPrompt } from '../../nodes/launch/prompt.js'
 import { recordDecision } from '../../policy/decisions.js'
 import { sessionEnv } from '../../ports/session.js'
+import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busLaunches } from '../../supervisor/workers.js'
@@ -875,7 +876,7 @@ describe('the launch queue', () => {
     const [args, card] = (await written(stub.argsFile)).trim().split('\n')
     const settings = /^--permission-mode dontAsk --setting-sources project,local --settings (\{.*\}) --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
     expect(JSON.parse(settings ?? 'null')).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
     })
     expect(card).toBe('card=934')
