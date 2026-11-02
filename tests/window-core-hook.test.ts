@@ -5,7 +5,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
 import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../scripts/ports/session.js'
-import { CONTINUE_PROMPT, MIKO_HANDOFF_NAME } from '../scripts/window/loop.js'
+import { WAKE_UP } from '../scripts/window/compact-start.js'
+import { MIKO_HANDOFF_NAME, repositoryContinuePrompt } from '../scripts/window/loop.js'
 import { ENTRYPOINT_VARIABLE } from '../scripts/window/tab.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
@@ -30,16 +31,16 @@ function run(root: string | null) {
   return spawnSync('node', [HOOK], { input: '{}', env, encoding: 'utf8' })
 }
 
-function tabSession(source: string): { additionalContext: string } {
+function tabSession(source: string): { additionalContext: string, handoff: string } {
   const handoffDir = mkdtempSync(path.join(tmpdir(), 'construct-window-core-handoff-'))
   roots.push(handoffDir)
   writeFileSync(path.join(handoffDir, MIKO_HANDOFF_NAME), '# Handoff\n\nSTATUS: CONTINUE\n')
-  const env = { ...process.env, CLAUDE_PROJECT_DIR: REPO_ROOT, CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir, CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_RAISED: '', [ENTRYPOINT_VARIABLE]: 'cli', [CARD_VARIABLE]: '', [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }
+  const env = { ...process.env, HOME: handoffDir, CONSTRUCT_WORKTREE_HOME: path.join(handoffDir, 'worktrees'), CONSTRUCT_BUS_DB: path.join(handoffDir, 'bus.db'), CLAUDE_PROJECT_DIR: REPO_ROOT, CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir, CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_RAISED: '', [ENTRYPOINT_VARIABLE]: 'cli', [CARD_VARIABLE]: '', [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }
   const result = spawnSync('node', [HOOK], { input: JSON.stringify({ hook_event_name: 'SessionStart', source }), env, encoding: 'utf8' })
   expect(result.status).toBe(0)
   const lines = result.stdout.split('\n').filter(line => line !== '')
   expect(lines).toHaveLength(1)
-  return (JSON.parse(lines[0]) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput
+  return { ...(JSON.parse(lines[0]) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput, handoff: path.join(handoffDir, MIKO_HANDOFF_NAME) }
 }
 
 afterEach(() => {
@@ -89,16 +90,15 @@ describe('the window-core SessionStart hook', () => {
     expect(result.stderr).toContain('architecture/window-core.md')
   })
 
-  it('a tab window on SessionStart with source compact returns the continue prompt as additionalContext', () => {
+  it('a tab window on SessionStart with source compact returns the continue prompt and the wake-up as additionalContext', () => {
     const core = readFileSync(path.join(REPO_ROOT, 'architecture', 'window-core.md'), 'utf8')
     const output = tabSession('compact')
-    expect(output.additionalContext.startsWith(core)).toBe(true)
-    expect(output.additionalContext.trimEnd().endsWith(CONTINUE_PROMPT)).toBe(true)
+    expect(output.additionalContext).toBe(`${core}\n\n${repositoryContinuePrompt(REPO_ROOT, output.handoff)}\n\n${WAKE_UP}\n`)
   }, 20_000)
 
-  it('a tab window on SessionStart with source startup, resume or clear returns the window core alone', () => {
+  it('a tab window on SessionStart with source startup, resume or clear returns the window core and the wake-up', () => {
     const core = readFileSync(path.join(REPO_ROOT, 'architecture', 'window-core.md'), 'utf8')
     for (const source of ['startup', 'resume', 'clear'])
-      expect(tabSession(source).additionalContext).toBe(core)
-  }, 20_000)
+      expect(tabSession(source).additionalContext).toBe(`${core}\n\n${WAKE_UP}\n`)
+  }, 30_000)
 })

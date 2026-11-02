@@ -20,6 +20,7 @@ const SEGMENT = /'([^']*)'/g
 const TEST_SOURCES = `${FACTORY_FOLDERS.tests[0]}/`
 const INSTALLED_DEPENDENCIES = 'node_modules/'
 const TYPESCRIPT = '.ts'
+const PLAIN_MODULE = '.mjs'
 const ROOT_FILES_ONLY = '!*/**'
 const NESTED_FILES_ONLY = '!*'
 
@@ -72,8 +73,9 @@ function reach(entries: readonly string[]): { sources: string[], assets: string[
     const text = readFileSync(next, 'utf8')
     const registry = next === FACTORY_NAMED.factoryRegistry
     const located = [...locatedBy(next, text), ...(registry ? [] : assetsNamedBy(text))].filter(file => existsSync(file))
-    pending.push(...importsOf(next, text), ...(registry ? [] : scriptsNamedBy(text).filter(file => existsSync(file))), ...located.filter(file => file.endsWith(TYPESCRIPT)))
-    for (const asset of located.filter(file => !file.endsWith(TYPESCRIPT)))
+    const imported = importsOf(next, text)
+    pending.push(...imported.filter(file => !file.endsWith(PLAIN_MODULE)), ...(registry ? [] : scriptsNamedBy(text).filter(file => existsSync(file))), ...located.filter(file => file.endsWith(TYPESCRIPT)))
+    for (const asset of [...located.filter(file => !file.endsWith(TYPESCRIPT)), ...imported.filter(file => file.endsWith(PLAIN_MODULE))])
       assets.add(asset)
   }
   return { sources: [...sources].sort(), assets: [...assets].sort() }
