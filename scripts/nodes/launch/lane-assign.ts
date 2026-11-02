@@ -38,6 +38,12 @@ const STALLED_PRS = `
   ORDER BY prs.card_id
 `
 
+const OWNER_MERGE_HOLDERS = `
+  SELECT DISTINCT prs.card_id FROM prs
+  WHERE prs.state = 'open' AND prs.card_id IS NOT NULL
+    AND EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.need = 'merge' AND wait.state = '${OPEN_WAIT}' AND wait.pr = prs.pr)
+`
+
 const LATEST_MERGE_DENIAL = `
   SELECT payload FROM events
   WHERE legacy = 0 AND type = '${POLICY_DENIED}' AND card_id = ? AND pr = ? AND json_valid(payload) AND json_extract(payload, '$.command') = 'merge'
@@ -197,7 +203,20 @@ function binding(card: LaneCard, chained: readonly LiveLane[], others: readonly 
   return chained.filter(other => others.every(each => each.lane !== other.lane || chainedTo(card, each)))
 }
 
-export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: number, current: string | null = null, occupying: readonly LiveLane[] = live): LaneChoice {
+function leastLoaded(load: ReadonlyMap<number, number>, numbers: readonly number[]): number {
+  return numbers.reduce((best, number) => load.get(number)! < load.get(best)! ? number : best)
+}
+
+function lanesClearOfOwnerMerge(count: number, occupants: readonly LiveLane[], waitingOnOwner: ReadonlySet<number>): number[] {
+  const held = new Set(occupants.filter(other => waitingOnOwner.has(other.cardId)).map(other => other.lane))
+  return laneNumbers(count).filter(number => !held.has(chainLaneName(number)))
+}
+
+export function ownerMergeHolders(db: DatabaseSync): Set<number> {
+  return new Set((db.prepare(OWNER_MERGE_HOLDERS).all() as { card_id: number }[]).map(row => row.card_id))
+}
+
+export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: number, current: string | null = null, occupying: readonly LiveLane[] = live, waitingOnOwner: ReadonlySet<number> = new Set()): LaneChoice {
   const others = live.filter(other => other.cardId !== card.cardId)
   const occupants = occupying.filter(other => other.cardId !== card.cardId)
   const chained = others.filter(other => withinCount(other.lane, count) && chainedTo(card, other))
@@ -212,7 +231,8 @@ export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: num
     return { lane: chainLaneName(free), reason: 'free', after: [] }
   if (chained.length > 0)
     return chainChoice(chained, current)
-  const least = laneNumbers(count).reduce((best, number) => load.get(number)! < load.get(best)! ? number : best)
+  const clear = lanesClearOfOwnerMerge(count, occupants, waitingOnOwner)
+  const least = leastLoaded(load, clear.length > 0 ? clear : laneNumbers(count))
   return { lane: chainLaneName(least), reason: 'least-loaded', after: [] }
 }
 
@@ -294,7 +314,7 @@ function releasedChoice(db: DatabaseSync, card: LaneCard, rows: readonly Admitte
   const started = new Set(rows.filter(row => !notStarted(row)).map(row => row.card_id))
   const live = liveLanes(db)
   const binders = live.filter(other => started.has(other.cardId) || card.depends.includes(other.cardId))
-  return chooseLane(card, binders, count, null, live)
+  return chooseLane(card, binders, count, null, live, ownerMergeHolders(db))
 }
 
 export function assignMovedLane(db: DatabaseSync, cardId: number, lane: string, count: number, ts: string, actor: string): boolean {
@@ -311,7 +331,8 @@ export function layOutLanes(db: DatabaseSync, count: number, ts: string, actor: 
     if (keptWhere(db, row.card_id, current, count) && !released)
       continue
     const card = laneCardOf(db, row.card_id)
-    const choice = released ? releasedChoice(db, card, rows, count) : chooseLane(card, liveLanes(db), count)
+    const live = liveLanes(db)
+    const choice = released ? releasedChoice(db, card, rows, count) : chooseLane(card, live, count, null, live, ownerMergeHolders(db))
     if (assign(db, row.card_id, Number(row.admission), choice, count, ts, actor))
       assigned += 1
   }
@@ -339,7 +360,8 @@ export function relayAmended(db: DatabaseSync, cardId: number, count: number, ts
   const latest = textAdmissions(db, cardId)[0]
   if (current === null || latest === undefined || !touchesChanged(db, cardId))
     return false
-  const choice = chooseLane(laneCardOf(db, cardId), liveLanes(db), count, current)
+  const live = liveLanes(db)
+  const choice = chooseLane(laneCardOf(db, cardId), live, count, current, live, ownerMergeHolders(db))
   return choice.lane !== current && assign(db, cardId, Number(latest.id), choice, count, ts, actor)
 }
 
