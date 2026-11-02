@@ -187,6 +187,20 @@ describe('the bus heals a broken events index', () => {
     expect(onBus(other, integrityOf)).toEqual(['ok'])
   })
 
+  it('a recorded pid that is no longer a node of this bus is dropped from the record and never signalled', async () => {
+    const busPath = seededBus(newRoot(), 'own')
+    breakEventsIndex(busPath)
+    const signals = fakeSignals()
+    const reused = OWN_PIDS[1]!
+    const nodes = recordedNodes(busPath, { ...signals, runsNodeOfThisBus: pid => pid !== reused && signals.runsNodeOfThisBus(pid, '') }, OWN_PIDS)
+
+    await healer(busPath, nodes).step([CORRUPT_LINE])
+
+    expect(signals.sent.map(each => each.pid)).not.toContain(reused)
+    expect(signals.sent.map(each => each.pid)).toContain(OWN_PIDS[0])
+    expect(readFileSync(path.join(busDirOf(busPath), NODES_RECORD), 'utf8')).not.toContain(String(reused))
+  })
+
   it('a quiet bus is not touched: no corruption seen, no node stopped', async () => {
     const busPath = seededBus(newRoot(), 'own')
     const signals = fakeSignals()
