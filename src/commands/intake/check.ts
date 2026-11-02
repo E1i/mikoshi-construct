@@ -11,6 +11,7 @@ import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandWord } from './command-word.js'
+import { witnessKindField } from './draft.js'
 import { isWithin } from './parking-tree.js'
 
 export const DEFAULT_CONTOUR = 'cheap'
@@ -32,6 +33,9 @@ const OUTPUT_REDIRECT = /(?:\d|&)?>>?\s*\S+/g
 const INFORMATION_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help'])
 const CURRENT_DIRECTORY_PREFIX = /^\.\//
 const TREE_READING_COMMANDS = new Set(['pnpm', 'npm', 'npx', 'yarn', 'node', 'git', 'vitest', 'tsx', 'tsc', 'eslint'])
+const CHANGE_WITNESS_WORDING = /\b(?:red on (?:main|the base)|fails on (?:main|the base|base))\b/
+const CHANGE_WITNESS_KIND = 'acceptance'
+const IMPLEMENT_KIND = 'implement'
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
 
 const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
@@ -426,20 +430,44 @@ function outsidePathsUnclear(commands: readonly string[], witness: string): Uncl
   })
 }
 
-function readsTheTree(command: string, repository: RepositoryFacts): boolean {
-  const word = commandWord(command) ?? ''
-  const named = argumentsOf(command)
-  if (TREE_READING_COMMANDS.has(word))
-    return named.length === 0 || named.some(token => !INFORMATION_FLAGS.has(token))
-  const paths = word.includes('/') ? [word, ...named] : named
-  return paths.some(token => !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token) && repository.exists(token.replace(CURRENT_DIRECTORY_PREFIX, '')))
+interface WitnessReach { repository: RepositoryFacts, created: readonly string[] }
+
+function namesTreePath(token: string, reach: WitnessReach): boolean {
+  const relative = token.replace(CURRENT_DIRECTORY_PREFIX, '')
+  return !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token) && (reach.repository.exists(relative) || reach.created.includes(relative))
 }
 
-function headIndependentUnclear(commands: readonly string[], witness: string, repository: RepositoryFacts): UnclearField[] {
-  return commands.some(command => readsTheTree(command, repository)) ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" reads nothing the tree under test can change; its result does not depend on the head` }]
+function namedPaths(command: string, reach: WitnessReach): string[] {
+  const word = commandWord(command) ?? ''
+  const named = argumentsOf(command)
+  return (word.includes('/') ? [word, ...named] : named).filter(token => namesTreePath(token, reach))
+}
+
+function readsTheTree(command: string, reach: WitnessReach): boolean {
+  const word = commandWord(command) ?? ''
+  if (TREE_READING_COMMANDS.has(word)) {
+    const named = argumentsOf(command)
+    return named.length === 0 || named.some(token => !INFORMATION_FLAGS.has(token))
+  }
+  return namedPaths(command, reach).length > 0
+}
+
+function headIndependentUnclear(commands: readonly string[], witness: string, reach: WitnessReach): UnclearField[] {
+  return commands.some(command => readsTheTree(command, reach)) ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" reads nothing the tree under test can change; its result does not depend on the head` }]
+}
+
+function isChangeWitness(witness: string): boolean {
+  return (witnessKindField(witness) ?? (CHANGE_WITNESS_WORDING.test(witness) ? CHANGE_WITNESS_KIND : undefined)) === CHANGE_WITNESS_KIND
+}
+
+function baseGreenUnclear(card: DraftCard, commands: readonly string[], witness: string, reach: WitnessReach): UnclearField[] {
+  if (card.kind !== IMPLEMENT_KIND || !isChangeWitness(witness) || commands.some(command => namedPaths(command, reach).length > 0))
+    return []
+  return [{ field: 'witnesses', reason: `witness "${witness.trim()}" is to be red on the base, but it names no path of the repository or of the card's creates; a whole-tree command is green on a clean base, so the witness cannot be red on the base: name the file the change makes red, or list it under creates` }]
 }
 
 function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): UnclearField[] {
+  const reach: WitnessReach = { repository, created: createdPaths(card.creates) }
   return card.witnesses.flatMap((witness) => {
     const commands = [...witness.matchAll(BACKTICKED)].map(match => match[1]!).filter(command => (commandWord(command) ?? '') !== '')
     const words = commands.map(command => commandWord(command)!)
@@ -452,7 +480,8 @@ function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): Unclear
       ...bashSyntaxUnclear(witness),
       ...proseUnclear(witness),
       ...outsidePathsUnclear(commands, witness),
-      ...(unresolved.length === 0 ? headIndependentUnclear(commands, witness, repository) : []),
+      ...(unresolved.length === 0 ? headIndependentUnclear(commands, witness, reach) : []),
+      ...baseGreenUnclear(card, commands, witness, reach),
     ]
   })
 }

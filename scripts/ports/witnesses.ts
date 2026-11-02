@@ -24,6 +24,7 @@ export interface TreeTask {
   sketchSha: string | null
   changed: string[] | null
   witnessesDir: string
+  creates?: readonly string[]
 }
 
 const NOT_RUN_STATUSES = [126, 127]
@@ -50,6 +51,9 @@ const TAIL_JOINER = ' · '
 const VITEST = /\bvitest\b/
 const TEST_FILE = /^[\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?$/
 const TEST_NAME = /\s(?:-t|--testNamePattern)[=\s]+(?:'([^']*)'|"([^"]*)"|(\S+))/
+const TOKEN_PREFIX = /^(?:[\w-]+=|\d*[<>]+&?|['"(])+/
+const TOKEN_SUFFIX = /['");]+$/
+const CURRENT_DIRECTORY = /^\.\//
 
 interface GrepWitness { witness: Witness, probe: string }
 
@@ -94,6 +98,15 @@ function absentOnBase(tree: string, witness: Witness): boolean {
   if (!existsSync(file))
     return true
   return target.name !== null && !readFileSync(file, 'utf8').includes(target.name)
+}
+
+function pathsNamed(tree: string, command: string, created: readonly string[]): string[] {
+  return command.replace(TEST_NAME, ' ').split(/\s+/).map(token => token.replace(TOKEN_PREFIX, '').replace(TOKEN_SUFFIX, '').replace(CURRENT_DIRECTORY, '')).filter(token => token !== '' && !token.startsWith('-') && !path.isAbsolute(token)).filter(token => created.includes(token) || existsSync(path.join(tree, token)))
+}
+
+export function overCreatedPaths(tree: string, witness: Witness, created: readonly string[]): boolean {
+  const named = pathsNamed(tree, witness.command, created)
+  return named.length > 0 && named.every(token => created.includes(token))
 }
 
 function reportsFailedTest(output: string): boolean {
@@ -210,18 +223,22 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
   const { tree, base, shell, refuse, time } = run
   const baseShort = base.slice(0, 7)
   const harnessRuns = task.sketchSha !== null && task.changed !== null
-  const invariants = harnessRuns ? invariantsBesideHarness(run, task) : task.invariants
-  const absent = new Set([...task.acceptance, ...invariants].filter(witness => absentOnBase(tree, witness)))
+  const declared = harnessRuns ? invariantsBesideHarness(run, task) : task.invariants
+  const created = declared.filter(witness => overCreatedPaths(tree, witness, task.creates ?? []))
+  created.forEach(witness => run.log(`invariant "${witness.criterion}": every path it names is in the card's creates; a change witness: red on the base, green on the head`))
+  const acceptance = [...task.acceptance, ...created]
+  const invariants = declared.filter(witness => !created.includes(witness))
+  const absent = new Set([...acceptance, ...invariants].filter(witness => absentOnBase(tree, witness)))
   const presentOnBase = (witnesses: Witness[]): Witness[] => witnesses.filter(witness => !absent.has(witness))
   let unmatchedOnBase: GrepWitness[] = []
   if (existsSync(path.join(tree, LOCKFILE)))
     time('install', () => refuse('P7', shell(INSTALL, tree).status === 0 ? null : `${INSTALL} failed on the base ${baseShort}`))
   time('P7 base', () => {
-    task.acceptance.filter(witness => absent.has(witness)).forEach(witness => run.log(`witness "${witness.criterion}": red on the base ${baseShort} by absence: its test is not in the base tree; checked on the head`))
+    acceptance.filter(witness => absent.has(witness)).forEach(witness => run.log(`witness "${witness.criterion}": red on the base ${baseShort} by absence: its test is not in the base tree; checked on the head`))
     invariants.filter(witness => absent.has(witness)).forEach(witness => run.log(`invariant "${witness.criterion}": not applicable on the base ${baseShort}: new test; checked on the head only`))
-    refuse('P7', firstProblem(presentOnBase(task.acceptance), witness => baseRedRefusal(witness, shell(witness.command, tree), baseShort)))
+    refuse('P7', firstProblem(presentOnBase(acceptance), witness => baseRedRefusal(witness, shell(witness.command, tree), baseShort)))
     refuse('P7', firstProblem(presentOnBase(invariants), witness => greenRefusal('invariant', witness, shell(witness.command, tree), `the clean base ${baseShort}`)))
-    unmatchedOnBase = grepWitnesses(task.acceptance).filter(({ probe }) => shell(probe, tree).status !== 0)
+    unmatchedOnBase = grepWitnesses(acceptance).filter(({ probe }) => shell(probe, tree).status !== 0)
   })
   if (task.sketchSha === null || task.changed === null) {
     unmatchedOnBase.forEach(({ witness }) => run.log(`grep witness "${witness.criterion}": not checked, Sketch: none leaves no head; red by absence until done:check probes it on the head`))
@@ -235,7 +252,7 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
     stageSketch(tree, base, sketchSha)
     refuse('P8', reinstallRefusal(run, sketchSha, where))
     refuse('P8', firstProblem(unmatchedOnBase, ({ witness, probe }) => shell(probe, tree).status === 0 ? null : grepRefusal(witness, `the base ${baseShort} nor ${where}`)))
-    refuse('P8', firstProblem(task.acceptance, witness => headRefusal('positive control', witness, shell(witness.command, tree), where)))
+    refuse('P8', firstProblem(acceptance, witness => headRefusal('positive control', witness, shell(witness.command, tree), where)))
     refuse('P8', firstProblem(invariants, witness => headRefusal('invariant', witness, shell(witness.command, tree), where)))
   })
   time('P8 harness', () => refuse('P8', harnessRefusal(run, task, where)))
