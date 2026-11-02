@@ -5,7 +5,7 @@ import type { DraftCard, UnclearField } from './draft.js'
 import { seamLines, splitSignal, volumeLines, volumeSignal } from '../../card/complexity.js'
 import { cardLine } from '../../card/grammar.js'
 import { createdPaths, parkingFileText, parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
-import { riskLines, riskReading, SLICE_PREFIX, TEST_SUFFIX } from '../../card/risk.js'
+import { riskLines, riskReading, riskWholeReason, SLICE_PREFIX, TEST_SUFFIX } from '../../card/risk.js'
 import { dependsCycle, sliceDepends } from '../../card/slice-depends.js'
 import { CARD_REFERENCE, correctionText, DEFAULT_CONTOUR } from './check.js'
 
@@ -137,12 +137,15 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const split = splitSignal({ touches: card.touches, unclear: unclear.length, covering: card.covering })
     const volume = volumeSignal(card.touches, sources)
     const volumeSlices = split.slices.length > 0 ? [] : volume.slices
-    const reading = riskReading(card.touches.filter(entry => !card.covering.includes(entry)), split.slices.length > 0 || volumeSlices.length > 0)
+    const read = riskReading(card.touches.filter(entry => !card.covering.includes(entry)), split.slices.length > 0 || volumeSlices.length > 0)
+    const keptWhole = card.whole === undefined ? riskWholeReason(read, card.size) : null
+    const reading = keptWhole === null ? read : { ...read, slices: [], capabilityDelivery: false }
+    const whole = card.whole ?? keptWhole ?? undefined
     const proposed = [...split.slices.map(slice => slice.touches), ...volumeSlices, ...reading.slices.map(slice => slice.touches)]
     const order = sliceDepends(proposed, sources)
     const seam = [...seamLines(split, order), ...volumeLines({ ...volume, slices: volumeSlices }, order)]
     const risk = riskLines(reading, order)
-    const heldForSlicing = card.whole === undefined && proposed.length > 0
+    const heldForSlicing = whole === undefined && proposed.length > 0
     if (heldForSlicing && slicedByItsText(card))
       reasons.push(`${card.name}: the task text names its own slices and the seam proposes others; a card has one source of slicing, so cut the draft into the cards its text names, or drop the '${SLICE_PREFIX.trim()}' lines from the task`)
     const cycle = heldForSlicing ? dependsCycle(order) : null
@@ -158,7 +161,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       creates: card.creates,
       continue: card.continue ?? DEFAULT_CONTINUE,
       who,
-      body: bodyOf(card, corrections, unclear, seam, risk),
+      body: bodyOf({ ...card, whole }, corrections, unclear, seam, risk),
     })
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')

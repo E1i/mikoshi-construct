@@ -254,6 +254,20 @@ export function riskReading(touches: readonly string[], complexitySliced: boolea
   return { level, why, slices, capabilityDelivery: slices.length > 0 && isCapabilityDelivery(high, rest) }
 }
 
+const UNSLICED_SIZE = 'XS'
+const WHOLE_XS = 'intake keeps an XS card whole: its risk slices would be one change cut into cards that wait on each other'
+const WHOLE_SECURITY = 'intake keeps a security-invariants row and the code that changes it whole: the row and its code are one change'
+
+export function riskWholeReason(reading: RiskReading, size: string): string | null {
+  const [critical] = reading.slices
+  if (critical === undefined)
+    return null
+  if (size === UNSLICED_SIZE)
+    return WHOLE_XS
+  const core = critical.touches.map(riskOf).filter(entry => entry.level === 'R1')
+  return core.length > 0 && core.every(entry => entry.why === SECURITY) ? WHOLE_SECURITY : null
+}
+
 export function sliceLine(index: number, label: string, touches: readonly string[], depends: readonly number[] = []): string {
   return `${SLICE_PREFIX}${index + 1} ${label} — ${touches.join(', ')}${depends.length === 0 ? '' : ` ${SLICE_DEPENDS}${depends.map(at => at + 1).join(', ')}`}`
 }
