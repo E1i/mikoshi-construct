@@ -13,7 +13,7 @@ import { busCardAdmissions, busCardEvents } from '../scripts/intake/intake.js'
 import { launchCandidates } from '../scripts/nodes/launch/launch-candidates.js'
 import { recordDecision } from '../scripts/policy/decisions.js'
 import { runTaskStart } from '../scripts/ports/task-start.js'
-import { downgradeAction, printAdmit, runAdmit, witnessDowngrades } from '../src/commands/intake/admit.js'
+import { downgradeAction, EQUIVALENT_REPLACEMENT_ALLOWANCE, printAdmit, runAdmit, witnessDowngrades } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
 import { isWithin, parkingTree } from '../src/commands/intake/parking-tree.js'
@@ -716,6 +716,68 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
     const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(INVARIANT))
     expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'admit' })
     expect(ownerWaits(w)).toEqual([])
+  })
+})
+
+describe('construct intake --admit takes an equivalent witness replacement under a standing owner decision', () => {
+  const run = (file: string, name = 'the thing'): string => `pnpm exec vitest run ${file} -t '${name}'`
+  const IN_A = `\`${run('tests/a.test.ts')}\` exits 0 on head and fails on base`
+  const MOVED_TO_B = `\`${run('tests/b.test.ts')}\` exits 0 on head and fails on base`
+  const BY_EXIT = `\`${run('tests/c.test.ts', 'the other')}\` exits 1 on head and 0 on base`
+  const NEGATED = `\`! ${run('tests/c.test.ts', 'the other')}\` exits 0 on head and fails on base`
+  const KEPT = '`pnpm exec vitest run tests/d.test.ts` exits 0'
+  const STANDING = `[owner] ${EQUIVALENT_REPLACEMENT_ALLOWANCE} a witness moved to another file or negated keeps its fact`
+
+  function bodyWith(...witnesses: string[]): string {
+    return `Do the thing.\n\nWitnesses:\n${witnesses.map(witness => `- ${witness}`).join('\n')}`
+  }
+
+  function decisions(w: World, ...lines: string[]): string {
+    const file = path.join(w.root, 'owner-decisions.md')
+    writeFileSync(file, `# Owner decisions\n\n${lines.join('\n')}\n`)
+    return file
+  }
+
+  function amended(w: World, decisionsFile: string, before: readonly string[], after: readonly string[]): AdmitResult {
+    const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(...before))
+    admitThroughBus(w, file, { decisions: decisionsFile })
+    park(w, 80, CLEAN, 'src/board/**', bodyWith(...after))
+    return admitThroughBus(w, file, { decisions: decisionsFile })
+  }
+
+  it('a standing replacement decision in force admits a witness moved to another file and a negated witness', () => {
+    const w = world()
+    const standing = decisions(w, `- D-7 · 2026-10-12 — ${STANDING} · decisions:add`)
+    expect(amended(w, standing, [IN_A, BY_EXIT, KEPT], [MOVED_TO_B, NEGATED, KEPT])).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('the same replacement waits for the owner without a standing decision, after its until, and under a decision of another kind', () => {
+    const none = world()
+    expect(amended(none, path.join(none.root, 'owner-decisions.md'), [IN_A], [MOVED_TO_B])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
+    const lapsed = world()
+    expect(amended(lapsed, decisions(lapsed, `- D-7 · 2026-10-12 — ${STANDING} · until 2026-10-13T08:00Z · decisions:add`), [IN_A], [MOVED_TO_B])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
+    const otherKind = world()
+    expect(amended(otherKind, decisions(otherKind, `- D-7 · 2026-10-12 — [owner] keep the witnesses; not ${EQUIVALENT_REPLACEMENT_ALLOWANCE} anything · decisions:add`), [IN_A], [MOVED_TO_B])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
+  })
+
+  it('a superseded standing replacement decision authorises nothing', () => {
+    const w = world()
+    const superseded = decisions(w, `- D-7 · 2026-10-12 — ${STANDING} · decisions:add · superseded-by D-8`, '- D-8 · 2026-10-12 — [owner] every witness replacement goes to the owner again · supersedes D-7 · decisions:add')
+    expect(amended(w, superseded, [IN_A], [MOVED_TO_B])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
+  })
+
+  it('a replacement that changes the checked fact waits for the owner under a standing decision', () => {
+    const renamed = world()
+    const renamedTo = `\`${run('tests/b.test.ts', 'another thing')}\` exits 0 on head and fails on base`
+    expect(amended(renamed, decisions(renamed, `- D-7 · 2026-10-12 — ${STANDING} · decisions:add`), [IN_A], [renamedTo])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
+    const inverted = world()
+    const invertedTo = `\`${run('tests/b.test.ts')}\` exits 1 on head and 0 on base`
+    expect(amended(inverted, decisions(inverted, `- D-7 · 2026-10-12 — ${STANDING} · decisions:add`), [IN_A], [invertedTo])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
+  })
+
+  it('a removed witness without a replacement waits for the owner under a standing decision', () => {
+    const w = world()
+    expect(amended(w, decisions(w, `- D-7 · 2026-10-12 — ${STANDING} · decisions:add`), [IN_A, KEPT], [KEPT])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
   })
 })
 
