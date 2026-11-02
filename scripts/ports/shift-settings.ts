@@ -1,6 +1,11 @@
 import type { ShiftGate } from '../../src/manifest.js'
+import os from 'node:os'
 
-export const CARD_SESSION_SANDBOX = { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true } } as const
+const SANDBOX_UID = os.userInfo().uid
+
+export const TSX_PIPE_DIRECTORY = `/tmp/claude-${SANDBOX_UID}/tsx-${SANDBOX_UID}`
+
+export const CARD_SESSION_SANDBOX = { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } } as const
 
 export interface ShiftSettings {
   sandbox: typeof CARD_SESSION_SANDBOX
