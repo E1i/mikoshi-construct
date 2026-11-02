@@ -6,7 +6,7 @@ import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -37,6 +37,7 @@ export interface AnswerRequest {
   widened: string | null
   card: CardSession
   fresh?: boolean
+  outsideTouches?: (paths: readonly string[]) => string[]
 }
 
 export interface Answered {
@@ -86,6 +87,7 @@ export interface AnswererTools {
   diff?: (card: CardSession) => string | null
   ciLog?: (card: CardSession, head: string) => string | null
   held?: (lease: Lease) => boolean
+  pending?: (card: CardSession, since: string) => string[]
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -113,6 +115,12 @@ export class AnswerWithdrawn extends Error {
 
 export function answerCommitMessage(lease: Lease): string {
   return `answer for #${lease.cardId}${lease.pr === null ? '' : ` on PR #${lease.pr}`}\n\nCommitted by the bus from the card's worktree after its answer session ended.`
+}
+
+export class AnswerOutsideTouches extends Error {
+  constructor(lease: Lease, outside: readonly string[]) {
+    super(`the answer for card #${lease.cardId} left changes to ${outside.join(', ')}, outside the touches and creates the card was admitted with; the bus refused the answer commit and pushed nothing`)
+  }
 }
 
 export class FreshBaseConflict extends Error {
@@ -342,6 +350,67 @@ export function treeMergeOf(card: CardSession): TreeMerge {
   }
 }
 
+interface PendingPath {
+  file: string
+  untracked: boolean
+}
+
+const UNTRACKED = '??'
+
+function porcelainEntries(output: string): PendingPath[] {
+  const entries = output.split('\0').filter(each => each !== '')
+  const pending: PendingPath[] = []
+  for (let at = 0; at < entries.length; at += 1) {
+    const entry = entries[at]!
+    pending.push({ file: entry.slice(3), untracked: entry.startsWith(UNTRACKED) })
+    if (entry.startsWith('R') || entry.startsWith('C'))
+      at += 1
+  }
+  return pending
+}
+
+function committedSince(card: CardSession, since: string): string[] {
+  return git(card.worktree, ['log', '--cc', '--name-only', '--format=', `${since}..HEAD`]).split('\n').filter(file => file !== '')
+}
+
+function uncommitted(card: CardSession): string[] {
+  const changed = porcelainEntries(git(card.worktree, ['status', '--porcelain', '-z', '--untracked-files=all']))
+  if (treeMergeOf(card).kind !== 'mid-merge')
+    return changed.map(each => each.file)
+  const differFromTheMergedBranch = new Set(git(card.worktree, ['diff', '--name-only', '-z', 'MERGE_HEAD']).split('\0'))
+  return changed.filter(each => each.untracked || differFromTheMergedBranch.has(each.file)).map(each => each.file)
+}
+
+export function pendingPathsOf(card: CardSession, since: string): string[] {
+  return [...new Set([...committedSince(card, since), ...uncommitted(card)])]
+}
+
+const LSOF_PATH_FIELD = 'n'
+const LSOF_FOUND_NONE = 1
+
+export type ProcessCwds = { kind: 'listed', listing: string } | { kind: 'unreadable', why: string }
+
+export function claudeCwds(): ProcessCwds {
+  try {
+    return { kind: 'listed', listing: execFileSync('lsof', ['-a', '-c', 'claude', '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
+  }
+  catch (error) {
+    const failed = error as { status?: unknown, stdout?: unknown }
+    if (failed.status === LSOF_FOUND_NONE)
+      return { kind: 'listed', listing: typeof failed.stdout === 'string' ? failed.stdout : '' }
+    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
+  }
+}
+
+export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = claudeCwds): string | null {
+  const read = cwds()
+  if (read.kind === 'unreadable')
+    return `the sessions running in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`
+  const tree = existsSync(card.worktree) ? realpathSync(card.worktree) : card.worktree
+  const inside = read.listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length)).find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
+  return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
+}
+
 export function treeDirtyOf(card: CardSession): boolean {
   try {
     return git(card.worktree, ['status', '--porcelain']).trim() !== ''
@@ -415,6 +484,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     newSession: randomUUID,
     publish: publishTree,
     pushPolicy: pushPolicyOfTree,
+    pending: pendingPathsOf,
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
@@ -488,7 +558,15 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       throw new Error(`the answer session ${session} exited ${code}`)
     const steps = ['']
     const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
-    const pushTree = (): FreshBaseGap | null => freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease)))
+    const refuseOutsideTouches = (): void => {
+      const outside = request.outsideTouches?.(tools.pending?.(card, before ?? `origin/${MAIN_BRANCH}`) ?? []) ?? []
+      if (outside.length > 0)
+        throw new AnswerOutsideTouches(request.lease, outside)
+    }
+    const pushTree = (): FreshBaseGap | null => {
+      refuseOutsideTouches()
+      return freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease)))
+    }
     const publish = async (): Promise<string | null> => {
       const gap = pushTree()
       if (gap === null)

@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { sliceTableItems } from '../../src/commands/intake/check.js'
 import { FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
+import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
@@ -27,7 +27,7 @@ import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../policy/
 import { activeDecisionsShard, decisionsInForceAt, ownersOfAStop } from '../policy/shards.js'
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release'] as const
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', PLAN_ITEM_ADDED], ['link', PLAN_ITEM_LINKED], ['remove', PLAN_ITEM_REMOVED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'item', 'title', 'goal', 'file', 'card'] as const
 const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM events WHERE type = '${PLAN_OPENED}' AND legacy = 0 AND actor = 'owner' AND json_extract(payload, '$.id') = ? ORDER BY id LIMIT 1`
@@ -37,7 +37,7 @@ export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_UNDER = 186
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N>`
 
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -168,6 +168,8 @@ export class WindowRequests {
       'owner.wait': (request, payload) => this.openWait(request, payload),
       'owner.wait.close': (request, payload) => this.closeWait(request, payload),
       'decisions:add': (_, payload) => this.addDecision(payload),
+      'hold': (request, payload) => this.holdFor(request, payload, CARD_HELD),
+      'release': (request, payload) => this.holdFor(request, payload, CARD_RELEASED),
     }
     return executors[kind]
   }
@@ -352,6 +354,15 @@ export class WindowRequests {
     return { done: true, why: `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}` }
   }
 
+  private holdFor(request: number, payload: Record<string, unknown>, type: typeof CARD_HELD | typeof CARD_RELEASED): Executed {
+    const cardId = cardIdOf(payload.card)
+    const reason = text(payload.reason)
+    if (cardId === null || (type === CARD_HELD && reason === null))
+      return { done: false, why: type === CARD_HELD ? 'hold needs a card and the reason the owner holds it' : 'release names no card' }
+    appendEvent(this.db, { ts: this.clock().toISOString(), type, actor: QUEUE_ACTOR, cardId, pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { request, ...(reason === null ? {} : { reason }) }, legacy: false })
+    return { done: true, why: `${type} #${cardId}${reason === null ? '' : `: ${reason}`}` }
+  }
+
   private setMode(request: number, payload: Record<string, unknown>): Executed {
     const mode = payload.mode
     if (!isFactoryMode(mode))
@@ -497,6 +508,13 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   }
   if (kind === 'decisions:add')
     return decisionRequestOf(argv)
+  if (kind === 'hold' || kind === 'release') {
+    const card = cardIdOf(flag(argv, '--card'))
+    const reason = flag(argv, '--reason')
+    if (card === null || (kind === 'hold' && reason === undefined))
+      return null
+    return { kind, card, ...(reason === undefined ? {} : { reason }) }
+  }
   if (kind === 'plan') {
     const given = PLAN_FLAGS.flatMap(name => flag(argv, `--${name}`) === undefined ? [] : [[name, flag(argv, `--${name}`)] as const])
     return { kind, ...Object.fromEntries(given) }
