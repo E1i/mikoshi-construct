@@ -9,6 +9,7 @@ CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, state TEXT, verdict_o
 CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL);
 CREATE TABLE roles (role TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL);
 CREATE TABLE decisions (decision_id INTEGER PRIMARY KEY, text TEXT NOT NULL, scope TEXT, event_id INTEGER);
+CREATE TABLE owner_waits (id TEXT PRIMARY KEY, need TEXT NOT NULL, text TEXT NOT NULL, command TEXT, card_id INTEGER, pr INTEGER, state TEXT NOT NULL, answer TEXT, opened_at TEXT NOT NULL, event_id INTEGER NOT NULL);
 `
 
 const CARD_STATE_EVENT = 'card.state'

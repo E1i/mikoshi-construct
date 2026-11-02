@@ -713,7 +713,6 @@ describe('board.html', () => {
   function withOwnerWaits(busPath: string, waits: { id: string, need: string, text: string, command: string | null, card: number | null, pr: number | null }[]): string {
     const db = new DatabaseSync(busPath)
     try {
-      db.exec('CREATE TABLE owner_waits (id TEXT PRIMARY KEY, need TEXT NOT NULL, text TEXT NOT NULL, command TEXT, card_id INTEGER, pr INTEGER, state TEXT NOT NULL, answer TEXT, opened_at TEXT NOT NULL, event_id INTEGER NOT NULL)')
       const insert = db.prepare('INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, opened_at, event_id) VALUES (?, ?, ?, ?, ?, ?, \'open\', ?, 0)')
       for (const wait of waits)
         insert.run(wait.id, wait.need, wait.text, wait.command, wait.card, wait.pr, minutesAgo(20))

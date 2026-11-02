@@ -10,7 +10,7 @@ import { CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, WITNESS_D
 import { cardIdOfDescription } from '../../core/identifiers.js'
 import { ghostLines } from '../../core/journal.js'
 import { reentryLimitWaitText } from '../../core/queue.js'
-import { DIRTY_ROWS, projectionDump, reduce, REDUCE_BATCH, reducedThrough, SNAPSHOT } from '../../core/reducer.js'
+import { closeWaitsOfEndedCards, DIRTY_ROWS, projectionDump, reduce, REDUCE_BATCH, reducedThrough, SNAPSHOT } from '../../core/reducer.js'
 import { WATERMARKS } from '../../core/watermark.js'
 import { recordFall } from '../../ladder/supervise.js'
 import { recordDecision } from '../../policy/decisions.js'
@@ -634,17 +634,25 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 
-  it('a merge does not close an open decision question of its card', () => {
+  it('a decision wait closes when its card is merged', () => {
     const db = busWith(admitted(1274), started(1274), opened(1274, 903), observed(903, 1274))
     const question = openWaitOn(db, 1274, 13)
     reduce(db)
     appendEvent(db, closed(903, true))
     appendEvent(db, event('merge.done', { actor: 'worker:merge:s1', cardId: 1274, pr: 903, head: HEAD, payload: { commit: MAIN, rule: 'auto' } }))
     reduce(db)
-    expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[question, 'open', null]])
-    appendEvent(db, event('card.closed', { actor: 'owner', cardId: 1274, pr: 903 }))
+    expect(waits(db).map(each => [each.id, each.need, each.state, each.answer])).toEqual([[question, 'decision', 'closed', 'card #1274 merged']])
+    db.close()
+  })
+
+  it('the tick closes a decision wait opened on a card that is already merged', () => {
+    const db = busWith(admitted(1265), started(1265), opened(1265, 902), event('merge.done', { actor: 'worker:merge:s1', cardId: 1265, pr: 902, head: HEAD, payload: { commit: MAIN, rule: 'auto' } }))
     reduce(db)
-    expect(waits(db).map(each => [each.id, each.state])).toEqual([[question, 'closed']])
+    const wait = openWaitOn(db, 1265, 10)
+    reduce(db)
+    expect(closeWaitsOfEndedCards(db, '2026-10-09T12:01:00.000Z')).toEqual([wait])
+    reduce(db)
+    expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[wait, 'closed', 'card #1265 merged']])
     db.close()
   })
 
