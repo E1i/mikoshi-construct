@@ -20,7 +20,7 @@ const ALLOWED_INTERNAL_IMPORTS = {
   'src/cli.ts': ['program'],
 }
 
-const CORE_FILES_SRC_MAY_IMPORT = ['bus-path', 'eddies', 'events', 'factory-paths', 'gh-callers', 'handoff-dir', 'layer-map', 'merge-event', 'verification'].map(name => `core/${name}.js`)
+const CORE_FILES_SRC_MAY_IMPORT = ['bus-path', 'bus-readings', 'eddies', 'events', 'factory-paths', 'gh-callers', 'handoff-dir', 'layer-map', 'merge-event', 'verification'].map(name => `core/${name}.js`)
 
 const ALLOWED_FACTORY_IMPORTS = {
   'src/card': ['core/factory-paths.js'],
