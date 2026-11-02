@@ -11,6 +11,8 @@ export const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
 export const CONSTRUCT_HOME_DIR = '.construct'
 export const BUS_FILE = 'bus.db'
 export const BUS_DIR = 'bus'
+export const BACKUPS_DIR = 'backups'
+export const SNAPSHOT_FILE = 'bus.snapshot.db'
 export const DECISIONS_FILE = 'owner-decisions.md'
 export const PREFERRED_REMOTE = 'origin'
 export const REPO_ID_SEPARATOR = '--'
@@ -157,6 +159,14 @@ export function pinBus(env: NodeJS.ProcessEnv, home: string, dir: string, machin
 
 export function busDirOf(busPath: string): string {
   return path.join(path.dirname(busPath), BUS_DIR)
+}
+
+export function backupsDirOf(busPath: string): string {
+  return path.join(path.dirname(busPath), BACKUPS_DIR)
+}
+
+export function snapshotPathOf(busPath: string): string {
+  return path.join(path.dirname(busPath), SNAPSHOT_FILE)
 }
 
 export function decisionsFileOf(busPath: string): string {
