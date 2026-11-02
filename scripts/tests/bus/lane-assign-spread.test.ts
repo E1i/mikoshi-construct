@@ -28,8 +28,13 @@ describe('independent cards spread over all lanes', () => {
   })
 
   it('a card that overlaps a live card still joins its lane', () => {
-    const lanes = laid([laneCard(1, 'package.json'), laneCard(2, 'eslint.config.mjs', [1]), laneCard(3, 'package.json', [1])], 3)
+    const lanes = laid([laneCard(1, 'src/cli.ts'), laneCard(2, 'eslint.config.mjs', [1]), laneCard(3, 'src/cli.ts', [1])], 3)
     expect(lanes[2]!.lane).toBe(lanes[0]!.lane)
+  })
+
+  it('cards that share only package.json and pnpm-lock.yaml go to different lanes', () => {
+    const lanes = laid([laneCard(1, 'package.json, pnpm-lock.yaml, src/cli.ts'), laneCard(2, 'package.json, pnpm-lock.yaml, AGENTS.md'), laneCard(3, 'packages/app/package.json, README.md')], 3)
+    expect(new Set(lanes.map(card => card.lane)).size).toBe(3)
   })
 
   it('with no free lane a dependent card falls back to its foundation lane', () => {
