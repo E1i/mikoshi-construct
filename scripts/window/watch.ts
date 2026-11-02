@@ -13,7 +13,7 @@ import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../core/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
 import { CARD_PROCESS } from '../supervisor/heartbeat.js'
 import { WatchRefusal } from './watch-refusal.js'
-import { ONCE_STORE, OnceStore } from './watch-store.js'
+import { ONCE_STORE, OnceStore, parentGone } from './watch-store.js'
 import { windowBeat, windowOf } from './window-heartbeat.js'
 import { windowOpenPrs } from './window-prs.js'
 import { requestActor } from './window-requests.js'
@@ -41,6 +41,10 @@ export const WATCHING = 'miko:watch: what is already there is read; watching for
 export const WATCHING_FROM_CURSOR = 'miko:watch: reading from the --once cursor; watching'
 export const LEGACY_CURSOR = 'miko-watch.json'
 export const WOKEN_STALLS = 'miko-watch-stalls.json'
+
+export function parentGoneLine(parent: number): string {
+  return `miko:watch: the parent process ${parent} is gone; the watch exits and releases the cursor`
+}
 
 export function skippedLine(busId: number): string {
   return `skipped through bus id ${busId}`
@@ -440,9 +444,12 @@ function stuckLines(known: Set<string>, deps: WatchDeps, card: number | undefine
   return lines.length === 0 ? undefined : { text: lines.join('\n'), stalled }
 }
 
-export async function deliverOnce(store: OnceStore, deps: WatchDeps, card?: number, now: () => number = Date.now): Promise<void> {
+export async function deliverOnce(store: OnceStore, deps: WatchDeps, card?: number, now: () => number = Date.now, orphaned: () => string | undefined = () => undefined): Promise<void> {
   const knownStuck = new Set(deps.stuck().map(stuckKey))
   for (;;) {
+    const gone = orphaned()
+    if (gone !== undefined)
+      throw new WatchRefusal(gone)
     deps.beat()
     const cursor = store.cursor()
     const selected = selectOnce(cursor, deps, card)
@@ -716,7 +723,7 @@ export async function runOnce(handoff: string, deps: WatchDeps, card?: number): 
   try {
     console.error(store.openedLine())
     console.error(WATCHING_FROM_CURSOR)
-    await deliverOnce(store, deps, card)
+    await deliverOnce(store, deps, card, Date.now, () => parentGone(store.owner) ? parentGoneLine(store.owner.parent) : undefined)
   }
   finally {
     store.close()
@@ -724,9 +731,12 @@ export async function runOnce(handoff: string, deps: WatchDeps, card?: number): 
 }
 
 async function watchForever(deps: WatchDeps): Promise<void> {
+  const owner = { pid: process.pid, parent: process.ppid }
   const state = watchState(deps)
   console.error(WATCHING)
   for (;;) {
+    if (parentGone(owner))
+      throw new WatchRefusal(parentGoneLine(owner.parent))
     deps.beat()
     for (const line of tick(state, deps))
       process.stdout.write(`${line}\n`)

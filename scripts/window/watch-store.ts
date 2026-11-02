@@ -1,11 +1,60 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import process from 'node:process'
 import { openDatabase } from '../core/sqlite.js'
+import { alive } from '../supervisor/bg.js'
 import { WatchRefusal } from './watch-refusal.js'
 
 export const ONCE_STORE = 'miko-watch.db'
 export const ANOTHER_CONSUMER = 'another consumer already waits'
 const SQLITE_BUSY = 5
 const WINNER_COMMIT_WAIT_MS = 5000
+const OWNER_SUFFIX = '.owner'
+const TAKEOVER_WAIT_MS = 5000
+const TAKEOVER_STEP_MS = 100
+
+class ConsumerWaits extends WatchRefusal {}
+
+export interface LockOwner {
+  pid: number
+  parent: number
+}
+
+export function ownerFile(file: string): string {
+  return `${file}${OWNER_SUFFIX}`
+}
+
+function parseLockOwner(text: string): LockOwner | undefined {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (typeof parsed !== 'object' || parsed === null)
+      return undefined
+    const { pid, parent } = parsed as { pid?: unknown, parent?: unknown }
+    return Number.isSafeInteger(pid) && Number.isSafeInteger(parent) && (pid as number) > 0 && (parent as number) > 0
+      ? { pid: pid as number, parent: parent as number }
+      : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+function recordedOwner(file: string): LockOwner | undefined {
+  try {
+    return parseLockOwner(readFileSync(ownerFile(file), 'utf8'))
+  }
+  catch {
+    return undefined
+  }
+}
+
+export function parentGone(owner: LockOwner): boolean {
+  return !alive(owner.parent) || (owner.pid === process.pid && process.ppid !== owner.parent)
+}
+
+function deadOwner(owner: LockOwner | undefined): boolean {
+  return owner !== undefined && !(alive(owner.pid) && alive(owner.parent))
+}
 
 export interface WatchCursor {
   offset: number
@@ -53,15 +102,29 @@ function firstCursor(legacy: LegacyCursor, ends: () => WatchCursor): Opened {
 }
 
 export class OnceStore {
-  private constructor(private readonly db: DatabaseSync, readonly file: string, readonly opened: Opened) {}
+  private constructor(private readonly db: DatabaseSync, readonly file: string, readonly opened: Opened, readonly owner: LockOwner) {}
 
-  static open(file: string, legacy: LegacyCursor, ends: () => WatchCursor): OnceStore {
+  static open(file: string, legacy: LegacyCursor, ends: () => WatchCursor, owner: LockOwner = { pid: process.pid, parent: process.ppid }): OnceStore {
+    const deadline = Date.now() + TAKEOVER_WAIT_MS
+    for (let waitMs = 0; ; waitMs = TAKEOVER_STEP_MS) {
+      try {
+        return OnceStore.lock(file, legacy, ends, owner, waitMs)
+      }
+      catch (error) {
+        if (!(error instanceof ConsumerWaits && deadOwner(recordedOwner(file)) && Date.now() < deadline))
+          throw error
+      }
+    }
+  }
+
+  private static lock(file: string, legacy: LegacyCursor, ends: () => WatchCursor, owner: LockOwner, waitMs: number): OnceStore {
     let db: DatabaseSync | undefined
     try {
       db = openDatabase(file)
-      db.exec('PRAGMA busy_timeout = 0')
+      db.exec(`PRAGMA busy_timeout = ${waitMs}`)
       db.exec('PRAGMA locking_mode = EXCLUSIVE')
       db.exec('BEGIN IMMEDIATE')
+      writeFileSync(ownerFile(file), `${JSON.stringify(owner)}\n`)
       db.exec(`PRAGMA busy_timeout = ${WINNER_COMMIT_WAIT_MS}`)
       db.exec('CREATE TABLE IF NOT EXISTS cursor (id INTEGER PRIMARY KEY CHECK (id = 1), journal_offset INTEGER NOT NULL CHECK (journal_offset >= 0), bus_id INTEGER NOT NULL CHECK (bus_id >= 0))')
       const stored = storedCursor(db)
@@ -69,15 +132,15 @@ export class OnceStore {
       if (stored === undefined)
         db.prepare('INSERT INTO cursor (id, journal_offset, bus_id) VALUES (1, ?, ?)').run(opened.cursor.offset, opened.cursor.busId)
       db.exec('COMMIT')
-      return new OnceStore(db, file, opened)
+      return new OnceStore(db, file, opened, owner)
     }
     catch (error) {
       db?.close()
       if (error instanceof WatchRefusal)
         throw error
-      throw new WatchRefusal(busy(error)
-        ? `miko:watch: ${ANOTHER_CONSUMER} on ${file}`
-        : `miko:watch: ${file} cannot be opened as the --once cursor: ${(error as Error).message}`)
+      if (busy(error))
+        throw new ConsumerWaits(`miko:watch: ${ANOTHER_CONSUMER} on ${file}`)
+      throw new WatchRefusal(`miko:watch: ${file} cannot be opened as the --once cursor: ${(error as Error).message}`)
     }
   }
 
@@ -111,6 +174,8 @@ export class OnceStore {
   }
 
   close(): void {
+    if (recordedOwner(this.file)?.pid === this.owner.pid)
+      rmSync(ownerFile(this.file), { force: true })
     this.db.close()
   }
 }
