@@ -20,8 +20,15 @@ const OWNER_DECISION = 'owner'
 const OWNER_EVEN_PAST_THE_LIMIT = 'R1'
 const OWNER_PREFIX = `${OWNER_SOURCE.replace(/[[\]]/g, '\\$&')} `
 
+const ALLOW_MERGE = 'allow-merge'
+export const CONTINUE_FIXES = 'continue-fixes'
+
+function namesPrAtHeadUnder(marker: string, text: string, pr: number, head: string): boolean {
+  return new RegExp(`^(?:${OWNER_PREFIX})?${marker} PR #${pr} at ${head}(?![0-9a-f])`).test(text)
+}
+
 export function namesPrAtHead(text: string, pr: number, head: string): boolean {
-  return new RegExp(`^(?:${OWNER_PREFIX})?allow-merge PR #${pr} at ${head}(?![0-9a-f])`).test(text)
+  return namesPrAtHeadUnder(ALLOW_MERGE, text, pr, head)
 }
 
 const HEADS_OF_A_PR = `SELECT head FROM events WHERE type IN ('${PR_OPENED}', '${PR_OBSERVED}') AND legacy = 0 AND pr = ? AND head IS NOT NULL ORDER BY id`
@@ -216,9 +223,34 @@ export function recutOf(plan: Exclude<RecutPlan, { kind: 'owner_wait' }>, text: 
   return plan.kind === 'narrow' ? narrowed(plan, text, pr, firstId) : sliced(plan, pr, firstId)
 }
 
-export function roundLimitDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
+function decisionUnder(marker: string, decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
   if (!isFullSha(head))
     return null
   const heads = headsWithTheSameDiff(head, cleanUpdates)
-  return decisions.find(decision => heads.some(decided => namesPrAtHead(decision.text, pr, decided)))?.decisionId ?? null
+  return decisions.find(decision => heads.some(decided => namesPrAtHeadUnder(marker, decision.text, pr, decided)))?.decisionId ?? null
+}
+
+export function roundLimitDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
+  return decisionUnder(ALLOW_MERGE, decisions, pr, head, cleanUpdates)
+}
+
+export function continueFixesDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
+  return decisionUnder(CONTINUE_FIXES, decisions, pr, head, cleanUpdates)
+}
+
+export interface PushHistory {
+  observedHeads: readonly string[]
+  cleanUpdates: readonly CleanUpdate[]
+  changesHeads: ReadonlySet<string>
+}
+
+export function pushedAfterContinueFixes(decisions: readonly InForceDecision[], pr: number, head: string, history: PushHistory): boolean {
+  const { observedHeads, cleanUpdates, changesHeads } = history
+  const continued = (each: string): boolean => continueFixesDecisionOf(decisions, pr, each, cleanUpdates) !== null
+  if (!isFullSha(head) || continued(head))
+    return false
+  const before = observedHeads.slice(0, Math.max(observedHeads.lastIndexOf(head), 0))
+  const sinceTheLastContinue = [...before].reverse()
+  const last = sinceTheLastContinue.findIndex(continued)
+  return last !== -1 && sinceTheLastContinue.slice(0, last).every(each => !changesHeads.has(each))
 }

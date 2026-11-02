@@ -9,7 +9,7 @@ import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { AMEND_SOURCE, witnessesOf } from '../../src/commands/intake/admit.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
-import { roundLimitDecisionOf } from '../policy/round-limit-decision.js'
+import { CONTINUE_FIXES, continueFixesDecisionOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { BACKFILL_SOURCE } from './backfill-source.js'
@@ -357,7 +357,7 @@ const REENTRY_LIMITS_WITH_NO_WAIT = `
 `
 
 export function reentryLimitWaitText(cardId: number, pr: number): string {
-  return `card #${cardId}: PR #${pr} reached the review round limit (D-104) with red CI or red witness answers counted as rounds; the bus answers and merges it no further, so decide it: allow-merge, a re-cut or a drop`
+  return `card #${cardId}: PR #${pr} reached the review round limit (D-104) with red CI or red witness answers counted as rounds; the bus answers and merges it no further, so decide it: allow-merge, ${CONTINUE_FIXES} PR #${pr} at its head, a re-cut or a drop`
 }
 
 function openReentryLimitWaits(db: DatabaseSync, ts: string): void {
@@ -507,8 +507,25 @@ export function mergeDecidedPastRoundLimit(db: DatabaseSync, ts: string, pr: num
   return roundLimitDecisionOf(decisionsInForceAt(db, new Date(ts)), pr, head, cleanUpdatesOf(db, pr))
 }
 
+const CHANGES_HEADS_OF_A_PR = `SELECT DISTINCT head FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL AND json_extract(payload, '$.verdict') = 'changes'`
+
+function continuedPastRoundLimit(db: DatabaseSync, ts: string, queue: Queue, pr: number, head: string | null): boolean {
+  if (head === null)
+    return false
+  const decisions = decisionsInForceAt(db, new Date(ts))
+  const cleanUpdates = cleanUpdatesOf(db, pr)
+  if (queue === 'answer')
+    return continueFixesDecisionOf(decisions, pr, head, cleanUpdates) !== null
+  const changesHeads = new Set((db.prepare(CHANGES_HEADS_OF_A_PR).all(pr) as { head: string }[]).map(row => row.head))
+  return pushedAfterContinueFixes(decisions, pr, head, { observedHeads: observedHeadsOf(db, pr), cleanUpdates, changesHeads })
+}
+
 export function closedByRounds(db: DatabaseSync, ts: string, queue: Queue, pr: number | null, head: string | null): boolean {
-  return outOfRounds(db, queue, pr) && !(queue === 'merge' && mergeDecidedPastRoundLimit(db, ts, pr, head) !== null)
+  if (pr === null || !outOfRounds(db, queue, pr))
+    return false
+  if (queue === 'merge' && mergeDecidedPastRoundLimit(db, ts, pr, head) !== null)
+    return false
+  return !continuedPastRoundLimit(db, ts, queue, pr, head)
 }
 
 type Admits = (row: Candidate) => boolean
