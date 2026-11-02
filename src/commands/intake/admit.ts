@@ -166,8 +166,9 @@ export type AdmitResult
 
 const ANY_FORM_OF_FAILING_ON_MAIN = /(?:\s*[;,—–-])?\s*(?:red|non-zero) on main/i
 const DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетеля'
-const DOWNGRADE_ALLOWANCE_STEM = 'разрешить понижение свидетел'
-const GENERAL_DOWNGRADE_ALLOWANCE = /разрешить понижение свидетел(?:я|ей)(?:\s+у)?\s+#[1-9]/
+const GENERAL_DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетелей у '
+const CARD_SEPARATOR = /,\s*|\s+и\s+/
+const ALLOWED_CARDS = new RegExp(`^#[1-9]\\d*(?:(?:${CARD_SEPARATOR.source})#[1-9]\\d*)*`)
 const DECISION_LINE = /^- D-[1-9]\d* · /
 const DECISION_CARDS = / · card (#[1-9]\d*(?: #[1-9]\d*)*)/
 const SUPERSEDED_BY = ' · superseded-by D-'
@@ -262,8 +263,12 @@ function downgradeEvent(cardId: number, downgrades: readonly string[], sha: stri
 function ownerAllowed(decisionsFile: string, cardId: number, downgrades: readonly string[]): boolean {
   if (!existsSync(decisionsFile))
     return false
-  const allowing = readFileSync(decisionsFile, 'utf8').split('\n').filter(line => DECISION_LINE.test(line) && !line.includes(SUPERSEDED_BY) && line.includes(DOWNGRADE_ALLOWANCE_STEM) && (DECISION_CARDS.exec(line)?.[1]?.split(' ').includes(`#${cardId}`) ?? false))
-  return downgrades.every(witness => allowing.some(line => GENERAL_DOWNGRADE_ALLOWANCE.test(line) || line.includes(witness)))
+  const allowing = readFileSync(decisionsFile, 'utf8').split('\n').filter(line => DECISION_LINE.test(line) && !line.includes(SUPERSEDED_BY) && (DECISION_CARDS.exec(line)?.[1]?.split(' ').includes(`#${cardId}`) ?? false))
+  return downgrades.every(witness => allowing.some(line => phraseNamesCard(line, `${DOWNGRADE_ALLOWANCE} ${witness} у `, cardId) || phraseNamesCard(line, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
+}
+
+function phraseNamesCard(line: string, phrase: string, cardId: number): boolean {
+  return line.split(phrase).slice(1).some(rest => ALLOWED_CARDS.exec(rest)?.[0].split(CARD_SEPARATOR).includes(`#${cardId}`) ?? false)
 }
 
 function blocksTail(line: string): string {

@@ -42,8 +42,8 @@ function decisionsOf(w: World): string {
   return path.join(w.root, 'owner-decisions.md')
 }
 
-function ownerSays(w: World, text: string, cards: readonly number[]): void {
-  writeFileSync(decisionsOf(w), `# Owner decisions\n\n- D-5 · 2026-10-13 — [owner] ${text} · card ${cards.map(id => `#${id}`).join(' ')} · decisions:add\n`)
+function ownerSays(w: World, text: string, cards: readonly number[], tail = ''): void {
+  writeFileSync(decisionsOf(w), `# Owner decisions\n\n- D-5 · 2026-10-13 — [owner] ${text} · card ${cards.map(id => `#${id}`).join(' ')} · decisions:add${tail}\n`)
 }
 
 function admit(w: World, file: string, options: Partial<AdmitOptions> = {}): AdmitResult {
@@ -68,9 +68,18 @@ function admitThenDowngrade(w: World, id: number, before: readonly string[], aft
 describe('a general owner word on witness downgrades', () => {
   it('one owner word naming several cards allows the downgrade on each of them', () => {
     const w = world()
+    const cards = [86, 85, 84]
+    const files = cards.map(id => admitThenDowngrade(w, id, [FIRST], [INVARIANT]))
+    ownerSays(w, `разрешить понижение свидетеля ${FIRST} у #86, #85 и #84`, cards)
+    for (const file of files)
+      expect(admit(w, file)).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('one owner word that repeats the allowance per card allows it on each card it names', () => {
+    const w = world()
     const six = admitThenDowngrade(w, 86, [FIRST], [INVARIANT])
     const five = admitThenDowngrade(w, 85, [FIRST], [INVARIANT])
-    ownerSays(w, `разрешить понижение свидетеля ${FIRST} у #86 и #85`, [86, 85])
+    ownerSays(w, `разрешить понижение свидетеля ${FIRST} у #86; разрешить понижение свидетеля ${FIRST} у #85`, [86, 85])
     expect(admit(w, six)).toMatchObject({ status: 'admitted', source: 'amend' })
     expect(admit(w, five)).toMatchObject({ status: 'admitted', source: 'amend' })
   })
@@ -94,5 +103,48 @@ describe('a general owner word on witness downgrades', () => {
     const file = admitThenDowngrade(w, 80, [FIRST, SECOND], [INVARIANT])
     ownerSays(w, `разрешить понижение свидетеля ${FIRST} у #80`, [80])
     expect(admit(w, file)).toMatchObject({ status: 'ownerWait', downgrades: [FIRST, SECOND] })
+  })
+  it('a general owner word allows only the cards its own words name, not every card of its card list', () => {
+    const w = world()
+    const file = admitThenDowngrade(w, 80, [FIRST], [INVARIANT])
+    ownerSays(w, 'разрешить понижение свидетелей у #81', [81, 80])
+    expect(admit(w, file)).toMatchObject({ status: 'ownerWait', downgrades: [FIRST] })
+  })
+
+  it('an owner word allows nothing on a card its card list does not name', () => {
+    const w = world()
+    const file = admitThenDowngrade(w, 80, [FIRST], [INVARIANT])
+    ownerSays(w, 'разрешить понижение свидетелей у #80', [81])
+    expect(admit(w, file)).toMatchObject({ status: 'ownerWait', downgrades: [FIRST] })
+  })
+
+  it('a decision that quotes the witness without the allowance phrase allows nothing', () => {
+    const w = world()
+    const file = admitThenDowngrade(w, 80, [FIRST], [INVARIANT])
+    ownerSays(w, `заметка: ${FIRST} у #80 краснеет на main`, [80])
+    expect(admit(w, file)).toMatchObject({ status: 'ownerWait', downgrades: [FIRST] })
+  })
+
+  it('an allowance for one witness does not reach another witness the same line merely mentions', () => {
+    const w = world()
+    const file = admitThenDowngrade(w, 80, [FIRST, SECOND], [INVARIANT])
+    ownerSays(w, `разрешить понижение свидетеля ${FIRST} у #80; ${SECOND} остаётся`, [80])
+    expect(admit(w, file)).toMatchObject({ status: 'ownerWait', downgrades: [FIRST, SECOND] })
+  })
+
+  it('an allowance phrase naming the card for a different witness holds the downgraded one', () => {
+    const w = world()
+    const file = admitThenDowngrade(w, 80, [FIRST], [INVARIANT])
+    ownerSays(w, `разрешить понижение свидетеля ${SECOND} у #80`, [80])
+    expect(admit(w, file)).toMatchObject({ status: 'ownerWait', downgrades: [FIRST] })
+  })
+
+  it('a superseded general or per-witness owner word allows nothing', () => {
+    for (const text of ['разрешить понижение свидетелей у #80', `разрешить понижение свидетеля ${FIRST} у #80`]) {
+      const w = world()
+      const file = admitThenDowngrade(w, 80, [FIRST], [INVARIANT])
+      ownerSays(w, text, [80], ' · superseded-by D-6')
+      expect(admit(w, file)).toMatchObject({ status: 'ownerWait', downgrades: [FIRST] })
+    }
   })
 })

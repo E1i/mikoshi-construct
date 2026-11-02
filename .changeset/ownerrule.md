@@ -2,4 +2,4 @@
 "mikoshi-construct": patch
 ---
 
-`construct intake --admit` takes one owner word for several witness downgrades. A live owner decision whose card list names the card now allows a downgrade when it says `разрешить понижение свидетеля <witness>` for any card it names, not only the first, or when it says `разрешить понижение свидетелей у #N`, which covers every witness of each card it names. A decision that names one witness still holds the card's other downgrades.
+`construct intake --admit` takes one owner word for several witness downgrades. The decision must be live and name the card in its card list, and its text must name the card right after the allowance. `разрешить понижение свидетеля <witness> у #6, #5 и #4` allows that witness on each card it lists. `разрешить понижение свидетелей у #N` allows every witness of each card it lists. A decision that only quotes a witness, or that allows one witness and mentions another, still holds the card.
