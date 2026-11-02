@@ -2169,7 +2169,8 @@ construct-intake --admit ~/.construct/parking/12.md
 
 Once that bus exists, `construct intake` writes nothing beside it: it cannot record the card there, and
 the factory would refuse a card it holds no `card.admitted` for. It names `construct-intake` and
-exits `1`. `--dry-run` still prints. From the checkout of mikoshi-construct itself the same command is
+exits `1`. `--dry-run` is refused the same way, for `--draft` and for `--admit`: the dry run is the
+preview of the write and numbers against the same cards, which it cannot read without the bus. From the checkout of mikoshi-construct itself the same command is
 `pnpm intake`.
 
 ## construct-factory

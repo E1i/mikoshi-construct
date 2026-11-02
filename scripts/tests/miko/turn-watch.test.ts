@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -114,7 +114,7 @@ describe('a window turn ends only while a miko:watch beats for its session', () 
 describe('the loop window waits on a watch, a tab window on the STATUS of its handoff', () => {
   function hook(env: NodeJS.ProcessEnv): { code: number, lines: string[] } {
     const lines: string[] = []
-    const code = runTurnWatch({ ...realTurnWatchDeps(env), lastBeat: () => null, now: () => NOW, err: line => lines.push(line) })
+    const code = runTurnWatch({ ...realTurnWatchDeps(env, tmpdir()), lastBeat: () => null, now: () => NOW, err: line => lines.push(line) })
     return { code, lines }
   }
 
@@ -153,17 +153,27 @@ describe('the loop window waits on a watch, a tab window on the STATUS of its ha
 })
 
 describe('turn-watch tells a tab window from a card session by the tree it runs in', () => {
-  function stop(worktreeHome: string): { status: number | null, stdout: string } {
-    const dir = mkdtempSync(path.join(tmpdir(), 'turn-watch-tree-'))
+  function projectUnder(home: string): string {
+    const project = path.join(home, 'mc-1436')
+    mkdirSync(project, { recursive: true })
+    for (const linked of ['scripts', 'node_modules'])
+      symlinkSync(path.join(REPO_ROOT, linked), path.join(project, linked))
+    return project
+  }
+
+  function stop(inCardTree: boolean): { status: number | null, stdout: string } {
+    const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'turn-watch-tree-')))
     roots.push(dir)
     writeFileSync(path.join(dir, MIKO_HANDOFF_NAME), '# Handoff\n\nSTATUS: CONTINUE\n')
-    const env = { ...process.env, HOME: dir, CONSTRUCT_WORKTREE_HOME: worktreeHome, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CLAUDE_PROJECT_DIR: REPO_ROOT, [HANDOFF_DIR_VARIABLE]: dir, CONSTRUCT_HANDOFF: '', CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', MIKO_LOOP_PID: '', MIKO_EXIT_REQUEST: '', [RAISED_VARIABLE]: '', [ENTRYPOINT_VARIABLE]: 'cli' }
-    const run = spawnSync(process.execPath, [TURN_WATCH_HOOK], { cwd: REPO_ROOT, env, input: JSON.stringify({ session_id: 's-tree', stop_hook_active: false }), encoding: 'utf8' })
+    const project = projectUnder(path.join(dir, 'trees'))
+    const worktreeHome = inCardTree ? path.dirname(project) : path.join(dir, 'no-card-trees-here')
+    const env = { ...process.env, HOME: dir, CONSTRUCT_WORKTREE_HOME: worktreeHome, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CLAUDE_PROJECT_DIR: project, [HANDOFF_DIR_VARIABLE]: dir, CONSTRUCT_HANDOFF: '', CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', MIKO_LOOP_PID: '', MIKO_EXIT_REQUEST: '', [RAISED_VARIABLE]: '', [ENTRYPOINT_VARIABLE]: 'cli' }
+    const run = spawnSync(process.execPath, [TURN_WATCH_HOOK], { cwd: project, env, input: JSON.stringify({ session_id: 's-tree', stop_hook_active: false }), encoding: 'utf8' })
     return { status: run.status, stdout: run.stdout }
   }
 
   it('a card session without CONSTRUCT_CARD is not asked for miko:watch by turn-watch', () => {
-    expect(stop(path.dirname(REPO_ROOT))).toEqual({ status: 0, stdout: '' })
-    expect(stop(path.join(tmpdir(), 'no-card-trees-here'))).toEqual({ status: 0, stdout: `${JSON.stringify({ decision: 'block', reason: `[miko] ${TAB_CONTINUE}` })}\n` })
+    expect(stop(true)).toEqual({ status: 0, stdout: '' })
+    expect(stop(false)).toEqual({ status: 0, stdout: `${JSON.stringify({ decision: 'block', reason: `[miko] ${TAB_CONTINUE}` })}\n` })
   }, 30_000)
 })

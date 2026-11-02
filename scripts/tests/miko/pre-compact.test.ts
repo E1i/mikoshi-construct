@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -41,13 +41,22 @@ function world(env: NodeJS.ProcessEnv = {}): World {
   }
 }
 
+function projectOutsideCardTrees(): string {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'pre-compact-project-')))
+  roots.push(dir)
+  for (const linked of ['scripts', 'node_modules'])
+    symlinkSync(path.join(REPO_ROOT, linked), path.join(dir, linked))
+  return dir
+}
+
 function node(w: World, args: string[]): { status: number | null, stderr: string } {
-  const run = spawnSync(process.execPath, ['--import', 'tsx', ...args], { cwd: REPO_ROOT, env: w.env, encoding: 'utf8' })
+  const run = spawnSync(process.execPath, ['--import', 'tsx', ...args], { cwd: projectOutsideCardTrees(), env: w.env, encoding: 'utf8' })
   return { status: run.status, stderr: run.stderr }
 }
 
 function relay(w: World, script: string): { status: number | null, stdout: string, stderr: string } {
-  const run = spawnSync(process.execPath, [RELAY, script], { cwd: REPO_ROOT, env: { ...w.env, CLAUDE_PROJECT_DIR: REPO_ROOT }, input: JSON.stringify({ hook_event_name: 'PreCompact', trigger: 'auto' }), encoding: 'utf8' })
+  const project = projectOutsideCardTrees()
+  const run = spawnSync(process.execPath, [RELAY, script], { cwd: project, env: { ...w.env, CLAUDE_PROJECT_DIR: project }, input: JSON.stringify({ hook_event_name: 'PreCompact', trigger: 'auto' }), encoding: 'utf8' })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }
 
