@@ -86,22 +86,24 @@ describe('watch --once catches up a lagging cursor', () => {
     expect(selectOnce({ offset: 0, busId: CURSOR }, memoryDeps(stale, () => TAIL_ID), 2)).toEqual({ line: [caughtUpLine(CURSOR, TAIL_ID), busLine(stale[3]!)].join('\n'), cursor: { offset: 0, busId: TAIL_ID } })
   })
 
-  it('a catch-up keeps the latest event per card, per pull request without a card and per type without either, in bus order, up to the tail and never of a superseded head', () => {
+  it('a catch-up keeps the latest event per card across its pull requests, per pull request without a card and per type without either, in bus order, up to the tail and never of a superseded head', () => {
     const SUPERSEDED_PR = 15
     const events = [
       event(CURSOR + 10, CARD_STOPPED, 1, 11),
       event(CURSOR + 20, MERGE_DONE, 2, 12),
       event(CURSOR + 30, REVIEW_RECORDED, 1, 11),
+      event(CURSOR + 35, CARD_STOPPED, 1, 18),
       event(CURSOR + 40, REVIEW_RECORDED, 3, SUPERSEDED_PR, 'old'),
       event(CURSOR + 50, MERGE_DONE, null, 16),
       event(CURSOR + 60, PR_CLOSED, null, 16),
       event(CURSOR + 70, WORKER_DOWN, null, null),
       event(CURSOR + 75, CARD_CLOSED, null, null),
       event(CURSOR + 80, WORKER_DOWN, null, null),
+      event(TAIL_ID, CARD_STOPPED, 5, 19),
       event(TAIL_ID + 5, CARD_STOPPED, 4, 17),
     ]
     const deps = { ...memoryDeps(events, () => TAIL_ID), observedHeads: (pr: number) => pr === SUPERSEDED_PR ? ['old', 'new'] : [] }
-    const kept = [events[1]!, events[2]!, events[5]!, events[7]!, events[8]!]
+    const kept = [events[1]!, events[3]!, events[6]!, events[8]!, events[9]!, events[10]!]
     expect(selectOnce({ offset: 0, busId: CURSOR }, deps)).toEqual({ line: [caughtUpLine(CURSOR, TAIL_ID), ...kept.map(busLine)].join('\n'), cursor: { offset: 0, busId: TAIL_ID } })
   })
 
@@ -123,6 +125,7 @@ describe('watch --once catches up a lagging cursor', () => {
     expect(parseWatchArgs([TAIL, '--once'])).toBeUndefined()
     const handoff = handoffDir()
     storeAt(handoff, CURSOR).close()
+    expect(runTail(handoff, memoryDeps([], () => CURSOR))).toBe(tailLine(CURSOR, CURSOR))
     expect(runTail(handoff, memoryDeps([], () => TAIL_ID))).toBe(tailLine(CURSOR, TAIL_ID))
     const store = storeAt(handoff, 0)
     try {
