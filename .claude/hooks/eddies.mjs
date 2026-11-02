@@ -190,7 +190,7 @@ function compactionPointOf(root) {
 }
 
 function contextThresholdOf(root, config, caller) {
-  const { isTabWindowIn, worktreeHomesOf } = tabWindowModule()
+  const { isTabWindowIn, worktreeHomesOf } = tabWindow
   const point = caller.session_id != null && isTabWindowIn(process.env, root, worktreeHomesOf(process.env)) ? compactionPointOf(root) : null
   return point == null ? { limit: config.contextLimit, limitName: 'contextLimit' } : { ...point, compacts: true }
 }
@@ -282,7 +282,7 @@ function sessionHandoffOf() {
 }
 
 function continueLineOf(root, gauge) {
-  if (!tabWindowModule().isCardSession(process.env)) {
+  if (!tabWindow.isCardSession(process.env)) {
     const handoff = sessionHandoffOf()
     const writeLine = `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\n`
     if (gauge.compacts)
@@ -410,6 +410,7 @@ async function run(hook, { act, failClosed, measured }) {
   }
   let root = null
   try {
+    tabWindow = await import(TAB_WINDOW_MODULE)
     root = projectRoot()
     if (root == null) {
       if (failClosed)

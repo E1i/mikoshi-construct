@@ -15,6 +15,9 @@
         { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/role-guard.mjs\" snapshot", "timeout": 5 },
         { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/window-core.mjs\"", "timeout": 10 }
       ]
+    }, {
+      "matcher": "compact",
+      "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/eddies.mjs\" compact", "timeout": 5 }]
     }],
     "PreToolUse": [
       { "matcher": "Agent", "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/role-guard.mjs\" guard", "timeout": 5 }] },
