@@ -2128,7 +2128,7 @@ is refused and the file goes back. A move into any other directory is a drop: `a
 and ends it as `dropped` unless it is already merged, closed or dropped, and it is taken for a card the bus
 never admitted too. A move to the directory the card already sits in leaves the file where it is
 and writes the same event all the same. A card with no file under the root that the bus holds admitted
-text for is moved in the bus alone: the event is written and no file appears. A move to a lane admits the
+text for is moved in the bus alone: the event is written and no file appears. A move to a launch lane admits the
 card again with the text the bus holds, and the file's text only when the bus holds none. The printed line names the event the bus holds. With `--draft`, `--taken` or `--admit` the move refuses.
 
 **Exporting an admitted card.** `pnpm intake --export <#N>`, this repository's bus-wired entry, prints
@@ -2148,7 +2148,7 @@ entry line it writes to `ghosts.jsonl`, under `--without-intake` too. A missing 
 value as `touches not recorded on the card: no parking file for #<id>`; a file whose card line is not
 the `--card` given is refused with nothing written, and so is a file whose body is not the `bodySha`
 of the latest `card.admitted` that carries one, with or without its `touches` line, unless
-`--without-intake` is given. A move to a lane admits without a `bodySha`, so the body admitted before
+`--without-intake` is given. A move to a launch lane admits without a `bodySha`, so the body admitted before
 the move still holds; a card none of whose admissions carries a `bodySha` is not checked. The entry line `task:start` writes carries
 `"schema":2`; the one `ghosts:launch` writes carries no `schema` and stays version 1.
 
