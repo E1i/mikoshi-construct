@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BUS_DB_VARIABLE } from '../scripts/core/bus-path.js'
 import { appendEvent, openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
+import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
 import { DOCTOR_EXIT, DOCTOR_JSON_SCHEMA_VERSION, FACTORY_ITEMS, factoryChecklist, factoryChecklistExit, factoryChecklistJson, printFactoryChecklist } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { WINDOW_SILENT_MS } from '../src/commands/liveness.js'
@@ -31,6 +32,7 @@ interface Factory {
   dir: string
   bus: string
   home: string
+  handoffs: string
 }
 
 function scratch(prefix: string): string {
@@ -42,7 +44,7 @@ async function initialised(): Promise<Factory> {
   mkdirSync(path.join(dir, '.git'))
   const home = scratch('construct-doctor-factory-home-')
   await runInit(createUi(resolveTheme({ plain: true }), silentWriter), { dir, preset: 'node-backend', ai: 'claude', yes: true, dryRun: false, env: {}, home })
-  return { dir, home, bus: path.join(scratch('construct-doctor-factory-bus-'), 'bus.db') }
+  return { dir, home, bus: path.join(scratch('construct-doctor-factory-bus-'), 'bus.db'), handoffs: scratch('construct-doctor-factory-handoff-') }
 }
 
 function beat(bus: string, ageMs: number): void {
@@ -61,15 +63,20 @@ function decide(bus: string, until: string, queues: string[] = ['merge', 'update
   writeFileSync(path.join(path.dirname(bus), 'owner-decisions.md'), `# Owner decisions\n\n${lines.join('\n')}\n`)
 }
 
+function carryOn(factory: Factory): void {
+  writeFileSync(path.join(factory.handoffs, 'miko.md'), '# Handoff\n\nSTATUS: CONTINUE\n')
+}
+
 async function readyFactory(): Promise<Factory> {
   const factory = await initialised()
   beat(factory.bus, 60_000)
   decide(factory.bus, IN_FORCE_UNTIL)
+  carryOn(factory)
   return factory
 }
 
 function check(factory: Factory): FactoryChecklist {
-  return factoryChecklist(factory.dir, { env: { CONSTRUCT_BUS_DB: factory.bus }, home: factory.home, now: NOW })
+  return factoryChecklist(factory.dir, { env: { CONSTRUCT_BUS_DB: factory.bus, [HANDOFF_DIR_VARIABLE]: factory.handoffs }, home: factory.home, now: NOW })
 }
 
 function red(checklist: FactoryChecklist): Partial<Record<FactoryItemName, string | null>> {
@@ -105,6 +112,8 @@ async function factoryJsonThroughProgram(factory: Factory): Promise<{ exit: type
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   vi.stubEnv(BUS_DB_VARIABLE, factory.bus)
+  vi.stubEnv(HANDOFF_DIR_VARIABLE, factory.handoffs)
+  vi.stubEnv('CONSTRUCT_HANDOFF', '')
   try {
     process.exitCode = undefined
     await runCommand(main, { rawArgs: ['doctor', '--factory', '--json', '--plain', '--dir', factory.dir] })
@@ -129,18 +138,20 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
   })
 
   it('a fresh init with no window and no owner word does not go, and names the command for each red item', async () => {
-    const checklist = check(await initialised())
-    expect(red(checklist)).toEqual({ 'window-live': 'claude', 'live-merge': GHOST_PROTOCOL, 'live-update': GHOST_PROTOCOL })
+    const factory = await initialised()
+    const checklist = check(factory)
+    expect(red(checklist)).toEqual({ 'window-live': 'claude', 'window-continue': `miko handoff write ${path.join(factory.handoffs, 'miko.md')} <draft ending STATUS: CONTINUE>`, 'live-merge': GHOST_PROTOCOL, 'live-update': GHOST_PROTOCOL })
     const { text, exit } = printed(checklist)
     expect(exit).toBe(DOCTOR_EXIT.notOk)
     expect(text).toContain(PLAIN_LORE.factoryRun(GHOST_PROTOCOL))
-    expect(text).toContain(PLAIN_LORE.factoryVerdict(false, 3))
+    expect(text).toContain(PLAIN_LORE.factoryVerdict(false, 4))
   })
 
   it('a window heartbeat older than the silence does not go', async () => {
     const factory = await initialised()
     beat(factory.bus, WINDOW_SILENT_MS + 1)
     decide(factory.bus, IN_FORCE_UNTIL)
+    carryOn(factory)
     expect(red(check(factory))).toEqual({ 'window-live': 'claude' })
   })
 
@@ -148,10 +159,12 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
     const lapsed = await initialised()
     beat(lapsed.bus, 60_000)
     decide(lapsed.bus, LAPSED_UNTIL)
+    carryOn(lapsed)
     expect(red(check(lapsed))).toEqual({ 'live-merge': GHOST_PROTOCOL, 'live-update': GHOST_PROTOCOL })
     const mergeOnly = await initialised()
     beat(mergeOnly.bus, 60_000)
     decide(mergeOnly.bus, IN_FORCE_UNTIL, ['merge'])
+    carryOn(mergeOnly)
     expect(red(check(mergeOnly))).toEqual({ 'live-update': GHOST_PROTOCOL })
   })
 
