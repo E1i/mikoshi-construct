@@ -24,7 +24,6 @@ export interface TreeTask {
   sketchSha: string | null
   changed: string[] | null
   witnessesDir: string
-  creates?: readonly string[]
 }
 
 const NOT_RUN_STATUSES = [126, 127]
@@ -51,9 +50,13 @@ const TAIL_JOINER = ' · '
 const VITEST = /\bvitest\b/
 const TEST_FILE = /^[\w./-]+\.(?:test|spec)\.[cm]?[jt]sx?$/
 const TEST_NAME = /\s(?:-t|--testNamePattern)[=\s]+(?:'([^']*)'|"([^"]*)"|(\S+))/
-const TOKEN_PREFIX = /^(?:[\w-]+=|\d*[<>]+&?|['"(])+/
-const TOKEN_SUFFIX = /['");]+$/
-const CURRENT_DIRECTORY = /^\.\//
+const TEST_NAME_ARGUMENTS = /(?:^|\s)(?:-t|--testNamePattern)(?:=|\s+)(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S+)/g
+const OUTPUT_REDIRECT = /(?:\d|&)?>>?\s*\S+/g
+const ARGUMENT_PREFIX = /^(?:[\w-]+=|\d*[<>]+&?|['"(])+/
+const TRAILING_QUOTES = /['")]+$/
+const HOME_REFERENCE = /^~(?:\/|$)|\$\{?HOME\b/
+const CURRENT_DIRECTORY_PREFIX = /^\.\//
+const TRAILING_SLASHES = /\/+$/
 
 interface GrepWitness { witness: Witness, probe: string }
 
@@ -100,13 +103,22 @@ function absentOnBase(tree: string, witness: Witness): boolean {
   return target.name !== null && !readFileSync(file, 'utf8').includes(target.name)
 }
 
-function pathsNamed(tree: string, command: string, created: readonly string[]): string[] {
-  return command.replace(TEST_NAME, ' ').split(/\s+/).map(token => token.replace(TOKEN_PREFIX, '').replace(TOKEN_SUFFIX, '').replace(CURRENT_DIRECTORY, '')).filter(token => token !== '' && !token.startsWith('-') && !path.isAbsolute(token)).filter(token => created.includes(token) || existsSync(path.join(tree, token)))
+function addedOnHead(tree: string, base: string, head: string | null): string[] {
+  return head === null ? [] : gitIn(tree, ['diff', '--name-only', '--diff-filter=A', base, head]).split('\n').filter(file => file !== '')
 }
 
-export function overCreatedPaths(tree: string, witness: Witness, created: readonly string[]): boolean {
-  const named = pathsNamed(tree, witness.command, created)
-  return named.length > 0 && named.every(token => created.includes(token))
+function isCreated(relative: string, added: readonly string[]): boolean {
+  const scope = relative.replace(TRAILING_SLASHES, '')
+  return added.some(file => file === scope || file.startsWith(`${scope}/`))
+}
+
+function pathsNamed(command: string, readable: (relative: string) => boolean): string[] {
+  return command.replace(TEST_NAME_ARGUMENTS, ' ').replace(OUTPUT_REDIRECT, ' ').trim().split(/\s+/).map(token => token.replace(ARGUMENT_PREFIX, '').replace(TRAILING_QUOTES, '')).filter(token => token !== '' && !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token)).map(token => token.replace(CURRENT_DIRECTORY_PREFIX, '')).filter(readable)
+}
+
+function overCreatedPaths(tree: string, witness: Witness, added: readonly string[]): boolean {
+  const named = pathsNamed(witness.command, relative => isCreated(relative, added) || existsSync(path.join(tree, relative)))
+  return named.length > 0 && named.every(relative => isCreated(relative, added))
 }
 
 function reportsFailedTest(output: string): boolean {
@@ -224,22 +236,29 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
   const baseShort = base.slice(0, 7)
   const harnessRuns = task.sketchSha !== null && task.changed !== null
   const declared = harnessRuns ? invariantsBesideHarness(run, task) : task.invariants
-  const created = declared.filter(witness => overCreatedPaths(tree, witness, task.creates ?? []))
-  created.forEach(witness => run.log(`invariant "${witness.criterion}": every path it names is in the card's creates; a change witness: red on the base, green on the head`))
-  const acceptance = [...task.acceptance, ...created]
-  const invariants = declared.filter(witness => !created.includes(witness))
-  const absent = new Set([...acceptance, ...invariants].filter(witness => absentOnBase(tree, witness)))
+  const added = addedOnHead(tree, base, task.sketchSha)
+  const absent = new Set([...task.acceptance, ...declared].filter(witness => absentOnBase(tree, witness)))
   const presentOnBase = (witnesses: Witness[]): Witness[] => witnesses.filter(witness => !absent.has(witness))
+  const redOverCreated: Witness[] = []
   let unmatchedOnBase: GrepWitness[] = []
   if (existsSync(path.join(tree, LOCKFILE)))
     time('install', () => refuse('P7', shell(INSTALL, tree).status === 0 ? null : `${INSTALL} failed on the base ${baseShort}`))
   time('P7 base', () => {
-    acceptance.filter(witness => absent.has(witness)).forEach(witness => run.log(`witness "${witness.criterion}": red on the base ${baseShort} by absence: its test is not in the base tree; checked on the head`))
-    invariants.filter(witness => absent.has(witness)).forEach(witness => run.log(`invariant "${witness.criterion}": not applicable on the base ${baseShort}: new test; checked on the head only`))
-    refuse('P7', firstProblem(presentOnBase(acceptance), witness => baseRedRefusal(witness, shell(witness.command, tree), baseShort)))
-    refuse('P7', firstProblem(presentOnBase(invariants), witness => greenRefusal('invariant', witness, shell(witness.command, tree), `the clean base ${baseShort}`)))
-    unmatchedOnBase = grepWitnesses(acceptance).filter(({ probe }) => shell(probe, tree).status !== 0)
+    task.acceptance.filter(witness => absent.has(witness)).forEach(witness => run.log(`witness "${witness.criterion}": red on the base ${baseShort} by absence: its test is not in the base tree; checked on the head`))
+    declared.filter(witness => absent.has(witness)).forEach(witness => run.log(`invariant "${witness.criterion}": not applicable on the base ${baseShort}: new test; checked on the head only`))
+    refuse('P7', firstProblem(presentOnBase(task.acceptance), witness => baseRedRefusal(witness, shell(witness.command, tree), baseShort)))
+    refuse('P7', firstProblem(presentOnBase(declared), (witness) => {
+      const result = shell(witness.command, tree)
+      if (result.status === 0 || !overCreatedPaths(tree, witness, added))
+        return greenRefusal('invariant', witness, result, `the clean base ${baseShort}`)
+      redOverCreated.push(witness)
+      run.log(`invariant "${witness.criterion}": red on the base ${baseShort} over paths the head creates, and nothing else; a change witness: checked green on the head`)
+      return null
+    }))
+    unmatchedOnBase = grepWitnesses(task.acceptance).filter(({ probe }) => shell(probe, tree).status !== 0)
   })
+  const acceptance = [...task.acceptance, ...redOverCreated]
+  const invariants = declared.filter(witness => !redOverCreated.includes(witness))
   if (task.sketchSha === null || task.changed === null) {
     unmatchedOnBase.forEach(({ witness }) => run.log(`grep witness "${witness.criterion}": not checked, Sketch: none leaves no head; red by absence until done:check probes it on the head`))
     time('P6 lint', () => lint(run, lintTargets(tree, null, task.witnessesDir), 'lint of the ready witness files, no --fix,', 'a throwaway tree of the base'))

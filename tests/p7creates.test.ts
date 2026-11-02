@@ -8,7 +8,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runOnTree } from '../scripts/ports/witnesses.js'
 import { realShell, withWorktree } from '../scripts/ports/worktree.js'
-import { checkDraft } from '../src/commands/intake/check.js'
+import { checkDraft, isChangeWitness } from '../src/commands/intake/check.js'
 
 const CREATED = 'zerotouch/alpha.md'
 const OVER_CREATED = `grep -qx alpha ${CREATED}`
@@ -76,7 +76,7 @@ function commit(repo: string, files: Record<string, string>): string {
 
 interface Outcome { refusals: string[], log: string[] }
 
-function invariantOverCreated(creates: readonly string[]): Outcome {
+function invariantOn(command: string): Outcome {
   const root = mkdtempSync(path.join(tmpdir(), 'p7creates-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
@@ -89,7 +89,7 @@ function invariantOverCreated(creates: readonly string[]): Outcome {
       if (problem !== null)
         outcome.refusals.push(`${step}: ${problem}`)
     }, time: (_name, run) => run() },
-    { acceptance: [], invariants: [{ criterion: 'alpha is written', command: OVER_CREATED }], harnessCommand: null, sketchSha: head, changed: [], witnessesDir: tree, creates },
+    { acceptance: [], invariants: [{ criterion: 'alpha is written', command }], harnessCommand: null, sketchSha: head, changed: [], witnessesDir: tree },
   ))
   return outcome
 }
@@ -97,10 +97,26 @@ function invariantOverCreated(creates: readonly string[]): Outcome {
 describe('the base run over a witness the card creates the paths of', () => {
   // eslint-disable-next-line test/prefer-lowercase-title
   it('P7 takes a witness over created paths as a change witness', () => {
-    const taken = invariantOverCreated([CREATED])
+    const taken = invariantOn(OVER_CREATED)
 
     expect(taken.refusals).toEqual([])
-    expect(taken.log).toContainEqual(expect.stringMatching(/^invariant "alpha is written": every path it names is in the card's creates; a change witness/))
-    expect(invariantOverCreated([]).refusals).toEqual([expect.stringMatching(/^P7: invariant "alpha is written" exits \d+ on the clean base/)])
+    expect(taken.log).toContainEqual(expect.stringMatching(/^invariant "alpha is written": red on the base \w{7} over paths the head creates, and nothing else; a change witness/))
+    expect(invariantOn(`grep -qx alpha README.md ${CREATED}`).refusals).toEqual([expect.stringMatching(/^P7: invariant "alpha is written" exits \d+ on the clean base/)])
+  })
+
+  it('reads the paths of a witness as intake reads them, in every written form', () => {
+    for (const command of [`grep -qx alpha ./${CREATED}`, `grep -qx alpha '${CREATED}'`, `test -f "${CREATED}"`, `cat ${CREATED} 2>/dev/null`]) {
+      expect(witnessReasons(draftCard({ creates: [CREATED], witnesses: [`\`${command}\` fails on base`] }))).toEqual([])
+      expect(invariantOn(command).refusals).toEqual([])
+      expect(invariantOn(`! ${command}`).refusals).toEqual([expect.stringMatching(/^P8: invariant "alpha is written" exits 1 on the sketch/)])
+    }
+  })
+})
+
+describe('one reading of a change witness', () => {
+  it('counts every wording intake and admit use for a witness red on the base', () => {
+    for (const witness of ['`x` Red on main', '`x` red on the base', '`x` exits 0 on head and fails on base', '`x` · acceptance'])
+      expect(isChangeWitness(witness)).toBe(true)
+    expect(isChangeWitness('`x` exits 0')).toBe(false)
   })
 })

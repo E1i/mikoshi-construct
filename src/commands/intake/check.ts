@@ -33,7 +33,7 @@ const OUTPUT_REDIRECT = /(?:\d|&)?>>?\s*\S+/g
 const INFORMATION_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help'])
 const CURRENT_DIRECTORY_PREFIX = /^\.\//
 const TREE_READING_COMMANDS = new Set(['pnpm', 'npm', 'npx', 'yarn', 'node', 'git', 'vitest', 'tsx', 'tsc', 'eslint'])
-const CHANGE_WITNESS_WORDING = /\b(?:red on (?:main|the base)|fails on (?:main|the base|base))\b/
+const CHANGE_WITNESS_WORDING = /\b(?:red on (?:main|the base|base)|fails on (?:main|the base|base))\b/i
 const CHANGE_WITNESS_KIND = 'acceptance'
 const IMPLEMENT_KIND = 'implement'
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
@@ -432,15 +432,17 @@ function outsidePathsUnclear(commands: readonly string[], witness: string): Uncl
 
 interface WitnessReach { repository: RepositoryFacts, created: readonly string[] }
 
-function namesTreePath(token: string, reach: WitnessReach): boolean {
-  const relative = token.replace(CURRENT_DIRECTORY_PREFIX, '')
-  return !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token) && (reach.repository.exists(relative) || reach.created.includes(relative))
+function pathsNamedBy(command: string, readable: (relative: string) => boolean): string[] {
+  const word = commandWord(command) ?? ''
+  const named = argumentsOf(command)
+  return (word.includes('/') ? [word, ...named] : named)
+    .filter(token => !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token))
+    .map(token => token.replace(CURRENT_DIRECTORY_PREFIX, ''))
+    .filter(readable)
 }
 
 function namedPaths(command: string, reach: WitnessReach): string[] {
-  const word = commandWord(command) ?? ''
-  const named = argumentsOf(command)
-  return (word.includes('/') ? [word, ...named] : named).filter(token => namesTreePath(token, reach))
+  return pathsNamedBy(command, relative => reach.repository.exists(relative) || reach.created.includes(relative))
 }
 
 function readsTheTree(command: string, reach: WitnessReach): boolean {
@@ -456,7 +458,7 @@ function headIndependentUnclear(commands: readonly string[], witness: string, re
   return commands.some(command => readsTheTree(command, reach)) ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" reads nothing the tree under test can change; its result does not depend on the head` }]
 }
 
-function isChangeWitness(witness: string): boolean {
+export function isChangeWitness(witness: string): boolean {
   return (witnessKindField(witness) ?? (CHANGE_WITNESS_WORDING.test(witness) ? CHANGE_WITNESS_KIND : undefined)) === CHANGE_WITNESS_KIND
 }
 
