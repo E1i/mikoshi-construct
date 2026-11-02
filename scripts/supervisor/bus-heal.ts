@@ -6,7 +6,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmS
 import path from 'node:path'
 import process from 'node:process'
 import { backupsDirOf, BUS_FILE, busDirOf } from '../core/bus-path.js'
-import { appendEvent, BUSY_TIMEOUT_MS, openBusWait } from '../core/db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, openOwnerWait } from '../core/db.js'
 import { BUS_HEAL_HELD, BUS_HEALED } from '../core/events.js'
 import { reduce } from '../core/reducer.js'
 import { openDatabase } from '../core/sqlite.js'
@@ -19,7 +19,7 @@ export const NODES_RECORD = 'bus-nodes.json'
 export const HEAL_FLAG = 'bus-heal.stop'
 export const CONTROL_FILE = 'control.json'
 export const HEAL_ACTOR = 'policy'
-export const HEAL_COMMAND = 'bus:heal'
+export const HEAL_WAIT_MS = 5 * 60_000
 export const NODE_STOP_WAIT_MS = 10_000
 export const NODE_STOP_POLL_MS = 100
 const INTEGRITY_OK = 'ok'
@@ -88,6 +88,8 @@ interface HealFlag {
 
 export interface NodeControl {
   stop: () => Promise<string[]>
+  stillRunning: () => string[]
+  stoppedSince: () => Date | null
   hold: (question: string, backup: string | null) => void
   restart: () => string[]
   held: () => boolean
@@ -97,6 +99,8 @@ export interface NodeControl {
 export interface ProcessSignals {
   signal: (pid: number, name: NodeJS.Signals) => void
   alive: (pid: number) => boolean
+  runsNodeOfThisBus: (pid: number, script: string) => boolean
+  runningOnThisBus: () => string[]
   pause: (ms: number) => Promise<unknown>
   now: () => Date
 }
@@ -121,17 +125,36 @@ export class RecordedNodes implements NodeControl {
   }
 
   async stop(): Promise<string[]> {
-    this.writeFlag({ state: 'healing', since: this.signals.now().toISOString() })
-    const nodes = this.ownNodes().filter(node => node.pid !== process.pid)
+    this.writeFlag({ state: 'healing', since: (this.stoppedSince() ?? this.signals.now()).toISOString() })
+    const recorded = this.ownNodes().filter(node => node.pid !== process.pid)
+    const nodes = recorded.filter(node => this.stillTheNode(node))
+    const stale = recorded.filter(node => !nodes.includes(node))
+    this.write(this.record().filter(node => !stale.some(gone => gone.pid === node.pid && gone.script === node.script)))
     for (const node of nodes)
       this.signals.signal(node.pid, 'SIGTERM')
-    for (let waited = 0; waited < NODE_STOP_WAIT_MS && nodes.some(node => this.signals.alive(node.pid)); waited += NODE_STOP_POLL_MS)
+    for (let waited = 0; waited < NODE_STOP_WAIT_MS && nodes.some(node => this.stillTheNode(node)); waited += NODE_STOP_POLL_MS)
       await this.signals.pause(NODE_STOP_POLL_MS)
-    const left = nodes.filter(node => this.signals.alive(node.pid))
+    const left = nodes.filter(node => this.stillTheNode(node))
     for (const node of left)
       this.signals.signal(node.pid, 'SIGKILL')
-    const named = nodes.map(node => `${node.script} (pid ${node.pid})`).join(', ') || 'none recorded'
-    return [`${PREFIX}stopped the nodes of ${this.busPath} by their process record and the stop flag ${this.flagFile()}: ${named}${left.length === 0 ? '' : `; killed after ${NODE_STOP_WAIT_MS / 1000}s: ${left.map(node => node.pid).join(', ')}`}`]
+    const named = nodes.map(node => `${node.script} (pid ${node.pid})`).join(', ') || 'none running'
+    return [
+      `${PREFIX}stopped the nodes of ${this.busPath} by their process record and the stop flag ${this.flagFile()}: ${named}${left.length === 0 ? '' : `; killed after ${NODE_STOP_WAIT_MS / 1000}s: ${left.map(node => node.pid).join(', ')}`}`,
+      ...stale.length === 0 ? [] : [`${PREFIX}dropped from the process record, gone or no longer a node of this bus, and not signalled: ${stale.map(node => `${node.script} (pid ${node.pid})`).join(', ')}`],
+    ]
+  }
+
+  stillRunning(): string[] {
+    return this.signals.runningOnThisBus()
+  }
+
+  stoppedSince(): Date | null {
+    const flag = this.flag()
+    return flag?.state === 'healing' ? new Date(flag.since) : null
+  }
+
+  private stillTheNode(node: RecordedNode): boolean {
+    return this.signals.alive(node.pid) && this.signals.runsNodeOfThisBus(node.pid, node.script)
   }
 
   hold(question: string, backup: string | null): void {
@@ -237,7 +260,8 @@ export interface HealParts {
 }
 
 export type HealOutcome
-  = | { kind: 'healed', backup: string, broken: string[], steps: string[], lines: string[] }
+  = | { kind: 'deferred', lines: string[] }
+    | { kind: 'healed', backup: string, broken: string[], steps: string[], lines: string[] }
     | { kind: 'held', backup: string | null, question: string, lines: string[] }
 
 class HealStepFailed extends Error {}
@@ -266,10 +290,10 @@ function demand(ok: boolean, failure: string): void {
     throw new HealStepFailed(failure)
 }
 
-function backedUp(busPath: string, at: Date): string {
+async function backedUp(busPath: string, at: Date): Promise<string> {
   const dir = path.join(backupsDirOf(busPath), stampOf(at))
   try {
-    backupInto(busPath, path.join(dir, BUS_FILE))
+    await backupInto(busPath, path.join(dir, BUS_FILE))
   }
   catch (error) {
     throw new HealStepFailed(`the backup into ${dir} through the sqlite backup API failed: ${errorText(error)}`)
@@ -323,7 +347,7 @@ function recordHeld(busPath: string, at: string, failure: string, backup: string
   try {
     live = openDatabase(busPath, { timeout: BUSY_TIMEOUT_MS })
     appendEvent(live, { ts: at, type: BUS_HEAL_HELD, actor: HEAL_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${BUS_HEAL_HELD}:${at}`, payload: { failure, backup }, legacy: false })
-    openBusWait(live, at, HEAL_ACTOR, { need: 'decision', text: question, command: HEAL_COMMAND })
+    openOwnerWait(live, at, HEAL_ACTOR, { need: 'decision', text: question })
     return []
   }
   catch (error) {
@@ -339,10 +363,15 @@ export async function healBus(parts: HealParts, cause: string): Promise<HealOutc
   const reduceBus = parts.reduce ?? ((db: DatabaseSync) => void reduce(db))
   const at = parts.now()
   const lines = [`${PREFIX}SQLITE_CORRUPT on ${busPath}: ${cause.trim()}; healing it`, ...await nodes.stop()]
+  const unrecorded = nodes.stillRunning()
+  const waitedMs = at.getTime() - (nodes.stoppedSince() ?? at).getTime()
+  if (unrecorded.length > 0 && waitedMs < HEAL_WAIT_MS)
+    return { kind: 'deferred', lines: [...lines, `${PREFIX}bus processes outside the process record still run on ${busPath}: ${unrecorded.join(', ')}; nothing is repaired while they hold it, the supervisor stops them as switched off and the heal retries on the next tick`] }
   let backup: string | null = null
   const live = openDatabase(busPath, { timeout: BUSY_TIMEOUT_MS })
   try {
-    backup = backedUp(busPath, at)
+    demand(unrecorded.length === 0, `bus processes outside the process record still run on it after ${Math.round(waitedMs / 60_000)} min: ${unrecorded.join(', ')}`)
+    backup = await backedUp(busPath, at)
     const { control, broken } = readBackup(backup)
     lines.push(`${PREFIX}backed up into ${backup} through the sqlite backup API: max(id) ${control.maxId}, count(*) ${control.count}`)
     const steps = broken.length === 0 ? ['integrity_check ok on the backup; nothing to repair'] : repair(live, control, reduceBus)

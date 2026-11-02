@@ -21,7 +21,7 @@ import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { CHECK_MS } from '../ports/netwatch.js'
-import { alive, BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, psList, runBusBg, runningInstance, startDetached, withBuses } from './bg.js'
+import { alive, BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
@@ -1003,7 +1003,15 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   }
   const code = gitCode(cwd)
-  const nodes = new RecordedNodes(busPath, { signal, alive, pause: sleep, now: () => new Date() })
+  const known = busLaunches(reviewPreflight)
+  const nodes = new RecordedNodes(busPath, {
+    signal,
+    alive,
+    runsNodeOfThisBus: (pid, script) => known.some(launch => launch.script === script && instancesOf(processes(), launch.markers).some(each => each.pid === pid && provenOnBus(each, thisBus()))),
+    runningOnThisBus: () => known.flatMap(launch => instancesOf(processes(), launch.markers).map(each => `${launch.script} (pid ${each.pid})`)),
+    pause: sleep,
+    now: () => new Date(),
+  })
   const start = (launch: DetachedLaunch): BgResult => nodes.started(launch, startReviewWorker(launch, busDir, process.env, processes))
   const wanted = (): DetachedLaunch[] => nodes.held() ? [] : wantedLaunches(busDir, reviewPreflight, inForceDecisions(db))
   foreignBusLines(processes(), ownPackage()).forEach(line => console.log(line))
