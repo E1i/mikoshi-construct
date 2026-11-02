@@ -2,9 +2,10 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Witness } from '../ports/witnesses.js'
 import type { InForceDecision } from './decisions.js'
 import { readBodyCard } from '../../src/card/grammar.js'
+import { createdPaths } from '../../src/card/parking.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
-import { ownerPathsOf } from '../../src/commands/intake/check.js'
+import { isChangeWitness, ownerPathsOf } from '../../src/commands/intake/check.js'
 import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
@@ -241,7 +242,7 @@ export const WITNESS_REASON = 'witness'
 export const GREEN = 'green'
 export const RED = 'red'
 
-const RED_ON_THE_BASE = /\b(?:red on (?:main|the base)|fails on (?:main|the base|base))\b/
+const CREATES_LINE = /^creates:(.*)$/m
 const BACKTICKED = /`([^`]+)`/g
 
 export type WitnessVerdict = typeof GREEN | typeof RED
@@ -254,6 +255,11 @@ export interface CardWitnesses {
 export interface WitnessSubject extends CardWitnesses {
   cardId: number
   cardBody: string
+  creates: string[]
+}
+
+export function cardCreatesOf(body: string): string[] {
+  return createdPaths((CREATES_LINE.exec(body)?.[1] ?? '').split(',').map(entry => entry.trim()).filter(entry => entry !== ''))
 }
 
 export interface WitnessRecord {
@@ -282,8 +288,8 @@ function commandsOf(item: string): string[] {
 export function cardWitnessesOf(body: string): CardWitnesses {
   const items = witnessesOf(body).filter(item => commandsOf(item).length > 0)
   return {
-    acceptance: items.filter(item => RED_ON_THE_BASE.test(item)).map(item => ({ criterion: item, command: commandsOf(item).join(' && ') })),
-    invariants: items.filter(item => !RED_ON_THE_BASE.test(item)).flatMap(item => commandsOf(item).map(command => ({ criterion: item, command }))),
+    acceptance: items.filter(isChangeWitness).map(item => ({ criterion: item, command: commandsOf(item).join(' && ') })),
+    invariants: items.filter(item => !isChangeWitness(item)).flatMap(item => commandsOf(item).map(command => ({ criterion: item, command }))),
   }
 }
 
@@ -299,7 +305,7 @@ export function witnessSubjectOf(db: DatabaseSync, cardId: number): WitnessSubje
   if (admission === undefined)
     return null
   const witnesses = cardWitnessesOf(admission.text)
-  return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody: admission.body_sha, ...witnesses }
+  return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody: admission.body_sha, creates: cardCreatesOf(admission.text), ...witnesses }
 }
 
 export interface WitnessDenial {

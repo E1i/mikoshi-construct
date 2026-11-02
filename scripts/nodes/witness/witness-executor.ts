@@ -219,7 +219,7 @@ export class WitnessExecutor {
             if (problem !== null)
               throw new WitnessRed(step, problem)
           }, time: (_name, run) => run() },
-          { acceptance: subject.acceptance, invariants: subject.invariants, harnessCommand: null, sketchSha: head, changed: [], witnessesDir: tree },
+          { acceptance: subject.acceptance, invariants: subject.invariants, harnessCommand: null, sketchSha: head, changed: [], witnessesDir: tree, creates: subject.creates },
         )
         return null
       }

@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { cardCreatesOf, cardWitnessesOf } from '../scripts/policy/policy.js'
 import { runOnTree } from '../scripts/ports/witnesses.js'
 import { realShell, withWorktree } from '../scripts/ports/worktree.js'
 import { witnessDowngrades } from '../src/commands/intake/admit.js'
@@ -83,10 +84,10 @@ function commit(repo: string, files: Record<string, string>): string {
 
 interface Outcome { refusals: string[], log: string[] }
 
-interface Run { headFiles?: Record<string, string>, creates?: string[], sketch?: boolean }
+interface Run { headFiles?: Record<string, string>, creates?: string[], sketch?: boolean, criterion?: string }
 
 function invariantOn(command: string, baseFiles: Record<string, string> = {}, run: Run = {}): Outcome {
-  const { headFiles = { [CREATED]: 'alpha\n' }, creates, sketch = true } = run
+  const { headFiles = { [CREATED]: 'alpha\n' }, creates = [], sketch = true, criterion = 'alpha is written' } = run
   const root = mkdtempSync(path.join(tmpdir(), 'p7creates-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
@@ -99,7 +100,7 @@ function invariantOn(command: string, baseFiles: Record<string, string> = {}, ru
       if (problem !== null)
         outcome.refusals.push(`${step}: ${problem}`)
     }, time: (_name, run) => run() },
-    { acceptance: [], invariants: [{ criterion: 'alpha is written', command }], harnessCommand: null, sketchSha: sketch ? head : null, changed: sketch ? [] : null, witnessesDir: tree, creates },
+    { acceptance: [], invariants: [{ criterion, command }], harnessCommand: null, sketchSha: sketch ? head : null, changed: sketch ? [] : null, witnessesDir: tree, creates },
   ))
   return outcome
 }
@@ -141,6 +142,24 @@ describe('the base run over a witness the card creates the paths of', () => {
       expect(outcome.log.filter(line => line.includes('over paths the head creates'))).toEqual([])
       expect(outcome.refusals.filter(refusal => refusal.includes('positive control'))).toEqual([])
     }
+  })
+
+  it('takes an invariant whose wording states red on the base as a change witness, by the predicate intake reads', () => {
+    const changed = { 'README.md': 'alpha\n' }
+
+    expect(invariantOn('grep -qx alpha README.md', {}, { headFiles: changed }).refusals).toEqual([expect.stringMatching(/^P7: invariant "alpha is written" exits 1 on the clean base/)])
+    const taken = invariantOn('grep -qx alpha README.md', {}, { headFiles: changed, criterion: 'alpha is written · acceptance' })
+    expect(taken.refusals).toEqual([])
+    expect(taken.log).toContainEqual(expect.stringMatching(/red on the base \w{7} as its wording states; a change witness/))
+  })
+
+  it('the bus reads a card\'s creates and its change witnesses as intake does', () => {
+    const body = ['card: #2 p7creates [implement/runner/S/cheap/auto]', 'who: shift', `creates: ${CREATED}, docs/new (plain)`, '', 'Witnesses:', `- \`${OVER_CREATED}\` exits 0 · acceptance`, `- \`${OVER_CREATED}\` exits 0 on head; Red on main`].join('\n')
+
+    expect(cardCreatesOf(body)).toEqual([CREATED, 'docs/new'])
+    expect(cardCreatesOf('card: #2 p7creates [implement/runner/S/cheap/auto]')).toEqual([])
+    expect(cardWitnessesOf(body).invariants).toEqual([])
+    expect(cardWitnessesOf(body).acceptance).toHaveLength(2)
   })
 
   it('reads a path the head creates from the card\'s creates, as intake does', () => {

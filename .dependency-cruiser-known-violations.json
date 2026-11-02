@@ -2387,6 +2387,20 @@
   {
     "type": "dependency",
     "from": "scripts/policy/policy.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/policy.ts",
     "to": "src/card/risk.ts",
     "unresolvedTo": "../../src/card/risk.js",
     "dependencyTypes": [
@@ -2741,6 +2755,34 @@
     "from": "scripts/ports/task-start.ts",
     "to": "src/commands/intake/confirm.ts",
     "unresolvedTo": "../../src/commands/intake/confirm.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/witnesses.ts",
+    "to": "src/commands/intake/check.ts",
+    "unresolvedTo": "../../src/commands/intake/check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "ports-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/ports/witnesses.ts",
+    "to": "src/commands/intake/command-word.ts",
+    "unresolvedTo": "../../src/commands/intake/command-word.js",
     "dependencyTypes": [
       "local",
       "import"
