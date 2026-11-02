@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -66,13 +66,42 @@ function output(child: ReturnType<typeof spawn>): { stdout: () => string, stderr
   return { stdout: () => stdout, stderr: () => stderr }
 }
 
-async function holdLock(dir: string, parent: number): Promise<ReturnType<typeof spawn>> {
+async function deadPid(): Promise<number> {
+  const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })
+  await new Promise(resolve => child.once('exit', resolve))
+  return child.pid!
+}
+
+function plantOwner(dir: string, owner: { pid: number, parent: number }): void {
+  writeFileSync(ownerFile(storeOf(dir)), `${JSON.stringify(owner)}\n`)
+}
+
+async function holdLock(dir: string, parent: number, releaseAfterMs?: number): Promise<ReturnType<typeof spawn>> {
   const script = [
     `const { OnceStore } = await import(${JSON.stringify(STORE_MODULE)})`,
-    `OnceStore.open(${JSON.stringify(storeOf(dir))}, { file: 'none.json', text: undefined }, () => ({ offset: 0, busId: 0 }), { pid: process.pid, parent: ${parent} })`,
+    `const store = OnceStore.open(${JSON.stringify(storeOf(dir))}, { file: 'none.json', text: undefined }, () => ({ offset: 0, busId: 0 }), { pid: process.pid, parent: ${parent} })`,
     `process.stdout.write(${JSON.stringify(`${HELD}\n`)})`,
+    releaseAfterMs === undefined ? 'setInterval(() => {}, 1000)' : `setTimeout(() => store.close(), ${releaseAfterMs}); setInterval(() => {}, 1000)`,
+  ].join('\n')
+  return holder(script)
+}
+
+async function holdRawLockThenRecord(dir: string, stale: { pid: number, parent: number }, recordAfterMs: number): Promise<ReturnType<typeof spawn>> {
+  const script = [
+    `const { DatabaseSync } = await import('node:sqlite')`,
+    `const { writeFileSync } = await import('node:fs')`,
+    `const db = new DatabaseSync(${JSON.stringify(storeOf(dir))})`,
+    `db.exec('PRAGMA locking_mode = EXCLUSIVE')`,
+    `db.exec('BEGIN IMMEDIATE')`,
+    `writeFileSync(${JSON.stringify(ownerFile(storeOf(dir)))}, JSON.stringify(${JSON.stringify(stale)}))`,
+    `process.stdout.write(${JSON.stringify(`${HELD}\n`)})`,
+    `setTimeout(() => writeFileSync(${JSON.stringify(ownerFile(storeOf(dir)))}, JSON.stringify({ pid: process.pid, parent: ${process.pid} })), ${recordAfterMs})`,
     'setInterval(() => {}, 1000)',
   ].join('\n')
+  return holder(script)
+}
+
+async function holder(script: string): Promise<ReturnType<typeof spawn>> {
   const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], { cwd: REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'] })
   pids.push(child.pid!)
   const seen = output(child)
@@ -115,11 +144,10 @@ async function orphanWatch(dir: string): Promise<Orphan> {
 describe('the --once cursor lock lives only with its owner', () => {
   it('a watch lock whose owner pid is dead is taken over by the next watch', async () => {
     const dir = handoff()
-    const orphan = await orphanWatch(dir)
+    await orphanWatch(dir)
     const store = openStore(dir)
     try {
       expect(store.opened.kind).toBe('stored')
-      expect(alive(orphan.watch)).toBe(false)
     }
     finally {
       store.close()
@@ -133,6 +161,41 @@ describe('the --once cursor lock lives only with its owner', () => {
     expect(() => openStore(dir)).toThrow(`${ANOTHER_CONSUMER} on ${storeOf(dir)}`)
     expect(Date.now() - started).toBeLessThan(1000)
     expect(alive(holder.pid!)).toBe(true)
+  }, 30_000)
+
+  it('a lock still held under a recorded dead owner is waited for and taken over the moment it is released', async () => {
+    const dir = handoff()
+    const releaseAfterMs = 1000
+    const holder = await holdLock(dir, await deadPid(), releaseAfterMs)
+    const started = Date.now()
+    const store = openStore(dir)
+    try {
+      expect(Date.now() - started).toBeGreaterThanOrEqual(releaseAfterMs / 2)
+      expect(store.opened.kind).toBe('stored')
+      expect(alive(holder.pid!)).toBe(true)
+    }
+    finally {
+      store.close()
+    }
+  }, 30_000)
+
+  it('a stale owner record of a dead watch does not make the next watch wait for a live holder that follows', async () => {
+    const dir = handoff()
+    const dead = await deadPid()
+    plantOwner(dir, { pid: dead, parent: dead })
+    await holdLock(dir, process.pid)
+    const started = Date.now()
+    expect(() => openStore(dir)).toThrow(`${ANOTHER_CONSUMER} on ${storeOf(dir)}`)
+    expect(Date.now() - started).toBeLessThan(1000)
+  }, 30_000)
+
+  it('a live holder whose record still names a dead owner is refused as soon as its own record lands, not after the whole takeover wait', async () => {
+    const dir = handoff()
+    const dead = await deadPid()
+    await holdRawLockThenRecord(dir, { pid: dead, parent: dead }, 300)
+    const started = Date.now()
+    expect(() => openStore(dir)).toThrow(`${ANOTHER_CONSUMER} on ${storeOf(dir)}`)
+    expect(Date.now() - started).toBeLessThan(2000)
   }, 30_000)
 
   it('a watch whose parent has died exits and releases the lock', async () => {

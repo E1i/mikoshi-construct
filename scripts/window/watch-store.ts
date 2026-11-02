@@ -11,6 +11,7 @@ const SQLITE_BUSY = 5
 const WINNER_COMMIT_WAIT_MS = 5000
 const OWNER_SUFFIX = '.owner'
 const TAKEOVER_WAIT_MS = 5000
+const TAKEOVER_STEP_MS = 100
 
 class ConsumerWaits extends WatchRefusal {}
 
@@ -104,13 +105,15 @@ export class OnceStore {
   private constructor(private readonly db: DatabaseSync, readonly file: string, readonly opened: Opened, readonly owner: LockOwner) {}
 
   static open(file: string, legacy: LegacyCursor, ends: () => WatchCursor, owner: LockOwner = { pid: process.pid, parent: process.ppid }): OnceStore {
-    try {
-      return OnceStore.lock(file, legacy, ends, owner, 0)
-    }
-    catch (error) {
-      if (!(error instanceof ConsumerWaits && deadOwner(recordedOwner(file))))
-        throw error
-      return OnceStore.lock(file, legacy, ends, owner, TAKEOVER_WAIT_MS)
+    const deadline = Date.now() + TAKEOVER_WAIT_MS
+    for (let waitMs = 0; ; waitMs = TAKEOVER_STEP_MS) {
+      try {
+        return OnceStore.lock(file, legacy, ends, owner, waitMs)
+      }
+      catch (error) {
+        if (!(error instanceof ConsumerWaits && deadOwner(recordedOwner(file)) && Date.now() < deadline))
+          throw error
+      }
     }
   }
 
@@ -121,6 +124,7 @@ export class OnceStore {
       db.exec(`PRAGMA busy_timeout = ${waitMs}`)
       db.exec('PRAGMA locking_mode = EXCLUSIVE')
       db.exec('BEGIN IMMEDIATE')
+      writeFileSync(ownerFile(file), `${JSON.stringify(owner)}\n`)
       db.exec(`PRAGMA busy_timeout = ${WINNER_COMMIT_WAIT_MS}`)
       db.exec('CREATE TABLE IF NOT EXISTS cursor (id INTEGER PRIMARY KEY CHECK (id = 1), journal_offset INTEGER NOT NULL CHECK (journal_offset >= 0), bus_id INTEGER NOT NULL CHECK (bus_id >= 0))')
       const stored = storedCursor(db)
@@ -128,7 +132,6 @@ export class OnceStore {
       if (stored === undefined)
         db.prepare('INSERT INTO cursor (id, journal_offset, bus_id) VALUES (1, ?, ?)').run(opened.cursor.offset, opened.cursor.busId)
       db.exec('COMMIT')
-      writeFileSync(ownerFile(file), `${JSON.stringify(owner)}\n`)
       return new OnceStore(db, file, opened, owner)
     }
     catch (error) {
