@@ -250,6 +250,8 @@ export const RED = 'red'
 
 const CREATES_LINE = /^creates:(.*)$/m
 const BACKTICKED = /`([^`]+)`/g
+const EXITS_ONE_ON_HEAD_ZERO_ON_BASE = /\bexits 1 on (?:the )?head,? and (?:exits )?0 on (?:the )?(?:base|main)\b/i
+const NEGATION = /^!\s+/
 
 export type WitnessVerdict = typeof GREEN | typeof RED
 
@@ -291,11 +293,27 @@ function commandsOf(item: string): string[] {
   return [...item.matchAll(BACKTICKED)].map(match => match[1]!.trim()).filter(command => command !== '')
 }
 
+function failsOnHeadPassesOnBase(item: string): boolean {
+  return EXITS_ONE_ON_HEAD_ZERO_ON_BASE.test(item.replace(BACKTICKED, ''))
+}
+
+function negated(commands: readonly string[]): string {
+  const [only] = commands
+  if (commands.length === 1 && NEGATION.test(only!))
+    return only!.replace(NEGATION, '')
+  return commands.length === 1 ? `! ${only!}` : `! { ${commands.join(' && ')}; }`
+}
+
 export function cardWitnessesOf(body: string): CardWitnesses {
   const items = witnessesOf(body).filter(item => commandsOf(item).length > 0)
+  const byExit = items.filter(failsOnHeadPassesOnBase)
+  const rest = items.filter(item => !byExit.includes(item))
   return {
-    acceptance: items.filter(isChangeWitness).map(item => ({ criterion: item, command: commandsOf(item).join(' && ') })),
-    invariants: items.filter(item => !isChangeWitness(item)).flatMap(item => commandsOf(item).map(command => ({ criterion: item, command }))),
+    acceptance: [
+      ...rest.filter(isChangeWitness).map(item => ({ criterion: item, command: commandsOf(item).join(' && ') })),
+      ...byExit.map(item => ({ criterion: item, command: negated(commandsOf(item)) })),
+    ],
+    invariants: rest.filter(item => !isChangeWitness(item)).flatMap(item => commandsOf(item).map(command => ({ criterion: item, command }))),
   }
 }
 

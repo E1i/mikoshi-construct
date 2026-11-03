@@ -87,7 +87,7 @@ export interface AnswererTools {
   diff?: (card: CardSession) => string | null
   ciLog?: (card: CardSession, head: string) => string | null
   held?: (lease: Lease) => boolean
-  pending?: (card: CardSession, since: string) => string[]
+  pending?: (card: CardSession) => string[]
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -369,8 +369,9 @@ function porcelainEntries(output: string): PendingPath[] {
   return pending
 }
 
-function committedSince(card: CardSession, since: string): string[] {
-  return git(card.worktree, ['log', '--cc', '--name-only', '--format=', `${since}..HEAD`]).split('\n').filter(file => file !== '')
+function committedOnTheBranch(card: CardSession): string[] {
+  const base = git(card.worktree, ['merge-base', `origin/${MAIN_BRANCH}`, 'HEAD']).trim()
+  return git(card.worktree, ['diff', '--name-only', '-z', base, 'HEAD']).split('\0').filter(file => file !== '')
 }
 
 function uncommitted(card: CardSession): string[] {
@@ -381,8 +382,8 @@ function uncommitted(card: CardSession): string[] {
   return changed.filter(each => each.untracked || differFromTheMergedBranch.has(each.file)).map(each => each.file)
 }
 
-export function pendingPathsOf(card: CardSession, since: string): string[] {
-  return [...new Set([...committedSince(card, since), ...uncommitted(card)])]
+export function pendingPathsOf(card: CardSession): string[] {
+  return [...new Set([...committedOnTheBranch(card), ...uncommitted(card)])]
 }
 
 const LSOF_PATH_FIELD = 'n'
@@ -559,7 +560,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const steps = ['']
     const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
     const refuseOutsideTouches = (): void => {
-      const outside = request.outsideTouches?.(tools.pending?.(card, before ?? `origin/${MAIN_BRANCH}`) ?? []) ?? []
+      const outside = request.outsideTouches?.(tools.pending?.(card) ?? []) ?? []
       if (outside.length > 0)
         throw new AnswerOutsideTouches(request.lease, outside)
     }

@@ -435,7 +435,7 @@ describe('the answer node', () => {
     expect(eventsOf(made.db, CARD_ANSWERED)).toMatchObject([{ session: 'new-session-1', resumed: false }])
   })
 
-  it('a retried session that exits on the context threshold again stops the card as a fault', async () => {
+  it('a retried session that exits on the context threshold again sets the answer again', async () => {
     const made = bench()
     const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
     const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
@@ -446,7 +446,7 @@ describe('the answer node', () => {
     }
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
 
-    expect(await executor.answer(lease())).toMatchObject({ kind: 'stopped', reason: 'fault' })
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing' } })
     expect(requests.map(request => request.fresh)).toEqual([false, true])
   })
 

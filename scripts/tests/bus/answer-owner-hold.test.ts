@@ -220,6 +220,26 @@ function repository(): string {
     writeFileSync(path.join(dir, file), `${file}\n`)
   gitIn(dir, 'add', '-A')
   gitIn(dir, 'commit', '-q', '-m', 'base')
+  mainFetched(dir)
+  return dir
+}
+
+function mainFetched(dir: string): void {
+  gitIn(dir, 'update-ref', 'refs/remotes/origin/main', 'main')
+}
+
+function cardAndMainDiverged(): string {
+  const dir = repository()
+  gitIn(dir, 'checkout', '-q', '-b', 'feat/card')
+  writeFileSync(path.join(dir, 'kept.ts'), 'card\n')
+  gitIn(dir, 'commit', '-q', '-am', 'card')
+  gitIn(dir, 'checkout', '-q', 'main')
+  writeFileSync(path.join(dir, 'merged.ts'), 'main\n')
+  writeFileSync(path.join(dir, 'from-main.ts'), 'main\n')
+  gitIn(dir, 'add', '-A')
+  gitIn(dir, 'commit', '-q', '-m', 'main')
+  mainFetched(dir)
+  gitIn(dir, 'checkout', '-q', 'feat/card')
   return dir
 }
 
@@ -230,7 +250,6 @@ function treeAt(worktree: string): { session: string, worktree: string, branch: 
 describe('the paths an answer commit would push', () => {
   it('names the committed, renamed, modified and untracked paths since the remote head', () => {
     const dir = repository()
-    const since = gitIn(dir, 'rev-parse', 'HEAD').trim()
     writeFileSync(path.join(dir, 'committed.ts'), 'x\n')
     gitIn(dir, 'add', '-A')
     gitIn(dir, 'commit', '-q', '-m', 'the session committed')
@@ -239,7 +258,7 @@ describe('the paths an answer commit would push', () => {
     writeFileSync(path.join(dir, 'kept.ts'), 'changed\n')
     writeFileSync(path.join(dir, 'untracked.ts'), 'new\n')
 
-    expect(pendingPathsOf(treeAt(dir), since).sort()).toEqual(['committed.ts', 'kept.ts', 'renamed.ts', 'untracked.ts'])
+    expect(pendingPathsOf(treeAt(dir)).sort()).toEqual(['committed.ts', 'kept.ts', 'renamed.ts', 'untracked.ts'])
   })
 
   it('mid-merge, a path the merged branch brought unchanged is not the answer\'s', () => {
@@ -251,11 +270,39 @@ describe('the paths an answer commit would push', () => {
     writeFileSync(path.join(dir, 'conflicted.ts'), 'main\n')
     writeFileSync(path.join(dir, 'merged.ts'), 'main\n')
     gitIn(dir, 'commit', '-q', '-am', 'main')
+    mainFetched(dir)
     gitIn(dir, 'checkout', '-q', 'feat/card')
-    const since = gitIn(dir, 'rev-parse', 'HEAD').trim()
     expect(() => gitIn(dir, 'merge', '-q', 'main')).toThrow()
 
-    expect(pendingPathsOf(treeAt(dir), since)).toEqual(['conflicted.ts'])
+    expect(pendingPathsOf(treeAt(dir))).toEqual(['conflicted.ts'])
+  })
+
+  it('a merge of main into the card branch adds none of main\'s paths to the pending ones', () => {
+    const dir = cardAndMainDiverged()
+    gitIn(dir, 'merge', '-q', '--no-edit', 'origin/main')
+    writeFileSync(path.join(dir, 'answered.ts'), 'answer\n')
+
+    expect(pendingPathsOf(treeAt(dir)).sort()).toEqual(['answered.ts', 'kept.ts'])
+  })
+
+  it('a path the answer commits after a merge of main is still pending', () => {
+    const dir = cardAndMainDiverged()
+    gitIn(dir, 'merge', '-q', '--no-edit', 'origin/main')
+    writeFileSync(path.join(dir, 'outside.ts'), 'answer\n')
+    gitIn(dir, 'add', '-A')
+    gitIn(dir, 'commit', '-q', '-m', 'answer')
+
+    expect(pendingPathsOf(treeAt(dir)).sort()).toEqual(['kept.ts', 'outside.ts'])
+  })
+
+  it('a rebase onto main adds none of main\'s paths to the pending ones', () => {
+    const dir = cardAndMainDiverged()
+    gitIn(dir, 'rebase', '-q', 'origin/main')
+    writeFileSync(path.join(dir, 'answered.ts'), 'answer\n')
+    gitIn(dir, 'add', '-A')
+    gitIn(dir, 'commit', '-q', '-m', 'answer')
+
+    expect(pendingPathsOf(treeAt(dir)).sort()).toEqual(['answered.ts', 'kept.ts'])
   })
 })
 
