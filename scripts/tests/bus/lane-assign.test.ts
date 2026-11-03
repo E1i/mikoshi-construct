@@ -534,12 +534,12 @@ describe('a card that cannot move by itself frees its lane', () => {
     expect([3, 5, 7].map(id => bench.lane(id))).toEqual(['lane-1', 'lane-1', 'lane-1'])
   })
 
-  it('a queued card alone behind a stalled card keeps its lane', () => {
+  it('a queued card alone behind a stalled card is reflowed into the emptied lane', () => {
     const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2).admit(3, 'src/c.ts').admit(4, 'src/d.ts')
     expect([bench.lane(3), bench.lane(4)]).toEqual(['lane-1', 'lane-2'])
     bench.drop(1).drop(3).deniedMerge(2, NO_COUNT_LINE)
     expect(launched(bench, 2)).toEqual([4])
-    expect(bench.lane(4)).toBe('lane-2')
+    expect(bench.lane(4)).toBe('lane-1')
   })
 
   it('a withdrawn merge task beside a leased answer task of the card is no stall', () => {
@@ -610,7 +610,7 @@ describe('a card that cannot move by itself frees its lane', () => {
     expect([bench.lane(3), bench.lane(5)]).toEqual(['lane-1', 'lane-2'])
   })
 
-  it('a queued card in a lane no stalled card holds is not re-laid', () => {
+  it('a queued card in a lane no stalled card holds is reflowed, not relayed behind the stall', () => {
     const bench = new Bench(3)
     for (const id of [1, 2, 3])
       bench.admit(id, `src/${id}.ts`).start(id)
@@ -618,8 +618,8 @@ describe('a card that cannot move by itself frees its lane', () => {
       bench.admit(id, `src/${id}.ts`)
     expect([4, 5, 6, 7].map(id => bench.lane(id))).toEqual(['lane-1', 'lane-2', 'lane-3', 'lane-1'])
     bench.drop(3).drop(6).deniedMerge(2, NO_COUNT_LINE)
-    expect(launched(bench, 3)).toEqual([5])
-    expect([4, 5, 7].map(id => bench.lane(id))).toEqual(['lane-1', 'lane-2', 'lane-1'])
+    expect(launched(bench, 3)).toEqual([4, 5])
+    expect([4, 5, 7].map(id => bench.lane(id))).toEqual(['lane-3', 'lane-2', 'lane-1'])
   })
 
   it('every stalled card in a lane holds it, a bodiless one for every queued card', () => {
