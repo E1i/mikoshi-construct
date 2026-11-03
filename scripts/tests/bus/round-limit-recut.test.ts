@@ -7,12 +7,11 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
-import { goalOf } from '../../../src/commands/board/goal.js'
 import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_DROPPED, MERGE_DONE, OWNER_WAIT_OPENED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_PLANNED, MERGE_DONE, OWNER_WAIT_OPENED, PLAN_OPENED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, WITNESS_RECORDED } from '../../core/events.js'
 import { changesRoundsOf, RECUT_GRACE_MS } from '../../core/queue.js'
 import { parkedCardNumbers } from '../../intake/intake.js'
 import { RoundLimitRecutter } from '../../nodes/review/pr-close.js'
@@ -288,7 +287,7 @@ describe('the re-cut of a pull request at the review round limit', () => {
     untouched(fixed)
   })
 
-  it('a re-cut card linked to plan item X links every new card to X in the same transaction and the slices without cards do not grow', async () => {
+  it('a re-cut card in release X puts every new card into X in the same transaction', async () => {
     const fixed = fixture(cardText({ body: SLICEABLE }))
     const { db } = fixed.bench
     const now = fixed.bench.clock.now
@@ -296,28 +295,21 @@ describe('the re-cut of a pull request at the review round limit', () => {
       appendEvent(db, { ts: now().toISOString(), type, actor: 'owner', cardId, pr: null, head: null, dedupeKey: `${type}:${JSON.stringify(payload)}`, payload, legacy: false })
     }
     owner(PLAN_OPENED, null, { id: 'p-1', title: 'Plan', goal: 'a goal', plan_file: '/plans/p-1.md' })
-    owner(PLAN_ITEM_ADDED, null, { plan: 'p-1', item: 'X', title: 'item x' })
-    owner(PLAN_ITEM_ADDED, null, { plan: 'p-1', item: 'Y', title: 'item y' })
-    owner(PLAN_ITEM_LINKED, CARD, { plan: 'p-1', item: 'X', card: CARD })
+    owner(CARD_PLANNED, CARD, { release: 'p-1', card: CARD })
     fixed.bench.tick()
-    const cardsOf = (item: string): unknown => JSON.parse((db.prepare('SELECT cards FROM plan_items WHERE plan_id = ? AND item_id = ?').get('p-1', item) as { cards: string }).cards)
-    const notCreated = (): number | undefined => goalOf(db as never, now())?.plans[0]!.stages.not_created
-    const before = notCreated()
+    const releases = (): unknown => db.prepare('SELECT card_id, release FROM card_releases ORDER BY card_id').all()
 
     fixed.reviewer.findings = ['the count is wrong somewhere']
     await reviewToTheLimit(fixed)
     fixed.bench.tick()
 
-    expect(before).toBe(1)
-    expect(notCreated()).toBe(before)
-    expect(cardsOf('X')).toEqual([CARD, FIRST_NEW_CARD, FIRST_NEW_CARD + 1])
-    expect(cardsOf('Y')).toEqual([])
-    const linkedAt = (cardId: number): number => (db.prepare('SELECT id FROM events WHERE type = ? AND card_id = ?').get(PLAN_ITEM_LINKED, cardId) as { id: number }).id
+    expect(releases()).toEqual([CARD, FIRST_NEW_CARD, FIRST_NEW_CARD + 1].map(card_id => ({ card_id, release: 'p-1' })))
+    const plannedAt = (cardId: number): number => (db.prepare('SELECT id FROM events WHERE type = ? AND card_id = ?').get(CARD_PLANNED, cardId) as { id: number }).id
     const admittedAt = (cardId: number): number => (db.prepare('SELECT id FROM events WHERE type = ? AND card_id = ? AND actor = ?').get(CARD_ADMITTED, cardId, RECUT_ACTOR) as { id: number }).id
     for (const cardId of [FIRST_NEW_CARD, FIRST_NEW_CARD + 1])
-      expect(linkedAt(cardId)).toBeGreaterThan(admittedAt(cardId))
-    const linkActors = db.prepare('SELECT DISTINCT actor FROM events WHERE type = ? AND card_id IN (?, ?)').all(PLAN_ITEM_LINKED, FIRST_NEW_CARD, FIRST_NEW_CARD + 1) as { actor: string }[]
-    expect(linkActors).toEqual([{ actor: RECUT_ACTOR }])
+      expect(plannedAt(cardId)).toBeGreaterThan(admittedAt(cardId))
+    const plannedActors = db.prepare('SELECT DISTINCT actor FROM events WHERE type = ? AND card_id IN (?, ?)').all(CARD_PLANNED, FIRST_NEW_CARD, FIRST_NEW_CARD + 1) as { actor: string }[]
+    expect(plannedActors).toEqual([{ actor: RECUT_ACTOR }])
   })
 
   it('two red witnesses on a merged PR, a closed PR or an earlier head open no wait to check the proof mechanism', () => {

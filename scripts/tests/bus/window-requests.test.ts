@@ -29,7 +29,7 @@ import { decisionsInForceAt } from '../../policy/shards.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { decisionsAdder, worktreesHolding } from '../../window/window-request-tools.js'
-import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../window/window-requests.js'
+import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -402,31 +402,33 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(runRequest(['mode', '--set', 'fast'], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(2)
   })
 
-  it('a plan request writes the owner\'s plan event, and moves into the plan only an item with a row in the slice table of its plan file', () => {
+  it('a plan request writes the owner\'s plan event, and plan add and plan remove move one card into and out of a release', () => {
     const made = room()
     const planFile = path.join(made.root, 'plan-0.45.md')
-    writeFileSync(planFile, '# Plan 0.45\n\n| slice | what |\n|---|---|\n| S1 | the journal |\n| S2 | the board line |\n\n| other | table |\n| --- | --- |\n| T1 | aside |\n')
-    expect(sliceItemsOf(planFile)).toEqual(['S1', 'S2', 'T1'])
+    writeFileSync(planFile, '# Plan 0.45\n')
     const asked = (...argv: string[]): void => {
       expect(runRequest(['plan', ...argv], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
     }
-    asked('--op', 'open', '--plan', 'p-045', '--title', 'Plan 0.45', '--goal', 'explicit journals', '--file', planFile)
-    asked('--op', 'add', '--plan', 'p-045', '--item', 'S1', '--title', 'the journal')
-    asked('--op', 'add', '--plan', 'p-045', '--item', 'S7', '--title', 'from the backlog')
-    asked('--op', 'link', '--plan', 'p-045', '--item', 'S1', '--card', '#901')
-    asked('--op', 'link', '--plan', 'p-045', '--item', 'S1', '--card', '901')
+    asked('--op', 'open', '--plan', 'p-045', '--title', 'Plan 0.45', '--goal', 'explicit journals', '--file', planFile, '--gate', 'VEDETIRUN')
+    asked('--op', 'add', '--plan', 'p-045', '--card', '#901')
+    asked('--op', 'add', '--plan', 'p-045', '--card', '902')
+    asked('--op', 'add', '--plan', 'p-045')
+    asked('--op', 'remove', '--card', '#902')
+    asked('--op', 'link', '--plan', 'p-045', '--card', '#903')
     asked('--op', 'open', '--plan', 'p-046', '--title', 'Plan 0.46', '--goal', 'g', '--file', 'plans/0.46.md')
     expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual([
       ['done', 'plan.opened p-045'],
-      ['done', 'plan.item.added p-045 item S1'],
-      ['refused', `item S7 has no row in the slice table of ${planFile}`],
-      ['done', 'plan.item.linked p-045 item S1'],
-      ['done', 'plan.item.linked p-045 item S1'],
+      ['done', 'card.planned p-045 #901'],
+      ['done', 'card.planned p-045 #902'],
+      ['refused', 'card.planned needs a --card'],
+      ['done', 'card.unplanned #902'],
+      ['refused', 'plan needs --op open|add|remove|backfill|close and a --plan id; remove needs only the --card'],
       ['refused', 'plan.opened needs a --title, a --goal and an absolute --file that exists'],
     ])
-    expect(made.bench.db.prepare(`SELECT actor, count(*) AS n FROM events WHERE type LIKE 'plan.%' GROUP BY actor`).all()).toEqual([{ actor: 'owner', n: 4 }])
-    expect(reduce(made.bench.db).rejected).toBe(1)
-    expect(made.bench.db.prepare('SELECT item_id, cards FROM plan_items').all()).toEqual([{ item_id: 'S1', cards: '[901]' }])
+    expect(made.bench.db.prepare(`SELECT actor, count(*) AS n FROM events WHERE type IN ('plan.opened', 'card.planned', 'card.unplanned') GROUP BY actor`).all()).toEqual([{ actor: 'owner', n: 4 }])
+    expect(reduce(made.bench.db).rejected).toBe(0)
+    expect(made.bench.db.prepare('SELECT plan_id, gate FROM plans').all()).toEqual([{ plan_id: 'p-045', gate: 'VEDETIRUN' }])
+    expect(made.bench.db.prepare('SELECT card_id, release FROM card_releases').all()).toEqual([{ card_id: 901, release: 'p-045' }])
     expect(ownerInbox(made.bench.db)).toEqual([])
   })
 
@@ -450,7 +452,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     const made = room()
     for (const op of ['constructor', 'toString', '__proto__', 'hasOwnProperty'])
       expect(runRequest(['plan', '--op', op, '--plan', 'p-045'], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
-    const refusal = 'plan needs --op open|add|link|remove|close and a --plan id'
+    const refusal = 'plan needs --op open|add|remove|backfill|close and a --plan id; remove needs only the --card'
     expect(made.requests().run().map(outcome => [outcome.kind, outcome.detail])).toEqual(Array.from({ length: 4 }, () => ['refused', refusal]))
     expect(made.bench.db.prepare(`SELECT count(*) AS n FROM events WHERE type LIKE 'plan.%'`).get()).toEqual({ n: 0 })
   })
