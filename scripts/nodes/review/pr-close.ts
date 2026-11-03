@@ -13,7 +13,7 @@ import { DROPPED_CARD } from '../../core/card-automaton.js'
 import { appendCardEvent, cardBodyText, laid } from '../../core/card-bodies.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_ADMITTED, CARD_DROPPED, COMMAND_EXECUTED, OPEN_PLAN, PLAN_ITEM_LINKED, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, PR_OPENED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_PLANNED, COMMAND_EXECUTED, OPEN_PLAN, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, PR_OPENED } from '../../core/events.js'
 import { leasedOn } from '../../core/lease.js'
 import { CLOSE_RULES, closePolicy, RETRIED_CLOSE_RULES } from '../../policy/policy.js'
 import { RECUT_ACTOR, RECUT_SOURCE, recutCardCount, recutOf, recutPlanOf } from '../../policy/round-limit-decision.js'
@@ -86,9 +86,9 @@ const CREATED = 201
 const NUMBERS_TAKEN = 'SELECT max(card_id) AS card, max(pr) AS pr FROM events'
 const LATEST_ISSUE_OR_PULL = `${REPO}/issues?state=all&sort=created&direction=desc&per_page=1`
 
-const OPEN_PLAN_ITEMS = `
-  SELECT plan_items.plan_id, plan_items.item_id, plan_items.cards FROM plan_items JOIN plans ON plans.plan_id = plan_items.plan_id
-  WHERE plans.state = '${OPEN_PLAN}' ORDER BY plan_items.plan_id, plan_items.item_id
+const OPEN_RELEASE_OF_CARD = `
+  SELECT card_releases.release FROM card_releases JOIN plans ON plans.plan_id = card_releases.release
+  WHERE card_releases.card_id = ? AND plans.state = '${OPEN_PLAN}'
 `
 
 const ADMITTED_TEXT = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND json_extract(payload, '$.textSha') = ? LIMIT 1`
@@ -271,7 +271,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
     }
     if (recut.dropsTheCard)
       appendCardEvent(this.parts.db, RECUT_ACTOR, { type: CARD_DROPPED, cardId: at.cardId, ts: ts.toISOString(), dedupeKey: `${CARD_DROPPED}:${at.cardId}:round-limit-${at.pr}`, payload: { from: null, to: SUPERSEDED_LANE, lane: SUPERSEDED_LANE, bodySha: bodySha(text), recut: at.pr } })
-    this.linkToPlanItems(at, recut.added)
+    this.planIntoTheRelease(at, recut.added)
     const unconfirmed = recut.admitted.filter(card => this.parts.db.prepare(ADMITTED_TEXT).get(card.id, textSha(card.text)) === undefined)
     if (unconfirmed.length > 0)
       throw new Error(`the bus holds no card.admitted of ${unconfirmed.map(card => `#${card.id}`).join(', ')}`)
@@ -283,13 +283,12 @@ export class RoundLimitRecutter implements RoundLimitRecut {
     return [row.card ?? 0, row.pr ?? 0]
   }
 
-  private linkToPlanItems(at: RoundLimitAt, added: readonly number[]): void {
-    const items = (this.parts.db.prepare(OPEN_PLAN_ITEMS).all() as { plan_id: string, item_id: string, cards: string }[])
-      .filter(item => (JSON.parse(item.cards) as number[]).includes(at.cardId))
-    for (const item of items) {
-      for (const card of added)
-        appendEvent(this.parts.db, { ts: this.now(), type: PLAN_ITEM_LINKED, actor: RECUT_ACTOR, cardId: card, pr: null, head: null, dedupeKey: `${PLAN_ITEM_LINKED}:round-limit-${at.pr}:${item.plan_id}:${item.item_id}:${card}`, payload: { plan: item.plan_id, item: item.item_id, card, recut_of: at.cardId }, legacy: false })
-    }
+  private planIntoTheRelease(at: RoundLimitAt, added: readonly number[]): void {
+    const release = (this.parts.db.prepare(OPEN_RELEASE_OF_CARD).get(at.cardId) as { release: string } | undefined)?.release
+    if (release === undefined)
+      return
+    for (const card of added)
+      appendEvent(this.parts.db, { ts: this.now(), type: CARD_PLANNED, actor: RECUT_ACTOR, cardId: card, pr: null, head: null, dedupeKey: `${CARD_PLANNED}:round-limit-${at.pr}:${release}:${card}`, payload: { release, card, recut_of: at.cardId }, legacy: false })
   }
 
   private branchOf(pr: number): Branch | string {

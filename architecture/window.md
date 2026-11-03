@@ -13,6 +13,13 @@ rewrites `board.txt` in the handoff directory with every frame. Every report to 
 tasks `board.txt` shows as running or waiting, read from the file at the moment of writing, never from the session's
 memory of them.
 
+A release is an entity in the bus — an id, a goal, and a gate as its exit criterion — and holds no list of cards: a
+card carries the field `release` (none is the backlog). The window moves a card in with `pnpm bus:request plan --op add
+--plan <release> --card <N>` and out with `pnpm bus:request plan --op remove --card <N>`, one `card.planned` or
+`card.unplanned` event each; `pnpm intake --release <release>` puts every card it admits into an open release with no
+other step. `plan --op open` takes the gate as `--gate <word>`; `plan --op backfill --plan <release> --gate <word>`
+gives each card the release's plan items link its release, and the release its gate, in one `plan.backfilled` event.
+
 A pull request of an owner-merged kind is ready when CI on its current head is green, and that is the whole
 definition: ready is derived from CI, never announced as an event of its own. A later push, a merge of `main` into the
 branch included, makes a new head, and the pull request is ready again only once CI on that head is green.

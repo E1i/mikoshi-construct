@@ -21,7 +21,7 @@ import { resolveTheme } from '../../src/ui/theme.js'
 import { ForeignBusRefused } from '../core/bus-path.js'
 import { appendCardEvent, cardBodyText, laid } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { CARD_ADMITTED, CARD_MOVED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
@@ -33,6 +33,7 @@ const SESSION_BY_HAND = 'by-hand'
 const EXPORT_FLAG = '--export'
 const PLAIN_FLAG = '--plain'
 const JOHNNY_FLAG = '--johnny'
+const RELEASE_FLAG = '--release'
 
 const INTAKE_ADMISSIONS = `
   SELECT id, ts, card_id, payload FROM events
@@ -142,39 +143,43 @@ function admissionOfMove(db: DatabaseSync, move: CardEvent): CardEvent | null {
 
 const PLAN_OPENED_BEFORE = `SELECT 1 FROM events WHERE legacy = 0 AND type = '${PLAN_OPENED}' AND json_extract(payload, '$.id') = ? LIMIT 1`
 
-const ITEM_ADDED_BEFORE = `SELECT 1 FROM events WHERE legacy = 0 AND type = '${PLAN_ITEM_ADDED}' AND json_extract(payload, '$.plan') = ? AND json_extract(payload, '$.item') = ? LIMIT 1`
+const PLAN_CLOSED_BEFORE = `SELECT 1 FROM events WHERE legacy = 0 AND type = '${PLAN_CLOSED}' AND json_extract(payload, '$.plan') = ? LIMIT 1`
 
-interface AdmittedPlan { id: string, title: string, goal: string, file: string, item: string }
+interface AdmittedPlan { id: string, title: string, goal: string, file: string }
 
 function admittedPlan(value: unknown): AdmittedPlan | null {
   const plan = value as Partial<Record<keyof AdmittedPlan, unknown>> | null
-  const fields = [plan?.id, plan?.title, plan?.goal, plan?.file, plan?.item]
+  const fields = [plan?.id, plan?.title, plan?.goal, plan?.file]
   return fields.every(field => typeof field === 'string' && field !== '') ? plan as AdmittedPlan : null
 }
 
-function registerPlan(db: DatabaseSync, event: CardEvent): void {
-  const plan = event.type === CARD_ADMITTED ? admittedPlan(event.payload[PLAN_FIELD]) : null
-  if (plan === null)
+export function isOpenRelease(db: DatabaseSync, release: string): boolean {
+  return db.prepare(PLAN_OPENED_BEFORE).get(release) !== undefined && db.prepare(PLAN_CLOSED_BEFORE).get(release) === undefined
+}
+
+function registerPlan(db: DatabaseSync, event: CardEvent, release: string | undefined): void {
+  if (event.type !== CARD_ADMITTED)
     return
+  const plan = admittedPlan(event.payload[PLAN_FIELD])
   const recorded = { ts: event.ts, actor: OWNER, pr: null, head: null, legacy: false }
-  if (db.prepare(PLAN_OPENED_BEFORE).get(plan.id) === undefined)
+  if (plan !== null && db.prepare(PLAN_OPENED_BEFORE).get(plan.id) === undefined)
     appendEvent(db, { ...recorded, type: PLAN_OPENED, cardId: null, dedupeKey: `${PLAN_OPENED}:intake:${plan.id}`, payload: { id: plan.id, title: plan.title, goal: plan.goal, plan_file: plan.file } })
-  if (db.prepare(ITEM_ADDED_BEFORE).get(plan.id, plan.item) === undefined)
-    appendEvent(db, { ...recorded, type: PLAN_ITEM_ADDED, cardId: null, dedupeKey: `${PLAN_ITEM_ADDED}:intake:${plan.id}:${plan.item}`, payload: { plan: plan.id, item: plan.item, title: plan.item } })
-  appendEvent(db, { ...recorded, type: PLAN_ITEM_LINKED, cardId: event.cardId, dedupeKey: `${PLAN_ITEM_LINKED}:intake:${plan.id}:${plan.item}:${event.cardId}`, payload: { plan: plan.id, item: plan.item, card: event.cardId } })
+  const into = release ?? plan?.id
+  if (into !== undefined)
+    appendEvent(db, { ...recorded, type: CARD_PLANNED, cardId: event.cardId, dedupeKey: `${CARD_PLANNED}:${event.dedupeKey}:${into}`, payload: { release: into, card: event.cardId } })
 }
 
 function needsAnAdmission(event: CardEvent): boolean {
   return event.type === CARD_MOVED
 }
 
-export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND, lanes: () => number = repositoryLanes(process.cwd())): CardEventPort {
+export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND, lanes: () => number = repositoryLanes(process.cwd()), release?: string): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}${session}`
   return event => inTransaction(db, () => {
     if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
     appendCardEvent(db, actor, laid(db, event))
-    registerPlan(db, event)
+    registerPlan(db, event, release)
     const admitted = event.type === CARD_MOVED ? admissionOfMove(db, event) : null
     if (admitted !== null && appendCardEvent(db, actor, admitted))
       assignMovedLane(db, event.cardId, String(admitted.payload.lane), lanes(), event.ts, actor)
@@ -188,8 +193,8 @@ export function busHeldCards(db: DatabaseSync): BusCardStates {
   return new Map(rows.map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE]))
 }
 
-export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () => number): BusPorts {
-  return { cardEvents: busCardEvents(db, session, lanes), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db) }
+export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () => number, release?: string): BusPorts {
+  return { cardEvents: busCardEvents(db, session, lanes, release), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db) }
 }
 
 export async function runBusIntake(db: DatabaseSync, argv: readonly string[], session?: string): Promise<void> {
@@ -199,7 +204,15 @@ export async function runBusIntake(db: DatabaseSync, argv: readonly string[], se
     process.exitCode = printExport(ui, runExport({ card: argv[exportAt + 1] ?? '', admissions: busCardAdmissions(db) }), text => process.stdout.write(text))
     return
   }
-  await runMain(createMain(busIntakePorts(db, session)), { rawArgs: [INTAKE_SUBCOMMAND, ...argv] })
+  const releaseAt = argv.indexOf(RELEASE_FLAG)
+  const release = releaseAt === -1 ? undefined : argv[releaseAt + 1] ?? ''
+  if (release !== undefined && !isOpenRelease(db, release)) {
+    process.stderr.write(`Refused: ${RELEASE_FLAG} ${release} names no open release in the bus; open it with pnpm bus:request plan --op open first. Nothing was admitted.\n`)
+    process.exitCode = 1
+    return
+  }
+  const rest = releaseAt === -1 ? argv : [...argv.slice(0, releaseAt), ...argv.slice(releaseAt + 2)]
+  await runMain(createMain(busIntakePorts(db, session, undefined, release)), { rawArgs: [INTAKE_SUBCOMMAND, ...rest] })
 }
 
 function intakeBusPath(): string | null {

@@ -12,7 +12,7 @@ import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECT
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAINS_PROJECTION } from './chain.js'
 import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
 import { TASKS_PROJECTION } from './queue.js'
@@ -21,7 +21,7 @@ import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const PREFIX = '[bus:reduce] '
-export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id', plans: 'plan_id', plan_items: 'plan_id, item_id', [OWNER_WAITS]: 'id' }
+export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id', plans: 'plan_id', card_releases: 'card_id', plan_items: 'plan_id, item_id', [OWNER_WAITS]: 'id' }
 export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION]
 
 const DOWNGRADE_WAIT_PREFIX = 'W'
@@ -342,8 +342,8 @@ function ownersPlanPayload(db: DatabaseSync, event: StoredEvent): Record<string,
   return actor === OWNER ? payloadOf(event) : reject(`${event.type} is the owner's, not ${actor}'s`)
 }
 
-function openPlanId(db: DatabaseSync, payload: Record<string, unknown>): string {
-  const planId = planText(payload, 'plan')
+function openPlanId(db: DatabaseSync, payload: Record<string, unknown>, field = 'plan'): string {
+  const planId = planText(payload, field)
   const plan = db.prepare('SELECT state FROM plans WHERE plan_id = ?').get(planId) as { state: string } | undefined
   if (plan?.state !== OPEN_PLAN)
     reject(`plan ${planId} is not open`)
@@ -360,8 +360,50 @@ function planOpened(db: DatabaseSync, event: StoredEvent): void {
   const planId = planText(payload, 'id')
   if (db.prepare('SELECT 1 FROM plans WHERE plan_id = ?').get(planId) !== undefined)
     reject(`plan ${planId} was opened before`)
-  db.prepare('INSERT INTO plans (plan_id, title, goal, plan_file, state, event_id) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(planId, planText(payload, 'title'), planText(payload, 'goal'), planText(payload, 'plan_file'), OPEN_PLAN, event.id)
+  const gate = payload.gate === undefined ? null : planText(payload, 'gate')
+  db.prepare('INSERT INTO plans (plan_id, title, goal, plan_file, state, event_id, gate) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(planId, planText(payload, 'title'), planText(payload, 'goal'), planText(payload, 'plan_file'), OPEN_PLAN, event.id, gate)
+}
+
+function releaseOf(db: DatabaseSync, cardId: number): string | null {
+  return (db.prepare('SELECT release FROM card_releases WHERE card_id = ?').get(cardId) as { release: string } | undefined)?.release ?? null
+}
+
+function putIntoRelease(db: DatabaseSync, cardId: number, release: string, eventId: number): void {
+  db.prepare('INSERT INTO card_releases (card_id, release, event_id) VALUES (?, ?, ?) ON CONFLICT (card_id) DO UPDATE SET release = excluded.release, event_id = excluded.event_id')
+    .run(cardId, release, eventId)
+}
+
+function cardPlanned(db: DatabaseSync, event: StoredEvent): void {
+  const payload = recutLinkPayload(db, event) ?? ownersPlanPayload(db, event)
+  const release = openPlanId(db, payload, 'release')
+  const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
+  if (releaseOf(db, cardId) === release)
+    reject(`card ${cardId} is already in release ${release}`)
+  putIntoRelease(db, cardId, release, event.id)
+}
+
+function cardUnplanned(db: DatabaseSync, event: StoredEvent): void {
+  ownersPlanPayload(db, event)
+  const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
+  if (releaseOf(db, cardId) === null)
+    reject(`card ${cardId} is in no release`)
+  db.prepare('DELETE FROM card_releases WHERE card_id = ?').run(cardId)
+}
+
+function backfilledCards(payload: Record<string, unknown>): number[] {
+  const cards = Array.isArray(payload.cards) ? payload.cards.map(cardIdOf) : []
+  return cards.length > 0 && cards.every(card => card !== null) ? cards as number[] : reject('cards is not a list of card numbers')
+}
+
+function planBackfilled(db: DatabaseSync, event: StoredEvent): void {
+  const payload = ownersPlanPayload(db, event)
+  const planId = openPlanId(db, payload)
+  const gate = planText(payload, 'gate')
+  const cards = backfilledCards(payload)
+  db.prepare('UPDATE plans SET gate = ?, event_id = ? WHERE plan_id = ?').run(gate, event.id, planId)
+  for (const cardId of cards)
+    putIntoRelease(db, cardId, planId, event.id)
 }
 
 function planItemAdded(db: DatabaseSync, event: StoredEvent): void {
@@ -412,6 +454,9 @@ export const PLAN_FOLDS: Record<string, Fold> = {
   [PLAN_ITEM_LINKED]: planItemLinked,
   [PLAN_ITEM_REMOVED]: planItemRemoved,
   [PLAN_CLOSED]: planClosed,
+  [CARD_PLANNED]: cardPlanned,
+  [CARD_UNPLANNED]: cardUnplanned,
+  [PLAN_BACKFILLED]: planBackfilled,
 }
 
 const REDUCERS: Record<string, Fold> = {
