@@ -34,7 +34,7 @@ export interface Gap {
   paths: string[]
 }
 
-export type TreePr = { kind: 'pr', number: string } | { kind: 'clean' } | { kind: 'kept' } | { kind: 'problem', why: string, gaps: Gap[] }
+export type TreePr = { kind: 'pr', number: string, followed: string[] } | { kind: 'clean' } | { kind: 'kept' } | { kind: 'problem', why: string, gaps: Gap[] }
 
 export interface Refusal {
   code: string
@@ -355,7 +355,7 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
       return staleBase(card.branch, worktree, pushed)
     const open = openPrOf(ports, card.branch)
     if (open !== null)
-      return { kind: 'pr', number: open }
+      return { kind: 'pr', number: open, followed: [] }
     const shifted = shiftedPath(ports.git, worktree, card, report)
     const touched = changedOutsideTouches(ports.git, worktree, shifted.files, card.touches, card.runs)
     const body = prBodyOf(card, shifted.line, touched.followed, matrixCountLineOf(report))
@@ -364,7 +364,7 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
       return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])
     const number = PR_URL_NUMBER.exec(created.trim())?.[1]
-    return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}`, gaps: faultGaps('no-pr-url') } : { kind: 'pr', number }
+    return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}`, gaps: faultGaps('no-pr-url') } : { kind: 'pr', number, followed: touched.followed }
   }
   catch (error) {
     return { kind: 'problem', why: `the shift could not commit, push or open the pull request of ${card.branch}: ${failureOf(error)}`, gaps: faultGaps('commit-push-failed') }

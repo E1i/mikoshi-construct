@@ -1,15 +1,17 @@
 import type { AnswerRequest } from '../../nodes/answer/answerer.js'
+import type { TreeCard, TreePrPorts } from '../../nodes/launch/tree-pr.js'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { pathsOutside, TestCoverage } from '../../../src/card/covering-tests.js'
+import { pathsOutside, runsLine, TestCoverage } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { followsTouches, neverFollows, rootCopyOf } from '../../../src/commands/intake/check.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { AnswerOutsideTouches, claudeAnswerer, followedEvent } from '../../nodes/answer/answerer.js'
-import { touchesFollowed } from '../../nodes/launch/tree-pr.js'
+import { runTreePr } from '../../nodes/launch/tree-pr-cli.js'
+import { touchesFollowed, treePr } from '../../nodes/launch/tree-pr.js'
 
 const CARD_ID = 1207
 const TOUCHED_MODULE = 'src/widget.ts'
@@ -63,8 +65,10 @@ const REPOSITORY: Record<string, string> = {
   [ANOTHER_CARDS_CHANGESET]: '---\n---\n\nanother card\n',
 }
 
-function cardBody(touches: string[]): string {
-  return parkingFileText({ card: `#${CARD_ID} widget [implement/construct/S/cheap/auto] · depends — · blocks —`, branch: 'feat/widget', touches, continue: 'auto', who: 'shift', body: 'the widget card' })
+const CARD_LINE = `#${CARD_ID} widget [implement/construct/S/ladder/auto] · depends — · blocks —`
+
+function cardBody(touches: string[], runs: string[] = []): string {
+  return parkingFileText({ card: CARD_LINE, branch: 'feat/widget', touches, continue: 'auto', who: 'shift', body: runs.length === 0 ? 'the widget card' : `the widget card\n\n${runsLine(runs)}` })
 }
 
 interface Run {
@@ -74,7 +78,12 @@ interface Run {
   answer: () => Promise<unknown>
 }
 
-function answerChanging(changed: string[], touches: string[]): Run {
+interface AnswerCase {
+  runs?: string[]
+  pushFails?: boolean
+}
+
+function answerChanging(changed: string[], touches: string[], answerCase: AnswerCase = {}): Run {
   const worktree = treeWith(REPOSITORY, { [CARD_CHANGESET]: '---\n---\n\nthe widget\n' })
   const published: string[] = []
   const followed: string[][] = []
@@ -84,10 +93,10 @@ function answerChanging(changed: string[], touches: string[]): Run {
     source: { kind: 'changes', findings: ['the widget test is red'], events: [] },
     widened: null,
     card: { session: 'card-session', worktree, branch: 'feat/widget' },
-    outsideTouches: paths => pathsOutside(touches, [], paths),
+    outsideTouches: paths => pathsOutside(touches, answerCase.runs ?? [], paths),
   }
   const answerer = claudeAnswerer(path.join(path.dirname(worktree), 'answers'), {
-    cardText: () => cardBody(touches),
+    cardText: () => cardBody(touches, answerCase.runs),
     available: () => true,
     remoteHead: () => heads.shift() ?? null,
     spawn: async (run) => {
@@ -95,7 +104,11 @@ function answerChanging(changed: string[], touches: string[]): Run {
       return 0
     },
     newSession: () => 'new-session',
-    publish: card => published.push(card.branch),
+    publish: (card) => {
+      if (answerCase.pushFails === true)
+        throw new Error('the push was rejected')
+      published.push(card.branch)
+    },
     pending: () => [TOUCHED_MODULE, ...changed],
     followed: (_lease, paths) => followed.push([...paths]),
   })
@@ -135,10 +148,99 @@ describe('the touches follow the change: tests, generated twins and the changese
     expect(run.published).toEqual([])
   })
 
-  it('records the widening as a touches.followed event fenced by the lease generation', () => {
-    const lease = { taskKey: `answer:${CARD_ID}:1300`, queue: 'answer' as const, cardId: CARD_ID, pr: 1300, head: 'a'.repeat(40), leaseGen: 3, actor: 'worker:answer:worker-1' }
+  it('an answer whose outside changes all fall within the card\'s runs pushes and records no widening', async () => {
+    const run = answerChanging([UNRELATED_TEST], [TOUCHED_MODULE], { runs: [UNRELATED_TEST] })
 
-    expect(followedEvent(lease, [SURFACE], '2026-11-03T00:00:00.000Z')).toMatchObject({ type: TOUCHES_FOLLOWED, cardId: CARD_ID, pr: 1300, dedupeKey: `${TOUCHES_FOLLOWED}:${lease.taskKey}:3`, payload: { paths: [SURFACE] } })
+    await expect(run.answer()).resolves.toMatchObject({ owner: null })
+    expect(run.published).toEqual(['feat/widget'])
+    expect(run.followed).toEqual([])
+  })
+
+  it('an answer whose push fails records no widening', async () => {
+    const run = answerChanging([COVERING_TEST, SURFACE], [TOUCHED_MODULE], { pushFails: true })
+
+    await expect(run.answer()).rejects.toThrow('the push was rejected')
+    expect(run.followed).toEqual([])
+  })
+
+  it('records the widening as a touches.followed event fenced by the lease generation and keyed by the paths it followed', () => {
+    const lease = { taskKey: `answer:${CARD_ID}:1300`, queue: 'answer' as const, cardId: CARD_ID, pr: 1300, head: 'a'.repeat(40), leaseGen: 3, actor: 'worker:answer:worker-1' }
+    const ts = '2026-11-03T00:00:00.000Z'
+
+    expect(followedEvent(lease, [SURFACE, COVERING_TEST], ts)).toMatchObject({ type: TOUCHES_FOLLOWED, cardId: CARD_ID, pr: 1300, dedupeKey: `${TOUCHES_FOLLOWED}:${lease.taskKey}:3:${SURFACE},${COVERING_TEST}`, payload: { paths: [SURFACE, COVERING_TEST] } })
+    expect(followedEvent(lease, [SURFACE], ts).dedupeKey).not.toBe(followedEvent(lease, [SURFACE, COVERING_TEST], ts).dedupeKey)
+  })
+})
+
+const OPENED_PR = 1301
+
+function shiftTree(changed: Record<string, string>): string {
+  const worktree = treeWith(REPOSITORY, {})
+  const origin = path.join(path.dirname(worktree), 'origin.git')
+  execFileSync('git', ['init', '-q', '--bare', origin])
+  execFileSync('git', ['-C', worktree, 'remote', 'add', 'origin', origin])
+  execFileSync('git', ['-C', worktree, 'push', '-q', 'origin', 'HEAD:refs/heads/main'])
+  execFileSync('git', ['-C', worktree, 'fetch', '-q', 'origin'])
+  execFileSync('git', ['-C', worktree, 'checkout', '-q', '-b', 'feat/widget'])
+  writeInto(worktree, { [TOUCHED_MODULE]: 'export const widget = 2\n', ...changed })
+  return worktree
+}
+
+function shiftGit(cwd: string, args: string[]): string {
+  return execFileSync('git', ['-C', cwd, '-c', 'user.name=shift', '-c', 'user.email=shift@example.invalid', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function shiftPorts(bodies: string[]): TreePrPorts {
+  return {
+    git: shiftGit,
+    gh: (args) => {
+      if (args[1] === 'list')
+        return '[]'
+      bodies.push(args[args.indexOf('--body') + 1]!)
+      return `https://github.com/o/r/pull/${OPENED_PR}\n`
+    },
+  }
+}
+
+const SHIFT_CARD: TreeCard = { branch: 'feat/widget', title: 'widget (#1207)', commitMessage: 'widget (#1207)', cardLine: CARD_LINE, contour: 'ladder', touches: [TOUCHED_MODULE], runs: [], namedPathReason: null }
+
+describe('a card session follows the touches the same way and the shift records it', () => {
+  it('the shift opens the pull request with a covering test and a twin outside the touches and names them as followed', () => {
+    const bodies: string[] = []
+    const worktree = shiftTree({ [COVERING_TEST]: 'import { widget } from \'../src/widget.js\'\n\nexport const twice = widget * 2\n', [SURFACE]: '{"x":1}\n' })
+
+    expect(treePr(shiftPorts(bodies), SHIFT_CARD, worktree, null)).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [SURFACE, COVERING_TEST] })
+    expect(bodies[0]).toContain(`Touches followed: ${SURFACE}, ${COVERING_TEST}`)
+  })
+
+  it('the shift opens no pull request for a guarded path outside the touches', () => {
+    const bodies: string[] = []
+    const worktree = shiftTree({ [LINT_CONFIG]: 'export default [1]\n' })
+
+    expect(treePr(shiftPorts(bodies), { ...SHIFT_CARD, touches: [TOUCHED_MODULE, TEMPLATE_LINT] }, worktree, null)).toMatchObject({ kind: 'problem', gaps: [{ reason: 'outside-touches', paths: [LINT_CONFIG] }] })
+    expect(bodies).toEqual([])
+  })
+
+  it.each([
+    ['records a touches.followed event for the paths it followed', { [COVERING_TEST]: 'import { widget } from \'../src/widget.js\'\n\nexport const twice = widget * 2\n' }, [[CARD_ID, OPENED_PR, [COVERING_TEST]]]],
+    ['records no touches.followed event when nothing followed', {}, []],
+  ])('the shift %s', (_name, changed, recorded) => {
+    const worktree = shiftTree(changed)
+    const followed: unknown[] = []
+    const code = runTreePr([String(CARD_ID), worktree], {
+      ...shiftPorts([]),
+      card: () => cardBody([TOUCHED_MODULE]),
+      opened: () => {},
+      followed: (cardId, pr, paths) => followed.push([cardId, pr, [...paths]]),
+      stopped: () => {},
+      waited: () => {},
+      lastRefusal: () => null,
+      returned: () => {},
+      resume: () => false,
+    }, () => {})
+
+    expect(code).toBe(0)
+    expect(followed).toEqual(recorded)
   })
 })
 

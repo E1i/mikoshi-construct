@@ -128,7 +128,7 @@ export class AnswerOutsideTouches extends Error {
 }
 
 export function followedEvent(lease: Lease, paths: readonly string[], ts: string): BusEvent {
-  return { ts, type: TOUCHES_FOLLOWED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${TOUCHES_FOLLOWED}:${lease.taskKey}:${lease.leaseGen}`, payload: { paths: [...paths], reason: followedLine(paths) }, legacy: false }
+  return { ts, type: TOUCHES_FOLLOWED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${TOUCHES_FOLLOWED}:${lease.taskKey}:${lease.leaseGen}:${[...paths].sort().join(',')}`, payload: { paths: [...paths], reason: followedLine(paths) }, legacy: false }
 }
 
 function busTouchesFollowed(busPath: string): (lease: Lease, paths: readonly string[]) => void {
@@ -582,18 +582,21 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       throw new Error(`the answer session ${session} exited ${code}`)
     const steps = ['']
     const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
-    const refuseOutsideTouches = (): void => {
+    const followedOrRefused = (): string[] => {
       const outside = request.outsideTouches?.(tools.pending?.(card) ?? []) ?? []
       if (outside.length === 0)
-        return
+        return []
       const touched = answerFollowed(git, card.worktree, outside, request.lease.cardId, cardBody, (tools.coverage ?? (tree => worktreeCoverage(git, tree.worktree)))(card))
       if (touched.outside.length > 0)
         throw new AnswerOutsideTouches(request.lease, touched.outside)
-      tools.followed?.(request.lease, touched.followed)
+      return touched.followed
     }
     const pushTree = (): FreshBaseGap | null => {
-      refuseOutsideTouches()
-      return freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease)))
+      const followed = followedOrRefused()
+      const gap = freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease)))
+      if (gap === null && followed.length > 0)
+        tools.followed?.(request.lease, followed)
+      return gap
     }
     const publish = async (): Promise<string | null> => {
       const gap = pushTree()

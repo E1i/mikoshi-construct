@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
-import { CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT } from '../../core/events.js'
+import { CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { openDatabase } from '../../core/sqlite.js'
@@ -19,7 +19,7 @@ import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { CARD_MCP_FLAGS, CARD_PERMISSION_MODE } from './launch-starter.js'
 import { collectReport, missingReportDetail, REPORT_MISSING } from './report-collect.js'
-import { refusalOf, shiftTreeCard, treePr } from './tree-pr.js'
+import { followedLine, refusalOf, shiftTreeCard, treePr } from './tree-pr.js'
 
 export const PREFIX = '[shift:tree-pr] '
 
@@ -37,6 +37,7 @@ export interface TreePrWait {
 export interface TreePrCliPorts extends TreePrPorts {
   card: (cardId: number) => string | null
   opened: (cardId: number, pr: number) => void
+  followed?: (cardId: number, pr: number, paths: readonly string[]) => void
   stopped: (cardId: number, why: string, code: string) => void
   waited: (cardId: number, wait: TreePrWait) => void
   lastRefusal: (cardId: number) => string | null
@@ -103,6 +104,10 @@ function appendShiftEvent(bus: PrOpenedBus, what: string, event: (db: DatabaseSy
 
 export function busPrOpened(bus: PrOpenedBus): TreePrCliPorts['opened'] {
   return (cardId, pr) => appendShiftEvent(bus, `${PR_OPENED} of PR #${pr}`, () => ({ type: PR_OPENED, cardId, pr, dedupeKey: `${PR_OPENED}:${cardId}:${pr}`, payload: { pr } }))
+}
+
+export function busTouchesFollowed(bus: PrOpenedBus): NonNullable<TreePrCliPorts['followed']> {
+  return (cardId, pr, paths) => appendShiftEvent(bus, `${TOUCHES_FOLLOWED} of PR #${pr}`, () => ({ type: TOUCHES_FOLLOWED, cardId, pr, dedupeKey: `${TOUCHES_FOLLOWED}:${cardId}:${pr}`, payload: { paths: [...paths], reason: followedLine(paths) } }))
 }
 
 export function busCardStopped(bus: PrOpenedBus): TreePrCliPorts['stopped'] {
@@ -186,6 +191,7 @@ const REAL_PORTS: TreePrCliPorts = {
   pushPolicy: worktree => pushPolicyOf(REAL_GIT, worktree),
   card: busCardText(REAL_BUS.busPath),
   opened: busPrOpened(REAL_BUS),
+  followed: busTouchesFollowed(REAL_BUS),
   stopped: busCardStopped(REAL_BUS),
   waited: busCardWaited(REAL_BUS),
   lastRefusal: busLastRefusal(REAL_BUS.busPath),
@@ -254,6 +260,13 @@ function reportMissing(cardId: number, places: TreePlaces, ports: TreePrCliPorts
   return `${missingReportDetail(cardId, collection, '0')}; the tree is left uncommitted`
 }
 
+function recordOpened(cardId: number, outcome: Extract<TreePr, { kind: 'pr' }>, ports: TreePrCliPorts): void {
+  const pr = Number(outcome.number)
+  ports.opened(cardId, pr)
+  if (outcome.followed.length > 0)
+    ports.followed?.(cardId, pr, outcome.followed)
+}
+
 function settleTree(cardId: number, card: TreeCard, places: TreePlaces, ports: TreePrCliPorts, out: (line: string) => void): number {
   for (let first = true; ; first = false) {
     const missing = reportMissing(cardId, places, ports, first)
@@ -265,7 +278,7 @@ function settleTree(cardId: number, card: TreeCard, places: TreePlaces, ports: T
     const outcome = treePr(ports, card, places.worktree, reportOf(places.report))
     if (outcome.kind !== 'problem') {
       if (outcome.kind === 'pr')
-        ports.opened(cardId, Number(outcome.number))
+        recordOpened(cardId, outcome, ports)
       out(outcomeLine(cardId, outcome))
       return 0
     }
