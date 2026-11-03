@@ -29,7 +29,7 @@ import { decisionsInForceAt } from '../../policy/shards.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { decisionsAdder, worktreesHolding } from '../../window/window-request-tools.js'
-import { ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../window/window-requests.js'
+import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, sliceItemsOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -79,7 +79,7 @@ function room(bench: MergeBench = mergeBench()): Room {
       closePr: request => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).close(request),
       closeDropped: () => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).closeDropped(),
       ...tools,
-    }, channelOf(made), () => made.releaseVersion),
+    }, channelOf(made), () => made.releaseVersion, root),
   }
   rooms.push(made)
   return made
@@ -109,8 +109,14 @@ function admitBody(made: Room, cardId: number, cardLine: string, branch: string)
   db.prepare('INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, card_line, branch) VALUES (?, ?, ?, ?, ?, ?)').run(cardId, event, cardLine, 'f'.repeat(64), cardLine, branch)
 }
 
-function roundLimitedWithD186(): Room {
+function withAllowMergeRule(made: Room, status = 'accepted'): void {
+  mkdirSync(path.dirname(path.join(made.root, ALLOW_MERGE_RECORD)), { recursive: true })
+  writeFileSync(path.join(made.root, ALLOW_MERGE_RECORD), `# The window allows a merge past the review round limit\n\nStatus: ${status}\n`)
+}
+
+function roundLimitedUnderTheRule(): Room {
   const made = room(liveBench())
+  withAllowMergeRule(made)
   made.bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
   spendReviewRounds(made.bench, PR, HEAD)
   recordDecision(made.bench.db, { ts: made.bench.clock.now().toISOString(), decisionId: 186, text: D_186.split(' — ')[1]!.replace(' · decisions:add', ''), cards: [] })
@@ -194,8 +200,8 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(answerOf(made, request).type).toBe(REQUEST_DONE)
   })
 
-  it('an allow-merge request after the dry-run records the decision on the current head by D-186', () => {
-    const made = roundLimitedWithD186()
+  it('an allow-merge request after the dry-run records the decision on the current head by the allow-merge record', () => {
+    const made = roundLimitedUnderTheRule()
     const { bench } = made
     const before = ask(made, { kind: 'allow-merge', pr: PR, head: HEAD, dry_run: DRY_RUN })
     expect(made.requests().run()).toEqual([{ kind: 'refused', request: before, detail: `the dry run ${DRY_RUN} is not of PR #${PR} at ${HEAD}` }])
@@ -206,7 +212,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
 
     const request = ask(made, { kind: 'allow-merge', pr: PR, head: HEAD, dry_run: DRY_RUN })
     expect(made.requests().run()[0]).toMatchObject({ kind: 'done', request })
-    const line = `[owner] allow-merge PR #${PR} at ${HEAD} · by D-186 · card #${CARD} · decisions:add`
+    const line = `[owner] allow-merge PR #${PR} at ${HEAD} · by ${ALLOW_MERGE_RECORD} · card #${CARD} · decisions:add`
     expect(readFileSync(path.join(made.root, '.construct', 'owner-decisions.md'), 'utf8')).toContain(`- D-187 · `)
     expect(readFileSync(path.join(made.root, '.construct', 'owner-decisions.md'), 'utf8')).toContain(line)
 
@@ -218,7 +224,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
   })
 
   it('an allow-merge request takes the dry run of the previous head after one push and refuses one two pushes back', () => {
-    const made = roundLimitedWithD186()
+    const made = roundLimitedUnderTheRule()
     const { bench } = made
     keepDryRun(path.join(made.root, 'dry-run-reviews'))(DRY_RUN, { pr: PR, head: HEAD })
     bench.gitHub.open({ number: PR, head: sha('b'), review: 'failure' })
@@ -234,7 +240,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
   })
 
   it('a request on head H with a fresh pr.observed at H is accepted; on another head it is refused', () => {
-    const made = roundLimitedWithD186()
+    const made = roundLimitedUnderTheRule()
     const { bench } = made
     keepDryRun(path.join(made.root, 'dry-run-reviews'))(DRY_RUN, { pr: PR, head: HEAD })
     const fresh = sha('b')
@@ -247,7 +253,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
   })
 
   it('a pr.closed after the fresh pr.observed reads the pull request as closed', () => {
-    const made = roundLimitedWithD186()
+    const made = roundLimitedUnderTheRule()
     const { bench } = made
     keepDryRun(path.join(made.root, 'dry-run-reviews'))(DRY_RUN, { pr: PR, head: HEAD })
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `pr.observed:${PR}:again`, payload: { pr: PR, head: HEAD, state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
@@ -258,16 +264,20 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(made.requests().run()).toEqual([{ kind: 'refused', request, detail: `PR #${PR} is not open` }])
   })
 
-  it('an allow-merge request is refused before the round limit or without D-186 in force', () => {
+  it('an allow-merge request is refused before the round limit or without the allow-merge record in force', () => {
     const made = room(liveBench())
     made.bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
     made.bench.tick()
     keepDryRun(made.root)(DRY_RUN, { pr: PR, head: HEAD })
-    const withoutD186 = ask(made, { kind: 'allow-merge', pr: PR, head: HEAD, dry_run: DRY_RUN })
-    expect(made.requests({ dryRunOf: dryRunIn(made.root) }).run()).toEqual([{ kind: 'refused', request: withoutD186, detail: 'D-186 is not in force' }])
+    const notInForce = `${ALLOW_MERGE_RECORD} is not in force in ${made.root}: absent, or its status is not accepted`
+    const withoutRecord = ask(made, { kind: 'allow-merge', pr: PR, head: HEAD, dry_run: DRY_RUN })
+    expect(made.requests({ dryRunOf: dryRunIn(made.root) }).run()).toEqual([{ kind: 'refused', request: withoutRecord, detail: notInForce }])
 
-    recordDecision(made.bench.db, { ts: made.bench.clock.now().toISOString(), decisionId: 186, text: 'Until 0.44, after the round limit: one dry-run', cards: [] })
-    made.bench.tick()
+    withAllowMergeRule(made, 'superseded')
+    const withdrawn = ask(made, { kind: 'allow-merge', pr: PR, head: HEAD, dry_run: DRY_RUN })
+    expect(made.requests({ dryRunOf: dryRunIn(made.root) }).run()).toEqual([{ kind: 'refused', request: withdrawn, detail: notInForce }])
+
+    withAllowMergeRule(made)
     const early = ask(made, { kind: 'allow-merge', pr: PR, head: HEAD, dry_run: DRY_RUN })
     expect(made.requests({ dryRunOf: dryRunIn(made.root) }).run()).toEqual([{ kind: 'refused', request: early, detail: `PR #${PR} has 0 of 3 review rounds, not past the round limit` }])
   })
