@@ -33,6 +33,7 @@ export const UNCLEAR_PREFIX = 'unclear: '
 export const CORRECTED_PREFIX = 'corrected: '
 export const WITNESSES_HEADING = 'Witnesses:'
 export const WHOLE_PREFIX = 'whole: '
+export const IMPORT_PREFIX = 'import: '
 const DEFAULT_IMPLEMENT_DECISION = 'owner'
 const PROBE_DECISION = 'none'
 const DEFAULT_CONTINUE = 'stop'
@@ -97,14 +98,13 @@ function duplicateGoals(cards: readonly CheckedCard[]): string[] {
   })
 }
 
-function foundationsOf(cards: readonly CheckedCard[], numbers: readonly number[], depends: number[][], sources: SliceSources): Correction[][] {
+function importNotesOf(cards: readonly CheckedCard[], numbers: readonly number[], depends: readonly number[][], sources: SliceSources): string[][] {
   const imports = sliceDepends(cards.map(card => card.touches), sources)
   return cards.map((card, index) => imports[index]!.flatMap((at) => {
     const foundation = numbers[at]!
     if (imports[at]!.includes(index) || depends[index]!.includes(foundation) || depends[at]!.includes(numbers[index]!))
       return []
-    depends[index]!.push(foundation)
-    return [{ field: 'depends', was: '(absent)', now: `#${foundation}`, reason: `${card.name} imports what ${cards[at]!.name} changes, so the consumer waits for its foundation` }]
+    return [`${IMPORT_PREFIX}${card.name} imports what #${foundation} (${cards[at]!.name}) changes; no depends added — name it in the draft's depends if this card needs that change`]
   }))
 }
 
@@ -114,7 +114,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
   const depends = cards.map(card => resolve(card.depends, ids, card.name, reasons))
   const blocks = cards.map(card => resolve(card.blocks, ids, card.name, reasons))
   reasons.push(...duplicateGoals(cards))
-  const foundations = foundationsOf(cards, numbers, depends, sources)
+  const importNotes = importNotesOf(cards, numbers, depends, sources)
   const ring = dependsCycle(depends.map(ids => ids.flatMap(id => (numbers.includes(id) ? [numbers.indexOf(id)] : []))))
   if (ring !== null)
     reasons.push(`${ring.map(at => cards[at]!.name).join(', ')} depend on each other in a ring, so none of them can start; drop the depends that closes the ring, or keep the cards as one`)
@@ -122,7 +122,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const id = numbers[index]!
     const blockedHere = cards.flatMap((_, at) => (depends[at]!.includes(id) ? [numbers[at]!] : []))
     const { contour, decision, unclear } = defaulted(card)
-    const corrections = [...card.corrections, ...foundations[index]!]
+    const { corrections } = card
     const line = cardLine({
       id,
       name: card.name,
@@ -143,7 +143,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const whole = card.whole ?? keptWhole ?? undefined
     const proposed = [...split.slices.map(slice => slice.touches), ...volumeSlices, ...reading.slices.map(slice => slice.touches)]
     const order = sliceDepends(proposed, sources)
-    const seam = [...seamLines(split, order), ...volumeLines({ ...volume, slices: volumeSlices }, order)]
+    const seam = [...importNotes[index]!, ...seamLines(split, order), ...volumeLines({ ...volume, slices: volumeSlices }, order)]
     const risk = riskLines(reading, order)
     const heldForSlicing = whole === undefined && proposed.length > 0
     if (heldForSlicing && slicedByItsText(card))
