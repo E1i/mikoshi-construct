@@ -16,7 +16,8 @@ export const NOT_A_WINDOW = 'turn-watch: not a window session; no watch is requi
 export const NO_LIVE_WATCH = `turn-watch: this window session has no window.heartbeat newer than ${WINDOW_BEAT_MS / 60_000} minutes; start pnpm miko:watch before ending the turn`
 export const LIVE_WATCH = 'turn-watch: a live pnpm miko:watch beats for this window session'
 export const TAB_CONTINUE = 'turn-watch: the handoff of this tab window ends STATUS: CONTINUE; run pnpm miko:watch --once and take the next move in this session'
-export const TAB_STOPS = 'turn-watch: the handoff of this tab window does not end STATUS: CONTINUE; the turn ends'
+export const TAB_STOPS = 'turn-watch: the handoff of this tab window ends neither STATUS: CONTINUE nor STATUS: OWNER; the turn ends'
+export const OWNER_QUESTION_WAITS = `turn-watch: the handoff of this tab window ends STATUS: OWNER and no window.heartbeat is newer than ${WINDOW_BEAT_MS / 60_000} minutes; the owner question is an owner wait on the board, not a turn end: run pnpm miko:watch --once and settle every other card while it waits`
 
 const LAST_BEAT = `SELECT ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.session') = ? ORDER BY id DESC LIMIT 1`
 
@@ -41,12 +42,25 @@ export interface TurnWatchDeps {
   err: (line: string) => void
 }
 
-function tabTurn(status: Status | null, err: (line: string) => void): number {
+function liveWatch(deps: TurnWatchDeps, session: string): boolean {
+  return watchIsLive(deps.lastBeat(session), deps.now())
+}
+
+function tabTurn(deps: TurnWatchDeps, session: string): number {
+  const status = deps.status()
   if (status === 'CONTINUE') {
-    err(TAB_CONTINUE)
+    deps.err(TAB_CONTINUE)
     return 1
   }
-  err(TAB_STOPS)
+  if (status !== 'OWNER') {
+    deps.err(TAB_STOPS)
+    return 0
+  }
+  if (!liveWatch(deps, session)) {
+    deps.err(OWNER_QUESTION_WAITS)
+    return 1
+  }
+  deps.err(LIVE_WATCH)
   return 0
 }
 
@@ -56,8 +70,8 @@ export function runTurnWatch(deps: TurnWatchDeps): number {
     return 0
   }
   if (deps.mode === 'tab')
-    return tabTurn(deps.status(), deps.err)
-  if (!watchIsLive(deps.lastBeat(deps.session), deps.now())) {
+    return tabTurn(deps, deps.session)
+  if (!liveWatch(deps, deps.session)) {
     deps.err(NO_LIVE_WATCH)
     return 1
   }

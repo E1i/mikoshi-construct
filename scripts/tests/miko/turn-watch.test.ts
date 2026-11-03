@@ -136,10 +136,10 @@ describe('the loop window waits on a watch, a tab window on the STATUS of its ha
     expect(hook({ ...continuing, CLAUDE_CODE_SESSION_ID: 's-raised', [RAISED_VARIABLE]: '1' })).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
   })
 
-  it('a tab window whose handoff ends STATUS: CONTINUE is blocked with the watch to run, and stops at any other STATUS or without a handoff', () => {
+  it('a tab window whose handoff ends STATUS: CONTINUE is blocked with the watch to run, and stops at DONE, STOP or without a handoff', () => {
     expect(hook({ ...handoffDir('CONTINUE'), CLAUDE_CODE_SESSION_ID: 's-tab', [WINDOW_VARIABLE]: '' })).toEqual({ code: 1, lines: [TAB_CONTINUE] })
     expect(TAB_CONTINUE).toContain('pnpm miko:watch --once')
-    for (const status of ['OWNER', 'DONE', null])
+    for (const status of ['DONE', 'STOP', null])
       expect(hook({ ...handoffDir(status), CLAUDE_CODE_SESSION_ID: 's-tab' })).toEqual({ code: 0, lines: [TAB_STOPS] })
   })
 
