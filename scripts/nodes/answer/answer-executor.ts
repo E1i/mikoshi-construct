@@ -6,7 +6,7 @@ import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.js'
-import type { Answered, Answerer, TreeMerge } from './answerer.js'
+import type { Answered, Answerer, StepSeconds, TreeMerge } from './answerer.js'
 import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { riskOf } from '../../../src/card/risk.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
@@ -23,7 +23,7 @@ import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, answerSourceOf, ownerHoldOf } from './answer-source.js'
-import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, treeDirtyOf, treeMergeOf } from './answerer.js'
+import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, treeDirtyOf, treeMergeOf } from './answerer.js'
 
 export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches'
 
@@ -109,6 +109,10 @@ function measurementOf(answered: Answered, minutes: number): { minutes: number, 
   return answered.tokens === undefined ? {} : { minutes, tokens: answered.tokens }
 }
 
+function stepsOf(answered: Answered): { steps: StepSeconds } | Record<string, never> {
+  return answered.steps === undefined ? {} : { steps: answered.steps }
+}
+
 function leftNoNewHead(answered: Answered): boolean {
   return answered.after === null || answered.after === answered.before
 }
@@ -143,6 +147,7 @@ export class AnswerExecutor {
   }
 
   async answer(lease: Lease): Promise<AnswerOutcome> {
+    const leased = this.parts.clock().getTime()
     try {
       assertHeld(this.parts.db, lease)
       const source = this.sourceOf(lease)
@@ -177,8 +182,8 @@ export class AnswerExecutor {
         return this.waiting(lease, card, merge.why)
       const answering = source ?? this.conflict(lease, card, merge)
       const sessionStart = this.parts.clock().getTime()
-      const first = await this.session(lease, answering, widened, card, false)
-      const answered = endedOnContextWarn(first) ? await this.session(lease, answering, widened, card, true) : first
+      const first = await this.session(lease, answering, widened, card, false, leased)
+      const answered = endedOnContextWarn(first) ? await this.session(lease, answering, widened, card, true, this.parts.clock().getTime()) : first
       if ('kind' in answered)
         return this.refusedOrDenied(lease, answered, widened)
       return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
@@ -240,12 +245,15 @@ export class AnswerExecutor {
     }
   }
 
-  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean): Promise<Answered | AnswerDenial> {
+  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean, leased: number): Promise<Answered | AnswerDenial> {
+    const preparing = this.parts.clock().getTime()
     const unprepared = prepareBeforeSession(card.worktree, this.parts.prepare ?? prepareTree)
     if (unprepared !== null)
       console.error(`${PREFIX}card #${lease.cardId}: ${unprepared}`)
+    const prepared = this.parts.clock().getTime()
     try {
-      return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened) })
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened) })
+      return answered.steps === undefined ? answered : { ...answered, steps: { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing), ...answered.steps } }
     }
     catch (error) {
       return { kind: 'technical', reason: reasonOfFailure(error), detail: messageOf(error) }
@@ -278,7 +286,7 @@ export class AnswerExecutor {
       return this.leftNothing(lease, answered, scope)
     }
     const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
-    const payload = { session: answered.session, worktree: card.worktree, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...(reentry ? { reentry: true } : {}), ...measurementOf(answered, minutes), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
+    const payload = { session: answered.session, worktree: card.worktree, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...(reentry ? { reentry: true } : {}), ...measurementOf(answered, minutes), ...stepsOf(answered), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }
@@ -328,7 +336,7 @@ export class AnswerExecutor {
     const ground = `window shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until}) under ${isolation.level} isolation`
     assertHeld(this.parts.db, lease)
     appendEvent(this.parts.db, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS }))
-    const decided = await this.session(lease, decisionSource(question, ground), widened, card, false)
+    const decided = await this.session(lease, decisionSource(question, ground), widened, card, false, this.parts.clock().getTime())
     if ('kind' in decided)
       return this.refusedOrDenied(lease, decided, widened)
     if (!leftNoNewHead(decided))

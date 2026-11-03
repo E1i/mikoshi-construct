@@ -37,6 +37,7 @@ afterEach(() => {
 const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
 const CARD_SESSION = 'card-session-1'
 const PUSHED = sha('e')
+const SILENT_SESSION_STEPS: unknown = expect.objectContaining({ spawn: null, first_turn: null, gate: null })
 const answer = (cardId: number, pr?: number, head?: string): string => taskKey({ queue: 'answer', cardId, pr, head })
 
 function updateRefusedTheMerge(bench: { db: DatabaseSync, clock: { now: () => Date } }, cardId: number, pr: number, head: string): void {
@@ -179,7 +180,7 @@ describe('the answer queue', () => {
     expect(run!.cwd).toBe(bench.treeOf(1093))
     expect(run!.argv.slice(-3, -1)).toEqual(['--resume', CARD_SESSION])
     expect(run!.argv).not.toContain('--session-id')
-    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, worktree: bench.treeOf(1093), resumed: true, source: 'changes', from: sha('a'), to: PUSHED }])
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, worktree: bench.treeOf(1093), resumed: true, source: 'changes', from: sha('a'), to: PUSHED, steps: SILENT_SESSION_STEPS }])
     expect(taskState(bench.db, answer(1093, 993, sha('a'))).state).toBe('completed')
     bench.close()
   })
@@ -587,7 +588,7 @@ describe('the answer queue', () => {
 
     expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', taskKey: answer(1101, 1001, sha('a')), head: PUSHED })
     expect(bench.tools.runs[0]!.argv.at(-1)).toContain('The failed checks: lint, vitest (1/2).')
-    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, worktree: bench.treeOf(1101), resumed: true, source: 'ci', from: sha('a'), to: PUSHED, reentry: true }])
+    expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([{ session: CARD_SESSION, worktree: bench.treeOf(1101), resumed: true, source: 'ci', from: sha('a'), to: PUSHED, reentry: true, steps: SILENT_SESSION_STEPS }])
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     bench.close()

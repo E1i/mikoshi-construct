@@ -1,4 +1,5 @@
 import type { Graph, Run } from '../../ci/layers.js'
+import type { Git } from '../../ci/prepush.js'
 import type { SandboxFailing } from '../../ci/sandbox-failing.js'
 import type { VitestRun } from '../../ci/test-command.js'
 import type { VitestReport } from '../../ci/vitest-report.js'
@@ -6,8 +7,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import YAML from 'yaml'
-import { BUS_SERVICE, BUS_SHARED, selectRun } from '../../ci/layers.js'
-import { CI_DIFF, ciArgs, prepushGate, sessionArgs, testsVerdict } from '../../ci/prepush.js'
+import { BUS_SERVICE, BUS_SHARED, CHANGESET_READERS, selectRun } from '../../ci/layers.js'
+import { changesSince, CI_DIFF, ciArgs, LINT_COMMAND, lintGate, PREPUSH_COMMAND, prepushGate, roundGate, roundLintArgs, roundOf, sessionArgs, testsVerdict } from '../../ci/prepush.js'
 import { SANDBOX_FAILING } from '../../ci/sandbox-failing.js'
 import { missingInCi, staleInSandbox } from '../../ci/sandbox-liveness.js'
 import { reportedRun, runSummary } from '../../ci/select.js'
@@ -186,6 +187,53 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     ]))
     expect(verdict).toEqual({ kind: 'red', failed: ['scripts/tests/notes/print.test.ts > print > reads a pid'] })
     expect(prepushGate(['scripts/notes/print.ts'], () => verdict, () => []).code).toBe(1)
+  })
+
+  it('round diff: a round that changed only a changeset runs only the changeset readers, linting only that file, while the whole pull request would run every test', () => {
+    const round = 'b'.repeat(40)
+    const base = 'c'.repeat(40)
+    const read: Git = (args) => {
+      if (args[0] === 'merge-base')
+        return `${base}\n`
+      if (args.at(-1) === round)
+        return '.changeset/answergate.md\0'
+      if (args.at(-1) === base)
+        return '.changeset/answergate.md\0scripts/ci/layers.ts\0'
+      return ''
+    }
+    const graph: Graph = new Map([...NOTES_GRAPH, ...CHANGESET_READERS.map(test => [test, []] as const)])
+    expect(roundOf(['--round', round])).toBe(round)
+    expect(roundOf([])).toBeNull()
+    expect(() => roundOf(['--round'])).toThrow(/names no head/)
+    expect(changesSince(read, round)).toEqual(['.changeset/answergate.md'])
+    expect(selectRun(changesSince(read, round), graph, () => '')).toEqual({ kind: 'layers', layers: [], tests: [...CHANGESET_READERS] })
+    expect(selectRun(changesSince(read, null), graph, () => '')).toMatchObject({ kind: 'full' })
+    expect(roundGate(['pnpm typecheck', LINT_COMMAND, PREPUSH_COMMAND], round)).toEqual(['pnpm typecheck', `${PREPUSH_COMMAND} --round ${round}`])
+    expect(roundGate(['pnpm run gate-of-the-tree', LINT_COMMAND], round)).toEqual(['pnpm run gate-of-the-tree', LINT_COMMAND])
+    expect(roundLintArgs(['.changeset/answergate.md', 'scripts/gone.ts'], file => file.endsWith('.md'))).toEqual(['.changeset/answergate.md'])
+  })
+
+  it('round lint: lint problems in the round files block the push, a clean lint lets the tests run, a lint that cannot start is broken', () => {
+    const ran = (status: number | null, stdout = '', error?: Error) => ({ pid: 1, output: [], stdout, stderr: '', status, signal: null, ...(error === undefined ? {} : { error }) })
+    expect(lintGate([], () => ran(1))).toBeNull()
+    expect(lintGate(['a.ts'], () => ran(0))).toBeNull()
+    expect(lintGate(['a.ts'], () => ran(1, 'a.ts:1 problem\n'))).toEqual({ lines: [expect.stringMatching(/^prepush: red — lint over the files this round changed/), 'a.ts:1 problem'], code: 1 })
+    expect(lintGate(['a.ts'], () => ran(null, '', new Error('ENOENT')))?.code).toBe(2)
+    expect(lintGate(['a.ts'], () => ran(2))?.code).toBe(2)
+  })
+
+  it('round layer: a round that changed an answer node module runs that module\'s tests and its layer', () => {
+    const graph: Graph = new Map([
+      ['scripts/nodes/answer/answerer.ts', []],
+      ['scripts/nodes/answer/answer-executor.ts', ['scripts/nodes/answer/answerer.ts']],
+      ['scripts/notes/print.ts', []],
+      ['scripts/tests/bus/answerer.test.ts', ['scripts/nodes/answer/answerer.ts']],
+      ['scripts/tests/bus/answer-node.test.ts', ['scripts/nodes/answer/answer-executor.ts']],
+      ['scripts/tests/notes/print.test.ts', ['scripts/notes/print.ts']],
+    ])
+    const read: Git = args => args[0] === 'diff' ? 'scripts/nodes/answer/answerer.ts\0' : ''
+    const run = selectRun(changesSince(read, 'b'.repeat(40)), graph, () => '')
+    expect(run).toEqual({ kind: 'layers', layers: ['bus:answer', 'nodes'], tests: ['scripts/tests/bus/answer-node.test.ts', 'scripts/tests/bus/answerer.test.ts'] })
   })
 
   it('a listed test that stopped failing turns the liveness check red on a pull request of the list while an ordinary card push passes', () => {
