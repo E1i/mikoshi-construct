@@ -8,6 +8,7 @@ export const FACTORY_MANIFEST: readonly string[] = [
   '.claude/skills/probe/SKILL.md',
   '.claude/eddies.json',
   '.claude/settings.json',
+  'architecture/decisions/window-allow-merge.md',
   'architecture/owner-merges.md',
   'scripts/construct/check-acceptance.mjs',
   'scripts/construct/eddies.mjs',

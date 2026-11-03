@@ -34,7 +34,8 @@ const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM
 export const ANSWER_SOURCE = 'answer'
 const DECISION_FLAGS: ReadonlyMap<string, string> = new Map([['--card', 'cards'], ['--supersedes', 'supersedes'], ['--until', 'until'], ['--from', 'from']])
 export const WINDOW_ACTOR = 'worker:window:'
-export const ALLOW_MERGE_UNDER = 186
+export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
+const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
 export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N>`
@@ -128,7 +129,7 @@ function text(value: unknown): string | null {
 }
 
 export class WindowRequests {
-  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly tools: RequestTools, private readonly ownerChannel: string = ownerChannelOf(os.homedir()), private readonly releaseVersion: () => string | null = () => readReleaseVersion()) {}
+  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly tools: RequestTools, private readonly ownerChannel: string = ownerChannelOf(os.homedir()), private readonly releaseVersion: () => string | null = () => readReleaseVersion(), private readonly repository: string = process.cwd()) {}
 
   run(): RequestOutcome[] {
     const answered = pendingRequests(this.db).map(request => this.answer(request))
@@ -275,8 +276,8 @@ export class WindowRequests {
       return { done: false, why: 'allow-merge needs a pr, a full head sha and the reviewer session of its dry run' }
     const now = this.clock()
     const inForce = decisionsInForceAt(this.db, now)
-    if (!inForce.some(decision => decision.decisionId === ALLOW_MERGE_UNDER))
-      return { done: false, why: `D-${ALLOW_MERGE_UNDER} is not in force` }
+    if (!allowMergeRuleInForce(this.repository))
+      return { done: false, why: `${ALLOW_MERGE_RECORD} is not in force in ${this.repository}: absent, or its status is not accepted` }
     const row = this.observed(pr)
     if (row?.state !== 'open')
       return { done: false, why: `PR #${pr} is not open` }
@@ -294,7 +295,7 @@ export class WindowRequests {
     const decided = roundLimitDecisionOf(inForce, pr, head, cleanUpdates)
     if (decided !== null)
       return { done: false, why: `D-${decided} already allows the merge of PR #${pr} at ${head}` }
-    const written = this.tools.addDecision(['--card', `#${row.card_id}`, `[owner] allow-merge PR #${pr} at ${head} · by D-${ALLOW_MERGE_UNDER}`])
+    const written = this.tools.addDecision(['--card', `#${row.card_id}`, `[owner] allow-merge PR #${pr} at ${head} · by ${ALLOW_MERGE_RECORD}`])
     return { done: written.code === 0, why: written.lines.join('; ') }
   }
 
@@ -421,6 +422,11 @@ export class WindowRequests {
     if (appendEvent(this.db, event))
       TASK_FOLDS[TASK_REQUEUED]!(this.db, storedByKey(this.db, event.dedupeKey))
   }
+}
+
+export function allowMergeRuleInForce(repository: string): boolean {
+  const record = path.join(repository, ALLOW_MERGE_RECORD)
+  return existsSync(record) && RULE_ACCEPTED.test(readFileSync(record, 'utf8'))
 }
 
 function cardStatesOf(db: DatabaseSync): Map<string, string> {
