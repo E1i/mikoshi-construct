@@ -223,6 +223,19 @@ describe('a test rides in the slice whose change it witnesses', () => {
     expect(card!.text).toContain('whole: the owner kept it whole on 2026-10-09')
   })
 
+  it('an import edge between two cards adds no depends and no blocks, and notes the import in the consumer', () => {
+    const consumer = { ...SLICED.cards[0], name: 'consumer', touches: ['src/b.ts'], task: 'Read a in b.' }
+    const foundation = { ...SLICED.cards[0], name: 'foundation', touches: ['src/a.ts'], task: 'Export a.' }
+    const sources = { 'src/a.ts': 'export const a = 1\n', 'src/b.ts': 'import { a } from \'./a.js\'\nexport const b = a\n' }
+    const [first, second] = cards(intake({ cards: [consumer, foundation] }, '1', path.join(scratch(), 'parking'), { dryRun: true }, sources))
+    expect(first!.line).toContain('depends — · blocks —')
+    expect(second!.line).toContain('depends — · blocks —')
+    expect(first!.corrections).toEqual([])
+    expect(first!.who).toBe('shift')
+    expect(first!.text.split('\n').filter(line => line.startsWith('import: '))).toEqual([`import: consumer imports what #${second!.id} (foundation) changes; no depends added — name it in the draft's depends if this card needs that change`])
+    expect(second!.text).not.toContain('import: ')
+  })
+
   it('takes a task text that names slices when no seam proposes any', () => {
     const task = 'Board shows the parking.\nslice: 1 — scripts/board/**'
     expect(intake({ cards: [{ ...SLICED.cards[0], task }] }, '1', path.join(scratch(), 'parking')).status).toBe('written')

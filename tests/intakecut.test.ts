@@ -44,7 +44,7 @@ function detail(result: IntakeResult): string {
 }
 
 describe('intake cuts cards that run without window edits', () => {
-  it('duplicate slice text is refused and the consumer depends on its foundation', () => {
+  it('duplicate slice text is refused and an import edge leaves the consumer a note, not a depends', () => {
     const files = { 'src/a.ts': 'export const a = 1\n', 'src/b.ts': 'import { a } from \'./a.js\'\nexport const b = a\n' }
     const duplicated = intake(scratch(), { cards: [card('one', ['src/a.ts'], 'Do the thing.'), card('two', ['src/b.ts'], 'Do the thing.')] }, files)
     expect(duplicated.status).toBe('refused')
@@ -56,12 +56,26 @@ describe('intake cuts cards that run without window edits', () => {
     const [consumer, foundation] = ordered.cards.map(each => parseCard(each.line))
     if (consumer?.kind !== 'card' || foundation?.kind !== 'card')
       throw new Error('the cards do not parse')
-    expect(consumer.card.depends).toEqual([foundation.card.id])
-    expect(foundation.card.blocks).toEqual([consumer.card.id])
+    expect(consumer.card.depends).toEqual([])
+    expect(foundation.card.blocks).toEqual([])
     expect(foundation.card.depends).toEqual([])
+    expect(ordered.cards[0]!.corrections).toEqual([])
+    expect(ordered.cards[0]!.text).toContain(`import: consumer imports what #${foundation.card.id} (foundation) changes; no depends added — name it in the draft's depends if this card needs that change`)
+
+    const drafted = intake(scratch(), { cards: [card('consumer', ['src/b.ts'], 'Read a in b.', { depends: ['foundation'] }), card('foundation', ['src/a.ts'], 'Export a.')] }, files, { dryRun: true })
+    if (drafted.status !== 'dryRun')
+      throw new Error(detail(drafted))
+    const [draftedConsumer, draftedFoundation] = drafted.cards.map(each => parseCard(each.line))
+    if (draftedConsumer?.kind !== 'card' || draftedFoundation?.kind !== 'card')
+      throw new Error('the cards do not parse')
+    expect(draftedConsumer.card.depends).toEqual([draftedFoundation.card.id])
+    expect(draftedFoundation.card.blocks).toEqual([draftedConsumer.card.id])
+    expect(drafted.cards[0]!.text).not.toContain('import: ')
 
     const ringFiles = { 'src/a.ts': 'import { b } from \'./b.js\'\nexport const a = b\n', 'src/b.ts': 'import { c } from \'./c.js\'\nexport const b = c\n', 'src/c.ts': 'import { a } from \'./a.js\'\nexport const c = a\n' }
-    const ring = intake(scratch(), { cards: [card('ra', ['src/a.ts'], 'Change a.'), card('rb', ['src/b.ts'], 'Change b.'), card('rc', ['src/c.ts'], 'Change c.')] }, ringFiles, { dryRun: true })
+    const importRing = intake(scratch(), { cards: [card('ra', ['src/a.ts'], 'Change a.'), card('rb', ['src/b.ts'], 'Change b.'), card('rc', ['src/c.ts'], 'Change c.')] }, ringFiles, { dryRun: true })
+    expect(importRing.status).toBe('dryRun')
+    const ring = intake(scratch(), { cards: [card('ra', ['src/a.ts'], 'Change a.', { depends: ['rb'] }), card('rb', ['src/b.ts'], 'Change b.', { depends: ['rc'] }), card('rc', ['src/c.ts'], 'Change c.', { depends: ['ra'] })] }, ringFiles, { dryRun: true })
     expect(ring.status).toBe('refused')
     expect(detail(ring)).toContain('ra, rb, rc depend on each other in a ring')
   })
