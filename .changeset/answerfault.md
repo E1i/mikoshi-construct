@@ -2,4 +2,4 @@
 "mikoshi-construct": patch
 ---
 
-An answer session that leaves nothing is now recorded as a `left_nothing` denial and answered again, and the third empty answer in a row stops the card with an owner question naming the cause.
+An answer session that leaves nothing — no new commit, no owner question, a clean tree — is now answered again instead of leaving the card standing silently, and the third empty answer in a row stops the card with an owner wait that names the cause.
