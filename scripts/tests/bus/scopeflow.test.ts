@@ -1,4 +1,7 @@
 import type { MergeBench } from './merge-bench.js'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { pathsOutside } from '../../../src/card/covering-tests.js'
 import { textSha } from '../../../src/card/text-sha.js'
@@ -16,11 +19,22 @@ import { requestFromWindow, WindowRequests } from '../../window/window-requests.
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const benches: MergeBench[] = []
+const trees: string[] = []
 
 afterEach(() => {
   for (const made of benches.splice(0))
     made.close()
+  for (const tree of trees.splice(0))
+    rmSync(tree, { recursive: true, force: true })
 })
+
+function treeHolding(file: string): string {
+  const tree = mkdtempSync(path.join(tmpdir(), 'scopeflow-tree-'))
+  trees.push(tree)
+  mkdirSync(path.dirname(path.join(tree, file)), { recursive: true })
+  writeFileSync(path.join(tree, file), '')
+  return tree
+}
 
 function bench(): MergeBench {
   const made = mergeBench()
@@ -87,9 +101,10 @@ describe('scope questions settle on the bus', () => {
     admitWith(made, 1501, ['src/a.ts'], 'body-1')
     made.tick()
     const report = '#1501 card-1501\nresult: stopped before PR\nquestion: the test needs scripts/tests/lint/policy.test.ts, outside the touches\n'
+    const tree = treeHolding('scripts/tests/lint/policy.test.ts')
     const node = new LaunchNode({
       db: made.db,
-      starter: { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} },
+      starter: { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: tree, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} },
       clock: made.clock.now,
       session: 'node-1',
       mode: 'live',

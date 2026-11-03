@@ -1,10 +1,11 @@
 import type { Lease } from '../../core/lease.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BOARD_ALARM, CARD_STOPPED, POLICY_DENIED, TASK_COMPLETED, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
+import { appendEvent, closeOwnerWait, openOwnerWait } from '../../core/db.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED, TASK_COMPLETED, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, leaseQueued, RENEW_MS, StaleLease } from '../../core/lease.js'
-import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
+import { FAILURES_TO_STOP, LAUNCH_STOP_WITH_NO_PULL_REQUEST, LIFTED_ADMISSION, queueTask } from '../../core/queue.js'
 import { RateLimited } from '../../ports/meter.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -196,5 +197,87 @@ describe('one lease contract', () => {
     made.gitHub.limited = null
     made.clock.advance(120_000)
     expect(made.lease()).toMatchObject({ taskKey: lease.taskKey })
+  })
+})
+
+describe('a launch stop with no pull request is lifted by the queue', () => {
+  const LIFTED = 1300
+
+  function at(made: MergeBench): string {
+    return made.clock.now().toISOString()
+  }
+
+  function admitted(made: MergeBench, cardId: number): void {
+    appendEvent(made.db, { ts: at(made), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
+  }
+
+  function stoppedOnAQuestion(made: MergeBench, cardId: number, widen: readonly string[], dedupeKey = `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${cardId}`): number {
+    appendEvent(made.db, { ts: at(made), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey, payload: { reason: 'question.agent', detail: `card #${cardId} asks`, widen }, legacy: false })
+    return (made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = '${CARD_STOPPED}' AND card_id = ?`).get(cardId) as { id: number }).id
+  }
+
+  function asked(made: MergeBench, cardId: number): string {
+    return openOwnerWait(made.db, at(made), 'worker:launch:launch-1', { need: 'decision', text: `card #${cardId} asks`, command: `pnpm decide ${cardId}`, card: cardId })
+  }
+
+  function bench(): MergeBench {
+    const made = mergeBench()
+    benches.push(made)
+    return made
+  }
+
+  it('a stop with an empty widen and no open question is re-admitted once, keyed by its stop, with the admission it had', () => {
+    const made = bench()
+    admitted(made, LIFTED)
+    const stop = stoppedOnAQuestion(made, LIFTED, [])
+    made.tick()
+    made.tick()
+
+    expect(eventsOf(made.db, CARD_ADMITTED)).toEqual([
+      expect.objectContaining({ admission: `admission-${LIFTED}` }),
+      { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `${LIFTED_ADMISSION}:${stop}` },
+    ])
+    expect(tasksIn(made, 'answer')).toBe(0)
+  })
+
+  it('a stop whose question is still open stays held, and closing the question lifts it', () => {
+    const made = bench()
+    admitted(made, LIFTED)
+    const stop = stoppedOnAQuestion(made, LIFTED, [])
+    const wait = asked(made, LIFTED)
+    made.tick()
+    expect(eventsOf(made.db, CARD_ADMITTED)).toHaveLength(1)
+
+    closeOwnerWait(made.db, at(made), 'owner', wait, 'go on', 1)
+    made.tick()
+    made.tick()
+    expect(eventsOf(made.db, CARD_ADMITTED).map(payload => payload.admission)).toEqual([`admission-${LIFTED}`, `${LIFTED_ADMISSION}:${stop}`])
+  })
+
+  it('a stop that asks to widen by a repository path is not lifted', () => {
+    const made = bench()
+    admitted(made, LIFTED)
+    stoppedOnAQuestion(made, LIFTED, ['src/b.ts'])
+    made.tick()
+    made.tick()
+    expect(eventsOf(made.db, CARD_ADMITTED)).toHaveLength(1)
+  })
+
+  it('a stop on a card with no admission of its own is not lifted', () => {
+    const made = bench()
+    stoppedOnAQuestion(made, LIFTED, [])
+    made.tick()
+    made.tick()
+    expect(eventsOf(made.db, CARD_ADMITTED)).toEqual([])
+  })
+
+  it('a question.agent stop that launch did not write is not lifted and still goes to the answer queue', () => {
+    const made = bench()
+    admitted(made, LIFTED)
+    stoppedOnAQuestion(made, LIFTED, [], `${CARD_STOPPED}:${LIFTED}:a-session-question`)
+    made.tick()
+    made.tick()
+    expect(eventsOf(made.db, CARD_ADMITTED)).toHaveLength(1)
+    expect(tasksIn(made, 'answer')).toBe(1)
   })
 })
