@@ -35,7 +35,7 @@ import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../nodes/launch/continuation.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { gitChangedPaths, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
-import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, LAUNCH_START_MINUTES, LAUNCH_UNSTARTED, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP } from '../../nodes/launch/launch-worker.js'
+import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, LAUNCH_START_MINUTES, LAUNCH_UNSTARTED, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP, splitByRepository } from '../../nodes/launch/launch-worker.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
@@ -607,12 +607,12 @@ describe('the launch node', () => {
     }
   }
 
-  function admitTouching(made: MergeBench, cardId: number, touches: readonly string[]): void {
-    const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: ${touches.join(', ')}\ncontinue: stop\nwho: shift\n\nDo it.\n`
+  function admitTouching(made: MergeBench, cardId: number, touches: readonly string[], creates: readonly string[] = []): void {
+    const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: ${touches.join(', ')}\n${creates.length > 0 ? `creates: ${creates.join(', ')}\n` : ''}continue: stop\nwho: shift\n\nDo it.\n`
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${textSha(text)}`, payload: { card: `#${cardId}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}-${touches.length}`, text, textSha: textSha(text), bodySha: textSha(text) }, legacy: false })
   }
 
-  async function stoppedOnAQuestion(cardId: number, question: string, files: readonly string[]): Promise<{ made: MergeBench, node: ProbedLaunchNode, starter: TreeStarter }> {
+  async function stoppedOnAQuestion(cardId: number, question: string, files: readonly string[], creates: readonly string[] = []): Promise<{ made: MergeBench, node: ProbedLaunchNode, starter: TreeStarter }> {
     const made = bench()
     const tree = mkdtempSync(path.join(tmpdir(), 'launch-question-'))
     roots.push(tree)
@@ -620,7 +620,7 @@ describe('the launch node', () => {
       mkdirSync(path.dirname(path.join(tree, file)), { recursive: true })
       writeFileSync(path.join(tree, file), '')
     }
-    admitTouching(made, cardId, ['src/a.ts'])
+    admitTouching(made, cardId, ['src/a.ts'], creates)
     made.tick()
     const starter = new TreeStarter(tree)
     const report = `#${cardId} card-${cardId}\nresult: stopped before PR\nno PR\nquestion: ${question}\n`
@@ -683,6 +683,26 @@ describe('the launch node', () => {
 
     expect(starter.starts).toHaveLength(2)
     expect(answerTasksOf(made, 1485)).toBe(0)
+  })
+
+  it('the widen split keeps an existing path inside the tree and drops a missing one, a word, and a path that escapes the tree', () => {
+    const tree = mkdtempSync(path.join(tmpdir(), 'launch-split-'))
+    roots.push(tree)
+    mkdirSync(path.join(tree, 'src'), { recursive: true })
+    writeFileSync(path.join(tree, 'src/b.ts'), '')
+    writeFileSync(path.join(path.dirname(tree), `${path.basename(tree)}-outside.ts`), '')
+    roots.push(path.join(path.dirname(tree), `${path.basename(tree)}-outside.ts`))
+
+    expect(splitByRepository(tree, ['src/b.ts', 'src/missing.ts', '@types/express', `../${path.basename(tree)}-outside.ts`, '/', '.'])).toEqual({
+      widen: ['src/b.ts'],
+      dropped: ['src/missing.ts', '@types/express', `../${path.basename(tree)}-outside.ts`, '/', '.'],
+    })
+  })
+
+  it('a question.agent no-PR stop naming a path the card creates keeps it out of the widen and out of the dropped list', async () => {
+    const { made } = await stoppedOnAQuestion(1486, 'the fix writes src/new.ts and needs @types/express', [], ['src/new.ts'])
+
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([expect.objectContaining({ reason: 'question.agent', widen: [], dropped: ['@types/express'] })])
   })
 
   it('a session that ends with no question line opens no owner wait', async () => {

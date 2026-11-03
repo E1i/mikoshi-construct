@@ -16,7 +16,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, 
 import { taskKey } from '../../core/identifiers.js'
 import { inboxText, ownerInbox } from '../../core/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../core/lease.js'
-import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, MERGE_REFUSED, queueTask, REVIEW_ROUNDS } from '../../core/queue.js'
+import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, LAUNCH_STOP_WITH_NO_PULL_REQUEST, MERGE_REFUSED, queueTask, REVIEW_ROUNDS } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { Rejection } from '../../core/stored.js'
 import { importJournal } from '../../intake/import.js'
@@ -149,6 +149,20 @@ describe('the answer queue', () => {
     const live = projectionDump(bench.db)
     reduce(bench.db)
     expect(projectionDump(bench.db)).toBe(live)
+    bench.close()
+  })
+
+  it('a question.agent stop that launch wrote with no pull request never enters answer, while another question.agent stop does', () => {
+    const bench = answerBench()
+    bench.started(903)
+    const payload = { reason: 'question.agent', detail: 'card #903 ended with no pull request and asks: which port?', widen: [] }
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 903, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}start-903`, payload, legacy: false })
+    bench.started(904)
+    bench.stopped(904, { reason: 'question.agent', detail: 'which port?' })
+    bench.tick()
+
+    const keys = (bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' ORDER BY task_key`).all() as { task_key: string }[]).map(row => row.task_key)
+    expect(keys).toEqual([bench.question(904)])
     bench.close()
   })
 
