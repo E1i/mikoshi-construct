@@ -7,6 +7,7 @@ import type { QueuedTask } from '../../core/queue.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { LadderSteps } from '../../ladder/ladder-starter.js'
 import type { IsolationReader } from '../../ports/isolation.js'
+import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { ProcessTable } from '../restart/chain-process.js'
 import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
@@ -44,6 +45,7 @@ import { reviewOf } from '../../ladder/verdict.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { commandWords, realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
+import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf, storedInput } from '../../ports/prompt-store.js'
 import { sessionEnv } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
@@ -734,7 +736,7 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo)): StarterPorts {
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree): StarterPorts {
   const taskStart = taskStartCommand(installed)
   return {
     read: bodyOf,
@@ -743,7 +745,12 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
       return cardTree(env, busPath, String(task.card.id))
     },
     base: worktree => execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-    spawnDetached,
+    spawnDetached: (detached) => {
+      const unprepared = prepareBeforeSession(detached.cwd, prepare)
+      if (unprepared !== null)
+        console.error(`${PREFIX}card session in ${detached.cwd}: ${unprepared}`)
+      return spawnDetached(detached)
+    },
     pgidOf: psPgid,
     kill: killQuietly,
     uuid,

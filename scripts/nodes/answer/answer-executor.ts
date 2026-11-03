@@ -3,6 +3,7 @@ import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
+import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.js'
 import type { Answered, Answerer, TreeMerge } from './answerer.js'
@@ -18,10 +19,11 @@ import { activeDecisionsShard, cardDecisionCommand, DECISIONS_SCOPE, decisionsIn
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
+import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, answerSourceOf, ownerHoldOf } from './answer-source.js'
-import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, treeDirtyOf, treeMergeOf } from './answerer.js'
+import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, treeDirtyOf, treeMergeOf } from './answerer.js'
 
 export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches'
 
@@ -50,6 +52,7 @@ export interface AnswerParts {
   prompts?: string
   dirty?: (card: CardSession) => boolean
   liveSession?: (card: CardSession) => string | null
+  prepare?: TreePreparer
 }
 
 type Answering = AnswerSource & { reentry?: true }
@@ -238,6 +241,9 @@ export class AnswerExecutor {
   }
 
   private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean): Promise<Answered | AnswerDenial> {
+    const unprepared = prepareBeforeSession(card.worktree, this.parts.prepare ?? prepareTree)
+    if (unprepared !== null)
+      console.error(`${PREFIX}card #${lease.cardId}: ${unprepared}`)
     try {
       return await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened) })
     }
