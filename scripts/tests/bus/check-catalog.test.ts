@@ -193,13 +193,36 @@ describe('the overlap of main\'s changes since the base with the layers of a pul
     ], mutations: [] })
     return db
   }
-  const PR = ['scripts/nodes/merge/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/a.md']
+  const PR = ['scripts/nodes/merge/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts']
 
-  it('finds none when main has not moved or moved only in a changeset, and none when no layer and no test is shared', () => {
+  it('finds none when main has not moved, and none when no layer and no test is shared', () => {
     const db = cataloged()
     expect(overlapWithMain(db, PR, [])).toBeNull()
-    expect(overlapWithMain(db, PR, ['.changeset/b.md'])).toBeNull()
+    expect(overlapWithMain(db, [...PR, '.changeset/a.md'], [])).toBeNull()
     expect(overlapWithMain(db, PR, ['src/cli.ts', 'tests/cli.test.ts'])).toBeNull()
+  })
+
+  it.each([
+    'scripts/ci/layers.ts',
+    'scripts/ci/select.ts',
+    'scripts/ci/prepush.ts',
+    'scripts/ci/test-command.ts',
+    'scripts/tests/ci/select-layers.test.ts',
+    'scripts/tests/ci/prepush-selector.test.ts',
+    'vitest.config.ts',
+    'package.json',
+    'pnpm-lock.yaml',
+    '.changeset/b.md',
+  ])('counts %s, on either side, as test infrastructure that reaches every layer', (file) => {
+    const db = cataloged()
+    const why = `${file} chooses or runs the tests, so it reaches every layer`
+    expect(overlapWithMain(db, PR, [file])).toBe(why)
+    expect(overlapWithMain(db, [...PR, file], ['src/cli.ts'])).toBe(why)
+  })
+
+  it('does not count a vitest config of a template or a fixture as test infrastructure', () => {
+    const db = cataloged()
+    expect(overlapWithMain(db, PR, ['templates/harness/vitest.config.ts'])).toBe('templates/harness/vitest.config.ts belongs to no layer of the check catalog')
   })
 
   it('names the shared layer, or the test that runs for a layer of each side', () => {

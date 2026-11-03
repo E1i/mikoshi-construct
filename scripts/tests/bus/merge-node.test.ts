@@ -75,7 +75,7 @@ interface Moved {
   commitsBeyondTheCompare?: number
 }
 
-const PR_FILES = ['scripts/nodes/merge/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts', '.changeset/merge-rerun.md']
+const PR_FILES = ['scripts/nodes/merge/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts']
 
 const A_MATRIX_COUNT_LINE = '■ 4 □ 1 · 1'
 
