@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { Assignment } from '../../core/bus-readings.js'
 import type { OverlapCatch } from './launch-candidates.js'
@@ -9,6 +10,7 @@ import { parseParkingFile } from '../../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
 import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
+import { RUNNING_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
@@ -65,9 +67,11 @@ const TEXT_ADMISSIONS = `
   ORDER BY id DESC LIMIT 2
 `
 
+const OPEN_PR_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'open' AND card_id IS NOT NULL`
+
 const LATEST_ADMISSION = `SELECT max(id) AS id FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ?`
 
-export type LaneReason = 'chain' | 'kept' | 'free' | 'least-loaded' | 'moved'
+export type LaneReason = 'chain' | 'kept' | 'free' | 'least-loaded' | 'moved' | 'reflowed'
 
 export interface LaneCard {
   cardId: number
@@ -248,11 +252,15 @@ function parsed(payload: string): Record<string, unknown> {
   }
 }
 
-function taskOf(cardId: number, payload: Record<string, unknown>): ShiftTask | null {
+function parkedOf(cardId: number, payload: Record<string, unknown>): ParkedTask | null {
   if (typeof payload.text !== 'string')
     return null
   const card = parseParkingFile(`${cardId}.md`, payload.text)
-  return card.kind === 'parked' ? card.parked.task : null
+  return card.kind === 'parked' ? card.parked : null
+}
+
+function taskOf(cardId: number, payload: Record<string, unknown>): ShiftTask | null {
+  return parkedOf(cardId, payload)?.task ?? null
 }
 
 function dependsOf(payload: Record<string, unknown>): number[] {
@@ -263,10 +271,56 @@ function textAdmissions(db: DatabaseSync, cardId: number): AdmissionRow[] {
   return db.prepare(TEXT_ADMISSIONS).all(cardId) as unknown as AdmissionRow[]
 }
 
-function laneCardOf(db: DatabaseSync, cardId: number): LaneCard {
+function latestPayload(db: DatabaseSync, cardId: number): Record<string, unknown> {
   const latest = textAdmissions(db, cardId)[0]
-  const payload = latest === undefined ? {} : parsed(latest.payload)
+  return latest === undefined ? {} : parsed(latest.payload)
+}
+
+function laneCardOf(db: DatabaseSync, cardId: number): LaneCard {
+  const payload = latestPayload(db, cardId)
   return { cardId, depends: dependsOf(payload), task: taskOf(cardId, payload) }
+}
+
+function priorityOf(db: DatabaseSync, cardId: number): Priority | null {
+  return parkedOf(cardId, latestPayload(db, cardId))?.priority ?? null
+}
+
+export interface OrderedCard {
+  cardId: number
+  depends: readonly number[]
+  priority: Priority | null
+}
+
+function dependentsOf(cards: readonly OrderedCard[]): Map<number, number[]> {
+  const dependents = new Map<number, number[]>()
+  for (const card of cards) {
+    for (const parent of card.depends)
+      dependents.set(parent, [...(dependents.get(parent) ?? []), card.cardId])
+  }
+  return dependents
+}
+
+function blockedBy(cardId: number, dependents: ReadonlyMap<number, readonly number[]>): number {
+  const seen = new Set<number>()
+  const pending = [...(dependents.get(cardId) ?? [])]
+  while (pending.length > 0) {
+    const next = pending.pop()!
+    if (next === cardId || seen.has(next))
+      continue
+    seen.add(next)
+    pending.push(...(dependents.get(next) ?? []))
+  }
+  return seen.size
+}
+
+function priorityRank(card: OrderedCard): number {
+  return card.priority === null ? 1 : 0
+}
+
+export function startOrder(cards: readonly OrderedCard[]): (a: OrderedCard, b: OrderedCard) => number {
+  const dependents = dependentsOf(cards)
+  const blocks = new Map(cards.map(card => [card.cardId, blockedBy(card.cardId, dependents)]))
+  return (a, b) => (blocks.get(b.cardId) ?? 0) - (blocks.get(a.cardId) ?? 0) || priorityRank(a) - priorityRank(b) || a.cardId - b.cardId
 }
 
 export { currentLane }
@@ -336,7 +390,77 @@ export function layOutLanes(db: DatabaseSync, count: number, ts: string, actor: 
     if (assign(db, row.card_id, Number(row.admission), choice, count, ts, actor))
       assigned += 1
   }
-  return assigned
+  return assigned + reflowLanes(db, count, ts, actor)
+}
+
+interface ReflowCard extends LiveLane, OrderedCard {
+  admission: number
+  waiting: boolean
+}
+
+function reflowCards(db: DatabaseSync, rows: readonly AdmittedRow[]): ReflowCard[] {
+  const byCard = new Map(rows.map(row => [row.card_id, row]))
+  return liveLanes(db).map((card) => {
+    const row = byCard.get(card.cardId)!
+    return { ...card, priority: priorityOf(db, card.cardId), admission: Number(row.admission), waiting: notStarted(row) }
+  })
+}
+
+function touchHolders(cards: readonly ReflowCard[], rows: readonly AdmittedRow[], openPrs: ReadonlySet<number>): ReflowCard[] {
+  const running = new Set(rows.filter(row => row.state === RUNNING_CARD).map(row => row.card_id))
+  return cards.filter(card => running.has(card.cardId) || openPrs.has(card.cardId))
+}
+
+function chainIn(card: ReflowCard, cards: readonly ReflowCard[]): ReflowCard[] {
+  const lane = cards.filter(other => other.lane === card.lane)
+  const chain = [card]
+  for (let index = 0; index < chain.length; index += 1) {
+    for (const other of lane) {
+      if (!chain.includes(other) && chainedTo(chain[index]!, other))
+        chain.push(other)
+    }
+  }
+  return chain
+}
+
+function movable(db: DatabaseSync, chain: readonly ReflowCard[], cards: readonly ReflowCard[], holders: readonly ReflowCard[]): boolean {
+  const members = new Set(chain.map(card => card.cardId))
+  const live = new Set(cards.map(card => card.cardId))
+  return cards.some(other => other.lane === chain[0]!.lane && !members.has(other.cardId))
+    && chain.every(card => card.waiting
+      && card.task !== null
+      && !holders.some(holder => holder.cardId === card.cardId || overlaps(card.task, holder.task))
+      && card.depends.every(parent => members.has(parent) || !live.has(parent))
+      && latestAssignment(db, card.cardId)?.reason !== 'moved')
+}
+
+function reflowLanes(db: DatabaseSync, count: number, ts: string, actor: string): number {
+  const rows = liveRows(db)
+  const cards = reflowCards(db, rows)
+  const occupied = new Set(cards.map(card => card.lane))
+  const empty = laneNumbers(count).map(chainLaneName).filter(lane => !occupied.has(lane))
+  const holders = touchHolders(cards, rows, cardIds(db, OPEN_PR_CARDS))
+  const seen = new Set<number>()
+  let moved = 0
+  for (const card of [...cards].sort(startOrder(cards))) {
+    if (empty.length === 0 || seen.has(card.cardId))
+      continue
+    const chain = chainIn(card, cards)
+    chain.forEach(member => seen.add(member.cardId))
+    if (!movable(db, chain, cards, holders))
+      continue
+    const lane = empty.shift()!
+    for (const member of chain) {
+      member.lane = lane
+      if (assign(db, member.cardId, member.admission, { lane, reason: 'reflowed', after: [] }, count, ts, actor))
+        moved += 1
+    }
+  }
+  return moved
+}
+
+function cardIds(db: DatabaseSync, query: string): Set<number> {
+  return new Set((db.prepare(query).all() as { card_id: number }[]).map(row => row.card_id))
 }
 
 export function laneOverlapRecorder(db: DatabaseSync, ts: string, actor: string): OverlapCatch {
