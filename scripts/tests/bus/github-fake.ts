@@ -54,6 +54,8 @@ export class FakeGitHub {
   main = MAIN_1
   mainFiles: Record<string, string[]> = {}
   upToDateRequired = true
+  requiredContexts = ['required']
+  requiredChecks: { context: string }[] = []
   mainRenamedFrom: Record<string, string> = {}
   commitsBeyondTheCompare = 0
   limited: GhResponse | null = null
@@ -172,7 +174,7 @@ export class FakeGitHub {
       return Number(files[2]) === 1 ? (listed.files ?? []).map(filename => ({ filename, status: 'modified', patch: listed.patches?.[filename] ?? `@@ -1 +1 @@ ${filename}`, ...this.previous(listed.renamedFrom, filename) })) : []
     }
     if (endpoint === `${REPO}/branches/main/protection`)
-      return { required_status_checks: { strict: this.upToDateRequired } }
+      return { required_status_checks: { strict: this.upToDateRequired, contexts: this.requiredContexts, checks: this.requiredChecks } }
     if (endpoint === `${REPO}/contents/architecture/owner-merges.md?ref=main`)
       return { content: Buffer.from(this.ownerMerges).toString('base64') }
     const checks = /\/commits\/([0-9a-f]{40})\/check-runs/.exec(endpoint)
