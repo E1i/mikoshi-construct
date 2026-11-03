@@ -19,6 +19,7 @@ import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { ReviewNode } from '../../nodes/review/review-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
+import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { startBus } from '../../supervisor/run.js'
 
@@ -80,7 +81,7 @@ function scansEvents(db: DatabaseSync, sql: string): boolean {
 type QuietNode = (db: DatabaseSync, clock: () => Date) => { node: Node<NodeStep>, prototype: object }
 
 function shadowParts(db: DatabaseSync, clock: () => Date): never {
-  return { db, clock, session: 'idle', mode: 'shadow', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), lanes: () => 2 } as never
+  return { db, clock, session: 'idle', mode: 'shadow', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), lanes: () => 2 } as never
 }
 
 const QUIET_NODES: Record<string, QuietNode> = {

@@ -1,3 +1,4 @@
+import type { DiskReader } from '../../ports/disk.js'
 import type { MergeBench } from './merge-bench.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,10 +15,12 @@ import { scopeWideningAsked } from '../../nodes/answer/answer-executor.js'
 import { ANSWER_ON } from '../../nodes/answer/answer-worker.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
+import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { shardDecisions } from '../../window/board.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
+const roomy: DiskReader = () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES })
 const benches: MergeBench[] = []
 const trees: string[] = []
 
@@ -91,6 +94,7 @@ function endedSession(made: MergeBench, cardId: number, committed: boolean, publ
     warned: () => false,
     committed: () => committed,
     publish,
+    disk: roomy,
     isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
   })
 }
@@ -112,6 +116,7 @@ describe('scope questions settle on the bus', () => {
       processes: { commandLine: () => null, signalGroup: () => {} },
       resulted: () => true,
       reportOf: () => report,
+      disk: roomy,
       isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
     })
     const controller = new AbortController()

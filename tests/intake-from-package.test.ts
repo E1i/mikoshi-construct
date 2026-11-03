@@ -8,6 +8,7 @@ import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openDatabase } from '../scripts/core/sqlite.js'
 import { publishedTreePr, taskStartCommand, TREE_PR_ENTRY } from '../scripts/nodes/launch/launch-worker.js'
+import { DISK_FLOOR_BYTES, DISK_LOW, freeBytes, statfsReader } from '../scripts/ports/disk.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, OUT_DIR, productBuild } from '../tsup.config.js'
 
@@ -54,6 +55,18 @@ function cardEvents(bus: string): string[] {
   const db = openDatabase(bus, { readOnly: true })
   try {
     return (db.prepare('SELECT type FROM events WHERE card_id = ? ORDER BY id').all(CARD_ID) as { type: string }[]).map(row => row.type)
+  }
+  finally {
+    db.close()
+  }
+}
+
+function launchDenials(bus: string): Record<string, unknown>[] {
+  if (!existsSync(bus))
+    return []
+  const db = openDatabase(bus, { readOnly: true })
+  try {
+    return (db.prepare('SELECT payload FROM events WHERE card_id = ? AND type = \'policy.denied\' ORDER BY id').all(CARD_ID) as { payload: string }[]).map(row => JSON.parse(row.payload) as Record<string, unknown>)
   }
   finally {
     db.close()
@@ -140,18 +153,29 @@ describe('the published factory path takes a card from intake to a session', () 
     expect(cardEvents(foreign.bus).filter(type => type === 'card.admitted')).toHaveLength(1)
   })
 
-  it('the published launch path starts a session for an admitted card', async () => {
+  it('the published launch path starts a session for an admitted card, or denies it disk_low on a runner under the disk floor', async () => {
     const built = (entry: string): string => path.join(foreign.installed, OUT_DIR, 'scripts', entry)
     const reduce = spawnSync(process.execPath, [built('core/reducer.js')], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
     expect(reduce.status, reduce.stderr).toBe(0)
+    const underTheFloor = freeBytes(statfsReader(foreign.repo)) < DISK_FLOOR_BYTES
     let worker: ChildProcess | undefined
     try {
       worker = spawn(process.execPath, [built('nodes/launch/launch-worker.js'), '--on', '--live'], { cwd: foreign.repo, env: foreign.env, stdio: 'ignore' })
-      await waitFor(() => cardEvents(foreign.bus).includes('card.started'), () => `card.started for #${CARD_ID} in ${foreign.bus}`, STARTED_WITHIN_MS)
-      await waitFor(() => existsSync(foreign.calls), () => `a claude call in ${foreign.calls}`, STARTED_WITHIN_MS)
+      if (underTheFloor) {
+        await waitFor(() => launchDenials(foreign.bus).length > 0, () => `policy.denied for #${CARD_ID} in ${foreign.bus}`, STARTED_WITHIN_MS)
+      }
+      else {
+        await waitFor(() => cardEvents(foreign.bus).includes('card.started'), () => `card.started for #${CARD_ID} in ${foreign.bus}`, STARTED_WITHIN_MS)
+        await waitFor(() => existsSync(foreign.calls), () => `a claude call in ${foreign.calls}`, STARTED_WITHIN_MS)
+      }
     }
     finally {
       worker?.kill('SIGKILL')
+    }
+    if (underTheFloor) {
+      expect(launchDenials(foreign.bus)[0]).toMatchObject({ command: 'launch', kind: 'technical', reason: DISK_LOW })
+      expect(cardEvents(foreign.bus)).not.toContain('card.started')
+      return
     }
     const [call] = readFileSync(foreign.calls, 'utf8').trim().split('\n')
     expect(call).toMatch(new RegExp(`^${path.join(foreign.root, 'worktrees')}/\\S+\\t.*--session-id `))

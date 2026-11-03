@@ -1,6 +1,7 @@
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
 import type { TreePrPorts } from '../../nodes/launch/tree-pr.js'
 import type { ProcessTable } from '../../nodes/restart/chain-process.js'
+import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeBench } from '../bus/merge-bench.js'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -16,12 +17,14 @@ import { launchArgv } from '../../nodes/launch/launch-starter.js'
 import { LaunchNode, reportCollector, reportSince } from '../../nodes/launch/launch-worker.js'
 import { collectReport, REPORT_MISSING, restoreReport } from '../../nodes/launch/report-collect.js'
 import { busCardReturned, busCardStopped, busCardWaited, busLastRefusal, busPrOpened, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
+import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 951
 const OPENED_PR = 954
 const REPORT_TEXT = `#${CARD} x\nresult: done\nPR #${OPENED_PR}\nverification: run\nfinding: F-a-fixture-finding the fixture saw\nquestion: may the fixture keep x?\n`
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
+const roomy: DiskReader = () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES })
 
 const roots: string[] = []
 const benches: MergeBench[] = []
@@ -153,7 +156,7 @@ describe('the shift report lives in the card tree and the bus collects it', () =
       stop: (_card: StartedCard) => {},
     }
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new LaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, collected: reportCollector(tree.launchDir), isolation: sandboxed })
+    const node = new LaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, collected: reportCollector(tree.launchDir), disk: roomy, isolation: sandboxed })
     const controller = new AbortController()
 
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })
