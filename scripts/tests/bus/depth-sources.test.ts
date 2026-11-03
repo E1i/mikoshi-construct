@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { gitDepthSources } from '../../nodes/review/depth-sources.js'
+import { gitDepthSources, gitReviewPlanner } from '../../nodes/review/depth-sources.js'
 
 const roots: string[] = []
 
@@ -50,5 +50,44 @@ describe('git depth sources', () => {
     expect(readFileSync(journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as unknown)).toEqual([{ task: 'review:1971:971:x', base: main, head: second, verdict: 'cheap', rule: 'docs-only', why: ['docs/cli.md', 'docs/guide.md'] }])
     expect(sources.scope(1971)).toEqual({ touches: ['docs/**'], runs: [] })
     expect(sources.scope(1972)).toBeNull()
+  })
+
+  it('plans the depth when the first fetch loses the origin/main ref to a concurrent fetch with cannot lock ref', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-depth-sources-'))
+    roots.push(root)
+    const repo = path.join(root, 'repo')
+    mkdirSync(repo)
+    git(repo, ['init', '--quiet', '-b', 'main'])
+    const main = commit(repo, { 'docs/guide.md': 'one\n' })
+    git(repo, ['update-ref', 'refs/remotes/origin/main', main])
+    git(repo, ['checkout', '--quiet', '-b', 'feature'])
+    const head = commit(repo, { 'docs/guide.md': 'one\ntwo\n' })
+    const body = parkingFileText({ card: '#1971 a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', branch: 'feat/a-card', touches: ['docs/**'], continue: 'stop', who: 'shift', body: 'Do the card.' })
+    const fetches: string[][] = []
+    const run = (dir: string, args: string[]): string => {
+      if (args[0] !== 'fetch')
+        return git(dir, args)
+      fetches.push(args)
+      if (fetches.length === 1)
+        throw Object.assign(new Error('Command failed: git fetch'), { stderr: `error: cannot lock ref 'refs/remotes/origin/main': is at f9df51b4 but expected 79526af1\n` })
+      return ''
+    }
+
+    const plan = gitReviewPlanner(repo, path.join(root, 'morse.jsonl'), cardId => cardId === 1971 ? body : null, run)({ taskKey: 'review:1971:1233:x', queue: 'review', cardId: 1971, pr: 1233, head, leaseGen: 1, actor: 'worker:review:x' }, null)
+
+    expect(fetches).toEqual([['fetch', '--quiet', 'origin', 'main', 'pull/1233/head'], ['fetch', '--quiet', 'origin', 'main', 'pull/1233/head']])
+    expect(plan).toMatchObject({ depth: 'diff', round: 'first', since: main, touchFindings: [] })
+  })
+
+  it('still fails a fetch whose error is not a lost ref race, without a retry', () => {
+    let fetches = 0
+    const run = (_dir: string, args: string[]): string => {
+      if (args[0] === 'fetch')
+        fetches += 1
+      throw new Error('fatal: could not read from remote repository')
+    }
+
+    expect(() => gitReviewPlanner('/nowhere', '/nowhere/morse.jsonl', () => null, run)({ taskKey: 'review:1:2:x', queue: 'review', cardId: 1, pr: 2, head: 'abc', leaseGen: 1, actor: 'worker:review:x' }, null)).toThrow('could not read from remote')
+    expect(fetches).toBe(1)
   })
 })
