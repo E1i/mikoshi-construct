@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
-import { lastEquivalence, NODE_CURSORS } from '../../core/node.js'
+import { NODE_CURSORS } from '../../core/node.js'
 import { keyOf, updateCandidates } from '../../core/queue.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
@@ -216,7 +216,7 @@ describe('the update node', () => {
     made.gitHub.updateStatus = 409
     const enqueued = keys.map(key => enqueuedOf(made, key))
     await once(node)
-    expect([lastEquivalence(made.db, 'update')]).toEqual([{ same: keys, only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
+    expect(eventsOf(made.db, NODE_EQUIVALENCE)).toEqual([{ same: keys, only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
     expect(keys.map(key => enqueuedOf(made, key))).toEqual(enqueued)
   })
 

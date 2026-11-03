@@ -11,9 +11,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { ARTIFACT_REMOVED, BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_VERIFIED, NODE_DETECTED, POLICY_DENIED, TASK_ENQUEUED } from '../../core/events.js'
+import { ARTIFACT_REMOVED, BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_VERIFIED, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_DENIED, TASK_ENQUEUED } from '../../core/events.js'
 import { completeTask, failTask, leaseNext, StaleLease } from '../../core/lease.js'
-import { lastEquivalence, NODE_CURSORS } from '../../core/node.js'
+import { NODE_CURSORS } from '../../core/node.js'
 import { closeCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { CloseExecutor } from '../../nodes/close/close-executor.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
@@ -217,7 +217,7 @@ describe('the close node', () => {
 
     const enqueued = keys.map(key => enqueuedOf(made, key))
     await once(node)
-    expect([lastEquivalence(made.db, 'close')]).toEqual([{ same: keys, only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
+    expect(eventsOf(made.db, NODE_EQUIVALENCE)).toEqual([{ same: keys, only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
     expect(keys.map(key => enqueuedOf(made, key))).toEqual(enqueued)
   })
 

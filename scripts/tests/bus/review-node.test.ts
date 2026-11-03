@@ -14,10 +14,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, NODE_DETECTED, REVIEW_RECORDED, TASK_ENQUEUED, TASK_RENEWED } from '../../core/events.js'
+import { CARD_ADMITTED, NODE_DETECTED, NODE_EQUIVALENCE, REVIEW_RECORDED, TASK_ENQUEUED, TASK_RENEWED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { RENEW_MS } from '../../core/lease.js'
-import { lastEquivalence, NODE_CURSORS } from '../../core/node.js'
+import { NODE_CURSORS } from '../../core/node.js'
 import { keyOf, reviewCandidates } from '../../core/queue.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewExecutor } from '../../nodes/review/review-executor.js'
@@ -224,7 +224,7 @@ describe('the review node', () => {
 
     const enqueued = keys.map(key => enqueuedOf(made, key))
     await once(node)
-    expect([lastEquivalence(made.db, 'review')]).toEqual([{ same: keys, only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
+    expect(eventsOf(made.db, NODE_EQUIVALENCE)).toEqual([{ same: keys, only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
     expect(keys.map(key => enqueuedOf(made, key))).toEqual(enqueued)
   })
 

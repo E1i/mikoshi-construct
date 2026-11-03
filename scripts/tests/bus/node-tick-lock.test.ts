@@ -175,7 +175,7 @@ describe('a node tick and the write lock', () => {
     expect(beatsOf(db, PROCESS_HEARTBEAT)).toHaveLength(1)
   })
 
-  it('the latest equivalence is still kept on a derive tick, beside the one heartbeat row', async () => {
+  it('equivalence events are still written, beside the one heartbeat row', async () => {
     const db = openBus(busFile())
     const clock = new Clock()
     const node = new ScanningNode(db, clock)
@@ -185,9 +185,9 @@ describe('a node tick and the write lock', () => {
     await ticks(node, clock, tickCount)
 
     expect(beatsOf(db, PROCESS_HEARTBEAT)).toHaveLength(1)
-    expect(beatsOf(db, NODE_EQUIVALENCE).map(({ event_id: _id, ...rest }) => rest)).toEqual([
+    expect(payloadsOf(db, NODE_EQUIVALENCE).map(({ event_id: _id, ...rest }) => rest)).toEqual([
+      { same: [keyOf(task(971))], only_node: [keyOf(task(970))], only_derive: [keyOf(task(972))] },
       { same: [keyOf(task(971))], only_node: [keyOf(task(970))], only_derive: [keyOf(task(972))] },
     ])
-    expect(payloadsOf(db, NODE_EQUIVALENCE)).toEqual([])
   })
 })

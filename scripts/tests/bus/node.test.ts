@@ -11,12 +11,13 @@ import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED, TASK
 import { QUEUES } from '../../core/identifiers.js'
 import { completeTask } from '../../core/lease.js'
 import { Node, NODE_CURSORS, nodeProcess, SecondSubscription } from '../../core/node.js'
-import { keyOf } from '../../core/queue.js'
+import { keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { RateLimited } from '../../ports/meter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { lastProcessBeats } from '../../supervisor/heartbeat.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
+import { COMPLETION_OF, windowOf } from '../../window/window.js'
 import { Clock, sha } from './github-fake.js'
 
 const roots: string[] = []
@@ -133,7 +134,7 @@ describe('a node', () => {
     expect(nodeProcess('merge')).toBe('bus:merge')
     expect(db.prepare(`SELECT process, ts FROM ${HEARTBEATS} WHERE type = ?`).all(PROCESS_HEARTBEAT)).toEqual([{ process: 'bus:merge', ts: ticks.at(-1) }])
     expect(lastProcessBeats(db)).toEqual([{ process: 'bus:merge', ts: ticks.at(-1) }])
-    expect(count(db, 'SELECT count(*) AS n FROM events WHERE type IN (?, ?)', PROCESS_HEARTBEAT, NODE_EQUIVALENCE)).toBe(0)
+    expect(count(db, 'SELECT count(*) AS n FROM events WHERE type = ?', PROCESS_HEARTBEAT)).toBe(0)
   })
 
   it('every node heartbeat carries slots equal to slotsOf for its kind and env', async () => {
@@ -242,7 +243,7 @@ describe('a node', () => {
     }
   })
 
-  it('compares its candidates with the derived ones on one tick and keeps the latest node.equivalence in the heartbeat table', async () => {
+  it('compares its candidates with the derived ones on one tick and records node.equivalence', async () => {
     const db = newBus()
     const clock = new Clock()
     const node = new FakeNode(db, clock, 'shadow')
@@ -250,8 +251,27 @@ describe('a node', () => {
     node.derived = [task(971), task(972)]
     await once(node)
 
-    const payloads = (db.prepare(`SELECT payload FROM ${HEARTBEATS} WHERE process = ? AND type = ?`).all(nodeProcess('merge'), NODE_EQUIVALENCE) as { payload: string }[]).map(row => JSON.parse(row.payload) as unknown)
+    const payloads = (db.prepare('SELECT payload FROM events WHERE type = ?').all(NODE_EQUIVALENCE) as { payload: string }[]).map(row => JSON.parse(row.payload) as unknown)
     expect(payloads).toEqual([{ same: [keyOf(task(971))], only_node: [keyOf(task(970))], only_derive: [keyOf(task(972))], event_id: expect.any(Number) as unknown }])
+  })
+
+  it('the node.equivalence a real tick writes is what the shadow window counts, one-sided keys included', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    const done = task(980)
+    const key = keyOf(done)
+    queueTask(db, clock.now().toISOString(), done)
+    appendEvent(db, { ts: clock.now().toISOString(), type: NODE_DETECTED, actor: 'worker:merge:s1', cardId: done.cardId, pr: done.pr ?? null, head: done.head ?? null, dedupeKey: `${NODE_DETECTED}:merge:${key}`, payload: { key, via: 'event', event_id: 1, outcome: 'queued' }, legacy: false })
+    appendEvent(db, { ts: clock.now().toISOString(), type: COMPLETION_OF.merge, actor: 'worker:merge:s1', cardId: done.cardId, pr: done.pr ?? null, head: done.head ?? null, dedupeKey: `${COMPLETION_OF.merge}:${key}`, payload: {}, legacy: false })
+    const node = new FakeNode(db, clock, 'shadow')
+    node.found = [task(970)]
+    node.derived = [task(972)]
+    await once(node)
+
+    const window = windowOf(db, 'merge')
+    expect(window.run.map(entry => entry.key)).toEqual([key])
+    expect(window.ticks).toBe(1)
+    expect(window.oneSided.map(({ only_node, only_derive }) => ({ only_node, only_derive }))).toEqual([{ only_node: [keyOf(task(970))], only_derive: [keyOf(task(972))] }])
   })
 
   it('node.detected and node.equivalence leave every projection as it was', async () => {
@@ -265,7 +285,7 @@ describe('a node', () => {
     node.derived = []
     await once(node)
     expect(detections(db)).toHaveLength(1)
-    expect(count(db, `SELECT count(*) AS n FROM ${HEARTBEATS} WHERE type = ?`, NODE_EQUIVALENCE)).toBe(1)
+    expect(count(db, 'SELECT count(*) AS n FROM events WHERE type = ?', NODE_EQUIVALENCE)).toBe(1)
 
     reduce(db)
     expect(projectionDump(db)).toBe(before)
