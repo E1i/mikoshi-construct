@@ -6,6 +6,7 @@ import type { DetectionMode, WaitStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { LadderSteps } from '../../ladder/ladder-starter.js'
+import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { ProcessTable } from '../restart/chain-process.js'
@@ -118,6 +119,7 @@ export interface LaunchNodeParts {
   starter: CardStarter
   ladder?: CardStarter
   clock: () => Date
+  disk?: DiskReader
   session: string
   mode: DetectionMode
   env: NodeJS.ProcessEnv
