@@ -1,13 +1,13 @@
 import type { Contour } from '../../../src/card/grammar.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { CompanionRow } from '../../../src/commands/intake/check.js'
+import type { CompanionRow, FollowingReach } from '../../../src/commands/intake/check.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
 import type { GhRunner } from '../../ports/gh.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
-import { COMPANION_TABLE, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
+import { COVERING_REASON, runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
+import { admittedReachOf, COMPANION_TABLE, FOLLOWING_REASON, followsTouches, neverFollows, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
@@ -178,13 +178,53 @@ function readOrNull(file: string): string | null {
   }
 }
 
-function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, paths: readonly string[], touches: readonly string[], runs: readonly string[]): string[] {
-  const outside = paths.filter(file => !withinTouches(file, touches) && !runsCover(file, runs))
-  if (outside.length === 0)
+export interface TouchesFollowed {
+  followed: string[]
+  outside: string[]
+}
+
+export function worktreeCoverage(git: TreePrPorts['git'], worktree: string): TestCoverage {
+  return new TestCoverage(() => listedOrNone(() => git(worktree, ['ls-files', '--cached', '--others', '--exclude-standard'])), file => readOrNull(path.join(worktree, file)))
+}
+
+function listedOrNone(list: () => string): string[] {
+  try {
+    return list().split('\n').filter(file => file !== '')
+  }
+  catch {
     return []
-  const coverage = new TestCoverage(() => git(worktree, ['ls-files']).split('\n').filter(file => file !== ''), file => readOrNull(path.join(worktree, file)))
-  const covering = new Set(coverage.of(touches))
-  return outside.filter(file => !covering.has(file))
+  }
+}
+
+export function addedSinceBase(git: TreePrPorts['git'], worktree: string, files: readonly string[]): Set<string> {
+  const atBase = new Set(listedOrNone(() => git(worktree, ['ls-tree', '-r', '--name-only', PR_BASE])))
+  return new Set(atBase.size === 0 ? [] : files.filter(file => !atBase.has(file)))
+}
+
+export function touchesFollowed(outside: readonly string[], reach: FollowingReach, coverage: TestCoverage): TouchesFollowed {
+  if (outside.length === 0)
+    return { followed: [], outside: [] }
+  const covering = new Set(coverage.of(reach.touches))
+  const follows = (file: string): boolean => !neverFollows(file) && (covering.has(file) || followsTouches(file, reach))
+  return { followed: outside.filter(follows), outside: outside.filter(file => !follows(file)) }
+}
+
+export function answerFollowed(git: TreePrPorts['git'], worktree: string, outside: readonly string[], cardId: number, cardBody: string | null, coverage: TestCoverage): TouchesFollowed {
+  const reach = admittedReachOf(cardId, cardBody)
+  const unrun = outside.filter(file => !runsCover(file, reach.runs))
+  if (unrun.length === 0)
+    return { followed: [], outside: [] }
+  return touchesFollowed(unrun, { touches: reach.touches, added: addedSinceBase(git, worktree, unrun) }, coverage)
+}
+
+export function followedLine(followed: readonly string[]): string {
+  return `Touches followed: ${followed.join(', ')} (${COVERING_REASON}; ${FOLLOWING_REASON})`
+}
+
+function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files: readonly ChangedFile[], touches: readonly string[], runs: readonly string[]): TouchesFollowed {
+  const outside = files.map(file => file.path).filter(file => !withinTouches(file, touches) && !runsCover(file, runs))
+  const added = new Set(files.filter(file => file.status === 'A').map(file => file.path))
+  return touchesFollowed(outside, { touches, added }, worktreeCoverage(git, worktree))
 }
 
 interface FormatGap extends Gap {
@@ -202,7 +242,7 @@ function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly
   if (published !== undefined && !changeset)
     gaps.push({ reason: 'no-changeset', lacks: `the changeset its change to the published ${published} requires`, task: `add a .changeset/*.md file for the change to ${published}`, paths: [] })
   if (outsideTouches.length > 0)
-    gaps.push({ reason: 'outside-touches', lacks: `the card's touches for ${outsideTouches.join(', ')}, which it changes outside them (only a test that covers a touched file, or one of the card's runs, may change outside the touches)`, task: '', paths: [...outsideTouches] })
+    gaps.push({ reason: 'outside-touches', lacks: `the card's touches for ${outsideTouches.join(', ')}, which it changes outside them (only a test that covers a touched file, a generated twin or the changeset of a touched file, or one of the card's runs, may change outside the touches, and never a .claude, owner-merges, security or R1 path)`, task: '', paths: [...outsideTouches] })
   return gaps
 }
 
@@ -226,8 +266,9 @@ export function reportClosingOf(report: string | null): ReportClosing | null {
   return { report: written, verification }
 }
 
-function prBodyOf(card: TreeCard, path: string, countLine: string | undefined): string {
-  const body = `${card.cardLine}\n\n${path}\n\nOpened by the shift from the card's worktree and branch after its session ended.`
+function prBodyOf(card: TreeCard, path: string, followed: readonly string[], countLine: string | undefined): string {
+  const followedLines = followed.length === 0 ? '' : `\n\n${followedLine(followed)}`
+  const body = `${card.cardLine}\n\n${path}${followedLines}\n\nOpened by the shift from the card's worktree and branch after its session ended.`
   return countLine === undefined ? body : `${body}\n\n${countLine}`
 }
 
@@ -316,9 +357,9 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     if (open !== null)
       return { kind: 'pr', number: open }
     const shifted = shiftedPath(ports.git, worktree, card, report)
-    const body = prBodyOf(card, shifted.line, matrixCountLineOf(report))
-    const outside = changedOutsideTouches(ports.git, worktree, shifted.files.map(file => file.path), card.touches, card.runs)
-    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), outside, readShiftGate(worktree).codeMatrix)
+    const touched = changedOutsideTouches(ports.git, worktree, shifted.files, card.touches, card.runs)
+    const body = prBodyOf(card, shifted.line, touched.followed, matrixCountLineOf(report))
+    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), touched.outside, readShiftGate(worktree).codeMatrix)
     if (gaps.length > 0)
       return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])
