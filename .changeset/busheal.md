@@ -1,5 +1,0 @@
----
-"mikoshi-construct": patch
----
-
-A corrupted bus index no longer crash-loops the bus nodes until the owner repairs `bus.db` by hand. When a node or the supervisor reports `SQLITE_CORRUPT`, the supervisor stops the nodes of its own bus by its process record and a stop flag, and never touches the nodes of another bus. It backs the bus up through the sqlite backup API into `backups/<time>/` with the `max(id)` and `count(*)` of the events. When the events table still reads whole and no `dedupe_key` repeats, it runs `REINDEX events`, `VACUUM` and `pragma integrity_check`, checks that every event of the backup is in place, runs `bus:reduce`, checks every projection watermark is at `max(id)`, and starts the nodes again. A `bus.healed` event records what was broken and what was done, and `construct board` shows it. When the events table itself is broken, or any step is not ok, the nodes stay stopped, the backup is kept, and the owner gets one question. The heal never runs `.recover`, because it can lose events. The supervisor also publishes `bus.snapshot.db` through the backup API on a timer and after each merge, for external tools to read instead of the live bus.
