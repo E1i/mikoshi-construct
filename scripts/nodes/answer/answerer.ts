@@ -1,5 +1,6 @@
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
+import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
@@ -11,7 +12,8 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
-import { defaultBusPath, openBus } from '../../core/db.js'
+import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
+import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
@@ -22,7 +24,7 @@ import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
-import { commitAndPush, freshBaseProblem, freshBaseTask } from '../launch/tree-pr.js'
+import { answerFollowed, commitAndPush, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage } from '../launch/tree-pr.js'
 
 export const PREFIX = '[bus:answer] '
 const SESSION_ID_FLAG = '--session-id'
@@ -88,6 +90,8 @@ export interface AnswererTools {
   ciLog?: (card: CardSession, head: string) => string | null
   held?: (lease: Lease) => boolean
   pending?: (card: CardSession) => string[]
+  coverage?: (card: CardSession) => ReturnType<typeof worktreeCoverage>
+  followed?: (lease: Lease, paths: readonly string[]) => void
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -119,7 +123,24 @@ export function answerCommitMessage(lease: Lease): string {
 
 export class AnswerOutsideTouches extends Error {
   constructor(lease: Lease, outside: readonly string[]) {
-    super(`the answer for card #${lease.cardId} left changes to ${outside.join(', ')}, outside the touches and creates the card was admitted with; the bus refused the answer commit and pushed nothing`)
+    super(`the answer for card #${lease.cardId} left changes to ${outside.join(', ')}, outside the touches and creates the card was admitted with and outside the tests, generated twins and changeset that follow them; the bus refused the answer commit and pushed nothing`)
+  }
+}
+
+export function followedEvent(lease: Lease, paths: readonly string[], ts: string): BusEvent {
+  return { ts, type: TOUCHES_FOLLOWED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${TOUCHES_FOLLOWED}:${lease.taskKey}:${lease.leaseGen}:${[...paths].sort().join(',')}`, payload: { paths: [...paths], reason: followedLine(paths) }, legacy: false }
+}
+
+function busTouchesFollowed(busPath: string): (lease: Lease, paths: readonly string[]) => void {
+  return (lease, paths) => {
+    const db = openBus(busPath)
+    try {
+      assertHeld(db, lease)
+      appendEvent(db, followedEvent(lease, paths, new Date().toISOString()))
+    }
+    finally {
+      db.close()
+    }
   }
 }
 
@@ -486,6 +507,8 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     publish: publishTree,
     pushPolicy: pushPolicyOfTree,
     pending: pendingPathsOf,
+    coverage: card => worktreeCoverage(git, card.worktree),
+    followed: busTouchesFollowed(busPath),
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
@@ -559,14 +582,21 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       throw new Error(`the answer session ${session} exited ${code}`)
     const steps = ['']
     const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
-    const refuseOutsideTouches = (): void => {
+    const followedOrRefused = (): string[] => {
       const outside = request.outsideTouches?.(tools.pending?.(card) ?? []) ?? []
-      if (outside.length > 0)
-        throw new AnswerOutsideTouches(request.lease, outside)
+      if (outside.length === 0)
+        return []
+      const touched = answerFollowed(git, card.worktree, outside, request.lease.cardId, cardBody, (tools.coverage ?? (tree => worktreeCoverage(git, tree.worktree)))(card))
+      if (touched.outside.length > 0)
+        throw new AnswerOutsideTouches(request.lease, touched.outside)
+      return touched.followed
     }
     const pushTree = (): FreshBaseGap | null => {
-      refuseOutsideTouches()
-      return freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease)))
+      const followed = followedOrRefused()
+      const gap = freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease)))
+      if (gap === null && followed.length > 0)
+        tools.followed?.(request.lease, followed)
+      return gap
     }
     const publish = async (): Promise<string | null> => {
       const gap = pushTree()

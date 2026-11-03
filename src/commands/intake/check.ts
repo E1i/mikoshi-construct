@@ -3,9 +3,9 @@ import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { runsLine } from '../../card/covering-tests.js'
+import { runsLine, runsOf } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
-import { createdPaths, parseCreatesEntry } from '../../card/parking.js'
+import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/parking.js'
 import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { globToRegExp } from '../../model/glob.js'
@@ -79,6 +79,69 @@ export const COMPANION_TABLE: readonly CompanionRow[] = [
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
 ]
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
+
+export interface FollowingReach {
+  touches: readonly string[]
+  added: ReadonlySet<string>
+}
+
+export interface FollowingRow {
+  kind: string
+  follows: (file: string, reach: FollowingReach) => boolean
+}
+
+const TEMPLATE_GROUP_FILE = /^templates\/(?:base|harness|attach|ai\/[^/]+|stacks\/[^/]+|presets\/[^/]+\/[^/]+)\/(.+)$/
+const DOT_SEGMENT = /(^|\/)_/g
+const RENDERED_SUFFIX = /(?:\.existing)?\.eta$/
+const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
+const SECURITY_PATHS = ['architecture/security-invariants.md', '.gitleaks.toml', '.github/workflows']
+const NEVER_FOLLOWING = ['.claude', OWNER_MERGES, ...SECURITY_PATHS]
+
+function reachesAny(touches: readonly string[], roots: readonly string[]): boolean {
+  return touches.some(touch => roots.some(root => under(touch, root) || (touch.endsWith(PREFIX_SUFFIX) && under(root, scopeOf(touch)))))
+}
+
+export function rootCopyOf(entry: string): string | null {
+  const copy = TEMPLATE_GROUP_FILE.exec(scopeOf(entry))?.[1]
+  if (copy === undefined)
+    return null
+  const rendered = copy.replace(DOT_SEGMENT, '$1.')
+  return entry.endsWith(PREFIX_SUFFIX) ? `${rendered}${PREFIX_SUFFIX}` : rendered.replace(RENDERED_SUFFIX, '')
+}
+
+function generatedFrom(generated: string, sources: readonly string[]): FollowingRow['follows'] {
+  return (file, reach) => file === generated && reachesAny(reach.touches, sources)
+}
+
+export const FOLLOWING_TABLE: readonly FollowingRow[] = [
+  { kind: 'the card\'s changeset', follows: (file, reach) => CHANGESET_FILE.test(file) && reach.added.has(file) },
+  { kind: 'the command surface', follows: generatedFrom('contract/surface.json', ['src', 'templates', 'scripts/contract']) },
+  { kind: 'the add population', follows: generatedFrom('architecture/add-population.md', ['templates', 'src/presets', 'src/materialize']) },
+  { kind: 'the self-hosting drift list', follows: generatedFrom('architecture/self-hosting-drift.yaml', ['templates']) },
+  { kind: 'a root self-hosting copy', follows: (file, reach) => reach.touches.some((touch) => {
+    const copy = rootCopyOf(touch)
+    return copy !== null && covers(copy, file)
+  }) },
+]
+export const FOLLOWING_REASON = 'a generated twin of a touched file, or a changeset the card adds, follows the touches: the following table in src/commands/intake/check.ts'
+
+export function neverFollows(file: string): boolean {
+  return NEVER_FOLLOWING.some(root => under(file, root)) || riskOf(file).level === OWNER_RISK
+}
+
+export interface AdmittedReach {
+  touches: string[]
+  runs: string[]
+}
+
+export function admittedReachOf(cardId: number, cardBody: string | null): AdmittedReach {
+  const parsed = cardBody === null ? null : parseParkingFile(`${cardId}.md`, cardBody)
+  return parsed?.kind === 'parked' ? { touches: parsed.parked.task.touches, runs: runsOf(parsed.parked.task.body) } : { touches: [], runs: [] }
+}
+
+export function followsTouches(file: string, reach: FollowingReach): boolean {
+  return FOLLOWING_TABLE.some(row => row.follows(file, reach))
+}
 const MAX_LISTED_TESTS_PER_DIRECTORY = 6
 export { COVERING_REASON } from '../../card/covering-tests.js'
 
