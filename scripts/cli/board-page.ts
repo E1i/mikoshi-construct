@@ -815,6 +815,7 @@ const STYLE = `
   --space-l: 1.25rem;
   --cut: 0.875rem;
   --head-block-size: 1.875rem;
+  --font-size-gauge: 0.65rem;
 }
 * { box-sizing: border-box; }
 body {
@@ -913,22 +914,27 @@ header.panel {
 .svc-line { color: var(--dim); font-size: 0.72rem; overflow-wrap: anywhere; }
 .lore { color: var(--amber); font: 700 0.75rem var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; }
 .edd {
+  --_label-inline-size: 3.25rem;
+  --_bar-block-size: 0.375rem;
   --_bar: var(--wire);
   --_value: var(--text);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 var(--space-s);
+  display: grid;
+  grid-template-columns: var(--_label-inline-size) minmax(0, 1fr) max-content;
   align-items: center;
+  column-gap: var(--space-s);
+  min-inline-size: 0;
+  inline-size: 100%;
   color: var(--dim);
-  font-size: 0.65rem;
+  font-size: var(--font-size-gauge);
   &[data-hot] { --_bar: var(--amber); --_value: var(--amber); }
   &[data-over] { --_bar: var(--signal); --_value: var(--signal); }
 }
-.edd-k { flex: 0 0 3.25rem; text-transform: uppercase; letter-spacing: 0.08em; }
-.edd-v { margin-inline-start: auto; text-align: end; white-space: nowrap; color: var(--_value); }
+.edd-k { text-transform: uppercase; letter-spacing: 0.08em; }
+.edd-v { margin: 0; justify-self: end; text-align: end; white-space: nowrap; color: var(--_value); }
 .edd-bar {
-  flex: 1 1 4rem;
-  block-size: 0.375rem;
+  min-inline-size: 0;
+  inline-size: 100%;
+  block-size: var(--_bar-block-size);
   position: relative;
   background: var(--line);
   &::before { content: ""; position: absolute; inset: 0 auto 0 0; inline-size: var(--_fill, 0%); background: var(--_bar); }
@@ -1114,7 +1120,7 @@ button { margin: 0; padding: 0; border: 0; background: transparent; color: inher
   &:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
 }
 tr[data-open] td:last-child { text-align: end; }
-.open-hint { color: var(--wire); font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+.open-hint { color: var(--wire); font-size: var(--font-size-gauge); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
 .cid { padding-inline: 0.2em; }
 kbd { padding: 0 0.25rem; border: 1px solid var(--wire); color: var(--wire); font: 700 0.625rem var(--font-mono); }
 dialog.drill {
