@@ -36,7 +36,7 @@ import { ghostLinesText } from '../../core/journal.js'
 import { failTask } from '../../core/lease.js'
 import { Node, prefixOf, runNode } from '../../core/node.js'
 import { eddiesJournalPath, reportPath } from '../../core/places.js'
-import { COMPLETED, generationField, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
+import { COMPLETED, generationField, LAUNCH_STOP_WITH_NO_PULL_REQUEST, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { storedByKey } from '../../core/stored.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
@@ -222,6 +222,23 @@ export const SESSIONLESS_LADDER_STEP = 'launch'
 
 export function noPullRequestDetail(cardId: number, session: string, result: string | null): string {
   return `session-end: card #${cardId} session ${session} ended with no pull request; ${result ?? 'its shift report names no result'}`
+}
+
+export const NOT_A_REPOSITORY_PATH = 'not a repository path, dropped from the widen'
+
+export interface AskedPaths {
+  widen: string[]
+  dropped: string[]
+}
+
+export function isRepositoryPath(worktree: string, file: string): boolean {
+  const root = path.resolve(worktree)
+  const resolved = path.resolve(root, file)
+  return resolved.startsWith(`${root}${path.sep}`) && existsSync(resolved)
+}
+
+export function splitByRepository(worktree: string, asked: readonly string[]): AskedPaths {
+  return { widen: asked.filter(file => isRepositoryPath(worktree, file)), dropped: asked.filter(file => !isRepositoryPath(worktree, file)) }
 }
 
 const QUESTION_TEXT = /^question:[ \t]*(\S.*)$/gm
@@ -536,28 +553,36 @@ export class LaunchNode extends Node<LaunchStep> {
     const ended = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
     const detail = refusal === null ? ended : `${ended}; ${refusal}`
     const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
-    const widen = pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))
-    if (widen.length > 0)
-      return this.askToWiden(start, card, questions, widen)
+    const asked = pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))
+    if (asked.length > 0)
+      return this.askToWiden(start, card, questions, splitByRepository(card.worktree, asked))
     return inTransaction(this.db, () => {
       const ts = this.ts()
-      const recorded = this.faultStop(ts, start, `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, detail)
-      if (recorded) {
-        for (const question of questions)
-          openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `card #${start.card_id} session ${card.session} asks: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
-      }
+      const recorded = this.faultStop(ts, start, `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, detail)
+      if (recorded)
+        this.openQuestionWaits(ts, start, card, questions)
       return recorded
     })
   }
 
-  private askToWiden(start: RunningStart, card: StartedCard, questions: readonly string[], widen: readonly string[]): boolean {
-    const detail = `card #${start.card_id} session ${card.session} ended with no pull request and asks to widen its touches to ${widen.join(', ')}: ${questions.join('; ')}`
+  private openQuestionWaits(ts: string, start: RunningStart, card: StartedCard, questions: readonly string[]): void {
+    for (const question of questions)
+      openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `card #${start.card_id} session ${card.session} asks: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
+  }
+
+  private askToWiden(start: RunningStart, card: StartedCard, questions: readonly string[], asked: AskedPaths): boolean {
+    const { widen, dropped } = asked
+    const ended = `card #${start.card_id} session ${card.session} ended with no pull request`
+    const asks = widen.length === 0 ? `${ended} and asks: ${questions.join('; ')}` : `${ended} and asks to widen its touches to ${widen.join(', ')}: ${questions.join('; ')}`
+    const detail = dropped.length === 0 ? asks : `${asks}; ${NOT_A_REPOSITORY_PATH}: ${dropped.join(', ')}`
     return inTransaction(this.db, () => {
       const ts = this.ts()
-      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:no-pull-request:${start.dedupe_key}`, payload: { reason: QUESTION_AGENT, detail, widen: [...widen] }, legacy: false })
+      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, payload: { reason: QUESTION_AGENT, detail, widen: [...widen], ...(dropped.length === 0 ? {} : { dropped: [...dropped] }) }, legacy: false })
       const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
       if (recorded && task?.state === COMPLETED)
         this.supersedeTheStoppedLaunch(ts, start.card_id, task)
+      if (recorded && widen.length === 0)
+        this.openQuestionWaits(ts, start, card, questions)
       return recorded
     })
   }

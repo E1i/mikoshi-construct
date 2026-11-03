@@ -596,6 +596,95 @@ describe('the launch node', () => {
     expect(made.db.prepare(`SELECT count(*) AS n FROM ${OWNER_WAITS} WHERE card_id = 1225 AND state = '${OPEN_WAIT}'`).get()).toEqual({ n: 2 })
   })
 
+  class TreeStarter extends FakeStarter {
+    constructor(private readonly tree: string) {
+      super()
+    }
+
+    override start(card: QueuedCard): CardStart {
+      const started = super.start(card)
+      return started.kind === 'started' ? { ...started, card: { ...started.card, worktree: this.tree } } : started
+    }
+  }
+
+  function admitTouching(made: MergeBench, cardId: number, touches: readonly string[]): void {
+    const text = `card: #${cardId} card-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: ${touches.join(', ')}\ncontinue: stop\nwho: shift\n\nDo it.\n`
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}:${textSha(text)}`, payload: { card: `#${cardId}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}-${touches.length}`, text, textSha: textSha(text), bodySha: textSha(text) }, legacy: false })
+  }
+
+  async function stoppedOnAQuestion(cardId: number, question: string, files: readonly string[]): Promise<{ made: MergeBench, node: ProbedLaunchNode, starter: TreeStarter }> {
+    const made = bench()
+    const tree = mkdtempSync(path.join(tmpdir(), 'launch-question-'))
+    roots.push(tree)
+    for (const file of files) {
+      mkdirSync(path.dirname(path.join(tree, file)), { recursive: true })
+      writeFileSync(path.join(tree, file), '')
+    }
+    admitTouching(made, cardId, ['src/a.ts'])
+    made.tick()
+    const starter = new TreeStarter(tree)
+    const report = `#${cardId} card-${cardId}\nresult: stopped before PR\nno PR\nquestion: ${question}\n`
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, reportOf: () => report, isolation: sandboxed })
+    await once(node)
+    made.tick()
+    expect(node.stopOverdue()).toEqual([cardId])
+    made.tick()
+    made.tick()
+    return { made, node, starter }
+  }
+
+  function answerTasksOf(made: MergeBench, cardId: number): number {
+    return Number((made.db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'answer' AND card_id = ?`).get(cardId) as { n: number }).n)
+  }
+
+  function ownerCloses(made: MergeBench, wait: string): void {
+    const refuse = (): never => {
+      throw new Error('not this request')
+    }
+    requestFromWindow(made.db, made.clock.now().toISOString(), 'test', { kind: 'owner.wait.close', id: wait, answer: 'go on without them' })
+    expect(new WindowRequests(made.db, made.clock.now, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }).run()).toMatchObject([{ kind: 'done' }])
+  }
+
+  it('a question.agent no-PR stop whose widen holds only non-paths names them dropped and starts again once the owner closes its question, with no window', async () => {
+    const { made, node, starter } = await stoppedOnAQuestion(1484, 'the server needs @types/express from registry.npmjs.org, served at / and answering /health', [])
+
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'question.agent', detail: expect.stringContaining('not a repository path, dropped from the widen: @types/express, registry.npmjs.org, /, /health') as unknown, widen: [], dropped: ['@types/express', 'registry.npmjs.org', '/', '/health'] }])
+    const waits = eventsOf(made.db, OWNER_WAIT_OPENED) as { id: string, need: string }[]
+    expect(waits.map(wait => wait.need)).toEqual(['decision'])
+    expect(answerTasksOf(made, 1484)).toBe(0)
+    await once(node)
+    expect(starter.starts).toHaveLength(1)
+
+    ownerCloses(made, waits[0]!.id)
+    made.tick()
+    made.tick()
+    await once(node)
+
+    expect(starter.starts).toHaveLength(2)
+    expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(2)
+    expect(answerTasksOf(made, 1484)).toBe(0)
+  })
+
+  it('a question.agent no-PR stop whose widen names a real path outside touches stays stopped until an amend, and the amend starts it again', async () => {
+    const { made, node, starter } = await stoppedOnAQuestion(1485, 'the fix needs src/b.ts and @types/express, outside the touches', ['src/b.ts'])
+
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([expect.objectContaining({ reason: 'question.agent', widen: ['src/b.ts'], dropped: ['@types/express'] })])
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ need: 'command', card: 1485, text: expect.stringContaining('card #1485 asks to widen its touches') as unknown })])
+    await once(node)
+    made.tick()
+    await once(node)
+    expect(starter.starts).toHaveLength(1)
+
+    admitTouching(made, 1485, ['src/a.ts', 'src/b.ts'])
+    made.tick()
+    made.tick()
+    await once(node)
+
+    expect(starter.starts).toHaveLength(2)
+    expect(answerTasksOf(made, 1485)).toBe(0)
+  })
+
   it('a session that ends with no question line opens no owner wait', async () => {
     const { made, node } = await endedWithReport(1226, '#1226 a-card\nresult: stopped before PR\nno PR\nverification: run\n')
 

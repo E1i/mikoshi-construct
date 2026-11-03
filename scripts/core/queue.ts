@@ -12,9 +12,9 @@ import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { CONTINUE_FIXES, continueFixesDecisionOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
-import { BACKFILL_SOURCE } from './backfill-source.js'
+import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
-import { appendEvent, inTransaction, openOwnerWait } from './db.js'
+import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
@@ -295,6 +295,15 @@ const ADMITTED_AFTER_THE_STOP = `EXISTS (
 
 const THE_WINDOW_AMENDS_THE_CARD_FIRST = `((${ASKS_TO_WIDEN_THE_TOUCHES} OR ${ASKED_THE_SAME_QUESTION_JUST_BEFORE}) AND NOT ${ADMITTED_AFTER_THE_STOP})`
 
+export const LAUNCH_STOP_WITH_NO_PULL_REQUEST = `${CARD_STOPPED}:no-pull-request:`
+
+const A_LAUNCH_STOP_WITH_NO_PULL_REQUEST = `(stop.pr IS NULL AND substr(stop.dedupe_key, 1, ${LAUNCH_STOP_WITH_NO_PULL_REQUEST.length}) = '${LAUNCH_STOP_WITH_NO_PULL_REQUEST}')`
+
+const A_QUESTION_OF_THE_STOP_STILL_OPEN = `EXISTS (
+  SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0 AND opened.card_id = stop.card_id AND opened.id > stop.id
+    AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS settled WHERE settled.id = json_extract(opened.payload, '$.id') AND settled.state != '${OPEN_WAIT}')
+)`
+
 function latestQuestionStops(columns: string, condition: string): string {
   return `
   SELECT ${columns} FROM events AS stop
@@ -311,8 +320,29 @@ function latestQuestionStops(columns: string, condition: string): string {
 
 const QUESTION_CANDIDATES = latestQuestionStops(
   `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body`,
-  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND ${notAWindowCard('stop.card_id')}`,
+  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND NOT ${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND ${notAWindowCard('stop.card_id')}`,
 )
+
+const LAUNCH_STOPS_LIFTED = latestQuestionStops(
+  `stop.card_id, stop.id AS stop, (
+    SELECT admitted.payload FROM events AS admitted WHERE admitted.type = '${CARD_ADMITTED}' AND admitted.legacy = 0 AND admitted.card_id = stop.card_id
+      AND ${NOT_A_BACKFILL}
+    ORDER BY admitted.id DESC LIMIT 1
+  ) AS admission`,
+  `${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND NOT ${ASKS_TO_WIDEN_THE_TOUCHES} AND NOT ${ADMITTED_AFTER_THE_STOP} AND NOT ${A_QUESTION_OF_THE_STOP_STILL_OPEN}`,
+)
+
+export const LIFTED_ADMISSION = 'lifted'
+
+function readmitLiftedLaunchStops(db: DatabaseSync, ts: string): void {
+  for (const row of db.prepare(LAUNCH_STOPS_LIFTED).all() as { card_id: number, stop: number, admission: string | null }[]) {
+    if (row.admission === null)
+      continue
+    const admission = `${LIFTED_ADMISSION}:${row.stop}`
+    const payload = { ...(JSON.parse(row.admission) as Record<string, unknown>), admission }
+    inTransaction(db, () => appendEvent(db, { ts, type: CARD_ADMITTED, actor: QUEUE_ACTOR, cardId: row.card_id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${admission}`, payload, legacy: false }))
+  }
+}
 
 const QUESTIONS_WITH_NO_WINDOW_WAIT_YET = latestQuestionStops(
   `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, ${ASKS_TO_WIDEN_THE_TOUCHES} AS widen, json_extract(stop.payload, '$.detail') AS detail,
@@ -1133,6 +1163,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
       derived.queued.push(row.task_key)
   }
   openWindowWaits(db, ts)
+  readmitLiftedLaunchStops(db, ts)
   openReentryLimitWaits(db, ts)
   openLostRecutWaits(db, ts)
   for (const tasksOf of candidates(db, ts)) {
