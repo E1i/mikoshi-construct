@@ -1,5 +1,6 @@
 import type { BuildResult } from '../../ladder/hash.js'
 import type { PreflightEnv } from '../../ladder/preflight.js'
+import type { DiskReader } from '../../ports/disk.js'
 import type { Shell } from '../../ports/worktree.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
@@ -10,9 +11,11 @@ import { describe, expect, it } from 'vitest'
 import { approvalLine, checkAcceptanceBuild } from '../../ladder/hash.js'
 import { immutableRefusal } from '../../ladder/preflight-static.js'
 import { runPreflight } from '../../ladder/preflight.js'
+import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { grepMatchProbe } from '../../ports/witnesses.js'
 import { realShell } from '../../ports/worktree.js'
 
+const roomy: DiskReader = () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES })
 const NOW = new Date(2026, 9, 5, 12)
 const APPROVER = 'Approver One'
 const NONE_SKETCH = 'Sketch: none — independent implementation is the witness'
@@ -114,7 +117,7 @@ function hashIn(repo: string, text: string, pnpmStatus: Record<string, number> =
     return { status, output: `fake ${command}` }
   }
   let tick = 0
-  const env: PreflightEnv = { repo, shell, log: line => log.push(line), clock: () => (tick += 100) }
+  const env: PreflightEnv = { repo, shell, log: line => log.push(line), clock: () => (tick += 100), disk: roomy }
   try {
     const line = approvalLine(briefFile(text, witnesses), NOW, APPROVER, buildWithoutSketchCheck, input => runPreflight(input, env))
     return { line, error: null, log, pnpmCalls }
@@ -472,7 +475,7 @@ describe('the preflight holds a sketch to the base it will be staged on', () => 
     const shell: Shell = (command, cwd) => command === 'pnpm run quality' ? { status: 1, output } : command.startsWith('pnpm') ? { status: 0, output: '' } : realShell(command, cwd)
     const brief = briefFile(briefText({ sketch: `Sketch: sketch/t @ ${sha}` }))
     const log = brief.replace(/\.md$/, '.p8.log')
-    const env: PreflightEnv = { repo, shell, log: () => {}, clock: () => 0 }
+    const env: PreflightEnv = { repo, shell, log: () => {}, clock: () => 0, disk: roomy }
 
     expect(() => approvalLine(brief, NOW, APPROVER, buildWithoutSketchCheck, input => runPreflight(input, env))).toThrow(`first failing step of quality:steps: lint; log ${log}\n> eslint .\nlint error 0`)
     expect(readFileSync(log, 'utf8')).toBe(output)
@@ -487,7 +490,7 @@ describe('the preflight holds a sketch to the base it will be staged on', () => 
     writeFileSync(log, 'an earlier red run\n')
     const shell: Shell = (command, cwd) => command.startsWith('pnpm') ? { status: 0, output: '' } : realShell(command, cwd)
 
-    expect(approvalLine(brief, NOW, APPROVER, buildWithoutSketchCheck, input => runPreflight(input, { repo, shell, log: () => {}, clock: () => 0 }))).not.toBeNull()
+    expect(approvalLine(brief, NOW, APPROVER, buildWithoutSketchCheck, input => runPreflight(input, { repo, shell, log: () => {}, clock: () => 0, disk: roomy }))).not.toBeNull()
     expect(existsSync(log)).toBe(false)
   })
 
@@ -532,7 +535,7 @@ describe('the preflight holds a sketch to the base it will be staged on', () => 
       calls.push(command)
       return { status: 1, output: 'lint finding' }
     }
-    const env: PreflightEnv = { repo, shell, log: () => {}, clock: () => 0 }
+    const env: PreflightEnv = { repo, shell, log: () => {}, clock: () => 0, disk: roomy }
 
     expect(() => approvalLine(brief, NOW, APPROVER, checkAcceptanceBuild, input => runPreflight(input, env))).toThrow(/preflight P6: lint of the ready witness files, no --fix, "scripts\/tests\/ghosts\/w.test.ts" exits 1/)
     expect(calls).toEqual(['pnpm exec eslint scripts/tests/ghosts/w.test.ts'])

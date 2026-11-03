@@ -1,6 +1,7 @@
 import type { Card } from '../../../src/card/grammar.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
 import type { ProcessTable } from '../../nodes/restart/chain-process.js'
+import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeBench } from './merge-bench.js'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -15,6 +16,7 @@ import { HANDOFF_DIR, HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { journalPath } from '../../intake/import.js'
 import { handoffJournalPath } from '../../ladder/hash.js'
 import { LaunchNode, realStarterPorts, repoHandoffEnv, repoLadderSteps, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker.js'
+import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD_ID = 1399
@@ -23,6 +25,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const LANE = 'lane-x'
 const CARD: Card = { id: CARD_ID, name: 'a-card', kind: 'implement', milestone: 'construct', size: 'M', contour: 'ladder', decision: 'owner', depends: [], blocks: [], line: `#${CARD_ID} a-card [implement/construct/M/ladder/owner] · depends — · blocks —` }
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
+const roomy: DiskReader = () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES })
 
 const roots: string[] = []
 const benches: MergeBench[] = []
@@ -136,7 +139,7 @@ describe('moving a ladder card to cheap releases it', () => {
     benches.push(made)
     const gone: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
     const ladder = new LadderStarter()
-    const node = new LaunchNode({ db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: gone, resulted: () => true, isolation: sandboxed })
+    const node = new LaunchNode({ db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: gone, resulted: () => true, disk: roomy, isolation: sandboxed })
     admit(made, 'ladder', 'first')
     made.tick()
     await once(node)
@@ -163,7 +166,7 @@ describe('moving a ladder card to cheap releases it', () => {
     const ladder = new LadderStarter(() => {
       live = false
     })
-    const node = new LaunchNode({ db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+    const node = new LaunchNode({ db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
     admit(made, 'ladder', 'first')
     made.tick()
     await once(node)
@@ -184,7 +187,7 @@ describe('moving a ladder card to cheap releases it', () => {
     benches.push(made)
     const processes: ProcessTable = { commandLine: () => `sh -c claude -p --session-id s-${CARD_ID}`, signalGroup: () => {} }
     const ladder = new LadderStarter()
-    const node = new LaunchNode({ db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, isolation: sandboxed })
+    const node = new LaunchNode({ db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
     admit(made, 'ladder', 'first')
     made.tick()
     await once(node)

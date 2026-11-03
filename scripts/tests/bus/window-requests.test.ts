@@ -26,6 +26,7 @@ import { inForceDecisions, recordDecision } from '../../policy/decisions.js'
 import { stampOf } from '../../policy/decisions/add.js'
 import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
+import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { decisionsAdder, worktreesHolding } from '../../window/window-request-tools.js'
@@ -311,7 +312,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
         : { kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: sha('f'), pid: 4242, pgid: 4242 } },
       stop: () => {},
     }
-    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const launchNext = (): LaunchOutcome => executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
     bench.tick()

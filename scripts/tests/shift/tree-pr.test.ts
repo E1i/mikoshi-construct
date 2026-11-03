@@ -17,6 +17,7 @@ import { LaunchNode, noPullRequestDetail } from '../../nodes/launch/launch-worke
 import { collectReport } from '../../nodes/launch/report-collect.js'
 import { busCardReturned, busCardStopped, busCardText, busCardWaited, busLastRefusal, busPrOpened, PREFIX, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { reportClosingOf, treePr } from '../../nodes/launch/tree-pr.js'
+import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const roots: string[] = []
@@ -155,7 +156,7 @@ describe('a session that ends without a pull request', () => {
     made.tick()
     const starter: CardStarter = { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} }
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new LaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, reportOf: () => REPORT, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const node = new LaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, reportOf: () => REPORT, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })
     made.tick()
