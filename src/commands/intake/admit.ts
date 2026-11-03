@@ -13,6 +13,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { decisionsFileOf, defaultBusPath } from '../../../scripts/core/bus-path.js'
 import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
+import { inForce, OWNER_SOURCE, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { endedCards } from '../../card/closed.js'
 import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
@@ -20,6 +21,7 @@ import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
+import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, TOUCHES_HEADER } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
 import { DirectoryFacts } from './facts.js'
@@ -167,6 +169,7 @@ export type AdmitResult
 const ANY_FORM_OF_FAILING_ON_MAIN = /(?:\s*[;,—–-])?\s*(?:red|non-zero) on main/i
 const DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетеля'
 const GENERAL_DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетелей у '
+export const EQUIVALENT_REPLACEMENT_ALLOWANCE = 'разрешить равноценную замену свидетеля:'
 const CARD_SEPARATOR = /,\s*|\s+и\s+/
 const ALLOWED_CARDS = new RegExp(`^#[1-9]\\d*(?:(?:${CARD_SEPARATOR.source})#[1-9]\\d*)*`)
 const DECISION_LINE = /^- D-[1-9]\d* · /
@@ -186,11 +189,68 @@ function witnessCore(witness: string): string {
   return withoutWitnessKind(witness).replace(ANY_FORM_OF_FAILING_ON_MAIN, '').trim()
 }
 
+type Outcome = 'pass' | 'fail' | 'any'
+
+interface WitnessFact { command: string, head: Outcome, base: Outcome }
+
+const BACKTICKED_COMMAND = /`([^`]+)`/g
+const NEGATED_COMMAND = /^!\s+/
+const FAILS_ON_HEAD = /\bexits 1\b(?! on (?:the )?(?:base|main)\b)|\b(?:fails|red) on (?:the )?head\b/i
+const PASSES_ON_BASE = /\b(?:exits )?0 on (?:the )?(?:base|main)\b/i
+const INVERTED: Record<Outcome, Outcome> = { pass: 'fail', fail: 'pass', any: 'any' }
+
+function witnessFact(witness: string): WitnessFact | null {
+  const commands = [...witness.matchAll(BACKTICKED_COMMAND)].map(match => match[1]!.trim())
+  if (commands.length !== 1)
+    return null
+  const wording = witness.replace(BACKTICKED_COMMAND, '')
+  const head: Outcome = FAILS_ON_HEAD.test(wording) ? 'fail' : 'pass'
+  const base: Outcome = isChangeWitness(witness) ? 'fail' : PASSES_ON_BASE.test(wording) ? 'pass' : 'any'
+  const command = commands[0]!.replace(NEGATED_COMMAND, '')
+  return command === commands[0] ? { command, head, base } : { command, head: INVERTED[head], base: INVERTED[base] }
+}
+
+function sameFact(left: WitnessFact, right: WitnessFact): boolean {
+  return left.command === right.command && left.head === right.head && left.base === right.base
+}
+
+const VITEST_RUN = /\bvitest\b/
+const TEST_FILE = /\S+\.(?:test|spec)\.[cm]?[jt]sx?(?=\s|$)/g
+const MOVED_TEST_FILE = '<test file>'
+
+function testNameOf(command: string): string | null {
+  const names = [...command.matchAll(TEST_NAME_ARGUMENT)].map(match => match[1] ?? match[2] ?? match[3]!)
+  return VITEST_RUN.test(command) && names.length === 1 ? names[0]! : null
+}
+
+function sameTestMoved(left: string, right: string): boolean {
+  const name = testNameOf(left)
+  return name !== null && name === testNameOf(right) && left.replace(TEST_FILE, MOVED_TEST_FILE) === right.replace(TEST_FILE, MOVED_TEST_FILE)
+}
+
+function equivalentReplacement(original: WitnessFact, replacement: WitnessFact): boolean {
+  return original.head === replacement.head && original.base === replacement.base
+    && (original.command === replacement.command || sameTestMoved(original.command, replacement.command))
+}
+
+export function unreplacedDowngrades(downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
+  const previousCores = new Set(previous.map(witnessCore))
+  const replacements = next.filter(witness => !previousCores.has(witnessCore(witness))).flatMap(witness => witnessFact(witness) ?? [])
+  return downgrades.filter((witness) => {
+    const fact = witnessFact(witness)
+    return fact === null || !replacements.some(replacement => equivalentReplacement(fact, replacement))
+  })
+}
+
 export function witnessDowngrades(previous: readonly string[], next: readonly string[]): string[] {
   const acceptanceByCore = new Map(next.map(witness => [witnessCore(witness), isChangeWitness(witness)]))
+  const nextFacts = next.flatMap(witness => witnessFact(witness) ?? [])
   return previous.filter((witness) => {
     const acceptance = acceptanceByCore.get(witnessCore(witness))
-    return acceptance === undefined || (isChangeWitness(witness) && !acceptance)
+    if (acceptance !== undefined && !(isChangeWitness(witness) && !acceptance))
+      return false
+    const fact = witnessFact(witness)
+    return fact === null || !nextFacts.some(other => sameFact(fact, other))
   })
 }
 
@@ -265,6 +325,13 @@ function ownerAllowed(decisionsFile: string, cardId: number, downgrades: readonl
     return false
   const allowing = readFileSync(decisionsFile, 'utf8').split('\n').filter(line => DECISION_LINE.test(line) && !line.includes(SUPERSEDED_BY) && (DECISION_CARDS.exec(line)?.[1]?.split(' ').includes(`#${cardId}`) ?? false))
   return downgrades.every(witness => allowing.some(line => phraseNamesCard(line, `${DOWNGRADE_ALLOWANCE} ${witness} у `, cardId) || phraseNamesCard(line, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
+}
+
+function standingReplacementAllowed(decisionsFile: string, now: Date): boolean {
+  if (!existsSync(decisionsFile))
+    return false
+  const kind = `${OWNER_SOURCE} ${EQUIVALENT_REPLACEMENT_ALLOWANCE}`
+  return inForce(parseDecisions(readFileSync(decisionsFile, 'utf8')).decisions, now).some(decision => decision.written && decision.body.startsWith(kind))
 }
 
 function phraseNamesCard(line: string, phrase: string, cardId: number): boolean {
@@ -433,8 +500,11 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
       options.events?.(waitingEvent(card.id, waitingOn, now()))
     return { status: 'waiting', file: options.file, card: admitted, waitingOn, inBus: base.inBus, dryRun: options.dryRun }
   }
-  const downgrades = recorded?.text === undefined ? [] : witnessDowngrades(witnessesOf(recorded.text), witnessesOf(admitted.text))
-  if (downgrades.length > 0 && !ownerAllowed(options.decisions ?? defaultDecisions(), card.id, downgrades)) {
+  const decisionsFile = options.decisions ?? defaultDecisions()
+  const previous = recorded?.text === undefined ? [] : witnessesOf(recorded.text)
+  const lowered = recorded?.text === undefined ? [] : witnessDowngrades(previous, witnessesOf(admitted.text))
+  const downgrades = lowered.length > 0 && standingReplacementAllowed(decisionsFile, now()) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
+  if (downgrades.length > 0 && !ownerAllowed(decisionsFile, card.id, downgrades)) {
     if (!options.dryRun)
       options.events?.(downgradeEvent(card.id, downgrades, bodySha(admitted.text), now()))
     return { status: 'ownerWait', file: options.file, card: admitted, downgrades, inBus: base.inBus, dryRun: options.dryRun }

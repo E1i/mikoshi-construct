@@ -1,3 +1,4 @@
+import type { Witness } from '../../ports/witnesses.js'
 import type { ShellResult } from '../../ports/worktree.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -48,6 +49,10 @@ function fakeVitest(command: string, cwd: string): ShellResult {
 }
 
 function shell(command: string, cwd: string): ShellResult {
+  if (command.startsWith('! ')) {
+    const inner = shell(command.slice(2), cwd)
+    return { status: inner.status === 0 ? 1 : 0, output: inner.output }
+  }
   return command.startsWith('pnpm exec vitest') ? fakeVitest(command, cwd) : realShell(command, cwd)
 }
 
@@ -57,7 +62,7 @@ function vitest(criterion: string, file: string, name: string): { criterion: str
 
 interface Outcome { refusals: string[], log: string[] }
 
-function witnessOn(base: Record<string, string>, head: Record<string, string>, task: { acceptance?: ReturnType<typeof vitest>[], invariants?: ReturnType<typeof vitest>[] }): Outcome {
+function witnessOn(base: Record<string, string>, head: Record<string, string>, task: { acceptance?: Witness[], invariants?: Witness[] }): Outcome {
   const root = mkdtempSync(path.join(tmpdir(), 'witnesses-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
@@ -153,6 +158,28 @@ describe('a card witness that fails on base is read as acceptance', () => {
     const item = `\`${COMMAND}\` exits 0 on head and ${phrase}`
 
     expect(cardWitnessesOf(cardWith(item))).toEqual({ acceptance: [{ criterion: item, command: COMMAND }], invariants: [] })
+  })
+
+  it('a witness that exits 1 on head and 0 on base is a change witness checked by its exit', () => {
+    const item = `\`${COMMAND}\` exits 1 on head and 0 on base`
+
+    expect(cardWitnessesOf(cardWith(item))).toEqual({ acceptance: [{ criterion: item, command: `! ${COMMAND}` }], invariants: [] })
+    expect(witnessOn({ 'a.test.ts': 'the thing=pass\n' }, { 'a.test.ts': 'the thing=fail\n' }, cardWitnessesOf(cardWith(`\`pnpm exec vitest run a.test.ts -t 'the thing'\` exits 1 on head and 0 on base`))).refusals).toEqual([])
+  })
+
+  it('both forms of a negated witness are green on a correct head', () => {
+    const run = `pnpm exec vitest run a.test.ts -t 'the thing'`
+    const forms = [`\`${run}\` exits 1 on head and 0 on base`, `\`! ${run}\` exits 0 on head and fails on base`]
+
+    for (const form of forms)
+      expect(witnessOn({ 'a.test.ts': 'the thing=pass\n' }, { 'a.test.ts': 'the thing=fail\n' }, cardWitnessesOf(cardWith(form))).refusals).toEqual([])
+  })
+
+  it('a negated witness is red on the base only where its test runs green there, and a crash on the head is not its failure', () => {
+    const negated = `\`! pnpm exec vitest run a.test.ts -t 'the thing'\` exits 0 on head and fails on base`
+
+    expect(witnessOn({}, { 'a.test.ts': 'the thing=fail\n' }, cardWitnessesOf(cardWith(negated))).refusals).toEqual([expect.stringMatching(/^P7: witness .* exits 0 on the clean base/)])
+    expect(witnessOn({ 'a.test.ts': 'the thing=pass\n' }, { 'a.test.ts': 'the thing=crash\n' }, cardWitnessesOf(cardWith(negated))).refusals).toEqual([expect.stringMatching(/^P8: positive control .* exits 0 on the sketch .* with no failing test/)])
   })
 
   it('a witness that names no failure on the base stays an invariant', () => {
