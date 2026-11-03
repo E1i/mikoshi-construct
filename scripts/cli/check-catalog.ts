@@ -28,7 +28,14 @@ const RENDERED_PERCENT = '%'
 const SHELL_QUOTED_APOSTROPHE = /'\\''/g
 const WITNESSES_HEADING = /^Witnesses:/
 const NO_LAYER = 'none'
-const UNTESTED_FILE = /^\.changeset\//
+const TEST_INFRASTRUCTURE = [
+  /^scripts\/ci\/(?:layers|select|prepush|test-command)\.ts$/,
+  /^scripts\/tests\/ci\/(?:select-layers|prepush-selector)\.test\.ts$/,
+  /^vitest(?:\.[\w-]+)*\.config\.[cm]?[jt]s$/,
+  /^package\.json$/,
+  /^pnpm-lock\.yaml$/,
+  /^\.changeset\//,
+]
 
 export const RERUN_VARIABLE = 'BUS_RERUN'
 export const RERUN_MODES = ['as-now', 'by-layers'] as const
@@ -284,12 +291,16 @@ function layersOfFile(file: string, byTest: ReadonlyMap<string, readonly string[
   return layer === null ? null : [layer]
 }
 
-export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], mainFiles: readonly string[]): string | null {
-  const tested = (files: readonly string[]): string[] => files.filter(file => !UNTESTED_FILE.test(file))
-  const pr = tested(prFiles)
-  const main = tested(mainFiles)
+export function isTestInfrastructure(file: string): boolean {
+  return TEST_INFRASTRUCTURE.some(pattern => pattern.test(file))
+}
+
+export function overlapWithMain(db: DatabaseSync, pr: readonly string[], main: readonly string[]): string | null {
   if (main.length === 0)
     return null
+  const infrastructure = [...pr, ...main].find(isTestInfrastructure)
+  if (infrastructure !== undefined)
+    return `${infrastructure} chooses or runs the tests, so it reaches every layer`
   const byTest = catalogLayersByTest(db)
   if (byTest.size === 0)
     return 'the check catalog is empty, so no layer can be told apart'
@@ -323,10 +334,18 @@ export function changedFiles(meter: Meter, pr: number): string[] {
   return listedFiles(meter, pr).flatMap(file => file.filename === undefined ? [] : [file.filename])
 }
 
+interface RequiredStatusChecks { strict?: boolean, contexts?: unknown, checks?: unknown }
+
+function isEmptyList(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 0
+}
+
 export function upToDateRequired(meter: Meter): boolean {
   try {
-    const protection = meter.get(MAIN_PROTECTION) as { required_status_checks?: { strict?: boolean } | null }
-    return protection.required_status_checks?.strict !== false
+    const required = (meter.get(MAIN_PROTECTION) as { required_status_checks?: RequiredStatusChecks | null }).required_status_checks
+    if (required?.strict === false)
+      return false
+    return !(isEmptyList(required?.contexts) && isEmptyList(required?.checks))
   }
   catch {
     return true
