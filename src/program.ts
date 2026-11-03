@@ -19,6 +19,7 @@ import { DOCTOR_EXIT, doctorJson, factoryChecklist, factoryChecklistExit, factor
 import { modelPicture, printGraph } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
 import { printAdmit, runAdmit } from './commands/intake/admit.js'
+import { runAmend } from './commands/intake/amend.js'
 import { defaultParking, INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
 import { printMove, runMove } from './commands/intake/move.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
@@ -407,6 +408,12 @@ function intakeCommand(bus: BusPorts | undefined) {
       draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
       taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
       admit: { type: 'string', description: 'A card already parked (<parking>/<id>.md): check it by facts and record it in the bus a caller wires in; no new number' },
+      amend: { type: 'string', description: 'An admitted card (#<id>) to edit straight in the bus: its body comes from the bus, the edits below apply, and the result goes through the same checks as --admit to a new card.admitted with source amend; no file' },
+      touches: { type: 'string', description: 'With --amend: +<path> adds a touch, -<path> removes one; several comma-separated' },
+      creates: { type: 'string', description: 'With --amend: +<path> adds a creates entry, -<path> removes one; several comma-separated' },
+      note: { type: 'string', description: 'With --amend: a line appended to the card body' },
+      witness: { type: 'string', description: 'With --amend: <old witness>=<new witness>, replacing one witness; a weaker one waits for the owner as under --admit' },
+      who: { type: 'string', description: 'With --amend: who takes the card, shift or window' },
       move: { type: 'string', description: 'A parked card (#<id>) to move to the parking directory --to names: found in the parking root or a direct subdirectory, the file unchanged, the bus holds it' },
       to: { type: 'string', description: 'With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root' },
       parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
@@ -421,6 +428,11 @@ function intakeCommand(bus: BusPorts | undefined) {
         const dir = path.resolve(args.dir)
         if (args.move !== undefined || args.to !== undefined) {
           process.exitCode = printMove(console, runMove({ move: args.move, to: args.to, draft: args.draft, taken: args.taken, admit: args.admit, parking: path.resolve(args.parking ?? defaultParking()), events, admissions }))
+          return
+        }
+        if (args.amend !== undefined) {
+          const flags = { touches: args.touches, creates: args.creates, note: args.note, witness: args.witness, who: args.who }
+          process.exitCode = printAdmit(console, runAmend({ card: args.amend, flags, dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
           return
         }
         if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
