@@ -32,10 +32,17 @@ interface Options {
   wait: string | undefined
   page: string | undefined
   profile: string | undefined
+  proxy: string | undefined
+}
+
+interface LaunchOptions {
+  proxy?: { server: string }
 }
 
 interface BrowserLab {
-  parseArguments: (argv: string[]) => Options
+  parseArguments: (argv: string[], env?: Record<string, string>) => Options
+  handsConfig: (extensionDirectory: string, profile: string, headed: boolean, proxy?: string) => { browser: { launchOptions: LaunchOptions } }
+  persistentContextOptions: (options: Options, extension: { directory: string } | undefined) => LaunchOptions
   grantOptional: (manifest: Manifest) => { manifest: Manifest, granted: string[] }
   extensionId: (manifest: Manifest, directory: string) => string
   workerRequests: (events: { method: string, params: Record<string, unknown> }[]) => WorkerRequest[]
@@ -50,7 +57,7 @@ interface WorkerRequest {
   failed: string | null
 }
 
-const { parseArguments, grantOptional, extensionId, workerRequests, ensureChromium, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
+const { parseArguments, handsConfig, persistentContextOptions, grantOptional, extensionId, workerRequests, ensureChromium, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
 
 const UNRESOLVABLE = 'http://lab-nowhere.invalid/'
 
@@ -87,6 +94,32 @@ describe('arguments', () => {
 
   it('lets page run without an extension', () => {
     expect(parseArguments(['page', 'http://x']).extension).toBeUndefined()
+  })
+})
+
+describe('the proxy of the lab browser', () => {
+  const PROXY = 'http://proxy.test:3128'
+
+  function launchSites(options: Options): LaunchOptions[] {
+    return [
+      persistentContextOptions(options, { directory: '/lab/extension' }),
+      persistentContextOptions(options, undefined),
+      handsConfig('/lab/extension', '/lab', options.headed, options.proxy).browser.launchOptions,
+    ]
+  }
+
+  it('proxy option reaches every launch site', () => {
+    const options = parseArguments(['page', 'http://x', '--proxy', PROXY], {})
+    expect(launchSites(options).map(site => site.proxy)).toEqual([{ server: PROXY }, { server: PROXY }, { server: PROXY }])
+    expect(launchSites(parseArguments(['page', 'http://x'], {})).map(site => site.proxy)).toEqual([undefined, undefined, undefined])
+    expect(() => parseArguments(['page', 'http://x', '--proxy'], {})).toThrow(UsageError)
+  })
+
+  it('proxy from the environment is used without the flag, and the flag wins over it', () => {
+    const env = { CONSTRUCT_LAB_PROXY: 'http://env.test:8080' }
+    expect(parseArguments(['info', '--extension', 'ext'], env).proxy).toBe('http://env.test:8080')
+    expect(parseArguments(['info', '--extension', 'ext', '--proxy', PROXY], env).proxy).toBe(PROXY)
+    expect(parseArguments(['info', '--extension', 'ext'], {}).proxy).toBeUndefined()
   })
 })
 
