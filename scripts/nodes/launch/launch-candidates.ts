@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { ParkedTask } from '../../../src/card/parking.js'
+import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
 import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
@@ -10,7 +10,7 @@ import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD
 import { prOf } from '../../core/identifiers.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
-import { currentLane, heldByStall, stalledCards } from './lane-assign.js'
+import { currentLane, heldByStall, stalledCards, startOrder } from './lane-assign.js'
 import { taskConflicts } from './overlap.js'
 
 export const FALLS_BEFORE_CUT = 2
@@ -98,6 +98,7 @@ interface CardLife {
   task: ShiftTask | null
   windowsToWork: boolean
   depends: number[]
+  priority: Priority | null
   contour: Contour
   started: boolean
   startedAt: number | null
@@ -183,7 +184,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
       const parked = parkedOf(row, payload)
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map() })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), priority: parked?.priority ?? null, contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map() })
       continue
     }
     if (life !== undefined && PULL_REQUEST_ROWS.has(row.type)) {
@@ -304,8 +305,9 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
       taken.push(life.task)
   }
   const chosen: LaunchCandidate[] = []
-  for (const life of [...lives.values()].sort((a, b) => a.cardId - b.cardId)) {
-    if (life.windowsToWork || (falls.get(life.cardId) ?? 0) >= FALLS_BEFORE_CUT || noLongerCandidates.has(life.cardId))
+  const open = [...lives.values()].filter(life => !noLongerCandidates.has(life.cardId))
+  for (const life of open.sort(startOrder(open))) {
+    if (life.windowsToWork || (falls.get(life.cardId) ?? 0) >= FALLS_BEFORE_CUT)
       continue
     if (reviewDue(life, settled)) {
       if (!launching.has(life.cardId))
