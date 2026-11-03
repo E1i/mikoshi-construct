@@ -1,3 +1,4 @@
+import type { ProcessBeat } from '../../supervisor/heartbeat.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -189,28 +190,32 @@ describe('netwatch', () => {
     }
   })
 
-  it('every poll that runs writes process.heartbeat under its process name, the ticked, the rate-limited and the retry-after skipped alike', () => {
+  it('every poll that runs beats into the heartbeat table under its process name, the ticked, the rate-limited and the retry-after skipped alike', () => {
     const { db, gitHub, clock } = setUp()
     const netWatch = new NetWatch(db, gitHub.client, clock.now, NETWATCH_SCRIPT)
-    const beats = (): { ts: string, process: unknown }[] => db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(PROCESS_HEARTBEAT).map(row => ({ ts: String(row.ts), process: (JSON.parse(String(row.payload)) as { process?: unknown }).process }))
+    const beats = (): ProcessBeat[] => lastProcessBeats(db)
     const polled: string[] = []
+    const seen: ProcessBeat[][] = []
     gitHub.open({ number: 907 })
 
     gitHub.limited = { status: 429, headers: { 'retry-after': '150', 'x-ratelimit-remaining': '0' }, body: { message: 'rate limit' } }
     polled.push(clock.now().toISOString())
     expect(netWatch.poll()).toMatchObject({ kind: 'skipped', cause: 'rate-limited' })
+    seen.push(beats())
     gitHub.limited = null
     clock.advance(TICK_MS / 2)
     expect(netWatch.poll()).toBeNull()
     clock.advance(TICK_MS / 2)
     polled.push(clock.now().toISOString())
     expect(netWatch.poll()).toMatchObject({ kind: 'skipped', cause: 'retry-after' })
+    seen.push(beats())
     clock.advance(2 * TICK_MS)
     polled.push(clock.now().toISOString())
     expect(netWatch.poll()).toMatchObject({ kind: 'ticked' })
+    seen.push(beats())
 
-    expect(beats()).toEqual(polled.map(ts => ({ ts, process: NETWATCH_SCRIPT })))
-    expect(lastProcessBeats(db)).toEqual([{ process: NETWATCH_SCRIPT, ts: polled.at(-1) }])
+    expect(seen).toEqual(polled.map(ts => [{ process: NETWATCH_SCRIPT, ts }]))
+    expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PROCESS_HEARTBEAT)).toEqual({ n: 0 })
     db.close()
   })
 

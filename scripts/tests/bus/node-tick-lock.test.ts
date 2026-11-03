@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { openBus, watchLocks } from '../../core/db.js'
+import { HEARTBEATS, openBus, watchLocks } from '../../core/db.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED } from '../../core/events.js'
 import { completeTask } from '../../core/lease.js'
 import { DATABASE_LOCKED, DERIVE_EVERY_TICKS, Node, nodeProcess } from '../../core/node.js'
@@ -103,6 +103,10 @@ function payloadsOf(db: DatabaseSync, type: string): Record<string, unknown>[] {
   return (db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(type) as { payload: string }[]).map(row => JSON.parse(row.payload) as Record<string, unknown>)
 }
 
+function beatsOf(db: DatabaseSync, type: string): Record<string, unknown>[] {
+  return (db.prepare(`SELECT payload FROM ${HEARTBEATS} WHERE type = ? ORDER BY process`).all(type) as { payload: string }[]).map(row => JSON.parse(row.payload) as Record<string, unknown>)
+}
+
 function lockedLines(): unknown[] {
   return vi.mocked(console.log).mock.calls.filter(call => String(call[0]).includes(DATABASE_LOCKED))
 }
@@ -148,7 +152,7 @@ describe('a node tick and the write lock', () => {
     await concurrent
 
     expect(lockedLines()).toEqual([])
-    expect(payloadsOf(first, PROCESS_HEARTBEAT).map(each => each.process)).toEqual([nodeProcess('merge'), nodeProcess('merge')])
+    expect(beatsOf(first, PROCESS_HEARTBEAT).map(each => each.process)).toEqual([nodeProcess('merge')])
     expect(payloadsOf(first, NODE_DETECTED).map(each => each.key).sort()).toEqual([keyOf(task(970)), keyOf(task(971))].sort())
   }, 60_000)
 
@@ -168,10 +172,10 @@ describe('a node tick and the write lock', () => {
 
     expect(payloadsOf(db, NODE_DETECTED).map(each => each.key)).toEqual([keyOf(task(972))])
     expect(payloadsOf(db, TASK_ENQUEUED).map(each => each.task_key)).toEqual([keyOf(task(970)), keyOf(task(972))])
-    expect(payloadsOf(db, PROCESS_HEARTBEAT)).toHaveLength(1)
+    expect(beatsOf(db, PROCESS_HEARTBEAT)).toHaveLength(1)
   })
 
-  it('equivalence events are still written', async () => {
+  it('the latest equivalence is still kept on a derive tick, beside the one heartbeat row', async () => {
     const db = openBus(busFile())
     const clock = new Clock()
     const node = new ScanningNode(db, clock)
@@ -180,10 +184,10 @@ describe('a node tick and the write lock', () => {
     const tickCount = DERIVE_EVERY_TICKS + 1
     await ticks(node, clock, tickCount)
 
-    expect(payloadsOf(db, PROCESS_HEARTBEAT)).toHaveLength(tickCount)
-    expect(payloadsOf(db, NODE_EQUIVALENCE).map(({ event_id: _id, ...rest }) => rest)).toEqual([
-      { same: [keyOf(task(971))], only_node: [keyOf(task(970))], only_derive: [keyOf(task(972))] },
+    expect(beatsOf(db, PROCESS_HEARTBEAT)).toHaveLength(1)
+    expect(beatsOf(db, NODE_EQUIVALENCE).map(({ event_id: _id, ...rest }) => rest)).toEqual([
       { same: [keyOf(task(971))], only_node: [keyOf(task(970))], only_derive: [keyOf(task(972))] },
     ])
+    expect(payloadsOf(db, NODE_EQUIVALENCE)).toEqual([])
   })
 })

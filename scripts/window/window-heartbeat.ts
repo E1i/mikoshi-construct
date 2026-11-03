@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { WindowMode } from '../ports/session.js'
 import type { SessionMeasure } from '../supervisor/heartbeat.js'
 import type { SessionGauges } from './eddies-measure.js'
-import { appendEvent, openBus } from '../core/db.js'
+import { appendEvent, HEARTBEATS, openBus } from '../core/db.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
 import { windowModeOf } from '../ports/session.js'
 import { measureSession } from '../supervisor/heartbeat.js'
@@ -20,9 +20,8 @@ const PRIMARY_RESULT_CODE = 0xFF
 
 const LAST_LOOP_BEATS = `
   SELECT beats.name, beats.ts FROM (
-    SELECT json_extract(payload, '$.process') AS name, max(ts) AS ts FROM events
-    WHERE type = '${PROCESS_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.process') LIKE '${LOOP_PROCESS}%'
-    GROUP BY name
+    SELECT process AS name, ts FROM ${HEARTBEATS}
+    WHERE type = '${PROCESS_HEARTBEAT}' AND process LIKE '${LOOP_PROCESS}%'
   ) AS beats
   WHERE NOT EXISTS (
     SELECT 1 FROM events AS ended

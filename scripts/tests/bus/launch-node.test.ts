@@ -22,11 +22,11 @@ import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { DROPPED_CARD, DROPPED_LANE, STOPPED_CARD } from '../../core/card-automaton.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, OPEN_WAIT, OWNER_WAITS } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { recordGhostLine } from '../../core/journal.js'
 import { leaseNext } from '../../core/lease.js'
-import { NODE_CURSORS } from '../../core/node.js'
+import { lastEquivalence, NODE_CURSORS } from '../../core/node.js'
 import { treeReportPath } from '../../core/places.js'
 import { keyOf, launchTasks, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
@@ -232,7 +232,7 @@ describe('the launch node', () => {
 
     const enqueued = keys.map(key => enqueuedOf(made, key))
     await once(node)
-    expect(eventsOf(made.db, NODE_EQUIVALENCE)).toEqual([{ same: keys, only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
+    expect([lastEquivalence(made.db, 'launch')]).toEqual([{ same: keys, only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
     expect(keys.map(key => enqueuedOf(made, key))).toEqual(enqueued)
   })
 

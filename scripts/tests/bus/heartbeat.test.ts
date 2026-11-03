@@ -11,8 +11,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openBus, watchLocks } from '../../core/db.js'
-import { SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
+import { HEARTBEATS, openBus, watchLocks } from '../../core/db.js'
+import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
 import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease } from '../../core/lease.js'
 import { cardFields } from '../../intake/card-contract.js'
 import { AnswerNode } from '../../nodes/answer/answer-worker.js'
@@ -22,7 +22,7 @@ import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../nodes/review/r
 import { reviewSession } from '../../nodes/review/reviewer.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
-import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../supervisor/heartbeat.js'
+import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, lastProcessBeats, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, recordProcessHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../supervisor/heartbeat.js'
 import { NO_TRANSCRIPT, sessionGauges } from '../../window/eddies-measure.js'
 import { waitFor } from '../wait-for.js'
 
@@ -323,6 +323,25 @@ function runHook(root: string, card: string | undefined, input: object): void {
     env[CARD_VARIABLE] = card
   expect(spawnSync(process.execPath, [HOOK], { input: JSON.stringify(input), env, encoding: 'utf8' }).status).toBe(0)
 }
+
+describe('a process heartbeat goes into the heartbeat table, not into events', () => {
+  it('a node heartbeat updates one row per node in the heartbeat table and appends nothing to events', () => {
+    const { db } = bus()
+    const eventsBefore = Number((db.prepare('SELECT count(*) AS n FROM events').get() as { n: number }).n)
+    recordProcessHeartbeat(db, at(0), 'bus:merge', { queue: 'merge', slots: 1 })
+    recordProcessHeartbeat(db, at(1_000), 'bus:merge', { queue: 'merge', slots: 2 })
+    recordProcessHeartbeat(db, at(500), 'bus:review', { queue: 'review', slots: 3 })
+    expect(recordProcessHeartbeat(db, at(-1_000), 'bus:merge', { queue: 'merge', slots: 9 })).toBe(false)
+
+    const rows = db.prepare(`SELECT process, type, ts, payload FROM ${HEARTBEATS} ORDER BY process`).all() as { process: string, type: string, ts: string, payload: string }[]
+    expect(rows.map(row => ({ ...row, payload: JSON.parse(row.payload) as unknown }))).toEqual([
+      { process: 'bus:merge', type: PROCESS_HEARTBEAT, ts: at(1_000), payload: { process: 'bus:merge', queue: 'merge', slots: 2 } },
+      { process: 'bus:review', type: PROCESS_HEARTBEAT, ts: at(500), payload: { process: 'bus:review', queue: 'review', slots: 3 } },
+    ])
+    expect(Number((db.prepare('SELECT count(*) AS n FROM events').get() as { n: number }).n)).toBe(eventsBefore)
+    expect(lastProcessBeats(db)).toEqual([{ process: 'bus:merge', ts: at(1_000) }, { process: 'bus:review', ts: at(500) }])
+  })
+})
 
 describe('the PostToolUse hook starts the heartbeat CLI only in a session of a card', () => {
   it('heartbeatArgv runs the heartbeat CLI of the project under tsx with the session id', async () => {

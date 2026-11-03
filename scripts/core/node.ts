@@ -13,7 +13,7 @@ import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { ownStart, recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { slotsOf } from '../supervisor/scheduler.js'
 import { lastEventId } from '../window/operator-work.js'
-import { appendEvent, inTransaction, openBus } from './db.js'
+import { appendEvent, HEARTBEATS, inTransaction, openBus, recordBeat } from './db.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
 import { drainOpen, expireLeases, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask } from './lease.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
@@ -207,6 +207,13 @@ export function equivalenceOf(node: readonly string[], derived: readonly string[
   }
 }
 
+export type EquivalenceMark = Equivalence & { event_id: number }
+
+export function lastEquivalence(db: DatabaseSync, kind: NodeKind): EquivalenceMark | null {
+  const row = db.prepare(`SELECT payload FROM ${HEARTBEATS} WHERE process = ? AND type = ?`).get(nodeProcess(kind), NODE_EQUIVALENCE) as { payload: string } | undefined
+  return row === undefined ? null : JSON.parse(row.payload) as EquivalenceMark
+}
+
 export function isWait(step: NodeStep): step is WaitStep {
   return step.kind === 'waiting'
 }
@@ -395,10 +402,8 @@ export abstract class Node<S extends NodeStep> {
       recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind), { queue: this.kind, slots: this.slots })
       for (const task of standing)
         this.record(task, 'tick', through)
-      if (equivalence !== null) {
-        const ts = this.ts()
-        appendEvent(this.db, { ts, type: NODE_EQUIVALENCE, actor: this.actor, cardId: null, pr: null, head: null, dedupeKey: `${NODE_EQUIVALENCE}:${this.kind}:${this.actor}:${through}:${ts}`, payload: { ...equivalence, event_id: through }, legacy: false })
-      }
+      if (equivalence !== null)
+        recordBeat(this.db, { process: nodeProcess(this.kind), type: NODE_EQUIVALENCE, ts: this.ts(), payload: { ...equivalence, event_id: through } satisfies EquivalenceMark })
     })
     this.ticksUntilDerive = derives ? DERIVE_EVERY_TICKS - 1 : this.ticksUntilDerive - 1
   }

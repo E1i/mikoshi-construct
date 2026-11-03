@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appendEvent, openBus } from '../../core/db.js'
+import { appendEvent, HEARTBEATS, openBus } from '../../core/db.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE, PROCESS_HEARTBEAT, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, WORKER_STARTED } from '../../core/events.js'
 import { QUEUES } from '../../core/identifiers.js'
 import { completeTask } from '../../core/lease.js'
@@ -15,6 +15,7 @@ import { keyOf } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { RateLimited } from '../../ports/meter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
+import { lastProcessBeats } from '../../supervisor/heartbeat.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { Clock, sha } from './github-fake.js'
 
@@ -113,7 +114,7 @@ function cursorOf(db: DatabaseSync): number | null {
 }
 
 describe('a node', () => {
-  it('a running bus node writes process.heartbeat every tick', async () => {
+  it('a running bus node beats into the heartbeat table every tick, and its liveness reading comes from there', async () => {
     const db = newBus()
     const clock = new Clock()
     const node = new FakeNode(db, clock, 'shadow')
@@ -129,17 +130,18 @@ describe('a node', () => {
       signal: controller.signal,
     })
 
-    const beats = db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(PROCESS_HEARTBEAT) as { ts: string, payload: string }[]
     expect(nodeProcess('merge')).toBe('bus:merge')
-    expect(beats.map(beat => ({ ts: beat.ts, process: (JSON.parse(beat.payload) as { process: string }).process }))).toEqual(ticks.map(ts => ({ ts, process: 'bus:merge' })))
+    expect(db.prepare(`SELECT process, ts FROM ${HEARTBEATS} WHERE type = ?`).all(PROCESS_HEARTBEAT)).toEqual([{ process: 'bus:merge', ts: ticks.at(-1) }])
+    expect(lastProcessBeats(db)).toEqual([{ process: 'bus:merge', ts: ticks.at(-1) }])
+    expect(count(db, 'SELECT count(*) AS n FROM events WHERE type IN (?, ?)', PROCESS_HEARTBEAT, NODE_EQUIVALENCE)).toBe(0)
   })
 
-  it('every node process.heartbeat carries slots equal to slotsOf for its kind and env', async () => {
+  it('every node heartbeat carries slots equal to slotsOf for its kind and env', async () => {
     for (const kind of NODE_KINDS) {
       for (const env of [{}, { [slotsVariable(kind)]: '5' }]) {
         const db = newBus()
         await once(new KindNode(kind, db, new Clock(), env))
-        const beats = (db.prepare('SELECT payload FROM events WHERE type = ?').all(PROCESS_HEARTBEAT) as { payload: string }[]).map(beat => JSON.parse(beat.payload) as unknown)
+        const beats = (db.prepare(`SELECT payload FROM ${HEARTBEATS} WHERE type = ?`).all(PROCESS_HEARTBEAT) as { payload: string }[]).map(beat => JSON.parse(beat.payload) as unknown)
         expect(beats).toEqual([{ process: nodeProcess(kind), queue: kind, slots: slotsOf(kind, env) }])
       }
     }
@@ -179,7 +181,7 @@ describe('a node', () => {
     await once(node)
 
     expect(detections(db, 'event')).toEqual([{ key: keyOf(task(970)), via: 'event', event_id: probe }, { key: keyOf(task(971)), via: 'event', event_id: ci }])
-    expect(cursorOf(db)).toBe(Number((db.prepare(`SELECT max(id) AS id FROM events WHERE type NOT IN (?, ?)`).get(NODE_DETECTED, PROCESS_HEARTBEAT) as { id: number }).id))
+    expect(cursorOf(db)).toBe(Number((db.prepare(`SELECT max(id) AS id FROM events WHERE type != ?`).get(NODE_DETECTED) as { id: number }).id))
   })
 
   for (const mode of ['shadow', 'live'] as const) {
@@ -240,7 +242,7 @@ describe('a node', () => {
     }
   })
 
-  it('compares its candidates with the derived ones on one tick and records node.equivalence', async () => {
+  it('compares its candidates with the derived ones on one tick and keeps the latest node.equivalence in the heartbeat table', async () => {
     const db = newBus()
     const clock = new Clock()
     const node = new FakeNode(db, clock, 'shadow')
@@ -248,7 +250,7 @@ describe('a node', () => {
     node.derived = [task(971), task(972)]
     await once(node)
 
-    const payloads = (db.prepare('SELECT payload FROM events WHERE type = ?').all(NODE_EQUIVALENCE) as { payload: string }[]).map(row => JSON.parse(row.payload) as unknown)
+    const payloads = (db.prepare(`SELECT payload FROM ${HEARTBEATS} WHERE process = ? AND type = ?`).all(nodeProcess('merge'), NODE_EQUIVALENCE) as { payload: string }[]).map(row => JSON.parse(row.payload) as unknown)
     expect(payloads).toEqual([{ same: [keyOf(task(971))], only_node: [keyOf(task(970))], only_derive: [keyOf(task(972))], event_id: expect.any(Number) as unknown }])
   })
 
@@ -263,7 +265,7 @@ describe('a node', () => {
     node.derived = []
     await once(node)
     expect(detections(db)).toHaveLength(1)
-    expect(count(db, 'SELECT count(*) AS n FROM events WHERE type = ?', NODE_EQUIVALENCE)).toBe(1)
+    expect(count(db, `SELECT count(*) AS n FROM ${HEARTBEATS} WHERE type = ?`, NODE_EQUIVALENCE)).toBe(1)
 
     reduce(db)
     expect(projectionDump(db)).toBe(before)

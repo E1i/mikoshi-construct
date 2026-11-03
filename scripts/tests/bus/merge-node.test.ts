@@ -7,10 +7,10 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { RERUN_VARIABLE, writeCatalog } from '../../cli/check-catalog.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
 import { prBodySha } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
-import { NODE_CURSORS } from '../../core/node.js'
+import { lastEquivalence, NODE_CURSORS } from '../../core/node.js'
 import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
 import { MERGE_QUEUE, MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
@@ -176,10 +176,6 @@ function enqueuedOf(made: MergeBench, key: string): number {
   return Number((made.db.prepare(`SELECT count(*) AS n FROM events WHERE type = ? AND json_extract(payload, '$.task_key') = ?`).get(TASK_ENQUEUED, key) as { n: number }).n)
 }
 
-function equivalences(made: MergeBench): Record<string, unknown>[] {
-  return eventsOf(made.db, NODE_EQUIVALENCE)
-}
-
 describe('mergeCandidates', () => {
   it('leaves out a pull request with a pass that is out of review rounds and has no owner decision, and deriveQueues queues none for it', () => {
     const made = bench()
@@ -270,7 +266,7 @@ describe('the merge node', () => {
     await once(node)
 
     expect(eventsOf(made.db, NODE_DETECTED)).toEqual([{ key: mergeKey(970), via: 'tick', event_id: expect.any(Number) as unknown }])
-    expect(equivalences(made)).toEqual([{ same: [mergeKey(970)], only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
+    expect([lastEquivalence(made.db, 'merge')]).toEqual([{ same: [mergeKey(970)], only_node: [], only_derive: [], event_id: expect.any(Number) as unknown }])
     expect(enqueuedOf(made, mergeKey(970))).toBe(before)
     expect(mergeTasks(made, 970)).toBe(tasks)
   })
