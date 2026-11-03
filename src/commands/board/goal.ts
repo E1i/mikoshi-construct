@@ -1,19 +1,34 @@
+import type { Lore } from '../../ui/lore.js'
 import type { BusDb } from '../cost/bus.js'
 import { CARD_ADMITTED, CARD_MOVED, OPEN_PLAN, TERMINAL_LANES } from '../../../scripts/core/events.js'
 
-export const ITEM_STAGES = ['not_created', 'queued', 'in_progress', 'review', 'delivered'] as const
+export const RELEASE_STAGES = ['queued', 'in_progress', 'review', 'delivered'] as const
 const RECENT_HOURS = 24
 const HOUR_MS = 3_600_000
-const BY_STAGE: readonly ItemStage[] = ['queued', 'in_progress', 'review']
+export const MARK_WORDS: Readonly<Record<CardMark, string>> = { delivered: 'merged', in_progress: 'in work', review: 'review', queued: 'queue', dropped: 'dropped' }
+const LINE_STAGES: readonly ReleaseStage[] = ['in_progress', 'review', 'queued']
 const MERGED = 'merged'
 const DROPPED_STATES = new Set(['dropped', 'closed'])
 const REVIEW_STATES = new Set(['in_review', 'ready'])
 const REVIEW_QUEUES = new Set(['review', 'merge'])
 const WORK_STATES = new Set(['running', 'changes', 'stopped'])
 const WORK_QUEUES = new Set(['answer'])
+export const GATE_DUE = 'due'
+export const GATE_OPEN = 'open'
 
-export type ItemStage = typeof ITEM_STAGES[number]
-type CardMark = 'dropped' | 'queued' | 'in_progress' | 'review' | 'delivered'
+export type ReleaseStage = typeof RELEASE_STAGES[number]
+export const DROPPED = 'dropped'
+export type CardMark = typeof DROPPED | ReleaseStage
+
+export interface ReleaseCard {
+  card: number
+  mark: CardMark
+}
+
+export interface ReleaseGate {
+  word: string
+  status: typeof GATE_DUE | typeof GATE_OPEN
+}
 
 export interface PlanProgress {
   id: string
@@ -21,7 +36,10 @@ export interface PlanProgress {
   goal: string
   delivered: number
   total: number
-  stages: Record<ItemStage, number>
+  remainder: number
+  stages: Record<ReleaseStage, number>
+  cards: ReleaseCard[]
+  gate: ReleaseGate | null
   deliveredRecently: number
 }
 
@@ -44,9 +62,11 @@ interface CardReading {
   at: string | null
 }
 
-interface ItemRow {
-  plan_id: string
-  cards: string
+interface ReleaseRow {
+  id: string
+  title: string
+  goal: string
+  gate: string | null
 }
 
 const CARD_READINGS = `
@@ -57,6 +77,12 @@ const CARD_READINGS = `
     LEFT JOIN card_bodies AS bodies ON bodies.card_id = cards.card_id
     LEFT JOIN events AS own ON own.id = cards.event_id
     LEFT JOIN events AS merge ON merge.id = prs.event_id AND prs.state = '${MERGED}'
+`
+
+const RELEASE_MEMBERS = `
+  SELECT card_releases.card_id AS card, card_releases.release FROM card_releases
+  JOIN plans ON plans.plan_id = card_releases.release
+  WHERE plans.state = ? ORDER BY card_releases.card_id
 `
 
 function markOf(row: CardRow): CardMark {
@@ -76,32 +102,23 @@ function cardReadings(db: BusDb): Map<number, CardReading> {
   return new Map(rows.map(row => [Number(row.id), { mark: markOf(row), at: row.at }] as const))
 }
 
-function stageOf(cards: readonly CardReading[]): ItemStage {
-  const live = cards.filter(card => card.mark !== 'dropped')
-  const open = live.filter(card => card.mark !== 'delivered')
-  if (live.length === 0)
-    return 'not_created'
-  if (open.length === 0)
-    return 'delivered'
-  if (open.every(card => card.mark === 'review'))
-    return 'review'
-  return live.some(card => card.mark !== 'queued') ? 'in_progress' : 'queued'
+function gateOf(word: string | null, remainder: number): ReleaseGate | null {
+  return word === null ? null : { word, status: remainder === 0 ? GATE_DUE : GATE_OPEN }
 }
 
-function deliveredAt(cards: readonly CardReading[]): number {
-  return Math.max(...cards.filter(card => card.mark === 'delivered').map(card => Date.parse(card.at ?? '')))
-}
-
-function progressOf(plan: { id: string, title: string, goal: string }, items: readonly CardReading[][], now: Date): PlanProgress {
-  const stages = Object.fromEntries(ITEM_STAGES.map(stage => [stage, 0])) as Record<ItemStage, number>
+function progressOf(release: ReleaseRow, cards: readonly (readonly [number, CardReading])[], now: Date): PlanProgress {
+  const stages = Object.fromEntries(RELEASE_STAGES.map(stage => [stage, 0])) as Record<ReleaseStage, number>
   let deliveredRecently = 0
-  for (const cards of items) {
-    const stage = stageOf(cards)
-    stages[stage] += 1
-    if (stage === 'delivered' && now.getTime() - deliveredAt(cards) <= RECENT_HOURS * HOUR_MS)
+  for (const [, reading] of cards) {
+    if (reading.mark === DROPPED)
+      continue
+    stages[reading.mark] += 1
+    if (reading.mark === 'delivered' && now.getTime() - Date.parse(reading.at ?? '') <= RECENT_HOURS * HOUR_MS)
       deliveredRecently += 1
   }
-  return { ...plan, delivered: stages.delivered, total: items.length, stages, deliveredRecently }
+  const total = RELEASE_STAGES.reduce((sum, stage) => sum + stages[stage], 0)
+  const remainder = total - stages.delivered
+  return { id: release.id, title: release.title, goal: release.goal, delivered: stages.delivered, total, remainder, stages, cards: cards.map(([card, reading]) => ({ card, mark: reading.mark })), gate: gateOf(release.gate, remainder), deliveredRecently }
 }
 
 function backlogOf(db: BusDb, readings: Map<number, CardReading>, planned: Set<number>): number {
@@ -112,36 +129,41 @@ function backlogOf(db: BusDb, readings: Map<number, CardReading>, planned: Set<n
   }).length
 }
 
-function holdsPlans(db: BusDb): boolean {
-  return db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'plans'`).get() !== undefined
+function holdsReleases(db: BusDb): boolean {
+  return db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('plans', 'card_releases')`).all().length === 2
 }
 
 export function goalOf(db: BusDb, now: Date = new Date()): Goal | null {
-  if (!holdsPlans(db))
+  if (!holdsReleases(db))
     return null
-  const plans = db.prepare('SELECT plan_id AS id, title, goal FROM plans WHERE state = ? ORDER BY event_id').all(OPEN_PLAN) as unknown as { id: string, title: string, goal: string }[]
-  if (plans.length === 0)
+  const releases = db.prepare('SELECT plan_id AS id, title, goal, gate FROM plans WHERE state = ? ORDER BY plan_id').all(OPEN_PLAN) as unknown as ReleaseRow[]
+  if (releases.length === 0)
     return null
-  const items = db.prepare('SELECT plan_items.plan_id, plan_items.cards FROM plan_items JOIN plans ON plans.plan_id = plan_items.plan_id WHERE plans.state = ? ORDER BY plan_items.item_id').all(OPEN_PLAN) as unknown as ItemRow[]
+  const members = (db.prepare(RELEASE_MEMBERS).all(OPEN_PLAN) as unknown as { card: number, release: string }[]).map(member => ({ card: Number(member.card), release: member.release }))
   const readings = cardReadings(db)
-  const linked = items.map(item => ({ plan: item.plan_id, cards: JSON.parse(item.cards) as number[] }))
   const reading = (card: number): CardReading => readings.get(card) ?? { mark: 'queued', at: null }
   return {
-    plans: plans.map(plan => progressOf(plan, linked.filter(item => item.plan === plan.id).map(item => item.cards.map(reading)), now)),
-    backlog: backlogOf(db, readings, new Set(linked.flatMap(item => item.cards))),
+    plans: releases.map(release => progressOf(release, members.filter(member => member.release === release.id).map(member => [member.card, reading(member.card)] as const), now)),
+    backlog: backlogOf(db, readings, new Set(members.map(member => member.card))),
   }
 }
 
-function itemStageWord(stage: ItemStage): string {
-  return stage.replace('_', ' ')
+function gateWords(gate: ReleaseGate | null): string {
+  return gate === null ? 'gate: not set' : `gate ${gate.word}: ${gate.status}`
 }
 
 export function planLine(plan: PlanProgress, backlog: number): string {
   return [
-    `${plan.title}: delivered ${plan.delivered} of ${plan.total}`,
-    ...BY_STAGE.map(stage => `${itemStageWord(stage)} ${plan.stages[stage]}`),
-    `slices without cards: ${plan.stages.not_created}`,
+    `${plan.title}: ${MARK_WORDS.delivered} ${plan.delivered} of ${plan.total}`,
+    ...LINE_STAGES.map(stage => `${MARK_WORDS[stage]} ${plan.stages[stage]}`),
+    `remainder ${plan.remainder}`,
+    gateWords(plan.gate),
     `+${plan.deliveredRecently} in ${RECENT_HOURS} h`,
     `backlog: ${backlog}`,
   ].join(' · ')
+}
+
+export function droppedLine(plan: PlanProgress, lore: Lore): string | null {
+  const dropped = plan.cards.filter(card => card.mark === DROPPED)
+  return dropped.length === 0 ? null : lore.boardReleaseDropped(dropped.map(card => `#${card.card}`))
 }

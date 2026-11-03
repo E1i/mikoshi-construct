@@ -8,14 +8,14 @@ import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busFacts, busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
-import { ITEM_STAGES, planLine } from '../../../src/commands/board/goal.js'
+import { planLine, RELEASE_STAGES } from '../../../src/commands/board/goal.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
 import { backlogCards } from '../../../src/commands/board/screens.js'
 import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, ITEM_PROGRESS_ORDER, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
 import { defaultBusPath } from '../../core/db.js'
 import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { nodeProcess } from '../../core/node.js'
@@ -609,17 +609,16 @@ describe('board.html', () => {
     }
   })
 
-  it('every card stage and every slice stage has its swatch colour, stopped and slices without cards hatched, and a bus with no open plan draws no goal', () => {
+  it('every card stage and every release stage has its swatch colour, stopped hatched, and a bus with no open plan draws no goal', () => {
     const html = pageText(seededBus())
     expect(slotsOf(html).get('goal')).toBe('')
     expect(slotsOf(html).get('flow')).toContain(`<span class="meta">${FLOW_META}</span>`)
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     const sw = /\n\.sw \{([\s\S]*?)\n\}/.exec(style)![1]!
-    for (const stage of [...CARD_STAGES, ...ITEM_STAGES])
+    for (const stage of [...CARD_STAGES, ...RELEASE_STAGES])
       expect(sw, stage).toContain(`&[data-stage="${stage}"]`)
-    expect(new Set(ITEM_PROGRESS_ORDER)).toEqual(new Set(ITEM_STAGES))
+    expect(new Set(RELEASE_PROGRESS_ORDER)).toEqual(new Set(RELEASE_STAGES))
     expect(sw).toMatch(/&\[data-stage="stopped"\] \{[^}]*--_paint: repeating-linear-gradient\(135deg/)
-    expect(sw).toMatch(/&\[data-stage="not_created"\] \{[^}]*--_paint: repeating-linear-gradient\(135deg/)
   })
 
   function busOf(seed: BusSeed): string {

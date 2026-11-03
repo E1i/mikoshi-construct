@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { printBoard } from '../../scripts/cli/board-page.js'
 import { appendEvent, openBus } from '../../scripts/core/db.js'
-import { CARD_MOVED, LANE_ASSIGNED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../scripts/core/events.js'
+import { CARD_MOVED, CARD_PLANNED, LANE_ASSIGNED, PLAN_OPENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../scripts/core/events.js'
 import { OWNER } from '../../scripts/core/inbox.js'
 import { PLAN_FOLDS } from '../../scripts/core/reducer.js'
 import { STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
@@ -96,9 +96,9 @@ function greeting(template: string, busFile: string): string {
   return run.stdout === '' ? '' : (JSON.parse(run.stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext
 }
 
-function planEvent(db: DatabaseSync, type: string, payload: Record<string, unknown>): void {
-  const dedupeKey = `${type}:${JSON.stringify(payload)}`
-  appendEvent(db, { ts: NOW.toISOString(), type, actor: OWNER, cardId: null, pr: null, head: null, dedupeKey, payload, legacy: false })
+function planEvent(db: DatabaseSync, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
+  const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
+  appendEvent(db, { ts: NOW.toISOString(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
   PLAN_FOLDS[type]!(db, db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(storedByKey(db, dedupeKey).id) as unknown as StoredEvent)
 }
 
@@ -207,11 +207,9 @@ describe('the board tells the truth and hints', () => {
       seedCard(db, 1368, 'superseded')
       seedCard(db, 1371, 'lane-21')
       planEvent(db, PLAN_OPENED, { id: 'p-046', title: 'Plan 0.46', goal: 'the board tells the truth', plan_file: '/plans/0.46.md' })
-      for (const [item, card] of [['S1', 1368], ['S2', 1371]] as const) {
-        planEvent(db, PLAN_ITEM_ADDED, { plan: 'p-046', item, title: `slice ${item}` })
-        planEvent(db, PLAN_ITEM_LINKED, { plan: 'p-046', item, card })
-      }
-      expect(goalOf(db, NOW)!.plans[0]!.stages).toMatchObject({ queued: 1, not_created: 1 })
+      for (const card of [1368, 1371])
+        planEvent(db, CARD_PLANNED, { release: 'p-046' }, card)
+      expect(goalOf(db, NOW)!.plans[0]).toMatchObject({ total: 1, remainder: 1, stages: { queued: 1 }, cards: [{ card: 1368, mark: 'dropped' }, { card: 1371, mark: 'queued' }] })
     }
     finally {
       db.close()
@@ -225,10 +223,9 @@ describe('the board tells the truth and hints', () => {
       const flow = (): string[] => boardScreens(factsOf(db.location()!), PLAIN_LORE).screens[0]!.lines
       expect(flow()[0]).toMatch(/^plan not registered · /)
       planEvent(db, PLAN_OPENED, { id: 'p-046', title: 'Plan 0.46', goal: 'the board tells the truth', plan_file: '/plans/0.46.md' })
-      planEvent(db, PLAN_ITEM_ADDED, { plan: 'p-046', item: 'S1', title: 'slice S1' })
-      planEvent(db, PLAN_ITEM_LINKED, { plan: 'p-046', item: 'S1', card: 1404 })
+      planEvent(db, CARD_PLANNED, { release: 'p-046' }, 1404)
       const [first] = flow()
-      expect(first).toMatch(/^\[░{10}\] Plan 0\.46: delivered 0 of 1/)
+      expect(first).toMatch(/^\[░{10}\] Plan 0\.46: merged 0 of 1/)
       expect(flow()).not.toContain(expect.stringContaining('plan not registered'))
     }
     finally {
