@@ -793,4 +793,30 @@ describe('the plan journal', () => {
     expect(db.prepare('SELECT state FROM plans').all()).toEqual([{ state: 'closed' }])
     db.close()
   })
+
+  it('card.planned and card.unplanned move one card into and out of an open release, and a replay rebuilds the same rows', () => {
+    const db = busWith(
+      plan('plan.opened', { id: 'p-045', title: 'Plan 0.45', goal: 'g', plan_file: '/plans/0.45.md', gate: 'VEDETIRUN' }),
+      event('card.planned', { actor: 'owner', cardId: 901, payload: { release: 'p-045', card: 901 } }),
+      event('card.planned', { actor: 'owner', cardId: 902, payload: { release: 'p-045', card: 902 } }),
+      event('card.planned', { actor: 'owner', cardId: 902, payload: { release: 'p-045', card: 902 } }),
+      event('card.planned', { actor: 'owner', cardId: 903, payload: { release: 'p-999', card: 903 } }),
+      event('card.planned', { actor: 'netwatch', cardId: 904, payload: { release: 'p-045', card: 904 } }),
+      event('card.unplanned', { actor: 'owner', cardId: 902, payload: { card: 902 } }),
+      event('card.unplanned', { actor: 'owner', cardId: 902, payload: { card: 902 } }),
+    )
+    expect(reduce(db)).toEqual({ applied: 4, rejected: 4 })
+    expect(rejections(db).map(row => (row.payload as { reason: string }).reason)).toEqual([
+      'card 902 is already in release p-045',
+      'plan p-999 is not open',
+      'card.planned is the owner\'s, not netwatch\'s',
+      'card 902 is in no release',
+    ])
+    const rows = (): unknown => [db.prepare('SELECT plan_id, gate FROM plans').all(), db.prepare('SELECT card_id, release FROM card_releases ORDER BY card_id').all()]
+    expect(rows()).toEqual([[{ plan_id: 'p-045', gate: 'VEDETIRUN' }], [{ card_id: 901, release: 'p-045' }]])
+    const first = rows()
+    reduce(db)
+    expect(rows()).toEqual(first)
+    db.close()
+  })
 })

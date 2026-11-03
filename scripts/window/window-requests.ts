@@ -10,10 +10,9 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { sliceTableItems } from '../../src/commands/intake/check.js'
 import { FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, FACTORY_MODE, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
+import { BOARD_ALARM, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_UNPLANNED, FACTORY_MODE, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
@@ -28,9 +27,9 @@ import { activeDecisionsShard, decisionsInForceAt, ownersOfAStop } from '../poli
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
 
 export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release'] as const
-export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', PLAN_ITEM_ADDED], ['link', PLAN_ITEM_LINKED], ['remove', PLAN_ITEM_REMOVED], ['close', PLAN_CLOSED]])
-const PLAN_FLAGS = ['op', 'plan', 'item', 'title', 'goal', 'file', 'card'] as const
-const PLAN_FILE = `SELECT json_extract(payload, '$.plan_file') AS plan_file FROM events WHERE type = '${PLAN_OPENED}' AND legacy = 0 AND actor = 'owner' AND json_extract(payload, '$.id') = ? ORDER BY id LIMIT 1`
+export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
+const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
+const LINKED_CARDS = 'SELECT cards FROM plan_items WHERE plan_id = ? ORDER BY item_id'
 export const ANSWER_SOURCE = 'answer'
 const DECISION_FLAGS: ReadonlyMap<string, string> = new Map([['--card', 'cards'], ['--supersedes', 'supersedes'], ['--until', 'until'], ['--from', 'from']])
 export const WINDOW_ACTOR = 'worker:window:'
@@ -38,7 +37,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} --plan <id> [--item <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N>`
 
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -375,19 +374,20 @@ export class WindowRequests {
   private plan(request: number, payload: Record<string, unknown>): Executed {
     const type = PLAN_OPS.get(String(payload.op))
     const plan = text(payload.plan)
-    if (type === undefined || plan === null)
-      return { done: false, why: `plan needs --op ${[...PLAN_OPS.keys()].join('|')} and a --plan id` }
-    const event = this.planEventPayload(type, plan, payload)
+    if (type === undefined || (plan === null && type !== CARD_UNPLANNED))
+      return { done: false, why: `plan needs --op ${[...PLAN_OPS.keys()].join('|')} and a --plan id; remove needs only the --card` }
+    const event = this.planEventPayload(type, plan ?? '', payload)
     if (typeof event === 'string')
       return { done: false, why: event }
-    appendEvent(this.db, { ts: this.clock().toISOString(), type, actor: OWNER, cardId: cardIdOf(event.card), pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { ...event, request }, legacy: false })
-    return { done: true, why: `${type} ${plan}${event.item === undefined ? '' : ` item ${String(event.item)}`}` }
+    const cardId = cardIdOf(payload.card)
+    appendEvent(this.db, { ts: this.clock().toISOString(), type, actor: OWNER, cardId: type === CARD_PLANNED || type === CARD_UNPLANNED ? cardId : null, pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { ...event, request }, legacy: false })
+    return { done: true, why: `${type}${plan === null ? '' : ` ${plan}`}${cardId === null ? '' : ` #${cardId}`}` }
   }
 
   private planEventPayload(type: string, plan: string, payload: Record<string, unknown>): Record<string, unknown> | string {
-    const item = text(payload.item)
-    const title = text(payload.title)
+    const gate = text(payload.gate)
     if (type === PLAN_OPENED) {
+      const title = text(payload.title)
       const file = text(payload.file)
       const goal = text(payload.goal)
       if (title === null || goal === null || file === null || !path.isAbsolute(file) || !existsSync(file))
@@ -395,24 +395,20 @@ export class WindowRequests {
       const version = this.releaseVersion()
       if (version === null)
         return `${type} could not fetch and read the version changesets will release from ${MAIN_REF} and ${VERSION_PR_REF}`
-      return { id: plan, title, goal, plan_file: file, version }
+      return { id: plan, title, goal, plan_file: file, version, ...(gate === null ? {} : { gate }) }
     }
     if (type === PLAN_CLOSED)
       return { plan }
-    if (item === null)
-      return `${type} needs an --item`
-    if (type === PLAN_ITEM_REMOVED)
-      return { plan, item }
-    if (type === PLAN_ITEM_LINKED) {
-      const card = cardIdOf(payload.card)
-      return card === null ? `${type} needs a --card` : { plan, item, card }
+    if (type === PLAN_BACKFILLED) {
+      const cards = linkedCards(this.db, plan)
+      if (gate === null || cards.length === 0)
+        return `${type} needs a --gate and a plan whose items link cards`
+      return { plan, gate, cards }
     }
-    const file = (this.db.prepare(PLAN_FILE).get(plan) as { plan_file: string } | undefined)?.plan_file
-    if (file === undefined)
-      return `plan ${plan} was never opened`
-    if (title === null)
-      return `${type} needs a --title`
-    return sliceItemsOf(file).includes(item) ? { plan, item, title } : `item ${item} has no row in the slice table of ${file}`
+    const card = cardIdOf(payload.card)
+    if (card === null)
+      return `${type} needs a --card`
+    return type === CARD_PLANNED ? { release: plan, card } : { card }
   }
 
   private appendRequeue(ts: string, request: number, task: TaskRow): void {
@@ -464,8 +460,9 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function sliceItemsOf(file: string): string[] {
-  return existsSync(file) ? sliceTableItems(readFileSync(file, 'utf8')) : []
+function linkedCards(db: DatabaseSync, plan: string): number[] {
+  const items = db.prepare(LINKED_CARDS).all(plan) as { cards: string }[]
+  return [...new Set(items.flatMap(item => JSON.parse(item.cards) as number[]))].sort((a, b) => a - b)
 }
 
 function flag(argv: readonly string[], name: string): string | undefined {

@@ -139,6 +139,12 @@ CREATE TABLE IF NOT EXISTS plans (
   goal TEXT NOT NULL,
   plan_file TEXT NOT NULL,
   state TEXT NOT NULL,
+  event_id INTEGER NOT NULL REFERENCES events(id),
+  gate TEXT
+);
+CREATE TABLE IF NOT EXISTS card_releases (
+  card_id INTEGER PRIMARY KEY,
+  release TEXT NOT NULL,
   event_id INTEGER NOT NULL REFERENCES events(id)
 );
 CREATE TABLE IF NOT EXISTS plan_items (
@@ -159,7 +165,7 @@ CREATE TABLE IF NOT EXISTS node_cursors (
 );
 `
 
-const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT']]
+const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT'], ['plans', 'gate', 'TEXT']]
 
 function addMissingColumns(db: DatabaseSync): void {
   for (const [table, column, type] of ADDED_COLUMNS) {
