@@ -355,6 +355,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   boardNoServices: string
   boardHint: (who: string, command: string) => string
   boardNoPlan: (hint: string) => string
+  boardReleaseDropped: (cards: string[]) => string
   boardFlowEmpty: (hint: string) => string
   boardFooter: (agents: number, failure: string | undefined, queue: number) => string
   boardBusAbsent: (file: string) => string
@@ -809,6 +810,7 @@ export const LORE: Lore = {
   boardNoServices: 'no session is running',
   boardHint: (who: string, command: string) => `${who} runs: ${command}`,
   boardNoPlan: (hint: string) => `plan not registered \u00B7 ${hint}`,
+  boardReleaseDropped: (cards: string[]) => `dropped ${cards.length}: ${cards.join(', ')}`,
   boardFlowEmpty: (hint: string) => `nothing in the flow \u00B7 ${hint}`,
   boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
   boardBusAbsent: (file: string) => `bus ${file}: absent`,
@@ -1241,6 +1243,7 @@ export const PLAIN_LORE: Lore = {
   boardNoServices: 'no session is running',
   boardHint: (who: string, command: string) => `${who} runs: ${command}`,
   boardNoPlan: (hint: string) => `plan not registered \u00B7 ${hint}`,
+  boardReleaseDropped: (cards: string[]) => `dropped ${cards.length}: ${cards.join(', ')}`,
   boardFlowEmpty: (hint: string) => `nothing in the flow \u00B7 ${hint}`,
   boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
   boardBusAbsent: (file: string) => `bus ${file}: absent`,

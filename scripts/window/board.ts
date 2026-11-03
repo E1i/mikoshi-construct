@@ -484,7 +484,7 @@ export function readBoard(sources: BoardSources): Board {
   const queue = projectedQueue(db)
   return {
     at: now.toISOString(),
-    goal: goalOf(db),
+    goal: goalOf(db, now),
     ...queue,
     lanes: laneBlock(chains),
     window: health.find(component => component.name === 'Operator')!,

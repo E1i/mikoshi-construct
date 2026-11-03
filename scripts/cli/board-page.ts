@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait } from '../../src/commands/board/bus.js'
-import type { ItemStage, PlanProgress } from '../../src/commands/board/goal.js'
+import type { CardMark, PlanProgress, ReleaseStage } from '../../src/commands/board/goal.js'
 import type { FactoryState } from '../../src/commands/liveness.js'
 import type { CardFields } from '../intake/card-contract.js'
 import type { InForceDecision } from '../policy/decisions.js'
@@ -11,7 +11,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
-import { planLine } from '../../src/commands/board/goal.js'
+import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
 import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
 import { factoryLiveness } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
@@ -23,6 +23,7 @@ import { cardContract } from '../intake/card-contract.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { BOARD_FILE, cardGauges, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
+import { planMarkdown } from '../window/plan-export.js'
 import { cardChain } from './card-chain.js'
 
 export const PREFIX = '[bus:board] '
@@ -101,6 +102,8 @@ const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
 const BOARD_DATA_PREFIX = 'window.BOARD = '
 const JSON_FLAG = '--json'
+const PLAN_FLAG = '--plan'
+const EXPORT_ORDER: readonly CardMark[] = ['delivered', 'in_progress', 'review', 'queued', DROPPED]
 const EVENTS_PER_CARD = 5
 const STALE_TICKS = 2
 const OWNER_STATUS = 'OWNER'
@@ -128,7 +131,7 @@ const LIST_ITEM = /^\s*[-*]\s+/
 const PUNCH_DIGITS = 16
 const SETTLED_STAGES: readonly CardStage[] = ['merged', 'dropped']
 export const PROGRESS_ORDER: readonly CardStage[] = ['merged', 'ready', 'answer/changes', 'review', 'in work', 'planned', 'stopped', 'dropped']
-export const ITEM_PROGRESS_ORDER: readonly ItemStage[] = ['delivered', 'review', 'in_progress', 'queued', 'not_created']
+export const RELEASE_PROGRESS_ORDER: readonly ReleaseStage[] = ['delivered', 'review', 'in_progress', 'queued']
 const WAIT_NEEDS: Record<OwnerWait['need'], string> = { decision: 'D', merge: 'M', command: 'C' }
 
 function positive(value: unknown): number | null {
@@ -297,7 +300,7 @@ function flowStages(facts: BusFacts): CardsAtStage[] {
   return inProgressOrder(shownStages(facts))
 }
 
-function swatch(stage: CardStage | ItemStage, count?: number): string {
+function swatch(stage: CardStage | ReleaseStage, count?: number): string {
   return `<i class="sw" data-stage="${escaped(stage)}"${count === undefined ? '' : ` style="--_n: ${count}" title="${escaped(stage)}: ${count}"`}></i>`
 }
 
@@ -307,9 +310,11 @@ function legendRow(entry: CardsAtStage, page: BoardPage): string {
 }
 
 function planBlock(plan: PlanProgress, backlog: number): string {
+  const dropped = droppedLine(plan, PLAIN_LORE)
   return [
-    `<div class="goal-top"><span class="goal-k">plan</span><span class="goal-name">${escaped(planLine(plan, backlog))}</span></div>`,
-    `<div class="bar" role="img" aria-label="Plan slices by stage">${ITEM_PROGRESS_ORDER.filter(stage => plan.stages[stage] > 0).map(stage => swatch(stage, plan.stages[stage])).join('')}</div>`,
+    `<div class="goal-top"><span class="goal-k">release</span><span class="goal-name">${escaped(planLine(plan, backlog))}</span></div>`,
+    `<div class="bar" role="img" aria-label="Release cards by stage">${RELEASE_PROGRESS_ORDER.filter(stage => plan.stages[stage] > 0).map(stage => swatch(stage, plan.stages[stage])).join('')}</div>`,
+    dropped === null ? '' : `<div class="goal-dropped">${escaped(dropped)}</div>`,
   ].join('')
 }
 
@@ -973,8 +978,8 @@ header.panel {
   &[data-stage="delivered"] { --_c: var(--ok); }
   &[data-stage="in_progress"] { --_c: var(--amber); }
   &[data-stage="queued"] { --_c: oklch(from var(--wire) calc(l - 0.3) calc(c * 0.5) h); }
-  &[data-stage="not_created"] { --_paint: repeating-linear-gradient(135deg, var(--_c) 0 2px, transparent 2px 5px); }
 }
+.goal-dropped { color: var(--dim); font: 400 0.6875rem var(--font-mono); }
 .waits:empty { display: none; }
 .down { display: grid; gap: var(--space-xs); padding: var(--space-s) var(--space-m); }
 .owner-strip {
@@ -1433,10 +1438,43 @@ export function printBoard(busPath: string, now: Date, write: (text: string) => 
   return 0
 }
 
+export function exportedPlan(db: DatabaseSync, release: string, now: Date): string | null {
+  const goal = goalOf(db, now)
+  const plan = goal?.plans.find(open => open.id === release)
+  if (goal === null || goal === undefined || plan === undefined)
+    return null
+  const sections = EXPORT_ORDER.map(mark => ({ heading: MARK_WORDS[mark], cards: plan.cards.filter(card => card.mark === mark).map(card => card.card) }))
+  return planMarkdown(db, { title: plan.title, goal: plan.goal, line: planLine(plan, goal.backlog), sections })
+}
+
+export function printPlan(busPath: string, release: string, now: Date, write: (text: string) => void): number {
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const text = exportedPlan(db, release, now)
+    if (text === null) {
+      console.error(`${PREFIX}release ${release} is not open in the bus`)
+      return 1
+    }
+    write(text)
+    return 0
+  }
+  finally {
+    db.close()
+  }
+}
+
 export function runBoardCli(busPath: string = defaultBusPath(), args: readonly string[] = process.argv.slice(2)): number {
   if (!existsSync(busPath)) {
     console.error(`${PREFIX}no bus database at ${busPath}`)
     return 1
+  }
+  if (args.includes(PLAN_FLAG)) {
+    const release = args[args.indexOf(PLAN_FLAG) + 1]
+    if (release === undefined) {
+      console.error(`${PREFIX}${PLAN_FLAG} takes the id of an open release`)
+      return 2
+    }
+    return printPlan(busPath, release, new Date(), text => process.stdout.write(text))
   }
   return printBoard(busPath, new Date(), text => process.stdout.write(text), HANDOFF_FILE, args.includes(JSON_FLAG) ? 'json' : 'html')
 }

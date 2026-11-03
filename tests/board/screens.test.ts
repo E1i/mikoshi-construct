@@ -14,8 +14,8 @@ function noFacts(overrides: Partial<BusFacts> = {}): BusFacts {
 }
 
 function plan(title: string, delivered: number, total: number): PlanProgress {
-  const withoutCards = total - delivered - 1
-  return { id: title, title, goal: 'a goal', delivered, total, stages: { not_created: withoutCards, queued: 1, in_progress: 0, review: 0, delivered }, deliveredRecently: 1 }
+  const queued = total - delivered
+  return { id: title, title, goal: 'a goal', delivered, total, remainder: queued, stages: { queued, in_progress: 0, review: 0, delivered }, cards: [], gate: { word: 'VEDETIRUN', status: 'open' }, deliveredRecently: 1 }
 }
 
 describe('the board screens', () => {
@@ -35,7 +35,7 @@ describe('the board screens', () => {
       { id: 'Q2', need: 'merge' as const, text: 'changes architecture/security-invariants.md', command: null, card: 12, pr: 669, since },
       { id: 'Q3', need: 'command' as const, text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since },
     ]
-    const goalLine = '[███░░░░░░░] Plan 0.45: delivered 2 of 7 · queued 1 · in progress 0 · review 0 · slices without cards: 4 · +1 in 24 h · backlog: 3'
+    const goalLine = '[███░░░░░░░] Plan 0.45: merged 2 of 7 · in work 0 · review 0 · queue 5 · remainder 5 · gate VEDETIRUN: open · +1 in 24 h · backlog: 3'
     expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path? · owner runs: pnpm decisions:add --card #10 "[owner] <decision>") · Q2 merge PR #669 (changes architecture/security-invariants.md · owner runs: gh pr merge 669) · Q3 command (the merge queue runs unswitched · owner runs: pnpm decisions:add "[owner] allow-live merge")'])
     expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'planned (0): —'])
     const backlog = [card(8, 'in_review', null, '#8 eight', 'review'), card(9, 'in_review', null, '#9 nine', 'answer/changes'), card(4, 'running', null, '#4 four', 'ready')]
