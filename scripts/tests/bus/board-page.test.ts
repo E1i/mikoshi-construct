@@ -683,10 +683,33 @@ describe('board.html', () => {
     const { contextLimit, sessionSpend } = readEddiesLimits()
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     const edd = /\n\.edd \{([\s\S]*?)\n\}/.exec(style)![1]!
-    expect(edd).toContain('flex-wrap: wrap;')
+    expect(edd).toContain('max-content')
     expect(style).toMatch(/\.edd-v \{[^}]*white-space: nowrap/)
     expect(html).toMatch(new RegExp(`<span class="edd-v">182k${contextLimit === null ? '' : '/\\d+(?:\\.\\d)?[kM]'}</span>`))
     expect(html).toMatch(new RegExp(`<span class="edd-v">3M${sessionSpend === null ? '' : '/\\d+(?:\\.\\d)?[kM]'}</span>`))
+  })
+
+  it('the board page lays out each eddies gauge as a three-column grid with a filled bar', () => {
+    const { contextLimit } = readEddiesLimits()
+    const html = pageText(seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 120_000 }) },
+    ]))
+    const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    const edd = /\n\.edd \{([\s\S]*?)\n\}/.exec(style)![1]!
+    expect(edd).toContain('display: grid;')
+    expect(edd).not.toContain('flex')
+    expect(edd).toMatch(/grid-template-columns: \S+ minmax\(0, 1fr\) max-content;/)
+    expect(edd).toContain('column-gap: var(--space-s);')
+    expect(edd).toContain('min-inline-size: 0;')
+    const bar = /\n\.edd-bar \{([\s\S]*?)\n\}/.exec(style)![1]!
+    expect(bar).toContain('min-inline-size: 0;')
+    expect(bar).not.toContain('flex')
+    expect(style).toMatch(/\.edd-v \{[^}]*justify-self: end/)
+    const gaugeRules = [edd, bar, /\.edd-k \{[^}]*\}/.exec(style)![0], /\.edd-v \{[^}]*\}/.exec(style)![0]]
+    for (const rule of gaugeRules)
+      expect(rule.replace(/^\s*--[\w-]+:.*$/gm, '')).not.toMatch(/\d(?:\.\d+)?rem/)
+    if (contextLimit !== null)
+      expect(html).toMatch(/<div class="edd"[^>]*><span class="edd-k">ctx<\/span><span class="edd-bar" style="--_fill: \d+%/)
   })
 
   it('a pull request number in prose stays text and only a card number opens its card', () => {

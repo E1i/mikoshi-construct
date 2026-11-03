@@ -181,9 +181,8 @@ describe('the board tells the truth and hints', () => {
       expect(reading).toMatch(/^(?:182k|3M)(?:\/\d+(?:\.\d)?[kM])?$/)
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     const edd = /\n\.edd \{([\s\S]*?)\n\}/.exec(style)![1]!
-    expect(edd).toContain('flex-wrap: wrap;')
+    expect(edd).toMatch(/grid-template-columns: \S+ minmax\(0, 1fr\) max-content;/)
     expect(style).toMatch(/\.edd-v \{[^}]*white-space: nowrap/)
-    expect(style).toMatch(/\.edd-k \{[^}]*flex: 0 0/)
     expect(style).not.toMatch(/text-overflow|overflow: hidden/)
   })
 
