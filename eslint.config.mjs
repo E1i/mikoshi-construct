@@ -26,6 +26,7 @@ const ALLOWED_FACTORY_IMPORTS = {
   'src/card': ['core/factory-paths.js'],
   'src/commands': CORE_FILES_SRC_MAY_IMPORT,
   'src/commands/doctor': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/live-decision.js'],
+  'src/commands/intake': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js'],
   'src/program.ts': [...CORE_FILES_SRC_MAY_IMPORT, 'owner/channel.js'],
 }
 
@@ -69,6 +70,15 @@ const doctorReadsThroughOneReader = {
     'no-restricted-imports': ['error', {
       patterns: [dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns[0], factoryReach('src/commands/doctor')],
       paths: [{ name: 'node:fs', importNames: ['readFileSync', 'readdirSync'], message: READS_GO_THROUGH_ONE_READER }],
+    }],
+  },
+}
+
+const intakeReadsDecisionsThroughTheirParser = {
+  files: ['src/commands/intake/**'],
+  rules: {
+    'no-restricted-imports': ['error', {
+      patterns: [dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns[0], factoryReach('src/commands/intake')],
     }],
   },
 }
@@ -205,6 +215,7 @@ export default antfu(
   },
   ...dependencyBoundaries,
   doctorReadsThroughOneReader,
+  intakeReadsDecisionsThroughTheirParser,
   attachDecidesWithoutTheStack,
   spawnPolicy,
   thePnpmProbeMaySpawnAndNothingElse,
