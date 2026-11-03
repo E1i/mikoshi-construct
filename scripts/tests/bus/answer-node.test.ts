@@ -403,6 +403,58 @@ describe('the answer node', () => {
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', worktree: path.join(trees, 'mc-905'), resumed: true, source: 'question', from: sha('a'), to: sha('e'), minutes: 7.5, tokens: 48_200 }])
   })
 
+  it('card.answered carries the step durations of the round: lease, tree, spawn, first turn, gate and push', async () => {
+    const made = bench()
+    const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
+    const worktree = path.join(trees, 'mc-905')
+    writeFileSync(path.join(worktree, 'pnpm-lock.yaml'), '')
+    writeFileSync(path.join(worktree, 'construct.json'), `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: ['pnpm typecheck', 'pnpm lint', PREPUSH_COMMAND] } })}\n`)
+    const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const seconds = (count: number): void => made.clock.advance(count * 1_000)
+    const round = sha('b')
+    const bashUse = (id: string, command: string): string => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } })
+    const bashResult = (id: string): string => JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } })
+    const heads = [sha('a'), sha('e')]
+    let allowed: unknown = null
+    const answerer = claudeAnswerer(path.join(trees, 'answers'), {
+      cardText: () => null,
+      available: () => true,
+      remoteHead: () => heads.shift() ?? null,
+      localHead: () => round,
+      now: () => made.clock.now().getTime(),
+      spawn: async (run) => {
+        allowed = JSON.parse(run.argv[run.argv.indexOf('--settings') + 1]!).permissions.allow
+        const lines: [number, string][] = [
+          [4, JSON.stringify({ type: 'system', subtype: 'init' })],
+          [11, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'reading the card' }] } })],
+          [60, bashUse('t1', `${PREPUSH_COMMAND} --round ${round}`)],
+          [25, bashResult('t1')],
+          [3, bashUse('t2', 'pnpm typecheck')],
+          [13, bashResult('t2')],
+          [2, bashUse('t3', 'git status')],
+          [40, bashResult('t3')],
+          [1, JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })],
+        ]
+        for (const [after, line] of lines) {
+          seconds(after)
+          run.onLine?.(line)
+        }
+        writeFileSync(run.stdoutPath, `${lines.map(([, line]) => line).join('\n')}\n`)
+        return 0
+      },
+      newSession: () => 'new-session-1',
+      publish: () => seconds(9),
+    })
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, liveSession: () => {
+      seconds(2)
+      return null
+    }, prepare: () => seconds(48) })
+
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
+    expect(allowed).toEqual(['Bash(pnpm typecheck)', `Bash(${PREPUSH_COMMAND} --round ${round})`, `Edit(/${worktree}/**)`, expect.stringMatching(/\.owner\.txt\)$/)])
+    expect(eventsOf(made.db, CARD_ANSWERED)).toMatchObject([{ steps: { lease: 2, tree: 48, spawn: 4, first_turn: 11, gate: 38, push: 9 } }])
+  })
+
   it('a session that exits on the context threshold with no new head is retried once in a new session', async () => {
     const made = bench()
     const { trees, lease } = questionUnderShard(made, made.clock.now(), null)

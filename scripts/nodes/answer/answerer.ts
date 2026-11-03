@@ -7,11 +7,12 @@ import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
+import { roundGate } from '../../ci/prepush.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
@@ -51,6 +52,7 @@ export interface Answered {
   owner: string | null
   tokens?: number | null
   input?: AnswerInput
+  steps?: StepSeconds
 }
 
 const USAGE_TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']
@@ -71,6 +73,7 @@ export interface AnswerRun {
   stderrPath: string
   env: NodeJS.ProcessEnv
   signal?: AbortSignal
+  onLine?: (line: string) => void
 }
 
 export type CardText = (cardId: number) => string | null
@@ -92,6 +95,8 @@ export interface AnswererTools {
   pending?: (card: CardSession) => string[]
   coverage?: (card: CardSession) => ReturnType<typeof worktreeCoverage>
   followed?: (lease: Lease, paths: readonly string[]) => void
+  localHead?: (card: CardSession) => string | null
+  now?: () => number
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -318,6 +323,19 @@ export function answerPrompt(request: AnswerRequest, ownerQuestion: string, card
   ].join('\n')
 }
 
+function localHead(card: CardSession): string | null {
+  try {
+    return git(card.worktree, ['rev-parse', 'HEAD']).trim() || null
+  }
+  catch {
+    return null
+  }
+}
+
+export function roundGateOf(gate: ShiftGate, head: string | null): ShiftGate {
+  return head === null ? gate : { ...gate, prepush: roundGate(gate.prepush, head) }
+}
+
 function remoteHead(card: CardSession): string | null {
   try {
     const line = execFileSync('git', ['-C', card.worktree, 'ls-remote', 'origin', `refs/heads/${card.branch}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
@@ -451,15 +469,26 @@ function spawnClaude(run: AnswerRun): Promise<number> {
   const outFd = openSync(run.stdoutPath, 'w')
   const errFd = openSync(run.stderrPath, 'w')
   let closed = false
+  let partial = ''
   const closeOnce = (): void => {
     if (!closed) {
       closed = true
+      if (partial !== '')
+        run.onLine?.(partial)
       closeSync(outFd)
       closeSync(errFd)
     }
   }
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', outFd, errFd], signal: run.signal })
+    const child = spawn('claude', run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', 'pipe', errFd], signal: run.signal })
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk: string) => {
+      writeSync(outFd, chunk)
+      const lines = `${partial}${chunk}`.split('\n')
+      partial = lines.pop() ?? ''
+      for (const line of lines)
+        run.onLine?.(line)
+    })
     child.on('error', (error) => {
       closeOnce()
       reject(error)
@@ -469,6 +498,95 @@ function spawnClaude(run: AnswerRun): Promise<number> {
       resolve(code ?? 1)
     })
   })
+}
+
+export interface StepSeconds {
+  lease?: number
+  tree?: number
+  spawn: number | null
+  first_turn: number | null
+  gate: number | null
+  push: number | null
+}
+
+const MS_PER_TENTH = 100
+
+export function secondsOf(ms: number): number {
+  return Math.round(ms / MS_PER_TENTH) / 10
+}
+
+interface StreamBlock { type?: unknown, id?: unknown, name?: unknown, input?: { command?: unknown }, tool_use_id?: unknown }
+
+function blocksOf(line: string): { type: unknown, blocks: StreamBlock[] } | null {
+  try {
+    const parsed = JSON.parse(line) as { type?: unknown, message?: { content?: unknown } } | null
+    if (parsed === null || typeof parsed !== 'object')
+      return null
+    const content = parsed.message?.content
+    return { type: parsed.type, blocks: Array.isArray(content) ? content.filter((block): block is StreamBlock => block !== null && typeof block === 'object') : [] }
+  }
+  catch {
+    return null
+  }
+}
+
+export class RoundTimer {
+  private spawned: number | null = null
+  private firstLine: number | null = null
+  private firstTurn: number | null = null
+  private gateMs: number | null = null
+  private pushMs: number | null = null
+  private readonly running = new Map<string, number>()
+
+  constructor(private readonly now: () => number, private readonly gate: readonly string[]) {}
+
+  spawning(): void {
+    this.spawned ??= this.now()
+  }
+
+  line(text: string): void {
+    const at = this.now()
+    const read = blocksOf(text)
+    if (read === null)
+      return
+    this.firstLine ??= at
+    if (read.type === 'assistant') {
+      this.firstTurn ??= at
+      for (const block of read.blocks.filter(each => each.type === 'tool_use' && typeof each.id === 'string' && this.runsTheGate(each.input?.command)))
+        this.running.set(block.id as string, at)
+    }
+    for (const block of read.blocks.filter(each => each.type === 'tool_result' && typeof each.tool_use_id === 'string')) {
+      const started = this.running.get(block.tool_use_id as string)
+      if (started !== undefined) {
+        this.running.delete(block.tool_use_id as string)
+        this.gateMs = (this.gateMs ?? 0) + at - started
+      }
+    }
+  }
+
+  pushing<T>(push: () => T): T {
+    const started = this.now()
+    try {
+      return push()
+    }
+    finally {
+      this.pushMs = (this.pushMs ?? 0) + this.now() - started
+    }
+  }
+
+  steps(): StepSeconds {
+    const between = (from: number | null, to: number | null): number | null => from === null || to === null ? null : secondsOf(to - from)
+    return {
+      spawn: between(this.spawned, this.firstLine),
+      first_turn: between(this.firstLine, this.firstTurn),
+      gate: this.gateMs === null ? null : secondsOf(this.gateMs),
+      push: this.pushMs === null ? null : secondsOf(this.pushMs),
+    }
+  }
+
+  private runsTheGate(command: unknown): boolean {
+    return typeof command === 'string' && this.gate.some(each => command.trim().startsWith(each))
+  }
 }
 
 export class CardTreeGone extends Error {
@@ -502,6 +620,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     cardText: busCardBodies(busPath),
     available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
     remoteHead,
+    localHead,
     spawn: spawnClaude,
     newSession: randomUUID,
     publish: publishTree,
@@ -531,7 +650,8 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const cardBody = tools.cardText(request.lease.cardId)
-    const gate = readShiftGate(card.worktree)
+    const gate = roundGateOf(readShiftGate(card.worktree), tools.localHead?.(card) ?? null)
+    const timer = new RoundTimer(tools.now ?? Date.now, gate.prepush)
     const ciLog = failedChecksOf(request.source) !== null && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
     const prompt = answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog)
     const settings = settingsFlag(shiftSettings(card.worktree, gate, [ownerQuestion]))
@@ -555,6 +675,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const spawnUnlessWithdrawn = async (argv: string[], step: string): Promise<number> => {
       if (withdrawn.signal.aborted)
         return 1
+      timer.spawning()
       try {
         return await tools.spawn({
           cwd: card.worktree,
@@ -563,6 +684,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
           stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
           env: sessionEnv(process.env, request.lease.cardId),
           signal: withdrawn.signal,
+          onLine: line => timer.line(line),
         })
       }
       catch (error) {
@@ -593,7 +715,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     }
     const pushTree = (): FreshBaseGap | null => {
       const followed = followedOrRefused()
-      const gap = freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease)))
+      const gap = timer.pushing(() => freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease))))
       if (gap === null && followed.length > 0)
         tools.followed?.(request.lease, followed)
       return gap
@@ -613,6 +735,6 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const kept = tools.pushPolicy?.(card) === 'none'
     const owner = ownerAfter('') ?? (kept ? null : await publish())
     const measured = measuredOf(steps.map(stdoutOf))
-    return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody } }
+    return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps() }
   }
 }
