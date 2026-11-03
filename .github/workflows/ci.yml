@@ -158,7 +158,7 @@ jobs:
       - env:
           SELECTED_TESTS: ${{ needs.changes.outputs.full == 'false' && needs.changes.outputs.tests || '' }}
           PASS_WITH_NO_TESTS: ${{ needs.changes.outputs.full == 'false' && '--passWithNoTests' || '' }}
-        run: pnpm test --shard=${{ matrix.shard }}/4 $SELECTED_TESTS $PASS_WITH_NO_TESTS --retry=1 --reporter=default --reporter=blob
+        run: pnpm test --shard=${{ matrix.shard }}/4 $SELECTED_TESTS $PASS_WITH_NO_TESTS --retry=1 --reporter=default --reporter=github-actions --reporter=blob
       - uses: actions/upload-artifact@v7
         with:
           name: vitest-blob-${{ matrix.shard }}

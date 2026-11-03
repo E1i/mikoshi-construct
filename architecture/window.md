@@ -122,6 +122,10 @@ explicit new question from the owner). Review changes, red CI, a denied form tha
 cards are executor work, never OWNER; `pnpm handoff:write` refuses a draft whose last STATUS line is OWNER without a name
 from the list, names the list in the refusal, and writes nothing.
 
+A red CI is read through its annotations, never its job log, which GitHub serves from a host the sandbox keeps closed:
+each vitest shard reports through `--reporter=github-actions`, so `gh api repos/E1i/mikoshi-construct/check-runs/<id>/annotations`
+names every failing test and its file on the shard's own check run.
+
 No session starts a chain or an answer session itself, and never with an inline `nohup … &` or `nohup claude -p`,
 which the auto-mode classifier refuses as an unsafe agent (it refused an inline launch on 2026-10-08 and a chain waited
 for the owner): the bus launch node starts the `who: shift` cards from their admission, in their lane's order once
