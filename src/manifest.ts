@@ -1,6 +1,6 @@
 import type { FileOp } from './materialize/plan.js'
 import type { TemplateVariant } from './materialize/templates.js'
-import type { AiTarget, PresetId, ReviewProvider, TemplateVars, WorkspaceImports } from './presets/index.js'
+import type { AiTarget, PresetId, ReviewProvider, ServeRecord, TemplateVars, WorkspaceImports } from './presets/index.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -92,6 +92,7 @@ export interface Manifest {
   atlas?: AtlasRecord
   lanes?: number
   shift?: ShiftRecord
+  serve?: ServeRecord
 }
 
 export function sha256(content: string): string {
@@ -123,6 +124,7 @@ export function buildManifest(input: {
   previous: Manifest | null
   policy: WorkspaceImports | null
   lanes?: number
+  serve?: ServeRecord
 }): Manifest {
   const written: Record<string, string> = {}
   for (const op of input.written)
@@ -151,6 +153,7 @@ export function buildManifest(input: {
     sync: input.previous?.sync ?? null,
     policy: input.policy == null ? input.previous?.policy ?? null : { workspaceImports: input.policy },
     lanes: input.lanes ?? input.previous?.lanes,
+    serve: input.previous?.serve ?? input.serve,
   }
 }
 
@@ -233,6 +236,15 @@ function upgradeShift(raw: unknown): ShiftRecord | undefined {
   return { prepush, ...(handoffWrite === undefined ? {} : { handoffWrite }), ...(codeMatrix === undefined ? {} : { codeMatrix }) }
 }
 
+function upgradeServe(raw: unknown): ServeRecord | undefined {
+  const value = (raw ?? {}) as Partial<Record<keyof ServeRecord, unknown>>
+  const command = declaredText(value.command)
+  const url = declaredText(value.url)
+  if (command === undefined || url === undefined || !URL.canParse(url) || !isPositiveInteger(value.readyTimeoutMs))
+    return undefined
+  return { command, url, readyTimeoutMs: value.readyTimeoutMs }
+}
+
 export function shiftGateOf(manifest: Manifest | null): ShiftGate {
   const shift = manifest?.shift
   const fallback = manifest?.harness.command
@@ -243,8 +255,12 @@ export function shiftGateOf(manifest: Manifest | null): ShiftGate {
   }
 }
 
-export function isLaneCount(value: unknown): value is number {
+function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+export function isLaneCount(value: unknown): value is number {
+  return isPositiveInteger(value)
 }
 
 function declaredVersion(raw: unknown): number {
@@ -278,6 +294,7 @@ export function upgradeManifest(raw: unknown): Manifest {
     atlas: upgradeAtlas(manifest.atlas),
     lanes: isLaneCount(manifest.lanes) ? manifest.lanes : undefined,
     shift: upgradeShift(manifest.shift),
+    serve: upgradeServe(manifest.serve),
   }
 }
 
