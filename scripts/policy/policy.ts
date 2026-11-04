@@ -31,8 +31,9 @@ export type AuthorityRule
     | 'owner_without_shard'
     | 'r1'
     | 'no_matrix_count_line'
+    | 'unsandboxed_command'
 
-export const OWNER_MERGES_RULES: ReadonlySet<AuthorityRule> = new Set(['version_pr', 'no_shard_merge', 'owner_merges_unread', 'owner_by_risk', 'reserved', 'owner_without_shard', 'r1'])
+export const OWNER_MERGES_RULES: ReadonlySet<AuthorityRule> = new Set(['version_pr', 'no_shard_merge', 'owner_merges_unread', 'owner_by_risk', 'reserved', 'owner_without_shard', 'r1', 'unsandboxed_command'])
 
 export type AllowedRule = 'auto' | 'owner_under_shard' | 'owner_by_decision' | 'owner_after_round_limit'
 
@@ -40,12 +41,19 @@ export type MergeVerdict
   = | { kind: 'allowed', rule: AllowedRule, detail: string }
     | { kind: 'denied', rule: AuthorityRule, detail: string }
 
+export interface PatchedFile {
+  filename: string
+  patch?: string
+  additions?: number
+}
+
 export interface MergeFacts {
   cardId: number
   description: string
   headRef: string
   title: string
   files: readonly string[]
+  patched: readonly PatchedFile[]
   ownerMergesText: string
   shardActive: boolean
   shardUnder: number | null
@@ -133,12 +141,49 @@ function changesOwnerMerges(facts: MergeFacts): MergeVerdict | null {
     : null
 }
 
+const RUNS_NOTHING = /^(?:scripts\/tests|tests|e2e)\/|\.md$/
+const HUNK_START = /^(?=@@ )/m
+const EXCLUDED_COMMANDS = 'excludedCommands'
+const UNSANDBOXED_LINE_FORMS: readonly { form: string, line: RegExp }[] = [
+  { form: 'allowUnsandboxedCommands other than false', line: /allowUnsandboxedCommands(?!["']?\s*[:=]\s*false\b)/ },
+  { form: 'dangerouslyDisableSandbox', line: /dangerouslyDisableSandbox/ },
+  { form: 'an import of child_process', line: /child_process/ },
+  { form: 'a spawn call', line: /(?<![\w$.])(?:execFileSync|execFile|execSync|exec|spawnSync|spawn|fork)\(/ },
+]
+
+function unsandboxedFormIn(patch: string): string | undefined {
+  for (const hunk of patch.split(HUNK_START)) {
+    const added = hunk.split('\n').filter(line => line.startsWith('+'))
+    if (added.length === 0)
+      continue
+    if (hunk.includes(EXCLUDED_COMMANDS))
+      return EXCLUDED_COMMANDS
+    const found = UNSANDBOXED_LINE_FORMS.find(({ line }) => added.some(text => line.test(text)))
+    if (found !== undefined)
+      return found.form
+  }
+  return undefined
+}
+
+function unsandboxedCommand(facts: MergeFacts): MergeVerdict | null {
+  for (const { filename, patch, additions } of facts.patched) {
+    if (RUNS_NOTHING.test(filename))
+      continue
+    if (patch === undefined && additions !== 0)
+      return denied('unsandboxed_command', `GitHub gives no patch for ${filename}, so whether it adds a command outside the sandbox is unknown, and it stays the owner's`)
+    const form = patch === undefined ? undefined : unsandboxedFormIn(patch)
+    if (form !== undefined)
+      return denied('unsandboxed_command', `the diff of ${filename} adds ${form}: a command outside the sandbox stays the owner's under every shard and every decision`)
+  }
+  return null
+}
+
 function reserved(facts: MergeFacts): MergeVerdict | null {
   const kinds = readOwnerMergeKinds(facts.ownerMergesText)
   const releaseTitle = kinds.find(kind => kind.kind === RELEASE_KIND)?.title ?? null
   if (VERSION_BRANCH.test(facts.headRef) || (releaseTitle !== null && facts.title === releaseTitle))
     return denied('version_pr', `${facts.headRef} is a version pull request and stays the owner's`)
-  const ownersUnderEveryShard = reservedCardOf(facts) ?? changesOwnerMerges(facts) ?? noShardMerge(facts)
+  const ownersUnderEveryShard = reservedCardOf(facts) ?? changesOwnerMerges(facts) ?? noShardMerge(facts) ?? unsandboxedCommand(facts)
   if (ownersUnderEveryShard !== null || delegatedByShard(facts) !== null)
     return ownersUnderEveryShard
   if (facts.windowShard !== null)
