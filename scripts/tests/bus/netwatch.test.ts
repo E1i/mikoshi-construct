@@ -49,7 +49,7 @@ describe('netwatch', () => {
     const observed = events(db, 'pr.observed')
     expect(observed).toHaveLength(1)
     expect(observed[0]).toMatchObject({ pr: 900, card_id: 1000, head: sha('a') })
-    expect(observed[0]!.payload).toEqual({ card_id: 1000, base: 'main', head: sha('a'), mergeable: 'clean', ci: 'green', verdict_on_head: 'pass', auto_merge: false, draft: false, body_sha: prBodySha(cardBody(900)) })
+    expect(observed[0]!.payload).toEqual({ card_id: 1000, base: 'main', head: sha('a'), branch: 'feat/card-1000', mergeable: 'clean', ci: 'green', verdict_on_head: 'pass', auto_merge: false, draft: false, body_sha: prBodySha(cardBody(900)) })
     expect(observed[0]!.dedupe_key).toMatch(/^pr:900:[0-9a-f]{64}:-$/)
 
     gitHub.open({ number: 900, mergeable_state: 'behind', review: 'success' })
@@ -113,7 +113,7 @@ describe('netwatch', () => {
     gitHub.calls = []
     netWatch.poll()
     expect(gitHub.calls).toContain(`${REPO}/pulls/901`)
-    expect(events(db, 'pr.closed')).toEqual([{ pr: 901, card_id: 1001, head: null, dedupe_key: 'pr:901:closed', payload: { merged: true, commit: MAIN_2, merged_by: MERGER.login, merged_at: MERGER.at } }])
+    expect(events(db, 'pr.closed')).toEqual([{ pr: 901, card_id: 1001, head: null, dedupe_key: 'pr:901:closed', payload: { merged: true, branch: 'feat/card-1001', commit: MAIN_2, merged_by: MERGER.login, merged_at: MERGER.at } }])
 
     clock.advance(TICK_MS)
     gitHub.calls = []
@@ -235,7 +235,7 @@ describe('netwatch', () => {
     gitHub.main = MAIN_2
     clock.advance(WAKE_GAP_MS + TICK_MS)
     expect(netWatch.poll()).toMatchObject({ kind: 'ticked', reason: 'wake' })
-    expect(events(db, 'pr.closed').map(event => [event.pr, event.payload])).toEqual([[907, { merged: false }]])
+    expect(events(db, 'pr.closed').map(event => [event.pr, event.payload])).toEqual([[907, { merged: false, branch: 'feat/card-1007' }]])
     expect(events(db, 'pr.observed').map(event => [event.pr, event.head])).toEqual([[907, sha('a')], [908, sha('a')], [908, sha('c')], [909, sha('a')]])
     expect(events(db, 'main.advanced').map(event => event.payload.sha)).toEqual([MAIN_1, MAIN_2])
     expect(events(db, 'netwatch.tick').at(-1)!.payload).toMatchObject({ reason: 'wake', gap_s: (TICK_MS / 2 + WAKE_GAP_MS + TICK_MS) / 1000 })
