@@ -19,7 +19,7 @@ import { resolveTheme } from '../../src/ui/theme.js'
 import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
 import { appendCardEvent, cardBodyText, laid } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
@@ -150,6 +150,34 @@ export function isOpenRelease(db: DatabaseSync, release: string): boolean {
   return db.prepare(PLAN_OPENED_BEFORE).get(release) !== undefined && db.prepare(PLAN_CLOSED_BEFORE).get(release) === undefined
 }
 
+const LATEST_PLANNING_OF_CARD = `SELECT type, json_extract(payload, '$.release') AS release FROM events WHERE legacy = 0 AND card_id = ? AND type IN ('${CARD_PLANNED}', '${CARD_UNPLANNED}') ORDER BY id DESC LIMIT 1`
+
+function plannedRelease(db: DatabaseSync, cardId: number): unknown {
+  const latest = db.prepare(LATEST_PLANNING_OF_CARD).get(cardId) as { type: string, release: unknown } | undefined
+  return latest?.type === CARD_PLANNED ? latest.release : null
+}
+
+function releaseInBody(event: CardEvent): string | null {
+  const { text } = event.payload
+  if (typeof text !== 'string')
+    return null
+  const parsed = parseParkingFile(`${event.cardId}.md`, text)
+  return parsed.kind === 'parked' ? parsed.parked.release : null
+}
+
+function releaseToEnter(db: DatabaseSync, event: CardEvent, flagged: string | undefined, planned: string | undefined): string | undefined {
+  const named = releaseInBody(event)
+  if (named === null)
+    return flagged ?? planned
+  if (flagged !== undefined && flagged !== named)
+    throw new Error(`Refused: #${event.cardId} names release ${named} in its body and ${RELEASE_FLAG} names ${flagged}; keep one of them. Nothing was admitted.`)
+  if (plannedRelease(db, event.cardId) === named)
+    return undefined
+  if (!isOpenRelease(db, named))
+    throw new Error(`Refused: #${event.cardId} names release ${named} in its body, and that is no open release in the bus; open it with pnpm bus:request plan --op open first, or take the line out. Nothing was admitted.`)
+  return named
+}
+
 function registerPlan(db: DatabaseSync, event: CardEvent, release: string | undefined): void {
   if (event.type !== CARD_ADMITTED)
     return
@@ -157,7 +185,7 @@ function registerPlan(db: DatabaseSync, event: CardEvent, release: string | unde
   const recorded = { ts: event.ts, actor: OWNER, pr: null, head: null, legacy: false }
   if (plan !== null && db.prepare(PLAN_OPENED_BEFORE).get(plan.id) === undefined)
     appendEvent(db, { ...recorded, type: PLAN_OPENED, cardId: null, dedupeKey: `${PLAN_OPENED}:intake:${plan.id}`, payload: { id: plan.id, title: plan.title, goal: plan.goal, plan_file: plan.file } })
-  const into = release ?? plan?.id
+  const into = releaseToEnter(db, event, release, plan?.id)
   if (into !== undefined)
     appendEvent(db, { ...recorded, type: CARD_PLANNED, cardId: event.cardId, dedupeKey: `${CARD_PLANNED}:${event.dedupeKey}:${into}`, payload: { release: into, card: event.cardId } })
 }

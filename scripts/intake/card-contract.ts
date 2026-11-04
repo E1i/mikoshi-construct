@@ -53,6 +53,7 @@ export interface CardFields {
   continue: string
   who: string
   priority: string | null
+  release: string | null
   creates: string[]
   prose: string
   witnesses: string[]
@@ -71,7 +72,7 @@ export interface CardFields {
   lastHeartbeat: LastHeartbeat | null
 }
 
-const CARD_FIELDS = ['id', 'name', 'kind', 'milestone', 'size', 'contour', 'decision', 'depends', 'blocks', 'cardLine', 'branch', 'touches', 'continue', 'who', 'priority', 'creates', 'prose', 'witnesses', 'witnessFields', 'runs', 'unclear', 'risk', 'seam', 'slice', 'path', 'lane'] as const satisfies readonly (keyof CardFields)[]
+const CARD_FIELDS = ['id', 'name', 'kind', 'milestone', 'size', 'contour', 'decision', 'depends', 'blocks', 'cardLine', 'branch', 'touches', 'continue', 'who', 'priority', 'release', 'creates', 'prose', 'witnesses', 'witnessFields', 'runs', 'unclear', 'risk', 'seam', 'slice', 'path', 'lane'] as const satisfies readonly (keyof CardFields)[]
 
 export const CONTRACT_FIELDS: Record<Contract, readonly (keyof CardFields)[]> = {
   intake: [...CARD_FIELDS, 'text'],
@@ -114,6 +115,7 @@ export function cardFields(parked: ParkedTask, body: CardBody): CardFields {
     continue: task.continue,
     who: parked.who,
     priority: parked.priority,
+    release: parked.release,
     creates: parked.creates,
     prose: proseOf(task.body),
     witnesses: witnessesOf(task.body),

@@ -13,9 +13,9 @@ import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
-import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
+import { assertHeld, completeTask, failTask, releaseTask, StaleLease, waitTask } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, openDecisionWaitsOf, QUESTION_OPEN, QUEUE_ACTOR } from '../../core/queue.js'
+import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, openDecisionWaitsOf, QUESTION_OPEN, QUEUE_ACTOR, updateTurnHeldUntil } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
@@ -382,7 +382,11 @@ export class MergeExecutor {
     if (parked)
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, ts, lease, { reason, withdraw: true }, [event]) }
     if (waits) {
-      releaseTask(this.parts.db, ts, lease, reason, [event])
+      const turnHeldUntil = reason === NEEDS_UPDATE ? updateTurnHeldUntil(this.parts.db, ts, lease.pr!) : null
+      if (turnHeldUntil === null)
+        releaseTask(this.parts.db, ts, lease, reason, [event])
+      else
+        waitTask(this.parts.db, ts, lease, { reason, until: turnHeldUntil }, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
     const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY }, [event])
