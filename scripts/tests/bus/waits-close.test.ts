@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
 import { OWNER } from '../../core/inbox.js'
 import { admitCommandOf } from '../../core/queue.js'
@@ -23,9 +24,9 @@ function newBus(): ReturnType<typeof openBus> {
   return openBus(path.join(root, 'bus.db'))
 }
 
-function admitted(cardId: number, lane: string): BusEvent {
+function admitted(cardId: number, lane: string, extra: Record<string, unknown> = {}): BusEvent {
   sequence += 1
-  return { ts: TS, type: 'card.admitted', actor: 'reducer', cardId, pr: null, head: null, dedupeKey: `card.admitted:${sequence}`, payload: { lane, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false }
+  return { ts: TS, type: 'card.admitted', actor: 'reducer', cardId, pr: null, head: null, dedupeKey: `card.admitted:${sequence}`, payload: { lane, decision: 'auto', contour: 'cheap', depends: [], ...extra }, legacy: false }
 }
 
 function event(type: string, cardId: number | null, pr: number | null, payload: Record<string, unknown>, actor = 'reducer'): BusEvent {
@@ -65,6 +66,24 @@ describe('a card amend closes the waits that asked for it', () => {
     expect(waits(db)).toEqual([[amend, 1407, 'open', null]])
     db.close()
   })
+
+  it('an amend admission closes the decision wait opened before it and leaves one opened after it', () => {
+    const db = newBus()
+    appendEvent(db, admitted(1475, 'lane-21'))
+    const before = openOwnerWait(db, TS, 'policy', { need: 'decision', text: 'widen the touches?', card: 1475, request: 3 })
+    const other = openOwnerWait(db, TS, 'policy', { need: 'decision', text: 'which path?', card: 1476, request: 4 })
+    const merge = openOwnerWait(db, TS, 'policy', { need: 'merge', text: 'changes security invariants', card: 1475, pr: 1475 })
+    appendEvent(db, admitted(1475, 'lane-21', { source: AMEND_SOURCE }))
+    const after = openOwnerWait(db, TS, 'policy', { need: 'decision', text: 'a later question', card: 1475, request: 5 })
+    reduce(db)
+    expect(waits(db)).toEqual([
+      [before, 1475, 'closed', 'card #1475 amended'],
+      [other, 1476, 'open', null],
+      [merge, 1475, 'open', null],
+      [after, 1475, 'open', null],
+    ])
+    db.close()
+  })
 })
 
 describe('an answer or a merge closes the waits it settles', () => {
@@ -77,6 +96,22 @@ describe('an answer or a merge closes the waits it settles', () => {
     reduce(db)
     expect(waits(db)).toEqual([[question, 1382, 'closed', 'D-259'], [other, 1383, 'open', null]])
     expect((db.prepare(`SELECT id FROM owner_waits WHERE state = 'open'`).all() as { id: string }[]).map(row => row.id)).toEqual([other])
+    db.close()
+  })
+
+  it('an owner decision scoped to the card closes a command wait of the card and leaves another card\'s wait and a merge wait', () => {
+    const db = newBus()
+    const command = openOwnerWait(db, TS, 'policy', { need: 'command', text: 'card #1447 asks to widen its touches', command: 'pnpm some-command', card: 1447 })
+    const other = openOwnerWait(db, TS, 'policy', { need: 'command', text: 'card #1448 asks to widen its touches', command: 'pnpm other-command', card: 1448 })
+    const merge = openOwnerWait(db, TS, 'policy', { need: 'merge', text: 'changes security invariants', card: 1447, pr: 1447 })
+    reduce(db)
+    appendEvent(db, event('decision.recorded', null, null, { source: 'owner', decision_id: 296, text: '#1447 takes the wider touches', scope: [1447] }, OWNER))
+    reduce(db)
+    expect(waits(db)).toEqual([
+      [command, 1447, 'closed', 'D-296'],
+      [other, 1448, 'open', null],
+      [merge, 1447, 'open', null],
+    ])
     db.close()
   })
 

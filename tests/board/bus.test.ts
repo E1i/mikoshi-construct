@@ -1,13 +1,18 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { Lease } from '../../scripts/core/lease.js'
+import type { NodeStep } from '../../scripts/core/node.js'
 import type { BusFacts, BusReading } from '../../src/commands/board/bus.js'
-import type { BusSeed, SeedCard, SeedEvent } from './bus-fixture.js'
+import type { BusSeed, SeedBeat, SeedCard, SeedEvent } from './bus-fixture.js'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../../scripts/core/db.js'
 import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
+import { Node } from '../../scripts/core/node.js'
 import { reduce } from '../../scripts/core/reducer.js'
 import { busCardEvents } from '../../scripts/intake/intake.js'
+import { slotsVariable } from '../../scripts/supervisor/scheduler.js'
 import { requestFromWindow, WindowRequests } from '../../scripts/window/window-requests.js'
 import { busReaderAt, latestCardEvents, openTasks, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
 import { flowLines } from '../../src/commands/board/screens.js'
@@ -19,6 +24,21 @@ import { checkMatrix, subagent, writeBus } from './bus-fixture.js'
 
 const NOW = new Date('2026-10-02T12:00:00.000Z')
 const HOUR = 3_600_000
+
+class IdleMergeNode extends Node<NodeStep> {
+  constructor(db: DatabaseSync, clock: () => Date, slots: string) {
+    super('merge', { db, clock, session: 'board', mode: 'shadow', env: { [slotsVariable('merge')]: slots } })
+    this.subscribe(['probe.seen'])
+  }
+
+  protected candidates(): [] {
+    return []
+  }
+
+  protected handle(lease: Lease): NodeStep {
+    return { kind: 'done', taskKey: lease.taskKey }
+  }
+}
 
 function ago(milliseconds: number): string {
   return new Date(NOW.getTime() - milliseconds).toISOString()
@@ -280,18 +300,21 @@ describe('the board bus reader', () => {
   })
 
   it('a queue whose node has no heartbeat has no denominator', () => {
-    const beat = (ts: string, payload: Record<string, unknown>): SeedEvent => ({ ts, type: PROCESS_HEARTBEAT, card: null, payload: JSON.stringify(payload) })
+    const beat = (process: string, ts: string, payload: Record<string, unknown>): SeedBeat => ({ process, type: PROCESS_HEARTBEAT, ts, payload: JSON.stringify({ process, ...payload }) })
     const seen = facts({
       tasks: [
         { queue: 'review', card: 1, pr: null, head: null, state: 'leased' },
         { queue: 'merge', card: 2, pr: null, head: null, state: 'leased' },
       ],
+      beats: [
+        beat('bus:answer-old', ago(3 * 60_000), { queue: 'answer', slots: 3 }),
+        beat('bus:answer', ago(2 * 60_000), { queue: 'answer', slots: 5 }),
+        beat('bus:merge', ago(2 * 60_000), { queue: 'merge', slots: 1 }),
+        beat('netwatch', ago(2 * 60_000), {}),
+        beat('bus:review', ago(2 * 60_000), { queue: 'review', slots: 'two' }),
+      ],
       events: [
-        beat(ago(3 * 60_000), { process: 'bus:answer', queue: 'answer', slots: 3 }),
-        beat(ago(2 * 60_000), { process: 'bus:answer', queue: 'answer', slots: 5 }),
-        beat(ago(2 * 60_000), { process: 'bus:merge', queue: 'merge', slots: 1 }),
-        beat(ago(2 * 60_000), { process: 'netwatch' }),
-        beat(ago(2 * 60_000), { process: 'bus:review', queue: 'review', slots: 'two' }),
+        { ts: ago(60_000), type: PROCESS_HEARTBEAT, card: null, payload: JSON.stringify({ process: 'bus:close', queue: 'close', slots: 4 }) },
       ],
     })
     expect(seen.slots).toEqual([
@@ -299,6 +322,25 @@ describe('the board bus reader', () => {
       { queue: 'merge', used: 1, total: 1 },
       { queue: 'review', used: 1, total: null },
     ])
+  })
+
+  it('the slot total of a queue is what the last real node tick beat into the heartbeat table', async () => {
+    const busFile = path.join(scratch(), 'bus.db')
+    const db = openBus(busFile)
+    try {
+      for (const [beatAt, slots] of [[ago(2 * 60_000), '2'], [ago(60_000), '3']] as const) {
+        const controller = new AbortController()
+        await new IdleMergeNode(db, () => new Date(beatAt), slots).run({ pause: async () => controller.abort(), signal: controller.signal })
+      }
+      expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PROCESS_HEARTBEAT)).toEqual({ n: 0 })
+    }
+    finally {
+      db.close()
+    }
+    const reading = busReaderAt(busFile, () => NOW)()
+    if (reading.status !== 'read')
+      throw new Error(`the bus was ${reading.status}`)
+    expect(reading.facts.slots).toEqual([{ queue: 'merge', used: 0, total: 3 }])
   })
 
   it('a card moved into parking reads dropped, not planned in its parking directory', () => {

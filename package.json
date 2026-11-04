@@ -42,6 +42,7 @@
     "approve": "node --import tsx scripts/ladder/approve.ts",
     "board": "node --import tsx scripts/cli/board-page.ts",
     "build": "tsup",
+    "bus:agent": "node --import tsx scripts/supervisor/launchd/install.ts",
     "bus:answer": "node --import tsx scripts/nodes/answer/answer-worker.ts",
     "bus:bg": "node --import tsx scripts/supervisor/supervisor.ts",
     "bus:close": "node --import tsx scripts/nodes/close/close-worker.ts",

@@ -93,6 +93,18 @@ describe('the browser-lab skill states the script it carries', () => {
     expect(skill).toMatch(/signing in/)
   })
 
+  it('tells the agent to run the bare command from the repository root, with no cd, env or &&', () => {
+    const flowing = skill.replace(/\s+/g, ' ')
+    expect(flowing).toContain('Run the bare command from the repository root, with no `cd`, `env` prefix or `&&`')
+    expect(flowing).toContain('`sandbox.excludedCommands` matches only the bare command line')
+  })
+
+  it('leaves the proxy option to the help of the script', () => {
+    expect(skill).not.toContain('--proxy')
+    expect(skill).not.toContain('CONSTRUCT_LAB_PROXY')
+    expect(usageOfTheScript()).toContain('--proxy')
+  })
+
   it('is this repository\'s own copy, byte for byte', () => {
     expect(read(SKILL_COPY)).toBe(skill)
   })

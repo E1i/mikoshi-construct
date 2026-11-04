@@ -7,6 +7,7 @@ import { SUPERVISE_FLAG } from '../../supervisor/supervisor.js'
 
 const PLIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../supervisor/launchd/dev.mikoshi.bus.plist')
 const RAISED_WITHIN_S = 30
+const TOKEN_FROM_ITS_SOURCE = /GH_TOKEN="\$\(\{\{tokenSource\}\}\)" && export GH_TOKEN="\$\{GH_TOKEN:\?the token source printed nothing\}" &&/
 
 type PlistValue = boolean | number | string | string[]
 
@@ -66,5 +67,17 @@ describe('the bus agent keeps the supervisor alive', () => {
     expect(scanText(plist, PLIST).filter(violation => violation.kind === 'home-path')).toEqual([])
     expect(keys.has('WorkingDirectory')).toBe(false)
     expect(keys.has('StandardOutPath')).toBe(false)
+  })
+
+  it('asks for the owner\'s two values through placeholders and names neither', () => {
+    expect([...plist.matchAll(/\{\{(\w+)\}\}/g)].map(match => match[1]).sort()).toEqual(['factoryDir', 'tokenSource'])
+    expect(shellLine).toContain('cd {{factoryDir}} &&')
+    expect(shellLine).toMatch(TOKEN_FROM_ITS_SOURCE)
+    expect(shellLine).not.toMatch(/gh auth token|launchctl setenv/)
+  })
+
+  it('names the token only as what the token source prints, so no concrete value or command sits in the template', () => {
+    expect(shellLine.replace(TOKEN_FROM_ITS_SOURCE, '')).not.toMatch(/GH_TOKEN|gh auth token/)
+    expect(plist).not.toMatch(/gh[pousr]_|github_pat_/)
   })
 })
