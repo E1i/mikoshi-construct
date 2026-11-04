@@ -1,9 +1,12 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { witnessEnv } from './session.js'
 import { taskWorktree } from './worktree-home.js'
+
+const execFileAsync = promisify(execFile)
 
 export interface ShellResult { status: number | null, output: string }
 export type Shell = (command: string, cwd: string) => ShellResult
@@ -23,6 +26,13 @@ export function realShell(command: string, cwd: string): ShellResult {
 
 export function gitIn(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: SHELL_BUFFER }).trim()
+}
+
+export type GitAsync = (cwd: string, args: string[]) => Promise<string>
+
+export const gitInAsync: GitAsync = async (cwd, args) => {
+  const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: SHELL_BUFFER })
+  return stdout.trim()
 }
 
 export function lastLine(output: string): string {
@@ -49,6 +59,45 @@ export function withWorktree<T>(repo: string, base: string, run: (tree: string) 
       rmSync(dir, { recursive: true, force: true })
       gitIn(repo, ['worktree', 'prune'])
     }
+  }
+}
+
+export class SetupTurns {
+  private last: Promise<void> = Promise.resolve()
+
+  async take<T>(step: () => Promise<T>): Promise<T> {
+    const previous = this.last
+    let finish = (): void => {}
+    this.last = new Promise((resolve) => {
+      finish = resolve
+    })
+    await previous
+    try {
+      return await step()
+    }
+    finally {
+      finish()
+    }
+  }
+}
+
+export async function withWorktreeAsync<T>(repo: string, base: string, run: (tree: string) => Promise<T>, turns: SetupTurns, git: GitAsync = gitInAsync): Promise<T> {
+  const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-preflight-'))
+  const tree = path.join(dir, 'tree')
+  await turns.take(() => git(repo, ['worktree', 'add', '--detach', tree, base]))
+  try {
+    return await run(tree)
+  }
+  finally {
+    await turns.take(async () => {
+      try {
+        await git(repo, ['worktree', 'remove', '--force', tree])
+      }
+      finally {
+        rmSync(dir, { recursive: true, force: true })
+        await git(repo, ['worktree', 'prune'])
+      }
+    })
   }
 }
 

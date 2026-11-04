@@ -229,11 +229,21 @@ function closeAmendWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent
     .run(`card #${event.card_id} amended`, event.id, event.card_id, AMEND_COMMAND.length, AMEND_COMMAND, event.id)
 }
 
+const AMEND_ADMISSION = 'amend'
+
+function closeDecisionWaitsTheAmendAnswers(db: DatabaseSync, event: StoredEvent): void {
+  if (payloadOf(event).source !== AMEND_ADMISSION)
+    return
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND need = 'decision' AND event_id < ?`)
+    .run(`card #${event.card_id} amended`, event.id, event.card_id, event.id)
+}
+
 function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent): void {
   CARD_FOLDS[CARD_ADMITTED]!(db, event)
   foldCardBody(db, event)
   closeDowngradeWaitsTheAdmissionAnswers(db, event)
   closeAmendWaitsTheAdmissionAnswers(db, event)
+  closeDecisionWaitsTheAmendAnswers(db, event)
 }
 
 function prOpened(db: DatabaseSync, event: StoredEvent): void {
@@ -327,7 +337,7 @@ function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): voi
   for (const decision of decisions) {
     db.prepare(`
       UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
-      WHERE state = '${OPEN_WAIT}' AND (command IN (SELECT value FROM json_each(?)) OR (need = 'decision' AND card_id IN (SELECT value FROM json_each(?))))
+      WHERE state = '${OPEN_WAIT}' AND (command IN (SELECT value FROM json_each(?)) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?))))
     `).run(`D-${decision.decision_id}`, event.id, JSON.stringify(commandsTheDecisionAnswers(decision.text)), decision.scope ?? '[]')
   }
 }
