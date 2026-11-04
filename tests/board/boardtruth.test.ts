@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { printBoard } from '../../scripts/cli/board-page.js'
 import { appendEvent, openBus } from '../../scripts/core/db.js'
 import { CARD_MOVED, CARD_PLANNED, LANE_ASSIGNED, PLAN_OPENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../scripts/core/events.js'
@@ -32,6 +32,10 @@ const GREETING_TWINS = [
 const NOW = new Date('2026-10-29T12:00:00.000Z')
 const MINUTE = 60_000
 const roots: string[] = []
+
+beforeEach(() => {
+  vi.stubEnv('BUS_RERUN', '')
+})
 
 afterEach(() => {
   for (const root of roots.splice(0))
