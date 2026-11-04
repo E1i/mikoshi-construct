@@ -218,6 +218,15 @@ describe('a question.owner stop has a named lift for each route', () => {
     expect(openStop(room)).toBe(lastEventId(room.made))
   })
 
+  it('a request with no valid form prints how the owner\'s word closes a wait', () => {
+    const room = stoppedRoom()
+    const lines: string[] = []
+
+    expect(runRequest(['owner.wait.close', '--id', room.wait], room.made.db, room.made.clock.now(), 'test', line => lines.push(line))).toBe(2)
+
+    expect(lines.at(-1)).toContain(`--from ${ANSWER_SOURCE}`)
+  })
+
   it('--from reaches the request only when it is given', () => {
     expect(requestOf(['owner.wait.close', '--id', 'Q1', '--answer', 'yes'])).toEqual({ kind: 'owner.wait.close', id: 'Q1', answer: 'yes' })
     expect(requestOf(['owner.wait.close', '--id', 'Q1', '--answer', 'yes', '--from', ANSWER_SOURCE])).toEqual({ kind: 'owner.wait.close', id: 'Q1', answer: 'yes', from: ANSWER_SOURCE })
