@@ -2176,6 +2176,20 @@
   },
   {
     "type": "dependency",
+    "from": "scripts/nodes/review/review-depth.ts",
+    "to": "src/commands/intake/check.ts",
+    "unresolvedTo": "../../../src/commands/intake/check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "scripts/nodes/review/review-worker.ts",
     "to": "scripts/intake/intake.ts",
     "unresolvedTo": "../../intake/intake.js",
