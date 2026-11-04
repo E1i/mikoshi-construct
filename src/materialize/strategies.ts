@@ -5,6 +5,7 @@ export type Strategy = 'create' | 'merge-json' | 'append-block' | 'merge-hooks'
 const MERGE_JSON = new Set(['package.json'])
 const APPEND_BLOCK = new Set(['.gitignore', 'CLAUDE.md', 'AGENTS.md'])
 const MERGE_HOOKS = new Set(['.claude/settings.json'])
+const READ_ONLY_ALLOW_RULES = new Set<unknown>(['WebFetch', 'WebSearch', 'mcp__context7'])
 
 export const BLOCK_BEGIN = '<!-- construct:begin -->'
 export const BLOCK_END = '<!-- construct:end -->'
@@ -91,6 +92,29 @@ function mergedSandbox(settings: JsonObject, produced: JsonObject): JsonObject |
   return { ...settings, sandbox: { ...sandbox, excludedCommands: [...present, ...added] } }
 }
 
+function allowRulesOf(settings: JsonObject): unknown[] | null {
+  if (!('permissions' in settings))
+    return []
+  const permissions = settings.permissions
+  if (!isJsonObject(permissions))
+    return null
+  if (!('allow' in permissions))
+    return []
+  return Array.isArray(permissions.allow) ? permissions.allow : null
+}
+
+function mergedAllowRules(settings: JsonObject, produced: JsonObject): JsonObject | null {
+  const present = allowRulesOf(settings)
+  const incoming = allowRulesOf(produced)
+  if (present === null || incoming === null)
+    return null
+  const added = incoming.filter(rule => READ_ONLY_ALLOW_RULES.has(rule) && !present.includes(rule))
+  if (added.length === 0)
+    return settings
+  const permissions = isJsonObject(settings.permissions) ? settings.permissions : {}
+  return { ...settings, permissions: { ...permissions, allow: [...present, ...added] } }
+}
+
 export function mergeHookSettings(existing: string, incoming: string): string | null {
   const parsed = parsedOrNull(existing)
   const produced = parsedOrNull(incoming)
@@ -98,7 +122,8 @@ export function mergeHookSettings(existing: string, incoming: string): string | 
     return null
   if ('hooks' in parsed && !isJsonObject(parsed.hooks))
     return null
-  const settings = mergedSandbox(parsed, produced)
+  const sandboxed = mergedSandbox(parsed, produced)
+  const settings = sandboxed === null ? null : mergedAllowRules(sandboxed, produced)
   if (settings === null)
     return null
   const hooks: JsonObject = isJsonObject(parsed.hooks) ? structuredClone(parsed.hooks) : {}
