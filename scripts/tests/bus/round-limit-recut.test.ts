@@ -2,9 +2,6 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardAdmit, RecutOutcome } from '../../nodes/review/pr-close.js'
 import type { GhResponse, GitHub, GitHubPut } from '../../ports/github.js'
 import type { MergeBench } from './merge-bench.js'
-import os from 'node:os'
-import path from 'node:path'
-import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
@@ -13,7 +10,7 @@ import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_PLANNED, MERGE_DONE, OWNER_WAIT_OPENED, PLAN_OPENED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, WITNESS_RECORDED } from '../../core/events.js'
 import { changesRoundsOf, RECUT_GRACE_MS } from '../../core/queue.js'
-import { parkedCardNumbers } from '../../intake/intake.js'
+import { busHeldCards } from '../../intake/intake.js'
 import { RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../nodes/review/review-worker.js'
@@ -85,7 +82,6 @@ interface FixtureOptions {
   latestOnGitHub?: GhResponse
   recutThrows?: boolean
   patch?: GitHubPut
-  parked?: () => number[]
 }
 
 function fixture(text: string, options: FixtureOptions = {}): Fixture {
@@ -101,7 +97,7 @@ function fixture(text: string, options: FixtureOptions = {}): Fixture {
     return { status: 201, headers: {}, body: { number } }
   }
   const gitHub: GitHub = endpoint => endpoint.startsWith(ISSUES) ? options.latestOnGitHub ?? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
-  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: options.patch ?? bench.gitHub.patch, clock: bench.clock.now, parked: options.parked ?? (() => []), admit: options.admit })
+  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: options.patch ?? bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), admit: options.admit })
   const worker = new ReviewWorker({
     isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
     db: bench.db,
@@ -377,23 +373,6 @@ describe('the re-cut of a pull request at the review round limit', () => {
 
     untouched(fixed)
     expect(ownerWaits(fixed.bench.db)).toEqual([expect.stringContaining(`the bus holds no card.admitted of #${CARD}, #${FIRST_NEW_CARD}`)])
-  })
-
-  it('a number held by a parked card is not given to a re-cut card', async () => {
-    const fixed = fixture(cardText(), { parked: () => [CARD + 7] })
-    fixed.reviewer.findings = [NARROW_FINDING]
-    await reviewToTheLimit(fixed)
-
-    expect(admittedByTheRecut(fixed.bench.db).map(card => card.cardId)).toEqual([CARD, CARD + 8])
-  })
-
-  it('a parking that cannot be read allocates no card and leaves the PR untouched behind an owner wait', async () => {
-    const fixed = fixture(cardText(), { parked: parkedCardNumbers(path.join(os.tmpdir(), `no-parking-${process.pid}-${Date.now()}`)) })
-    fixed.reviewer.findings = [NARROW_FINDING]
-    await reviewToTheLimit(fixed)
-
-    untouched(fixed)
-    expect(ownerWaits(fixed.bench.db)).toEqual([expect.stringContaining('cannot be read, so no card number is allocated')])
   })
 
   it('a change of the card body that is not an owner amend still spends a round', async () => {

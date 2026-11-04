@@ -32,7 +32,7 @@ import { pushPolicyAt } from '../../core/push-policy.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from '../../core/queue.js'
 import { shadowReading } from '../../core/report.js'
 import { openDatabase } from '../../core/sqlite.js'
-import { parkedCardNumbers } from '../../intake/intake.js'
+import { busHeldCards } from '../../intake/intake.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { GhFailed, PROCESS_GH_PORT } from '../../ports/gh.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
@@ -454,7 +454,7 @@ async function main(): Promise<number> {
     notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyAt(cwd)),
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
-    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), parked: parkedCardNumbers(), pushPolicy: () => pushPolicyAt(cwd) }),
+    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), pushPolicy: () => pushPolicyAt(cwd) }),
   })
 }
 
