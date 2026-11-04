@@ -1,18 +1,25 @@
+import type { Lease } from '../../core/lease.js'
+import type { Answerer } from '../../nodes/answer/answerer.js'
+import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { MergeBench } from './merge-bench.js'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { amendedText } from '../../../src/commands/intake/amend.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_CLOSED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
+import { leaseNext } from '../../core/lease.js'
 import { reduce } from '../../core/reducer.js'
+import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { AnswerOutsideTouches } from '../../nodes/answer/answerer.js'
 import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
 import { requestOf, runRequest, WindowRequests } from '../../window/window-requests.js'
-import { mergeBench } from './merge-bench.js'
+import { sha } from './github-fake.js'
+import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD = 1492
 const RESERVED_QUESTION = 'may I change architecture/owner-merges.md?'
@@ -214,5 +221,90 @@ describe('a question.owner stop has a named lift for each route', () => {
   it('--from reaches the request only when it is given', () => {
     expect(requestOf(['owner.wait.close', '--id', 'Q1', '--answer', 'yes'])).toEqual({ kind: 'owner.wait.close', id: 'Q1', answer: 'yes' })
     expect(requestOf(['owner.wait.close', '--id', 'Q1', '--answer', 'yes', '--from', ANSWER_SOURCE])).toEqual({ kind: 'owner.wait.close', id: 'Q1', answer: 'yes', from: ANSWER_SOURCE })
+  })
+})
+
+const CARD_PR = CARD - 100
+const OWNER_PATH = 'architecture/owner-merges.md'
+
+function bodyTouching(touches: string): string {
+  return `card: #${CARD} stoplift [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/stoplift\ntouches: ${touches}\ncontinue: stop\nwho: shift\n\nDo it.\n`
+}
+
+async function answerRefusedOutsideTouches(refused: readonly string[]) {
+  const made = mergeBench()
+  const root = mkdtempSync(path.join(tmpdir(), 'stop-lift-'))
+  rooms.push({ made, root })
+  const worktree = path.join(root, `mc-${CARD}`)
+  mkdirSync(worktree)
+  admit(made, bodyTouching('src/a.ts'), 'body-1')
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: 'card-session-1', worktree, branch: 'feat/stoplift', base: sha('1') }, legacy: false })
+  made.gitHub.open({ number: CARD_PR, required: 'failure', failed: ['lint'] })
+  made.tick()
+  made.tick()
+  const answered: string[] = []
+  const answerer: Answerer = async (request) => {
+    if (answered.push(request.lease.taskKey) === 1)
+      throw new AnswerOutsideTouches(request.lease, refused)
+    return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null }
+  }
+  const cardTrees: CardTreeTools = { home: root, exists: existsSync, branchOf: () => 'feat/stoplift', recreate: () => {}, bringTo: () => {} }
+  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => `- ${OWNER_PATH}\n`, clock: made.clock.now, trees: cardTrees, liveSession: () => null })
+  const lease = (): Lease | null => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
+  const outcome = await executor.answer(lease()!)
+  made.tick()
+  return { made, executor, lease, outcome, answered, stop: lastEventOf(made, CARD_STOPPED) }
+}
+
+function lastEventOf(made: MergeBench, type: string): { id: number, payload: { widen?: string[] } } {
+  const row = made.db.prepare('SELECT id, payload FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(type) as { id: number, payload: string }
+  return { id: Number(row.id), payload: JSON.parse(row.payload) as { widen?: string[] } }
+}
+
+function openStopOn(made: MergeBench): number | null {
+  return (made.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(CARD) as { id: number } | undefined)?.id ?? null
+}
+
+describe('the outside-touches stop of the answer node', () => {
+  it('amend covering the refused paths lifts the outside-touches stop', async () => {
+    const run = await answerRefusedOutsideTouches(['package.json', 'scripts/b.ts'])
+    expect(run.outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER })
+    expect(run.stop.payload.widen).toEqual(['package.json', 'scripts/b.ts'])
+    expect(openStopOn(run.made)).toBe(run.stop.id)
+    expect(run.lease()).toBeNull()
+    const waitsAtTheStop = eventsOf(run.made.db, OWNER_WAIT_OPENED).length
+
+    admit(run.made, bodyTouching('src/a.ts, package.json, scripts/b.ts'), 'body-2')
+    run.made.tick()
+    run.made.tick()
+
+    expect(openStopOn(run.made)).toBeNull()
+    expect(eventsOf(run.made.db, OWNER_WAIT_OPENED)).toHaveLength(waitsAtTheStop)
+    const again = run.lease()
+    expect(again).toMatchObject({ queue: 'answer', cardId: CARD, pr: CARD_PR })
+    expect(await run.executor.answer(again!)).toMatchObject({ kind: 'answered', head: sha('e') })
+    expect(run.answered).toHaveLength(2)
+  })
+
+  it('an amend covering only some of the refused paths does not lift it', async () => {
+    const run = await answerRefusedOutsideTouches(['package.json', 'scripts/b.ts'])
+
+    admit(run.made, bodyTouching('src/a.ts, package.json'), 'body-2')
+    run.made.tick()
+    run.made.tick()
+
+    expect(openStopOn(run.made)).toBe(run.stop.id)
+    expect(run.lease()).toBeNull()
+  })
+
+  it('a refused owner path records no widen, so an amend covering it does not lift the stop', async () => {
+    const run = await answerRefusedOutsideTouches([OWNER_PATH])
+    expect(run.outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER })
+    expect(run.stop.payload.widen).toBeUndefined()
+
+    admit(run.made, bodyTouching(`src/a.ts, ${OWNER_PATH}`), 'body-2')
+    run.made.tick()
+
+    expect(openStopOn(run.made)).toBe(run.stop.id)
   })
 })

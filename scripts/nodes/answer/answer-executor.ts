@@ -269,7 +269,12 @@ export class AnswerExecutor {
   private refusedOrDenied(lease: Lease, denial: AnswerDenial, widened: Widened | null): AnswerOutcome {
     if (denial.reason !== 'outside_touches')
       return this.denied(lease, denial)
-    return this.ownersStop(lease, `${denial.detail}; the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event])
+    return this.ownersStop(lease, `${denial.detail}; the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event], undefined, this.refusedPathsToWiden(denial.detail))
+  }
+
+  private refusedPathsToWiden(refusal: string): string[] {
+    const refused = pathsIn(refusal)
+    return this.namesAnOwnerPath(refused) ? [] : refused
   }
 
   private heldForTheOwner(lease: Lease, detail: string): AnswerOutcome {
@@ -368,9 +373,8 @@ export class AnswerExecutor {
     return { kind: 'stopped', taskKey: lease.taskKey, reason, detail }
   }
 
-  private ownersStop(lease: Lease, detail: string, scope: BusEvent[] = [], text = `card #${lease.cardId} asks: ${detail}`): AnswerOutcome {
+  private ownersStop(lease: Lease, detail: string, scope: BusEvent[] = [], text = `card #${lease.cardId} asks: ${detail}`, widen = this.windowWidens(lease, detail)): AnswerOutcome {
     const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
-    const widen = this.windowWidens(lease, detail)
     return this.stopped(lease, QUESTION_OWNER, detail, widen.length === 0 ? {} : { widen }, scope, db => openBusWait(db, this.ts(), lease.actor, ask))
   }
 
