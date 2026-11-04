@@ -84,6 +84,12 @@ describe('construct intake assigns a number no card already holds', () => {
     }
   })
 
+  it('a run wired to a bus reads no parking for its number', () => {
+    const root = scratch()
+    const parkingRoot = park(path.join(root, 'parking'), 900)
+    expect(assigned(root, parkingRoot, parkingRoot, new Map([['40', 'parked']]))).toEqual([41])
+  })
+
   it('skips a number the bus holds', () => {
     const root = scratch()
     const parkingRoot = park(path.join(root, 'parking'), 10)

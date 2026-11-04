@@ -156,11 +156,11 @@ describe('intake fact check', () => {
     expect(third).not.toContain('corrected:')
   })
 
-  it('removes a merged depends, keeps a parked one and marks an unknown one unclear', () => {
+  it('removes a merged depends, keeps one the bus holds and marks unclear one only a parking holds and an unknown one', () => {
     const root = scratch()
-    put(root, 'parking/13.md', '')
+    put(root, 'parking/78.md', '')
     const dir = repository(['src/a.ts'])
-    const { result, parking } = intake([card({ depends: ['#7', '#13', '#78', '#900'], blocks: ['#7'] })], { root, dir, cardStates: () => new Map([['7', 'merged']]), taken: '12' })
+    const { result, parking } = intake([card({ depends: ['#7', '#13', '#78', '#900'], blocks: ['#7'] })], { root, dir, cardStates: () => new Map([['7', 'merged'], ['13', 'parked']]), taken: '12' })
     const text = written(result, parking, 14)
     const output = printed(result)
     expect(output).toContain('corrected: depends — #7 → (removed) — already merged')
