@@ -6,12 +6,13 @@ import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runsFieldLine, witnessFieldsLine } from '../../../src/card/witness-fields.js'
 import { busFacts, busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
 import { planLine, RELEASE_STAGES } from '../../../src/commands/board/goal.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
 import { backlogCards } from '../../../src/commands/board/screens.js'
+import { WINDOW_SILENT_MS } from '../../../src/commands/liveness.js'
 import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
@@ -27,7 +28,12 @@ import { BOARD_FILE, FRESH_MS } from '../../window/board.js'
 
 const roots: string[] = []
 
+beforeEach(() => {
+  vi.stubEnv('BUS_RERUN', '')
+})
+
 afterEach(() => {
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
@@ -167,7 +173,8 @@ function idsOf(html: string): string[] {
 const SLOT_ENDS: Record<string, string> = {
   kv: '</p></div>\n<div class="goal"',
   goal: '</div>\n</header>',
-  waits: '</div>\n<section class="panel" id="slot-services"',
+  waits: '</div>\n<div class="warnings"',
+  warnings: '</div>\n<section class="panel" id="slot-services"',
   services: '\n</section>',
   flow: '\n</section>',
   backlog: '</div>\n<div class="scroll"',
@@ -224,6 +231,7 @@ function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STOR
     location,
     addEventListener: (type: string, listener: Listener) => page.addEventListener(type, listener),
     setTimeout: (run: () => void, ms: number) => timeouts.push({ run, ms }),
+    Date: { now: () => Date.parse(body[1]!), parse: Date.parse },
   }
   context.window = context
   if (storage === THROWING_STORAGE) {
@@ -461,6 +469,36 @@ describe('board.html', () => {
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     expect(style).toContain('&[data-over] { --_bar: var(--signal); --_value: var(--signal); }')
     expect(style.indexOf('&[data-over]')).toBeGreaterThan(style.indexOf('&[data-hot]'))
+  })
+
+  it('the warnings strip stands above SERVICES and reads the gauge the tile reads', () => {
+    const { contextLimit } = readEddiesLimits()
+    const html = pageText(seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: contextLimit! + 35_000 }) },
+    ]))
+    const strip = slotsOf(html).get('warnings')!
+    expect(strip).toContain(`<span class="warning" data-level="red">#861: ctx ${(contextLimit! + 35_000) / 1000}k of ${contextLimit! / 1000}k, over the limit</span>`)
+    expect(html.indexOf('id="slot-warnings"')).toBeLessThan(html.indexOf('id="slot-services"'))
+    expect(html.indexOf('id="slot-warnings"')).toBeGreaterThan(html.indexOf('id="slot-waits"'))
+  })
+
+  it('a finished session above the line is no warning: only a session the board shows as live counts', () => {
+    const { contextLimit } = readEddiesLimits()
+    const html = pageText(seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 863, payload: JSON.stringify({ step: 'launch', session: 's863', context: contextLimit! + 35_000 }) },
+    ]))
+    expect(slotsOf(html).get('warnings')).toBe('')
+  })
+
+  it('a window past its last beat keeps its bar and gives no warning', () => {
+    const { contextLimit } = readEddiesLimits()
+    const context = contextLimit! + 35_000
+    const gone = pageText(seededBus([{ ts: minutesAgo(WINDOW_SILENT_MS / 60_000 + 1), type: WINDOW_HEARTBEAT, card: null, payload: JSON.stringify({ session: 'w', context }) }]))
+    expect(gone).toContain('<div class="edd" data-over><span class="edd-k">ctx</span>')
+    expect(slotsOf(gone).get('warnings')).toBe('')
+    const live = pageText(seededBus([{ ts: minutesAgo(2), type: WINDOW_HEARTBEAT, card: null, payload: JSON.stringify({ session: 'w', context }) }]))
+    expect(slotsOf(live).get('warnings')).toContain('window: ctx')
+    expect(slotsOf(live).get('warnings')!.match(/window: ctx/g)).toHaveLength(1)
   })
 
   it('the page takes its bars from the projection beside pulse and runs no heartbeat query of its own', () => {
