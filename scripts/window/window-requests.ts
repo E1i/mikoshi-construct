@@ -4,7 +4,7 @@ import type { Queue } from '../core/identifiers.js'
 import type { StoredEvent } from '../core/stored.js'
 import type { DryRunRecord } from '../nodes/review/dry-run-record.js'
 import type { CloseOutcome, CloseRequest } from '../nodes/review/pr-close.js'
-import type { MergeFacts } from '../policy/policy.js'
+import type { MergeFacts, PatchedFile } from '../policy/policy.js'
 import type { GitHub } from '../ports/github.js'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
@@ -194,11 +194,11 @@ export function pendingRequests(db: DatabaseSync): StoredEvent[] {
   return db.prepare(PENDING).all() as unknown as StoredEvent[]
 }
 
-function filesOfPull(meter: Meter, pr: number): string[] {
-  const files: string[] = []
+function patchedFilesOfPull(meter: Meter, pr: number): PatchedFile[] {
+  const files: PatchedFile[] = []
   for (let page = 1; ; page += 1) {
-    const listed = meter.get(`${REPO}/pulls/${pr}/files?per_page=${PULL_FILES_PAGE}&page=${page}`) as { filename: string }[]
-    files.push(...listed.map(file => file.filename))
+    const listed = meter.get(`${REPO}/pulls/${pr}/files?per_page=${PULL_FILES_PAGE}&page=${page}`) as PatchedFile[]
+    files.push(...listed)
     if (listed.length < PULL_FILES_PAGE)
       return files
   }
@@ -325,12 +325,14 @@ export class WindowRequests {
     const ownerMerges = meter.get(`${REPO}/contents/${OWNER_MERGES}?ref=${MAIN_BRANCH}`) as { content?: string }
     if (typeof ownerMerges.content !== 'string')
       throw new Error(`${OWNER_MERGES} on ${MAIN_BRANCH} came back with no content`)
+    const patched = patchedFilesOfPull(meter, pr)
     return {
       cardId,
       description: pull.body ?? '',
       headRef: pull.head?.ref ?? '',
       title: pull.title ?? '',
-      files: filesOfPull(meter, pr),
+      files: patched.map(file => file.filename),
+      patched,
       ownerMergesText: Buffer.from(ownerMerges.content, 'base64').toString('utf8'),
       shardActive: false,
       shardUnder: null,
