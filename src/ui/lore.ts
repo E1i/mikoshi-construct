@@ -180,7 +180,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeUnclear: (count: number, who: string) => string
   intakeCorrected: (text: string) => string
   intakeCorrections: (count: number) => string
-  intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean) => string
+  intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean, windowShard: string | null) => string
   intakeAwaitingCard: (card: string) => string
   intakeAwaiting: (parking: string, token: string) => string
   intakeConfirmStale: string
@@ -405,6 +405,12 @@ function expectRoleMinutesNotRecorded(undated: number, runs: number, source: str
   return `minutes not recorded (no startedAt on ${undated} of ${runs} run${runs === 1 ? '' : 's'} in ${source})`
 }
 
+function confirmedByLine(autoConfirm: boolean, windowShard: string | null): string {
+  if (autoConfirm)
+    return 'accepted in advance by --auto-confirm'
+  return windowShard === null ? 'confirmed by a person' : `confirmed by window under shard ${windowShard}`
+}
+
 function andMore(rest: readonly string[]): string {
   return rest.length === 0 ? '' : `, and ${rest.length} more ${rest.length === 1 ? 'fact' : 'facts'}`
 }
@@ -601,7 +607,7 @@ export const LORE: Lore = {
   intakeUnclear: (count: number, who: string) => `${count} UNCLEAR // marked in the card, held for who: ${who} until a person settles them`,
   intakeCorrected: (text: string) => `CORRECTED // ${text}`,
   intakeCorrections: (count: number) => `${count} CORRECTED // written in the card; parked only once a person confirms them`,
-  intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean) => `${count} CORRECTED // ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, recorded in the ${inBus ? 'bus' : 'journal'}`,
+  intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean, windowShard: string | null) => `${count} CORRECTED // ${confirmedByLine(autoConfirm, windowShard)}, recorded in the ${inBus ? 'bus' : 'journal'}`,
   intakeAwaitingCard: (card: string) => `CARD HELD // ${card}`,
   intakeAwaiting: (parking: string, token: string) => `AWAITING CONFIRMATION // nothing parked in ${parking}; confirm the corrections above with --confirm ${token}, or accept them in advance with --auto-confirm`,
   intakeConfirmStale: 'CONFIRMATION STALE // --confirm names a different list of corrections than this run holds; nothing parked',
@@ -1051,7 +1057,7 @@ export const PLAIN_LORE: Lore = {
   intakeUnclear: (count: number, who: string) => `${count} unclear field${count === 1 ? '' : 's'} marked in the card; it stays with who: ${who} until a person settles them.`,
   intakeCorrected: (text: string) => `corrected: ${text}`,
   intakeCorrections: (count: number) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; the card is parked only once a person confirms them.`,
-  intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; ${autoConfirm ? 'accepted in advance by --auto-confirm' : 'confirmed by a person'}, and recorded in the ${inBus ? 'bus' : 'journal'}.`,
+  intakeConfirmed: (count: number, autoConfirm: boolean, inBus: boolean, windowShard: string | null) => `${count} field${count === 1 ? '' : 's'} corrected against the repository and the grammar; ${confirmedByLine(autoConfirm, windowShard)}, and recorded in the ${inBus ? 'bus' : 'journal'}.`,
   intakeAwaitingCard: (card: string) => `Held: ${card}`,
   intakeAwaiting: (parking: string, token: string) => `Nothing was written to ${parking}: the corrections above wait for a person. Run again with --confirm ${token} to park the cards as shown, or with --auto-confirm to accept corrections in advance.`,
   intakeAdmitNeedsBus: 'Not admitted: a bus exists on this machine, but this entry cannot write card.admitted to it, and task:start would refuse the card. Nothing was written; run construct-intake --admit instead.',
