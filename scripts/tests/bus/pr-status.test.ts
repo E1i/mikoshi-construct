@@ -3,7 +3,7 @@ import type { GitHubPost } from '../../ports/pr-status.js'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { COMMAND_EXECUTED, PR_STATUS_REFUSED, PR_STATUS_SET } from '../../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
@@ -16,6 +16,10 @@ const HEAD = 'b'.repeat(40)
 const NEXT = 'c'.repeat(40)
 const NOW = new Date('2026-10-20T08:00:00.000Z')
 const UNDER_FULL_SUITE_LOAD_MS = 5 * 60_000
+
+beforeEach(() => {
+  vi.stubEnv('BUS_RERUN', '')
+})
 
 function unopenedBus(): DatabaseSync {
   return openBus(path.join(mkdtempSync(path.join(tmpdir(), 'bus-pr-status-')), 'bus.db'))

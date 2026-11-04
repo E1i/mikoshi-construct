@@ -6,6 +6,7 @@ import type { FactoryState } from '../../src/commands/liveness.js'
 import type { CardFields } from '../intake/card-contract.js'
 import type { WitnessRecordOnHead, WitnessTable } from '../intake/witness-fields-backfill.js'
 import type { InForceDecision } from '../policy/decisions.js'
+import type { BoardWarning, SessionContext } from './board-warnings.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
@@ -28,9 +29,11 @@ import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { GREEN, RED } from '../policy/policy.js'
+import { ghApi } from '../ports/github.js'
 import { BOARD_FILE, cardGauges, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
+import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, savingOff, stallLines } from './board-warnings.js'
 import { cardChain } from './card-chain.js'
 
 export const PREFIX = '[bus:board] '
@@ -102,6 +105,7 @@ export interface BoardPage {
   handoff: Handoff
   repository: string | null
   tickMs: number | null
+  warnings: BoardWarning[]
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, sessionSpend: null, warnRatio: null }
@@ -124,6 +128,7 @@ const PLAN_FLAG = '--plan'
 const EXPORT_ORDER: readonly CardMark[] = ['delivered', 'in_progress', 'review', 'queued', DROPPED]
 const EVENTS_PER_CARD = 5
 const STALE_TICKS = 2
+const STALE_READING = 'STALE'
 const OWNER_STATUS = 'OWNER'
 export const SLOT_PREFIX = 'slot-'
 const BUS_LIVE = 'bus-live'
@@ -244,10 +249,23 @@ function eddiesBar(name: string, value: number | null, limit: number | null, war
   return `<div class="edd"${over ? ' data-over' : hot ? ' data-hot' : ''}><span class="edd-k">${name}</span>${bar}<span class="edd-v">${reading}</span></div>`
 }
 
-function gaugesOf(service: BusService, page: BoardPage): Gauges | null | undefined {
+type GaugeSources = Pick<BoardPage, 'gauges' | 'windowGauges'>
+
+function gaugesOf(service: BusService, sources: GaugeSources): Gauges | null | undefined {
   if (service.role === WINDOW_ROLE)
-    return page.windowGauges
-  return SESSION_STEP.test(service.step) ? page.gauges.get(service.task) : undefined
+    return sources.windowGauges
+  return SESSION_STEP.test(service.step) ? sources.gauges.get(service.task) : undefined
+}
+
+function sessionContexts(services: readonly BusService[], sources: GaugeSources, liveness: FactoryState): SessionContext[] {
+  const contexts = new Map<string, number>()
+  for (const service of services) {
+    const context = gaugesOf(service, sources)?.context
+    const windowGone = service.role === WINDOW_ROLE && liveness !== FACTORY_LIVE
+    if (context != null && !windowGone)
+      contexts.set(service.role === WINDOW_ROLE ? WINDOW_ROLE : service.task, context)
+  }
+  return [...contexts].map(([who, context]) => ({ who, context }))
 }
 
 function tileDialog(service: BusService, page: BoardPage): string | null {
@@ -366,6 +384,11 @@ function waitItem(wait: OwnerWait, page: BoardPage): string {
 function waitsSlot(page: BoardPage): string {
   const { waits } = page.facts
   return waits.length === 0 ? '' : `<section class="owner-strip" aria-label="Waits for you"><span class="lbl">waits for you</span>${waits.map(wait => waitItem(wait, page)).join('')}</section>`
+}
+
+function warningsSlot(warnings: readonly BoardWarning[]): string {
+  const items = warnings.map(warning => `<span class="warning" data-level="${warning.level}">${escaped(warning.text)}</span>`)
+  return items.length === 0 ? '' : `<section class="warning-strip" aria-label="Warnings"><span class="lbl">warnings</span>${items.join('')}</section>`
 }
 
 function flowSlot(page: BoardPage): string {
@@ -806,13 +829,21 @@ const SCRIPT = `
   }
   var written = document.body.dataset.written
   var period = Number(document.body.dataset.tickMs)
+  function markOld() {
+    if (!(period > 0 && Date.now() - Date.parse(written) > ${STALE_TICKS} * period)) return
+    var live = document.getElementById('${BUS_LIVE}')
+    if (live) { live.setAttribute('data-stale', ''); live.textContent = '${STALE_READING}' }
+  }
   function receive(board) {
     if (!readable(board)) { stale(); return }
     if (typeof board.tickMs === 'number' && board.tickMs > 0) period = board.tickMs
-    if (board.written === written) return
-    written = board.written
-    apply(board)
+    if (board.written !== written) {
+      written = board.written
+      apply(board)
+    }
+    markOld()
   }
+  markOld()
   function schedule() {
     if (period > 0) setTimeout(update, period)
   }
@@ -1044,6 +1075,24 @@ header.panel {
 }
 .goal-dropped { color: var(--dim); font: 400 0.6875rem var(--font-mono); }
 .waits:empty { display: none; }
+.warnings:empty { display: none; }
+.warning-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  border: 1px solid var(--signal);
+  background: linear-gradient(90deg, var(--signal-soft), transparent 70%), var(--panel);
+  & .lbl { display: flex; align-items: center; padding: var(--space-s) var(--space-m); background: var(--signal); color: var(--void); font: 700 0.75rem var(--font-display); letter-spacing: 0.18em; text-transform: uppercase; }
+}
+.warning {
+  --_fg: var(--amber);
+  min-inline-size: 0;
+  padding: var(--space-s) var(--space-m);
+  border-inline-end: 1px solid var(--line);
+  color: var(--_fg);
+  overflow-wrap: anywhere;
+  &[data-level="red"] { --_fg: var(--signal); }
+}
 .down { display: grid; gap: var(--space-xs); padding: var(--space-s) var(--space-m); }
 .owner-strip {
   display: flex;
@@ -1282,6 +1331,7 @@ code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); 
 `
 
 export interface BoardSlots {
+  warnings: string
   kv: string
   goal: string
   waits: string
@@ -1312,6 +1362,7 @@ export function boardData(page: BoardPage): BoardData {
       kv: headerReadings(page),
       goal: goalSlot(page.facts),
       waits: waitsSlot(page),
+      warnings: warningsSlot(page.warnings),
       services: servicesSlot(page),
       flow: flowSlot(page),
       backlog: backlogSlot(page.facts),
@@ -1440,6 +1491,7 @@ export function renderBoard(page: BoardPage): string {
     `<title>${TITLE_PREFIX}${escaped(page.facts.at)}</title>`,
     `<style>${STYLE}</style></head><body data-written="${escaped(page.facts.at)}" data-tick-ms="${page.tickMs ?? ''}">`,
     headerPanel(page, slots),
+    `<div class="warnings" id="${SLOT_PREFIX}warnings">${slots.warnings}</div>`,
     `<section class="panel" id="${SLOT_PREFIX}services" aria-labelledby="h-services">\n${slots.services}\n</section>`,
     '<div class="split">',
     `<section class="panel" id="${SLOT_PREFIX}flow" aria-labelledby="h-flow">\n${slots.flow}\n</section>`,
@@ -1452,17 +1504,29 @@ export function renderBoard(page: BoardPage): string {
   ].join('\n')
 }
 
-function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null): BoardPage {
+function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate): BoardPage {
   const facts = busFacts(db, now)
+  const liveness = factoryLiveness(busPath, now.getTime()).state
+  const sources: GaugeSources = { gauges: projectedGauges(db), windowGauges: projectedWindowGauges(db) }
+  const limits = readEddiesLimits()
   return {
     version: currentVersion(),
     machine: machineLoad(),
-    liveness: factoryLiveness(busPath, now.getTime()).state,
+    liveness,
     modelVersion: readModelVersion(),
     facts,
-    gauges: projectedGauges(db),
-    windowGauges: projectedWindowGauges(db),
-    limits: readEddiesLimits(),
+    ...sources,
+    limits,
+    warnings: boardWarnings({
+      contexts: sessionContexts(facts.services, sources, liveness),
+      contextLimit: limits.contextLimit,
+      warnRatio: limits.warnRatio,
+      openPrs: openPrCountOf(db),
+      openPrLimit: openPrLimitOf(process.env),
+      ownerWaits: facts.waits.length,
+      stalls: stallLines(db, facts.pulse, now),
+      savingOff: savingOff(process.env, main),
+    }),
     details: cardDetails(db, facts),
     decisions: inForceDecisions(db),
     handoff: readHandoff(handoffFile),
@@ -1479,10 +1543,14 @@ export function writeBoardPage(file: string, html: string, files: BoardFiles = D
 
 export type BoardFormat = 'html' | 'json'
 
+function mainUpToDateOfThisRepository(): MainUpToDate {
+  return new MainUpToDate(ghApi(process.cwd()), Date.now)
+}
+
 function boardText(busPath: string, now: Date, handoffFile: string, format: BoardFormat): string {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    return format === 'json' ? busJson(db, now) : renderBoard(boardPageOf(db, busPath, now, handoffFile, null))
+    return format === 'json' ? busJson(db, now) : renderBoard(boardPageOf(db, busPath, now, handoffFile, null, mainUpToDateOfThisRepository()))
   }
   finally {
     db.close()
@@ -1550,7 +1618,7 @@ export interface BoardProjection {
   project: (now: Date) => void
 }
 
-export function boardProjection(db: DatabaseSync, busPath: string, tickMs: number, files: BoardFiles = DISK_FILES, handoffFile: string = HANDOFF_FILE): BoardProjection {
+export function boardProjection(db: DatabaseSync, busPath: string, tickMs: number, files: BoardFiles = DISK_FILES, handoffFile: string = HANDOFF_FILE, main: MainUpToDate = mainUpToDateOfThisRepository()): BoardProjection {
   const file = path.join(path.dirname(busPath), BOARD_FILE)
   const dataFile = path.join(path.dirname(busPath), BOARD_DATA_FILE)
   return {
@@ -1558,7 +1626,7 @@ export function boardProjection(db: DatabaseSync, busPath: string, tickMs: numbe
     dataFile,
     project: (now) => {
       try {
-        const page = boardPageOf(db, busPath, now, handoffFile, tickMs)
+        const page = boardPageOf(db, busPath, now, handoffFile, tickMs, main)
         writeBoardPage(dataFile, boardDataScript(boardData(page)), files)
         writeBoardPage(file, renderBoard(page), files)
       }
