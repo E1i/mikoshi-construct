@@ -17,6 +17,7 @@ const EXIT_FALSE = 1
 const EXIT_UNOBSERVED = 127
 const SERVICE_WORKER_TIMEOUT_MS = 10_000
 const DEFAULT_LISTEN_MS = 2000
+const ROUTED_PAGE_SETTLE_MS = 15_000
 const WAIT_TIMEOUT_MS = 10_000
 const DEVTOOLS_PORT_POLL_MS = 50
 const DEVTOOLS_PORT_TIMEOUT_MS = 5000
@@ -45,6 +46,7 @@ const USAGE = [
   '  page <url> [--wait <sel>] open a page; with --extension, whether a content script of the extension ran in it',
   '        [--prefix <text>]   console of every level, from the page and from the content-script world, whose text starts with <text>',
   '        [--shot <file>]     screenshot of the page',
+  '        [--for <ms>]        stay on the page that long after load before reading it, and print every console line heard meanwhile, each with its time in at; default 15000 with --route, otherwise none',
   '  hands <args…>             run @playwright/cli with the lab copy of the extension and the --profile <dir> given; its own arguments go after --; end with: hands … -- close',
   '        [--evidence <dir>]  hands runs with <dir> as its working directory; hands … -- close writes the console of the session since its open to <dir>/console.json, and nothing when close fails, which keeps the session for another close',
   '  --profile-from <dir>      run on a fresh copy of a base profile, deleted at the end, so runs can go in parallel; an extension whose manifest has no key gets another id in the copy',
@@ -77,11 +79,17 @@ function positive(text, flag) {
   return number
 }
 
+function defaultListenMs({ command, route }) {
+  if (command !== 'page')
+    return DEFAULT_LISTEN_MS
+  return route.length > 0 ? ROUTED_PAGE_SETTLE_MS : 0
+}
+
 export function parseArguments(argv, env = process.env) {
   const [command, ...rest] = argv
   if (!COMMANDS.includes(command))
     throw new UsageError(command === undefined ? 'a command is required' : `unknown command ${command}`)
-  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined, profile: undefined, route: [], prefix: undefined, shot: undefined, profileFrom: undefined, evidence: undefined, proxy: env[PROXY_ENVIRONMENT] || undefined }
+  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: undefined, wait: undefined, page: undefined, profile: undefined, route: [], prefix: undefined, shot: undefined, profileFrom: undefined, evidence: undefined, proxy: env[PROXY_ENVIRONMENT] || undefined }
   let index = 0
   while (index < rest.length) {
     const argument = rest[index]
@@ -159,6 +167,7 @@ export function parseArguments(argv, env = process.env) {
     throw new UsageError('hands needs --profile <dir> or --profile-from <dir>, the session it opens lives in it')
   if (command !== 'hands' && options.evidence !== undefined)
     throw new UsageError('--evidence belongs to hands')
+  options.listenMs ??= defaultListenMs(options)
   return options
 }
 
@@ -546,7 +555,7 @@ function consoleWorld(worlds, id) {
   return world?.origin.startsWith('chrome-extension://') ? 'content-script' : 'page'
 }
 
-async function visit(context, url, wait, shot) {
+export async function visit(context, url, { wait, shot, settleMs = 0 } = {}) {
   const page = await context.newPage()
   const messages = []
   const errors = []
@@ -559,7 +568,7 @@ async function visit(context, url, wait, shot) {
   const session = await context.newCDPSession(page)
   session.on('Runtime.executionContextCreated', ({ context: created }) => worlds.push(created))
   session.on('Runtime.consoleAPICalled', (params) => {
-    messages.push({ ...consoleLine({ params }), world: consoleWorld(worlds, params.executionContextId) })
+    messages.push({ ...consoleLine({ params }), world: consoleWorld(worlds, params.executionContextId), at: new Date(params.timestamp).toISOString() })
   })
   await session.send('Runtime.enable')
   let response
@@ -571,6 +580,7 @@ async function visit(context, url, wait, shot) {
   catch (error) {
     throw new Unobserved(`${url} could not be observed: ${firstLine(error)}`)
   }
+  await sleep(settleMs)
   if (shot !== undefined)
     await page.screenshot({ path: shot })
   const title = await page.title()
@@ -623,7 +633,7 @@ const RUNS = {
     let page
     const events = await listenToWorker(profile, extension, 'Network', async (evaluate) => {
       if (options.page !== undefined) {
-        const { status, title } = await visit(context, options.page, options.wait)
+        const { status, title } = await visit(context, options.page, { wait: options.wait })
         page = { url: options.page, status, title }
       }
       await listening(options, evaluate)
@@ -632,14 +642,15 @@ const RUNS = {
   },
   'popup': async function ({ context, extension, options }) {
     const url = declaredPage(extension, options.command)
-    const { worlds, messages, ...seen } = await visit(context, url, options.wait)
+    const { worlds, messages, ...seen } = await visit(context, url, { wait: options.wait })
     return { id: extension.id, url, ...seen }
   },
   'page': async function ({ context, extension, options }) {
     const [url] = options.positionals
-    const { worlds, messages, ...seen } = await visit(context, url, options.wait, options.shot === undefined ? undefined : path.resolve(options.shot))
+    const { worlds, messages, ...seen } = await visit(context, url, { wait: options.wait, shot: options.shot === undefined ? undefined : path.resolve(options.shot), settleMs: options.listenMs })
     const heard = messages.filter(message => message.text.startsWith(options.prefix ?? ''))
     seen.console = heard
+    seen.listenedMs = options.listenMs
     if (options.shot !== undefined)
       seen.shot = path.resolve(options.shot)
     if (extension === undefined)
