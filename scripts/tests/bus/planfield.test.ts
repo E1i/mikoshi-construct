@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED } from '../../core/events.js'
 import { OWNER } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
 import { runBusIntake } from '../../intake/intake.js'
@@ -101,6 +101,26 @@ describe('the release is a field of the card', () => {
     expect(reduce(db).rejected).toBe(0)
     expect(releases(db)).toEqual([])
     expect(count(db, CARD_UNPLANNED)).toBe(1)
+    db.close()
+  })
+
+  it('plan add on a release that is not open is refused and writes no card.planned', () => {
+    const root = scratch()
+    const db = openBus(path.join(root, 'bus.db'))
+    expect(asked(db, '--op', 'add', '--plan', 'no-such-release', '--card', '#901')).toEqual([`refused: ${CARD_PLANNED}: release no-such-release is not open`])
+
+    openRelease(db)
+    reduce(db)
+    owner(db, PLAN_CLOSED, null, { plan: RELEASE })
+    expect(asked(db, '--op', 'add', '--plan', RELEASE, '--card', '#902')).toEqual([`refused: ${CARD_PLANNED}: release ${RELEASE} is not open`])
+
+    reduce(db)
+    owner(db, PLAN_OPENED, null, { id: RELEASE, title: 'opened a second time', goal: 'the reducer rejects it', plan_file: '/plans/0.45.2.md' })
+    expect(asked(db, '--op', 'add', '--plan', RELEASE, '--card', '#903')).toEqual([`refused: ${CARD_PLANNED}: release ${RELEASE} is not open`])
+
+    reduce(db)
+    expect(count(db, CARD_PLANNED)).toBe(0)
+    expect(releases(db)).toEqual([])
     db.close()
   })
 
