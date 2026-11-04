@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { latestAssignment } from '../../core/bus-readings.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, PR_OBSERVED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, PR_CLOSED, PR_OBSERVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
@@ -74,6 +74,11 @@ class Bench {
   openPr(id: number): this {
     const pr = id + 1000
     return this.append(PR_OBSERVED, id, pr, `${PR_OBSERVED}:${pr}`, { card_id: id, base: 'main', head: HEAD, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }, HEAD)
+  }
+
+  merge(id: number): this {
+    const pr = id + 1000
+    return this.openPr(id).append(PR_CLOSED, id, pr, `${PR_CLOSED}:${pr}`, { merged: true })
   }
 
   grow(lanes: number): this {
@@ -149,6 +154,119 @@ describe('a not-started card leaves a busy lane for an empty one', () => {
     const bench = new Bench(1).admit(1, { touches: 'src/a.ts' }).start(1).admit(2, { touches: 'src/b.ts' }).admit(3, { touches: 'src/c.ts', priority: 'p0' })
     bench.grow(2).tick()
     expect([bench.lane(2), bench.lane(3)]).toEqual(['lane-1', 'lane-2'])
+  })
+})
+
+describe('a chain that holds a not-ready card', () => {
+  function readyBehindWaiting(lanes: number): Bench {
+    return new Bench(lanes).admit(1, { touches: 'src/a.ts' }).start(1).admit(2, { touches: 'src/parent.ts' }).admit(3, { touches: 'src/shared.ts' }).admit(4, { touches: 'src/shared.ts', depends: [2] })
+  }
+
+  it('a ready card behind a not-ready card whose touches it overlaps moves to the empty lane and the waiting card stays', () => {
+    const bench = readyBehindWaiting(2)
+    expect([bench.lane(1), bench.lane(2), bench.lane(3), bench.lane(4)]).toEqual(['lane-1', 'lane-2', 'lane-1', 'lane-1'])
+    expect(bench.launchable()).toEqual([2])
+    bench.grow(3).tick()
+    expect([bench.lane(3), bench.lane(4)]).toEqual(['lane-3', 'lane-1'])
+    expect(bench.reason(3)).toBe('reflowed')
+    expect(bench.launchable()).toEqual([2, 3])
+  })
+
+  it('launch holds the waiting card back while the ready card that left its lane runs', () => {
+    const bench = readyBehindWaiting(2).grow(3).tick().start(3).drop(1).merge(2)
+    expect([bench.lane(3), bench.lane(4)]).toEqual(['lane-3', 'lane-1'])
+    expect(bench.launchable()).toEqual([])
+    bench.drop(3)
+    expect(bench.launchable()).toEqual([4])
+  })
+
+  it('a not-ready card keeps its parent in the lane', () => {
+    const bench = new Bench(2).admit(1, { touches: 'src/a.ts' }).admit(2, { touches: 'src/b.ts' }).admit(3, { touches: 'src/c.ts', depends: [1, 2] })
+    expect([bench.lane(1), bench.lane(2), bench.lane(3)]).toEqual(['lane-1', 'lane-2', 'lane-1'])
+    bench.grow(3).tick()
+    expect([bench.lane(1), bench.lane(2), bench.lane(3)]).toEqual(['lane-1', 'lane-2', 'lane-1'])
+    expect(bench.launchable()).toEqual([1, 2])
+  })
+
+  it('a card a not-ready card precedes stays with it', () => {
+    const bench = readyBehindWaiting(2).admit(5, { touches: 'src/e.ts', depends: [4] })
+    expect(bench.lane(5)).toBe('lane-1')
+    bench.grow(3).tick()
+    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-3', 'lane-1', 'lane-1'])
+  })
+
+  it('a ready card whose touches overlap a ready card moves with it', () => {
+    const bench = readyBehindWaiting(2).admit(5, { touches: 'src/shared.ts,src/f.ts' }).admit(6, { touches: 'src/f.ts' })
+    expect([bench.lane(5), bench.lane(6)]).toEqual(['lane-1', 'lane-1'])
+    bench.grow(3).tick()
+    expect([bench.lane(3), bench.lane(4), bench.lane(5), bench.lane(6)]).toEqual(['lane-3', 'lane-1', 'lane-3', 'lane-3'])
+  })
+
+  it('a ready card whose touches overlap the parent a not-ready card keeps stays with that parent', () => {
+    const bench = new Bench(2).admit(1, { touches: 'src/a.ts' }).admit(2, { touches: 'src/b.ts' }).admit(3, { touches: 'src/c.ts', depends: [1, 2] }).admit(4, { touches: 'src/a.ts' })
+    expect(bench.lane(4)).toBe('lane-1')
+    bench.grow(3).tick()
+    expect([bench.lane(1), bench.lane(3), bench.lane(4)]).toEqual(['lane-1', 'lane-1', 'lane-1'])
+  })
+
+  function twoReadyBesideOneWaiting(): Bench {
+    return new Bench(2).admit(1, { touches: 'src/a.ts' }).start(1).admit(2, { touches: 'src/parent.ts' }).admit(3, { touches: 'src/x.ts' }).admit(6, { touches: 'src/z.ts', depends: [2] }).admit(4, { touches: 'src/y.ts' }).admit(5, { touches: 'src/x.ts,src/y.ts', depends: [2] })
+  }
+
+  it('two ready cards that share only the not-ready card become two chains, each with its own empty lane', () => {
+    const bench = twoReadyBesideOneWaiting()
+    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-1', 'lane-1', 'lane-1'])
+    bench.grow(4).tick()
+    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-3', 'lane-4', 'lane-1'])
+  })
+
+  it('of two ready chains only the first takes the one empty lane', () => {
+    const bench = twoReadyBesideOneWaiting().grow(3).tick()
+    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-3', 'lane-1', 'lane-1'])
+  })
+
+  it('a ready member whose touches overlap a running card stays and the member past it moves', () => {
+    const bench = new Bench(1).admit(1, { touches: 'src/a.ts' }).start(1).admit(2, { touches: 'src/a.ts,src/b.ts' }).admit(3, { touches: 'src/b.ts' })
+    expect([bench.lane(2), bench.lane(3)]).toEqual(['lane-1', 'lane-1'])
+    bench.grow(2).tick()
+    expect([bench.lane(2), bench.lane(3)]).toEqual(['lane-1', 'lane-2'])
+  })
+
+  it('a ready member whose touches overlap an open pull request stays and the member past it moves', () => {
+    const bench = new Bench(1).admit(1, { touches: 'src/a.ts' }).openPr(1).admit(2, { touches: 'src/a.ts,src/b.ts' }).admit(3, { touches: 'src/b.ts' })
+    bench.grow(2).tick()
+    expect([bench.lane(2), bench.lane(3)]).toEqual(['lane-1', 'lane-2'])
+  })
+
+  it('a card that depends on a running card of its lane stays', () => {
+    const bench = new Bench(1).admit(1, { touches: 'src/a.ts' }).start(1).admit(2, { touches: 'src/b.ts', depends: [1] })
+    bench.grow(2).tick()
+    expect(bench.lane(2)).toBe('lane-1')
+  })
+
+  it('a ready card whose touches overlap a card the owner moved stays beside it', () => {
+    const bench = new Bench(2).admit(1, { touches: 'src/a.ts' }).start(1).admit(2, { touches: 'src/b.ts' }).move(2, 'lane-1').admit(3, { touches: 'src/b.ts' })
+    expect(bench.lane(3)).toBe('lane-1')
+    bench.tick()
+    expect([bench.lane(2), bench.lane(3)]).toEqual(['lane-1', 'lane-1'])
+    expect(bench.reason(2)).toBe('moved')
+  })
+
+  it('a ready card leaves a not-ready card the owner moved, and that card keeps its lane', () => {
+    const bench = new Bench(2).admit(1, { touches: 'src/a.ts' }).start(1).admit(2, { touches: 'src/parent.ts' }).admit(4, { touches: 'src/shared.ts', depends: [2] }).move(4, 'lane-1').admit(3, { touches: 'src/shared.ts' })
+    expect([bench.lane(3), bench.lane(4)]).toEqual(['lane-1', 'lane-1'])
+    bench.grow(3).tick()
+    expect([bench.lane(3), bench.lane(4), bench.reason(4)]).toEqual(['lane-3', 'lane-1', 'moved'])
+  })
+
+  it('the cards stay where the split put them on the next tick', () => {
+    const bench = readyBehindWaiting(2).grow(4).tick().tick()
+    expect([bench.lane(3), bench.lane(4)]).toEqual(['lane-3', 'lane-1'])
+  })
+
+  it('the ready card stays when no lane is empty', () => {
+    const bench = readyBehindWaiting(2).tick()
+    expect([bench.lane(3), bench.lane(4)]).toEqual(['lane-1', 'lane-1'])
   })
 })
 

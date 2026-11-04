@@ -1,6 +1,6 @@
 import type { WindowShard } from '../../policy/shards.js'
 import type { ExitReadings } from '../../window/eddies-measure.js'
-import type { HandoffState, MergedReading, PrState, StateReading } from '../../window/handoff-write.js'
+import type { HandoffState, MergedReading, PrState, QuestionReading, StateReading } from '../../window/handoff-write.js'
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -9,17 +9,19 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { appendEvent, openBus } from '../../core/db.js'
-import { NODE_DETECTED } from '../../core/events.js'
+import { appendEvent, closeOwnerWait, OPEN_WAIT, openBus, OWNER_WAITS } from '../../core/db.js'
+import { NODE_DETECTED, OWNER_WAIT_OPENED, WINDOW_REQUEST } from '../../core/events.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { keyOf, queueTask } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
 import { OWNERS_OF_A_STOP } from '../../policy/shards.js'
 import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../window/day-archive.js'
 import { UNREAD } from '../../window/eddies-measure.js'
 import { stopReasonOf } from '../../window/exit.js'
 import { HANDOFF_LIMIT, runHandoffCheck } from '../../window/handoff-check.js'
-import { busMerged, nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../window/handoff-write.js'
+import { busMerged, busOpenQuestion, nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../window/handoff-write.js'
 import { statusOf } from '../../window/loop.js'
+import { pendingRequests } from '../../window/window-requests.js'
 import { COMPLETION_OF } from '../../window/window.js'
 
 const roots: string[] = []
@@ -53,10 +55,13 @@ let mergedToday: MergedReading = NO_MERGES
 let prStates: Record<number, PrState> = {}
 let exitReadings: ExitReadings = BELOW_WARN
 let decisionsShard: WindowShard | null = null
+const NO_BUS_TO_ASK: QuestionReading = { kind: 'unread', why: 'no bus at /nowhere/bus.db' }
+let openQuestion: (question: string) => QuestionReading = () => NO_BUS_TO_ASK
 
 afterEach(() => {
   busState = NO_BUS
   decisionsShard = null
+  openQuestion = () => NO_BUS_TO_ASK
   mergedToday = NO_MERGES
   prStates = {}
   exitReadings = BELOW_WARN
@@ -98,6 +103,7 @@ function write(args: string[], handoffDir?: string, sessionHandoff: string | nul
     merged: () => mergedToday,
     prState: pr => prStates[pr] ?? 'OPEN',
     decisionsShard: () => decisionsShard,
+    openQuestion,
     readings: () => exitReadings,
     stopReason: stopReasonOf,
     now: () => NOW,
@@ -322,6 +328,125 @@ describe('handoff:write', () => {
       expect(result.err).toEqual([])
       expect(result.code).toBe(0)
     }
+  })
+
+  describe('the question of a STATUS: OWNER handoff', () => {
+    const OWNER_QUESTION = 'STATUS: OWNER — boundary: owner-question'
+
+    function ownerDraft(extra: Record<string, string> = {}, questions: readonly string[] = ['which path?']): string {
+      return draft(extra).replace('STATUS: CONTINUE', `${questions.map(question => `question: ${question}`).join('\n')}\n\n${OWNER_QUESTION}`)
+    }
+
+    function realBus(dir: string): { path: string, opened: () => Record<string, unknown>[], open: () => Record<string, unknown>[], close: () => void } {
+      const bus = path.join(dir, 'bus.db')
+      const db = openBus(bus)
+      openQuestion = question => busOpenQuestion(bus, 'session-1', NOW, question)
+      return {
+        path: bus,
+        opened: () => db.prepare(`SELECT payload FROM events WHERE type = ?`).all(OWNER_WAIT_OPENED).map(row => JSON.parse(String(row.payload)) as Record<string, unknown>),
+        open: () => {
+          reduce(db)
+          return db.prepare(`SELECT id, need, text FROM ${OWNER_WAITS} WHERE state = ?`).all(OPEN_WAIT).map(row => ({ ...row }))
+        },
+        close: () => db.close(),
+      }
+    }
+
+    it('handoff write with STATUS: OWNER opens the owner wait in the bus with no bus request', () => {
+      const { dir, handoff, draft: file } = world()
+      const bus = realBus(dir)
+      writeFileSync(file, ownerDraft())
+      const result = write([handoff, file])
+      expect(result.err).toEqual([])
+      expect(result.code).toBe(0)
+      expect(bus.open()).toEqual([{ id: 'Q1', need: 'decision', text: 'which path?' }])
+      expect(readFileSync(handoff, 'utf8')).toContain('owner waits: Q1 open\n')
+      expect(result.out.at(-1)).toContain('owner wait Q1 is open')
+      const db = openBus(bus.path)
+      expect(pendingRequests(db)).toEqual([])
+      expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(WINDOW_REQUEST)).toEqual({ n: 1 })
+      db.close()
+      bus.close()
+    })
+
+    it('a second write of the same question opens no second wait, and one closed opens anew', () => {
+      const { dir, handoff, draft: file } = world()
+      const bus = realBus(dir)
+      writeFileSync(file, ownerDraft())
+      expect(write([handoff, file]).code).toBe(0)
+      expect(write([handoff, file]).code).toBe(0)
+      expect(bus.opened()).toHaveLength(1)
+      expect(readFileSync(handoff, 'utf8')).toContain('owner waits: Q1 open\n')
+      const db = openBus(bus.path)
+      closeOwnerWait(db, NOW.toISOString(), 'policy', 'Q1', 'the first', 1)
+      db.close()
+      expect(write([handoff, file]).code).toBe(0)
+      expect(bus.opened().map(wait => wait.id)).toEqual(['Q1', 'Q2'])
+      bus.close()
+    })
+
+    it('every question line opens its own wait, and the field keeps what the draft named', () => {
+      const { dir, handoff, draft: file } = world()
+      const bus = realBus(dir)
+      writeFileSync(file, ownerDraft({ 'owner waits': 'Q7 answered' }, ['which path?', 'which name?', 'which path?']))
+      expect(write([handoff, file]).code).toBe(0)
+      expect(bus.opened().map(wait => wait.text)).toEqual(['which path?', 'which name?'])
+      expect(readFileSync(handoff, 'utf8')).toContain('owner waits: Q7 answered; Q1 open; Q2 open\n')
+      bus.close()
+    })
+
+    it('a draft with no question line opens a wait naming the handoff, unless its owner waits name an open one', () => {
+      const { dir, handoff, draft: file } = world()
+      const bus = realBus(dir)
+      writeFileSync(file, draft({ 'owner waits': 'Q5 open' }).replace('STATUS: CONTINUE', OWNER_QUESTION))
+      expect(write([handoff, file]).code).toBe(0)
+      expect(bus.opened()).toEqual([])
+      writeFileSync(file, draft().replace('STATUS: CONTINUE', OWNER_QUESTION))
+      expect(write([handoff, file]).code).toBe(0)
+      expect(bus.open()).toEqual([{ id: 'Q1', need: 'decision', text: `${handoff} ends ${OWNER_QUESTION} and names no question: line` }])
+      bus.close()
+    })
+
+    it.each([
+      ['STATUS: CONTINUE', 'STATUS: CONTINUE'],
+      ['a refused OWNER under a decisions shard', OWNER_QUESTION],
+    ])('%s opens no wait', (_, status) => {
+      const { dir, handoff, draft: file } = world()
+      const bus = realBus(dir)
+      decisionsShard = status === OWNER_QUESTION ? { id: 'ws-1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-17T16:00:00.000Z' } : null
+      writeFileSync(file, draft().replace('STATUS: CONTINUE', `question: which path?\n\n${status}`))
+      write([handoff, file])
+      expect(bus.opened()).toEqual([])
+      bus.close()
+    })
+
+    it('a bus that cannot be asked leaves the handoff written, saying the question stands only there', () => {
+      const { dir, handoff, draft: file } = world()
+      openQuestion = question => busOpenQuestion(path.join(dir, 'no-bus.db'), 'session-1', NOW, question)
+      writeFileSync(file, ownerDraft())
+      const result = write([handoff, file])
+      expect(result.code).toBe(0)
+      expect(result.out.at(-1)).toContain('the question stands only in the handoff')
+      expect(existsSync(path.join(dir, 'no-bus.db'))).toBe(false)
+      expect(readFileSync(handoff, 'utf8')).toContain('owner waits: none\n')
+    })
+
+    it('holds room for the wait id, so a written handoff never grows past the limit', () => {
+      const attempt = (filler: number): { written: number | null, opened: number, err: string } => {
+        const { dir, handoff, draft: file } = world()
+        const bus = realBus(dir)
+        writeFileSync(file, ownerDraft({ 'not done': `value${'x'.repeat(filler)}` }))
+        const result = write([handoff, file])
+        const reading = { written: existsSync(handoff) ? Buffer.byteLength(readFileSync(handoff, 'utf8')) : null, opened: bus.opened().length, err: result.err.join('\n') }
+        bus.close()
+        return reading
+      }
+      const unfilled = attempt(0).written!
+      const roomOfQ99999OverQ1 = 'Q99999'.length - 'Q1'.length
+      const lastThatFits = HANDOFF_LIMIT - unfilled - roomOfQ99999OverQ1
+      expect(attempt(lastThatFits)).toMatchObject({ written: HANDOFF_LIMIT - roomOfQ99999OverQ1, opened: 1 })
+      expect(attempt(lastThatFits + 1)).toMatchObject({ written: null, opened: 0, err: expect.stringContaining('bytes over the limit') as unknown })
+    })
   })
 
   it('the in-flight and queue fields are generated from the bus state, not from the draft', () => {
