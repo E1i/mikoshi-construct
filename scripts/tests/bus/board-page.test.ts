@@ -7,6 +7,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { runsFieldLine, witnessFieldsLine } from '../../../src/card/witness-fields.js'
 import { busFacts, busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
 import { planLine, RELEASE_STAGES } from '../../../src/commands/board/goal.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
@@ -17,8 +18,9 @@ import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
 import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
 import { defaultBusPath } from '../../core/db.js'
-import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
 import { nodeProcess } from '../../core/node.js'
+import { witnessFieldsBackfillOf } from '../../intake/witness-fields-backfill.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { slotsOf as slotsOfKind, slotsVariable } from '../../supervisor/scheduler.js'
 import { BOARD_FILE, FRESH_MS } from '../../window/board.js'
@@ -907,6 +909,90 @@ describe('board.html', () => {
     const first = templates.get('dialog-card-860')!
     expect(first).toContain(`The bus holds no check matrix for <a data-link href="${readRepositoryUrl()}/pull/13">PR #13 ›</a>.`)
     expect(first).not.toContain('risk matrix')
+  })
+
+  describe('the witnesses of a card', () => {
+    const HEAD = 'a'.repeat(40)
+    const fieldCard = (id: number, ...tail: string[]): string => [
+      `card: #${id} fielded [implement/netwatch/S/cheap/owner] · depends — · blocks —`,
+      `branch: feat/fielded-${id}`,
+      'touches: scripts/cli/board-page.ts',
+      'continue: stop',
+      'who: shift',
+      '',
+      'The fielded card.',
+      '',
+      ...tail,
+      '',
+    ].join('\n')
+
+    function busOfFields(id: number, text: string, events: SeedEvent[], head: string | null = HEAD): string {
+      const root = mkdtempSync(path.join(tmpdir(), 'bus-board-witnesses-'))
+      roots.push(root)
+      const file = busWithRecords(path.join(root, 'bus.db'), {
+        cards: [{ id, state: 'in_review', lane: 'lane-1', line: `#${id} fielded`, since: minutesAgo(5), pr: 40, text }],
+        prs: [{ pr: 40, card: id, state: 'open' }],
+        events: [{ ts: minutesAgo(1), type: 'netwatch.tick', card: null, payload: '{}' }, ...events],
+      })
+      const db = new DatabaseSync(file)
+      db.exec('ALTER TABLE prs ADD COLUMN head TEXT')
+      db.prepare('UPDATE prs SET head = ? WHERE pr = 40').run(head)
+      db.close()
+      return file
+    }
+
+    function witnessRecord(head: string, verdict: string, detail: string): SeedEvent {
+      return { ts: minutesAgo(1), type: WITNESS_RECORDED, card: 870, pr: 40, head, payload: JSON.stringify({ verdict, detail }) }
+    }
+
+    const FIELDS = [
+      { id: 'W1', run: 'pnpm exec vitest run tests/a.test.ts', test: 'the <thing>', head: 'pass', base: 'fail', proves: 'follows #870' },
+      { id: 'W2', run: 'test -f a.txt', test: null, head: 'pass', base: 'pass', proves: 'a stays' },
+    ] as const
+    const FIELD_CARD = fieldCard(870, runsFieldLine(['tests/board/**', 'tests/a.test.ts']), witnessFieldsLine(FIELDS))
+
+    it('the board shows the witness fields of a card as a table', () => {
+      const dialog = templatesOf(pageText(busOfFields(870, FIELD_CARD, [witnessRecord(HEAD, 'green', 'every card witness red on the base and green on head')]))).get('dialog-card-870')!
+      expect(dialog).toContain('<table class="mx" data-witnesses><thead><tr><th scope="col">id</th><th scope="col">run</th><th scope="col">test</th><th scope="col">head/base</th><th scope="col">proves</th></tr></thead>')
+      expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the &lt;thing&gt;</td><td>pass/fail · last green</td><td>follows <button')
+      expect(dialog).toContain('<tr><th scope="row">W2</th><td><code>test -f a.txt</code></td><td>—</td><td>pass/pass · last green</td><td>a stays</td></tr>')
+      expect(dialog).toContain('<p>runs: <code>tests/board/**</code> <code>tests/a.test.ts</code></p>')
+      expect(dialog).not.toContain('witnesses: [')
+    })
+
+    it('the last result of a witness is the record on the current head, by witness', () => {
+      const criterion = 'W1: `pnpm exec vitest run tests/a.test.ts -t \'the <thing>\'` · head pass · base fail · acceptance'
+      const dialogOf = (events: SeedEvent[]): string => templatesOf(pageText(busOfFields(870, FIELD_CARD, events))).get('dialog-card-870')!
+      const red = dialogOf([witnessRecord(HEAD, 'red', `P8: positive control "${criterion}" exits 1`)])
+      expect(red).toContain('<td>pass/fail · last red</td>')
+      expect(red).toContain('<td>pass/pass · last not reached</td>')
+      const none = dialogOf([witnessRecord('b'.repeat(40), 'green', 'on an older head')])
+      expect(none).toContain('<td>pass/fail · last not run</td>')
+      expect(none).toContain('<td>pass/pass · last not run</td>')
+    })
+
+    it('a backfilled card shows its table and no second runs line', () => {
+      const text = fieldCard(870, 'Runs: tests/board/**', 'Witnesses:', '- `pnpm exec vitest run tests/a.test.ts -t \'the thing\'` exits 0; red on main')
+      const backfill = witnessFieldsBackfillOf([{ card: 870, text }])
+      const event: SeedEvent = { ts: minutesAgo(1), type: WITNESS_FIELDS_BACKFILLED, card: null, payload: JSON.stringify(backfill) }
+      const dialog = templatesOf(pageText(busOfFields(870, text, [event]))).get('dialog-card-870')!
+      expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the thing</td><td>pass/fail · last not run</td>')
+      expect(dialog).toContain('<p>runs: <code>tests/board/**</code></p>')
+      expect(dialog).not.toContain('Runs: tests/board/**')
+      expect(dialog).not.toContain('<ul><li>')
+    })
+
+    it('a card with no witness fields shows its witnesses as prose', () => {
+      const text = fieldCard(870, 'Witnesses:', '- `pnpm exec vitest run tests/a.test.ts` exits 0')
+      const dialog = templatesOf(pageText(busOfFields(870, text, []))).get('dialog-card-870')!
+      expect(dialog).toContain('<h3>Witnesses</h3><ul><li><code>pnpm exec vitest run tests/a.test.ts</code> exits 0</li></ul>')
+      expect(dialog).not.toContain('data-witnesses')
+    })
+
+    it('the services grid column is 16rem in the rendered css', () => {
+      const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
+      expect(style).toContain('.svc-grid { display: grid; gap: 1px; background: var(--line); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }')
+    })
   })
 
   it('the handoff and decisions dialogs carry miko.md and the decisions in force', () => {

@@ -33,6 +33,7 @@ const NAMED_NOT_CARRIED = {
   'architecture/code-matrix.md': 'cited in a merge refusal, never read',
   'architecture/model.md': 'matched against a changed path to name its render command, never read',
   'architecture/security-invariants.md': 'matched against a changed path to classify instructions, never read',
+  'scripts/construct/browser-lab.mjs': 'carried by the Claude templates, not this manifest; the browser preinstall reads it only where a tree has it, and a repository without it has no lab to preinstall',
 } as const
 
 const REPOSITORY_PATH = /(?<![\w~/.-])(\.claude\/[\w./-]+\.(?:md|mjs|json)|scripts\/construct\/[\w.-]+\.(?:mjs|workflow|json)|architecture\/[\w./-]+\.(?:md|yaml|json))/g
