@@ -551,7 +551,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
 
 function printJournalledEvent(ui: Ui, event: number | null): void {
   if (event !== null)
-    ui.line(ui.theme.dim(`  ${CARD_ADMITTED} event ${event}`))
+    ui.line(ui.theme.dim(`  ${ui.lore.intakeAdmittedEvent(event)}`))
 }
 
 export function printAdmit(ui: Ui, result: AdmitResult): number {
