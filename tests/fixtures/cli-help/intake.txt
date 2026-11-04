@@ -9,6 +9,12 @@ OPTIONS
       --draft=<draft>    JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin                                                                                         
       --taken=<taken>    File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin                                                             
       --admit=<admit>    A card already parked (<parking>/<id>.md): check it by facts and record it in the bus a caller wires in; no new number                                     
+      --amend=<amend>    An admitted card (#<id>) to edit in the bus by the flags below: the checks of --admit, then a card.admitted with source amend; no file                     
+  --touches=<touches>    With --amend: +<path> adds a touch, -<path> removes one; several comma-separated                                                                           
+  --creates=<creates>    With --amend: +<path> adds a creates entry, -<path> removes one; several comma-separated                                                                   
+        --note=<note>    With --amend: a line appended to the card body                                                                                                             
+  --witness=<witness>    With --amend: <old witness>=<new witness>, replacing one witness; a weaker one waits for the owner as under --admit                                        
+          --who=<who>    With --amend: who takes the card, shift or window                                                                                                          
         --move=<move>    A parked card (#<id>) to move to the parking directory --to names: found in the parking root or a direct subdirectory, the file unchanged, the bus holds it
             --to=<to>    With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root                                     
   --parking=<parking>    The parking directory the cards are written to (default: ~/.construct/parking)                                                                             

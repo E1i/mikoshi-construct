@@ -408,7 +408,7 @@ function intakeCommand(bus: BusPorts | undefined) {
       draft: { type: 'string', description: 'JSON file of the sliced cards ({ "cards": [ … ] }), or - for stdin' },
       taken: { type: 'string', description: 'File of the pull request and issue numbers already taken, whitespace-separated, or - for stdin' },
       admit: { type: 'string', description: 'A card already parked (<parking>/<id>.md): check it by facts and record it in the bus a caller wires in; no new number' },
-      amend: { type: 'string', description: 'An admitted card (#<id>) to edit straight in the bus: its body comes from the bus, the edits below apply, and the result goes through the same checks as --admit to a new card.admitted with source amend; no file' },
+      amend: { type: 'string', description: 'An admitted card (#<id>) to edit in the bus by the flags below: the checks of --admit, then a card.admitted with source amend; no file' },
       touches: { type: 'string', description: 'With --amend: +<path> adds a touch, -<path> removes one; several comma-separated' },
       creates: { type: 'string', description: 'With --amend: +<path> adds a creates entry, -<path> removes one; several comma-separated' },
       note: { type: 'string', description: 'With --amend: a line appended to the card body' },
