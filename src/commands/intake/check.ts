@@ -76,9 +76,16 @@ function testBeside(entry: string, touches: readonly string[], repository: Repos
 
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
 
+export interface CompositionRecord {
+  id: string
+  doc: string
+  nodes: readonly { path?: string }[]
+}
+
 export interface FollowingReach {
   touches: readonly string[]
   added: ReadonlySet<string>
+  compositionRecords: readonly CompositionRecord[]
 }
 
 export interface FollowingRow {
@@ -92,6 +99,7 @@ const RENDERED_SUFFIX = /(?:\.existing)?\.eta$/
 const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
 const SECURITY_PATHS = ['architecture/security-invariants.md', '.gitleaks.toml', '.github/workflows']
 const NEVER_FOLLOWING = ['.claude', OWNER_MERGES, ...SECURITY_PATHS]
+export const COMPOSITION_ROOT = 'architecture/composition'
 
 function reachesAny(touches: readonly string[], roots: readonly string[]): boolean {
   return touches.some(touch => roots.some(root => under(touch, root) || (touch.endsWith(PREFIX_SUFFIX) && under(root, scopeOf(touch)))))
@@ -109,6 +117,11 @@ function generatedFrom(generated: string, sources: readonly string[]): Following
   return (file, reach) => file === generated && reachesAny(reach.touches, sources)
 }
 
+function reachedRecordFollows(file: string, reach: FollowingReach): boolean {
+  return reach.compositionRecords.some(record => (file === `${COMPOSITION_ROOT}/${record.id}.yaml` || file === record.doc)
+    && reachesAny(reach.touches, record.nodes.flatMap(node => node.path ?? [])))
+}
+
 export const COMPANION_TABLE: readonly (CompanionRow | FollowingRow)[] = [
   { kind: 'the scripts manifest', keptBy: HARNESS_MEMBERSHIP_TEST, touched: entry => entry === 'package.json', companions: () => ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST] },
   { kind: 'the command definitions', keptBy: 'tests/readme-commands.test.ts', touched: entry => entry === 'src/program.ts', companions: () => ['README.md', 'docs/cli.md', `docs/guide${PREFIX_SUFFIX}`] },
@@ -123,10 +136,13 @@ export const COMPANION_TABLE: readonly (CompanionRow | FollowingRow)[] = [
     const copy = rootCopyOf(touch)
     return copy !== null && covers(copy, file)
   }) },
+  { kind: 'a composition record and its document', follows: reachedRecordFollows },
 ]
-export const FOLLOWING_REASON = 'a generated twin of a touched file, or a changeset the card adds, follows the touches: the companion table in src/commands/intake/check.ts'
+export const FOLLOWING_REASON = 'a generated twin of a touched file, a composition record and its document whose node the touches reach, or a changeset the card adds, follows the touches: the companion table in src/commands/intake/check.ts'
 
-export function neverFollows(file: string): boolean {
+export function neverFollows(file: string, reach: FollowingReach): boolean {
+  if (under(file, COMPOSITION_ROOT) && reachedRecordFollows(file, reach))
+    return false
   return NEVER_FOLLOWING.some(root => under(file, root)) || riskOf(file).level === OWNER_RISK
 }
 

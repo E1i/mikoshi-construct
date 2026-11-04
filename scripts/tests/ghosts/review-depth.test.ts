@@ -75,6 +75,8 @@ describe('bus review depth follows the MORSE instructions rule', () => {
     { file: 'contract/surface.json', touches: [TOUCHED_MODULE], added: [] },
     { file: CARD_CHANGESET, touches: [TOUCHED_MODULE], added: [CARD_CHANGESET] },
     { file: 'src/materialize/factory-manifest.ts', touches: ['architecture/decisions/window-allow-merge.md'], added: [] },
+    { file: 'architecture/composition/intake.yaml', touches: [TOUCHED_MODULE], added: [] },
+    { file: 'architecture/intake.md', touches: [TOUCHED_MODULE], added: [] },
   ])('a file that follows the touches is no finding of the first review: $file', ({ file, touches, added }) => {
     const plan = planReview(lease, null, sourcesOf([...touches, file], touches, added))
     expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [] })
@@ -83,6 +85,8 @@ describe('bus review depth follows the MORSE instructions rule', () => {
   it.each([
     { file: 'README.md', added: [] },
     { file: CARD_CHANGESET, added: [] },
+    { file: 'architecture/composition/doctor.yaml', added: [] },
+    { file: 'architecture/doctor.md', added: [] },
   ])('a file that does not follow the touches stays a finding of the first review: $file', ({ file, added }) => {
     const plan = planReview(lease, null, sourcesOf([TOUCHED_MODULE, file], [TOUCHED_MODULE], added))
     expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [`${file} is outside the touches of card #1974 (${TOUCHED_MODULE})`] })

@@ -1,8 +1,10 @@
+import type { CompositionRecord } from '../../../src/commands/intake/check.js'
 import type { Lease } from '../../core/lease.js'
 import type { Prediction, RuleId } from '../../policy/morse/rules.js'
 import { runsCover } from '../../../src/card/covering-tests.js'
 import { PREFIX_SUFFIX } from '../../../src/card/task-file.js'
 import { followsTouches } from '../../../src/commands/intake/check.js'
+import { loadCompositionModels } from '../../composition/files.js'
 
 export const REVIEW_DEPTHS = ['full', 'diff'] as const
 
@@ -64,12 +66,21 @@ function reReview(head: string, earlier: EarlierVerdict, sources: DepthSources):
   return { depth: 'diff', round: 'again', why, since: earlier.head, findings: earlier.findings }
 }
 
+function compositionRecords(): CompositionRecord[] {
+  try {
+    return loadCompositionModels().map(loaded => loaded.model)
+  }
+  catch {
+    return []
+  }
+}
+
 function touchFindings(cardId: number, { files, added }: Predicted, sources: DepthSources): string[] {
   const scope = sources.scope(cardId)
   if (scope === null)
     return [`the touches of card #${cardId} could not be read, so no changed file is shown inside them`]
   const { touches, runs } = scope
-  const reach = { touches, added: new Set(added) }
+  const reach = { touches, added: new Set(added), compositionRecords: compositionRecords() }
   return files.filter(file => !withinTouches(file, touches) && !runsCover(file, runs) && !followsTouches(file, reach)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})`)
 }
 

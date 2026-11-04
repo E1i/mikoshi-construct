@@ -434,7 +434,7 @@ describe('intake fact check', () => {
   })
 
   it('the factory manifest follows a card whose touches reach a path it lists', () => {
-    const followsWith = (touches: string[]): boolean => followsTouches('src/materialize/factory-manifest.ts', { touches, added: new Set() })
+    const followsWith = (touches: string[]): boolean => followsTouches('src/materialize/factory-manifest.ts', { touches, added: new Set(), compositionRecords: [] })
     expect(FACTORY_MANIFEST.every(listed => followsWith([listed]))).toBe(true)
     expect(followsWith(['scripts/construct/**'])).toBe(true)
     expect(followsWith(['scripts/construct/other.mjs'])).toBe(false)
@@ -445,7 +445,7 @@ describe('intake fact check', () => {
     const touches = ['templates/base/a.md']
     const dir = repository([...touches, 'contract/surface.json'])
     const [checked] = checkDraft([draftCard({ touches })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
-    expect(followsTouches('contract/surface.json', { touches, added: new Set() })).toBe(true)
+    expect(followsTouches('contract/surface.json', { touches, added: new Set(), compositionRecords: [] })).toBe(true)
     expect(checked!.touches).toEqual(touches)
     expect(COMPANION_TABLE.map(row => row.kind)).toEqual(expect.arrayContaining(['source code', 'the factory manifest']))
   })
