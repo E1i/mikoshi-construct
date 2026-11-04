@@ -15,7 +15,7 @@ import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { ANSWER_STEP, CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, StaleLease, supersedeLease, waitTask } from '../../core/lease.js'
-import { answerOnAnOldCardBody, FAILURES_TO_STOP, REVIEW_ROUNDS, supersededAnswerWithinItsLease } from '../../core/queue.js'
+import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, FAILURES_TO_STOP, REVIEW_ROUNDS, supersededAnswerWithinItsLease } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from '../../policy/policy.js'
 import { activeDecisionsShard, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
@@ -28,7 +28,7 @@ import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, answerSourceOf, boundDecisionLines, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, treeDirtyOf, treeMergeOf } from './answerer.js'
 
-export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches' | 'repeated_stop' | 'old_card_body' | 'closed_wait'
+export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches' | 'repeated_stop' | 'old_card_body' | 'closed_wait' | typeof DOWNGRADE_WAIT_OPEN
 
 export interface AnswerDenial {
   kind: 'technical'
@@ -118,7 +118,7 @@ const RED_WITNESS_ON_HEAD = `
 
 const REENTRY_SOURCES: ReadonlySet<AnswerSource['kind']> = new Set(['ci'])
 
-const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone', 'held_for_owner'])
+const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone', 'held_for_owner', DOWNGRADE_WAIT_OPEN])
 
 const MS_PER_MINUTE = 60_000
 
@@ -177,6 +177,8 @@ export class AnswerExecutor {
       assertHeld(this.parts.db, lease)
       if (answerOnAnOldCardBody(this.parts.db, lease))
         return this.superseded(lease, `the body of card #${lease.cardId} was amended before this lease was taken; no session runs on the old body`)
+      if (downgradeWaitOpenOn(this.parts.db, lease.cardId))
+        return this.denied(lease, { kind: 'technical', reason: DOWNGRADE_WAIT_OPEN, detail: `card #${lease.cardId} waits on the owner's witness downgrade decision; no answer round runs until that wait closes` })
       const source = this.sourceOf(lease)
       if (source === null && !this.dirtyOnHead(lease))
         return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
@@ -411,6 +413,8 @@ export class AnswerExecutor {
     if (answeredBy !== null)
       return this.denied(lease, { kind: 'technical', reason: 'repeated_stop', detail: `the answer session asked again what card #${lease.cardId} already stopped on, and D-${answeredBy} was recorded for the card after that stop; no new owner wait, the answer goes again with the decision in its prompt. The question was: ${question}` })
     const scope = widened === null ? [] : [widened.event]
+    if (downgradeWaitOpenOn(this.parts.db, lease.cardId))
+      return this.ownersStop(lease, question, scope)
     if (!this.ownersQuestion(lease, question))
       return this.stopped(lease, QUESTION_AGENT, question, {}, scope)
     const shard = activeDecisionsShard(this.parts.db, this.parts.clock())

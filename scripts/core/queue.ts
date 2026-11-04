@@ -16,7 +16,7 @@ import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_RECORDED } from './events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
 import { payloadOf, reject } from './stored.js'
@@ -358,9 +358,41 @@ function latestQuestionStops(columns: string, condition: string): string {
 `
 }
 
+export const DOWNGRADE_WAIT_OPEN = 'downgrade_wait_open'
+
+function aDowngradeWaitOpenOn(card: string): string {
+  return `EXISTS (
+    SELECT 1 FROM ${OWNER_WAITS} AS wait JOIN events AS asked ON asked.id = wait.event_id
+    WHERE wait.card_id = ${card} AND wait.state = '${OPEN_WAIT}' AND asked.type = '${CARD_WAITING}'
+      AND json_extract(asked.payload, '$.reason') = '${WITNESS_DOWNGRADE}'
+  )`
+}
+
+const A_DOWNGRADE_WAIT_OF_THE_CARD = `SELECT ${aDowngradeWaitOpenOn('?')} AS open`
+
+export function downgradeWaitOpenOn(db: DatabaseSync, cardId: number): boolean {
+  return (db.prepare(A_DOWNGRADE_WAIT_OF_THE_CARD).get(cardId) as { open: number }).open === 1
+}
+
+const QUEUED_ANSWERS_UNDER_A_DOWNGRADE_WAIT = `
+  SELECT task_key, queue, card_id, pr, head FROM tasks
+  WHERE queue = 'answer' AND state = '${QUEUED}' AND ${aDowngradeWaitOpenOn('tasks.card_id')}
+  ORDER BY task_key
+`
+
+const ANSWERS_PARKED_ON_A_DOWNGRADE_WAIT_NOW_CLOSED = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
+  LEFT JOIN prs ON prs.pr = tasks.pr
+  JOIN events AS parked ON parked.id = tasks.event_id
+  WHERE tasks.queue = 'answer' AND tasks.state = '${WITHDRAWN}' AND (tasks.pr IS NULL OR (prs.state = 'open' AND prs.head = tasks.head))
+    AND parked.type IN ('${TASK_FAILED}', '${TASK_WITHDRAWN}') AND json_extract(parked.payload, '$.reason') = '${DOWNGRADE_WAIT_OPEN}'
+    AND NOT ${aDowngradeWaitOpenOn('tasks.card_id')}
+  ORDER BY tasks.task_key
+`
+
 const QUESTION_CANDIDATES = latestQuestionStops(
   `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body`,
-  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND NOT ${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND ${notAWindowCard('stop.card_id')}`,
+  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND NOT ${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND ${notAWindowCard('stop.card_id')} AND NOT ${aDowngradeWaitOpenOn('stop.card_id')}`,
 )
 
 const LAUNCH_STOPS_LIFTED = latestQuestionStops(
@@ -477,6 +509,7 @@ function answerCandidatesWhere(condition: string): string {
   SELECT pr, card_id, head, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
   WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
     AND ${notAWindowCard('prs.card_id')}
+    AND NOT ${aDowngradeWaitOpenOn('prs.card_id')}
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
         AND stop.type = '${CARD_STOPPED}' AND ${AN_OPEN_QUESTION}
@@ -1133,6 +1166,11 @@ function withdrawTask(db: DatabaseSync, ts: string, task: QueuedTask): boolean {
   return written(db, taskEvent(ts, TASK_WITHDRAWN, task, undefined, stateEventOf(db, task)))
 }
 
+function parkUnderTheDowngradeWait(db: DatabaseSync, ts: string, task: QueuedTask): void {
+  const event = taskEvent(ts, TASK_WITHDRAWN, task, undefined, stateEventOf(db, task))
+  written(db, { ...event, payload: { ...event.payload as Record<string, unknown>, reason: DOWNGRADE_WAIT_OPEN } })
+}
+
 function identity(row: TaskRow): QueuedTask {
   const plain = { queue: row.queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }
   const input = row.queue === 'review' ? reviewInputOfKey(row.task_key) : undefined
@@ -1241,7 +1279,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const [query, ...params] of [[STOPPED_ON_NO_CARD_TREE], [WITHDRAWN_ON_A_WITNESS_NOW_GREEN], [WITHDRAWN_MERGES_A_LATER_SHARD_NAMES], [WITHDRAWN_MERGES_A_LATER_WINDOW_SHARD_COVERS, ts], [MERGES_PARKED_ON_A_QUESTION_NOW_CLOSED]]) {
+  for (const [query, ...params] of [[STOPPED_ON_NO_CARD_TREE], [WITHDRAWN_ON_A_WITNESS_NOW_GREEN], [WITHDRAWN_MERGES_A_LATER_SHARD_NAMES], [WITHDRAWN_MERGES_A_LATER_WINDOW_SHARD_COVERS, ts], [MERGES_PARKED_ON_A_QUESTION_NOW_CLOSED], [ANSWERS_PARKED_ON_A_DOWNGRADE_WAIT_NOW_CLOSED]]) {
     for (const row of db.prepare(query!).all(...params) as unknown as StoppedRow[]) {
       if (requeueTask(db, ts, row))
         derived.queued.push(row.task_key)
@@ -1259,6 +1297,8 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (setAgainAfterItsStop(db, ts, row))
       derived.queued.push(row.task_key)
   }
+  for (const row of db.prepare(QUEUED_ANSWERS_UNDER_A_DOWNGRADE_WAIT).all() as unknown as TaskRow[])
+    parkUnderTheDowngradeWait(db, ts, identity(row))
   openWindowWaits(db, ts)
   readmitLiftedLaunchStops(db, ts)
   openReentryLimitWaits(db, ts)
