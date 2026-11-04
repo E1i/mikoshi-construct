@@ -7,13 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { parseParkingFile } from '../src/card/parking.js'
 import { textSha } from '../src/card/text-sha.js'
-import { ADMIT_SOURCE, AMEND_SOURCE, runAdmit } from '../src/commands/intake/admit.js'
-import { bodySha } from '../src/commands/intake/confirm.js'
+import { ADMIT_SOURCE, AMEND_SOURCE, printAdmit, runAdmit } from '../src/commands/intake/admit.js'
+import { bodySha, WINDOW_SHARD_VARIABLE } from '../src/commands/intake/confirm.js'
 import { INTAKE_EXIT, printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 
 const BEFORE_THE_CUTOFF = new Date('2026-10-12T16:00:00.000Z')
+const SHARD = 'shard-1'
 const roots: string[] = []
 
 beforeEach(() => {
@@ -103,6 +104,87 @@ describe('intake confirmation gate', () => {
     expect(text).toContain(`corrected: ${CORRECTION}`)
     expect(text).toContain('who: shift')
     expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: 'person', corrections: [CORRECTION] }])
+  })
+
+  describe('under a window shard', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('a correction a window confirms under a shard records window under shard and never confirmed by a person', () => {
+      vi.stubEnv(WINDOW_SHARD_VARIABLE, SHARD)
+      const w = world([card({ number: 12 })])
+      const held = intake(w)
+      expect(held.status).toBe('awaiting')
+      const confirmed = intake(w, { confirm: held.status === 'awaiting' ? held.token : '' })
+      expect(confirmed.status).toBe('written')
+      expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: `window under shard ${SHARD}`, corrections: [CORRECTION] }])
+      for (const plain of [true, false]) {
+        const lines: string[] = []
+        printIntake(createUi(resolveTheme({ plain }), line => lines.push(line)), confirmed)
+        expect(lines.join('\n')).toContain(`window under shard ${SHARD}`)
+        expect(lines.join('\n')).not.toContain('confirmed by a person')
+      }
+    })
+
+    it('the token gate holds a window under a shard exactly as it holds anyone else', () => {
+      vi.stubEnv(WINDOW_SHARD_VARIABLE, SHARD)
+      const w = world([card({ number: 12 })])
+      expect(intake(w).status).toBe('awaiting')
+      expect(intake(w, { confirm: 'not-the-token' })).toMatchObject({ status: 'awaiting', stale: true })
+      expect(w.bus).toEqual([])
+    })
+
+    it('slices a window confirms under a shard record the window on every slice', () => {
+      vi.stubEnv(WINDOW_SHARD_VARIABLE, SHARD)
+      const w = world([card({ touches: ['scripts/core/queue.ts', 'scripts/core/inbox.ts'] })])
+      writeFileSync(path.join(w.repo, 'scripts/core/queue.ts'), 'import { inboxOf } from \'./inbox.js\'\n')
+      const held = intake(w)
+      expect(intake(w, { confirm: held.status === 'awaiting' ? held.token : '' }).status).toBe('written')
+      const label = `window under shard ${SHARD}`
+      expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: label }, { task: '14', confirmation: label }])
+    })
+
+    it('--auto-confirm and a card with nothing to confirm name no window, whatever the shard', () => {
+      vi.stubEnv(WINDOW_SHARD_VARIABLE, SHARD)
+      const auto = world([card({ number: 12 })])
+      const accepted = intake(auto, { autoConfirm: true })
+      expect(admitted(auto.bus)).toMatchObject([{ confirmation: 'auto' }])
+      expect(printed(accepted).lines.join('\n')).toContain('accepted in advance by --auto-confirm')
+      const clean = world([card()])
+      intake(clean)
+      expect(admitted(clean.bus)).toMatchObject([{ confirmation: 'none' }])
+    })
+
+    it('an empty shard variable is no shard', () => {
+      vi.stubEnv(WINDOW_SHARD_VARIABLE, ' ')
+      const w = world([card({ number: 12 })])
+      const held = intake(w)
+      intake(w, { confirm: held.status === 'awaiting' ? held.token : '' })
+      expect(admitted(w.bus)).toMatchObject([{ confirmation: 'person' }])
+    })
+
+    it('an admit the window confirms under a shard records the window, and a repeated --admit keeps what was recorded under another shard', () => {
+      vi.stubEnv(WINDOW_SHARD_VARIABLE, SHARD)
+      const w = world([card()])
+      mkdirSync(w.parking, { recursive: true })
+      const file = path.join(w.parking, '83.md')
+      writeFileSync(file, `card: #83 admit-card [implement/runner/S/cheap/owner] · depends #12 · blocks —\nbranch: feat/card-83\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
+      const bus: CardEvent[] = []
+      const admit = (confirm?: string) => runAdmit({ file, dir: w.repo, dryRun: false, confirm, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event), cardStates: () => new Map([['12', 'merged']]), admissions: admissionsOf(bus) })
+      const held = admit()
+      expect(held.status).toBe('awaiting')
+      const confirmed = admit(held.status === 'awaiting' ? held.token : '')
+      expect(confirmed.status).toBe('admitted')
+      const lines: string[] = []
+      printAdmit(createUi(resolveTheme({ plain: true }), line => lines.push(line)), confirmed)
+      expect(lines.join('\n')).toContain(`window under shard ${SHARD}`)
+      expect(lines.join('\n')).not.toContain('confirmed by a person')
+      expect(admitted(bus).at(-1)).toMatchObject({ confirmation: `window under shard ${SHARD}` })
+      vi.stubEnv(WINDOW_SHARD_VARIABLE, 'a-later-shard')
+      expect(admit().status).toBe('alreadyAdmitted')
+      expect(admitted(bus).at(-1)).toMatchObject({ confirmation: `window under shard ${SHARD}` })
+    })
   })
 
   it('confirmed slices are parked as cards with depends and no manual step', () => {

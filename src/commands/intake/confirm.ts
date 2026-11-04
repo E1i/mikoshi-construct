@@ -1,13 +1,31 @@
 import type { Correction } from './check.js'
 import type { SlicedCard } from './slice.js'
 import { createHash } from 'node:crypto'
+import process from 'node:process'
 import { SEAM_PREFIX } from '../../card/risk.js'
 import { COMPANION_REASON, COVERING_REASON } from './check.js'
 
-export type Confirmation = 'auto' | 'person' | 'none'
+const WINDOW_UNDER_SHARD = 'window under shard '
+
+export type Confirmation = 'auto' | 'person' | 'none' | `${typeof WINDOW_UNDER_SHARD}${string}`
 
 const TOKEN_LENGTH = 12
+const FIXED_CONFIRMATIONS: readonly unknown[] = ['auto', 'person', 'none']
 export const TOUCHES_HEADER = 'touches: '
+export const WINDOW_SHARD_VARIABLE = 'CONSTRUCT_WINDOW_SHARD'
+
+export function windowShard(): string | null {
+  return process.env[WINDOW_SHARD_VARIABLE]?.trim() || null
+}
+
+export function tokenConfirmation(): Confirmation {
+  const shard = windowShard()
+  return shard === null ? 'person' : `${WINDOW_UNDER_SHARD}${shard}`
+}
+
+export function isConfirmation(value: unknown): value is Confirmation {
+  return FIXED_CONFIRMATIONS.includes(value) || (typeof value === 'string' && value.startsWith(WINDOW_UNDER_SHARD))
+}
 
 function digest(text: string): string {
   return createHash('sha256').update(text).digest('hex').slice(0, TOKEN_LENGTH)
@@ -66,5 +84,5 @@ export function awaitsConfirmation(cards: readonly SlicedCard[]): boolean {
 export function confirmationOf(card: SlicedCard, autoConfirm: boolean): Confirmation {
   if (autoConfirm)
     return 'auto'
-  return needsPerson(card) ? 'person' : 'none'
+  return needsPerson(card) ? tokenConfirmation() : 'none'
 }

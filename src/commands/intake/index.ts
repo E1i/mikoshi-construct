@@ -17,7 +17,7 @@ import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { textSha } from '../../card/text-sha.js'
 import { laneOf, layLane } from './admit.js'
 import { checkDraft, checkPlan, correctionText, invalidTestPatterns, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, PLAN_FIELD, publishedRootsOf } from './check.js'
-import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken } from './confirm.js'
+import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, tokenConfirmation, windowShard } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedNumbers, nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
@@ -143,7 +143,7 @@ type Refusal = 'admitWithDraft' | 'noDraft' | 'noTaken' | 'bothFromStdin' | 'unr
 
 export type IntakeResult
   = | { status: 'refused', refusal: Refusal, detail: string[] }
-    | { status: 'written', parking: string, cards: SlicedCard[], autoConfirm: boolean, inBus: boolean }
+    | { status: 'written', parking: string, cards: SlicedCard[], autoConfirm: boolean, inBus: boolean, windowShard: string | null }
     | { status: 'dryRun', parking: string, cards: SlicedCard[] }
     | { status: 'awaiting', parking: string, cards: SlicedCard[], token: string, stale: boolean }
 
@@ -252,9 +252,9 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const at = new Date()
   const root = options.parkingRoot ?? defaultParking()
   const written = options.events === undefined ? parkCards(parkedSlice.cards, options.parking, root, at) : parkedSlice.cards.map(card => ({ card, lane: laneOf(root, options.parking) }))
-  const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? 'person' : confirmationOf(card, options.autoConfirm))
+  const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? tokenConfirmation() : confirmationOf(card, options.autoConfirm))
   recordIntake(written.map(({ card, lane }, index) => withPlan(admittedRecord(card, confirmation(card), at, lane), plan?.link, cut[index]?.item)), options.events)
-  return { status: 'written', parking: options.parking, cards: written.map(({ card }) => card), autoConfirm: options.autoConfirm, inBus: options.events !== undefined }
+  return { status: 'written', parking: options.parking, cards: written.map(({ card }) => card), autoConfirm: options.autoConfirm, inBus: options.events !== undefined, windowShard: windowShard() }
 }
 
 export function knownCards(parked: Iterable<number>, bus: BusCardStates | undefined): Set<number> {
@@ -303,7 +303,7 @@ export function printIntake(ui: Ui, result: IntakeResult): number {
         ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrected(correctionText(correction))}`))
     }
     if (card.corrections.length > 0 && result.status === 'written')
-      ui.line(ui.theme.dim(`  ${ui.lore.intakeConfirmed(card.corrections.length, result.autoConfirm, result.inBus)}`))
+      ui.line(ui.theme.dim(`  ${ui.lore.intakeConfirmed(card.corrections.length, result.autoConfirm, result.inBus, result.windowShard)}`))
     else if (card.corrections.length > 0)
       ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrections(card.corrections.length)}`))
     if (card.unclear.length > 0)
