@@ -29,7 +29,7 @@ const MESSAGES_BEFORE_THE_OWNER_SPOKE = 1
 const CLAUDE = 'claude'
 const ARGV_HEAD_NAMING_THE_PROGRAM = 2
 
-export type StopReason = typeof THRESHOLDS[number] | 'done'
+export type StopReason = typeof THRESHOLDS[number] | 'done' | 'core'
 
 export interface ProcessRow {
   pid: number
@@ -100,6 +100,10 @@ export function doneWaitsForTheOwner(): string {
   return `${MIKO_HANDOFF_NAME} says STATUS: DONE and the owner has not written in this session yet: wait for the owner's first message here and take its task, or end when the owner says so; nothing ended`
 }
 
+function atTheStop(reason: StopReason, readings: ExitReadings): string {
+  return reason === 'core' ? `at a core change: main carries window-core v${readings.coreOnMain}, this session loaded v${readings.coreLoaded}` : `at the ${reason} limit`
+}
+
 function ownerHasNotSpoken(deps: MikoExitDeps): boolean {
   const messages = deps.ownerMessages?.() ?? null
   return messages !== null && messages <= MESSAGES_BEFORE_THE_OWNER_SPOKE
@@ -146,6 +150,10 @@ function atOrAbove(value: Reading<number>, limit: Reading<number>): boolean {
   return value !== UNKNOWN && limit !== UNKNOWN && value >= limit
 }
 
+function loadedCoreBelowMain(readings: ExitReadings): boolean {
+  return readings.coreLoaded !== UNKNOWN && readings.coreOnMain !== UNKNOWN && readings.coreLoaded < readings.coreOnMain
+}
+
 export function stopReasonOf(status: string | null, readings: ExitReadings): StopReason | null {
   if (status === 'DONE')
     return 'done'
@@ -153,6 +161,8 @@ export function stopReasonOf(status: string | null, readings: ExitReadings): Sto
     return 'context'
   if (atOrAbove(readings.spent, readings.spendWarn))
     return 'spend'
+  if (loadedCoreBelowMain(readings))
+    return 'core'
   return null
 }
 
@@ -186,7 +196,7 @@ export function loopExitDecision(handoffMtime: number | undefined, now: number, 
   const stale = staleHandoffRefusal(handoffMtime, now)
   if (stale !== null)
     return { refuse: stale }
-  return { kill: null, reason, line: `the loop ends the session at the ${reason} limit: the pnpm miko loop starts the next session` }
+  return { kill: null, reason, line: `the loop ends the session ${atTheStop(reason, readings)}: the pnpm miko loop starts the next session` }
 }
 
 export function tabThresholdDecision(handoffMtime: number | undefined, now: number, status: string | null, readings: ExitReadings): ExitDecision | null {
@@ -237,14 +247,14 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
   const above = chain.slice(at + 1)
   const nextClaude = above.findIndex(isClaude)
   const underLoop = (nextClaude === -1 ? above : above.slice(0, nextClaude)).some(isMikoLoop)
-  if (!underLoop && status === RAISED_STATUS && freshHandoff(handoffMtime, now))
+  if (!underLoop && reason !== 'core' && status === RAISED_STATUS && freshHandoff(handoffMtime, now))
     return { kill: claude.pid, reason, line: `ending claude ${claude.pid} at the ${reason} limit: no pnpm miko loop stands above it, so role.stopped goes to the bus for the restart queue`, stopped: true }
   if (!underLoop)
     return { refuse: `claude ${claude.pid} does not run under the pnpm miko loop (${LOOP_SCRIPT}): nothing ended` }
   const stale = staleHandoffRefusal(handoffMtime, now)
   if (stale !== null)
     return { refuse: stale }
-  return { kill: claude.pid, reason, line: `ending claude ${claude.pid} at the ${reason} limit: the pnpm miko loop starts the next session` }
+  return { kill: claude.pid, reason, line: `ending claude ${claude.pid} ${atTheStop(reason, readings)}: the pnpm miko loop starts the next session` }
 }
 
 function unfinishedWork(deps: MikoExitDeps): string | null {

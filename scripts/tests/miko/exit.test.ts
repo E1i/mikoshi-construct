@@ -8,8 +8,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { appendExitLine, realExitReadings, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
+import { appendExitLine, LOADED_CORE_VARIABLE, realExitReadings, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
+import { ancestors, exitDecision, FRESH_MS, loopExitDecision, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 
@@ -17,6 +17,7 @@ const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
 const EXIT = path.join(REPO_ROOT, 'scripts', 'window', 'exit.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
+const TSX_LOADER = pathToFileURL(path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
 const CONTEXT_WARN = LIMITS.contextLimit * LIMITS.warnRatio
@@ -459,6 +460,75 @@ describe('outside the loop an EPERM from ps or kill is one refusing line, not a 
       throw new Error('boom')
     } })).toThrow('boom')
   })
+})
+
+describe('a core version change on main is a stop reason of a session the loop started', () => {
+  const NOW = 1_000_000_000
+  const CORE_BELOW: ExitReadings = { ...BELOW, coreLoaded: 4, coreOnMain: 5 }
+
+  it('a core version below main with a fresh handoff ends the session with reason core and the loop starts the next one', () => {
+    expect(loopExitDecision(NOW - 1000, NOW, 'CONTINUE', CORE_BELOW)).toEqual({ kill: null, reason: 'core', line: 'the loop ends the session at a core change: main carries window-core v5, this session loaded v4: the pnpm miko loop starts the next session' })
+    const requests: string[] = []
+    const outcome = exit({ loopRequest: '/h/miko-exit.10.request', requestEnd: request => requests.push(request), readings: () => CORE_BELOW })
+    expect(outcome).toMatchObject({ code: 0, kills: [], stops: [], ends: [], recorded: [expect.objectContaining({ reason: 'core' })] })
+    expect(requests).toEqual(['/h/miko-exit.10.request'])
+  })
+
+  it.each<{ name: string, readings: ExitReadings }>([
+    { name: 'equal to main', readings: { ...BELOW, coreLoaded: 5, coreOnMain: 5 } },
+    { name: 'above main', readings: { ...BELOW, coreLoaded: 6, coreOnMain: 5 } },
+    { name: 'not read, as in a session without the variable', readings: { ...BELOW, coreLoaded: UNKNOWN, coreOnMain: 5 } },
+    { name: 'read while main is not', readings: { ...BELOW, coreLoaded: 4, coreOnMain: UNKNOWN } },
+  ])('a core version equal to main or unread refuses as not at a stop condition: $name', ({ readings }) => {
+    expect(loopExitDecision(NOW, NOW, 'CONTINUE', readings)).toEqual({ refuse: `${NOT_AT_A_STOP_CONDITION}; nothing ended` })
+  })
+
+  it('a core version equal to main is no stop, and one below it still needs a fresh handoff: a stale one refuses with the handoff:write line', () => {
+    expect(loopExitDecision(NOW - FRESH_MS - 1000, NOW, 'CONTINUE', CORE_BELOW)).toEqual({ refuse: `${MIKO_HANDOFF_NAME} was written 121s ago, more than 120s: write it with pnpm handoff:write first; nothing ended` })
+    expect(loopExitDecision(undefined, NOW, 'CONTINUE', CORE_BELOW)).toMatchObject({ refuse: expect.stringContaining('write it with pnpm handoff:write first') })
+  })
+
+  it('outside the loop nothing starts a session on the new core, so it ends nothing and posts no role.stopped', () => {
+    const outcome = exit({ table: () => outsideLoop, readings: () => CORE_BELOW, raised: false })
+    expect(outcome).toMatchObject({ code: 1, kills: [], stops: [], ends: [], recorded: [] })
+    expect(outcome.lines[0]).toContain('does not run under the pnpm miko loop')
+  })
+
+  it('a threshold reached together with a core change keeps naming the threshold', () => {
+    expect(stopReasonOf('CONTINUE', { ...CORE_BELOW, context: CONTEXT_WARN })).toBe('context')
+    expect(stopReasonOf('DONE', CORE_BELOW)).toBe('done')
+  })
+
+  it('under the real loop a core merged during the session ends it below every threshold, and the next session loads the new core', async () => {
+    const dir = scratch()
+    const coreFile = path.join(dir, 'architecture', 'window-core.md')
+    mkdirSync(path.dirname(coreFile))
+    writeFileSync(coreFile, '# Window core\n\nwindow-core v4\n')
+    transcript(dir, [usageLine('2026-10-15T00:00:00.000Z', 'r1', { input: 1 })])
+    const session = path.join(dir, 'session')
+    writeFileSync(session, `#!/bin/sh
+echo "$${LOADED_CORE_VARIABLE}" >> "$STUB_DIR/loaded"
+if [ "$(wc -l < "$STUB_DIR/loaded")" -gt 1 ]; then
+  echo 'STATUS: OWNER' > "$HOME/.construct/handoff/miko.md"
+  exit 0
+fi
+'${process.execPath}' --import '${TSX_LOADER}' "$EXIT" 2>>"$STUB_DIR/refused.err"
+echo 'window-core v5' > '${coreFile}'
+echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"
+'${process.execPath}' --import '${TSX_LOADER}' "$EXIT" 2>>"$STUB_DIR/exit.err"
+sleep 10 >/dev/null 2>&1
+echo survived >> "$STUB_DIR/survived"
+`, { mode: 0o755 })
+
+    const { code, stderr } = await run(dir, process.execPath, ['--import', TSX_LOADER, LOOP], { MIKO_CLAUDE: session, CONSTRUCT_HANDOFF: '', CONSTRUCT_HANDOFF_DIR: '' })
+
+    expect({ code, stderr }).toMatchObject({ code: 0, stderr: expect.stringContaining('STATUS: OWNER: no next session') })
+    expect(read(dir, 'refused.err')).toContain(NOT_AT_A_STOP_CONDITION)
+    expect(read(dir, 'exit.err')).toContain('at a core change: main carries window-core v5, this session loaded v4')
+    expect(read(dir, 'loaded').split('\n').filter(Boolean)).toEqual(['4', '5'])
+    expect(read(dir, 'survived')).toBe('')
+    expect(journal(dir)).toEqual([expect.objectContaining({ reason: 'core' })])
+  }, 30_000)
 })
 
 describe('in a tab window a threshold continues the session instead of ending it', () => {

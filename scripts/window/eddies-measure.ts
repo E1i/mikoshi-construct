@@ -9,6 +9,9 @@ export const UNKNOWN = 'unknown'
 export const SESSION_EXIT_EVENT = 'session-exit'
 const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 export const PROJECT_VARIABLE = 'CLAUDE_PROJECT_DIR'
+export const LOADED_CORE_VARIABLE = 'MIKO_LOADED_CORE'
+const CORE_FILE = path.join('architecture', 'window-core.md')
+const CORE_VERSION_LINE = /^window-core v(\d+)$/m
 const CONFIG_FILE = path.join('.claude', 'eddies.json')
 const EDDIES_JOURNAL_FILE = path.join('.construct', 'eddies.jsonl')
 const JOURNAL_VERSION = 1
@@ -63,6 +66,8 @@ export interface ExitReadings {
   spendWarn: Reading<number>
   cards: Reading<number>
   busEvents: Reading<number>
+  coreLoaded: Reading<number>
+  coreOnMain: Reading<number>
 }
 
 export interface ExitLine {
@@ -79,7 +84,7 @@ export interface ExitLine {
   at: string
 }
 
-export const UNREAD: ExitReadings = { sessionId: UNKNOWN, start: UNKNOWN, end: UNKNOWN, context: UNKNOWN, contextWarn: UNKNOWN, spent: UNKNOWN, spendWarn: UNKNOWN, cards: UNKNOWN, busEvents: UNKNOWN }
+export const UNREAD: ExitReadings = { sessionId: UNKNOWN, start: UNKNOWN, end: UNKNOWN, context: UNKNOWN, contextWarn: UNKNOWN, spent: UNKNOWN, spendWarn: UNKNOWN, cards: UNKNOWN, busEvents: UNKNOWN, coreLoaded: UNKNOWN, coreOnMain: UNKNOWN }
 
 export function exitLineOf(readings: ExitReadings, reason: StopReason, at: string): ExitLine {
   return {
@@ -191,6 +196,14 @@ function limitsOf(root: string): { contextWarn: Reading<number>, spendWarn: Read
   }
 }
 
+export function coreVersionIn(root: string): Reading<number> {
+  return attempt(() => positive(Number(CORE_VERSION_LINE.exec(readFileSync(path.join(root, CORE_FILE), 'utf8'))?.[1])))
+}
+
+function coreReadings(env: NodeJS.ProcessEnv, root: string): { coreLoaded: Reading<number>, coreOnMain: Reading<number> } {
+  return { coreLoaded: attempt(() => positive(Number(env[LOADED_CORE_VARIABLE]))), coreOnMain: coreVersionIn(root) }
+}
+
 function busSince(busPath: string, startedAt: string): { cards: number, busEvents: number } | null {
   if (!existsSync(busPath))
     return null
@@ -205,7 +218,7 @@ function busSince(busPath: string, startedAt: string): { cards: number, busEvent
 }
 
 export function realExitReadings(env: NodeJS.ProcessEnv, home: string, root: string, busPath: string): ExitReadings {
-  const limits = limitsOf(root)
+  const limits = { ...limitsOf(root), ...coreReadings(env, root) }
   const session = env[SESSION_VARIABLE]
   if (session === undefined || !PLAIN_ID.test(session))
     return { ...UNREAD, ...limits }
