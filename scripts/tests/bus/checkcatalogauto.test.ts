@@ -6,13 +6,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildCatalog, MAIN_TIP, rebuildCatalogAt, RERUN_VARIABLE, writeCatalog } from '../../cli/check-catalog.js'
+import { buildCatalog, MAIN_TIP, rebuildCatalogAt, RERUN_VARIABLE, rerunOf, writeCatalog } from '../../cli/check-catalog.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_DENIED, REVIEW_RECORDED } from '../../core/events.js'
 import { NEEDS_UPDATE } from '../../core/queue.js'
 import { CATALOG_REBUILD_FAILED, MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
-import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
+import { Meter } from '../../ports/meter.js'
+import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
@@ -148,6 +149,17 @@ describe('the merge node keeps the check catalog', () => {
     expect(refs).toEqual([MAIN_TIP])
   })
 
+  it('a merge of neither a test nor the layer map rebuilds a catalog the start left empty', async () => {
+    const made = bench()
+    aPullRequestOf(made, [WORKER])
+    const refs: string[] = []
+
+    await once(nodeOf(made, { rebuildCatalog: ref => void refs.push(ref) }))
+
+    expect(eventsOf(made.db, MERGE_DONE)).toHaveLength(1)
+    expect(refs).toEqual([MAIN_TIP, MAIN_2])
+  })
+
   it('a failed rebuild leaves the catalog as it was, records the failure and does not undo the merge', async () => {
     const made = bench()
     aFullCatalog(made)
@@ -246,6 +258,28 @@ describe('rebuildCatalogAt', () => {
 })
 
 describe('a merge refused with a 405', () => {
+  it('a head GitHub refused as not up to date is re-run, and the head after it is not', async () => {
+    const made = bench()
+    aFullCatalog(made)
+    aPullRequestOf(made, [WORKER])
+    const meter = new Meter(made.gitHub.client, () => made.clock.now().getTime())
+    const merge = nodeOf(made, { put: refusingTheFirstMerge(made, NOT_UP_TO_DATE), env: BY_LAYERS })
+    const update = new UpdateNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: BY_LAYERS })
+
+    expect(rerunOf(made.db, meter, 970, MAIN_1).rerun).toBe(false)
+
+    await once(merge)
+
+    expect(rerunOf(made.db, meter, 970, MAIN_1)).toEqual({ rerun: true, why: 'GitHub refused the merge of this head of #970 as not up to date' })
+
+    await once(update)
+    made.tick()
+    await once(merge)
+
+    expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ task_key: expect.stringContaining(sha('d')) })])
+    expect(rerunOf(made.db, meter, 970, MAIN_1).rerun).toBe(false)
+  })
+
   it('a 405 keeps the text of GitHub and not up to date goes to update', async () => {
     const made = bench()
     aFullCatalog(made)
