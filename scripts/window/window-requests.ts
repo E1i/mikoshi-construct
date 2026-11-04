@@ -52,6 +52,7 @@ export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge 
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
 const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
+const HELP_FLAGS = ['--help', '-h']
 
 export type RequestKind = typeof REQUEST_KINDS[number]
 
@@ -770,11 +771,15 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   return { kind }
 }
 
+function printUsage(out: (line: string) => void): void {
+  out(`${PREFIX}${USAGE}`)
+  out(`${PREFIX}${OWNER_ANSWER_USAGE}`)
+}
+
 export function runRequest(argv: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void): number {
   const request = requestOf(argv)
   if (request === null) {
-    out(`${PREFIX}${USAGE}`)
-    out(`${PREFIX}${OWNER_ANSWER_USAGE}`)
+    printUsage(out)
     return 2
   }
   const id = requestFromWindow(db, now.toISOString(), session, request)
@@ -791,11 +796,17 @@ export function requestActor(env: NodeJS.ProcessEnv): string {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const db = openBus(defaultBusPath())
-  try {
-    process.exitCode = runRequest(process.argv.slice(2), db, new Date(), requestSession(process.env), line => console.log(line))
+  const argv = process.argv.slice(2)
+  if (argv.some(argument => HELP_FLAGS.includes(argument))) {
+    printUsage(line => console.log(line))
   }
-  finally {
-    db.close()
+  else {
+    const db = openBus(defaultBusPath())
+    try {
+      process.exitCode = runRequest(argv, db, new Date(), requestSession(process.env), line => console.log(line))
+    }
+    finally {
+      db.close()
+    }
   }
 }

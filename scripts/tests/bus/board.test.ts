@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { busFacts } from '../../../src/commands/board/bus.js'
 import { backlogCards } from '../../../src/commands/board/screens.js'
@@ -50,6 +50,10 @@ interface BoardBench {
 const benches: { root: string, db: DatabaseSync }[] = []
 
 const roots: string[] = []
+
+beforeEach(() => {
+  vi.stubEnv('BUS_RERUN', '')
+})
 
 afterEach(() => {
   vi.unstubAllEnvs()
