@@ -47,6 +47,8 @@ interface BrowserLab {
   extensionId: (manifest: Manifest, directory: string) => string
   workerRequests: (events: { method: string, params: Record<string, unknown> }[]) => WorkerRequest[]
   ensureChromium: (chromium: { executablePath: () => string }, deps: { exists: (file: string) => boolean, install: () => void, say: (line: string) => void }) => void
+  launchRefusal: (error: Error, env?: Record<string, string>) => string
+  handsRefusal: (ran: { status: number | null, stdout?: string, stderr?: string }, env?: Record<string, string>) => string
   UsageError: new () => Error
 }
 
@@ -57,7 +59,7 @@ interface WorkerRequest {
   failed: string | null
 }
 
-const { parseArguments, handsConfig, persistentContextOptions, grantOptional, extensionId, workerRequests, ensureChromium, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
+const { parseArguments, handsConfig, persistentContextOptions, grantOptional, extensionId, workerRequests, ensureChromium, launchRefusal, handsRefusal, UsageError } = await import(pathToFileURL(SCRIPT).href) as BrowserLab
 
 const UNRESOLVABLE = 'http://lab-nowhere.invalid/'
 
@@ -168,6 +170,39 @@ describe('the Chromium build the lab needs', () => {
     ensureChromium({ executablePath: () => '/cache/chromium/chrome' }, { exists: () => true, install: () => installs++, say: line => said.push(line) })
     expect(installs).toBe(0)
     expect(said).toEqual([])
+  })
+})
+
+describe('a Chromium launch that fails', () => {
+  const IN_SANDBOX = { SANDBOX_RUNTIME: '1' }
+  const SINGLETON_LINE = 'browserType.launchPersistentContext: Failed to create a ProcessSingleton for your profile directory. This usually means that the profile is already in use by another instance of Chromium.'
+  const SINGLETON = new Error(`${SINGLETON_LINE}\nCall log:\n  - [pid=1][err] Failed to create socket directory.`)
+
+  it('inside the sandbox names the sandbox and the bare command, not ProcessSingleton', () => {
+    const message = launchRefusal(SINGLETON, IN_SANDBOX)
+    expect(message).toContain('inside the sandbox')
+    expect(message).toContain('SANDBOX_RUNTIME')
+    expect(message).toContain('bare command')
+    expect(message).toContain('node scripts/construct/browser-lab.mjs')
+    expect(message).not.toContain('ProcessSingleton')
+  })
+
+  it('inside the sandbox names the sandbox for hands too, whichever stream carried the failure', () => {
+    for (const ran of [{ status: 1, stdout: SINGLETON_LINE }, { status: 1, stderr: SINGLETON_LINE }]) {
+      const message = handsRefusal(ran, IN_SANDBOX)
+      expect(message).toContain('inside the sandbox')
+      expect(message).not.toContain('ProcessSingleton')
+    }
+  })
+
+  it('outside the sandbox keeps the line of the browser', () => {
+    expect(launchRefusal(SINGLETON, {})).toBe(`Chrome for Testing could not be launched: ${SINGLETON_LINE}`)
+    expect(handsRefusal({ status: 1, stderr: SINGLETON_LINE }, {})).toContain(SINGLETON_LINE)
+  })
+
+  it('inside the sandbox blames it only for the failure the sandbox causes', () => {
+    expect(launchRefusal(new Error('some other failure'), IN_SANDBOX)).toBe('Chrome for Testing could not be launched: some other failure')
+    expect(launchRefusal(new Error('Executable doesn\'t exist at /x'), IN_SANDBOX)).toContain('is not installed')
   })
 })
 
