@@ -2150,7 +2150,7 @@ and ends it as `dropped` unless it is already merged, closed or dropped, and it 
 never admitted too. A move to the directory the card already sits in leaves the file where it is
 and writes the same event all the same. A card with no file under the root that the bus holds admitted
 text for is moved in the bus alone: the event is written and no file appears. A move to a launch lane admits the
-card again with the text the bus holds, and the file's text only when the bus holds none. The printed line names the event the bus holds. With `--draft`, `--taken` or `--admit` the move refuses.
+card again with the text the bus holds, and the file's text only when the bus holds none. While the text the bus folded is older than the card's latest `card.admitted`, a move to a launch lane refuses with exit `1` and writes nothing, so it never re-admits the older text; run it again once the admission is folded. `--dry-run` prints the move and its event, exits `0`, and writes nothing to the bus or the parking. The printed line names the event the bus holds. With `--draft`, `--taken` or `--admit` the move refuses.
 
 **Exporting an admitted card.** `pnpm intake --export <#N>`, this repository's bus-wired entry, prints
 the text of the latest `card.admitted` for card `N` that the bus holds, byte for byte, and writes
