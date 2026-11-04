@@ -1,4 +1,6 @@
+import type { WitnessField, WitnessKind } from '../../card/witness-fields.js'
 import { parseCreatesEntry } from '../../card/parking.js'
+import { parseWitnessList, withWitnessKind, WITNESS_KINDS, witnessText } from '../../card/witness-fields.js'
 
 export interface UnclearField {
   field: string
@@ -24,6 +26,8 @@ export interface DraftCard {
   creates: string[]
   task: string
   witnesses: string[]
+  witnessFields?: WitnessField[]
+  runs?: string[]
   unclear: UnclearField[]
 }
 
@@ -36,22 +40,15 @@ export interface DraftPlan {
 
 export type ParsedDraft = { kind: 'draft', cards: DraftCard[], plan?: DraftPlan } | { kind: 'refused', reasons: string[] }
 
-export const WITNESS_KINDS = ['acceptance', 'invariant'] as const
-export type WitnessKind = typeof WITNESS_KINDS[number]
-
 const REQUIRED_TEXT = ['name', 'kind', 'milestone', 'size', 'task'] as const
 const OPTIONAL_TEXT = ['contour', 'decision', 'branch', 'who', 'continue', 'whole', 'item'] as const
 const REQUIRED_LISTS = ['touches'] as const
-const OPTIONAL_LISTS = ['depends', 'blocks', 'creates'] as const
+const OPTIONAL_LISTS = ['depends', 'blocks', 'creates', 'runs'] as const
 const KEYS: readonly string[] = [...REQUIRED_TEXT, ...OPTIONAL_TEXT, ...REQUIRED_LISTS, 'witnesses', ...OPTIONAL_LISTS, 'number', 'unclear']
 const PLAN_KEYS = ['id', 'title', 'goal', 'file'] as const
 const DRAFT_KEYS = ['cards', 'plan']
 const WITNESS_KIND_FIELD = new RegExp(` · (${WITNESS_KINDS.join('|')})$`)
 const WITNESS_ENTRY_KEYS = ['witness', 'kind']
-
-export function withWitnessKind(witness: string, kind: WitnessKind): string {
-  return `${witness.trim()} · ${kind}`
-}
 
 export function witnessKindField(witness: string): WitnessKind | undefined {
   return WITNESS_KIND_FIELD.exec(witness.trim())?.[1] as WitnessKind | undefined
@@ -93,9 +90,27 @@ function witnessesOf(value: unknown, at: string, reasons: string[]): string[] {
   return value.flatMap((entry) => {
     const witness = witnessOf(entry)
     if (witness === null)
-      reasons.push(`${at}: a witness is text or { "witness": <text>, "kind": ${WITNESS_KINDS.map(kind => `"${kind}"`).join(' | ')} }`)
+      reasons.push(`${at}: a witness is text, { "witness": <text>, "kind": ${WITNESS_KINDS.map(kind => `"${kind}"`).join(' | ')} } or a witness field { "id", "run", "test", "head", "base", "proves" }`)
     return witness === null ? [] : [witness]
   })
+}
+
+function isFieldEntry(entry: unknown): boolean {
+  return isRecord(entry) && !('witness' in entry)
+}
+
+function witnessFieldsOfDraft(value: unknown, at: string, reasons: string[]): WitnessField[] | undefined {
+  if (!Array.isArray(value) || !value.some(isFieldEntry))
+    return undefined
+  if (!value.every(isFieldEntry)) {
+    reasons.push(`${at}: 'witnesses' holds either witness fields or text witnesses, not both`)
+    return undefined
+  }
+  const parsed = parseWitnessList(value)
+  if (parsed.kind === 'fields')
+    return parsed.fields
+  reasons.push(...parsed.reasons.map(reason => `${at}: ${reason}`))
+  return undefined
 }
 
 function draftCard(entry: unknown, at: string, reasons: string[]): DraftCard | null {
@@ -112,7 +127,9 @@ function draftCard(entry: unknown, at: string, reasons: string[]): DraftCard | n
     reasons.push(`${at}: '${key}' must be text when given`)
   for (const key of REQUIRED_LISTS.filter(key => !isTextList(entry[key]) || (entry[key] as string[]).length === 0))
     reasons.push(`${at}: '${key}' is missing; it has no default, so the retelling has to state at least one`)
-  const witnesses = witnessesOf(entry.witnesses, at, reasons)
+  const fieldEntries = Array.isArray(entry.witnesses) && entry.witnesses.some(isFieldEntry)
+  const witnessFields = witnessFieldsOfDraft(entry.witnesses, at, reasons)
+  const witnesses = fieldEntries ? (witnessFields ?? []).map(witnessText) : witnessesOf(entry.witnesses, at, reasons)
   for (const key of OPTIONAL_LISTS.filter(key => entry[key] !== undefined && !isTextList(entry[key])))
     reasons.push(`${at}: '${key}' must be a list of text when given`)
   if (entry.number !== undefined && !(Number.isInteger(entry.number) && (entry.number as number) > 0))
@@ -133,6 +150,7 @@ function draftCard(entry: unknown, at: string, reasons: string[]): DraftCard | n
   return {
     ...(entry as unknown as DraftCard),
     witnesses,
+    ...(witnessFields === undefined ? {} : { witnessFields }),
     depends: (entry.depends as string[] | undefined) ?? [],
     blocks: (entry.blocks as string[] | undefined) ?? [],
     creates: (entry.creates as string[] | undefined) ?? [],

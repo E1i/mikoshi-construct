@@ -1,5 +1,6 @@
 import type { ShiftTask } from './task-file.js'
 import { parseTaskFile } from './task-file.js'
+import { witnessFieldRefusals } from './witness-fields.js'
 
 export const SHIFT_WHO = 'shift'
 export const WINDOW_WHO = 'window'
@@ -82,6 +83,9 @@ export function parseParkingFile(file: string, text: string): ParsedParkingFile 
     return { kind: 'refused', reason: `${parsed.reason}; a parked card also takes ${PARKING_KEYS.join(', ')}` }
   if (parsed.task.number !== parsed.task.id)
     return refused(file, `a parked card's file is named after its id: ${parsed.task.id}.md`)
+  const fieldRefusals = witnessFieldRefusals(parsed.task.body)
+  if (fieldRefusals.length > 0)
+    return refused(file, fieldRefusals.join('; '))
   const creates = (parking.get('creates') ?? '').split(',').map(entry => entry.trim()).filter(entry => entry !== '')
   return { kind: 'parked', parked: { task: parsed.task, who, priority: priority as Priority | null, creates } }
 }

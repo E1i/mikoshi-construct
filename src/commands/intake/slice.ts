@@ -7,6 +7,7 @@ import { cardLine } from '../../card/grammar.js'
 import { createdPaths, parkingFileText, parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
 import { riskLines, riskReading, riskWholeReason, SLICE_PREFIX, TEST_SUFFIX } from '../../card/risk.js'
 import { dependsCycle, sliceDepends } from '../../card/slice-depends.js'
+import { runsFieldLine, witnessFieldsLine, witnessText } from '../../card/witness-fields.js'
 import { CARD_REFERENCE, correctionText, DEFAULT_CONTOUR } from './check.js'
 
 export interface CardSlice {
@@ -62,6 +63,13 @@ function resolve(references: readonly string[], ids: ReadonlyMap<string, number>
   })
 }
 
+function witnessBlock(card: CheckedCard): string[] {
+  const runs = card.runs === undefined ? [] : [runsFieldLine(card.runs)]
+  if (card.witnessFields !== undefined)
+    return [...runs, witnessFieldsLine(card.witnessFields)]
+  return [...runs, WITNESSES_HEADING, ...card.witnesses.map(witness => `- ${witness.trim()}`)]
+}
+
 function bodyOf(card: CheckedCard, corrections: readonly Correction[], unclear: readonly UnclearField[], seam: readonly string[], risk: readonly string[]): string {
   const notes = [
     ...unclear.map(entry => `${UNCLEAR_PREFIX}${entry.field} — ${entry.reason}`),
@@ -73,8 +81,7 @@ function bodyOf(card: CheckedCard, corrections: readonly Correction[], unclear: 
   return [
     card.task.trim(),
     '',
-    WITNESSES_HEADING,
-    ...card.witnesses.map(witness => `- ${witness.trim()}`),
+    ...witnessBlock(card),
     ...(notes.length === 0 ? [] : ['', ...notes]),
   ].join('\n')
 }
@@ -187,8 +194,10 @@ function sliceGoal(card: CheckedCard, slice: CardSlice, at: number): string {
 function slicedCard(card: CheckedCard, slice: CardSlice, at: number, dependents: (reference: string) => string[]): CheckedCard {
   const witnesses = witnessesOfSlice(card.witnesses, slice.touches, card.touches)
   const { number: _number, ...rest } = card
+  const fields = card.witnessFields?.filter(field => witnesses.includes(witnessText(field))) ?? []
   return {
     ...rest,
+    ...(fields.length > 0 ? { witnessFields: fields } : {}),
     task: sliceGoal(card, slice, at),
     name: sliceName(card, at),
     ...(card.branch === undefined ? {} : { branch: `${card.branch}${SLICE_NAME_INFIX}${at + 1}` }),
