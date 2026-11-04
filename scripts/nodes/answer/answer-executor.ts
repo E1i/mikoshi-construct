@@ -11,7 +11,7 @@ import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { riskOf } from '../../../src/card/risk.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
 import { FAILURES_TO_STOP, REVIEW_ROUNDS } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from '../../policy/policy.js'
@@ -35,11 +35,17 @@ export interface AnswerDenial {
 
 export type AnswerOutcome
   = | { kind: 'answered', taskKey: string, session: string, resumed: boolean, head: string }
+    | { kind: 'published', taskKey: string, session: string, pr: number }
     | { kind: 'stopped', taskKey: string, reason: string, detail: string }
     | { kind: 'decided', taskKey: string, shard: string, question: string }
     | { kind: 'denied', taskKey: string, denial: AnswerDenial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
     | { kind: 'waiting', taskKey: string, wait: string, detail: string }
+
+export interface TreePublishing {
+  committed: (card: CardSession) => boolean
+  publish: (card: CardSession, cardId: number) => void
+}
 
 export interface AnswerParts {
   db: DatabaseSync
@@ -53,6 +59,7 @@ export interface AnswerParts {
   dirty?: (card: CardSession) => boolean
   liveSession?: (card: CardSession) => string | null
   prepare?: TreePreparer
+  publishing?: TreePublishing
 }
 
 type Answering = AnswerSource & { reentry?: true }
@@ -76,6 +83,12 @@ const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = '
 const FAILURES_IN_A_ROW = 'SELECT failures FROM tasks WHERE task_key = ?'
 
 const LEFT_NOTHING = 'left_nothing'
+
+const A_PR_OF_THE_CARD = `
+  SELECT pr FROM prs WHERE card_id = :card
+  UNION ALL SELECT pr FROM events WHERE card_id = :card AND pr IS NOT NULL AND type IN ('${PR_OPENED}', '${PR_OBSERVED}')
+  LIMIT 1
+`
 
 const DENIALS_OF_THE_TASK = `type = '${POLICY_DENIED}' AND substr(dedupe_key, 1, length(:prefix)) = :prefix`
 
@@ -293,12 +306,32 @@ export class AnswerExecutor {
         return this.asked(lease, answered.owner, widened, card)
       if ((this.parts.dirty ?? treeDirtyOf)(card))
         return this.leftDirty(lease, card, answered.session)
-      return this.leftNothing(lease, answered, scope)
+      return this.published(lease, source, card, answered, minutes, scope) ?? this.leftNothing(lease, answered, scope)
     }
     const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
     const payload = { session: answered.session, worktree: card.worktree, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, ...(reentry ? { reentry: true } : {}), ...measurementOf(answered, minutes), ...stepsOf(answered), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
+  }
+
+  private prOfTheCard(cardId: number): number | null {
+    const row = this.parts.db.prepare(A_PR_OF_THE_CARD).get({ card: cardId }) as { pr: number } | undefined
+    return row === undefined ? null : Number(row.pr)
+  }
+
+  private published(lease: Lease, source: Answering, card: CardSession, answered: Answered, minutes: number, scope: BusEvent[]): AnswerOutcome | null {
+    const publishing = this.parts.publishing
+    if (publishing === undefined || this.prOfTheCard(lease.cardId) !== null || !publishing.committed(card))
+      return null
+    assertHeld(this.parts.db, lease)
+    publishing.publish(card, lease.cardId)
+    const pr = this.prOfTheCard(lease.cardId)
+    if (pr === null)
+      return null
+    const payload = { session: answered.session, worktree: card.worktree, resumed: answered.resumed, source: source.kind, from: answered.before, to: answered.after, published: true, pr, ...measurementOf(answered, minutes), ...stepsOf(answered), ...storedInput(this.parts.prompts, answered.input), ...cardBodyOf(answered.input) }
+    const linkAfterTheStopLifts: BusEvent = { ...this.event(lease, PR_OPENED, { pr }), pr }
+    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_ANSWERED, payload), linkAfterTheStopLifts])
+    return { kind: 'published', taskKey: lease.taskKey, session: answered.session, pr }
   }
 
   private leftDirty(lease: Lease, card: CardSession, session: string): AnswerOutcome {

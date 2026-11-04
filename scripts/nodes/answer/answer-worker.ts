@@ -7,10 +7,11 @@ import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { IsolationReader } from '../../ports/isolation.js'
-import type { AnswerOutcome } from './answer-executor.js'
+import type { AnswerOutcome, TreePublishing } from './answer-executor.js'
 import type { Answerer, CardText } from './answerer.js'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -23,6 +24,7 @@ import { messageOf } from '../../core/errors.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { assertHeld, failTask, queuedCards, StaleLease } from '../../core/lease.js'
 import { Node, runNode } from '../../core/node.js'
+import { reportPath, treeReportPath } from '../../core/places.js'
 import { answerCandidates } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
@@ -32,7 +34,10 @@ import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { HEADLESS_FLAGS } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
+import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
+import { launchPlaces, treeHoldsACommit, treePrPublisher } from '../launch/launch-worker.js'
+import { restoreReport } from '../launch/report-collect.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { answerSourceOf } from './answer-source.js'
 import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
@@ -81,6 +86,19 @@ export interface AnswerNodeParts {
   trees?: CardTreeTools
   isolation?: IsolationReader
   prompts?: string
+  publishing?: TreePublishing
+}
+
+export function treePublishing(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): TreePublishing {
+  const publish = treePrPublisher(treePr, launchDir, env)
+  return {
+    committed: card => treeHoldsACommit({ worktree: card.worktree, base: `origin/${MAIN_BRANCH}` }),
+    publish: (card, cardId) => {
+      if (!existsSync(treeReportPath(card.worktree)))
+        restoreReport(reportPath(launchDir, String(cardId)), card.worktree)
+      publish(card, { cardId })
+    },
+  }
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -161,6 +179,8 @@ export class AnswerNode extends Node<AnswerStep> {
   protected override stepLine(step: AnswerStep): string | null {
     if (step.kind === 'answered')
       return `${step.taskKey}: answered in ${step.resumed ? 'the card session' : 'a new session'} ${step.session}; the head is ${step.head}`
+    if (step.kind === 'published')
+      return `${step.taskKey}: the session ${step.session} left a committed tree with no pull request; tree-pr opened PR #${step.pr}`
     if (step.kind === 'stopped')
       return `${step.taskKey}: card.stopped (${step.reason}): ${step.detail}`
     if (step.kind === 'decided')
@@ -181,10 +201,11 @@ export interface AnswerRun {
   session: string
   pause: (ms: number) => Promise<unknown>
   isolation: IsolationReader
+  publishing?: TreePublishing
 }
 
 export function answerNodeOf(run: AnswerRun, db: DatabaseSync, mode: DetectionMode): AnswerNode {
-  return new AnswerNode({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, prompts: promptsDirOf(run.busPath) })
+  return new AnswerNode({ db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, prompts: promptsDirOf(run.busPath), publishing: run.publishing })
 }
 
 export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<number> {
@@ -198,6 +219,7 @@ export function answerIsolationCommand(): string[] {
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const busPath = defaultBusPath()
+  const places = launchPlaces(os.homedir(), cwd, busPath)
   return runAnswerWorker(process.argv.slice(2), {
     busPath,
     answerer: claudeAnswerer(ANSWERS_DIR, realAnswererTools(busPath)),
@@ -206,6 +228,7 @@ async function main(): Promise<number> {
     session: randomUUID(),
     pause: sleep,
     isolation: realIsolationReader(process.env, cwd, answerIsolationCommand(), { sandbox: CARD_SESSION_SANDBOX }),
+    publishing: treePublishing(places.treePr, places.launchDir, process.env),
   })
 }
 
