@@ -1,7 +1,7 @@
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { importJournal, importJournalFile } from '../../intake/import.js'
@@ -10,6 +10,10 @@ import { Clock, FakeGitHub } from './github-fake.js'
 
 const HEAD = '29342d7559e14412b73d1d5d6dd216363cfc07c0'
 const roots: string[] = []
+
+beforeEach(() => {
+  vi.stubEnv('BUS_RERUN', '')
+})
 
 afterEach(() => {
   for (const root of roots.splice(0))

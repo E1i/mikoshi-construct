@@ -3,7 +3,7 @@ import type { ComposedTick } from '../../supervisor/run.js'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { busDirOf, decisionsFileOf, machineBusPath, repoHome } from '../../core/bus-path.js'
 import { openBus } from '../../core/db.js'
 import { DECISIONS_IMPORTED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
@@ -29,6 +29,10 @@ interface Bus {
 
 const roots: string[] = []
 const opened: DatabaseSync[] = []
+
+beforeEach(() => {
+  vi.stubEnv('BUS_RERUN', '')
+})
 
 afterEach(() => {
   for (const db of opened.splice(0))
