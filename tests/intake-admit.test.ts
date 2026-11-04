@@ -10,13 +10,15 @@ import { cardBodyText, WINDOW_LANE } from '../scripts/core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
+import { backfillWitnessFields, witnessFieldsOfCard } from '../scripts/intake/witness-fields-backfill.js'
 import { launchCandidates } from '../scripts/nodes/launch/launch-candidates.js'
 import { recordDecision } from '../scripts/policy/decisions.js'
 import { cardWitnessesOf } from '../scripts/policy/policy.js'
 import { runTaskStart } from '../scripts/ports/task-start.js'
-import { witnessFieldsLine } from '../src/card/witness-fields.js'
+import { runsFieldLine, runsFieldOf, witnessFieldsLine, witnessFieldsOf } from '../src/card/witness-fields.js'
 import { downgradeAction, EQUIVALENT_REPLACEMENT_ALLOWANCE, printAdmit, runAdmit, witnessDowngrades } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
+import { runExport } from '../src/commands/intake/export.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
 import { isWithin, parkingTree } from '../src/commands/intake/parking-tree.js'
 import { createMain } from '../src/program.js'
@@ -858,6 +860,53 @@ describe('construct intake --admit reads the witness fields', () => {
       park(w, 80, CLEAN, 'src/board/**', bodyWith(field({ test: 'another thing' })))
       expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'ownerWait' })
     }
+  })
+
+  it('export then admit keeps the witness fields', () => {
+    const w = world()
+    const fields = [field(), field({ id: 'W2', run: 'test -f src/board/run.ts', test: null, head: 'pass', base: 'pass', proves: 'the file stays' })]
+    const runs = ['tests/board/**', 'scripts/tests/bus/card.test.ts']
+    const file = park(w, 80, CLEAN, 'src/board/**', `Do the thing.\n\n${runsFieldLine(runs)}\n${witnessFieldsLine(fields)}`)
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'admit' })
+    const db = openBus(busOf(w))
+    const exported = runExport({ card: '#80', admissions: busCardAdmissions(db) })
+    db.close()
+    expect(exported.status).toBe('exported')
+    const { text } = exported as Extract<typeof exported, { status: 'exported' }>
+    expect(witnessFieldsOf(text)).toEqual(fields)
+    expect(runsFieldOf(text)).toEqual(runs)
+    const body = text.replace('Do the thing.', 'Do the thing better.')
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w), body })).toMatchObject({ status: 'admitted', source: 'amend' })
+    const readmitted = latestText(w, file)
+    expect(readmitted).toContain('Do the thing better.')
+    expect(witnessFieldsOf(readmitted)).toEqual(fields)
+    expect(runsFieldOf(readmitted)).toEqual(runs)
+
+    const noRuns = park(w, 81, CLEAN.replace('#80', '#81'), 'src/board/**', `Do the thing.\n\n${witnessFieldsLine(fields)}`)
+    expect(admitThroughBus(w, noRuns, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'admit' })
+    const noRunsDb = openBus(busOf(w))
+    const noRunsExported = runExport({ card: '#81', admissions: busCardAdmissions(noRunsDb) })
+    noRunsDb.close()
+    const noRunsBody = (noRunsExported as Extract<typeof noRunsExported, { status: 'exported' }>).text.replace('Do the thing.', 'Do the thing better.')
+    expect(admitThroughBus(w, noRuns, { decisions: decisionsOf(w), body: noRunsBody })).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(witnessFieldsOf(latestText(w, noRuns))).toEqual(fields)
+    expect(runsFieldOf(latestText(w, noRuns))).toEqual([])
+
+    const prose = 'Do the thing.\n\nRuns: tests/board/**\n\nWitnesses:\n- `pnpm exec vitest run tests/board/run.test.ts -t \'the board runs\'` exits 0; red on main'
+    const backfilled = park(w, 82, CLEAN.replace('#80', '#82'), 'src/board/**', prose)
+    expect(admitThroughBus(w, backfilled, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'admit' })
+    const db2 = openBus(busOf(w))
+    reduce(db2)
+    const backfill = backfillWitnessFields(db2, '2026-11-04T12:00:00.000Z').backfill
+    const shownBefore = witnessFieldsOfCard({ id: 82, witnessFields: [], runs: [], text: latestText(w, backfilled) }, backfill)
+    expect(shownBefore).toMatchObject({ witnesses: [{ id: 'W1', run: 'pnpm exec vitest run tests/board/run.test.ts', test: 'the board runs' }], runs: ['tests/board/**'] })
+    const backfilledExport = runExport({ card: '#82', admissions: busCardAdmissions(db2) })
+    db2.close()
+    const backfilledBody = (backfilledExport as Extract<typeof backfilledExport, { status: 'exported' }>).text.replace('Do the thing.', 'Do the thing better.')
+    expect(admitThroughBus(w, backfilled, { decisions: decisionsOf(w), body: backfilledBody })).toMatchObject({ status: 'admitted', source: 'amend' })
+    const shownAfter = witnessFieldsOfCard({ id: 82, witnessFields: [], runs: [], text: latestText(w, backfilled) }, backfill)
+    expect(latestText(w, backfilled)).toContain('Do the thing better.')
+    expect(shownAfter).toEqual(shownBefore)
   })
 
   it('a field witness with no run is refused at admission', () => {

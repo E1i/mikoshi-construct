@@ -61,6 +61,7 @@
     "bus:slot": "node --import tsx scripts/cli/slot.ts",
     "bus:update": "node --import tsx scripts/nodes/update/update-worker.ts",
     "bus:witness": "node --import tsx scripts/nodes/witness/witness-worker.ts",
+    "bus:witness-backfill": "node --import tsx scripts/intake/witness-fields-backfill.ts",
     "card": "node --import tsx scripts/cli/card.ts",
     "changeset": "changeset",
     "checks:catalog": "node --import tsx scripts/cli/check-catalog.ts",
