@@ -3,8 +3,8 @@ import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { VERIFICATION_WORDS } from '../../core/verification.js'
 import type { WitnessSubject, WitnessVerdict } from '../../policy/policy.js'
-import type { Shell, ShellResult } from '../../ports/worktree.js'
-import { spawnSync } from 'node:child_process'
+import type { GitAsync, ShellResult } from '../../ports/worktree.js'
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -16,8 +16,8 @@ import { baseOfKey, LEASE_MS } from '../../core/queue.js'
 import { GREEN, RED, witnessSubjectOf } from '../../policy/policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { witnessEnv } from '../../ports/session.js'
-import { runOnTree } from '../../ports/witnesses.js'
-import { gitIn, withWorktree } from '../../ports/worktree.js'
+import { runOnTreeAsync } from '../../ports/witnesses.js'
+import { gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 export const WITNESS_UNRUN = 'witness_unrun'
 export const WITNESS_BUDGET_MS = LEASE_MS - RENEW_MS
@@ -27,9 +27,10 @@ const INSTALL = 'pnpm install --frozen-lockfile'
 const VERIFIED_BY_RUNNING_WITNESSES: typeof VERIFICATION_WORDS[number] = 'run'
 
 export interface TimedShellResult extends ShellResult { timedOut: boolean }
-export type TimedShell = (command: string, cwd: string, timeoutMs: number) => TimedShellResult
+export type TimedShell = (command: string, cwd: string, timeoutMs: number) => Promise<TimedShellResult>
 
 const GROUP_KILL_GRACE_MS = 10_000
+const OUTPUT_OVER_BUFFER = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
 const GROUP_RUNNER = [
   `const { spawn } = require('node:child_process')`,
   `const { constants } = require('node:os')`,
@@ -46,16 +47,24 @@ const GROUP_RUNNER = [
   `})`,
 ].join('\n')
 
-export function realTimedShell(command: string, cwd: string, timeoutMs: number): TimedShellResult {
+function timedResultOf(error: (Error & { code?: number | string | null, signal?: string | null }) | null, stdout: string, stderr: string): TimedShellResult {
+  const status = error === null ? 0 : typeof error.code === 'number' ? error.code : null
+  const timedOut = error?.signal === 'SIGKILL' || error?.code === OUTPUT_OVER_BUFFER
+  return { status, output: `${stdout}${stderr}`, timedOut }
+}
+
+export async function realTimedShell(command: string, cwd: string, timeoutMs: number): Promise<TimedShellResult> {
   const budget = String(Math.max(1, Math.floor(timeoutMs)))
-  const result = spawnSync(process.execPath, ['-e', GROUP_RUNNER, budget, command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER, timeout: timeoutMs + GROUP_KILL_GRACE_MS, killSignal: 'SIGKILL' })
-  const timedOut = result.signal === 'SIGKILL' || (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
-  return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}`, timedOut }
+  return new Promise((resolve) => {
+    execFile(process.execPath, ['-e', GROUP_RUNNER, budget, command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER, timeout: timeoutMs + GROUP_KILL_GRACE_MS, killSignal: 'SIGKILL' }, (error, stdout, stderr) => {
+      resolve(timedResultOf(error, stdout, stderr))
+    })
+  })
 }
 
 export interface WitnessTrees {
-  baseOf: (pr: number, head: string) => string
-  withTree: <T>(base: string, run: (tree: string) => T) => T
+  baseOf: (pr: number, head: string) => Promise<string>
+  withTree: <T>(base: string, run: (tree: string) => Promise<T>) => Promise<T>
 }
 
 export interface WitnessParts {
@@ -100,16 +109,27 @@ function withFailureExcerpt(message: string, result: ShellResult | null): string
   return excerpt === '' ? message : `${message}\n${excerpt}`
 }
 
-export function gitWitnessTrees(repo: string): WitnessTrees {
+export interface WitnessTreePorts {
+  git: GitAsync
+  baseShaOf: (pr: number) => string
+}
+
+const REAL_TREE_PORTS: WitnessTreePorts = {
+  git: gitInAsync,
+  baseShaOf: pr => stdoutOrThrow(execGh)(['api', `repos/{owner}/{repo}/pulls/${pr}`, '--jq', '.base.sha']).trim(),
+}
+
+export function gitWitnessTrees(repo: string, ports: WitnessTreePorts = REAL_TREE_PORTS): WitnessTrees {
+  const turns = new SetupTurns()
   return {
-    baseOf: (pr) => {
-      gitIn(repo, ['fetch', '-q', 'origin', 'main', `pull/${pr}/head`])
-      const base = stdoutOrThrow(execGh)(['api', `repos/{owner}/{repo}/pulls/${pr}`, '--jq', '.base.sha']).trim()
+    baseOf: async (pr) => {
+      await turns.take(() => ports.git(repo, ['fetch', '-q', 'origin', 'main', `pull/${pr}/head`]))
+      const base = ports.baseShaOf(pr)
       if (!isFullSha(base))
         throw new Error(`GitHub named no base sha for #${pr}`)
       return base
     },
-    withTree: (base, run) => withWorktree(repo, base, run),
+    withTree: (base, run) => withWorktreeAsync(repo, base, run, turns, ports.git),
   }
 }
 
@@ -137,19 +157,19 @@ export class WitnessExecutor {
     return this.parts.clock().toISOString()
   }
 
-  run(lease: Lease): WitnessOutcome {
+  async run(lease: Lease): Promise<WitnessOutcome> {
     try {
       assertHeld(this.parts.db, lease)
       const subject = witnessSubjectOf(this.parts.db, lease.cardId)
       if (subject !== null && lease.pr === null && lease.head !== null && isFullSha(lease.head))
-        return this.onMain(lease, subject, lease.head)
+        return await this.onMain(lease, subject, lease.head)
       if (subject === null || lease.pr === null || lease.head === null) {
         completeTask(this.parts.db, this.ts(), lease, [])
         return { kind: 'skipped', taskKey: lease.taskKey, why: `card #${lease.cardId} declares no witness with a command, or the task names no pull request head` }
       }
       let base: string
       try {
-        const current = this.parts.trees.baseOf(lease.pr, lease.head)
+        const current = await this.parts.trees.baseOf(lease.pr, lease.head)
         base = baseOfKey(lease.taskKey) ?? current
       }
       catch (error) {
@@ -157,7 +177,7 @@ export class WitnessExecutor {
       }
       let red: string | null
       try {
-        red = this.redOf(subject, base, lease.head)
+        red = await this.redOf(subject, base, lease.head)
       }
       catch (error) {
         if (error instanceof WitnessTimedOut)
@@ -176,10 +196,10 @@ export class WitnessExecutor {
     }
   }
 
-  private onMain(lease: Lease, subject: WitnessSubject, main: string): WitnessOutcome {
+  private async onMain(lease: Lease, subject: WitnessSubject, main: string): Promise<WitnessOutcome> {
     let red: string | null
     try {
-      red = this.redOnMain(subject, main)
+      red = await this.redOnMain(subject, main)
     }
     catch (error) {
       if (error instanceof WitnessTimedOut)
@@ -193,14 +213,17 @@ export class WitnessExecutor {
     return { kind: 'recorded', taskKey: lease.taskKey, verdict, base: main, detail }
   }
 
-  private redOnMain(subject: WitnessSubject, main: string): string | null {
+  private async redOnMain(subject: WitnessSubject, main: string): Promise<string | null> {
     const last: { result: ShellResult | null } = { result: null }
     const shell = this.budgeted(this.parts.clock().getTime() + WITNESS_BUDGET_MS, last)
-    return this.parts.trees.withTree(main, (tree) => {
-      if (existsSync(path.join(tree, LOCKFILE)) && shell(INSTALL, tree).status !== 0)
+    return this.parts.trees.withTree(main, async (tree) => {
+      if (existsSync(path.join(tree, LOCKFILE)) && (await shell(INSTALL, tree)).status !== 0)
         return withFailureExcerpt(`${INSTALL} failed on main at ${main}`, last.result)
-      const red = [...subject.acceptance, ...subject.invariants].find(witness => shell(witness.command, tree).status !== 0)
-      return red === undefined ? null : withFailureExcerpt(`on main: "${red.criterion}" exits ${last.result?.status ?? 'without a status'} at ${main}`, last.result)
+      for (const witness of [...subject.acceptance, ...subject.invariants]) {
+        if ((await shell(witness.command, tree)).status !== 0)
+          return withFailureExcerpt(`on main: "${witness.criterion}" exits ${last.result?.status ?? 'without a status'} at ${main}`, last.result)
+      }
+      return null
     })
   }
 
@@ -213,12 +236,12 @@ export class WitnessExecutor {
     return { kind: 'denied', taskKey: lease.taskKey, denial: { kind: 'technical', reason: WITNESS_UNRUN, detail }, next }
   }
 
-  private budgeted(deadline: number, last: { result: ShellResult | null }): Shell {
-    return (command, cwd) => {
+  private budgeted(deadline: number, last: { result: ShellResult | null }): (command: string, cwd: string) => Promise<ShellResult> {
+    return async (command, cwd) => {
       const left = deadline - this.parts.clock().getTime()
       if (left <= 0)
         throw new WitnessTimedOut(command)
-      const result = this.parts.shell(command, cwd, left)
+      const result = await this.parts.shell(command, cwd, left)
       if (result.timedOut)
         throw new WitnessTimedOut(command)
       last.result = result
@@ -226,16 +249,16 @@ export class WitnessExecutor {
     }
   }
 
-  private redOf(subject: WitnessSubject, base: string, head: string): string | null {
+  private async redOf(subject: WitnessSubject, base: string, head: string): Promise<string | null> {
     const deadline = this.parts.clock().getTime() + WITNESS_BUDGET_MS
     const last: { result: ShellResult | null } = { result: null }
-    return this.parts.trees.withTree(base, (tree) => {
+    return this.parts.trees.withTree(base, async (tree) => {
       try {
-        runOnTree(
+        await runOnTreeAsync(
           { tree, base, shell: this.budgeted(deadline, last), log: this.parts.log, refuse: (step, problem) => {
             if (problem !== null)
               throw new WitnessRed(step, problem)
-          }, time: (_name, run) => run() },
+          } },
           { acceptance: subject.acceptance, invariants: subject.invariants, harnessCommand: null, sketchSha: head, changed: [], witnessesDir: tree, creates: subject.creates },
         )
         return null
