@@ -2187,6 +2187,13 @@ and writes the same event all the same. A card with no file under the root that 
 text for is moved in the bus alone: the event is written and no file appears. A move to a launch lane admits the
 card again with the text the bus holds, and the file's text only when the bus holds none. While the text the bus folded is older than the card's latest `card.admitted`, a move to a launch lane refuses with exit `1` and writes nothing, so it never re-admits the older text; run it again once the admission is folded. `--dry-run` prints the move and its event, exits `0`, and writes nothing to the bus or the parking. The printed line names the event the bus holds. With `--draft`, `--taken` or `--admit` the move refuses.
 
+**A card that names its release.** A card header may carry `release: <id>` beside `who` and `priority`.
+A bus-wired `--admit` or `--amend` reads the line and puts the card in that release, with no `--release` flag and no
+plan request. An id that names no open release, or a `--release` flag naming a different one, is refused with exit `1`
+and nothing is admitted; a card already in the release it names is left there, so amending it is not refused after the
+release closes. An empty `release:` line is refused by the parking grammar. A draft has no `release` field: the line
+goes in through the parked file or the exported text. The published CLI has no bus, so it keeps the line and acts on nothing.
+
 **Exporting an admitted card.** `pnpm intake --export <#N>`, this repository's bus-wired entry, prints
 the text of the latest `card.admitted` for card `N` that the bus holds, byte for byte, and writes
 nothing; redirect it to get a parking file. A card the bus holds no admitted text for, or a value that is
