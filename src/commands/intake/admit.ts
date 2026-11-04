@@ -20,7 +20,7 @@ import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
-import { isAcceptanceField, judgedCommand, renderedWitness, runsFieldOf, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
+import { fieldCommand, isAcceptanceField, judgedCommand, renderedWitness, runsFieldOf, statesAnExit, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
@@ -297,13 +297,20 @@ function withoutReplaced(downgrades: readonly string[], previous: readonly strin
   })
 }
 
-export function judgedFieldWitnessesOf(body: string): { acceptance: { criterion: string, command: string }[], invariants: { criterion: string, command: string }[] } | null {
+export interface JudgedWitness {
+  criterion: string
+  command: string
+  onBase?: { command: string, stated: string }
+}
+
+export function judgedFieldWitnessesOf(body: string): { acceptance: JudgedWitness[], invariants: JudgedWitness[] } | null {
   const fields = witnessFieldsOf(body)
   if (fields === null)
     return null
-  const judged = (field: WitnessField): { criterion: string, command: string } => ({ criterion: witnessText(field), command: judgedCommand(field) })
+  const judged = (field: WitnessField): JudgedWitness => ({ criterion: witnessText(field), command: judgedCommand(field) })
+  const acceptance = (field: WitnessField): JudgedWitness => statesAnExit(field) ? { ...judged(field), onBase: { command: fieldCommand(field), stated: field.base } } : judged(field)
   return {
-    acceptance: fields.filter(isAcceptanceField).map(judged),
+    acceptance: fields.filter(isAcceptanceField).map(acceptance),
     invariants: fields.filter(field => !isAcceptanceField(field)).map(judged),
   }
 }

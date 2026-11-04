@@ -216,6 +216,28 @@ describe('the witness node', () => {
       expect(witnessDenial(w.db, CARD, w.head, w.base)).toBeNull()
     })
 
+    it('a base that gives another exit than the field states is red, whichever non-zero it is', async () => {
+      const w = world([], 'done.txt', [], fieldsBody(field('W1', 'test -f done.txt || exit 3', 'pass', 'exit:4')))
+      await witnessRun(w)
+
+      expect(recordOf(w)).toEqual(expect.objectContaining({ verdict: RED }))
+      expect(recordOf(w)!.detail).toMatch(/^P7: witness "W1: .*" exits 3 on the base \w+, and its field states base exit:4/)
+    })
+
+    it('a head exit over base pass is red when the base does not pass', async () => {
+      const w = world([], 'done.txt', [], fieldsBody(field('W1', 'test ! -f done.txt || exit 3; exit 2', 'exit:3', 'pass')))
+      await witnessRun(w)
+
+      expect(recordOf(w)!.detail).toMatch(/^P7: witness "W1: .*" exits 2 on the base \w+, and its field states base pass/)
+    })
+
+    it('head fail over base exit:3 is judged by the exit of the base, not refused as green on it', async () => {
+      const w = world([], 'done.txt', [], fieldsBody(field('W1', 'test -f done.txt && exit 1; exit 3', 'fail', 'exit:3')))
+      await witnessRun(w)
+
+      expect(recordOf(w)).toEqual(expect.objectContaining({ verdict: GREEN }))
+    })
+
     it('a head that misses the exit a field states is red', async () => {
       const w = world([], 'other.txt', [], fieldsBody(field('W1', 'test ! -f done.txt || exit 3', 'exit:3', 'pass')))
       await witnessRun(w)

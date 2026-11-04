@@ -80,6 +80,7 @@ describe('the witness fields of a card', () => {
     ['a test name beside a run that names one', { run: `${RUN} -t 'x'` }, 'not both'],
     ['a test name on a run that is no vitest run', { run: 'test -f a' }, 'no vitest run'],
     ['a test name with a single quote', { test: 'it\'s' }, 'single quote'],
+    ['a test name with a backtick', { test: 'the `thing`' }, 'no backtick'],
     ['a negated run with an exit', { run: `! ${RUN}`, test: null, head: 'exit:1' }, 'negated run'],
   ])('refuses %s', (_name, change, reason) => {
     expect(parseParkingFile('80.md', cardText(`Do it.\n\n${witnessFieldsLine([{ ...FIELD, ...change }])}`))).toMatchObject({ kind: 'refused', reason: expect.stringContaining(reason) })
@@ -147,13 +148,28 @@ describe('the policy reads head and base from the fields', () => {
   })
 
   it('head fail over base pass is an acceptance of the negated command, and of the bare one when the run is negated', () => {
-    expect(judged({ head: 'fail', base: 'pass' }).acceptance.map(witness => witness.command)).toEqual([`! ${RUN}`])
+    expect(judged({ head: 'fail', base: 'pass' }).acceptance.map(witness => witness.command)).toEqual([`! ( ${RUN}\n)`])
     expect(judged({ run: `! ${RUN}`, head: 'fail', base: 'pass' }).acceptance.map(witness => witness.command)).toEqual([RUN])
+  })
+
+  it('an acceptance with an exit in it carries the bare command and the stated base, and no other witness does', () => {
+    expect(judged({ base: 'exit:3' }).acceptance).toMatchObject([{ command: RUN, onBase: { command: RUN, stated: 'exit:3' } }])
+    expect(judged({ head: 'exit:3', base: 'fail' }).acceptance).toMatchObject([{ onBase: { command: RUN, stated: 'fail' } }])
+    expect(judged({}).acceptance[0]).not.toHaveProperty('onBase')
+    expect(judged({ head: 'exit:3', base: 'exit:3' }).invariants[0]).not.toHaveProperty('onBase')
   })
 
   it('unjudgedCommand opens the exit wrap and leaves any other command as it is', () => {
     expect(unjudgedCommand(judgedCommand({ ...FIELD, test: null, head: 'exit:3' }))).toBe(RUN)
+    expect(unjudgedCommand(judgedCommand({ ...FIELD, test: null, head: 'fail', base: 'pass' }))).toBe(RUN)
     expect(unjudgedCommand(RUN)).toBe(RUN)
+  })
+
+  it('head fail negates a compound run whole, and a literal exit in it does not escape', () => {
+    const failing = (run: string): string => judgedCommand({ ...FIELD, run, test: null, head: 'fail', base: 'pass' })
+    expect(statusOf(failing('true; exit 3'))).toBe(0)
+    expect(statusOf(failing('false; true'))).not.toBe(0)
+    expect(statusOf(failing('false || exit 3'))).toBe(0)
   })
 
   it('the same head and base is an invariant', () => {

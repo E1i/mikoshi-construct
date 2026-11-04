@@ -8,7 +8,7 @@ import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/parking.js'
 import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
-import { exitJudgedCommand } from '../../card/witness-fields.js'
+import { commandInsideJudgedWrap } from '../../card/witness-fields.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
@@ -525,7 +525,7 @@ function headIndependentUnclear(commands: readonly string[], witness: string, re
 }
 
 export function unjudgedCommand(command: string): string {
-  return exitJudgedCommand(command) ?? command
+  return commandInsideJudgedWrap(command) ?? command
 }
 
 export function isChangeWitness(witness: string): boolean {

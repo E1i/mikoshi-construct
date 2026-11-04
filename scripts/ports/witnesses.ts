@@ -5,7 +5,7 @@ import { isChangeWitness, unjudgedCommand } from '../../src/commands/intake/chec
 import { pathsNamedBy } from '../../src/commands/intake/command-word.js'
 import { gitIn, lastLine, stageSketch, tailLines } from './worktree.js'
 
-export interface Witness { criterion: string, command: string }
+export interface Witness { criterion: string, command: string, onBase?: { command: string, stated: string } }
 
 export type Refuse = (step: string, problem: string | null) => void
 export type Timer = <T>(name: string, run: () => T) => T
@@ -104,11 +104,11 @@ export function testTargetOf(command: string): TestTarget | null {
   return { file, name: named === null ? null : named[1] ?? named[2] ?? named[3] }
 }
 
-function isNegated(witness: Witness): boolean {
+function isNegated(witness: Pick<Witness, 'command'>): boolean {
   return NEGATION.test(witness.command.trim()) || unjudgedCommand(witness.command) !== witness.command
 }
 
-function absentOnBase(tree: string, witness: Witness): boolean {
+function absentOnBase(tree: string, witness: Pick<Witness, 'command'>): boolean {
   if (isNegated(witness))
     return false
   const target = testTargetOf(witness.command)
@@ -162,6 +162,14 @@ function baseRedRefusal(witness: Witness, result: ShellResult, base: string): st
   if (!isNegated(witness) && testTargetOf(witness.command) !== null && !reportsFailedTest(result.output))
     return `witness "${witness.criterion}" exits ${result.status} on the base ${base} with no failing test (${lastLine(result.output)}): a crash or an environment error is not red for a reason`
   return null
+}
+
+function statedBaseRefusal(witness: Witness, onBase: NonNullable<Witness['onBase']>, result: ShellResult, base: string): string | null {
+  const running = result.status === 0 ? null : baseRedRefusal({ criterion: witness.criterion, command: onBase.command }, result, base)
+  if (running !== null)
+    return running
+  const met = result.status === 0 ? onBase.stated === 'pass' : onBase.stated === 'fail' || onBase.stated === `exit:${result.status}`
+  return met ? null : `witness "${witness.criterion}" exits ${result.status ?? 'without a status'} on the base ${base}, and its field states base ${onBase.stated}`
 }
 
 function outputTail(output: string): string {
@@ -266,7 +274,7 @@ function* treePhases(run: TreeContext, task: TreeTask): Generator<TreePhase, voi
   const harnessRuns = task.sketchSha !== null && task.changed !== null
   const declared = harnessRuns ? invariantsBesideHarness(run, task) : task.invariants
   const added = createdOnHead(tree, base, task)
-  const absent = new Set([...task.acceptance, ...declared].filter(witness => absentOnBase(tree, witness)))
+  const absent = new Set([...task.acceptance, ...declared].filter(witness => absentOnBase(tree, witness.onBase ?? witness)))
   const presentOnBase = (witnesses: Witness[]): Witness[] => witnesses.filter(witness => !absent.has(witness))
   const redOverCreated: Witness[] = []
   const unmatchedOnBase: GrepWitness[] = []
@@ -279,6 +287,8 @@ function* treePhases(run: TreeContext, task: TreeTask): Generator<TreePhase, voi
     task.acceptance.filter(witness => absent.has(witness)).forEach(witness => run.log(`witness "${witness.criterion}": red on the base ${baseShort} by absence: its test is not in the base tree; checked on the head`))
     declared.filter(witness => absent.has(witness)).forEach(witness => run.log(`invariant "${witness.criterion}": not applicable on the base ${baseShort}: new test; checked on the head only`))
     refuse('P7', yield* firstProblem(presentOnBase(task.acceptance), function* (witness) {
+      if (witness.onBase !== undefined)
+        return statedBaseRefusal(witness, witness.onBase, yield witness.onBase.command, baseShort)
       return baseRedRefusal(witness, yield witness.command, baseShort)
     }))
     refuse('P7', yield* firstProblem(presentOnBase(declared), function* (witness) {

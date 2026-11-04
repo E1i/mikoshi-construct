@@ -38,7 +38,7 @@ const SINGLE_QUOTE = '\''
 const EXIT_PREFIX = 'exit:'
 const KIND_SEPARATOR = ' · '
 const RENDERED = /^(W[1-9]\d*): `([^`]+)` · head (\S+) · base (\S+) · (?:acceptance|invariant)$/
-const EXIT_JUDGED = /^\( ([\s\S]*)\n\); test \$\? -eq \d+$/
+const JUDGED_WRAP = /^(?:\( ([\s\S]*)\n\); test \$\? -eq \d+|! \( ([\s\S]*)\n\))$/
 
 export function withWitnessKind(witness: string, kind: WitnessKind): string {
   return `${witness.trim()}${KIND_SEPARATOR}${kind}`
@@ -69,8 +69,8 @@ function runRefusals(at: string, entry: Record<string, unknown>): string[] {
 function testRefusals(at: string, test: unknown): string[] {
   if (test === undefined || test === null)
     return []
-  if (!isText(test) || test.includes(SINGLE_QUOTE) || LINE_BREAK.test(test))
-    return [`${at}: 'test' is a name for -t on one line with no single quote, or null`]
+  if (!isText(test) || test.includes(SINGLE_QUOTE) || test.includes(BACKTICK) || LINE_BREAK.test(test))
+    return [`${at}: 'test' is a name for -t on one line with no single quote and no backtick, or null`]
   return []
 }
 
@@ -194,10 +194,15 @@ export function judgedCommand(field: WitnessField): string {
   if (field.head === 'pass')
     return command
   if (field.head === 'fail')
-    return NEGATION.test(command) ? command.replace(NEGATION, '') : `! ${command}`
+    return NEGATION.test(command) ? command.replace(NEGATION, '') : `! ( ${command}\n)`
   return `( ${command}\n); test $? -eq ${field.head.slice(EXIT_PREFIX.length)}`
 }
 
-export function exitJudgedCommand(command: string): string | null {
-  return EXIT_JUDGED.exec(command.trim())?.[1] ?? null
+export function statesAnExit(field: Pick<WitnessField, 'head' | 'base'>): boolean {
+  return [field.head, field.base].some(expectation => expectation.startsWith(EXIT_PREFIX))
+}
+
+export function commandInsideJudgedWrap(command: string): string | null {
+  const wrapped = JUDGED_WRAP.exec(command.trim())
+  return wrapped === null ? null : wrapped[1] ?? wrapped[2]!
 }
