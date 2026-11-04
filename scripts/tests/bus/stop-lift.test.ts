@@ -1,0 +1,218 @@
+import type { MergeBench } from './merge-bench.js'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
+import { amendedText } from '../../../src/commands/intake/amend.js'
+import { appendEvent, openBusWait } from '../../core/db.js'
+import { CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_CLOSED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
+import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
+import { reduce } from '../../core/reducer.js'
+import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
+import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
+import { requestOf, runRequest, WindowRequests } from '../../window/window-requests.js'
+import { mergeBench } from './merge-bench.js'
+
+const CARD = 1492
+const RESERVED_QUESTION = 'may I change architecture/owner-merges.md?'
+const OWNER_WORDS = 'Q: yes, change it'
+
+interface Room {
+  made: MergeBench
+  channel: string
+  stop: number
+  wait: string
+  body: string
+}
+
+const rooms: { made: MergeBench, root: string }[] = []
+
+afterEach(() => {
+  for (const { made, root } of rooms.splice(0)) {
+    made.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+function lastEventId(made: MergeBench): number {
+  return Number((made.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+}
+
+function admit(made: MergeBench, text: string, generation: string): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:${generation}`, payload: { card: `#${CARD}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${generation}`, text, textSha: textSha(text), bodySha: generation }, legacy: false })
+  reduce(made.db)
+}
+
+function stoppedRoom(question: string = RESERVED_QUESTION, underAShard = true, admittedBefore = true, bodyEnd = 'Do it.'): Room {
+  const made = mergeBench()
+  const root = mkdtempSync(path.join(tmpdir(), 'stop-lift-'))
+  rooms.push({ made, root })
+  const body = `card: #${CARD} stoplift [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/stoplift\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\n${bodyEnd}\n`
+  if (admittedBefore)
+    admit(made, body, 'body-1')
+  const now = made.clock.now()
+  if (underAShard)
+    appendEvent(made.db, { ts: now.toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'owner', scope: DECISIONS_SCOPE, until: new Date(now.getTime() + 3_600_000).toISOString(), window: 1 }, legacy: false })
+  appendEvent(made.db, { ts: now.toISOString(), type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: QUESTION_OWNER, detail: question }, legacy: false })
+  const stop = lastEventId(made)
+  const wait = openBusWait(made.db, now.toISOString(), 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
+  reduce(made.db)
+  return { made, channel: path.join(root, 'owner-answers'), stop, wait, body }
+}
+
+function openStop(room: Room): number | null {
+  reduce(room.made.db)
+  return (room.made.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(CARD) as { id: number } | undefined)?.id ?? null
+}
+
+function waitState(room: Room): string {
+  reduce(room.made.db)
+  return (room.made.db.prepare('SELECT state FROM owner_waits WHERE id = ?').get(room.wait) as { state: string }).state
+}
+
+function closes(room: Room, answer: string, ...flags: string[]): { kind: string, detail: string } {
+  const refuse = (): never => {
+    throw new Error('not this request')
+  }
+  const argv = ['owner.wait.close', '--id', room.wait, '--answer', answer, ...flags]
+  expect(runRequest(argv, room.made.db, room.made.clock.now(), 'test', () => {})).toBe(0)
+  const [outcome] = new WindowRequests(room.made.db, room.made.clock.now, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }, room.channel).run()
+  return outcome!
+}
+
+function amendsWithNote(room: Room, generation: string, note: string): void {
+  const edited = amendedText(room.body, { note })
+  if (edited.kind !== 'edited')
+    throw new Error(edited.why)
+  room.body = edited.text
+  admit(room.made, edited.text, generation)
+}
+
+describe('a question.owner stop has a named lift for each route', () => {
+  it('owner answer lifts a reserved stop', () => {
+    const room = stoppedRoom()
+    const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    expect(openStop(room)).toBe(room.stop)
+
+    const outcome = closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)
+
+    expect(outcome.kind).toBe('done')
+    expect(outcome.detail).toContain(`lifted the card #${CARD} stop ${room.stop}`)
+    expect(waitState(room)).toBe('closed')
+    expect(openStop(room)).toBeNull()
+    expect(existsSync(`${word}${USED_WORD}`)).toBe(true)
+  })
+
+  it('owner answer lifts a stop with no shard active, where a window close only closes the wait', () => {
+    const answered = stoppedRoom('may the retry back off?', false)
+    sayToOwnerChannel(answered.channel, OWNER_WORDS, answered.made.clock.now())
+    expect(closes(answered, OWNER_WORDS, '--from', ANSWER_SOURCE).kind).toBe('done')
+    expect(openStop(answered)).toBeNull()
+
+    const closedOnly = stoppedRoom('may the retry back off?', false)
+    expect(closes(closedOnly, 'yes').kind).toBe('done')
+    expect(openStop(closedOnly)).toBe(closedOnly.stop)
+  })
+
+  it('--from answer without the word in the channel is refused and lifts nothing', () => {
+    const room = stoppedRoom()
+
+    expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)).toMatchObject({ kind: 'refused', detail: OWNER_WORD_NOT_FOUND })
+    expect(waitState(room)).toBe('open')
+    expect(openStop(room)).toBe(room.stop)
+  })
+
+  it('--from anything but answer is refused even with the word in the channel', () => {
+    const room = stoppedRoom()
+    const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+
+    expect(closes(room, OWNER_WORDS, '--from', 'order-file').kind).toBe('refused')
+    expect(waitState(room)).toBe('open')
+    expect(openStop(room)).toBe(room.stop)
+    expect(existsSync(word)).toBe(true)
+  })
+
+  it('a wait already closed spends no owner word', () => {
+    const room = stoppedRoom('may the retry back off?', false)
+    expect(closes(room, 'yes').kind).toBe('done')
+    reduce(room.made.db)
+    const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+
+    expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)).toMatchObject({ kind: 'refused', detail: `${room.wait} is closed already` })
+    expect(existsSync(word)).toBe(true)
+  })
+
+  it('a close that fails after the word is claimed leaves the word unused', () => {
+    const room = stoppedRoom()
+    const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    appendEvent(room.made.db, { ts: room.made.clock.now().toISOString(), type: OWNER_WAIT_CLOSED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:not-reduced-yet`, payload: { id: room.wait, answer: 'closed elsewhere' }, legacy: false })
+
+    const outcome = closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)
+
+    expect(outcome.kind).toBe('refused')
+    expect(outcome.detail).toContain('left unused')
+    expect(existsSync(word)).toBe(true)
+  })
+
+  it('an owner answer before the stop does not lift it', () => {
+    const room = stoppedRoom('first question', false)
+    sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE).kind).toBe('done')
+    appendEvent(room.made.db, { ts: room.made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:second`, payload: { reason: QUESTION_OWNER, detail: 'second question' }, legacy: false })
+
+    expect(openStop(room)).toBe(lastEventId(room.made))
+  })
+
+  it('window close of a reserved stop stays refused', () => {
+    const room = stoppedRoom()
+    sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+
+    const outcome = closes(room, OWNER_WORDS)
+
+    expect(outcome.kind).toBe('refused')
+    expect(outcome.detail).toContain(`stop ${room.stop} on owner-merges`)
+    expect(waitState(room)).toBe('open')
+    expect(openStop(room)).toBe(room.stop)
+  })
+
+  it('amend that answers the question lifts the stop', () => {
+    for (const named of [(room: Room) => `answers stop ${room.stop}`, (room: Room) => `answers ${room.wait}: yes`]) {
+      const room = stoppedRoom()
+      amendsWithNote(room, 'other', 'widens nothing the question asked')
+      expect(openStop(room)).toBe(room.stop)
+
+      amendsWithNote(room, 'named', named(room))
+      expect(openStop(room)).toBeNull()
+    }
+  })
+
+  it('an amend does not lift on a longer name, a first admission, or a name it only carried forward', () => {
+    const longer = stoppedRoom()
+    amendsWithNote(longer, 'stop-prefix', `see ${longer.stop}0 and ${longer.wait}0`)
+    expect(openStop(longer)).toBe(longer.stop)
+
+    const first = stoppedRoom(RESERVED_QUESTION, true, false)
+    admit(first.made, `${first.body}\nanswers ${first.wait}\n`, 'first')
+    expect(openStop(first)).toBe(first.stop)
+
+    const carried = stoppedRoom(RESERVED_QUESTION, true, true, 'earlier mention of Q1')
+    expect(carried.wait).toBe('Q1')
+    amendsWithNote(carried, 'carried-forward', 'something else')
+    expect(openStop(carried)).toBe(carried.stop)
+  })
+
+  it('an amend that answered an earlier stop does not lift a later one', () => {
+    const room = stoppedRoom('first question', false)
+    amendsWithNote(room, 'named', `answers ${room.wait}`)
+    expect(openStop(room)).toBeNull()
+    appendEvent(room.made.db, { ts: room.made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:second`, payload: { reason: QUESTION_OWNER, detail: 'second question' }, legacy: false })
+
+    expect(openStop(room)).toBe(lastEventId(room.made))
+  })
+
+  it('--from reaches the request only when it is given', () => {
+    expect(requestOf(['owner.wait.close', '--id', 'Q1', '--answer', 'yes'])).toEqual({ kind: 'owner.wait.close', id: 'Q1', answer: 'yes' })
+    expect(requestOf(['owner.wait.close', '--id', 'Q1', '--answer', 'yes', '--from', ANSWER_SOURCE])).toEqual({ kind: 'owner.wait.close', id: 'Q1', answer: 'yes', from: ANSWER_SOURCE })
+  })
+})

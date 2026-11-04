@@ -14,7 +14,7 @@ import { FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
 import { BOARD_ALARM, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_UNPLANNED, FACTORY_MODE, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
-import { OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
+import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from '../core/queue.js'
 import { storedByKey } from '../core/stored.js'
@@ -30,14 +30,13 @@ export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
 const LINKED_CARDS = 'SELECT cards FROM plan_items WHERE plan_id = ? ORDER BY item_id'
-export const ANSWER_SOURCE = 'answer'
 const DECISION_FLAGS: ReadonlyMap<string, string> = new Map([['--card', 'cards'], ['--supersedes', 'supersedes'], ['--until', 'until'], ['--from', 'from']])
 export const WINDOW_ACTOR = 'worker:window:'
 export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N>`
 
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -190,7 +189,7 @@ export class WindowRequests {
     const settled = [...settledCards(legacyHistory(this.db), cardStatesOf(this.db))].map(card => `#${card}`)
     const written = this.writtenDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), decision])
     const done = written.code === 0
-    const fate = done ? 'used' : word.release() ? 'left unused' : `stays used though nothing was written; the owner renames ${word.file}${USED_WORD} back to ${path.basename(word.file)}`
+    const fate = done ? 'used' : word.release() ? 'left unused' : unreleasedWord(word.file)
     return { done, why: [...written.lines, `owner word ${word.file} ${fate}`].join('; ') }
   }
 
@@ -224,10 +223,15 @@ export class WindowRequests {
     const answer = text(payload.answer)
     if (id === null || answer === null)
       return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer' }
+    const from = text(payload.from)
+    if (from !== null && from !== ANSWER_SOURCE)
+      return { done: false, why: `owner.wait.close --from ${from} is not ${ANSWER_SOURCE}; only the owner's word that pnpm owner:say put into the owner channel closes a wait as the owner's answer` }
     const wait = this.db.prepare(`SELECT state, card_id FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as { state: string, card_id: number | null } | undefined
     if (wait === undefined)
       return { done: false, why: `${id} is not an owner wait the bus has reduced` }
     const stop = wait.card_id === null ? undefined : this.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number, payload: string } | undefined
+    if (from !== null)
+      return this.closeWaitOnOwnerWord(request, id, wait, answer, stop?.id ?? null)
     const shard = stop === undefined ? null : activeDecisionsShard(this.db, this.clock())
     const question = stop === undefined ? '' : String((JSON.parse(stop.payload) as Record<string, unknown>).detail ?? '')
     const reserved = shard === null ? null : ownersOfAStop(question)
@@ -244,6 +248,27 @@ export class WindowRequests {
     if (!closed)
       return { done: false, why: `${id} is closed already` }
     return { done: true, why: shard === null ? `closed ${id}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop!.id} as a decision under shard ${shard.id}: ${answer}` }
+  }
+
+  private closeWaitOnOwnerWord(request: number, id: string, wait: { state: string, card_id: number | null }, answer: string, stop: number | null): Executed {
+    if (wait.state !== OPEN_WAIT)
+      return { done: false, why: `${id} is closed already` }
+    const word = consumeOwnerWord(this.ownerChannel, answer)
+    if (word === null)
+      return { done: false, why: OWNER_WORD_NOT_FOUND }
+    const refusal = this.refusalToClose(request, id, answer)
+    if (refusal !== null)
+      return { done: false, why: `${refusal}; owner word ${word.file} ${word.release() ? 'left unused' : unreleasedWord(word.file)}` }
+    return { done: true, why: stop === null ? `closed ${id} on the owner's word ${word.file}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop} on the owner's word ${word.file}: ${answer}` }
+  }
+
+  private refusalToClose(request: number, id: string, answer: string): string | null {
+    try {
+      return inTransaction(this.db, () => closeOwnerWait(this.db, this.clock().toISOString(), QUEUE_ACTOR, id, answer, request)) ? null : `${id} is closed already`
+    }
+    catch (error) {
+      return `owner.wait.close failed: ${messageOf(error)}`
+    }
   }
 
   private treeCut(payload: Record<string, unknown>): Executed {
@@ -456,6 +481,10 @@ function decisionRequestOf(argv: readonly string[]): Record<string, unknown> | n
   return { kind: 'decisions:add', text: texts[0], from: from![0], cards, supersedes, ...(until!.length === 0 ? {} : { until: until![0] }) }
 }
 
+function unreleasedWord(file: string): string {
+  return `stays used though nothing was written; the owner renames ${file}${USED_WORD} back to ${path.basename(file)}`
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -507,7 +536,8 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   if (kind === 'owner.wait.close') {
     const id = flag(argv, '--id')
     const answer = flag(argv, '--answer')
-    return id === undefined || answer === undefined ? null : { kind, id, answer }
+    const from = flag(argv, '--from')
+    return id === undefined || answer === undefined ? null : { kind, id, answer, ...(from === undefined ? {} : { from }) }
   }
   if (kind === 'decisions:add')
     return decisionRequestOf(argv)
