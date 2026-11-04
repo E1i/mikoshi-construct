@@ -18,13 +18,17 @@ describe('parseParkingFile', () => {
     expect(card).toMatchObject({ who: 'shift', priority: 'p0', task: { file: '187.md', id: '187', branch: 'feat/187', touches: ['scripts/187/**'], body: 'do 187', continue: 'stop' } })
   })
 
+  it.each(['p0', 'p1', 'p2'])('reads priority %s', (priority) => {
+    expect(parked(187, `who: shift\npriority: ${priority}`).priority).toBe(priority)
+  })
+
   it('reads a card without priority as null', () => {
     expect(parked(19, 'who: window').priority).toBeNull()
   })
 
   it.each([
     ['no who', 'card: #5 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\n\nbody', `5.md: a parked card names who takes it: 'who: shift' or the column's other value`],
-    ['a priority other than p0', 'card: #5 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\nwho: shift\npriority: high\n\nbody', `5.md: priority 'high' is not one of p0`],
+    ['a priority outside the list', 'card: #5 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\nwho: shift\npriority: high\n\nbody', `5.md: priority 'high' is not one of p0, p1, p2`],
     ['a repeated who', 'card: #5 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\nwho: shift\nwho: window\n\nbody', `5.md: header key 'who' appears twice`],
     ['a file not named after the card', 'card: #6 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\nwho: shift\n\nbody', '5.md: a parked card\'s file is named after its id: 6.md'],
     ['a refused task header', 'branch: b\ntouches: a\nwho: shift\n\nbody', '5.md: header is missing card; a parked card also takes who, priority'],

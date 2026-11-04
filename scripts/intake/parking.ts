@@ -1,8 +1,8 @@
 import type { BusCardStates } from '../../src/card/closed.js'
-import type { ParkedTask } from '../../src/card/parking.js'
+import type { ParkedTask, Priority } from '../../src/card/parking.js'
 import type { ShiftTask } from '../../src/card/task-file.js'
 import { mergedTasks } from '../../src/card/closed.js'
-import { SHIFT_WHO } from '../../src/card/parking.js'
+import { PRIORITIES, SHIFT_WHO } from '../../src/card/parking.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { taskConflicts } from '../nodes/launch/overlap.js'
 import { declaredGhostsFile, GHOSTS_FILES } from '../policy/shredder/reader.js'
@@ -37,8 +37,12 @@ export interface Stop {
   failed?: boolean
 }
 
+function priorityRank(priority: Priority | null): number {
+  return priority === null ? PRIORITIES.length : PRIORITIES.indexOf(priority)
+}
+
 function byPriorityThenId(a: ParkedTask, b: ParkedTask): number {
-  return Number(b.priority !== null) - Number(a.priority !== null) || Number(a.task.id) - Number(b.task.id)
+  return priorityRank(a.priority) - priorityRank(b.priority) || Number(a.task.id) - Number(b.task.id)
 }
 
 export type Created = (file: string) => boolean
