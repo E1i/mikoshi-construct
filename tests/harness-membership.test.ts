@@ -25,6 +25,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'bus:slot': 'runs one heavy command under a slot of bus.db when run by hand or by a caller; its own tests are its gate',
   'bus:update': 'the update worker over bus.db, switched off unless started by hand with --on after the first live review verdict; its own tests are its gate',
   'bus:witness': 'the witness worker over bus.db, switched off unless started by hand with --on; its own tests are its gate',
+  'bus:witness-backfill': 'writes the one witness.fields.backfilled event into bus.db when run by hand and changes no card text; its own tests are its gate',
   'changeset': 'an authoring tool',
   'checks:catalog': 'rewrites the check_tests and check_mutations tables of bus.db from the test graph, the briefs and the journal when run by hand; its own tests are its gate',
   'checks:matrix': 'runs the catalog mutations of the layers a list of changed paths reaches against their own tests when run by hand, and prints the matrix; its own tests are its gate',
