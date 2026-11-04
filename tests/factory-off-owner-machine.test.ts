@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -244,7 +244,7 @@ describe('per-repository bus home', () => {
 })
 
 describe('the gh token stays with gh', () => {
-  it('the rendered launchd job starts the bus in the factory checkout with what the token source prints, and does not start when the source fails', () => {
+  it('the rendered launchd job starts the bus in the factory checkout with what the token source prints, and does not start when the source fails or prints nothing or the checkout is gone, and the log names the empty token and the missing checkout', () => {
     const factory = path.join(scratch, 'factory')
     const shellLineWith = (tokenSource: string): string => [...renderAgent(readFileSync(PLIST, 'utf8'), { factoryDir: factory, tokenSource }).matchAll(/<string>([^<]*)<\/string>/g)].map(match => match[1]!).at(-1)!.replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&apos;', '\'').replaceAll('&amp;', '&')
     const bin = path.join(home, '.local', 'bin')
@@ -259,11 +259,22 @@ describe('the gh token stays with gh', () => {
     const failing = spawnSync('/bin/sh', ['-c', shellLineWith('false')], { env: { HOME: home }, encoding: 'utf8' })
     expect(failing.status).not.toBe(0)
     expect(readFileSync(calls, 'utf8')).toBe(`${factory} --silent bus:bg token=${FAKE_TOKEN}\n`)
+
+    const empty = spawnSync('/bin/sh', ['-c', shellLineWith('true')], { env: { HOME: home }, encoding: 'utf8' })
+    expect(empty.status).not.toBe(0)
+    expect(readFileSync(calls, 'utf8')).toBe(`${factory} --silent bus:bg token=${FAKE_TOKEN}\n`)
+    expect(readFileSync(path.join(home, '.construct', 'dev.mikoshi.bus.log'), 'utf8')).toContain('GH_TOKEN')
+
+    rmSync(factory, { recursive: true })
+    const noCheckout = spawnSync('/bin/sh', ['-c', shellLineWith(`echo ${FAKE_TOKEN}`)], { env: { HOME: home }, encoding: 'utf8' })
+    expect(noCheckout.status).not.toBe(0)
+    expect(readFileSync(calls, 'utf8')).toBe(`${factory} --silent bus:bg token=${FAKE_TOKEN}\n`)
+    expect(readFileSync(path.join(home, '.construct', 'dev.mikoshi.bus.log'), 'utf8')).toContain(factory)
   })
 
   it('the token of the current gh appears in no file under the construct home and in no bus event', () => {
     const plist = readFileSync(PLIST, 'utf8')
-    expect(plist).not.toMatch(/gh auth token/)
+    expect(plist.replace(/GH_TOKEN="\$\(\{\{tokenSource\}\}\)" &amp;&amp; export GH_TOKEN="\$\{GH_TOKEN:\?the token source printed nothing\}"/, '')).not.toMatch(/GH_TOKEN|gh auth token/)
 
     process.env.GH_TOKEN = FAKE_TOKEN
     const repo = foreignRepo(scratch, 'git@github.com:acme/widgets.git')

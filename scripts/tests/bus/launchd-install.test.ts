@@ -1,6 +1,6 @@
 import type { AgentCommand, AgentParts, DiffRun } from '../../supervisor/launchd/install.js'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -45,6 +45,35 @@ describe('rendering the bus agent', () => {
       const run = spawnSync('/bin/sh', ['-c', shellLineOf(rendered)], { env: { HOME: scratch }, encoding: 'utf8' })
       expect(run.status).toBe(0)
       expect(readFileSync(calls, 'utf8').trim().split('\n').join(' ')).toBe(`${factoryDir} token=ab c{{factoryDir}}`)
+    }
+    finally {
+      rmSync(scratch, { recursive: true, force: true })
+    }
+  })
+
+  it('renders a job that does not start the bus when the token source prints nothing or fails, and logs the empty case, in the agent\'s own shell too', () => {
+    const scratch = mkdtempSync(path.join(tmpdir(), 'bus-agent-no-token-'))
+    try {
+      const factoryDir = path.join(scratch, 'factory')
+      const bin = path.join(scratch, '.local', 'bin')
+      const calls = path.join(scratch, 'calls')
+      const log = path.join(scratch, '.construct', 'dev.mikoshi.bus.log')
+      mkdirSync(factoryDir)
+      mkdirSync(bin, { recursive: true })
+      writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\necho started >> "${calls}"\n`, { mode: 0o755 })
+      for (const shell of ['/bin/sh', '/bin/zsh'].filter(file => existsSync(file))) {
+        for (const tokenSource of ['true', 'echo', 'false']) {
+          const run = spawnSync(shell, ['-c', shellLineOf(renderAgent(TEMPLATE, { factoryDir, tokenSource }))], { env: { HOME: scratch }, encoding: 'utf8' })
+          expect(run.status, `${shell} with ${tokenSource}`).not.toBe(0)
+          expect(existsSync(calls), `${shell} with ${tokenSource}`).toBe(false)
+        }
+        expect(readFileSync(log, 'utf8')).toContain('the token source printed nothing')
+        rmSync(log)
+        const started = spawnSync(shell, ['-c', shellLineOf(renderAgent(TEMPLATE, { factoryDir, tokenSource: 'echo a-token' }))], { env: { HOME: scratch }, encoding: 'utf8' })
+        expect(started.status, shell).toBe(0)
+        expect(readFileSync(calls, 'utf8'), shell).toBe('started\n')
+        rmSync(calls)
+      }
     }
     finally {
       rmSync(scratch, { recursive: true, force: true })
