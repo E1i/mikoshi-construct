@@ -36,6 +36,18 @@ describe('choose', () => {
     ])
   })
 
+  it('choose takes p0, then p1, then p2, then a card with no priority', () => {
+    const cards = [
+      parked(1, 'who: shift'),
+      parked(2, 'who: shift\npriority: p2'),
+      parked(3, 'who: shift\npriority: p1'),
+      parked(4, 'who: shift\npriority: p0'),
+      parked(5, 'who: shift\npriority: p2'),
+      parked(6, 'who: shift\npriority: p1'),
+    ]
+    expect(choose(cards, new Set(), new Set()).chosen.map(task => task.id)).toEqual(['4', '3', '6', '2', '5', '1'])
+  })
+
   it('names a closed card closed, whoever it was parked for', () => {
     expect(choose([parked(542, 'who: window')], new Set(['542']), new Set(['542'])).left).toEqual([{ id: '542', reason: 'closed' }])
   })

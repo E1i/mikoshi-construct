@@ -4,7 +4,7 @@ import { witnessFieldRefusals } from './witness-fields.js'
 
 export const SHIFT_WHO = 'shift'
 export const WINDOW_WHO = 'window'
-export const PRIORITIES = ['p0'] as const
+export const PRIORITIES = ['p0', 'p1', 'p2'] as const
 const PARKING_KEYS = ['who', 'priority'] as const
 const PARKING_LINE = /^(who|priority|creates):(.*)$/
 export const CREATES_KINDS = ['ghosts', 'plain'] as const
