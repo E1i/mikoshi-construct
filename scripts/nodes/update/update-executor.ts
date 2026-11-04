@@ -15,7 +15,7 @@ import { messageOf } from '../../core/errors.js'
 import { CARD_STOPPED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { MERGE_REFUSED } from '../../core/queue.js'
+import { COMPLETED, MERGE_REFUSED } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
@@ -49,7 +49,7 @@ export type Carry = ({ carried: VerdictOnHead } | { carried: null, why: string }
 
 export type UpdateOutcome
   = | { kind: 'updated', taskKey: string, from: string, to: string | null, carry: Carry }
-    | { kind: 'denied', taskKey: string, denial: UpdateDenial, next: AfterFailure }
+    | { kind: 'denied', taskKey: string, denial: UpdateDenial, next: AfterFailure | typeof COMPLETED }
     | { kind: 'stopped', taskKey: string, reason: typeof QUESTION_OWNER, detail: string }
     | { kind: 'fenced', taskKey: string }
 
@@ -423,6 +423,10 @@ export class UpdateExecutor {
   private denied(lease: Lease, denial: UpdateDenial): UpdateOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: UPDATE_COMMAND, ...denial }, legacy: false }
+    if (denial.reason === 'not_behind') {
+      completeTask(this.parts.db, ts, lease, [event])
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: COMPLETED }
+    }
     if (WAIT_REASONS.has(denial.reason)) {
       releaseTask(this.parts.db, ts, lease, denial.reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
