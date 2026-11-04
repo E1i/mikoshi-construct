@@ -1,6 +1,5 @@
 import type { TaskStartDeps } from '../scripts/ports/task-start.js'
-import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
-import type { RecordedIntake } from '../src/commands/intake/index.js'
+import type { AdmitOptions, AdmitResult, JournalledIntake } from '../src/commands/intake/admit.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -9,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cardBodyText, WINDOW_LANE } from '../scripts/core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
-import { busCardAdmissions, busCardEvents } from '../scripts/intake/intake.js'
+import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
 import { launchCandidates } from '../scripts/nodes/launch/launch-candidates.js'
 import { recordDecision } from '../scripts/policy/decisions.js'
 import { runTaskStart } from '../scripts/ports/task-start.js'
@@ -55,8 +54,8 @@ function mergedInBus(w: World, ...ids: string[]): void {
     w.cards.set(id, 'merged')
 }
 
-function recorded(card: string, fields: Partial<RecordedIntake> = {}): () => RecordedIntake {
-  return () => ({ card, bodySha: undefined, confirmation: 'none', source: 'admit', ts: NOW.toISOString(), ...fields })
+function recorded(card: string, fields: Partial<JournalledIntake> = {}): () => JournalledIntake {
+  return () => ({ card, bodySha: undefined, confirmation: 'none', source: 'admit', ts: NOW.toISOString(), event: 1, ...fields })
 }
 
 function busOf(w: World): string {
@@ -553,7 +552,14 @@ describe('construct intake --admit takes a card parked before the intake door', 
   it('amends a card whose intake line recorded no body digest, since the text it admitted is unknown', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
-    expect(admit(w, file, { admissions: recorded(CLEAN) })).toMatchObject({ status: 'admitted', source: 'amend' })
+    const db = openBus(busOf(w))
+    try {
+      appendEvent(db, { ts: NOW.toISOString(), type: 'card.admitted', actor: 'worker:intake:s1', cardId: 80, pr: null, head: null, dedupeKey: 'card.admitted:80:no-digest', payload: { card: CLEAN, bodySha: null, source: 'admit' }, legacy: false })
+    }
+    finally {
+      db.close()
+    }
+    expect(admit(w, file)).toMatchObject({ status: 'admitted', source: 'amend' })
     expect(admittedPayloads(w).at(-1)).toMatchObject({ source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
   })
 
@@ -865,6 +871,91 @@ describe('construct intake --admit says whether task:start will take the card', 
     admit(w, file, { events: undefined })
     admit(w, file, { dryRun: true })
     expect(admittedEvents(w)).toBe(0)
+  })
+})
+
+describe('construct intake --admit reports ok only once its card.admitted is in the journal', () => {
+  const LOST_WRITE = (): void => undefined
+
+  function journalledId(w: World, cardId: number): number {
+    const db = openBus(busOf(w))
+    try {
+      return Number((db.prepare(`SELECT max(id) AS id FROM events WHERE type = 'card.admitted' AND card_id = ?`).get(cardId) as { id: number }).id)
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  it('a lost bus write leaves no card.admitted: admit exits non-zero, prints no ok and names the card', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    const result = admit(w, file, { events: LOST_WRITE })
+    expect(result.status).toBe('refused')
+    const { lines, exit } = printed(result)
+    expect(exit).toBe(INTAKE_EXIT.refused)
+    expect(exit).not.toBe(0)
+    expect(lines.join('')).not.toContain('[ok]')
+    expect(lines.join('')).toContain('#80 is not admitted')
+    expect(admittedEvents(w)).toBe(0)
+  })
+
+  it('a lost amend leaves no card.admitted with the new text, although an earlier admission is there, and exits non-zero', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    expect(admit(w, file).status).toBe('admitted')
+    park(w, 80, CLEAN, 'src/board/**', 'Do the corrected thing.')
+    const result = admit(w, file, { events: LOST_WRITE })
+    expect(result.status).toBe('refused')
+    expect(printed(result).exit).not.toBe(0)
+    expect(admittedEvents(w)).toBe(1)
+  })
+
+  it('a lost admission writes no card.waiting beside it', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    const written: string[] = []
+    const result = admit(w, park(w, 82, WAITING), { events: event => written.push(event.type), autoConfirm: true })
+    expect(result.status).toBe('refused')
+    expect(written).toEqual(['card.admitted'])
+  })
+
+  it('the ok of an admission names the id of its card.admitted, and a repeated admit names the same id', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    const first = admit(w, file)
+    const id = journalledId(w, 80)
+    expect(first).toMatchObject({ status: 'admitted', event: id })
+    expect(printed(first).lines[1]).toBe(`  card.admitted event ${id}\n`)
+    const again = admit(w, file)
+    expect(again).toMatchObject({ status: 'alreadyAdmitted', event: id })
+    expect(printed(again).lines[1]).toBe(`  card.admitted event ${id}\n`)
+  })
+
+  it('a decisions:add just before the first admit of a card leaves its card.admitted in the journal', async () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    const db = openBus(busOf(w))
+    const written: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      written.push(String(chunk))
+      return true
+    })
+    const previousExit = process.exitCode
+    try {
+      recordDecision(db, { ts: NOW.toISOString(), decisionId: 7, text: '[owner] admit the card', cards: [80] })
+      reduce(db)
+      await runBusIntake(db, ['--plain', '--admit', file, '--dir', w.repo, '--parking', w.parking], 's1')
+      expect(process.exitCode ?? 0).toBe(0)
+    }
+    finally {
+      write.mockRestore()
+      process.exitCode = previousExit
+      db.close()
+    }
+    const id = journalledId(w, 80)
+    expect(id).toBeGreaterThan(0)
+    expect(written.join('')).toContain(`card.admitted event ${id}`)
   })
 })
 
