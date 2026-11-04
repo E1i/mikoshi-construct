@@ -80,17 +80,30 @@ function cardOfPr(db: DatabaseSync, pr: number): number | null {
   return (db.prepare('SELECT card_id FROM cards WHERE pr = ?').get(pr) as { card_id: number } | undefined)?.card_id ?? null
 }
 
+function linkRefusal(db: DatabaseSync, cardId: number): string | null {
+  const linkedPr = cardRow(db, cardId)?.pr ?? null
+  if (linkedPr === null)
+    return null
+  const linked = prRow(db, linkedPr)
+  if (linked === undefined || linked.state === 'open')
+    return `card ${cardId} is linked to pr ${linkedPr}, which is still open`
+  return linked.state === 'merged' ? `card ${cardId} is linked to pr ${linkedPr}, which is merged` : null
+}
+
+function cardOfBranch(db: DatabaseSync, branch: unknown): number | null {
+  if (typeof branch !== 'string' || branch === '')
+    return null
+  const cards = db.prepare(`SELECT card_id FROM ${CARD_BODIES} WHERE branch = ? LIMIT 2`).all(branch) as { card_id: number }[]
+  const only = cards.length === 1 ? cards[0]!.card_id : null
+  return only !== null && linkRefusal(db, only) === null ? only : null
+}
+
 function linkCard(db: DatabaseSync, cardId: number, pr: number, eventId: number): void {
-  const card = cardRow(db, cardId)
-  if (card?.pr === pr)
+  if (cardRow(db, cardId)?.pr === pr)
     return
-  if (card !== undefined && card.pr !== null) {
-    const linked = prRow(db, card.pr)
-    if (linked === undefined || linked.state === 'open')
-      reject(`card ${cardId} is linked to pr ${card.pr}, which is still open`)
-    if (linked.state === 'merged')
-      reject(`card ${cardId} is linked to pr ${card.pr}, which is merged`)
-  }
+  const refusal = linkRefusal(db, cardId)
+  if (refusal !== null)
+    reject(refusal)
   db.prepare(`
     INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, NULL, ?, ?)
     ON CONFLICT (card_id) DO UPDATE SET pr = excluded.pr, event_id = excluded.event_id
@@ -119,7 +132,7 @@ function prObserved(db: DatabaseSync, event: StoredEvent): void {
     reject(`pr ${pr} is merged`)
   if (known?.card_id != null && event.card_id !== null && known.card_id !== event.card_id)
     reject(`pr ${pr} belongs to card ${known.card_id}, not ${event.card_id}`)
-  const cardId = event.card_id ?? known?.card_id ?? cardOfPr(db, pr)
+  const cardId = event.card_id ?? known?.card_id ?? cardOfPr(db, pr) ?? (known === undefined ? cardOfBranch(db, payload.branch) : null)
   if (cardId !== null) {
     linkCard(db, cardId, pr, event.id)
     cardLinkObserved(db, cardId, event.id)
@@ -216,11 +229,21 @@ function closeAmendWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent
     .run(`card #${event.card_id} amended`, event.id, event.card_id, AMEND_COMMAND.length, AMEND_COMMAND, event.id)
 }
 
+const AMEND_ADMISSION = 'amend'
+
+function closeDecisionWaitsTheAmendAnswers(db: DatabaseSync, event: StoredEvent): void {
+  if (payloadOf(event).source !== AMEND_ADMISSION)
+    return
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND need = 'decision' AND event_id < ?`)
+    .run(`card #${event.card_id} amended`, event.id, event.card_id, event.id)
+}
+
 function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent): void {
   CARD_FOLDS[CARD_ADMITTED]!(db, event)
   foldCardBody(db, event)
   closeDowngradeWaitsTheAdmissionAnswers(db, event)
   closeAmendWaitsTheAdmissionAnswers(db, event)
+  closeDecisionWaitsTheAmendAnswers(db, event)
 }
 
 function prOpened(db: DatabaseSync, event: StoredEvent): void {
@@ -314,7 +337,7 @@ function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): voi
   for (const decision of decisions) {
     db.prepare(`
       UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
-      WHERE state = '${OPEN_WAIT}' AND (command IN (SELECT value FROM json_each(?)) OR (need = 'decision' AND card_id IN (SELECT value FROM json_each(?))))
+      WHERE state = '${OPEN_WAIT}' AND (command IN (SELECT value FROM json_each(?)) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?))))
     `).run(`D-${decision.decision_id}`, event.id, JSON.stringify(commandsTheDecisionAnswers(decision.text)), decision.scope ?? '[]')
   }
 }

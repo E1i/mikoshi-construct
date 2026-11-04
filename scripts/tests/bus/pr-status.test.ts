@@ -151,7 +151,7 @@ describe('the PR status check the bus sets', () => {
     const { busTick } = composeBusTick(db, busPath, openOn(HEAD).client, post, clock.now, root)
     expect(busTick.run()?.poll.kind).toBe('ticked')
     for (let gen = 1; gen <= 10_000; gen += 1)
-      step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: gen })
+      step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: gen % 2 === 0 ? 'review' : 'answer', lease_gen: gen })
     clock.advance(TICK_MS)
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(calls).toHaveLength(STATUS_BATCH)
@@ -327,6 +327,26 @@ describe('the PR status check the bus sets', () => {
     expect(calls.at(-1)).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, { state: 'success', context: STATUS_CONTEXT, description: 'mikoshi: witness green' }])
     step(db, 'witness.recorded', HEAD, { head: HEAD, base: 'e'.repeat(40), cardBody: 'x', verdict: 'red', detail: 'W1 exited 1' })
     expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([['witness red', 'failure']])
+  })
+
+  it('the same status twice on a head writes one pr.status.set: a status is posted only on change', () => {
+    const db = bus()
+    pullRequest(db, HEAD, 'open')
+    for (let gen = 1; gen <= 3; gen += 1)
+      step(db, 'task.leased', HEAD, { task_key: 'merge:1091:950', queue: 'merge', lease_gen: gen })
+    step(db, 'policy.denied', HEAD, { command: 'merge', kind: 'authority', rule: 'owner_by_risk', refused: true }, 'policy')
+    step(db, 'task.leased', HEAD, { task_key: 'merge:1091:950', queue: 'merge', lease_gen: 4 })
+    const { post, calls } = recorder()
+    expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([
+      ['merge', 'pending'],
+      ['merge refused: owner_by_risk', 'failure'],
+      ['merge', 'pending'],
+    ])
+    expect(calls).toHaveLength(3)
+    expect(count(db, PR_STATUS_SET)).toBe(3)
+    step(db, 'task.leased', HEAD, { task_key: 'merge:1091:950', queue: 'merge', lease_gen: 5 })
+    expect(setStepStatuses(db, post, () => NOW)).toEqual([])
+    expect(count(db, PR_STATUS_SET)).toBe(3)
   })
 
   it('a status GitHub refuses for now, a 5xx, is not recorded, so the cursor stays and the next run posts it again', () => {

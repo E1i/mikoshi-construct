@@ -1,23 +1,29 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { TimedShell } from '../../nodes/witness/witness-executor.js'
+import type { TimedShell, WitnessTrees } from '../../nodes/witness/witness-executor.js'
+import type { GitAsync } from '../../ports/worktree.js'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
-import { realTimedShell } from '../../nodes/witness/witness-executor.js'
+import { gitWitnessTrees, realTimedShell } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { RED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
-import { withWorktree } from '../../ports/worktree.js'
+import { gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 const CARD = 1301
 const PR = 1201
+const OTHER_CARD = 1302
+const OTHER_PR = 1202
+const MEETING_PATIENCE_MS = 5_000
+const SETUP_COMMAND_MS = 30
 const roots: string[] = []
 const dbs: DatabaseSync[] = []
 
@@ -71,8 +77,22 @@ function world(baseFiles: string[], headFile: string, alsoOnHead: string[] = [])
   return { repo, db, base, head }
 }
 
-async function witnessRun(w: World, shell: TimedShell = realTimedShell): Promise<void> {
-  const node = new WitnessNode({ db: w.db, clock: () => new Date('2026-10-21T10:02:00.000Z'), session: 'witness-1', mode: 'live', env: {}, shell, trees: { baseOf: () => w.base, withTree: (base, run) => withWorktree(w.repo, base, run) } })
+function treesOver(w: World): WitnessTrees {
+  const turns = new SetupTurns()
+  return { baseOf: async () => w.base, withTree: (base, run) => withWorktreeAsync(w.repo, base, run, turns) }
+}
+
+function otherCardOn(w: World): string {
+  const head = commit(w.repo, 'also.txt', 'head also.txt')
+  const text = parkingFileText({ card: `#${OTHER_CARD} witnessedtoo [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: 'feat/witnessedtoo', touches: ['also.txt'], continue: 'stop', who: 'shift', body: 'Write also.txt.\n\nWitnesses:\n- `test -f also.txt` exits 0; red on main' })
+  appendEvent(w.db, { ts: '2026-10-21T10:00:30.000Z', type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: OTHER_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${OTHER_CARD}`, payload: { card: `#${OTHER_CARD}`, lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
+  appendEvent(w.db, { ts: '2026-10-21T10:01:30.000Z', type: PR_OBSERVED, actor: 'netwatch', cardId: OTHER_CARD, pr: OTHER_PR, head, dedupeKey: `${PR_OBSERVED}:${OTHER_PR}:${head}`, payload: { card_id: OTHER_CARD, base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: 'b'.repeat(64) }, legacy: false })
+  reduce(w.db)
+  return head
+}
+
+async function witnessRun(w: World, shell: TimedShell = realTimedShell, trees: WitnessTrees = treesOver(w)): Promise<void> {
+  const node = new WitnessNode({ db: w.db, clock: () => new Date('2026-10-21T10:02:00.000Z'), session: 'witness-1', mode: 'live', env: {}, shell, trees })
   for (let round = 0; round < 2; round += 1) {
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })
@@ -122,7 +142,7 @@ describe('the witness node', () => {
 
   it('a red record keeps the first line of the problem and then the failure excerpt of the last command', async () => {
     const w = world([], 'other.txt')
-    await witnessRun(w, (command, cwd, timeoutMs) => command === 'test -f done.txt'
+    await witnessRun(w, async (command, cwd, timeoutMs) => command === 'test -f done.txt'
       ? { status: 1, output: ' RUN  v3\n FAIL  a.test.ts > it\nError: boom\nDuration 1s', timedOut: false }
       : realTimedShell(command, cwd, timeoutMs))
 
@@ -134,7 +154,7 @@ describe('the witness node', () => {
 
   it('a red record keeps its message unchanged when the failing output names no failure', async () => {
     const w = world([], 'other.txt')
-    await witnessRun(w, (command, cwd, timeoutMs) => command === 'test -f done.txt'
+    await witnessRun(w, async (command, cwd, timeoutMs) => command === 'test -f done.txt'
       ? { status: 1, output: 'nothing useful\nDuration 1s', timedOut: false }
       : realTimedShell(command, cwd, timeoutMs))
 
@@ -145,7 +165,7 @@ describe('the witness node', () => {
 
   it('a red record keeps its message unchanged when the last command exited 0, whatever its output says', async () => {
     const w = world(['done.txt'], 'other.txt')
-    await witnessRun(w, () => ({ status: 0, output: 'FAIL a.test.ts\nError: boom', timedOut: false }))
+    await witnessRun(w, async () => ({ status: 0, output: 'FAIL a.test.ts\nError: boom', timedOut: false }))
 
     const detail = witnessRecordOf(w.db, CARD, w.head, w.base, witnessSubjectOf(w.db, CARD)!.cardBody)!.detail
     expect(detail).toMatch(/^P7: witness .* exits 0 on the clean base/)
@@ -188,17 +208,17 @@ describe('the witness node', () => {
 
   it('a witness command that runs past its budget is witness_unrun and records nothing', async () => {
     const w = world([], 'done.txt')
-    await witnessRun(w, (command, cwd, timeoutMs) => ({ ...realTimedShell(command, cwd, timeoutMs), timedOut: true }))
+    await witnessRun(w, async (command, cwd, timeoutMs) => ({ ...await realTimedShell(command, cwd, timeoutMs), timedOut: true }))
 
     expect(recorded(w)).toEqual([])
     expect(w.db.prepare(`SELECT state, failures FROM tasks WHERE queue = 'witness'`).all()).toEqual([{ state: 'queued', failures: 2 }])
   })
 
-  it('a timed-out witness command leaves no surviving child', () => {
+  it('a timed-out witness command leaves no surviving child', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'witness-group-'))
     const pidFile = path.join(dir, 'grandchild.pid')
     try {
-      const result = realTimedShell(`bash -c 'sleep 60' & echo $! > ${pidFile}; wait`, dir, 500)
+      const result = await realTimedShell(`bash -c 'sleep 60' & echo $! > ${pidFile}; wait`, dir, 500)
 
       expect(result.timedOut).toBe(true)
       const grandchild = Number(readFileSync(pidFile, 'utf8').trim())
@@ -209,16 +229,72 @@ describe('the witness node', () => {
     }
   })
 
-  it('a witness command that ends within its budget is not timed out and keeps its exit status', () => {
-    const result = realTimedShell('echo out; exit 3', tmpdir(), 5_000)
+  it('a witness command that ends within its budget is not timed out and keeps its exit status', async () => {
+    const result = await realTimedShell('echo out; exit 3', tmpdir(), 5_000)
 
     expect(result).toEqual({ status: 3, output: 'out\n', timedOut: false })
+  })
+
+  it('a witness command over the output buffer reads as timed out, with no status', async () => {
+    const result = await realTimedShell('head -c 300000000 /dev/zero', tmpdir(), 30_000)
+
+    expect(result.status).toBeNull()
+    expect(result.timedOut).toBe(true)
+  })
+
+  it('witnesses two heads at once on two trees, and both are recorded', async () => {
+    const w = world([], 'done.txt')
+    const otherHead = otherCardOn(w)
+    const treesInShell = new Set<string>()
+    const patience = sleep(MEETING_PATIENCE_MS)
+    let met = false
+    let meet = (): void => {}
+    const meeting = new Promise<void>((resolve) => {
+      meet = resolve
+    })
+    const shell: TimedShell = async (command, cwd, timeoutMs) => {
+      treesInShell.add(cwd)
+      if (treesInShell.size === 2) {
+        met = true
+        meet()
+      }
+      await Promise.race([meeting, patience])
+      const result = await realTimedShell(command, cwd, timeoutMs)
+      treesInShell.delete(cwd)
+      return result
+    }
+    await witnessRun(w, shell)
+
+    expect(met).toBe(true)
+    expect(recorded(w).map(key => key.split(':').slice(0, 3).join(':')).sort()).toEqual([`${WITNESS_RECORDED}:${CARD}:${w.head}`, `${WITNESS_RECORDED}:${OTHER_CARD}:${otherHead}`].sort())
+  })
+
+  it('serialises worktree setup: no fetch or worktree command of one task overlaps another task\'s', async () => {
+    const w = world([], 'done.txt')
+    otherCardOn(w)
+    const commands: string[] = []
+    let running = 0
+    let peak = 0
+    const git: GitAsync = async (cwd, args) => {
+      commands.push(args[0]!)
+      running += 1
+      peak = Math.max(peak, running)
+      await sleep(SETUP_COMMAND_MS)
+      const output = args[0] === 'fetch' ? '' : await gitInAsync(cwd, args)
+      running -= 1
+      return output
+    }
+    await witnessRun(w, realTimedShell, gitWitnessTrees(w.repo, { git, baseShaOf: () => w.base }))
+
+    expect(recorded(w)).toHaveLength(2)
+    expect([...commands].sort()).toEqual(['fetch', 'fetch', 'worktree', 'worktree', 'worktree', 'worktree', 'worktree', 'worktree'])
+    expect(peak).toBe(1)
   })
 
   it('a head that changes package.json installs again on the staged tree', async () => {
     const w = world(['pnpm-lock.yaml'], 'done.txt', ['package.json'])
     const installs: string[] = []
-    await witnessRun(w, (command, cwd, timeoutMs) => {
+    await witnessRun(w, async (command, cwd, timeoutMs) => {
       if (!command.startsWith('pnpm install'))
         return realTimedShell(command, cwd, timeoutMs)
       installs.push(command)
@@ -232,7 +308,7 @@ describe('the witness node', () => {
   it('a head that leaves package.json and the lockfile alone installs once', async () => {
     const w = world(['pnpm-lock.yaml'], 'done.txt')
     const installs: string[] = []
-    await witnessRun(w, (command, cwd, timeoutMs) => {
+    await witnessRun(w, async (command, cwd, timeoutMs) => {
       if (!command.startsWith('pnpm install'))
         return realTimedShell(command, cwd, timeoutMs)
       installs.push(command)

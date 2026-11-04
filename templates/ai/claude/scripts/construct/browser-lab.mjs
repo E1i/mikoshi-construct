@@ -29,7 +29,10 @@ const CONSOLE_LOGS_BEFORE_OPEN = 'hands.console-before.json'
 const HANDS_COPY_PREFIX = 'browser-lab-hands-'
 const STALE_HANDS_COPY_MS = 6 * 60 * 60 * 1000
 const WITHOUT_EXTENSION = new Set(['page'])
-const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1, '--profile': 1, '--route': 2, '--prefix': 1, '--shot': 1, '--profile-from': 1, '--evidence': 1 }
+const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1, '--profile': 1, '--route': 2, '--prefix': 1, '--shot': 1, '--profile-from': 1, '--evidence': 1, '--proxy': 1 }
+const PROXY_ENVIRONMENT = 'CONSTRUCT_LAB_PROXY'
+const SANDBOX_SIGNAL = 'SANDBOX_RUNTIME'
+const CHROMIUM_FAILURE_IN_SANDBOX = /ProcessSingleton/
 
 const USAGE = [
   'usage: browser-lab.mjs <command> [--extension <dir>] [--headed] [--profile <dir>]',
@@ -48,6 +51,7 @@ const USAGE = [
   '                            a hands copy whose session never closed is swept by the next hands run once it has been idle for six hours',
   '  --route <url-glob> <file>   answer the requests matching the glob with the file, those of the pages and of the service worker alike (repeatable; every command but hands)',
   '  --profile <dir>         keep the browser profile in <dir> after the run, so a login done once with --headed and the extension storage survive into later runs',
+  '  --proxy <url>             the lab browser goes through the proxy, every command and hands alike; CONSTRUCT_LAB_PROXY when no --proxy is given',
   '  every command prints one JSON object; optional permissions are granted in a lab copy, so no prompt appears',
   '  exit: 0 observed, 1 page saw no content script of the extension, 127 could not observe or a usage error',
 ].join('\n')
@@ -60,6 +64,12 @@ function firstLine(error) {
   return String(error?.message ?? error).split('\n')[0]
 }
 
+function sandboxRefusal(failure, env) {
+  if (!env[SANDBOX_SIGNAL] || !CHROMIUM_FAILURE_IN_SANDBOX.test(failure))
+    return undefined
+  return `Chromium cannot start inside the sandbox this command ran in (${SANDBOX_SIGNAL} is set). Run the bare command from the repository root, with no cd, env prefix or &&, because sandbox.excludedCommands matches only the bare command line: node scripts/construct/browser-lab.mjs <command> … If the bare command lands here too, sandbox.excludedCommands has no entry for it in this session, and adding one is the person's decision.`
+}
+
 function positive(text, flag) {
   const number = Number(text)
   if (!(number > 0))
@@ -67,11 +77,11 @@ function positive(text, flag) {
   return number
 }
 
-export function parseArguments(argv) {
+export function parseArguments(argv, env = process.env) {
   const [command, ...rest] = argv
   if (!COMMANDS.includes(command))
     throw new UsageError(command === undefined ? 'a command is required' : `unknown command ${command}`)
-  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined, profile: undefined, route: [], prefix: undefined, shot: undefined, profileFrom: undefined, evidence: undefined }
+  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: DEFAULT_LISTEN_MS, wait: undefined, page: undefined, profile: undefined, route: [], prefix: undefined, shot: undefined, profileFrom: undefined, evidence: undefined, proxy: env[PROXY_ENVIRONMENT] || undefined }
   let index = 0
   while (index < rest.length) {
     const argument = rest[index]
@@ -115,6 +125,9 @@ export function parseArguments(argv) {
         break
       case '--evidence':
         options.evidence = value
+        break
+      case '--proxy':
+        options.proxy = value
         break
       case '--route':
         options.route.push({ pattern: value, file: second })
@@ -215,7 +228,11 @@ function installChromium() {
   runNpx(['--yes', PLAYWRIGHT_CORE, 'install', 'chromium'], { stdio: ['ignore', 2, 2] })
 }
 
-export function handsConfig(extensionDirectory, profile, headed) {
+function throughProxy(proxy) {
+  return proxy === undefined ? {} : { proxy: { server: proxy } }
+}
+
+export function handsConfig(extensionDirectory, profile, headed, proxy) {
   return {
     browser: {
       browserName: 'chromium',
@@ -224,6 +241,7 @@ export function handsConfig(extensionDirectory, profile, headed) {
         channel: 'chromium',
         headless: !headed,
         args: [`--disable-extensions-except=${extensionDirectory}`, `--load-extension=${extensionDirectory}`],
+        ...throughProxy(proxy),
       },
     },
   }
@@ -233,10 +251,12 @@ function lastLines(text) {
   return text.trim().split('\n').slice(-5).join(' | ')
 }
 
-export function handsRefusal(ran) {
+export function handsRefusal(ran, env = process.env) {
   if (ran.error !== undefined)
     return `hands failed: ${firstLine(ran.error)}`
-  return `hands failed: exit ${ran.status}; stdout: ${lastLines(ran.stdout ?? '')}; stderr: ${lastLines(ran.stderr ?? '')}`
+  const stdout = ran.stdout ?? ''
+  const stderr = ran.stderr ?? ''
+  return sandboxRefusal(`${stdout}\n${stderr}`, env) ?? `hands failed: exit ${ran.status}; stdout: ${lastLines(stdout)}; stderr: ${lastLines(stderr)}`
 }
 
 function handsCommandAndSession(positionals) {
@@ -320,7 +340,7 @@ function writeConsole(evidence, session, before) {
 function runHands({ extension, options, profile }) {
   const binary = npxBinary(PLAYWRIGHT_CLI, 'playwright-cli')
   const config = path.join(profile, 'hands.config.json')
-  writeFileSync(config, `${JSON.stringify(handsConfig(extension.directory, profile, options.headed), null, 2)}\n`)
+  writeFileSync(config, `${JSON.stringify(handsConfig(extension.directory, profile, options.headed, options.proxy), null, 2)}\n`)
   spawnSync(binary, ['install-browser', 'chromium'], { stdio: ['ignore', 2, 2], env: npxEnvironment() })
   const evidence = options.evidence === undefined ? undefined : path.resolve(options.evidence)
   const { command, session } = handsCommandAndSession(options.positionals)
@@ -363,22 +383,31 @@ export function routeServiceWorkers(env, contextOptions) {
   return { ...contextOptions, serviceWorkers: 'allow' }
 }
 
+export function persistentContextOptions(options, extension) {
+  const loading = extension === undefined ? [] : [`--disable-extensions-except=${extension.directory}`, `--load-extension=${extension.directory}`]
+  return {
+    channel: 'chromium',
+    headless: !options.headed,
+    args: [...loading, '--remote-debugging-port=0'],
+    ...throughProxy(options.proxy),
+  }
+}
+
+export function launchRefusal(error, env = process.env) {
+  const failure = String(error?.message ?? error)
+  if (/Executable doesn't exist/.test(failure))
+    return `Chrome for Testing is not installed for ${PLAYWRIGHT_CORE}; install it with: npx ${PLAYWRIGHT_CORE} install chromium`
+  return sandboxRefusal(failure, env) ?? `Chrome for Testing could not be launched: ${firstLine(error)}`
+}
+
 async function launch(options, profile, extension) {
   const chromium = await loadChromium()
   ensureChromium(chromium)
-  const loading = extension === undefined ? [] : [`--disable-extensions-except=${extension.directory}`, `--load-extension=${extension.directory}`]
   try {
-    return await chromium.launchPersistentContext(profile, routeServiceWorkers(process.env, {
-      channel: 'chromium',
-      headless: !options.headed,
-      args: [...loading, '--remote-debugging-port=0'],
-    }))
+    return await chromium.launchPersistentContext(profile, routeServiceWorkers(process.env, persistentContextOptions(options, extension)))
   }
   catch (error) {
-    const missing = /Executable doesn't exist/.test(String(error.message))
-    throw new Unobserved(missing
-      ? `Chrome for Testing is not installed for ${PLAYWRIGHT_CORE}; install it with: npx ${PLAYWRIGHT_CORE} install chromium`
-      : `Chrome for Testing could not be launched: ${firstLine(error)}`)
+    throw new Unobserved(launchRefusal(error))
   }
 }
 

@@ -9,13 +9,13 @@ import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { Buffer } from 'node:buffer'
 import { changedFiles, rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
-import { appendEvent, OPEN_WAIT, openBusWait, OWNER_WAITS } from '../../core/db.js'
+import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, QUEUE_ACTOR } from '../../core/queue.js'
+import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, openDecisionWaitsOf, QUESTION_OPEN, QUEUE_ACTOR } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
@@ -27,9 +27,8 @@ import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, requiredCheckOf
 export const MERGE_METHOD = 'squash'
 export const MERGE_QUEUE = 'merge'
 export const STALE_HEAD_STATUS = 409
-export const QUESTION_OPEN = 'owner_question_open'
-const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', QUESTION_OPEN, NEEDS_UPDATE])
-const OPEN_QUESTIONS_OF_CARD = `SELECT id, text FROM ${OWNER_WAITS} WHERE need = 'decision' AND state = '${OPEN_WAIT}' AND card_id = ? ORDER BY opened_at, id`
+const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE])
+const OPEN_QUESTIONS_OF_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
 const WITHDRAWN_ON_THE_BODY: ReadonlySet<AuthorityRule> = new Set(['decision_unread', 'no_matrix_count_line'])
 const RUNS_PAGE = 100
@@ -38,8 +37,10 @@ const REPO = 'repos/{owner}/{repo}'
 
 export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE | typeof KEPT_BY_PUSH_POLICY
 
+export type ParkedUntil = 'new_head' | 'wait_closed'
+
 export type MergeDenial
-  = | { kind: 'technical', reason: MergeTechnicalReason, detail: string, base?: string }
+  = | { kind: 'technical', reason: MergeTechnicalReason, detail: string, base?: string, parkedUntil?: ParkedUntil }
     | { kind: 'authority', rule: AuthorityRule, detail: string }
 
 export type MergeCommand = 'merge' | 'publish'
@@ -173,7 +174,7 @@ export class MergeExecutor {
     if (open.length === 0)
       return null
     const questions = open.map(wait => `${wait.id} (${wait.text})`).join(', ')
-    return { kind: 'technical', reason: QUESTION_OPEN, detail: `card #${lease.cardId} waits for the owner's answer to ${questions}; #${lease.pr} merges once it is answered` }
+    return { kind: 'technical', reason: QUESTION_OPEN, detail: `card #${lease.cardId} waits for the owner's answer to ${questions}; #${lease.pr} merges once it is answered`, parkedUntil: 'wait_closed' }
   }
 
   private noLongerACandidate(lease: Lease): MergeDenial | null {
@@ -282,9 +283,11 @@ export class MergeExecutor {
   }
 
   private notClean(pull: Pull, lease: Lease): MergeDenial | null {
-    if (MERGEABLE_OF_STATE[pull.mergeable_state ?? ''] === 'clean')
+    const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
+    if (mergeable === 'clean')
       return null
-    return { kind: 'technical', reason: 'not_mergeable', detail: `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}, not clean` }
+    const detail = `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}, not clean`
+    return { kind: 'technical', reason: 'not_mergeable', detail, ...(mergeable === 'dirty' ? { parkedUntil: 'new_head' as const } : {}) }
   }
 
   private mergedAtLeasedHead(pull: Pull, lease: Lease): string | null {
@@ -347,8 +350,11 @@ export class MergeExecutor {
   private denied(lease: Lease, denial: MergeDenial): MergeOutcome {
     const ts = this.ts()
     const reason = denial.kind === 'technical' ? denial.reason : denial.rule
+    const parked = denial.kind === 'technical' && denial.parkedUntil !== undefined
     const waits = denial.kind === 'technical' && WAIT_REASONS.has(denial.reason)
-    const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial, ...(waits ? {} : { refused: true }) }, legacy: false }
+    const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial, ...(waits || parked ? {} : { refused: true }) }, legacy: false }
+    if (parked)
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, ts, lease, { reason, withdraw: true }, [event]) }
     if (waits) {
       releaseTask(this.parts.db, ts, lease, reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
