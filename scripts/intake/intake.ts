@@ -18,7 +18,7 @@ import { parkingTree } from '../../src/commands/intake/parking-tree.js'
 import { createMain } from '../../src/program.js'
 import { createUi } from '../../src/ui/console.js'
 import { resolveTheme } from '../../src/ui/theme.js'
-import { ForeignBusRefused } from '../core/bus-path.js'
+import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
 import { appendCardEvent, cardBodyText, laid } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
@@ -215,16 +215,27 @@ export async function runBusIntake(db: DatabaseSync, argv: readonly string[], se
   await runMain(createMain(busIntakePorts(db, session, undefined, release)), { rawArgs: [INTAKE_SUBCOMMAND, ...rest] })
 }
 
+function refused(message: string): null {
+  process.stderr.write(`${message}\n`)
+  process.exitCode = 1
+  return null
+}
+
+function namesItsBus(): boolean {
+  return (process.env[BUS_DB_VARIABLE] ?? '') !== ''
+}
+
 function intakeBusPath(): string | null {
   try {
-    return defaultBusPath()
+    const busPath = defaultBusPath()
+    if (namesItsBus() || existsSync(busPath))
+      return busPath
+    return refused(`Refused: no bus at ${busPath}, and a card number comes only from the bus; run construct-factory or construct attach in this repository first, or name the bus in ${BUS_DB_VARIABLE}. No bus was created and no number assigned.`)
   }
   catch (error) {
     if (!(error instanceof ForeignBusRefused))
       throw error
-    process.stderr.write(`${error.message}\n`)
-    process.exitCode = 1
-    return null
+    return refused(error.message)
   }
 }
 
