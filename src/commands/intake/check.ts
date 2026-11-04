@@ -9,6 +9,7 @@ import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/pa
 import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { commandInsideJudgedWrap } from '../../card/witness-fields.js'
+import { FACTORY_MANIFEST } from '../../materialize/factory-manifest.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
@@ -73,12 +74,6 @@ function testBeside(entry: string, touches: readonly string[], repository: Repos
   return [module !== undefined && repository.exists(mirrored) ? mirrored : `${TESTS_ROOT}${PREFIX_SUFFIX}`]
 }
 
-export const COMPANION_TABLE: readonly CompanionRow[] = [
-  { kind: 'the scripts manifest', keptBy: HARNESS_MEMBERSHIP_TEST, touched: entry => entry === 'package.json', companions: () => ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST] },
-  { kind: 'the command definitions', keptBy: 'tests/readme-commands.test.ts', touched: entry => entry === 'src/program.ts', companions: () => ['README.md', 'docs/cli.md', `docs/guide${PREFIX_SUFFIX}`] },
-  { kind: 'published code', keptBy: '.changeset/config.json', touched: (entry, published) => published.some(root => under(entry, SOURCE_OF_BUILT_ROOT[root] ?? root)), companions: () => [CHANGESET_COMPANION] },
-  { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
-]
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
 
 export interface FollowingReach {
@@ -114,17 +109,22 @@ function generatedFrom(generated: string, sources: readonly string[]): Following
   return (file, reach) => file === generated && reachesAny(reach.touches, sources)
 }
 
-export const FOLLOWING_TABLE: readonly FollowingRow[] = [
+export const COMPANION_TABLE: readonly (CompanionRow | FollowingRow)[] = [
+  { kind: 'the scripts manifest', keptBy: HARNESS_MEMBERSHIP_TEST, touched: entry => entry === 'package.json', companions: () => ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST] },
+  { kind: 'the command definitions', keptBy: 'tests/readme-commands.test.ts', touched: entry => entry === 'src/program.ts', companions: () => ['README.md', 'docs/cli.md', `docs/guide${PREFIX_SUFFIX}`] },
+  { kind: 'published code', keptBy: '.changeset/config.json', touched: (entry, published) => published.some(root => under(entry, SOURCE_OF_BUILT_ROOT[root] ?? root)), companions: () => [CHANGESET_COMPANION] },
+  { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
   { kind: 'the card\'s changeset', follows: (file, reach) => CHANGESET_FILE.test(file) && reach.added.has(file) },
   { kind: 'the command surface', follows: generatedFrom('contract/surface.json', ['src', 'templates', 'scripts/contract']) },
   { kind: 'the add population', follows: generatedFrom('architecture/add-population.md', ['templates', 'src/presets', 'src/materialize']) },
   { kind: 'the self-hosting drift list', follows: generatedFrom('architecture/self-hosting-drift.yaml', ['templates']) },
+  { kind: 'the factory manifest', follows: generatedFrom('src/materialize/factory-manifest.ts', FACTORY_MANIFEST) },
   { kind: 'a root self-hosting copy', follows: (file, reach) => reach.touches.some((touch) => {
     const copy = rootCopyOf(touch)
     return copy !== null && covers(copy, file)
   }) },
 ]
-export const FOLLOWING_REASON = 'a generated twin of a touched file, or a changeset the card adds, follows the touches: the following table in src/commands/intake/check.ts'
+export const FOLLOWING_REASON = 'a generated twin of a touched file, or a changeset the card adds, follows the touches: the companion table in src/commands/intake/check.ts'
 
 export function neverFollows(file: string): boolean {
   return NEVER_FOLLOWING.some(root => under(file, root)) || riskOf(file).level === OWNER_RISK
@@ -141,7 +141,7 @@ export function admittedReachOf(cardId: number, cardBody: string | null): Admitt
 }
 
 export function followsTouches(file: string, reach: FollowingReach): boolean {
-  return FOLLOWING_TABLE.some(row => row.follows(file, reach))
+  return COMPANION_TABLE.some(row => 'follows' in row && row.follows(file, reach))
 }
 const MAX_LISTED_TESTS_PER_DIRECTORY = 6
 export { COVERING_REASON } from '../../card/covering-tests.js'
@@ -411,7 +411,7 @@ function covers(touch: string, companion: string): boolean {
 function withCompanions<T extends Touched>(touched: T, runs: readonly string[], repository: RepositoryFacts, published: readonly string[]): T {
   const missing: string[] = []
   for (const row of COMPANION_TABLE) {
-    if (!repository.exists(row.keptBy))
+    if (!('companions' in row) || !repository.exists(row.keptBy))
       continue
     for (const entry of touched.touches.filter(touch => row.touched(touch, published))) {
       const touches = [...touched.touches, ...missing]

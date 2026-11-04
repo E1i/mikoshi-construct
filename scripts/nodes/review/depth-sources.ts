@@ -48,7 +48,7 @@ export function gitDepthSources(repo: string, journal: string, bodyOf: CardBodyR
     changed: (from, to) => run(repo, ['diff', '--no-renames', '--name-only', '-z', from, to]).split('\0').filter(file => file !== ''),
     predict: (task, base, head) => {
       const { line, files } = predict({ task, base, head, journal, repo })
-      return { prediction: line, files: files.map(file => file.path) }
+      return { prediction: line, files: files.map(file => file.path), added: files.filter(file => file.status === 'A').map(file => file.path) }
     },
     scope: cardId => cardScope(bodyOf, cardId),
   }

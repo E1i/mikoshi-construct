@@ -59,14 +59,34 @@ describe('bus review depth follows the MORSE instructions rule', () => {
   const HEAD = 'h'.repeat(40)
   const lease = { taskKey: `review:1974:974:${HEAD}`, queue: 'review' as const, cardId: 1974, pr: 974, head: HEAD, leaseGen: 1, actor: 'worker:review:w' }
 
-  function sourcesOf(paths: string[], touches: string[]): DepthSources {
+  function sourcesOf(paths: string[], touches: string[], added: string[] = []): DepthSources {
     return {
       base: () => BASE,
       changed: () => paths,
-      predict: () => ({ prediction: classify(paths.map(file => ({ path: file, status: 'M', additions: 1, deletions: 0 }))), files: paths }),
+      predict: () => ({ prediction: classify(paths.map(file => ({ path: file, status: added.includes(file) ? 'A' : 'M', additions: 1, deletions: 0 }))), files: paths, added }),
       scope: () => ({ touches, runs: [] }),
     }
   }
+
+  const TOUCHED_MODULE = 'src/commands/intake/check.ts'
+  const CARD_CHANGESET = '.changeset/fencecompanions.md'
+
+  it.each([
+    { file: 'contract/surface.json', touches: [TOUCHED_MODULE], added: [] },
+    { file: CARD_CHANGESET, touches: [TOUCHED_MODULE], added: [CARD_CHANGESET] },
+    { file: 'src/materialize/factory-manifest.ts', touches: ['architecture/decisions/window-allow-merge.md'], added: [] },
+  ])('a file that follows the touches is no finding of the first review: $file', ({ file, touches, added }) => {
+    const plan = planReview(lease, null, sourcesOf([...touches, file], touches, added))
+    expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [] })
+  })
+
+  it.each([
+    { file: 'README.md', added: [] },
+    { file: CARD_CHANGESET, added: [] },
+  ])('a file that does not follow the touches stays a finding of the first review: $file', ({ file, added }) => {
+    const plan = planReview(lease, null, sourcesOf([TOUCHED_MODULE, file], [TOUCHED_MODULE], added))
+    expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [`${file} is outside the touches of card #1974 (${TOUCHED_MODULE})`] })
+  })
 
   it.each([
     { paths: ['docs/cli.md'], rule: 'docs-only' },
