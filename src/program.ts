@@ -111,6 +111,8 @@ const attach = withKnownFlags(defineCommand({
     requiredCheck: { type: 'string', description: 'The name of the CI check run the bus waits for; recorded in .construct/attach.json' },
     ai: { type: 'enum', options: AI_TARGETS, description: 'AI target: claude (cursor and both are refused)' },
     lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in .construct/attach.json' },
+    serve: { type: 'string', description: 'The command that brings the server up for a browser witness; needs --serve-url' },
+    serveUrl: { type: 'string', description: 'The URL that answers once the server is up; needs --serve' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
     entry: { type: 'boolean', description: 'Print the entry protocol the agent follows to propose one harness; reads and writes nothing', default: false },
     upgrade: { type: 'boolean', description: 'Rewrite only the carriers to this version; data, handoff, bus and local settings stay', default: false },
@@ -124,7 +126,7 @@ const attach = withKnownFlags(defineCommand({
         return
       }
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
-      const options = { dir: args.dir, harness: args.harness, requiredCheck: args.requiredCheck, ai: args.ai, lanes: args.lanes, yes: args.yes }
+      const options = { dir: args.dir, harness: args.harness, requiredCheck: args.requiredCheck, ai: args.ai, lanes: args.lanes, serve: args.serve, serveUrl: args.serveUrl, yes: args.yes }
       const result = args.upgrade ? await runAttachUpgrade(console, options, prompter) : await runAttach(console, options, prompter)
       process.exitCode = attachExitOf(result)
     }

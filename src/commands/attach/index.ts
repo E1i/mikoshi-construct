@@ -22,7 +22,7 @@ import { LEDGER_DIR, readExcludeBlockPaths, writeExcludeBlock } from './exclude.
 import { hostWithoutFactory } from './forge.js'
 import { fileEditingMarks, harnessCandidates, jobRunning, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
-import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, attachedVersionOf, carriersReading, DEFAULT_PUSH_POLICY, NO_HARNESS, readAttachRecord, writeAttachRecord } from './record.js'
+import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, attachedVersionOf, carriersReading, DEFAULT_PUSH_POLICY, NO_HARNESS, readAttachRecord, serveFromFlags, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor, unresolvableCheckRefusal } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
 import { installHookEntries, readSettings, SETTINGS_FILE } from './settings.js'
@@ -46,6 +46,8 @@ export interface AttachOptions {
   requiredCheck?: string
   ai?: string
   lanes?: string
+  serve?: string
+  serveUrl?: string
   yes: boolean
   env?: NodeJS.ProcessEnv
 }
@@ -191,6 +193,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   if (options.ai != null && !(AI_TARGETS as readonly string[]).includes(options.ai))
     throw new Error(`unknown AI target "${options.ai}" (claude | cursor | both)`)
   const lanesGiven = options.lanes == null ? undefined : parseLaneCount(options.lanes)
+  const serve = serveFromFlags(options.serve, options.serveUrl)
 
   const carriedByItsConstruct = carriersItsConstructTracks(root)
   const refusal = refusalFor(root, options, carriedByItsConstruct)
@@ -283,6 +286,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
     lanes,
     factoryBeside,
     push: DEFAULT_PUSH_POLICY,
+    serve,
   })
 
   ui.ok(ui.lore.attached)
@@ -306,7 +310,7 @@ function refusedUpgrade(ui: Ui, reason: AttachUpgradeRefusalReason, line: string
 }
 
 function flagsTheRecordHolds(options: AttachOptions): string[] {
-  const given: Array<[string, string | undefined]> = [['--harness', options.harness], ['--required-check', options.requiredCheck], ['--ai', options.ai], ['--lanes', options.lanes]]
+  const given: Array<[string, string | undefined]> = [['--harness', options.harness], ['--required-check', options.requiredCheck], ['--ai', options.ai], ['--lanes', options.lanes], ['--serve', options.serve], ['--serve-url', options.serveUrl]]
   return given.filter(([, value]) => value != null).map(([flag]) => flag)
 }
 
