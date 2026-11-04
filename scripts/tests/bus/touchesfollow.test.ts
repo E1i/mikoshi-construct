@@ -244,6 +244,28 @@ describe('a card session follows the touches the same way and the shift records 
   })
 })
 
+describe('a registry test in an application layout follows the touches only by import', () => {
+  const SCHEMA = 'apps/api/src/storage/schema.ts'
+  const REGISTRY_TEST = 'apps/api/tests/storage/migrations.test.ts'
+  const SCHEMA_CARD: TreeCard = { ...SHIFT_CARD, touches: [TOUCHED_MODULE, SCHEMA] }
+
+  it('follows a registry test in an app tests folder that imports the touched schema', () => {
+    const bodies: string[] = []
+    const worktree = shiftTree({ [SCHEMA]: 'export const MIGRATIONS = [\'burials\', \'cities\']\n', [REGISTRY_TEST]: 'import { MIGRATIONS } from \'../../src/storage/schema.js\'\n\nexport const tables = [...MIGRATIONS, \'cities\']\n' })
+
+    expect(treePr(shiftPorts(bodies), SCHEMA_CARD, worktree, null)).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [REGISTRY_TEST] })
+    expect(bodies[0]).toContain(`Touches followed: ${REGISTRY_TEST}`)
+  })
+
+  it('does not follow a test that imports no touched file, even one that names it', () => {
+    const bodies: string[] = []
+    const worktree = shiftTree({ [SCHEMA]: 'export const MIGRATIONS = []\n', [REGISTRY_TEST]: 'export const about = [\'schema.ts\', \'src/widget.ts\', \'apps/api/src/storage/schema.ts\']\n' })
+
+    expect(treePr(shiftPorts(bodies), SCHEMA_CARD, worktree, null)).toMatchObject({ kind: 'problem', gaps: [{ reason: 'outside-touches', paths: [REGISTRY_TEST] }] })
+    expect(bodies).toEqual([])
+  })
+})
+
 describe('the following table', () => {
   it.each([
     ['templates/base/architecture/decisions/x.md', 'architecture/decisions/x.md'],

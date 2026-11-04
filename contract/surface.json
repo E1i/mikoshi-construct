@@ -225,10 +225,16 @@
         "admit": {
           "type": "string"
         },
+        "amend": {
+          "type": "string"
+        },
         "autoConfirm": {
           "type": "boolean"
         },
         "confirm": {
+          "type": "string"
+        },
+        "creates": {
           "type": "string"
         },
         "dir": {
@@ -246,6 +252,9 @@
         "move": {
           "type": "string"
         },
+        "note": {
+          "type": "string"
+        },
         "parking": {
           "type": "string"
         },
@@ -256,6 +265,15 @@
           "type": "string"
         },
         "to": {
+          "type": "string"
+        },
+        "touches": {
+          "type": "string"
+        },
+        "who": {
+          "type": "string"
+        },
+        "witness": {
           "type": "string"
         }
       }

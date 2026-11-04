@@ -1,7 +1,7 @@
 import type { RepositoryFacts } from '../../src/commands/intake/facts.js'
 import { describe, expect, it } from 'vitest'
 import { isTest as layersIsTest } from '../../scripts/ci/layers.js'
-import { COVERING_REASON, coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, pathsIn, pathsOutside, RISK_RULE, RISK_RULE_READERS, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
+import { COVERING_REASON, coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, pathsIn, pathsOutside, RISK_RULE, RISK_RULE_READERS, runsCover, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
 import { checkDraft } from '../../src/commands/intake/check.js'
 
 const FILES: Record<string, string> = {
@@ -108,6 +108,29 @@ describe('the tests that cover a touched file', () => {
 
   it('only a .test.ts file under a test root is a test', () => {
     expect([isTest('tests/a.test.ts'), isTest('scripts/tests/a.test.ts'), isTest('tests/helper.ts'), isTest('src/a.test.ts')]).toEqual([true, true, false, false])
+  })
+
+  it('a workspace test folder holds tests that cover by import, and is no test root of the CI layers', () => {
+    const files: Record<string, string> = {
+      'packages/core/src/a.ts': 'export const A = 1\n',
+      'packages/core/tests/a.test.ts': 'import { A } from \'../src/a.js\'\n',
+      'packages/core/tests/helper.ts': 'import { A } from \'../src/a.js\'\n',
+      'packages/core/tests/touched.test.ts': 'import \'./a.test.js\'\n',
+      'packages/core/src/a.test.ts': 'import { A } from \'./a.js\'\n',
+      'apps/web/tests/deep/nested/a.test.ts': 'import \'../../../../../packages/core/src/a.js\'\n',
+      'vendor/tests/a.test.ts': 'import \'../../packages/core/src/a.js\'\n',
+    }
+    const read = (file: string): string | null => files[file] ?? null
+    const list = Object.keys(files)
+    expect(coveringTests(['packages/core/src/a.ts'], list, importersOf(list, read), read)).toEqual(['apps/web/tests/deep/nested/a.test.ts', 'packages/core/tests/a.test.ts', 'packages/core/tests/touched.test.ts'])
+    expect(coveringTests(['packages/core/tests/a.test.ts'], list, importersOf(list, read), read)).toEqual([])
+    expect(isTest('apps/api/tests/a.test.ts')).toBe(false)
+  })
+
+  it('a card\'s runs read a workspace test and its folder mask, never a mask wider than that folder', () => {
+    expect(runsOf(runsLine(['apps/api/tests/a.test.ts', 'apps/api/tests/storage/**', 'packages/core/tests/**', 'apps/api/**', 'apps/**', 'apps/api/src/a.test.ts', 'apps/api/tests/helper.ts']))).toEqual(['apps/api/tests/a.test.ts', 'apps/api/tests/storage/**', 'packages/core/tests/**'])
+    expect(runsCover('apps/api/tests/storage/a.test.ts', ['apps/api/tests/storage/**'])).toBe(true)
+    expect(runsCover('apps/api/src/a.ts', ['apps/api/**'])).toBe(false)
   })
 
   it('withinTouches reads exact paths and masks', () => {

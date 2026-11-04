@@ -2136,6 +2136,16 @@ the text of the latest `card.admitted` for card `N` that the bus holds, byte for
 nothing; redirect it to get a parking file. A card the bus holds no admitted text for, or a value that is
 not a card number, is refused with exit `1`. The published CLI has no bus and so no `--export`.
 
+**Amending an admitted card.** `construct-intake --amend <#N>` edits the card in the bus with no file:
+it takes the body `--export` would print, applies the edits, and admits the result through the same
+checks as `--admit`, as a new `card.admitted` with source `amend`. `--touches` and `--creates` take
+`+<path>` to add and `-<path>` to remove, several comma-separated; `--note <line>` appends a line to the
+body; `--witness <old>=<new>` replaces one witness, and a weaker one is held as an owner wait exactly as
+under `--admit`; `--who shift|window` sets who takes the card. `--dry-run` prints the amended body and
+writes no event. The card number is the one `--amend` names; a card the bus never admitted, a removal of
+a path the card does not name, a witness the card does not hold, or an `--amend` with no edit is refused
+with exit `1`.
+
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under
 the witnesses, beside every entry of the draft's own `unclear` list. A card with any `unclear:` line is
