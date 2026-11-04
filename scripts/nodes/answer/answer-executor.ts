@@ -13,7 +13,7 @@ import { riskOf } from '../../../src/card/risk.js'
 import { CLOSED_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
+import { ANSWER_STEP, CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, StaleLease, supersedeLease, waitTask } from '../../core/lease.js'
 import { answerOnAnOldCardBody, FAILURES_TO_STOP, REVIEW_ROUNDS, supersededAnswerWithinItsLease } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from '../../policy/policy.js'
@@ -290,12 +290,25 @@ export class AnswerExecutor {
     if (unprepared !== null)
       console.error(`${PREFIX}card #${lease.cardId}: ${unprepared}`)
     const prepared = this.parts.clock().getTime()
+    const beforeTheSession = { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing) }
+    this.recordSteps(lease, preparing, beforeTheSession)
     try {
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened) })
-      return answered.steps === undefined ? answered : { ...answered, steps: { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing), ...answered.steps } }
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), stepped: steps => this.recordSteps(lease, preparing, steps) })
+      return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {
       return { kind: 'technical', reason: reasonOfFailure(error), detail: messageOf(error) }
+    }
+  }
+
+  private recordSteps(lease: Lease, sessionStart: number, steps: Partial<StepSeconds>): void {
+    try {
+      assertHeld(this.parts.db, lease)
+      for (const [step, seconds] of Object.entries(steps))
+        appendEvent(this.parts.db, { ...this.event(lease, ANSWER_STEP, { step, seconds }), dedupeKey: `${ANSWER_STEP}:${lease.taskKey}:${lease.leaseGen}:${sessionStart}:${step}` })
+    }
+    catch (error) {
+      console.error(`${PREFIX}card #${lease.cardId}: the steps of the round were not recorded: ${messageOf(error)}`)
     }
   }
 

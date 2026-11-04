@@ -1,3 +1,4 @@
+export const ANSWER_STEP = 'answer.step'
 export const ARTIFACT_KEPT = 'artifact.kept'
 export const ARTIFACT_REMOVED = 'artifact.removed'
 export const BOARD_ALARM = 'board.alarm'
