@@ -28,7 +28,7 @@ import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../policy/
 import { activeDecisionsShard, decisionsInForceAt, ownersOfAStop } from '../policy/shards.js'
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover'] as const
 export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
@@ -40,7 +40,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it>`
 
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -61,6 +61,7 @@ export interface RequestTools {
   causeHolds: (task: CardTask) => string | null
   closePr: (request: CloseRequest) => CloseOutcome
   closeDropped: () => CloseOutcome[]
+  appendCountLine?: (pr: number, cardId: number) => Executed
 }
 
 export type RequestOutcome
@@ -68,7 +69,7 @@ export type RequestOutcome
     | { kind: 'refused', request: number, detail: string }
     | { kind: 'owner', request: number, detail: string }
 
-interface Executed {
+export interface Executed {
   done: boolean
   why: string
 }
@@ -201,6 +202,7 @@ export class WindowRequests {
       'tree.cut': (_, payload) => this.treeCut(payload),
       'allow-merge': (_, payload) => this.allowMerge(payload),
       'close-pr': (request, payload) => this.closePr(request, payload),
+      'pr.body': (_, payload) => this.prBody(payload),
       'mode': (request, payload) => this.setMode(request, payload),
       'requeue': (request, payload) => this.requeue(request, payload),
       'plan': (request, payload) => this.plan(request, payload),
@@ -346,6 +348,20 @@ export class WindowRequests {
       return { done: false, why: 'close-pr needs a pr, a card and a reason' }
     const outcome = this.tools.closePr({ attempt: `request-${request}`, pr, cardId, reason, by: 'window' })
     return { done: outcome.kind === 'closed', why: outcome.detail }
+  }
+
+  private prBody(payload: Record<string, unknown>): Executed {
+    const pr = prOf(payload.pr)
+    if (pr === null)
+      return { done: false, why: 'pr.body names no pr' }
+    const row = this.observed(pr)
+    if (row?.state !== 'open')
+      return { done: false, why: `PR #${pr} is not open` }
+    if (row.card_id === null)
+      return { done: false, why: `PR #${pr} names no card, so no report holds its count line` }
+    if (this.tools.appendCountLine === undefined)
+      return { done: false, why: 'this bus was built with no tool to change a pull request body' }
+    return this.tools.appendCountLine(pr, row.card_id)
   }
 
   private observed(pr: number): PrAsObserved | undefined {
@@ -596,6 +612,10 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const card = cardIdOf(flag(argv, '--card'))
     const reason = flag(argv, '--reason')
     return pr === null || card === null || reason === undefined ? null : { kind, pr, card, reason }
+  }
+  if (kind === 'pr.body') {
+    const pr = prOf(Number(flag(argv, '--pr')))
+    return pr === null ? null : { kind, pr }
   }
   if (kind === 'requeue') {
     const task = flag(argv, '--task')
