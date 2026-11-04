@@ -316,12 +316,12 @@ export class UpdateExecutor {
       return this.notBehind(lease, mergeable) ?? this.mergesWithoutUpdate(meter, pull, lease)
     if (upToDateRequired(meter))
       return technical('not_behind', `#${lease.pr} is clean on a host that requires an up-to-date branch, not behind`)
-    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha)
+    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha, lease.head!)
     return rerun.rerun ? null : technical('not_behind', `#${lease.pr} is clean and needs no update: ${rerun.why}`)
   }
 
   private mergesWithoutUpdate(meter: Meter, pull: Pull, lease: Lease): UpdateDenial | null {
-    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha)
+    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha, lease.head!)
     return rerun.rerun ? null : technical(MERGES_WITHOUT_UPDATE, `#${lease.pr} merges without an update: ${rerun.why}`)
   }
 
