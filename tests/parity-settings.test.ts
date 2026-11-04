@@ -100,6 +100,11 @@ describe('init carries the settings layer the factory runs on', () => {
     expect(permissions?.ask).toEqual(expect.arrayContaining(['Edit(/.claude/settings*.json)', 'Write(/.claude/settings*.json)', 'Edit(/.claude/eddies.json)', 'Write(/.claude/eddies.json)']))
   })
 
+  it('a fresh init carries the scan allowlist: WebFetch, WebSearch and mcp__context7', async () => {
+    const { dir } = await freshInit()
+    expect(settingsOf(dir).permissions?.allow).toEqual(expect.arrayContaining(['WebFetch', 'WebSearch', 'mcp__context7']))
+  })
+
   it('merging hooks into an existing settings.json keeps its sandbox key', () => {
     const template = readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/_claude/settings.json'), 'utf8')
     const without = JSON.parse(mergeHookSettings(JSON.stringify({ model: 'x' }), template)!) as Settings

@@ -16,7 +16,7 @@ import { parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { textSha } from '../../card/text-sha.js'
 import { laneOf, layLane } from './admit.js'
-import { checkDraft, checkPlan, correctionText, invalidTestPatterns, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, PLAN_FIELD, publishedRootsOf } from './check.js'
+import { checkDraft, checkPlan, correctionText, invalidTestPatterns, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, PLAN_FIELD, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
@@ -211,6 +211,10 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const invalidPatterns = invalidTestPatterns(draft.cards)
   if (invalidPatterns.length > 0)
     return refused('invalidTestPattern', invalidPatterns)
+  const repository = new DirectoryFacts(options.dir, process.env.PATH ?? '')
+  const nonPaths = nonPathTouchRefusals(draft.cards, repository)
+  if (nonPaths.length > 0)
+    return refused('invalid', nonPaths)
   const taken = parseTaken(takenText)
   if (taken.kind === 'refused')
     return refused('invalid', [taken.reason])
@@ -218,7 +222,6 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const cards = options.cardStates?.()
   const used = [...taken.numbers, ...parked, ...admittedNumbers(cards)]
   const numbers = nextFreeNumbers(used, draft.cards.length)
-  const repository = new DirectoryFacts(options.dir, process.env.PATH ?? '')
   const ended = endedCards(cards)
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
