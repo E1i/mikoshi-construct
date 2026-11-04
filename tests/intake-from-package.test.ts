@@ -114,6 +114,7 @@ beforeAll(async () => {
   writeFileSync(path.join(home, '.claude', 'settings.json'), `${JSON.stringify({ sandbox: { enabled: true } })}\n`)
   stub(bin, 'claude', `printf '%s\\t%s\\n' "$PWD" "$*" >> '${calls}'`)
   stub(bin, 'pnpm', 'exit 0')
+  stub(bin, 'npx', 'exit 0')
   for (const name of LINUX_SANDBOX_BINS)
     stub(bin, name, 'exit 0')
   stub(bin, 'ps', 'while [ $# -gt 0 ]; do [ "$1" = -p ] && { echo "$2"; exit 0; }; shift; done; exit 0')
