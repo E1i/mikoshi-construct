@@ -550,19 +550,12 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart, refusal: string | null): boolean {
+    const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
+    if (questions.length > 0)
+      return this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal)
     const ended = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
     const detail = refusal === null ? ended : `${ended}; ${refusal}`
-    const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
-    const asked = pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))
-    if (asked.length > 0)
-      return this.askToWiden(start, card, questions, splitByRepository(card.worktree, asked))
-    return inTransaction(this.db, () => {
-      const ts = this.ts()
-      const recorded = this.faultStop(ts, start, `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, detail)
-      if (recorded)
-        this.openQuestionWaits(ts, start, card, questions)
-      return recorded
-    })
+    return inTransaction(this.db, () => this.faultStop(this.ts(), start, `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, detail))
   }
 
   private openQuestionWaits(ts: string, start: RunningStart, card: StartedCard, questions: readonly string[]): void {
@@ -570,11 +563,12 @@ export class LaunchNode extends Node<LaunchStep> {
       openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `card #${start.card_id} session ${card.session} asks: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
   }
 
-  private askToWiden(start: RunningStart, card: StartedCard, questions: readonly string[], asked: AskedPaths): boolean {
+  private stopOnQuestions(start: RunningStart, card: StartedCard, questions: readonly string[], asked: AskedPaths, refusal: string | null): boolean {
     const { widen, dropped } = asked
     const ended = `card #${start.card_id} session ${card.session} ended with no pull request`
     const asks = widen.length === 0 ? `${ended} and asks: ${questions.join('; ')}` : `${ended} and asks to widen its touches to ${widen.join(', ')}: ${questions.join('; ')}`
-    const detail = dropped.length === 0 ? asks : `${asks}; ${NOT_A_REPOSITORY_PATH}: ${dropped.join(', ')}`
+    const named = dropped.length === 0 ? asks : `${asks}; ${NOT_A_REPOSITORY_PATH}: ${dropped.join(', ')}`
+    const detail = refusal === null ? named : `${named}; ${refusal}`
     return inTransaction(this.db, () => {
       const ts = this.ts()
       const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, payload: { reason: QUESTION_AGENT, detail, widen: [...widen], ...(dropped.length === 0 ? {} : { dropped: [...dropped] }) }, legacy: false })
