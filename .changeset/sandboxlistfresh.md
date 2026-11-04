@@ -2,4 +2,4 @@
 "mikoshi-construct": patch
 ---
 
-The pre-push run in a card session now runs the tests named on the sandbox list instead of filtering them out by name. A listed test that still fails does not block the push; a listed test that passes turns the run red with a `stale:` line naming its entry in `scripts/ci/sandbox-failing.jsonl`, so the list cannot drift silently until a card touches the selector. Files listed whole are still left out. The two entries of `scripts/tests/scratch/run-root.test.ts` that now pass are gone from the list.
+The sandbox list in `scripts/ci/sandbox-failing.jsonl` again holds what the session sandbox refuses on main, so a card that touches a selector file is no longer stopped by the pre-push run on paths it does not own. The four suites that install the packed package are listed under a new refusal kind for the npm registry's 403, which the liveness trace now reads in whichever words the session's proxy uses, one run-root test moves to a new refusal kind for `mktemp` under `$TMPDIR`, and the two run-root entries that now pass are gone.

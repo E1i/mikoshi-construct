@@ -310,7 +310,7 @@
 {"file":"scripts/tests/release/evidence.test.ts","test":"release:evidence prints the execution profile of every merged card in the range > the release:evidence script shows the verification task:close wrote to the bus as card.verified, not unknown","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/release/evidence.test.ts","test":"release:evidence prints the execution profile of every merged card in the range > with an empty handoff directory the evidence of a range merged before the cutoff has the values the journal gave","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/scratch/run-root.test.ts","test":"pnpm test > leaves no Vitest temp dir in a fresh outer TMPDIR when vitest runs through run.ts","refused":"listen EPERM on the tsx IPC pipe"}
-{"file":"scripts/tests/scratch/run-root.test.ts","test":"run.ts, the root quality runs in > passes and leaves nothing when the command creates temp directories inside the root","refused":"listen EPERM on the tsx IPC pipe"}
+{"file":"scripts/tests/scratch/run-root.test.ts","test":"run.ts, the root quality runs in > passes and leaves nothing when the command creates temp directories inside the root","refused":"mkdtemp under $TMPDIR EPERM"}
 {"file":"scripts/tests/worlds.test.ts","test":"test worlds leave nothing in TMPDIR > a ghost world is removed once its test is done, with every temporary of its calls","refused":"mkdtemp under /tmp EPERM"}
 {"file":"scripts/tests/worlds.test.ts","test":"test worlds leave nothing in TMPDIR > a morse world is removed once its test is done, with every temporary of its calls","refused":"mkdtemp under /tmp EPERM"}
 {"file":"scripts/tests/worlds.test.ts","test":"test worlds leave nothing in TMPDIR > a watch world is removed once its test is done, with every temporary of its calls","refused":"mkdtemp under /tmp EPERM"}
@@ -381,3 +381,7 @@
 {"file":"tests/plan-expect-line.test.ts","test":"the /plan skeleton carries the expect line the entry card and the launcher read > in .claude/commands/plan.md, filled with the none line cost --expect prints for four runs, is read by the entry card and by parseExpect as none","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/plan-expect-line.test.ts","test":"the /plan skeleton carries the expect line the entry card and the launcher read > in templates/ai/claude/_claude/commands/plan.md, filled with the first line of cost --expect from five done runs, is read by the entry card and by parseExpect as a forecast of n=5","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/plan-expect-line.test.ts","test":"the /plan skeleton carries the expect line the entry card and the launcher read > in templates/ai/claude/_claude/commands/plan.md, filled with the none line cost --expect prints for four runs, is read by the entry card and by parseExpect as none","refused":"listen EPERM on the tsx IPC pipe"}
+{"file":"tests/factory-start.test.ts","test":"","refused":"npm registry 403"}
+{"file":"tests/hijack-deploy-beside.test.ts","test":"","refused":"npm registry 403"}
+{"file":"tests/intake-from-package.test.ts","test":"","refused":"npm registry 403"}
+{"file":"tests/package-factory.test.ts","test":"","refused":"npm registry 403"}

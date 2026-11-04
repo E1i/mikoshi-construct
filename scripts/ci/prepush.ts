@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { selectRun } from './layers.js'
-import { SANDBOX_FAILING, SANDBOX_FAILING_LIST } from './sandbox-failing.js'
+import { SANDBOX_FAILING } from './sandbox-failing.js'
 import { listedFiles, livenessApplies, runTraced, staleInSandbox, staleLines } from './sandbox-liveness.js'
 import { cruise, readTest, reportedRun, runSummary } from './select.js'
 import { PASS_WITH_NO_TESTS, REPO_ROOT, RETRY, runVitest } from './test-command.js'
@@ -20,11 +20,10 @@ export const ROUND_FLAG = '--round'
 export const LINT_COMMAND = 'pnpm lint'
 const ESLINT_BIN = path.join(REPO_ROOT, 'node_modules', 'eslint', 'bin', 'eslint.js')
 const LINT_FOUND_PROBLEMS = 1
-const SANDBOX_LIST = path.relative(REPO_ROOT, SANDBOX_FAILING_LIST)
 
 export type Verdict
   = | { kind: 'green', ran: number }
-    | { kind: 'red', failed: string[], stale: string[] }
+    | { kind: 'red', failed: string[] }
     | { kind: 'broken', why: string }
 
 export interface Gate { lines: string[], code: number }
@@ -35,26 +34,33 @@ export function ciArgs(run: Run): string[] {
   return run.kind === 'layers' ? [...run.tests, PASS_WITH_NO_TESTS, RETRY] : [RETRY]
 }
 
-export function sessionArgs(run: Run, list: readonly SandboxFailing[]): string[] {
-  const files = list.filter(entry => entry.test === '' && (run.kind === 'full' || run.tests.includes(entry.file)))
-  return [...ciArgs(run), ...files.flatMap(entry => ['--exclude', entry.file])]
+export function leftOut(run: Run, list: readonly SandboxFailing[]): SandboxFailing[] {
+  return list.filter(entry => run.kind === 'full' || run.tests.includes(entry.file))
 }
 
-export function testsVerdict(run: VitestRun, list: readonly SandboxFailing[], root = REPO_ROOT): Verdict {
+function literal(name: string): string {
+  return name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function sessionArgs(run: Run, list: readonly SandboxFailing[]): string[] {
+  const out = leftOut(run, list)
+  const files = out.filter(entry => entry.test === '').flatMap(entry => ['--exclude', entry.file])
+  const names = [...new Set(out.filter(entry => entry.test !== '').map(entry => literal(entry.test)))]
+  return [...ciArgs(run), ...files, ...(names.length === 0 ? [] : ['-t', `^(?!(?:${names.join('|')})$)`])]
+}
+
+export function testsVerdict(run: VitestRun, root = REPO_ROOT): Verdict {
   if (run.error !== null)
     return { kind: 'broken', why: `the test command did not start: ${run.error}` }
   if (run.report === null)
     return { kind: 'broken', why: `the test command exited ${run.status} and wrote no report` }
   const outcomes = outcomesOf(run.report, root)
-  const listed = new Set(list.map(entry => testKey(entry.file, entry.test)))
-  const keyed = outcomes.map(outcome => ({ state: outcome.state, key: testKey(outcome.file, outcome.name) }))
-  const failed = keyed.filter(outcome => outcome.state === 'failed' && !listed.has(outcome.key)).map(outcome => outcome.key)
-  const stale = keyed.filter(outcome => outcome.state === 'passed' && listed.has(outcome.key)).map(outcome => outcome.key)
-  if (failed.length > 0 || stale.length > 0)
-    return { kind: 'red', failed, stale }
-  if (run.status !== 0 && !keyed.some(outcome => outcome.state === 'failed'))
+  const failed = outcomes.filter(outcome => outcome.state === 'failed').map(outcome => testKey(outcome.file, outcome.name))
+  if (failed.length > 0)
+    return { kind: 'red', failed }
+  if (run.status !== 0)
     return { kind: 'broken', why: `the test command exited ${run.status} with no failed test in its report` }
-  return { kind: 'green', ran: keyed.filter(outcome => RAN.has(outcome.state)).length }
+  return { kind: 'green', ran: outcomes.filter(outcome => RAN.has(outcome.state)).length }
 }
 
 function brokenGate(why: string): Gate {
@@ -73,7 +79,7 @@ export function prepushGate(changed: readonly string[], tests: () => Verdict, li
   if (verdict.kind === 'broken')
     return brokenGate(verdict.why)
   if (verdict.kind === 'red')
-    return { lines: ['prepush: red — the push does not happen; fix these in this session and run the gate again:', ...verdict.failed.map(key => `failed: ${key}`), ...verdict.stale.map(key => `stale: ${key} — passes in the session sandbox, so its entry in ${SANDBOX_LIST} is stale`)], code: 1 }
+    return { lines: ['prepush: red — the push does not happen; fix these in this session and run the gate again:', ...verdict.failed.map(key => `failed: ${key}`)], code: 1 }
   if (livenessApplies(changed)) {
     const stale = liveness()
     if (stale === null)
@@ -164,7 +170,7 @@ function main(): number {
   }
   console.log(runSummary(run))
   const started = Date.now()
-  const gate = prepushGate(changed, () => testsVerdict(runVitest(sessionArgs(run, SANDBOX_FAILING)), SANDBOX_FAILING), sandboxLiveness)
+  const gate = prepushGate(changed, () => testsVerdict(runVitest(sessionArgs(run, SANDBOX_FAILING))), sandboxLiveness)
   console.log([...gate.lines, `prepush: ${Math.round((Date.now() - started) / 1000)} s of local tests`].join('\n'))
   return gate.code
 }

@@ -6,12 +6,11 @@ import { syncBuiltinESMExports } from 'node:module'
 import path from 'node:path'
 import process from 'node:process'
 import { expect } from 'vitest'
-import { SANDBOX_TRACE_VARIABLE } from './sandbox-refusals.js'
+import { REFUSED_LINE, SANDBOX_TRACE_VARIABLE } from './sandbox-refusals.js'
 
 const TRACE_FILE_VARIABLE = 'SANDBOX_TRACE_FILE'
 const TRACE_TEST_VARIABLE = 'SANDBOX_TRACE_TEST'
 const CHILD_PRELOAD = path.join(import.meta.dirname, 'sandbox-trace-child.mjs')
-const REFUSED_LINE = /^.*(?:EPERM|operation not permitted|EMFILE: too many open files, watch).*$/gim
 
 function current(): { file: string, test: string } {
   const { testPath, currentTestName } = expect.getState()

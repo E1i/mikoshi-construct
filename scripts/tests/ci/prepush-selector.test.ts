@@ -119,7 +119,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
       const leftOut = args.slice(ciArgs(session).length)
       const excluded = leftOut.filter((_, index) => leftOut[index - 1] === '--exclude')
       expect(excluded).toEqual(SANDBOX_FAILING.filter(entry => entry.test === '').map(entry => entry.file))
-      expect(leftOut.filter(arg => arg !== '--exclude' && !excluded.includes(arg))).toEqual([])
+      expect(leftOut.filter(arg => arg !== '--exclude' && !excluded.includes(arg))).toEqual(['-t', expect.stringMatching(/^\^\(\?!\(\?:/)])
     }
   })
 
@@ -138,7 +138,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
   })
 
   it('a red local test leaves the push undone', () => {
-    const red = testsVerdict(vitestRun(1, [{ file: 'scripts/tests/notes/print.test.ts', name: 'prints', status: 'failed' }]), LISTED)
+    const red = testsVerdict(vitestRun(1, [{ file: 'scripts/tests/notes/print.test.ts', name: 'prints', status: 'failed' }]))
     const gate = prepushGate(['scripts/notes/print.ts'], () => red, () => [])
     expect(gate.code).toBe(1)
     expect(gate.lines).toEqual([
@@ -149,7 +149,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
 
   it('a broken test command is a block with a finding and a question', () => {
     for (const broken of [{ status: null, report: null, error: 'spawn node ENOENT' }, { status: 1, report: null, error: null }, { status: 1, report: { testResults: [] }, error: null }, vitestRun(1, [{ file: 'scripts/tests/notes/print.test.ts', name: 'prints', status: 'skipped' }])] satisfies VitestRun[]) {
-      const gate = prepushGate(['scripts/notes/print.ts'], () => testsVerdict(broken, LISTED), () => [])
+      const gate = prepushGate(['scripts/notes/print.ts'], () => testsVerdict(broken), () => [])
       expect(gate.code).toBe(2)
       expect(gate.lines[0]).toBe('prepush: broken — the push does not happen.')
       expect(gate.lines[1]).toMatch(/^finding: the pre-push test command is broken: /)
@@ -166,10 +166,13 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     expect(ciCommand({ kind: 'full', why: 'merge_group' })).toBe(`pnpm test ${RETRY}`)
   })
 
-  it('a file on the sandbox list is not run in the session, a listed test is run in both, and CI runs every one', () => {
+  it('a test on the sandbox list is not run in the session and is run in CI', () => {
     const run: Run = { kind: 'layers', layers: ['notes'], tests: ['scripts/tests/notes/print.test.ts', 'scripts/tests/notes/spawn.test.ts'] }
     expect(ciArgs(run)).toEqual(['scripts/tests/notes/print.test.ts', 'scripts/tests/notes/spawn.test.ts', PASS_WITH_NO_TESTS, RETRY])
-    expect(sessionArgs(run, LISTED)).toEqual([...ciArgs(run), '--exclude', 'scripts/tests/notes/spawn.test.ts'])
+    expect(sessionArgs(run, LISTED)).toEqual([...ciArgs(run), '--exclude', 'scripts/tests/notes/spawn.test.ts', '-t', '^(?!(?:print > spawns ps)$)'])
+    const pattern = new RegExp(sessionArgs(run, LISTED).at(-1)!)
+    expect(pattern.test('print > spawns ps')).toBe(false)
+    expect(pattern.test('print > spawns ps and more')).toBe(true)
     expect(missingInCi(LISTED, [{ file: 'scripts/tests/notes/print.test.ts', name: 'print > spawns ps' }, { file: 'scripts/tests/notes/spawn.test.ts', name: 'spawn > %s' }])).toEqual([])
     for (const entry of SANDBOX_FAILING)
       expect(existsSync(path.join(REPO_ROOT, entry.file)), entry.file).toBe(true)
@@ -181,8 +184,8 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     const verdict = testsVerdict(vitestRun(1, [
       { file: 'scripts/tests/notes/print.test.ts', name: 'print > prints', status: 'passed' },
       { file: 'scripts/tests/notes/print.test.ts', name: 'print > reads a pid', status: 'failed', messages: ['Error: spawnSync ps EPERM'] },
-    ]), LISTED)
-    expect(verdict).toEqual({ kind: 'red', failed: ['scripts/tests/notes/print.test.ts > print > reads a pid'], stale: [] })
+    ]))
+    expect(verdict).toEqual({ kind: 'red', failed: ['scripts/tests/notes/print.test.ts > print > reads a pid'] })
     expect(prepushGate(['scripts/notes/print.ts'], () => verdict, () => []).code).toBe(1)
   })
 
@@ -233,24 +236,6 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     expect(run).toEqual({ kind: 'layers', layers: ['bus:answer', 'nodes'], tests: ['scripts/tests/bus/answer-node.test.ts', 'scripts/tests/bus/answerer.test.ts'] })
   })
 
-  it('a listed test that now passes in the session is reported as stale and blocks the push, while a listed test that still fails does not', () => {
-    const run: Run = { kind: 'layers', layers: ['notes'], tests: ['scripts/tests/notes/print.test.ts'] }
-    expect(sessionArgs(run, LISTED)).toEqual(ciArgs(run))
-    const stillFailing = testsVerdict(vitestRun(1, [
-      { file: 'scripts/tests/notes/print.test.ts', name: 'print > prints', status: 'passed' },
-      { file: 'scripts/tests/notes/print.test.ts', name: 'print > spawns ps', status: 'failed', messages: ['Error: spawnSync ps EPERM'] },
-    ]), LISTED)
-    expect(stillFailing).toEqual({ kind: 'green', ran: 2 })
-    const passing = testsVerdict(vitestRun(0, [
-      { file: 'scripts/tests/notes/print.test.ts', name: 'print > prints', status: 'passed' },
-      { file: 'scripts/tests/notes/print.test.ts', name: 'print > spawns ps', status: 'passed' },
-    ]), LISTED)
-    expect(passing).toEqual({ kind: 'red', failed: [], stale: ['scripts/tests/notes/print.test.ts > print > spawns ps'] })
-    const gate = prepushGate(['scripts/notes/print.ts'], () => passing, () => [])
-    expect(gate.code).toBe(1)
-    expect(gate.lines).toContain('stale: scripts/tests/notes/print.test.ts > print > spawns ps — passes in the session sandbox, so its entry in scripts/ci/sandbox-failing.jsonl is stale')
-  })
-
   it('a listed test that stopped failing turns the liveness check red on a pull request of the list while an ordinary card push passes', () => {
     const outcomes = [
       { file: 'scripts/tests/notes/print.test.ts', name: 'print > spawns ps', state: 'passed', messages: [] },
@@ -258,7 +243,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     ]
     const stale = staleInSandbox(LISTED, outcomes, [])
     expect(stale).toEqual([{ entry: LISTED[0], why: 'no longer fails in the session sandbox: it passed' }])
-    const green = () => testsVerdict(vitestRun(0, [{ file: 'scripts/tests/notes/parse.test.ts', name: 'parses', status: 'passed' }]), LISTED)
+    const green = () => testsVerdict(vitestRun(0, [{ file: 'scripts/tests/notes/parse.test.ts', name: 'parses', status: 'passed' }]))
     const ofTheList = prepushGate(['scripts/ci/sandbox-failing.jsonl'], green, () => stale)
     expect(ofTheList.code).toBe(1)
     expect(ofTheList.lines).toContain('stale: scripts/tests/notes/print.test.ts > print > spawns ps — no longer fails in the session sandbox: it passed')
