@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -15,6 +16,16 @@ export const PROXY_ENV_KEYS = ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_p
 export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', ...PROXY_ENV_KEYS]
 
 const LOCKFILE = 'pnpm-lock.yaml'
+const BROWSER_LAB = 'scripts/construct/browser-lab.mjs'
+const PUBLIC_REGISTRY = 'https://registry.npmjs.org/'
+const NODE_MODULES = 'node_modules'
+
+const LAB_TOOLS = [
+  { declared: /\bPLAYWRIGHT_CORE = '(playwright-core@\d+\.\d+\.\d+)'/, name: 'playwright-core', bin: 'playwright-core', install: 'playwright-core install chromium' },
+  { declared: /\bPLAYWRIGHT_CLI = '(@playwright\/cli@\d+\.\d+\.\d+)'/, name: '@playwright/cli', bin: 'playwright-cli', install: 'playwright-cli install-browser chromium' },
+] as const
+
+type LabTool = typeof LAB_TOOLS[number]
 
 export function prepareEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(PREPARE_ENV_KEYS.filter(key => env[key] !== undefined).map(key => [key, env[key]]))
@@ -22,6 +33,53 @@ export function prepareEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 
 export function prepareTree(tree: string): void {
   execFileSync(PREPARE_TREE[0]!, PREPARE_TREE.slice(1), { cwd: tree, env: prepareEnv(process.env), timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function labCache(env: NodeJS.ProcessEnv): string {
+  return path.join(env.HOME ?? os.homedir(), '.construct', 'browser-lab', 'npm-cache')
+}
+
+function installedBinary(tree: string, spec: string, tool: LabTool, env: NodeJS.ProcessEnv): string {
+  const said = execFileSync('npx', ['--yes', '--package', spec, '-c', `${tool.install} && command -v ${tool.bin}`], { cwd: tree, env, encoding: 'utf8', timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+  return realpathSync(said.trim().split('\n').at(-1)!)
+}
+
+function packageRoot(binary: string, tool: LabTool): string {
+  const inPackage = `${path.join(NODE_MODULES, tool.name)}${path.sep}`
+  const at = binary.lastIndexOf(inPackage)
+  if (at === -1)
+    throw new Error(`${binary} is not inside a ${tool.name} package`)
+  return binary.slice(0, at + inPackage.length - 1)
+}
+
+function linkUnlessTheRepositorysOwn(link: string, target: string, cache: string): void {
+  const held = lstatSync(link, { throwIfNoEntry: false })
+  if (held !== undefined) {
+    if (!held.isSymbolicLink() || !readlinkSync(link).startsWith(cache))
+      return
+    rmSync(link)
+  }
+  mkdirSync(path.dirname(link), { recursive: true })
+  symlinkSync(target, link)
+}
+
+export function preinstallBrowser(tree: string, env: NodeJS.ProcessEnv = process.env): void {
+  const lab = path.join(tree, BROWSER_LAB)
+  if (!existsSync(lab))
+    return
+  const prepared = prepareEnv(env)
+  execFileSync('git', ['-C', tree, 'check-ignore', '-q', `${NODE_MODULES}/`], { env: prepared, stdio: ['ignore', 'pipe', 'pipe'] })
+  const text = readFileSync(lab, 'utf8')
+  const npxEnv = { ...prepared, npm_config_registry: PUBLIC_REGISTRY, npm_config_cache: labCache(env), npm_config_ignore_scripts: 'true' }
+  for (const tool of LAB_TOOLS) {
+    const spec = tool.declared.exec(text)?.[1]
+    if (spec === undefined)
+      continue
+    const binary = installedBinary(tree, spec, tool, npxEnv)
+    const cache = realpathSync(npxEnv.npm_config_cache)
+    linkUnlessTheRepositorysOwn(path.join(tree, NODE_MODULES, tool.name), packageRoot(binary, tool), cache)
+    linkUnlessTheRepositorysOwn(path.join(tree, NODE_MODULES, '.bin', tool.bin), binary, cache)
+  }
 }
 
 function failureOf(error: unknown): string {
@@ -34,14 +92,22 @@ export function notPreparedLine(tree: string, why: string): string {
   return `the bus could not run ${PREPARE_TREE.join(' ')} in ${tree} before the session, so the session starts on the tree as it stands: ${why}`
 }
 
-export function prepareBeforeSession(tree: string, prepare: TreePreparer = prepareTree): string | null {
-  if (!existsSync(path.join(tree, LOCKFILE)))
-    return null
+export function browserNotPreinstalledLine(tree: string, why: string): string {
+  return `the bus could not preinstall the browser lab in ${tree} before the session, so a browser-lab run in that session asks the registry: ${why}`
+}
+
+function failureLine(step: TreePreparer, tree: string, lineOf: (tree: string, why: string) => string): string | null {
   try {
-    prepare(tree)
+    step(tree)
     return null
   }
   catch (error) {
-    return notPreparedLine(tree, failureOf(error))
+    return lineOf(tree, failureOf(error))
   }
+}
+
+export function prepareBeforeSession(tree: string, prepare: TreePreparer = prepareTree, preinstall: TreePreparer = preinstallBrowser): string | null {
+  const unprepared = existsSync(path.join(tree, LOCKFILE)) ? failureLine(prepare, tree, notPreparedLine) : null
+  const noBrowser = failureLine(preinstall, tree, browserNotPreinstalledLine)
+  return unprepared === null || noBrowser === null ? unprepared ?? noBrowser : `${unprepared}\n${noBrowser}`
 }
