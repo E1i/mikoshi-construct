@@ -209,6 +209,7 @@ it is read and never written back.
 | `policy` | The workspace import policy as structure, not as rendered source: one entry per package directory naming what it may import. What a run renders into `eslint.config.mjs` follows this, never the other way round. |
 | `discovery` | Where each marker lives, and who wrote it. |
 | `lanes` | How many parallel lanes the bus runs. A record without it reads as `3`. |
+| `serve` | How the repository brings its server up: `command`, `url` and `readyTimeoutMs`. `init` writes the preset's default: `pnpm dev` on `http://localhost:3000/` for `node-backend` and `monorepo`, on `http://localhost:5173/` for `node-frontend`, each with a timeout of `30000`. `node-library` has no server and writes none. A later `init` keeps a declared `serve`; one with an empty command, a URL that does not parse or a timeout that is not a positive whole number is dropped on read. |
 
 ```json
 {
