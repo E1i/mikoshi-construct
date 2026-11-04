@@ -1,10 +1,12 @@
 import type { CompositionRecord } from '../../../src/commands/intake/check.js'
-import type { loadCompositionModels } from '../../composition/files.js'
 import type { Lease } from '../../core/lease.js'
 import type { Prediction, RuleId } from '../../policy/morse/rules.js'
+import path from 'node:path'
+import process from 'node:process'
 import { runsCover } from '../../../src/card/covering-tests.js'
 import { PREFIX_SUFFIX } from '../../../src/card/task-file.js'
-import { followsTouches } from '../../../src/commands/intake/check.js'
+import { COMPOSITION_ROOT, followsTouches } from '../../../src/commands/intake/check.js'
+import { loadCompositionModels } from '../../composition/files.js'
 
 export const REVIEW_DEPTHS = ['full', 'diff'] as const
 
@@ -66,22 +68,9 @@ function reReview(head: string, earlier: EarlierVerdict, sources: DepthSources):
   return { depth: 'diff', round: 'again', why, since: earlier.head, findings: earlier.findings }
 }
 
-const READER_ONLY_IN_A_CHECKOUT = '../../composition/files.js'
-
-async function compositionLoaderOrNone(): Promise<typeof loadCompositionModels | null> {
-  try {
-    return (await import(READER_ONLY_IN_A_CHECKOUT) as { loadCompositionModels: typeof loadCompositionModels }).loadCompositionModels
-  }
-  catch {
-    return null
-  }
-}
-
-const compositionLoader = await compositionLoaderOrNone()
-
 function compositionRecords(): CompositionRecord[] {
   try {
-    return (compositionLoader?.() ?? []).map(loaded => loaded.model)
+    return loadCompositionModels(path.join(process.cwd(), COMPOSITION_ROOT)).map(loaded => loaded.model)
   }
   catch {
     return []

@@ -9,11 +9,10 @@ import { pathsOutside, runsLine, TestCoverage } from '../../../src/card/covering
 import { parkingFileText } from '../../../src/card/parking.js'
 import { riskOf } from '../../../src/card/risk.js'
 import { followsTouches, neverFollows, rootCopyOf } from '../../../src/commands/intake/check.js'
-import { factoryGraph } from '../../../tsup.config.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { AnswerOutsideTouches, claudeAnswerer, followedEvent } from '../../nodes/answer/answerer.js'
 import { runTreePr } from '../../nodes/launch/tree-pr-cli.js'
-import { compositionRecordsAtBase, touchesFollowed, treePr } from '../../nodes/launch/tree-pr.js'
+import { touchesFollowed, treePr } from '../../nodes/launch/tree-pr.js'
 
 const CARD_ID = 1207
 const TOUCHED_MODULE = 'src/widget.ts'
@@ -298,19 +297,6 @@ describe('a composition record follows the code it describes', () => {
 
     expect(treePr(shiftPorts(bodies), SHIFT_CARD, shiftTree({ [INTAKE_RECORD]: widened }), null)).toMatchObject({ kind: 'problem', gaps: [{ reason: 'outside-touches', paths: [INTAKE_RECORD] }] })
     expect(bodies).toEqual([])
-  })
-
-  it('an installed package ships no composition reader, so the fence reads no record and keeps refusing it', () => {
-    const graph = factoryGraph()
-    const unread = (): string => {
-      throw new Error('nothing is read without the reader')
-    }
-    const records = compositionRecordsAtBase(unread, '/unread', null)
-
-    expect(graph.filter(source => source.startsWith('scripts/composition/'))).toEqual([])
-    expect(graph).toContain('scripts/nodes/launch/tree-pr.ts')
-    expect(records).toEqual([])
-    expect(touchesFollowed([INTAKE_RECORD, INTAKE_DOC], { ...INTAKE_REACH, compositionRecords: records }, new TestCoverage(() => [], () => null))).toEqual({ followed: [], outside: [INTAKE_RECORD, INTAKE_DOC] })
   })
 
   it.each([CLAUDE_FILE, 'architecture/owner-merges.md', 'architecture/security-invariants.md', '.github/workflows/ci.yml', LINT_CONFIG])('a record whose document is the guarded %s lets the record through and holds the document', (doc) => {

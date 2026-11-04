@@ -127,7 +127,8 @@
   "dependencies": {
     "@clack/prompts": "^1.8.0",
     "citty": "^0.2.2",
-    "picocolors": "^1.1.1"
+    "picocolors": "^1.1.1",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^9.5.1",
@@ -142,7 +143,6 @@
     "typescript": "^5.9.3",
     "vitepress": "2.0.0-alpha.20",
     "vitepress-plugin-mermaid": "2.0.17",
-    "vitest": "^5.0.0",
-    "yaml": "^2.9.1"
+    "vitest": "^5.0.0"
   }
 }
