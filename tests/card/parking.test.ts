@@ -26,12 +26,23 @@ describe('parseParkingFile', () => {
     expect(parked(19, 'who: window').priority).toBeNull()
   })
 
+  it('reads the release beside who and priority, and a card without one as null', () => {
+    expect(parked(187, 'who: shift\npriority: p2\nrelease: factory-0.45.3')).toMatchObject({ who: 'shift', priority: 'p2', release: 'factory-0.45.3', task: { body: 'do 187' } })
+    expect(parked(19, 'who: window').release).toBeNull()
+  })
+
+  it('reads release: only in the header, never from the body', () => {
+    expect(parked(5, 'who: shift\n\nrelease: factory-0.45.3').release).toBeNull()
+  })
+
   it.each([
+    ['a release line naming nothing', 'card: #5 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\nwho: shift\nrelease:\n\nbody', `5.md: 'release:' names no release; name an open release or take the line out`],
+    ['a repeated release', 'card: #5 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\nwho: shift\nrelease: x\nrelease: y\n\nbody', `5.md: header key 'release' appears twice`],
     ['no who', 'card: #5 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\n\nbody', `5.md: a parked card names who takes it: 'who: shift' or the column's other value`],
     ['a priority outside the list', 'card: #5 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\nwho: shift\npriority: high\n\nbody', `5.md: priority 'high' is not one of p0, p1, p2`],
     ['a repeated who', 'card: #5 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\nwho: shift\nwho: window\n\nbody', `5.md: header key 'who' appears twice`],
     ['a file not named after the card', 'card: #6 a [implement/ghosts/S/cheap/owner] · depends — · blocks —\nbranch: b\ntouches: a\nwho: shift\n\nbody', '5.md: a parked card\'s file is named after its id: 6.md'],
-    ['a refused task header', 'branch: b\ntouches: a\nwho: shift\n\nbody', '5.md: header is missing card; a parked card also takes who, priority'],
+    ['a refused task header', 'branch: b\ntouches: a\nwho: shift\n\nbody', '5.md: header is missing card; a parked card also takes who, priority, release'],
   ])('refuses %s', (_, text, reason) => {
     expect(parseParkingFile('5.md', text)).toEqual({ kind: 'refused', reason })
   })

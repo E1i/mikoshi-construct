@@ -5,8 +5,8 @@ import { witnessFieldRefusals } from './witness-fields.js'
 export const SHIFT_WHO = 'shift'
 export const WINDOW_WHO = 'window'
 export const PRIORITIES = ['p0', 'p1', 'p2'] as const
-const PARKING_KEYS = ['who', 'priority'] as const
-const PARKING_LINE = /^(who|priority|creates):(.*)$/
+const PARKING_KEYS = ['who', 'priority', 'release'] as const
+const PARKING_LINE = /^(who|priority|release|creates):(.*)$/
 export const CREATES_KINDS = ['ghosts', 'plain'] as const
 const CREATES_ENTRY = /^(\S+)(?: \((\S+)\))?$/
 
@@ -36,6 +36,7 @@ export interface ParkedTask {
   task: ShiftTask
   who: string
   priority: Priority | null
+  release: string | null
   creates: string[]
 }
 
@@ -78,6 +79,9 @@ export function parseParkingFile(file: string, text: string): ParsedParkingFile 
   const priority = parking.get('priority') ?? null
   if (priority !== null && !(PRIORITIES as readonly string[]).includes(priority))
     return refused(file, `priority '${priority}' is not one of ${PRIORITIES.join(', ')}`)
+  const release = parking.get('release') ?? null
+  if (release === '')
+    return refused(file, `'release:' names no release; name an open release or take the line out`)
   const parsed = parseTaskFile(file, rest.join('\n'))
   if (parsed.kind === 'refused')
     return { kind: 'refused', reason: `${parsed.reason}; a parked card also takes ${PARKING_KEYS.join(', ')}` }
@@ -87,7 +91,7 @@ export function parseParkingFile(file: string, text: string): ParsedParkingFile 
   if (fieldRefusals.length > 0)
     return refused(file, fieldRefusals.join('; '))
   const creates = (parking.get('creates') ?? '').split(',').map(entry => entry.trim()).filter(entry => entry !== '')
-  return { kind: 'parked', parked: { task: parsed.task, who, priority: priority as Priority | null, creates } }
+  return { kind: 'parked', parked: { task: parsed.task, who, priority: priority as Priority | null, release, creates } }
 }
 
 export function parkingFileText(fields: ParkingFileFields): string {
