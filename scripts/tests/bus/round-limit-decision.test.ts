@@ -167,6 +167,7 @@ describe('a merge past the review round limit by an owner decision', () => {
       decision_unread: 'denied',
       version_pr: 'denied',
       no_matrix_count_line: 'denied',
+      unsandboxed_command: 'denied',
     }
     for (const [rule, kind] of Object.entries(underTheDecision))
       expect(underOwnerDecision({ kind: 'denied', rule: rule as AuthorityRule, detail: rule }, DECISION, PR, HEAD), rule).toMatchObject({ kind })

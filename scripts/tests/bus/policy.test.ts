@@ -35,6 +35,7 @@ function facts(overrides: Partial<MergeFacts> = {}): MergeFacts {
     headRef: 'feat/card-1042',
     title: 'feat: card #1042',
     files: ['scripts/policy/policy.ts'],
+    patched: [],
     ownerMergesText: OWNER_MERGES,
     shardActive: false,
     shardUnder: null,
@@ -239,6 +240,62 @@ describe('the merge policy', () => {
 
   it('a reservation of another card does not reserve this one', () => {
     expect(mergePolicy(facts({ description: `${cardBody(942)}\n\n#10420 reserved, #104 reserved` }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
+  const ORDINARY = 'scripts/nodes/launch/launch-worker.ts'
+  const addsToExcluded = [{ filename: ORDINARY, patch: '@@ -1,2 +1,3 @@\n const sandbox = {\n+  excludedCommands: [\'pnpm install *\'],\n }' }]
+  const everyShard: Partial<MergeFacts>[] = [
+    {},
+    { shardActive: true },
+    { shardActive: true, shardUnder: 216, decisions: [{ decisionId: 216, text: 'Delegation.', cards: [] }] },
+    { windowShard: 'shard-window' },
+    { decisions: [{ decisionId: 77, text: 'Owner-PR мержится шиной.', cards: [] }] },
+  ]
+
+  it('an auto card whose diff adds a command to excludedCommands in an ordinary file is the owner under every shard', () => {
+    for (const shard of everyShard) {
+      expect(mergePolicy(facts({ ...shard, files: [ORDINARY], patched: addsToExcluded })), JSON.stringify(shard))
+        .toMatchObject({ kind: 'denied', rule: 'unsandboxed_command', detail: expect.stringContaining(`${ORDINARY} adds excludedCommands`) as unknown })
+    }
+    expect(OWNER_MERGES_RULES.has('unsandboxed_command')).toBe(true)
+  })
+
+  it('an entry added under an excludedCommands key the hunk only shows as context is the owner\'s', () => {
+    const patch = '@@ -3,2 +3,3 @@\n   "excludedCommands": [\n+    "pnpm install *",\n     "node x *"'
+    expect(mergePolicy(facts({ patched: [{ filename: 'templates/ai/settings.json', patch }] }))).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
+  })
+
+  it('each named form of a command outside the sandbox added by a diff is the owner\'s', () => {
+    for (const line of ['allowUnsandboxedCommands: true', '"allowUnsandboxedCommands": true', 'dangerouslyDisableSandbox: true', 'import { execFileSync } from \'node:child_process\'', 'execFileSync(\'pnpm\', [\'install\'])', 'const out = execSync(command)', 'spawnSync(\'sh\', [\'-c\', line])', 'return spawn(file, args)', 'exec(command)', 'execFile(file)', 'fork(entry)'])
+      expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch: `@@ -1 +1,2 @@\n x\n+${line}` }] })), line).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
+  })
+
+  it('a diff that names no form as an added line stays auto', () => {
+    for (const line of ['+allowUnsandboxedCommands: false', '+"allowUnsandboxedCommands": false', '+const found = /a/.exec(text)', '+db.exec(sql)', '+respawn(worker)', '+const shape = spawnedBy', '-execFileSync(\'pnpm\', [\'install\'])', ' execFileSync(\'pnpm\', [\'install\'])', '-  excludedCommands: [\'pnpm\'],'])
+      expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch: `@@ -1 +1,2 @@\n x\n${line}` }] })), line).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
+  it('a form in a test or in prose stays auto', () => {
+    for (const filename of ['scripts/tests/bus/policy.test.ts', 'tests/attach-sandbox.test.ts', 'e2e/run.spec.ts', 'docs/cli.md', '.changeset/x.md'])
+      expect(mergePolicy(facts({ patched: [{ filename, patch: '@@ -0,0 +1 @@\n+excludedCommands: [\'x\'] and execFileSync(\'x\')' }] })), filename).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
+  it('a file with added lines GitHub gives no patch for is the owner\'s, and one with none added is not', () => {
+    expect(mergePolicy(facts({ patched: [{ filename: 'scripts/large.ts', additions: 4000 }] }))).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command', detail: expect.stringContaining('no patch for scripts/large.ts') as unknown })
+    expect(mergePolicy(facts({ patched: [{ filename: 'scripts/unknown.ts' }] }))).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
+    expect(mergePolicy(facts({ patched: [{ filename: 'assets/logo.bin', additions: 0 }] }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
+  it('the merge executor reads the diff of the pull request: an excludedCommands line is denied with authority, reaches the inbox and puts no merge', () => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: 990, review: 'success', files: [ORDINARY], patches: { [ORDINARY]: addsToExcluded[0]!.patch } })
+    bench.issueShard()
+    bench.tick()
+
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'authority', rule: 'unsandboxed_command' }, next: 'withdrawn' })
+    expect(bench.gitHub.puts).toEqual([])
+    expect(ownerInbox(bench.db).map(line => [line.pr, JSON.parse(line.payload).rule])).toEqual([[990, 'unsandboxed_command']])
+    bench.close()
   })
 })
 

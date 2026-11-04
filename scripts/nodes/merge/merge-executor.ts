@@ -3,7 +3,7 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
-import type { AllowedRule, AuthorityRule, MergeFacts } from '../../policy/policy.js'
+import type { AllowedRule, AuthorityRule, MergeFacts, PatchedFile } from '../../policy/policy.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
@@ -32,6 +32,7 @@ const OPEN_QUESTIONS_OF_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, 
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
 const WITHDRAWN_ON_THE_BODY: ReadonlySet<AuthorityRule> = new Set(['decision_unread', 'no_matrix_count_line'])
 const RUNS_PAGE = 100
+const FILES_PAGE = 100
 const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
 
@@ -84,6 +85,16 @@ function ownerMergesText(meter: Meter): string {
   if (typeof file.content !== 'string')
     throw new Error(`${OWNER_MERGES} on ${MAIN_BRANCH} came back with no content`)
   return Buffer.from(file.content, 'base64').toString('utf8')
+}
+
+function patchedFiles(meter: Meter, pr: number): PatchedFile[] {
+  const files: PatchedFile[] = []
+  for (let page = 1; ; page += 1) {
+    const listed = meter.get(`${REPO}/pulls/${pr}/files?per_page=${FILES_PAGE}&page=${page}`) as PatchedFile[]
+    files.push(...listed)
+    if (listed.length < FILES_PAGE)
+      return files
+  }
 }
 
 function approvedRunsOn(meter: Meter, head: string | undefined): boolean {
@@ -228,6 +239,7 @@ export class MergeExecutor {
           headRef: pull.head?.ref ?? '',
           title: pull.title ?? '',
           files: changedFiles(meter, lease.pr!),
+          patched: patchedFiles(meter, lease.pr!),
           ownerMergesText: ownerMergesText(meter),
           shardActive: runShard || shard !== null,
           shardUnder: shard?.under ?? null,
