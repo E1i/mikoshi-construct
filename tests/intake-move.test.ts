@@ -3,12 +3,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { cardBodyText } from '../scripts/core/card-bodies.js'
 import { openBus } from '../scripts/core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
-import { busCardEvents } from '../scripts/intake/intake.js'
+import { busCardEvents, busIntakePorts } from '../scripts/intake/intake.js'
 import { launchCandidates } from '../scripts/nodes/launch/launch-candidates.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
+import { runAmend } from '../src/commands/intake/amend.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
 import { printMove, runMove } from '../src/commands/intake/move.js'
 import { createUi } from '../src/ui/console.js'
@@ -292,6 +294,55 @@ describe('intake --move', () => {
     expect(move(w, 171, 'lane-2', event => bus.push(event))).toMatchObject({ status: 'moved', event: CARD_DROPPED })
     expect(bus).toMatchObject([{ type: CARD_DROPPED, cardId: 171, payload: { lane: 'lane-2', children: [584], reason: 'sliced into #584' } }])
     expect(move(w, 172, 'sliced').status).toBe('refused')
+  })
+
+  function admittedAndAmended(w: { parking: string }, db: ReturnType<typeof openBus>, ports: ReturnType<typeof busIntakePorts>): string {
+    const file = park(w.parking, 1462)
+    const repo = path.join(path.dirname(w.parking), 'repo')
+    mkdirSync(path.join(repo, 'src'), { recursive: true })
+    writeFileSync(path.join(repo, 'src', 'a.ts'), '')
+    const admit = { dir: repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }
+    expect(runAdmit({ ...admit, file }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
+    reduce(db)
+    expect(runAmend({ ...admit, card: '#1462', flags: { note: 'The amended line.' } }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
+    return file
+  }
+
+  it('a move never reverts the amended body: refused while the projection lags, and the moved card keeps the amended body after the fold', () => {
+    const w = world()
+    const db = openBus(path.join(path.dirname(w.parking), 'bus.db'))
+    try {
+      const ports = busIntakePorts(db, 'by-hand', () => 1)
+      const file = admittedAndAmended(w, db, ports)
+      const eventsBefore = db.prepare('SELECT count(*) AS n FROM events').get()
+      const request = { move: '#1462', to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents, admissions: ports.cardAdmissions }
+      const lagging = runMove(request, () => AFTER_THE_CUTOFF)
+      expect(lagging.status).toBe('refused')
+      expect(printed(lagging)).toEqual({ lines: [expect.stringContaining('older body than the latest card.admitted')], exit: 1 })
+      expect(db.prepare('SELECT count(*) AS n FROM events').get()).toEqual(eventsBefore)
+      expect(existsSync(file)).toBe(true)
+      reduce(db)
+      expect(runMove(request, () => AFTER_THE_CUTOFF).status).toBe('moved')
+      expect(reduce(db).rejected).toBe(0)
+      expect(cardBodyText(db, 1462)).toContain('The amended line.')
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it('a drop does not wait for the projection: card.dropped re-admits no body', () => {
+    const w = world()
+    const db = openBus(path.join(path.dirname(w.parking), 'bus.db'))
+    try {
+      const ports = busIntakePorts(db, 'by-hand', () => 1)
+      admittedAndAmended(w, db, ports)
+      const result = runMove({ move: '#1462', to: 'dropped', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF)
+      expect(result).toMatchObject({ status: 'moved', event: CARD_DROPPED })
+    }
+    finally {
+      db.close()
+    }
   })
 
   it('refuses a card that is not parked and a card the grammar refuses', () => {
