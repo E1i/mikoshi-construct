@@ -9,6 +9,15 @@ import { inheritedRunRoot, RunRoot } from './run-root.js'
 const PREFIX = '[run-root] '
 const FORWARDED = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
 export const SETTLE_MS = 1000
+const REPORTER_FLAG = '--reporter'
+const ACTIONS_REPORTERS = [`${REPORTER_FLAG}=default`, `${REPORTER_FLAG}=github-actions`]
+
+export function withActionsReporters(argv: string[], env: NodeJS.ProcessEnv): string[] {
+  const namesReporter = argv.some(arg => arg === REPORTER_FLAG || arg.startsWith(`${REPORTER_FLAG}=`))
+  if (env.GITHUB_ACTIONS !== 'true' || argv[0] !== 'vitest' || namesReporter)
+    return argv
+  return [argv[0], ...ACTIONS_REPORTERS, ...argv.slice(1)]
+}
 
 export interface ClosableRoot { readonly path: string, close: () => boolean, exists: () => boolean }
 
@@ -55,5 +64,5 @@ function runCommand(argv: string[], env: NodeJS.ProcessEnv): Promise<number> {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = await inOwnOrInheritedRoot(process.argv.slice(2), runCommand, line => process.stderr.write(`${line}\n`))
+  process.exitCode = await inOwnOrInheritedRoot(withActionsReporters(process.argv.slice(2), process.env), runCommand, line => process.stderr.write(`${line}\n`))
 }

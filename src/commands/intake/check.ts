@@ -3,7 +3,7 @@ import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { isTestScope, runsLine, runsOf } from '../../card/covering-tests.js'
+import { isTestScope, runsLine, runsOf, withinTouches } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/parking.js'
 import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
@@ -352,7 +352,7 @@ const HOST_TOUCH = /^(?:localhost|(?:[a-z0-9-]+\.)+(?:ai|app|cloud|co|com|dev|ed
 function nonPathShape(entry: string, repository: RepositoryFacts, created: readonly string[]): string | null {
   if (ROUTE_TOUCH.test(entry))
     return 'a route'
-  if (created.includes(entry) || repository.exists(scopeOf(entry)))
+  if (withinTouches(entry, created) || repository.exists(scopeOf(entry)))
     return null
   if (PACKAGE_TOUCH.test(entry))
     return 'a package name'
@@ -381,12 +381,12 @@ function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
       touched.touches.push(entry)
       continue
     }
-    const created = creates.includes(entry)
+    const created = withinTouches(entry, creates)
     const prefix = entry.endsWith(PREFIX_SUFFIX) ? PREFIX_SUFFIX : ''
     const scope = prefix === '' ? entry : entry.slice(0, -PREFIX_SUFFIX.length)
     if (repository.exists(scope)) {
       touched.touches.push(entry)
-      if (created)
+      if (creates.includes(entry))
         touched.corrections.push({ field: 'creates', was: entry, now: '(exists, not new)', reason: `${entry} already exists` })
       continue
     }
@@ -508,7 +508,7 @@ function outsidePathsUnclear(commands: readonly string[], witness: string): Uncl
 interface WitnessReach { repository: RepositoryFacts, created: readonly string[] }
 
 function namedPaths(command: string, reach: WitnessReach): string[] {
-  return pathsNamedBy(command, relative => reach.repository.exists(relative) || reach.created.includes(relative))
+  return pathsNamedBy(command, relative => reach.repository.exists(relative) || withinTouches(relative, reach.created))
 }
 
 function readsTheTree(command: string, reach: WitnessReach): boolean {

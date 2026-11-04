@@ -3,6 +3,7 @@ import type { SliceSources } from '../../card/slice-depends.js'
 import type { CheckedCard, Correction } from './check.js'
 import type { DraftCard, UnclearField } from './draft.js'
 import { seamLines, splitSignal, volumeLines, volumeSignal } from '../../card/complexity.js'
+import { withinTouches } from '../../card/covering-tests.js'
 import { cardLine } from '../../card/grammar.js'
 import { createdPaths, parkingFileText, parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
 import { riskLines, riskReading, riskWholeReason, SLICE_PREFIX, TEST_SUFFIX } from '../../card/risk.js'
@@ -202,7 +203,7 @@ function slicedCard(card: CheckedCard, slice: CardSlice, at: number, dependents:
     name: sliceName(card, at),
     ...(card.branch === undefined ? {} : { branch: `${card.branch}${SLICE_NAME_INFIX}${at + 1}` }),
     touches: slice.touches,
-    creates: card.creates.filter(entry => createdPaths([entry]).some(created => slice.touches.includes(created))),
+    creates: card.creates.filter(entry => slice.touches.some(touch => withinTouches(touch, createdPaths([entry])))),
     depends: [...card.depends.flatMap(dependents), ...slice.depends.map(other => sliceName(card, other))],
     blocks: card.blocks.flatMap(dependents),
     whole: `slice ${at + 1} of ${card.name}`,
