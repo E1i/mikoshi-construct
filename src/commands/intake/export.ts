@@ -19,6 +19,10 @@ const REFUSAL_REASON: Record<ExportRefusal, (card: string) => string> = {
   notAdmitted: card => `the bus holds no admitted text for ${card}`,
 }
 
+export function exportRefusalReason(result: Extract<ExportResult, { status: 'refused' }>): string {
+  return REFUSAL_REASON[result.refusal](result.card)
+}
+
 export function runExport(options: ExportOptions): ExportResult {
   const id = CARD_NUMBER.exec(options.card)?.[1]
   if (id === undefined)
@@ -29,7 +33,7 @@ export function runExport(options: ExportOptions): ExportResult {
 
 export function printExport(ui: Ui, result: ExportResult, write: (text: string) => void): number {
   if (result.status === 'refused') {
-    ui.flatline(ui.lore.intakeRefusedUnreadable(REFUSAL_REASON[result.refusal](result.card)))
+    ui.flatline(ui.lore.intakeRefusedUnreadable(exportRefusalReason(result)))
     return INTAKE_EXIT.refused
   }
   write(result.text)

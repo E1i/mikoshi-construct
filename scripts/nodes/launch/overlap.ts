@@ -39,7 +39,13 @@ function isMask(entry: string): boolean {
   return scopeOf(entry).prefix
 }
 
-function taskRelation(a: string, b: string): string | null {
+function inSharedClass(entry: string, shared: readonly string[]): boolean {
+  return shared.some(declared => declared === entry || covers(declared, entry))
+}
+
+function taskRelation(a: string, b: string, shared: readonly string[]): string | null {
+  if (inSharedClass(a, shared) && inSharedClass(b, shared))
+    return null
   return isAdditive(a) && isAdditive(b) && (isMask(a) || isMask(b)) ? null : relation(a, b)
 }
 
@@ -47,7 +53,7 @@ function pairs<T>(items: readonly T[]): [T, T][] {
   return items.flatMap((first, index) => items.slice(index + 1).map(second => [first, second] as [T, T]))
 }
 
-export function taskConflicts(tasks: readonly ShiftTask[]): string[] {
+export function taskConflicts(tasks: readonly ShiftTask[], shared: readonly string[] = []): string[] {
   return pairs(tasks).flatMap(([a, b]) => {
     const head = `${a.file} × ${b.file}: `
     const same = [
@@ -55,7 +61,7 @@ export function taskConflicts(tasks: readonly ShiftTask[]): string[] {
       ...(a.branch === b.branch ? [`${head}branch ${a.branch} twice`] : []),
     ]
     const touched = touchesWithoutRuns(a.touches, a.body).flatMap(left => touchesWithoutRuns(b.touches, b.body).flatMap((right) => {
-      const sign = taskRelation(left, right)
+      const sign = taskRelation(left, right, shared)
       return sign === null ? [] : [`${head}${left} ${sign} ${right}`]
     }))
     return [...same, ...touched]
