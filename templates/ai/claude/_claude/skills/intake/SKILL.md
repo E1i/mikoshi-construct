@@ -24,7 +24,13 @@ card that needs another one first names it in `depends`. For each card settle:
 - `depends` / `blocks` — another card of this draft by its `name`, or an existing card as `#<id>`.
 - `who` — `shift` for a card the unattended shift may take, otherwise `window`.
 - `task` — what to do, in the person's words where they are precise.
-- `witnesses` — how the result is shown to hold: a test, a command and its exit, a report line.
+- `witnesses` — how the result is shown to hold, as fields: `id` (`W1`, `W2`, …), `run` (the command), `test` (the
+  name for `vitest -t`, or `null`), `head` and `base` (`pass`, `fail` or `exit:N`), `proves`.
+- `runs` — tests to run beside the touches, as a field: a list of test paths and trailing `/**` globs. `construct intake`
+  adds the tests that cover the touches to it.
+
+Prose in `task` is explanation only: a witness or a run written there as a `Witnesses:` heading or a `Runs:` line is
+not a field.
 
 ## 2. Mark what is unclear, never guess it silently
 
@@ -46,7 +52,9 @@ Write the draft outside the repository, for example `~/.construct/intake/<date>-
 
 ```json
 { "cards": [ { "name": "…", "kind": "implement", "milestone": "…", "size": "S", "touches": ["src/…/**"],
-  "depends": [], "who": "shift", "task": "…", "witnesses": ["…"], "unclear": [] } ] }
+  "depends": [], "who": "shift", "task": "…",
+  "witnesses": [ { "id": "W1", "run": "…", "test": null, "head": "pass", "base": "fail", "proves": "…" } ],
+  "runs": ["tests/…/**"], "unclear": [] } ] }
 ```
 
 Card numbers are shared with pull requests and issues, so write every number already taken to a file beside the

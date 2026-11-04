@@ -202,13 +202,18 @@ describe('a card runs the tests that cover its touches, apart from what it touch
     expect(checked!.touches).toEqual(['src/card/risk.ts'])
     expect(checked!.corrections.filter(correction => correction.reason === COVERING_REASON)).toEqual([])
     expect(checked!.covering).toEqual(['tests/intake.test.ts', 'tests/lazy.test.ts', 'tests/through-helper.test.ts'])
-    expect(runsOf(checked!.task)).toEqual(checked!.covering)
-    expect(checked!.task).toBe(`Change the risk.\n\n${runsLine(checked!.covering)}`)
+    expect(checked!.runs).toEqual(checked!.covering)
+    expect(checked!.task).toBe('Change the risk.')
   })
 
-  it('a test the touches already cover is not run apart from them, and a card with no runs writes no runs line', () => {
+  it('a test the touches already cover is not run apart from them, and a card with no runs writes no runs field', () => {
     const [checked] = checkDraft([draft], [1], facts)
-    expect([checked!.covering, checked!.task]).toEqual([[], 'Change the risk.'])
+    expect([checked!.covering, checked!.runs, checked!.task]).toEqual([[], undefined, 'Change the risk.'])
+  })
+
+  it('a covering test joins the runs the draft declares, once each', () => {
+    const [checked] = checkDraft([{ ...draft, touches: ['src/card/risk.ts'], runs: ['scripts/tests/bus/**', 'tests/intake.test.ts'] }], [1], facts)
+    expect(checked!.runs).toEqual(['scripts/tests/bus/**', 'tests/intake.test.ts', 'tests/lazy.test.ts', 'tests/through-helper.test.ts'])
   })
 
   it('the runs of an older card are its covering tests intake put into touches, and touches without runs drop them', () => {
