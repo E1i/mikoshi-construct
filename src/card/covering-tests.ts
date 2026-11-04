@@ -36,6 +36,7 @@ const WORD_BOUNDARY = /[\s,;:()[\]"'`?!<>]+/
 const TRAILING_DOTS = /\.+$/
 const FILE_EXTENSION = /\.[a-z][\w-]*$/i
 const TEST_FILE = /\.test\.ts$/
+const WORKSPACE_TEST_ROOT = /^(?:apps|packages)\/[^/]+\/tests\//
 const MODULE_FILE = /\.[cm]?[jt]s$/
 const RELATIVE_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\b(?:import|require|vi\.(?:mock|doMock|importActual|importMock))\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
 const COMPILED_TO_SOURCE: readonly (readonly [RegExp, string])[] = [[/\.js$/, '.ts'], [/\.mjs$/, '.mts'], [/\.cjs$/, '.cts']]
@@ -49,8 +50,15 @@ export function isTest(file: string): boolean {
   return TEST_FILE.test(file) && TEST_ROOTS.some(root => file.startsWith(`${root}/`))
 }
 
+function coversByImport(file: string): boolean {
+  return isTest(file) || (TEST_FILE.test(file) && WORKSPACE_TEST_ROOT.test(file))
+}
+
 function isTestScope(entry: string): boolean {
-  return isTest(entry) || (entry.endsWith(PREFIX_SUFFIX) && TEST_ROOTS.some(root => `${entry.slice(0, -PREFIX_SUFFIX.length)}/`.startsWith(`${root}/`)))
+  if (!entry.endsWith(PREFIX_SUFFIX))
+    return coversByImport(entry)
+  const scope = `${entry.slice(0, -PREFIX_SUFFIX.length)}/`
+  return TEST_ROOTS.some(root => scope.startsWith(`${root}/`)) || WORKSPACE_TEST_ROOT.test(scope)
 }
 
 export function runsLine(runs: readonly string[]): string {
@@ -74,7 +82,7 @@ export function runsOf(body: string): string[] {
 }
 
 export function runsCover(file: string, runs: readonly string[]): boolean {
-  return isTest(file) && withinTouches(file, runs)
+  return coversByImport(file) && withinTouches(file, runs)
 }
 
 export function touchesWithoutRuns(touches: readonly string[], body: string): string[] {
@@ -124,7 +132,7 @@ function linting(touched: readonly string[], files: readonly string[], read: (fi
 }
 
 export function coveringTests(touches: readonly string[], files: readonly string[], importers: ReadonlyMap<string, readonly string[]>, read: (file: string) => string | null): string[] {
-  const touched = files.filter(file => !isTest(file) && withinTouches(file, touches))
+  const touched = files.filter(file => !coversByImport(file) && withinTouches(file, touches))
   const reached = new Set(touched)
   const queue = [...touched]
   for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
@@ -139,7 +147,7 @@ export function coveringTests(touches: readonly string[], files: readonly string
   const readers = Object.entries(NAMED_READERS)
     .filter(([file]) => touches.includes(file) || touched.includes(file))
     .flatMap(([, named]) => named.filter(reader => known.has(reader)))
-  return [...new Set([...[...reached].filter(isTest), ...readers, ...scanning(touched, known), ...spawning(touched, files, read), ...linting(touched, files, read)])].sort()
+  return [...new Set([...[...reached].filter(coversByImport), ...readers, ...scanning(touched, known), ...spawning(touched, files, read), ...linting(touched, files, read)])].sort()
 }
 
 export function pathsIn(text: string): string[] {
