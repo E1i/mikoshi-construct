@@ -21,6 +21,7 @@ import { projectRoot, realExitReadings, UNKNOWN } from './eddies-measure.js'
 import { stopReasonOf } from './exit.js'
 import { BLOCKED_LABEL, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, PREV_LABEL, STATE_LABELS } from './handoff-check.js'
 import { HANDOFF_VARIABLE, MIKO_HANDOFF_NAME, statusOf } from './loop.js'
+import { openWindowQuestion, requestSession } from './window-requests.js'
 import { windowOf } from './window.js'
 
 export const PREFIX = '[handoff:write] '
@@ -44,9 +45,14 @@ const DRAFT_STOP_FIELDS = /^\s*(?:[-*+]\s+)?(?:role|session):/i
 const WHOLE_READING = /\bread\b.+\bwhole\b/i
 const DAY_ARCHIVE_NAME = /day-\d{4}-\d{2}-\d{2}\.archive\.md/
 const NAMED_HEADING = / § \S/
+const OWNER_WAITS_LABEL = 'owner waits'
+const QUESTION_LABEL = 'question'
+const OPEN_WAIT_ENTRY = /^Q\d+ open\b/
+const WAIT_ID_ROOM = 'Q99999'
 
 export type HandoffState = Pick<Board, 'ready' | 'blocked' | 'lanes' | 'execution'>
 export type StateReading = { kind: 'read', state: HandoffState } | { kind: 'unread', why: string }
+export type QuestionReading = { kind: 'read', id: string } | { kind: 'unread', why: string }
 export type MergedReading = { kind: 'read', cards: number[], merges: number, updates: number } | { kind: 'unread', why: string }
 export type PrState = 'OPEN' | 'MERGED' | 'CLOSED' | 'unread'
 
@@ -66,6 +72,7 @@ export interface HandoffWriteDeps {
   merged: (since: string) => MergedReading
   prState: (pr: number) => PrState
   decisionsShard: (now: Date) => WindowShard | null
+  openQuestion: (question: string) => QuestionReading
   readings: () => ExitReadings
   stopReason: (status: string | null, readings: ExitReadings) => string | null
   now: () => Date
@@ -174,8 +181,30 @@ export function nextTaskFormRefusals(draft: string): string[] {
   return value === null || value === '' || nothingToDo || NEXT_TASK_FORM.test(value) ? [] : [`${PREFIX}next task: "${value.slice(0, 60)}" is not "#<card> <step>" or "item <N> of <list name>"`]
 }
 
+function ownerWaitEntries(text: string): string[] {
+  const value = fieldValue(text, OWNER_WAITS_LABEL)
+  return value === null || value === '' || value === NOTHING ? [] : value.split(';').map(entry => entry.trim())
+}
+
+export function ownerQuestions(text: string, handoff: string): string[] {
+  const statusLine = statusLineOf(text) ?? ''
+  if (statusOf(statusLine) !== 'OWNER')
+    return []
+  const pattern = fieldLine(QUESTION_LABEL)
+  const named = text.split(/\r?\n/).flatMap(line => pattern.exec(line)?.[1]?.trim() || [])
+  if (named.length > 0)
+    return [...new Set(named)]
+  return ownerWaitEntries(text).some(entry => OPEN_WAIT_ENTRY.test(entry)) ? [] : [`${handoff} ends ${statusLine.trim()} and names no ${QUESTION_LABEL}: line`]
+}
+
+export function withOwnerWaitsOpen(text: string, ids: readonly string[]): string {
+  const entries = ownerWaitEntries(text)
+  const added = ids.filter(id => !entries.some(entry => entry.startsWith(`${id} `))).map(id => `${id} open`)
+  return added.length === 0 ? text : withFieldValue(text, OWNER_WAITS_LABEL, [...entries, ...added].join('; '))
+}
+
 export function ownerWaits(draft: string, prState: (pr: number) => PrState): { refusals: string[], draft: string } {
-  const value = fieldValue(draft, 'owner waits')
+  const value = fieldValue(draft, OWNER_WAITS_LABEL)
   if (value === null || value === '' || value === NOTHING)
     return { refusals: [], draft }
   const entries = value.split(';').map(entry => entry.trim())
@@ -192,7 +221,7 @@ export function ownerWaits(draft: string, prState: (pr: number) => PrState): { r
       refusals.push(`${PREFIX}owner waits: PR #${pr} is ${state.toLowerCase()}; drop it`)
     return state === 'unread' ? `${entry} (PR #${pr} unread)` : entry
   })
-  return { refusals, draft: withFieldValue(draft, 'owner waits', checked.join('; ')) }
+  return { refusals, draft: withFieldValue(draft, OWNER_WAITS_LABEL, checked.join('; ')) }
 }
 
 function readingText(value: Reading<number>): string {
@@ -318,6 +347,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
   const freeWorkRefusal = ownerWhileWorkIsFreeRefusal(text, reading)
   const shardRefusal = ownerUnderDecisionsShardRefusal(text, deps.decisionsShard(now))
   const day = planDay(drafted, handoff, deps)
+  const questions = ownerQuestions(text, handoff)
   const refusals = [
     ...draftGeneratedRefusals(drafted),
     ...readingRefusals(drafted),
@@ -325,7 +355,7 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
     ...waits.refusals,
     ...nextTaskFormRefusals(drafted),
     ...(reading.kind === 'read' ? draftStateRefusals(drafted) : []),
-    ...handoffRefusals(text, {
+    ...handoffRefusals(withOwnerWaitsOpen(text, questions.map(() => WAIT_ID_ROOM)), {
       file: handoff,
       home: deps.home,
       exists: file => file === archived || deps.exists(file),
@@ -346,14 +376,18 @@ export function runHandoffWrite(args: string[], deps: HandoffWriteDeps): number 
     deps.write(day.file, day.kept)
     deps.out(`${PREFIX}${day.file}: ${dayBytes(day.kept)} bytes, ${day.moved} bytes moved to ${day.archive}`)
   }
+  const asked = questions.map(question => deps.openQuestion(question))
+  const waited = withOwnerWaitsOpen(text, asked.flatMap(wait => wait.kind === 'read' ? [wait.id] : []))
   const claimed = archived === null || previous === null ? null : claimArchive(archived, previous, deps)
   const claimedPrev = claimed === null ? prev : path.relative(path.dirname(handoff), claimed)
-  const final = claimedPrev === prev ? text : withPrev(text, claimedPrev)
+  const final = claimedPrev === prev ? waited : withPrev(waited, claimedPrev)
   const staged = `${handoff}.${randomUUID()}.writing`
   deps.makeDir(path.dirname(handoff))
   deps.write(staged, final.endsWith('\n') ? final : `${final}\n`)
   deps.rename(staged, handoff)
   deps.out(`${PREFIX}${handoff}: ${handoffBytes(final)} bytes, ${PREV_LABEL}: ${claimedPrev}, ${stateSource(reading)}`)
+  for (const wait of asked)
+    deps.out(`${PREFIX}${wait.kind === 'read' ? `owner wait ${wait.id} is open` : `no owner wait opened (${wait.why}); the question stands only in the handoff`}`)
   return 0
 }
 
@@ -441,6 +475,23 @@ function busDecisionsShard(busPath: string, now: Date): WindowShard | null {
   }
 }
 
+export function busOpenQuestion(busPath: string, session: string, now: Date, question: string): QuestionReading {
+  if (!existsSync(busPath))
+    return { kind: 'unread', why: `no bus at ${busPath}` }
+  try {
+    const db = openBus(busPath)
+    try {
+      return { kind: 'read', id: openWindowQuestion(db, now.toISOString(), session, question) }
+    }
+    finally {
+      db.close()
+    }
+  }
+  catch (error) {
+    return { kind: 'unread', why: `bus at ${busPath} unwritable (${errorLine(error)})` }
+  }
+}
+
 function ghPrState(pr: number): PrState {
   const read = readGhJson<{ state?: string } | null>(execGh, ['pr', 'view', String(pr), '--json', 'state'])
   const state = read.kind === 'read' ? read.value?.state : undefined
@@ -464,6 +515,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     merged: since => busMerged(defaultBusPath(), since),
     prState: ghPrState,
     decisionsShard: now => busDecisionsShard(defaultBusPath(), now),
+    openQuestion: question => busOpenQuestion(defaultBusPath(), requestSession(process.env), new Date(), question),
     readings: () => realExitReadings(process.env, os.homedir(), projectRoot(process.env), defaultBusPath()),
     stopReason: stopReasonOf,
     now: () => new Date(),

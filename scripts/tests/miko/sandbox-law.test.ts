@@ -70,6 +70,7 @@ function handoffWriteDeps(dir: string, out: string[], err: string[]): HandoffWri
     merged: () => ({ kind: 'read', cards: [], merges: 0, updates: 0 }),
     prState: () => 'OPEN',
     decisionsShard: () => null,
+    openQuestion: () => ({ kind: 'unread', why: 'no bus' }),
     readings: () => AT_CONTEXT_WARN,
     stopReason: stopReasonOf,
     now: () => NOW,

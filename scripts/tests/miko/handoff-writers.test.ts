@@ -57,6 +57,7 @@ function writer(dir: string, listDir: (dir: string) => string[]): (draft: string
       merged: () => ({ kind: 'unread', why: 'no bus' }),
       prState: () => 'OPEN',
       decisionsShard: () => null,
+      openQuestion: () => ({ kind: 'unread', why: 'no bus' }),
       readings: () => ({ ...UNREAD, context: 0, contextWarn: 160000, spent: 0, spendWarn: 2400000 }),
       stopReason: stopReasonOf,
       now: () => new Date('2026-11-02T12:00:00Z'),
