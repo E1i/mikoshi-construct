@@ -162,6 +162,20 @@ describe('the release is a field of the card', () => {
     db.close()
   })
 
+  it('a body and a --release that name the same open release admit the card into it once', async () => {
+    const root = scratch()
+    const db = openBus(path.join(root, 'bus.db'))
+    openRelease(db)
+    process.exitCode = 0
+    await runBusIntake(db, [...admitting(root, `release: ${RELEASE}`), '--release', RELEASE], SESSION)
+    expect(process.exitCode).toBe(0)
+    expect(count(db, CARD_ADMITTED)).toBe(1)
+    expect(count(db, CARD_PLANNED)).toBe(1)
+    expect(reduce(db).rejected).toBe(0)
+    expect(releases(db)).toEqual([{ card_id: BODY_CARD, release: RELEASE }])
+    db.close()
+  })
+
   it('an amended body still naming its release plans nothing more, though the release has closed', async () => {
     const root = scratch()
     const db = openBus(path.join(root, 'bus.db'))
