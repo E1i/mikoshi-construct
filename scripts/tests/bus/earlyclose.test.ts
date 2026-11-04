@@ -13,7 +13,7 @@ import { leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { realTimedShell, WitnessExecutor } from '../../nodes/witness/witness-executor.js'
-import { withWorktree } from '../../ports/worktree.js'
+import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 const CARD = 1601
 const PR = 1602
@@ -87,11 +87,12 @@ function prState(db: DatabaseSync): string | undefined {
   return (db.prepare('SELECT state FROM prs WHERE pr = ?').get(PR) as { state: string } | undefined)?.state
 }
 
-function witnessOnMain(w: World): void {
+async function witnessOnMain(w: World): Promise<void> {
   const task: QueuedTask = { queue: 'witness', cardId: CARD, head: w.main }
   queueTask(w.db, TS, task)
   const lease = leaseQueued(w.db, TS, keyOf(task), 'worker:witness:earlyclose')!
-  new WitnessExecutor({ db: w.db, clock: () => new Date(TS), shell: realTimedShell, log: () => {}, trees: { baseOf: () => w.main, withTree: (base, run) => withWorktree(w.repo, base, run) } }).run(lease)
+  const turns = new SetupTurns()
+  await new WitnessExecutor({ db: w.db, clock: () => new Date(TS), shell: realTimedShell, log: () => {}, trees: { baseOf: async () => w.main, withTree: (base, run) => withWorktreeAsync(w.repo, base, run, turns) } }).run(lease)
   reduce(w.db)
 }
 
@@ -104,101 +105,101 @@ function verdicts(db: DatabaseSync): string[] {
 }
 
 describe('a witness green on main closes a card only when no session runs for it and no pull request of its own is open', () => {
-  it('a witness green on the base does not close a card with a live session', () => {
+  it('a witness green on the base does not close a card with a live session', async () => {
     const w = greenOnTheBase()
     started(w)
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(verdicts(w.db)).toEqual(['green'])
     expect(closes(w.db)).toBe(0)
   })
 
-  it('a session continued after it ended is live again, and the card stays open', () => {
+  it('a session continued after it ended is live again, and the card stays open', async () => {
     const w = greenOnTheBase()
     started(w)
     sessionEnded(w)
     continued(w)
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(verdicts(w.db)).toEqual(['green'])
     expect(closes(w.db)).toBe(0)
   })
 
-  it('a legacy session end does not end a live session', () => {
+  it('a legacy session end does not end a live session', async () => {
     const w = greenOnTheBase()
     started(w)
     sessionEnded(w, { legacy: true })
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(closes(w.db)).toBe(0)
   })
 
-  it('a legacy session start after a live one does not hide the live one', () => {
+  it('a legacy session start after a live one does not hide the live one', async () => {
     const w = greenOnTheBase()
     started(w)
     started(w, { legacy: true, at: 2 })
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(closes(w.db)).toBe(0)
   })
 
-  it('a legacy session start is no live session, and the card closes', () => {
+  it('a legacy session start is no live session, and the card closes', async () => {
     const w = greenOnTheBase()
     started(w, { legacy: true })
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(closes(w.db)).toBe(1)
   })
 
-  it('closes the card once its session ended and it opened no pull request', () => {
+  it('closes the card once its session ended and it opened no pull request', async () => {
     const w = greenOnTheBase()
     started(w)
     sessionEnded(w)
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(closes(w.db)).toBe(1)
   })
 
-  it('closes the card once its session stopped', () => {
+  it('closes the card once its session stopped', async () => {
     const w = greenOnTheBase()
     started(w)
     stopped(w)
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(closes(w.db)).toBe(1)
   })
 
-  it('a witness green on the base does not close a card with an open pull request of its own', () => {
+  it('a witness green on the base does not close a card with an open pull request of its own', async () => {
     const w = greenOnTheBase()
     started(w)
     sessionEnded(w)
     prOpened(w)
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(prState(w.db)).toBe('open')
     expect(verdicts(w.db)).toEqual(['green'])
     expect(closes(w.db)).toBe(0)
   })
 
-  it('closes a card whose own pull request merged', () => {
+  it('closes a card whose own pull request merged', async () => {
     const w = greenOnTheBase()
     started(w)
     sessionEnded(w)
     prOpened(w)
     prClosed(w, true)
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(prState(w.db)).toBe('merged')
     expect(closes(w.db)).toBe(1)
   })
 
-  it('closes a card whose own pull request was closed without merging, so the abandoned PR does not hold it open forever', () => {
+  it('closes a card whose own pull request was closed without merging, so the abandoned PR does not hold it open forever', async () => {
     const w = greenOnTheBase()
     started(w)
     sessionEnded(w)
     prOpened(w)
     prClosed(w, false)
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     expect(prState(w.db)).toBe('closed')
     expect(closes(w.db)).toBe(1)
