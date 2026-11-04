@@ -17,6 +17,7 @@ export type AttachHarness = { command: string, job?: string } | typeof NO_HARNES
 export interface AttachRecord {
   recordVersion: number
   construct: string
+  attachedVersion?: string
   attachedAt: string
   harness: AttachHarness
   files: Record<string, string>
@@ -37,6 +38,20 @@ export function readAttachRecord(root: string): AttachRecord | null {
   if (!existsSync(file))
     return null
   return JSON.parse(readFileSync(file, 'utf8')) as AttachRecord
+}
+
+export type CarriersReading = 'current' | 'stale' | 'ahead' | 'unknown'
+
+export function attachedVersionOf(record: AttachRecord): string | null {
+  return typeof record.attachedVersion === 'string' ? record.attachedVersion : null
+}
+
+export function carriersReading(attached: string | null, installed: string): CarriersReading {
+  if (attached == null)
+    return 'unknown'
+  if (attached === installed)
+    return 'current'
+  return attached.localeCompare(installed, undefined, { numeric: true }) > 0 ? 'ahead' : 'stale'
 }
 
 export function writeAttachRecord(root: string, record: AttachRecord): void {
