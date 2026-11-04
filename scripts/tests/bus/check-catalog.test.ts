@@ -212,12 +212,27 @@ describe('the overlap of main\'s changes since the base with the layers of a pul
     'vitest.config.ts',
     'package.json',
     'pnpm-lock.yaml',
-    '.changeset/b.md',
+    '.changeset/config.json',
+    'tests/changesets-one-line.test.ts',
   ])('counts %s, on either side, as test infrastructure that reaches every layer', (file) => {
     const db = cataloged()
     const why = `${file} chooses or runs the tests, so it reaches every layer`
     expect(overlapWithMain(db, PR, [file])).toBe(why)
     expect(overlapWithMain(db, [...PR, file], ['src/cli.ts'])).toBe(why)
+  })
+
+  it('reads a card note on neither side, so it neither reaches a layer nor falls outside the catalog', () => {
+    const db = cataloged()
+    expect(overlapWithMain(db, PR, ['.changeset/b.md'])).toBeNull()
+    expect(overlapWithMain(db, ['.changeset/a.md'], ['.changeset/b.md'])).toBeNull()
+    expect(overlapWithMain(db, [...PR, '.changeset/a.md'], ['src/cli.ts'])).toBeNull()
+    expect(overlapWithMain(db, PR, ['src/cli.ts', '.changeset/b.md'])).toBeNull()
+    expect(overlapWithMain(db, ['.changeset/a.md'], ['scripts/ci/layers.ts'])).toBe('scripts/ci/layers.ts chooses or runs the tests, so it reaches every layer')
+  })
+
+  it('reads a file nested under .changeset as no card note', () => {
+    const db = cataloged()
+    expect(overlapWithMain(db, PR, ['.changeset/nested/b.md'])).toBe('.changeset/nested/b.md belongs to no layer of the check catalog')
   })
 
   it('does not count a vitest config of a template or a fixture as test infrastructure', () => {

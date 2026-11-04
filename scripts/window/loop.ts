@@ -14,7 +14,8 @@ import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../supervisor/liveness-sites.js'
-import { ancestors, parsePs } from './exit.js'
+import { coreVersionIn, LOADED_CORE_VARIABLE, UNKNOWN } from './eddies-measure.js'
+import { ancestors, exitRootOf, parsePs } from './exit.js'
 import { windowEndObserver } from './role-end.js'
 import { lastLoopBeats, LOOP_PROCESS } from './window-heartbeat.js'
 
@@ -33,7 +34,7 @@ export const OWNER_COMMANDS: WindowCommands = { write: 'pnpm handoff:write', wat
 export const PACKAGE_COMMANDS: WindowCommands = { write: 'miko handoff write', watch: 'miko watch --once', exit: 'miko exit' }
 
 export function continuePrompt(handoff: string, commands: WindowCommands): string {
-  return `прочитай ${handoff}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца; если OWNER — задай вопрос владельцу в окне и жди ответа в этой же сессии, после ответа ${commands.write} со STATUS: CONTINUE, без ${commands.exit}; событие жди через ${commands.watch} в этой же сессии, следующую карточку бери в этой же сессии, ${commands.write} на каждой границе — страховка, без ${commands.exit}; ${commands.exit} — только при контексте или тратах сессии не ниже порога предупреждения Eddies или STATUS: DONE`
+  return `прочитай ${handoff}; если последняя строка STATUS: в нём — CONTINUE, продолжай с его следующей задачи, не спрашивая владельца; если OWNER — задай вопрос владельцу в окне и жди ответа в этой же сессии, после ответа ${commands.write} со STATUS: CONTINUE, без ${commands.exit}; событие жди через ${commands.watch} в этой же сессии, следующую карточку бери в этой же сессии, ${commands.write} на каждой границе — страховка, без ${commands.exit}; ${commands.exit} — только при контексте или тратах сессии не ниже порога предупреждения Eddies, при версии window-core на main выше загруженной или STATUS: DONE`
 }
 
 export const CONTINUE_PROMPT = continuePrompt(`~/.construct/handoff/${MIKO_HANDOFF_NAME}`, OWNER_COMMANDS)
@@ -312,10 +313,15 @@ export async function pauseUntilCtrlC(ms: number, sessionCtrlCs = 0): Promise<Pa
   }
 }
 
+function loadedCoreOfTheNextSession(): string | undefined {
+  const version = coreVersionIn(exitRootOf(process.env, process.cwd()))
+  return version === UNKNOWN ? undefined : String(version)
+}
+
 export function runSession(command: string, prompt: string | undefined, request: string, pollMs: number = EXIT_POLL_MS): Promise<SessionEnd> {
   return new Promise((resolve) => {
     rmSync(request, { force: true })
-    const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit', env: { ...process.env, [LOOP_PID_VARIABLE]: String(process.pid), [WINDOW_VARIABLE]: WINDOW_MARK, [EXIT_REQUEST_VARIABLE]: request } })
+    const child = spawn('sh', claudeArgv(command, prompt), { stdio: 'inherit', env: { ...process.env, [LOOP_PID_VARIABLE]: String(process.pid), [WINDOW_VARIABLE]: WINDOW_MARK, [EXIT_REQUEST_VARIABLE]: request, [LOADED_CORE_VARIABLE]: loadedCoreOfTheNextSession() } })
     const watcher = setInterval(() => {
       const requester = requesterOf(request)
       if (!takeExitRequest(request))

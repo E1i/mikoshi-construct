@@ -1132,6 +1132,7 @@ did in `.construct/attach.json`. No `construct.json`, no
 | `--lanes <count>` | asked, `3` | How many parallel lanes the bus runs, a whole number from 1 up. Recorded as `lanes` in `.construct/attach.json`, never in a `construct.json`; under `--yes` without it, `3`. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |
 | `--entry` | `false` | Print the entry protocol and exit `0`; nothing else runs, whatever other flags are given. |
+| `--upgrade` | `false` | Rewrite only the carriers of a repository already attached to the installed version. See [Upgrading the carriers](#upgrading-the-carriers). `--harness`, `--required-check`, `--ai` and `--lanes` are refused with it: the record holds them. |
 
 ```bash
 npx mikoshi-construct attach --harness "npm test"
@@ -1197,7 +1198,7 @@ Every check runs before anything is written, in this order, and a refusal create
 |---|---|
 | `<dir>/.git` does not exist | `Refused: not a git repository.` |
 | `<dir>/.git` is a file (a worktree or a submodule) | `Refused: .git is a file (worktree or submodule); attach needs the .git directory.` |
-| `.construct/attach.json` exists | `Refused: this repository is already attached (.construct/attach.json is here); run \`construct detach\` first.` |
+| `.construct/attach.json` exists | `Refused: this repository is already attached (.construct/attach.json is here); run \`construct attach --upgrade\` to rewrite its carriers, or \`construct detach\` first.` |
 | the directory holds nothing but `.git` and the files an empty directory may hold (`README.md`, `LICENSE`, editor settings) | `Refused: this repository holds nothing to attach to.` |
 | a path attach would create already exists | `Refused: N paths attach would create already exist:`, then why and the next step, then the paths, each labelled `construct's own: byte for byte the template of <date>` or `not recognised: attach never writes over it` (see [A collision](#a-collision)) |
 | `.claude/settings.local.json` exists and `.git/index` cannot be read (version 4, split, sparse or an unknown object format) | `Refused: .claude/settings.local.json exists and .git/index cannot be read here, so whether git tracks it cannot be told.`, then why and next |
@@ -1233,6 +1234,25 @@ remote. Every factory process started in the repository keeps its bus and logs t
 machine bus `~/.construct/bus.db`. attach prints it as `Factory:` and records it as `factoryBeside`.
 Nothing is deployed when that directory already exists, or when `CONSTRUCT_BUS_DB` names the bus the
 factory runs on: the factory's place is then not attach's.
+
+### Upgrading the carriers
+
+`construct attach --upgrade` brings an attached repository to the installed version without a detach.
+It rewrites a recorded carrier whose bytes are the ones the record names, creates a carrier the older
+build did not have and adds it to the exclude block, and records the new hashes and `attachedVersion`.
+Everything else stays byte for byte: the `.construct` data, the handoff and the bus beside the
+repository, and `.claude/settings.local.json`. A window hook entry a later version adds is therefore not
+wired by an upgrade; attach says so for a record that carries no window entries.
+
+| What it finds | What it does |
+|---|---|
+| a carrier that no longer matches the record, or is no longer a regular file inside the repository | Refuses by name and writes nothing: the edit is yours. |
+| a file at a new carrier path that the record does not name | Refuses by name: attach never writes over it. |
+| a carrier git tracks | Leaves it and names it. |
+| a recorded file that is no longer a carrier | Leaves it recorded and names it; detach removes it. |
+| a record or carriers a later build wrote | Refuses: update the CLI. |
+
+Exits as attach does: `0` when done or already current, `1` on a refusal or an abort.
 
 ### A collision
 
@@ -1365,7 +1385,8 @@ lists.
 | Field | What it holds |
 |---|---|
 | `recordVersion` | `4`. The shape of this record, separate from the CLI version. A `1` written by an earlier build detaches as before and no settings entry is sought; a `2` differs from `3` only in that its `harness` is always a command; a `3` carries no `settingsHook.window`, so only the guard entry is sought. |
-| `construct` | The CLI version that attached. |
+| `construct` | The CLI version that attached; an upgrade leaves it. |
+| `attachedVersion` | The CLI version that last wrote the carriers: attach, then each `--upgrade`. A record from before this field reads as unknown, and `doctor` prints it so. |
 | `attachedAt` | ISO timestamp of the run. |
 | `harness` | `{ "command": "<command>", "job": "<check name>" }`, the command passed or chosen, never a default, and `job`, the name of the CI job the chosen candidate was taken from or the one `--required-check` named (absent when neither is known); or the string `"none"` when the owner chose none or nothing was proposed. |
 | `files` | Every carrier path, `.construct/commit-guard.mjs`, `.construct/shell-parser.mjs`, `.construct/window-hooks.mjs` and `.construct/window-rules.md` with the sha256 of the bytes written. The record itself is not in it. |

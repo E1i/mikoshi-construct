@@ -1,3 +1,4 @@
+import type { JournalledIntake } from '../src/commands/intake/admit.js'
 import type { CardAdmissionsPort, CardEvent, IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -68,7 +69,10 @@ function admittedText(w: World, file: string): string {
 function admissionsOf(bus: readonly CardEvent[]): CardAdmissionsPort {
   return (cardId) => {
     const last = bus.filter(event => event.type === CARD_ADMITTED && event.cardId === cardId).at(-1)
-    return last === undefined ? null : { card: String(last.payload.card), bodySha: last.payload.bodySha, ts: last.ts, confirmation: last.payload.confirmation, source: last.payload.source }
+    if (last === undefined)
+      return null
+    const journalled: JournalledIntake = { card: String(last.payload.card), bodySha: last.payload.bodySha, ts: last.ts, confirmation: last.payload.confirmation, source: last.payload.source, event: bus.indexOf(last) + 1 }
+    return journalled
   }
 }
 
