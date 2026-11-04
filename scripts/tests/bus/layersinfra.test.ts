@@ -85,9 +85,16 @@ describe('by layers on a strict main with no required contexts and no required c
     expect(await mergeAndUpdate(made)).toEqual(UPDATED_THEN_MERGED)
   })
 
-  it('by layers, a PR on an old base after main merged a changeset is updated', async () => {
+  it('by layers, a PR on an old base after main merged another layer and its changeset merges without an update', async () => {
     const made = onThisHostAfterMainMerged(['src/cli.ts', '.changeset/answerfault.md'])
 
-    expect(await mergeAndUpdate(made)).toEqual(UPDATED_THEN_MERGED)
+    expect(await mergeAndUpdate(made)).toEqual(MERGED_THE_LEASED_HEAD)
+  })
+
+  it('by layers, a PR holding only a card changeset merges without an update after main merged another card changeset', async () => {
+    const made = onThisHostAfterMainMerged(['.changeset/y.md'], ['.changeset/x.md'])
+
+    expect(await mergeAndUpdate(made)).toEqual(MERGED_THE_LEASED_HEAD)
+    expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto' })])
   })
 })
