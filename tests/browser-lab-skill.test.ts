@@ -99,11 +99,10 @@ describe('the browser-lab skill states the script it carries', () => {
     expect(flowing).toContain('`sandbox.excludedCommands` matches only the bare command line')
   })
 
-  it('documents the proxy in one line, the flag winning over the environment', () => {
-    const lines = skill.split('\n').filter(line => line.includes('--proxy <url>'))
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain('CONSTRUCT_LAB_PROXY')
-    expect(lines[0]).toContain('the flag wins')
+  it('leaves the proxy option to the help of the script', () => {
+    expect(skill).not.toContain('--proxy')
+    expect(skill).not.toContain('CONSTRUCT_LAB_PROXY')
+    expect(usageOfTheScript()).toContain('--proxy')
   })
 
   it('is this repository\'s own copy, byte for byte', () => {

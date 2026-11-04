@@ -47,8 +47,6 @@ with `hands … -- close` before any other command uses the same profile.
 Every `npx` of the lab installs from the public registry whatever the repository's `.npmrc` says, with its own npm
 cache under the construct directory in the home directory.
 
-`--proxy <url>` sends the lab browser through the proxy, every command and `hands` alike; without the flag it takes `CONSTRUCT_LAB_PROXY` from the environment, and the flag wins.
-
 Add `--headed` to any of them to watch the browser. `page` also runs without `--extension`; with it, the output says
 whether a content script of the extension ran in the page.
 
