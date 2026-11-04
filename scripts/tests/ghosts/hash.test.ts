@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { describe, expect, it } from 'vitest'
+import { pathToFileURL } from 'node:url'
+import { describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
@@ -14,15 +15,17 @@ import { ghostLines, recordGhostLine } from '../../core/journal.js'
 import { reduce } from '../../core/reducer.js'
 import { approvalSha256, approvedHashPath, checkApproval } from '../../ladder/approval.js'
 import { approvalLine, checkAcceptanceBuild, hashBrief, NO_WITNESS_FILES, PREFLIGHT_EVENT, rememberedPreflight, resolveApprover, witnessFilesDigest } from '../../ladder/hash.js'
+import { DISK_FLOOR_BYTES, DISK_LOW } from '../../ports/disk.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const HASH = path.join(REPO_ROOT, 'scripts/ladder/hash.ts')
 const MORSE_APPROVE = path.join(REPO_ROOT, 'scripts/ladder/morse-approve.ts')
-const TSX_CLI = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs')
+const TSX_LOADER = pathToFileURL(path.join(REPO_ROOT, 'node_modules/tsx/dist/esm/index.mjs')).href
 const NOW = new Date(2026, 9, 4, 12)
 const APPROVER = 'Approver One'
 const HEAD_SHA = execFileSync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+const UNDER_THE_DISK_FLOOR = DISK_FLOOR_BYTES - 1024 ** 3
 
 function GREEN_PREFLIGHT(): void {}
 const SOUND_TEXT = '/implement Print the name.\nSketch: none — independent implementation is the witness\n\nAcceptance: the name is printed — witness: `echo name`'
@@ -39,11 +42,16 @@ function briefWith(text: string): string {
   return brief
 }
 
-function gitHome(userName: string | undefined): NodeJS.ProcessEnv {
+function withDiskReading(nodeOptions: string | undefined, freeDiskBytes: number): string {
+  const reading = `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module'; fs.statfsSync = () => ({ bavail: 1, bsize: ${freeDiskBytes} }); syncBuiltinESMExports()`
+  return `${nodeOptions ?? ''} --import=data:text/javascript,${encodeURIComponent(reading)}`.trim()
+}
+
+function gitHome(userName: string | undefined, freeDiskBytes: number = DISK_FLOOR_BYTES): NodeJS.ProcessEnv {
   const home = worldDir()
   const gitconfig = path.join(home, '.gitconfig')
   writeFileSync(gitconfig, userName === undefined ? '' : `[user]\n\tname = ${userName}\n`)
-  return { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1' }
+  return { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1', NODE_OPTIONS: withDiskReading(process.env.NODE_OPTIONS, freeDiskBytes) }
 }
 
 function cliRepository(): string {
@@ -63,8 +71,8 @@ function cliRepository(): string {
   return repo
 }
 
-function runHash(args: string[], gitUserName?: string, cwd: string = worldDir()): { status: number | null, stdout: string, stderr: string } {
-  const result = spawnSync(process.execPath, [TSX_CLI, ...args], { encoding: 'utf8', cwd, env: gitHome(gitUserName) })
+function runHash(args: string[], gitUserName?: string, cwd: string = worldDir(), freeDiskBytes?: number): { status: number | null, stdout: string, stderr: string } {
+  const result = spawnSync(process.execPath, ['--import', TSX_LOADER, ...args], { encoding: 'utf8', cwd, env: gitHome(gitUserName, freeDiskBytes) })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
@@ -229,6 +237,27 @@ describe('hashBrief', () => {
 describe('ghosts:hash from the command line', () => {
   const busOf = ownBusPerTest()
 
+  it('a runner under the disk floor does not fail the hash command tests', () => {
+    vi.stubEnv('NODE_OPTIONS', withDiskReading(process.env.NODE_OPTIONS, UNDER_THE_DISK_FLOOR))
+    try {
+      const result = runHash([HASH, briefWith(RED_ON_BASE_TEXT), '--by', APPROVER], undefined, cliRepository())
+
+      expect(result.stderr).not.toContain(DISK_LOW)
+      expect(result.status).toBe(0)
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('refuses with the disk reading it is given, so that reading is the one the preflight reads', () => {
+    const result = runHash([HASH, briefWith(RED_ON_BASE_TEXT), '--by', APPROVER], undefined, cliRepository(), UNDER_THE_DISK_FLOOR)
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain(DISK_LOW)
+  })
+
   it('prints nothing on stdout and exits 1 for a brief the build refuses', () => {
     const result = runHash([HASH, briefWith(BACKTICK_TEXT), '--by', APPROVER])
 
@@ -297,7 +326,7 @@ describe('ghosts:hash from the command line', () => {
     }
     const handoff = worldDir()
     const morseApprove = (args: string[]): ReturnType<typeof runHash> => {
-      const result = spawnSync(process.execPath, [TSX_CLI, MORSE_APPROVE, brief, String(card), ...args], { encoding: 'utf8', cwd: cliRepository(), env: { ...gitHome('Git Name'), CONSTRUCT_HANDOFF_DIR: handoff } })
+      const result = spawnSync(process.execPath, ['--import', TSX_LOADER, MORSE_APPROVE, brief, String(card), ...args], { encoding: 'utf8', cwd: cliRepository(), env: { ...gitHome('Git Name'), CONSTRUCT_HANDOFF_DIR: handoff } })
       return { status: result.status, stdout: result.stdout, stderr: result.stderr }
     }
 

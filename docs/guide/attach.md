@@ -70,11 +70,22 @@ Every refusal happens before anything is written. The full list with the exact o
 | not a git repository | Run it at the root of a git repository. |
 | `.git` is a file | You are in a worktree or a submodule. Run it in the main checkout; worktrees are not supported yet. |
 | `construct.json` is here | The repository already carries a construct. Use `sync` and `doctor`, not `attach`. |
-| `.construct/attach.json` is here | The repository is already attached, even if its carriers are gone. Run `construct detach` first. |
+| `.construct/attach.json` is here | The repository is already attached, even if its carriers are gone. Run `construct attach --upgrade` to rewrite its carriers, or `construct detach` first. |
 | nothing to attach to | The directory holds only `.git` and files such as a README or a LICENSE. attach works on any stack; it needs something to attach to and a harness command. |
 | paths already exist | A file attach would create is already there, and it is yours. Move it aside or keep working without attach; attach never writes over it. |
 | `.claude/settings.local.json` is tracked, unreadable, or already carries a guard entry | attach will not edit it. Stop tracking it, fix it or move it aside, then attach again. |
 | `--ai cursor` or `both` | Not supported: a Cursor rule would apply to the whole tree. Use Claude Code. |
+
+## Upgrading
+
+An attached repository stays on the version that attached it until you upgrade it. `construct doctor`
+prints the attached version and the installed one and says when the carriers are stale; a record from
+before the attached version was recorded reads as unknown.
+
+`construct attach --upgrade` rewrites only the carriers. Your `.construct` data, the handoff, the bus and
+`.claude/settings.local.json` stay, which `detach` followed by `attach` would not keep. It refuses a
+carrier you edited, and never writes over a file it did not record. See the
+[CLI reference](/cli#upgrading-the-carriers).
 
 ## Detaching
 
@@ -122,5 +133,4 @@ The remaining refusals, about the git index and the record, are listed with thei
   ([decision 0034](https://github.com/E1i/mikoshi-construct/blob/main/architecture/decisions/0034-stack-detection-is-not-an-attach-gate.md)).
 - **Claude Code only.** Cursor is refused.
 - **No worktrees or submodules.** A `.git` that is a file is refused.
-- **One attach at a time.** A second attach meets its own files and refuses with a collision; detach
-  first.
+- **One attach at a time.** A second attach is refused; upgrade it or detach first.
