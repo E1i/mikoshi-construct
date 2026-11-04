@@ -2,19 +2,22 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Graph } from '../ci/layers.js'
 import type { CardBody } from '../intake/parking-reads.js'
 import type { Meter } from '../ports/meter.js'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, readdirSync, readFileSync, symlinkSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
-import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
-import { GHOST_LINE } from '../core/events.js'
+import { BUS_DB_VARIABLE, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { GHOST_LINE, POLICY_DENIED } from '../core/events.js'
+import { LAYER_MAP } from '../core/layer-map.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardBodies } from '../intake/parking-reads.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
+import { gitIn, withWorktree } from '../ports/worktree.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const BRIEF_FILE = /^brief-(\d+)(?:-.*)?\.md$/
@@ -48,6 +51,16 @@ const REPO = 'repos/{owner}/{repo}'
 const MAIN_PROTECTION = `${REPO}/branches/${MAIN_BRANCH}/protection`
 const FILES_PAGE = 100
 const COMPARE_FILES_CAP = 300
+const CATALOG_SCRIPT = 'scripts/cli/check-catalog.ts'
+const REBUILD_MS = 5 * 60_000
+
+export const MAIN_TIP = `origin/${MAIN_BRANCH}`
+export const REFUSED_NOT_UP_TO_DATE = 'not_up_to_date'
+const REFUSED_ON_THE_HEAD = `
+  SELECT events.id FROM events JOIN prs ON prs.pr = events.pr AND prs.head = events.head
+  WHERE events.type = '${POLICY_DENIED}' AND events.pr = ? AND json_extract(events.payload, '$.refusal') = '${REFUSED_NOT_UP_TO_DATE}'
+  LIMIT 1
+`
 
 interface ListedFile { filename?: string, previous_filename?: string }
 
@@ -284,6 +297,22 @@ function catalogLayersByTest(db: DatabaseSync): Map<string, string[]> {
   return new Map(rows.map(row => [row.test, row.layer.split(',').filter(layer => layer !== NO_LAYER)]))
 }
 
+export function catalogIsEmpty(db: DatabaseSync): boolean {
+  return catalogLayersByTest(db).size === 0
+}
+
+export function changesTheCatalog(files: readonly string[]): boolean {
+  return files.some(file => isTest(file) || file === LAYER_MAP)
+}
+
+export function rebuildCatalogAt(ref: string, busPath: string, repo: string = REPO_ROOT): void {
+  gitIn(repo, ['fetch', 'origin', MAIN_BRANCH])
+  withWorktree(repo, ref, (tree) => {
+    symlinkSync(path.join(repo, 'node_modules'), path.join(tree, 'node_modules'))
+    execFileSync(process.execPath, ['--import', 'tsx', CATALOG_SCRIPT], { cwd: tree, env: { ...process.env, [BUS_DB_VARIABLE]: busPath }, timeout: REBUILD_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+  })
+}
+
 function layersOfFile(file: string, byTest: ReadonlyMap<string, readonly string[]>): readonly string[] | null {
   if (isTest(file)) {
     const layers = byTest.get(file)
@@ -338,6 +367,10 @@ function pathsOf(files: readonly ListedFile[]): string[] {
   return files.flatMap(file => [file.filename, file.previous_filename].filter(name => name !== undefined))
 }
 
+export function changedPaths(meter: Meter, pr: number): string[] {
+  return pathsOf(listedFiles(meter, pr))
+}
+
 export function changedFiles(meter: Meter, pr: number): string[] {
   return listedFiles(meter, pr).flatMap(file => file.filename === undefined ? [] : [file.filename])
 }
@@ -379,6 +412,8 @@ function mainFilesSince(meter: Meter, base: string): MainSince {
 export function rerunOf(db: DatabaseSync, meter: Meter, pr: number, base: string | undefined): Rerun {
   if (upToDateRequired(meter))
     return { rerun: true, why: `${MAIN_BRANCH} requires an up-to-date branch on this host` }
+  if (db.prepare(REFUSED_ON_THE_HEAD).get(pr) !== undefined)
+    return { rerun: true, why: `GitHub refused the merge of this head of #${pr} as not up to date` }
   if (base === undefined)
     return { rerun: true, why: `#${pr} came back with no base sha` }
   const main = mainFilesSince(meter, base)
