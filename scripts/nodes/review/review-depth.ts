@@ -2,6 +2,7 @@ import type { Lease } from '../../core/lease.js'
 import type { Prediction, RuleId } from '../../policy/morse/rules.js'
 import { runsCover } from '../../../src/card/covering-tests.js'
 import { PREFIX_SUFFIX } from '../../../src/card/task-file.js'
+import { followsTouches } from '../../../src/commands/intake/check.js'
 
 export const REVIEW_DEPTHS = ['full', 'diff'] as const
 
@@ -23,6 +24,7 @@ export interface EarlierVerdict {
 export interface Predicted {
   prediction: Prediction
   files: string[]
+  added: string[]
 }
 
 export interface DepthSources {
@@ -62,21 +64,23 @@ function reReview(head: string, earlier: EarlierVerdict, sources: DepthSources):
   return { depth: 'diff', round: 'again', why, since: earlier.head, findings: earlier.findings }
 }
 
-function touchFindings(cardId: number, files: readonly string[], sources: DepthSources): string[] {
+function touchFindings(cardId: number, { files, added }: Predicted, sources: DepthSources): string[] {
   const scope = sources.scope(cardId)
   if (scope === null)
     return [`the touches of card #${cardId} could not be read, so no changed file is shown inside them`]
   const { touches, runs } = scope
-  return files.filter(file => !withinTouches(file, touches) && !runsCover(file, runs)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})`)
+  const reach = { touches, added: new Set(added) }
+  return files.filter(file => !withinTouches(file, touches) && !runsCover(file, runs) && !followsTouches(file, reach)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})`)
 }
 
 function firstReview(lease: Lease, head: string, sources: DepthSources): ReviewPlan {
   const base = sources.base(head)
-  const { prediction, files } = sources.predict(lease.taskKey, base, head)
+  const predicted = sources.predict(lease.taskKey, base, head)
+  const { prediction } = predicted
   const rule = `MORSE predicts ${prediction.verdict} by rule ${prediction.rule}`
   if (prediction.rule === FULL_DEPTH_RULE)
     return fullReview(rule, prediction)
-  return { depth: 'diff', round: 'first', why: `${rule}, and only the ${FULL_DEPTH_RULE} rule takes the full review`, since: base, touchFindings: touchFindings(lease.cardId, files, sources) }
+  return { depth: 'diff', round: 'first', why: `${rule}, and only the ${FULL_DEPTH_RULE} rule takes the full review`, since: base, touchFindings: touchFindings(lease.cardId, predicted, sources) }
 }
 
 export function planReview(lease: Lease, earlier: EarlierVerdict | null, sources: DepthSources): ReviewPlan {
