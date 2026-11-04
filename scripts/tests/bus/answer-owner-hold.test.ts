@@ -13,7 +13,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
-import { DOWNGRADE_WAIT_OPEN, queueTask } from '../../core/queue.js'
+import { answerCandidates, DOWNGRADE_WAIT_OPEN, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, liveSessionIn, pendingPathsOf } from '../../nodes/answer/answerer.js'
@@ -259,6 +259,19 @@ describe('a card with an open witness.downgrade wait', () => {
 
     expect(nextAnswer(made)).toBeNull()
     expect(answerTasks(made)).toEqual([{ state: 'withdrawn' }])
+  })
+
+  it('a stop under the wait is no answer candidate until the wait closes, so no task appears after the derive withdrew the queued ones', () => {
+    const { made } = stoppedCard()
+    const wait = openDowngradeWait(made)
+    stopAgain(made)
+    const candidatesNow = (): number[] => answerCandidates(made.db, made.clock.now().toISOString()).map(task => task.cardId)
+
+    expect(candidatesNow()).toEqual([])
+
+    closeWait(made, wait)
+
+    expect(candidatesNow()).toEqual([CARD])
   })
 
   it('a pull request with failed checks gets no answer task under the wait', () => {
