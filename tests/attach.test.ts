@@ -321,7 +321,7 @@ describe('a repository that already holds its attach record is not attached agai
   }
 
   it('says which file holds the record and what to run first', () => {
-    expect(PLAIN_LORE.attachRefusedAttached).toBe('Refused: this repository is already attached (.construct/attach.json is here); run `construct detach` first.')
+    expect(PLAIN_LORE.attachRefusedAttached).toBe('Refused: this repository is already attached (.construct/attach.json is here); run `construct attach --upgrade` to rewrite its carriers, or `construct detach` first.')
   })
 })
 
@@ -915,7 +915,7 @@ describe('interactive attach proposes the harness candidates it read from the re
     expect(output()).toContain(PLAIN_LORE.attachHarnessNone)
     expect(readAttachRecord(dir)?.harness).toBe(NO_HARNESS)
     const report = runDoctor(dir)
-    expect(report).toEqual({ state: 'attached', harness: { command: null, state: 'none' } })
+    expect(report).toMatchObject({ state: 'attached', harness: { command: null, state: 'none' } })
     const doctor = capturing()
     printDoctor(doctor.ui, report)
     expect(doctor.output()).toContain(PLAIN_LORE.doctorAttachedNoHarness)

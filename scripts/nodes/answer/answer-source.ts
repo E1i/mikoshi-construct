@@ -151,14 +151,14 @@ export function cardSessionOf(db: DatabaseSync, cardId: number): CardSession | n
   return startedOf(db, cardId) ?? startLineOf(db, cardId)
 }
 
-const LATEST_HOLD = `SELECT type, json_extract(payload, '$.reason') AS reason FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_HELD}', '${CARD_RELEASED}') ORDER BY id DESC LIMIT 1`
+const LATEST_HOLD = `SELECT type, json_extract(payload, '$.reason') AS reason, json_extract(payload, '$.takeover') AS takeover FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_HELD}', '${CARD_RELEASED}') ORDER BY id DESC LIMIT 1`
 
 const DRAFT_PR = `SELECT pr FROM prs WHERE card_id = ? AND state = 'open' AND draft = 1 ORDER BY pr DESC LIMIT 1`
 
 export function ownerHoldOf(db: DatabaseSync, cardId: number): string | null {
-  const hold = db.prepare(LATEST_HOLD).get(cardId) as { type: string, reason: unknown } | undefined
+  const hold = db.prepare(LATEST_HOLD).get(cardId) as { type: string, reason: unknown, takeover: unknown } | undefined
   if (hold?.type === CARD_HELD)
-    return `card #${cardId} is held for the owner: ${text(hold.reason) ?? 'the hold names no reason'}`
+    return `card #${cardId} is ${hold.takeover === null ? 'held for the owner' : 'taken over by the window'}: ${text(hold.reason) ?? 'the hold names no reason'}`
   const draft = db.prepare(DRAFT_PR).get(cardId) as { pr: number } | undefined
   return draft === undefined ? null : `card #${cardId} has the draft pull request #${Number(draft.pr)}, which is the owner's until it is marked ready`
 }

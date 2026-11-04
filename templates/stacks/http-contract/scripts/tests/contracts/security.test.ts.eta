@@ -11,21 +11,31 @@ interface MediaTypes {
   content?: Record<string, { schema: SchemaNode }>
 }
 
+type SecurityRequirement = Record<string, string[]>
+
+interface SecurityScheme {
+  flows?: Record<string, { scopes?: Record<string, string> }>
+}
+
 interface Operation {
   operationId: string
-  security?: Array<Record<string, unknown>>
+  security?: SecurityRequirement[]
   requestBody?: MediaTypes
   responses?: Record<string, MediaTypes>
 }
 
 interface ContractDocument {
+  security?: SecurityRequirement[]
   paths: Record<string, Record<string, Operation>>
-  components: { schemas: Record<string, SchemaNode> }
+  components: { schemas: Record<string, SchemaNode>, securitySchemes?: Record<string, SecurityScheme> }
 }
 
 const contract = parse(readFileSync(new URL('../../../{{contractPath}}', import.meta.url), 'utf8')) as ContractDocument
 
-const PROTECTED_PREFIXES = ['/v1/admin', '/v1/me']
+const ADMIN_PREFIX = '/v1/admin'
+const PROTECTED_PREFIXES = [ADMIN_PREFIX, '/v1/me']
+const ADMIN_SCOPE = 'admin'
+const declaredSchemes = contract.components.securitySchemes ?? {}
 
 function operations(prefix: string): Array<{ route: string, method: string, operation: Operation }> {
   return Object.entries(contract.paths)
@@ -56,9 +66,28 @@ function jsonResponseBodies(): Array<{ route: string, method: string, status: st
       })))
 }
 
-function requires(operation: Operation, scheme: string): boolean {
-  const schemes = operation.security ?? []
-  return schemes.length > 0 && schemes.every(entry => scheme in entry)
+function effectiveSecurity(operation: Operation): SecurityRequirement[] {
+  return operation.security ?? contract.security ?? []
+}
+
+function declaresOwnScheme(operation: Operation): boolean {
+  const requirements = effectiveSecurity(operation)
+  return requirements.length > 0 && requirements.every((requirement) => {
+    const names = Object.keys(requirement)
+    return names.length > 0 && names.every(name => Object.hasOwn(declaredSchemes, name))
+  })
+}
+
+function schemesMarkingAdminScope(): Set<string> {
+  const declaring = Object.entries(declaredSchemes)
+    .filter(([, scheme]) => Object.values(scheme.flows ?? {}).some(flow => Object.hasOwn(flow.scopes ?? {}, ADMIN_SCOPE)))
+    .map(([name]) => name)
+  const naming = operations('/')
+    .flatMap(({ operation }) => effectiveSecurity(operation))
+    .flatMap(requirement => Object.entries(requirement))
+    .filter(([, scopes]) => scopes.includes(ADMIN_SCOPE))
+    .map(([name]) => name)
+  return new Set([...declaring, ...naming])
 }
 
 describe('security invariants stated by the contract', () => {
@@ -67,10 +96,20 @@ describe('security invariants stated by the contract', () => {
       expect({ route, method, operationId: typeof operation.operationId }).toEqual({ route, method, operationId: 'string' })
   })
 
-  it('requires a bearer session on every operation under a protected prefix', () => {
+  it('declares one of the contract\'s own security schemes on every operation under a protected prefix', () => {
     for (const prefix of PROTECTED_PREFIXES) {
       for (const { route, method, operation } of operations(prefix))
-        expect({ route, method, bearer: requires(operation, 'bearer') }).toEqual({ route, method, bearer: true })
+        expect({ route, method, security: effectiveSecurity(operation), declared: declaresOwnScheme(operation) }).toEqual({ route, method, security: effectiveSecurity(operation), declared: true })
+    }
+  })
+
+  it('names the admin scope on every admin operation whose scheme marks one', () => {
+    const marking = schemesMarkingAdminScope()
+    for (const { route, method, operation } of operations(ADMIN_PREFIX)) {
+      for (const [scheme, scopes] of effectiveSecurity(operation).flatMap(requirement => Object.entries(requirement))) {
+        if (marking.has(scheme))
+          expect({ route, method, scheme, scopes }).toEqual({ route, method, scheme, scopes: expect.arrayContaining([ADMIN_SCOPE]) })
+      }
     }
   })
 
