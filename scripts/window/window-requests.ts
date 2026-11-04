@@ -4,6 +4,9 @@ import type { Queue } from '../core/identifiers.js'
 import type { StoredEvent } from '../core/stored.js'
 import type { DryRunRecord } from '../nodes/review/dry-run-record.js'
 import type { CloseOutcome, CloseRequest } from '../nodes/review/pr-close.js'
+import type { MergeFacts, PatchedFile } from '../policy/policy.js'
+import type { GitHub } from '../ports/github.js'
+import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -12,8 +15,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
-import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
@@ -24,8 +27,12 @@ import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { consumeOwnerWord, OWNER_WORD_NOT_FOUND, ownerChannelOf, USED_WORD } from '../owner/channel.js'
 import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
 import { settledCards } from '../policy/decisions/read.js'
+import { mergePolicy, OWNER_MERGES } from '../policy/policy.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
-import { activeDecisionsShard, decisionsInForceAt, ownersOfAStop } from '../policy/shards.js'
+import { activeDecisionsShard, activeWindowShards, decisionsInForceAt, ownersOfAStop } from '../policy/shards.js'
+import { ghApi } from '../ports/github.js'
+import { Meter } from '../ports/meter.js'
+import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
 
 export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover'] as const
@@ -113,6 +120,18 @@ const REQUEUES_SINCE = `
 
 const MS_PER_MINUTE = 60_000
 
+const REPO = 'repos/{owner}/{repo}'
+const PULL_FILES_PAGE = 100
+
+const UNCLOSED_QUESTION = `
+  SELECT json_extract(opened.payload, '$.id') AS id FROM events AS opened
+  WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0
+    AND json_extract(opened.payload, '$.need') = 'decision' AND json_extract(opened.payload, '$.text') = ?
+    AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.id = json_extract(opened.payload, '$.id') AND wait.state = '${CLOSED_WAIT}')
+    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
+  ORDER BY opened.id LIMIT 1
+`
+
 const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
 
 const LATEST_TURN = `SELECT id, type FROM events WHERE id = ${latestTurnOf('?')}`
@@ -160,8 +179,30 @@ export function requestFromWindow(db: DatabaseSync, ts: string, session: string,
   return storedByKey(db, dedupeKey).id
 }
 
+export function openWindowQuestion(db: DatabaseSync, ts: string, session: string, question: string): string {
+  return inTransaction(db, () => {
+    const open = db.prepare(UNCLOSED_QUESTION).get(question) as { id: string } | undefined
+    if (open !== undefined)
+      return open.id
+    const request = requestFromWindow(db, ts, session, { kind: 'owner.wait', need: 'decision', text: question })
+    const id = openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: question, request })
+    appendEvent(db, { ts, type: REQUEST_DONE, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_REQUEST}:${request}:answered`, payload: { request, kind: 'owner.wait', detail: `opened ${id}` }, legacy: false })
+    return id
+  })
+}
+
 export function pendingRequests(db: DatabaseSync): StoredEvent[] {
   return db.prepare(PENDING).all() as unknown as StoredEvent[]
+}
+
+function patchedFilesOfPull(meter: Meter, pr: number): PatchedFile[] {
+  const files: PatchedFile[] = []
+  for (let page = 1; ; page += 1) {
+    const listed = meter.get(`${REPO}/pulls/${pr}/files?per_page=${PULL_FILES_PAGE}&page=${page}`) as PatchedFile[]
+    files.push(...listed)
+    if (listed.length < PULL_FILES_PAGE)
+      return files
+  }
 }
 
 function text(value: unknown): string | null {
@@ -169,7 +210,7 @@ function text(value: unknown): string | null {
 }
 
 export class WindowRequests {
-  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly tools: RequestTools, private readonly ownerChannel: string = ownerChannelOf(os.homedir()), private readonly releaseVersion: () => string | null = () => readReleaseVersion(), private readonly repository: string = process.cwd()) {}
+  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly tools: RequestTools, private readonly ownerChannel: string = ownerChannelOf(os.homedir()), private readonly releaseVersion: () => string | null = () => readReleaseVersion(), private readonly repository: string = process.cwd(), private readonly gitHub: GitHub = ghApi(repository)) {}
 
   run(): RequestOutcome[] {
     const answered = pendingRequests(this.db).map(request => this.answer(request))
@@ -258,8 +299,47 @@ export class WindowRequests {
       return { done: false, why: 'owner.wait --need command names no command' }
     const card = cardIdOf(payload.card)
     const pr = prOf(payload.pr)
+    const leftToTheBus = need === 'merge' ? this.mergeLeftToTheBus(pr, card) : null
+    if (leftToTheBus !== null)
+      return { done: false, why: leftToTheBus }
     const id = openOwnerWait(this.db, this.clock().toISOString(), QUEUE_ACTOR, { need, text: waitText, request, ...(command === null ? {} : { command }), ...(card === null ? {} : { card }), ...(pr === null ? {} : { pr }) })
     return { done: true, why: `opened ${id}` }
+  }
+
+  private mergeLeftToTheBus(pr: number | null, card: number | null): string | null {
+    const shard = activeWindowShards(this.db, this.clock())[0]
+    const cardId = pr === null ? null : this.observed(pr)?.card_id ?? card
+    if (shard === undefined || pr === null || cardId === null)
+      return null
+    try {
+      const verdict = mergePolicy(this.mergeFactsUnder(shard.id, cardId, pr))
+      return verdict.kind === 'allowed' ? `the merge policy under the live shard ${shard.id} leaves PR #${pr} to the bus (${verdict.detail}); no owner wait opens` : null
+    }
+    catch {
+      return null
+    }
+  }
+
+  private mergeFactsUnder(windowShard: string, cardId: number, pr: number): MergeFacts {
+    const meter = new Meter(this.gitHub, () => this.clock().getTime())
+    const pull = meter.get(`${REPO}/pulls/${pr}`) as { title?: string, body?: string | null, head?: { ref?: string } }
+    const ownerMerges = meter.get(`${REPO}/contents/${OWNER_MERGES}?ref=${MAIN_BRANCH}`) as { content?: string }
+    if (typeof ownerMerges.content !== 'string')
+      throw new Error(`${OWNER_MERGES} on ${MAIN_BRANCH} came back with no content`)
+    const patched = patchedFilesOfPull(meter, pr)
+    return {
+      cardId,
+      description: pull.body ?? '',
+      headRef: pull.head?.ref ?? '',
+      title: pull.title ?? '',
+      files: patched.map(file => file.filename),
+      patched,
+      ownerMergesText: Buffer.from(ownerMerges.content, 'base64').toString('utf8'),
+      shardActive: false,
+      shardUnder: null,
+      windowShard,
+      decisions: decisionsInForceAt(this.db, this.clock()),
+    }
   }
 
   private closeWait(request: number, payload: Record<string, unknown>): Executed {
