@@ -2,6 +2,7 @@ import type { Contour } from '../../../src/card/grammar.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { CompanionRow, CompositionRecord, FollowingReach } from '../../../src/commands/intake/check.js'
+import type { parseCompositionModel } from '../../composition/model.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
 import type { GhRunner } from '../../ports/gh.js'
 import { readFileSync } from 'node:fs'
@@ -9,7 +10,6 @@ import path from 'node:path'
 import { COVERING_REASON, runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
 import { admittedReachOf, COMPANION_TABLE, COMPOSITION_ROOT, FOLLOWING_REASON, followsTouches, neverFollows, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
 import { readShiftGate } from '../../../src/manifest.js'
-import { parseCompositionModel } from '../../composition/model.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
@@ -203,19 +203,34 @@ export function addedSinceBase(git: TreePrPorts['git'], worktree: string, files:
   return new Set(atBase.size === 0 ? [] : files.filter(file => !atBase.has(file)))
 }
 
-function recordAtBase(git: TreePrPorts['git'], worktree: string, file: string): CompositionRecord[] {
+const READER_ONLY_IN_A_CHECKOUT = '../../composition/model.js'
+
+async function compositionReaderOrNone(): Promise<typeof parseCompositionModel | null> {
   try {
-    return [parseCompositionModel(git(worktree, ['show', `${PR_BASE}:${file}`]), file)]
+    return (await import(READER_ONLY_IN_A_CHECKOUT) as { parseCompositionModel: typeof parseCompositionModel }).parseCompositionModel
+  }
+  catch {
+    return null
+  }
+}
+
+const compositionReader = await compositionReaderOrNone()
+
+function recordAtBase(git: TreePrPorts['git'], worktree: string, file: string, read: typeof parseCompositionModel): CompositionRecord[] {
+  try {
+    return [read(git(worktree, ['show', `${PR_BASE}:${file}`]), file)]
   }
   catch {
     return []
   }
 }
 
-export function compositionRecordsAtBase(git: TreePrPorts['git'], worktree: string): CompositionRecord[] {
+export function compositionRecordsAtBase(git: TreePrPorts['git'], worktree: string, read = compositionReader): CompositionRecord[] {
+  if (read === null)
+    return []
   return listedOrNone(() => git(worktree, ['ls-tree', '-r', '--name-only', PR_BASE, `${COMPOSITION_ROOT}/`]))
     .filter(file => file.endsWith(COMPOSITION_MODEL_SUFFIX))
-    .flatMap(file => recordAtBase(git, worktree, file))
+    .flatMap(file => recordAtBase(git, worktree, file, read))
 }
 
 export function touchesFollowed(outside: readonly string[], reach: FollowingReach, coverage: TestCoverage): TouchesFollowed {
