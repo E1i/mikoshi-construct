@@ -131,14 +131,34 @@ describe('construct intake --dry-run sees the cards the write would see', () => 
     }
   })
 
-  it.fails('known gap, src/program.ts passes no dryRun to runMove: through the entry a move --dry-run still writes to the journal', async () => {
+  it('runMove with dryRun: a move --dry-run of a card only the bus holds leaves the journal unchanged and names the card', () => {
     const w = world()
     const db = openBus(w.bus)
     try {
-      const { ports } = admittedInTheBus(w, db)
+      const { file, ports } = admittedInTheBus(w, db)
+      rmSync(file)
       const before = allEvents(db)
-      await throughEntry(w, ['--move', '#80', '--to', 'lane-3'], ports)
+      const result = runMove({ move: '#80', to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, dryRun: true, events: ports.cardEvents, admissions: ports.cardAdmissions })
+      expect(result).toMatchObject({ status: 'dryRun', from: '#80', to: path.join(w.parking, 'lane-3') })
       expect(allEvents(db)).toEqual(before)
+      expect(existsSync(path.join(w.parking, 'lane-3'))).toBe(false)
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it('through the entry a move --dry-run leaves the journal and the file unchanged and exits as a dry run', async () => {
+    const w = world()
+    const db = openBus(w.bus)
+    try {
+      const { file, ports } = admittedInTheBus(w, db)
+      const before = allEvents(db)
+      const { exit, output } = await throughEntry(w, ['--move', '#80', '--to', 'lane-3'], ports)
+      expect(allEvents(db)).toEqual(before)
+      expect(existsSync(file)).toBe(true)
+      expect(exit).toBe(INTAKE_EXIT.dryRun)
+      expect(output).toContain(PLAIN_LORE.intakeDryRun(w.parking))
     }
     finally {
       db.close()
