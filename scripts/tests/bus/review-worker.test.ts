@@ -1226,7 +1226,7 @@ class DepthWorld {
       const files = this.files(base, head)
       const prediction = classify(files)
       this.predictions.push({ task, verdict: prediction.verdict, rule: prediction.rule })
-      return { prediction, files: files.map(file => file.path) }
+      return { prediction, files: files.map(file => file.path), added: files.filter(file => file.status === 'A').map(file => file.path) }
     },
     scope: (cardId) => {
       const touches = this.touches.get(cardId)
