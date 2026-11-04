@@ -642,8 +642,19 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
     }
   }
 
-  function ownerAllows(w: World, cardId: number, witness: string): void {
-    const text = `[owner] ${downgradeAction(cardId, witness)}`
+  function ownerDecides(w: World, words: string, tail = ''): void {
+    writeFileSync(decisionsOf(w), `# Owner decisions\n\n- D-7 · 2026-10-13 — [owner] ${words} · card #80 · decisions:add${tail}\n`)
+  }
+
+  function amendedProse(w: World, before: string[], after: string[]): { file: string, held: AdmitResult } {
+    const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(...before))
+    admitThroughBus(w, file, { decisions: decisionsOf(w) })
+    park(w, 80, CLEAN, 'src/board/**', bodyWith(...after))
+    return { file, held: admitThroughBus(w, file, { decisions: decisionsOf(w) }) }
+  }
+
+  function ownerAllows(w: World, cardId: number, witness: string, admitted: string[] = [witness]): void {
+    const text = `[owner] ${downgradeAction(cardId, witness, admitted)}`
     writeFileSync(decisionsOf(w), `# Owner decisions\n\n- D-7 · 2026-10-13 — ${text} · card #${cardId} · decisions:add\n`)
     const db = openBus(busOf(w))
     try {
@@ -664,9 +675,9 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
     expect(held).toMatchObject({ status: 'ownerWait', downgrades: [ACCEPTANCE], inBus: true })
     const { lines, exit } = printed(held)
     expect(exit).toBe(INTAKE_EXIT.waiting)
-    expect(lines.join('\n')).toContain(downgradeAction(80, ACCEPTANCE))
+    expect(lines.join('\n')).toContain(downgradeAction(80, ACCEPTANCE, [ACCEPTANCE]))
     expect(admittedEvents(w)).toBe(1)
-    expect(ownerWaits(w)).toEqual([{ id: expect.stringMatching(/^W\d+$/), need: 'decision', text: `разрешить понижение свидетеля ${ACCEPTANCE} у #80`, card_id: 80, state: 'open', answer: null }])
+    expect(ownerWaits(w)).toEqual([{ id: expect.stringMatching(/^W\d+$/), need: 'decision', text: 'разрешить понижение свидетеля #80 W1', card_id: 80, state: 'open', answer: null }])
     expect(admitThroughBus(w, file, { decisions: decisionsOf(w) }).status).toBe('ownerWait')
     expect(ownerWaits(w)).toHaveLength(1)
   })
@@ -698,9 +709,57 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
     const w = world()
     const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(ACCEPTANCE, ANOTHER))
     admitThroughBus(w, file, { decisions: decisionsOf(w) })
-    ownerAllows(w, 80, ACCEPTANCE)
+    ownerAllows(w, 80, ACCEPTANCE, [ACCEPTANCE, ANOTHER])
     park(w, 80, CLEAN, 'src/board/**', bodyWith(INVARIANT))
     expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'ownerWait', downgrades: [ACCEPTANCE, ANOTHER] })
+  })
+
+  it('a decision naming the position of a prose witness lifts its downgrade wait', () => {
+    const w = world()
+    const { file, held } = amendedProse(w, [ACCEPTANCE, ANOTHER], [ACCEPTANCE])
+    expect(held).toMatchObject({ status: 'ownerWait', downgrades: [ANOTHER], actions: ['разрешить понижение свидетеля #80 W2'] })
+    const { lines } = printed(held)
+    expect(lines.join('\n')).toContain('разрешить понижение свидетеля #80 W2')
+    expect(lines.join('\n')).not.toContain(ANOTHER)
+    ownerDecides(w, 'разрешить понижение свидетеля #80 W2')
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('a decision naming a prose witness by its text still lifts its downgrade wait', () => {
+    const w = world()
+    const { file } = amendedProse(w, [ACCEPTANCE, ANOTHER], [ACCEPTANCE])
+    ownerDecides(w, `разрешить понижение свидетеля ${ANOTHER} у #80`)
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('one decision listing several witnesses lifts those it names and leaves the card refused for the rest', () => {
+    const THIRD = '`pnpm exec vitest run tests/c.test.ts` exits 0; red on main'
+    const w = world()
+    const { file, held } = amendedProse(w, [ACCEPTANCE, ANOTHER, THIRD], [INVARIANT])
+    expect(held).toMatchObject({ status: 'ownerWait', actions: ['разрешить понижение свидетеля #80 W1', 'разрешить понижение свидетеля #80 W2', 'разрешить понижение свидетеля #80 W3'] })
+    ownerDecides(w, 'разрешить понижение свидетелей #80 W1 W2: они устарели')
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) }).status).toBe('ownerWait')
+    ownerDecides(w, 'разрешить понижение свидетелей #80 W1 W2 W3: они устарели')
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('a prose witness stays refused under another card\'s id, a longer id, a word that continues the list, or a superseded decision', () => {
+    const refused: [string, string?][] = [
+      ['разрешить понижение свидетеля #81 W2'],
+      ['разрешить понижение свидетеля #80 W21'],
+      ['разрешить понижение свидетелей #81 W2'],
+      ['разрешить понижение свидетелей #801 W2'],
+      ['разрешить понижение свидетелей #80 W21'],
+      ['разрешить понижение свидетелей #80 W1 W2x'],
+      ['разрешить понижение свидетелей #80 W1'],
+      ['разрешить понижение свидетелей #80 W2', ' · superseded-by D-9'],
+    ]
+    for (const [words, tail] of refused) {
+      const w = world()
+      const { file } = amendedProse(w, [ACCEPTANCE, ANOTHER], [ACCEPTANCE])
+      ownerDecides(w, words, tail)
+      expect(admitThroughBus(w, file, { decisions: decisionsOf(w) }), words).toMatchObject({ status: 'ownerWait' })
+    }
   })
 
   it('an amend that adds a witness is admitted at once', () => {
@@ -860,6 +919,19 @@ describe('construct intake --admit reads the witness fields', () => {
       park(w, 80, CLEAN, 'src/board/**', bodyWith(field({ test: 'another thing' })))
       expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'ownerWait' })
     }
+  })
+
+  it('a list naming every lowered field lifts the wait, and a list naming some leaves the card refused', () => {
+    const second = field({ id: 'W2', test: 'the second thing' })
+    const w = world()
+    const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(field(), second))
+    admitThroughBus(w, file, { decisions: decisionsOf(w) })
+    park(w, 80, CLEAN, 'src/board/**', bodyWith(field({ test: 'another thing' }), field({ id: 'W2', test: 'yet another thing' })))
+    const allowing = (ids: string): void => writeFileSync(decisionsOf(w), `# Owner decisions\n\n- D-7 · 2026-10-13 — [owner] разрешить понижение свидетелей #80 ${ids} · card #80 · decisions:add\n`)
+    allowing('W2')
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'ownerWait' })
+    allowing('W1 W2')
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'amend' })
   })
 
   it('export then admit keeps the witness fields', () => {
