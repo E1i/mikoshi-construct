@@ -12,6 +12,7 @@ import { namesQueueLive } from '../../policy/live-decision.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
 import { currentLane, heldByStall, stalledCards, startOrder } from './lane-assign.js'
 import { taskConflicts } from './overlap.js'
+import { sharedAppendFiles } from './shared-files.js'
 
 export const FALLS_BEFORE_CUT = 2
 
@@ -143,8 +144,8 @@ function parkedOf(row: LifeRow, payload: Record<string, unknown>): ParkedTask | 
   return parsed.kind === 'parked' ? parsed.parked : null
 }
 
-function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[]): boolean {
-  return task !== null && taken.some(other => taskConflicts([other, task]).length > 0)
+function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[], shared: readonly string[]): boolean {
+  return task !== null && taken.some(other => taskConflicts([other, task], shared).length > 0)
 }
 
 function generationOf(row: LifeRow, payload: Record<string, unknown>): string {
@@ -278,7 +279,7 @@ function withAssignedLanes(db: DatabaseSync, lives: Map<number, CardLife>): Map<
   return lives
 }
 
-export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, onOverlap: OverlapCatch = () => {}): LaunchCandidate[] {
+export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, onOverlap: OverlapCatch = () => {}, shared: readonly string[] = sharedAppendFiles()): LaunchCandidate[] {
   const lives = withAssignedLanes(db, cardLives(db))
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
@@ -314,11 +315,11 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
         chosen.push({ cardId: life.cardId, generation: `${life.generation}:ghost-${life.freeRow}` })
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || heldByStall(life, heldByStalls.get(life.lane) ?? []) || unsatisfied(life.depends).length > 0 || heldOutside(life, openPrs, trees, beating))
+    if (!isQueued(life, settled) || life.lane === null || busy.has(life.lane) || heldByStall(life, heldByStalls.get(life.lane) ?? [], shared) || unsatisfied(life.depends).length > 0 || heldOutside(life, openPrs, trees, beating))
       continue
     if (bodyNotFoldedYet(db, life.cardId))
       continue
-    if (overlapsAny(life.task, taken)) {
+    if (overlapsAny(life.task, taken, shared)) {
       onOverlap(life.cardId, life.generation)
       continue
     }
