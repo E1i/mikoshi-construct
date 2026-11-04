@@ -1,8 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
+import type { InForceDecision } from '../../policy/decisions.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
-import { CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
 import { latestTurnOf } from '../../core/queue.js'
+import { decisionsInForceAt } from '../../policy/shards.js'
 
 export const LATEST_EVENTS = 20
 
@@ -18,9 +20,9 @@ export interface WideningRequest {
 }
 
 export type AnswerSource
-  = | { kind: 'question', detail: string, widen: WideningRequest | null, events: CardEvent[] }
-    | { kind: 'changes', findings: string[], failedChecks?: string[], events: CardEvent[] }
-    | { kind: 'ci', failedChecks: string[], events: CardEvent[] }
+  = | { kind: 'question', detail: string, widen: WideningRequest | null, events: CardEvent[], decisions: string[] }
+    | { kind: 'changes', findings: string[], failedChecks?: string[], events: CardEvent[], decisions: string[] }
+    | { kind: 'ci', failedChecks: string[], events: CardEvent[], decisions: string[] }
 
 export interface CardSession {
   session: string
@@ -58,12 +60,35 @@ function latestEvents(db: DatabaseSync, cardId: number): CardEvent[] {
   return rows.reverse().map(row => ({ id: Number(row.id), ts: row.ts, type: row.type, payload: parsed(row.payload) }))
 }
 
+function standingStop(db: DatabaseSync, cardId: number): { id: number, payload: Record<string, unknown> } | null {
+  const row = db.prepare(`SELECT id, payload FROM events WHERE id = ${latestTurnOf('?')} AND type = '${CARD_STOPPED}'`).get(cardId) as { id: number, payload: string } | undefined
+  return row === undefined ? null : { id: Number(row.id), payload: parsed(row.payload) }
+}
+
 function openQuestion(db: DatabaseSync, cardId: number): Record<string, unknown> | null {
-  const row = db.prepare(`SELECT payload FROM events WHERE id = ${latestTurnOf('?')} AND type = '${CARD_STOPPED}'`).get(cardId) as { payload: string } | undefined
-  if (row === undefined)
+  const payload = standingStop(db, cardId)?.payload ?? null
+  return payload?.reason === QUESTION_AGENT ? payload : null
+}
+
+function decisionsBoundTo(db: DatabaseSync, cardId: number, now: Date): InForceDecision[] {
+  return decisionsInForceAt(db, now).filter(decision => decision.cards.includes(cardId))
+}
+
+export function boundDecisionLines(db: DatabaseSync, cardId: number, now: Date): string[] {
+  return decisionsBoundTo(db, cardId, now).map(decision => `D-${decision.decisionId}: ${decision.text}`)
+}
+
+const QUESTION_REASONS: readonly unknown[] = [QUESTION_AGENT, QUESTION_OWNER]
+
+function recordedAfter(db: DatabaseSync, decision: InForceDecision, eventId: number): boolean {
+  return db.prepare('SELECT 1 FROM decisions WHERE decision_id = ? AND event_id > ?').get(decision.decisionId, eventId) !== undefined
+}
+
+export function decisionAnsweringRepeat(db: DatabaseSync, cardId: number, question: string, now: Date): number | null {
+  const stop = standingStop(db, cardId)
+  if (stop === null || !QUESTION_REASONS.includes(stop.payload.reason) || text(stop.payload.detail)?.trim() !== question.trim())
     return null
-  const payload = parsed(row.payload)
-  return payload.reason === QUESTION_AGENT ? payload : null
+  return decisionsBoundTo(db, cardId, now).find(decision => recordedAfter(db, decision, stop.id))?.decisionId ?? null
 }
 
 function widenOf(payload: Record<string, unknown>): WideningRequest | null {
@@ -91,16 +116,17 @@ export function failedChecksOn(db: DatabaseSync, lease: Lease): string[] | null 
   return observed === undefined ? [] : strings(parsed(observed.payload).failed_checks)
 }
 
-export function answerSourceOf(db: DatabaseSync, lease: Lease): AnswerSource | null {
+export function answerSourceOf(db: DatabaseSync, lease: Lease, now: Date = new Date()): AnswerSource | null {
   const events = latestEvents(db, lease.cardId)
+  const decisions = boundDecisionLines(db, lease.cardId, now)
   const question = openQuestion(db, lease.cardId)
   if (question !== null)
-    return { kind: 'question', detail: text(question.detail) ?? '', widen: widenOf(question), events }
+    return { kind: 'question', detail: text(question.detail) ?? '', widen: widenOf(question), events, decisions }
   const findings = changesOn(db, lease)
   const failedChecks = failedChecksOn(db, lease)
   if (findings !== null)
-    return { kind: 'changes', findings, ...(failedChecks === null ? {} : { failedChecks }), events }
-  return failedChecks === null ? null : { kind: 'ci', failedChecks, events }
+    return { kind: 'changes', findings, ...(failedChecks === null ? {} : { failedChecks }), events, decisions }
+  return failedChecks === null ? null : { kind: 'ci', failedChecks, events, decisions }
 }
 
 export interface AdmittedScope {

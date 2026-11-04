@@ -90,7 +90,7 @@ function answerChanging(changed: string[], touches: string[], answerCase: Answer
   const heads = ['a'.repeat(40), 'e'.repeat(40)]
   const request: AnswerRequest = {
     lease: { taskKey: `answer:${CARD_ID}:1300`, queue: 'answer', cardId: CARD_ID, pr: 1300, head: 'a'.repeat(40), leaseGen: 1, actor: 'worker:answer:worker-1' },
-    source: { kind: 'changes', findings: ['the widget test is red'], events: [] },
+    source: { kind: 'changes', findings: ['the widget test is red'], events: [], decisions: [] },
     widened: null,
     card: { session: 'card-session', worktree, branch: 'feat/widget' },
     outsideTouches: paths => pathsOutside(touches, answerCase.runs ?? [], paths),

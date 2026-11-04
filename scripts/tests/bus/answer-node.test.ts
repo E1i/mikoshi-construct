@@ -386,7 +386,7 @@ describe('the answer node', () => {
     })
     const held = lease()
     expect(lastHeartbeat(made.db, 905)).toBeNull()
-    await answerer({ lease: held, source: { kind: 'question', detail: OWNER_QUESTION, widen: null, events: [] }, widened: null, card: { session: 'card-session-1', worktree: path.join(trees, 'mc-905'), branch: 'feat/card-905' } })
+    await answerer({ lease: held, source: { kind: 'question', detail: OWNER_QUESTION, widen: null, events: [], decisions: [] }, widened: null, card: { session: 'card-session-1', worktree: path.join(trees, 'mc-905'), branch: 'feat/card-905' } })
     expect(seen).toEqual([{ ts: made.clock.now().toISOString(), pr: null, head: null, step: 'answer', session: 'card-session-1' }])
   })
 
@@ -552,7 +552,7 @@ describe('the answer node', () => {
   it('the answer round prompt in this repository names the window gate of D-194 with the pre-push tests its construct.json declares, not pnpm run quality', () => {
     const prompt = answerPrompt({
       lease: { taskKey: 'answer:1079:925:head', queue: 'answer', cardId: 1079, pr: 925, head: sha('a'), leaseGen: 1, actor: 'worker:answer:s' },
-      source: { kind: 'changes', findings: ['a.ts:1 a finding'], events: [] },
+      source: { kind: 'changes', findings: ['a.ts:1 a finding'], events: [], decisions: [] },
       widened: null,
       card: { session: 's', worktree: '/trees/mc-1079', branch: 'feat/window-gate-by-layers' },
     }, '/answers/s.1.owner.txt', null, OWN_GATE)

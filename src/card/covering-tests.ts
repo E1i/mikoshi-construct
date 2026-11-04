@@ -156,8 +156,8 @@ export function pathsIn(text: string): string[] {
 }
 
 export function pathsOutside(touches: readonly string[], creates: readonly string[], paths: readonly string[]): string[] {
-  const created = createdPaths(creates)
-  return paths.filter(file => !(withinTouches(file, touches) || created.includes(file)))
+  const reach = [...touches, ...createdPaths(creates)]
+  return paths.filter(file => !withinTouches(file, reach))
 }
 
 export class TestCoverage {
