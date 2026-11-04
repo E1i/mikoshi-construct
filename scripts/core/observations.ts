@@ -26,6 +26,7 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
     card_id: open.cardId,
     base: open.base,
     head: open.head,
+    ...(open.branch === null ? {} : { branch: open.branch }),
     mergeable: open.mergeable,
     ci: open.ci,
     ...(open.failedChecks.length === 0 ? {} : { failed_checks: open.failedChecks }),
@@ -43,6 +44,7 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
 export function prClosed(ts: string, closed: ClosedPr): BusEvent {
   const payload = {
     merged: closed.merged,
+    ...(closed.branch == null ? {} : { branch: closed.branch }),
     ...(closed.commit === null ? {} : { commit: closed.commit }),
     ...(closed.mergedBy === null ? {} : { merged_by: closed.mergedBy }),
     ...(closed.mergedAt === null ? {} : { merged_at: closed.mergedAt }),

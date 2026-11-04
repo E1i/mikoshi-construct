@@ -144,6 +144,22 @@ export const NEEDS_UPDATE = 'needs_update'
 
 export const MERGE_REFUSED = 'merge_refused'
 
+export const QUESTION_OPEN = 'owner_question_open'
+
+export function openDecisionWaitsOf(card: string): string {
+  return `SELECT id, text FROM ${OWNER_WAITS} WHERE need = 'decision' AND state = '${OPEN_WAIT}' AND card_id = ${card}`
+}
+
+const MERGES_PARKED_ON_A_QUESTION_NOW_CLOSED = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
+  JOIN prs ON prs.pr = tasks.pr
+  JOIN events AS parked ON parked.id = tasks.event_id
+  WHERE tasks.queue = 'merge' AND tasks.state = '${WITHDRAWN}' AND prs.state = 'open' AND prs.head = tasks.head
+    AND parked.type = '${TASK_FAILED}' AND json_extract(parked.payload, '$.reason') = '${QUESTION_OPEN}'
+    AND NOT EXISTS (${openDecisionWaitsOf('tasks.card_id')})
+  ORDER BY tasks.task_key
+`
+
 const GREEN_BEHIND_BY_CARD_PRIORITY = `
   SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
   LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
@@ -1144,7 +1160,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const [query, ...params] of [[STOPPED_ON_NO_CARD_TREE], [WITHDRAWN_ON_A_WITNESS_NOW_GREEN], [WITHDRAWN_MERGES_A_LATER_SHARD_NAMES], [WITHDRAWN_MERGES_A_LATER_WINDOW_SHARD_COVERS, ts]]) {
+  for (const [query, ...params] of [[STOPPED_ON_NO_CARD_TREE], [WITHDRAWN_ON_A_WITNESS_NOW_GREEN], [WITHDRAWN_MERGES_A_LATER_SHARD_NAMES], [WITHDRAWN_MERGES_A_LATER_WINDOW_SHARD_COVERS, ts], [MERGES_PARKED_ON_A_QUESTION_NOW_CLOSED]]) {
     for (const row of db.prepare(query!).all(...params) as unknown as StoppedRow[]) {
       if (requeueTask(db, ts, row))
         derived.queued.push(row.task_key)
