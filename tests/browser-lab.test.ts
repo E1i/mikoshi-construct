@@ -452,6 +452,28 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
     }
   }, HANDS_RUN_MS)
 
+  it('page opens at the viewport and the color scheme given and presses the keys', async () => {
+    const routed = path.join(workspace, 'measured.html')
+    writeFileSync(routed, '<html><head><title>Measured</title><script>document.title = innerWidth + \'x\' + innerHeight + \' \' + (matchMedia(\'(prefers-color-scheme: dark)\').matches ? \'dark\' : \'light\'); addEventListener(\'keydown\', event => { document.body.textContent += event.key })</script></head><body></body></html>')
+    const run = await lab('page', `${origin}/elsewhere/`, '--route', '**/elsewhere/', routed, '--for', '1', '--viewport', '375x667', '--color-scheme', 'dark', '--press', 'a b')
+    expect(run.json).toMatchObject({ title: '375x667 dark', text: 'ab', viewport: { width: 375, height: 667 }, colorScheme: 'dark', press: ['a', 'b'] })
+  }, BROWSER_RUN_MS)
+
+  it('hands open a plain site with no extension', async () => {
+    const profile = path.join(workspace, 'plain-hands-profile')
+    const plainHands = (...cliArguments: string[]): Promise<LabRun> => spawnLab({}, ['hands', '--profile', profile, '--', ...cliArguments], HANDS_RUN_MS - 5000)
+    try {
+      const opened = await plainHands('open', `${origin}/elsewhere/`)
+      expect(opened.stderr).not.toContain('could not observe')
+      expect(opened.status).toBe(0)
+      const seen = await plainHands('eval', '() => document.title')
+      expect(String(seen.json.output)).toContain('Served')
+    }
+    finally {
+      await plainHands('close')
+    }
+  }, HANDS_RUN_MS)
+
   it('leaves the extension directory it was given untouched', () => {
     expect(JSON.parse(readFileSync(path.join(extension, 'manifest.json'), 'utf8'))).toEqual(FIXTURE_MANIFEST)
   })
