@@ -1,11 +1,11 @@
 import type { Ui } from '../../ui/console.js'
-import type { CardAdmissionsPort, CardEventPort } from './index.js'
+import type { CardAdmissionsPort, CardEventPort, RecordedIntake } from './index.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync } from 'node:fs'
 import path from 'node:path'
 import { CARD_DROPPED, CARD_MOVED } from '../../../scripts/core/events.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { laneOf } from './admit.js'
-import { bodySha } from './confirm.js'
+import { bodySha, bodyShaWithoutTouches } from './confirm.js'
 import { INTAKE_EXIT, recordIntake } from './index.js'
 
 export const CARD_NUMBER = /^#?(\d+)$/
@@ -19,6 +19,7 @@ export interface MoveOptions {
   taken: string | undefined
   admit: string | undefined
   parking: string
+  dryRun?: boolean
   events?: CardEventPort
   admissions?: CardAdmissionsPort
 }
@@ -26,6 +27,7 @@ export interface MoveOptions {
 export type MoveResult
   = | { status: 'refused', why: (ui: Ui) => string }
     | { status: 'moved', from: string, to: string, event: string }
+    | { status: 'dryRun', parking: string, from: string, to: string, event: string }
     | { status: 'recordedInPlace', file: string, event: string }
 
 function refused(why: (ui: Ui) => string): MoveResult {
@@ -70,8 +72,23 @@ function recordMove(options: MoveOptions, number: number, moved: Moved, slicing:
   recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${lane}:${ts}`, payload: { ...moved, lane, ...slicing } }], options.events)
 }
 
+function projectionLagsTheJournal(admission: RecordedIntake | null | undefined): boolean {
+  return admission?.text !== undefined && admission.bodySha !== bodySha(admission.text) && admission.bodySha !== bodyShaWithoutTouches(admission.text)
+}
+
+function staleBodyRefusal(options: MoveOptions, number: number, targetDir: string, slicing: Slicing | null): MoveResult | null {
+  if (moveType(options.parking, targetDir, slicing) !== CARD_MOVED || !projectionLagsTheJournal(options.admissions?.(number)))
+    return null
+  return refused(ui => ui.lore.intakeRefusedUnreadable(`#${number}: the card_bodies projection holds an older body than the latest card.admitted, and a move would re-admit it; run it again once the reducer has folded that admission`))
+}
+
 function moveInBus(options: MoveOptions, number: number, text: string, now: () => Date): MoveResult {
   const to = path.resolve(options.parking, options.to!)
+  const stale = staleBodyRefusal(options, number, to, null)
+  if (stale !== null)
+    return stale
+  if (options.dryRun === true)
+    return { status: 'dryRun', parking: options.parking, from: `#${number}`, to, event: moveType(options.parking, to, null) }
   recordMove(options, number, { from: null, to, bodySha: bodySha(text) }, null, now().toISOString())
   return { status: 'moved', from: `#${number}`, to, event: moveType(options.parking, to, null) }
 }
@@ -103,6 +120,11 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   const parsed = slicing === null ? parseParkingFile(path.basename(from), text) : null
   if (parsed?.kind === 'refused')
     return refused(ui => ui.lore.intakeRefusedUnreadable(`${from}: ${parsed.reason}`))
+  const stale = staleBodyRefusal(options, number, targetDir, slicing)
+  if (stale !== null)
+    return stale
+  if (options.dryRun === true)
+    return { status: 'dryRun', parking: options.parking, from, to: target, event: moveType(options.parking, targetDir, slicing) }
   const inPlace = path.resolve(from) === target
   const createdDir = inPlace ? undefined : mkdirSync(targetDir, { recursive: true })
   if (!inPlace)
@@ -127,6 +149,11 @@ export function printMove(ui: Ui, result: MoveResult): number {
   if (result.status === 'refused') {
     ui.flatline(result.why(ui))
     return INTAKE_EXIT.refused
+  }
+  if (result.status === 'dryRun') {
+    ui.line(`${result.from} -> ${result.to} (${result.event})`)
+    ui.line(ui.lore.intakeDryRun(result.parking))
+    return INTAKE_EXIT.dryRun
   }
   ui.ok(result.status === 'moved' ? ui.lore.intakeMoved(result.from, result.to, result.event) : ui.lore.intakeMoveRecordedInPlace(result.file, result.event))
   return INTAKE_EXIT.admitted
