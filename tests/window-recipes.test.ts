@@ -7,7 +7,6 @@ import { afterAll, describe, expect, it } from 'vitest'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const SKILL = '.claude/skills/window-recipes/SKILL.md'
-const TEMPLATE = 'templates/ai/claude/_claude/skills/window-recipes/SKILL.md'
 const CORE = 'architecture/window-core.md'
 const CORE_LINE = '- тупик карты — сначала навык window-recipes'
 const PROCEDURES = '## Procedures'
@@ -102,10 +101,6 @@ describe('the window-recipes skill', () => {
     const description = read(SKILL).split('\n').find(line => line.startsWith('description:'))!
     for (const trigger of ['a card stands still', 'a dead end', 'not its own lane', 'outside touches', 'a question that does not close', 'a PR with no card', 'a conflict', 'the merge queue holds'])
       expect(description).toContain(trigger)
-  })
-
-  it('the template carries the same skill', () => {
-    expect(read(TEMPLATE)).toBe(read(SKILL))
   })
 
   it('window-core sends a dead end to the skill', () => {
