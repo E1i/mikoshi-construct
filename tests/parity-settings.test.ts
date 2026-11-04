@@ -1,3 +1,4 @@
+import type { Ui } from '../src/ui/console.js'
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -6,11 +7,14 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
+import { printDoctor, runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { factoryLiveness } from '../src/commands/liveness.js'
-import { mergeHookSettings } from '../src/materialize/strategies.js'
+import { applySync, printSync, runSync } from '../src/commands/sync/index.js'
+import { carriesHookSettings, mergeHookSettings } from '../src/materialize/strategies.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
+import { VERSION } from '../src/version.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const SETTINGS = '.claude/settings.json'
@@ -27,6 +31,12 @@ interface Settings {
 }
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
+
+function printedBy(print: (ui: Ui) => number): string[] {
+  const lines: string[] = []
+  print(createUi(resolveTheme({ plain: true }), text => lines.push(text)))
+  return lines.join('').split('\n')
+}
 
 function scratch(prefix: string): string {
   return mkdtempSync(path.join(tmpdir(), prefix))
@@ -115,6 +125,64 @@ describe('init carries the settings layer the factory runs on', () => {
     const merged = mergeHookSettings(JSON.stringify(withOwn), template)!
     expect(JSON.parse(merged)).toEqual(withOwn)
     expect(mergeHookSettings(JSON.stringify({ sandbox: { excludedCommands: 'docker *' } }), template)).toBeNull()
+  })
+
+  describe('merging the allowlist into an existing settings.json', () => {
+    const template = readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/_claude/settings.json'), 'utf8')
+    const scanRules = ['WebFetch', 'WebSearch', 'mcp__context7']
+
+    it('adds the three scan rules after the repository\'s own entries and keeps its other permissions', () => {
+      const own = { permissions: { allow: ['Bash(make test)', 'WebSearch'], deny: ['Read(.env)'], defaultMode: 'plan' } }
+      const merged = JSON.parse(mergeHookSettings(JSON.stringify(own), template)!) as Settings
+      expect(merged.permissions).toEqual({ allow: ['Bash(make test)', 'WebSearch', 'WebFetch', 'mcp__context7'], deny: ['Read(.env)'], defaultMode: 'plan' })
+    })
+
+    it('adds them to a settings.json with no permissions key, and only them', () => {
+      const merged = JSON.parse(mergeHookSettings(JSON.stringify({ model: 'x' }), template)!) as Settings
+      expect(merged.permissions).toEqual({ allow: scanRules })
+    })
+
+    it('adds no Edit or Write rule, in allow or in ask', () => {
+      const own = { permissions: { allow: ['Bash(make test)'] } }
+      const merged = JSON.parse(mergeHookSettings(JSON.stringify(own), template)!) as Settings
+      expect(merged.permissions?.allow?.filter(rule => /^(?:Edit|Write)\b/.test(rule))).toEqual([])
+      expect(merged.permissions?.ask).toBeUndefined()
+    })
+
+    it('changes nothing on a second merge', () => {
+      const first = mergeHookSettings(JSON.stringify({ permissions: { allow: ['Bash(make test)'] } }), template)!
+      expect(mergeHookSettings(first, template)).toBe(first)
+      expect(carriesHookSettings(first, template)).toBe(true)
+    })
+
+    it('stops reading a repository without the rules as carrying the settings', () => {
+      const carrying = mergeHookSettings(JSON.stringify({ model: 'x' }), template)!
+      const parsed = JSON.parse(carrying) as Settings
+      const withoutRules = JSON.stringify({ ...parsed, permissions: { allow: ['Bash(make test)'] } })
+      expect(carriesHookSettings(withoutRules, template)).toBe(false)
+    })
+
+    it('refuses a permissions key it cannot union', () => {
+      expect(mergeHookSettings(JSON.stringify({ permissions: { allow: 'WebFetch' } }), template)).toBeNull()
+      expect(mergeHookSettings(JSON.stringify({ permissions: ['WebFetch'] }), template)).toBeNull()
+    })
+
+    it('a repository without the rules reads as an update in sync and as moved on in doctor, until sync --apply settles it without Edit or Write', async () => {
+      const { dir } = await freshInit()
+      const withoutRules = { ...settingsOf(dir), permissions: { allow: ['Bash(make test)'] } }
+      writeFileSync(path.join(dir, SETTINGS), `${JSON.stringify(withoutRules, null, 2)}\n`)
+      const movedOn = 'The baseline moved on: 1 recorded path a sync would add or update'
+
+      const sync = printedBy(ui => printSync(ui, runSync(dir, VERSION)))
+      expect(sync).toEqual(expect.arrayContaining(['update — the construct owns this and the template moved on', `  ${SETTINGS}`, '1 path can be written: run `construct sync --apply`.']))
+      expect(printedBy(ui => printDoctor(ui, runDoctor(dir, VERSION))).some(line => line.includes(movedOn))).toBe(true)
+
+      applySync(dir, VERSION)
+
+      expect(settingsOf(dir).permissions).toEqual({ allow: ['Bash(make test)', ...scanRules] })
+      expect(runSync(dir, VERSION)!.classifications.find(entry => entry.target === SETTINGS)?.class).toBe('keep')
+      expect(printedBy(ui => printDoctor(ui, runDoctor(dir, VERSION))).some(line => line.includes(movedOn))).toBe(false)
+    })
   })
 })
 

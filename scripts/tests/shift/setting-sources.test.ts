@@ -97,7 +97,7 @@ async function answerArgv(): Promise<string[][]> {
     diff: () => '',
   })({
     lease: { taskKey: `answer:${CARD}:1300`, queue: 'answer', cardId: CARD, pr: 1300, head: 'a'.repeat(40), leaseGen: 1, actor: 'worker:answer:worker-1' },
-    source: { kind: 'changes', findings: ['the retry is missing'], events: [] },
+    source: { kind: 'changes', findings: ['the retry is missing'], events: [], decisions: [] },
     widened: null,
     card: { session: SESSION, worktree: tree, branch: `feat/card-${CARD}` },
   })

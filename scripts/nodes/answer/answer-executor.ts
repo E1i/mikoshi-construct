@@ -22,10 +22,10 @@ import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tre
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
-import { admittedScopeOf, answerSourceOf, ownerHoldOf } from './answer-source.js'
+import { admittedScopeOf, answerSourceOf, boundDecisionLines, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, treeDirtyOf, treeMergeOf } from './answerer.js'
 
-export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches'
+export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches' | 'repeated_stop'
 
 export interface AnswerDenial {
   kind: 'technical'
@@ -125,8 +125,8 @@ export function scopeWideningAsked(question: string, scope: AdmittedScope | null
   return !underAShard || scope === null || !ASKS_ABOUT_THE_SCOPE.test(question) ? [] : pathsOutside(scope.touches, scope.creates, pathsIn(question))
 }
 
-function decisionSource(question: string, ground: string): AnswerSource {
-  return { kind: 'question', detail: `your question went to the window, and the window decided it under ${ground}: the card goes on without the owner. The question was: ${question}`, widen: null, events: [] }
+function decisionSource(question: string, ground: string, decisions: string[]): AnswerSource {
+  return { kind: 'question', detail: `your question went to the window, and the window decided it under ${ground}: the card goes on without the owner. The question was: ${question}`, widen: null, events: [], decisions }
 }
 
 function reasonOfFailure(error: unknown): AnswerTechnicalReason {
@@ -196,7 +196,7 @@ export class AnswerExecutor {
   }
 
   private sourceOf(lease: Lease): Answering | null {
-    const source = answerSourceOf(this.parts.db, lease)
+    const source = answerSourceOf(this.parts.db, lease, this.parts.clock())
     if (source !== null && source.kind !== 'ci')
       return source
     const witness = this.redWitness(lease)
@@ -212,7 +212,11 @@ export class AnswerExecutor {
     if (red === undefined)
       return null
     const detail = typeof red.detail === 'string' && red.detail !== '' ? red.detail : 'the bus recorded no detail'
-    return { kind: 'changes', findings: [`the card's witness is red on ${lease.head}: ${detail}`], events: [], reentry: true }
+    return { kind: 'changes', findings: [`the card's witness is red on ${lease.head}: ${detail}`], events: [], decisions: this.boundDecisions(lease), reentry: true }
+  }
+
+  private boundDecisions(lease: Lease): string[] {
+    return boundDecisionLines(this.parts.db, lease.cardId, this.parts.clock())
   }
 
   private dirtyOnHead(lease: Lease): boolean {
@@ -221,10 +225,11 @@ export class AnswerExecutor {
 
   private conflict(lease: Lease, card: CardSession, merge: TreeMerge | null): AnswerSource {
     const conflicts = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}`
+    const decisions = this.boundDecisions(lease)
     if (merge?.kind !== 'mid-merge')
-      return { kind: 'changes', findings: [`${conflicts}: merge origin/${MAIN_BRANCH} into the branch and resolve every conflict, keeping what the card asks for`], events: [] }
+      return { kind: 'changes', findings: [`${conflicts}: merge origin/${MAIN_BRANCH} into the branch and resolve every conflict, keeping what the card asks for`], events: [], decisions }
     const unmerged = merge.files.length === 0 ? '' : ` with ${merge.files.join(', ')} unmerged`
-    return { kind: 'changes', findings: [`${conflicts}, and its tree ${card.worktree} stands mid-merge${unmerged}: finish that merge where it stands, resolving every unmerged path keeping what the card asks for and staging it with git -C ${card.worktree} add, and leave the commit that concludes the merge to the bus; never git merge --abort, git reset or a new merge over it`], events: [] }
+    return { kind: 'changes', findings: [`${conflicts}, and its tree ${card.worktree} stands mid-merge${unmerged}: finish that merge where it stands, resolving every unmerged path keeping what the card asks for and staging it with git -C ${card.worktree} add, and leave the commit that concludes the merge to the bus; never git merge --abort, git reset or a new merge over it`], events: [], decisions }
   }
 
   private waiting(lease: Lease, card: CardSession, why: string): AnswerOutcome {
@@ -269,7 +274,12 @@ export class AnswerExecutor {
   private refusedOrDenied(lease: Lease, denial: AnswerDenial, widened: Widened | null): AnswerOutcome {
     if (denial.reason !== 'outside_touches')
       return this.denied(lease, denial)
-    return this.ownersStop(lease, `${denial.detail}; the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event])
+    return this.ownersStop(lease, `${denial.detail}; the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event], undefined, this.refusedPathsToWiden(denial.detail))
+  }
+
+  private refusedPathsToWiden(refusal: string): string[] {
+    const refused = pathsIn(refusal)
+    return this.namesAnOwnerPath(refused) ? [] : refused
   }
 
   private heldForTheOwner(lease: Lease, detail: string): AnswerOutcome {
@@ -318,6 +328,9 @@ export class AnswerExecutor {
   }
 
   private async asked(lease: Lease, question: string, widened: Widened | null, card: CardSession): Promise<AnswerOutcome> {
+    const answeredBy = decisionAnsweringRepeat(this.parts.db, lease.cardId, question, this.parts.clock())
+    if (answeredBy !== null)
+      return this.denied(lease, { kind: 'technical', reason: 'repeated_stop', detail: `the answer session asked again what card #${lease.cardId} already stopped on, and D-${answeredBy} was recorded for the card after that stop; no new owner wait, the answer goes again with the decision in its prompt. The question was: ${question}` })
     const scope = widened === null ? [] : [widened.event]
     if (!this.ownersQuestion(lease, question))
       return this.stopped(lease, QUESTION_AGENT, question, {}, scope)
@@ -336,11 +349,12 @@ export class AnswerExecutor {
     const ground = `window shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until}) under ${isolation.level} isolation`
     assertHeld(this.parts.db, lease)
     appendEvent(this.parts.db, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS }))
-    const decided = await this.session(lease, decisionSource(question, ground), widened, card, false, this.parts.clock().getTime())
+    const decidedSource = decisionSource(question, ground, this.boundDecisions(lease))
+    const decided = await this.session(lease, decidedSource, widened, card, false, this.parts.clock().getTime())
     if ('kind' in decided)
       return this.refusedOrDenied(lease, decided, widened)
     if (!leftNoNewHead(decided))
-      return this.settled(lease, decisionSource(question, ground), widened, card, decided, 0)
+      return this.settled(lease, decidedSource, widened, card, decided, 0)
     if (decided.owner !== null)
       return this.ownersStop(lease, `${decided.owner} (asked again after the ${DECISIONS_SCOPE} shard ${shard.id} decided: ${question})`, scope)
     if ((this.parts.dirty ?? treeDirtyOf)(card))
@@ -368,9 +382,8 @@ export class AnswerExecutor {
     return { kind: 'stopped', taskKey: lease.taskKey, reason, detail }
   }
 
-  private ownersStop(lease: Lease, detail: string, scope: BusEvent[] = [], text = `card #${lease.cardId} asks: ${detail}`): AnswerOutcome {
+  private ownersStop(lease: Lease, detail: string, scope: BusEvent[] = [], text = `card #${lease.cardId} asks: ${detail}`, widen = this.windowWidens(lease, detail)): AnswerOutcome {
     const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
-    const widen = this.windowWidens(lease, detail)
     return this.stopped(lease, QUESTION_OWNER, detail, widen.length === 0 ? {} : { widen }, scope, db => openBusWait(db, this.ts(), lease.actor, ask))
   }
 

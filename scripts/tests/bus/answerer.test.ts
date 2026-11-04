@@ -29,7 +29,7 @@ function requestIn(root: string): AnswerRequest {
   writeFileSync(path.join(worktree, 'construct.json'), `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [TREE_GATE] } })}\n`)
   return {
     lease: { taskKey: 'answer:1207:1300', queue: 'answer', cardId: 1207, pr: 1300, head: 'a'.repeat(40), leaseGen: 1, actor: 'worker:answer:worker-1' },
-    source: { kind: 'changes', findings: [FINDING], events: [] },
+    source: { kind: 'changes', findings: [FINDING], events: [], decisions: [] },
     widened: null,
     card: { session: CARD_SESSION, worktree, branch: 'feat/card-1207' },
   }
