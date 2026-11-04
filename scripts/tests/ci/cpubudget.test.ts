@@ -160,6 +160,11 @@ describe('heavy steps', () => {
     expect(queue).toHaveBeenCalledTimes(1)
   })
 
+  it('the lint script runs eslint through the queue', () => {
+    const { scripts } = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: { lint: string } }
+    expect(scripts.lint).toBe('node --import tsx scripts/quality/lock.ts eslint .')
+  })
+
   it('the queue stays in the documented home directory while that can be written', () => {
     const home = scratch()
     expect(queueDir({}, home)).toBe(path.join(home, '.construct', 'quality'))
