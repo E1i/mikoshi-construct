@@ -5,6 +5,7 @@ const OUTSIDE_THE_HARNESS: Record<string, string> = {
   'approve': 'lists the owner\'s approval queue and writes or revokes an approval when run by hand; its own tests are its gate',
   'board': 'a read-only print of the factory board from the cards, prs and tasks projections of bus.db, not a verdict on a change',
   'build': 'produces the package, the bundled CLI and the factory built file by file, rather than judging it; tests/package-factory.test.ts packs and starts what it builds',
+  'bus:agent': 'renders the owner\'s launchd agent and prints its diff when run by hand, and replaces and reloads it only with --apply; its own tests, on a launchctl stub, are its gate',
   'bus:answer': 'the answer worker over bus.db, switched off unless started by hand with --on; its own tests are its gate',
   'bus:bg': 'starts bus:run, the switched-on workers and their supervisor as one detached instance each when run by hand; its own tests, on nohup and pnpm stubs and a scratch git repository, are its gate',
   'bus:close': 'the close worker over bus.db, switched off unless started by hand with --on; its own tests are its gate',

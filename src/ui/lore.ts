@@ -185,6 +185,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeDryRun: (parking: string) => string
   intakeAdmitted: (file: string, card: string, inBus: boolean) => string
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => string
+  intakeAdmittedEvent: (event: number) => string
   intakeMoved: (from: string, to: string, event: string) => string
   intakeMoveRecordedInPlace: (file: string, event: string) => string
   intakeMoveNotFound: (id: number) => string
@@ -591,6 +592,7 @@ export const LORE: Lore = {
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `ALREADY ADMITTED // ${file}: ${card}; its card.admitted is in the bus`
     : `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line. NO BUS // nothing written`,
+  intakeAdmittedEvent: (event: number) => `CARD.ADMITTED // event ${event}`,
   intakeMoved: (from: string, to: string, event: string) => `MOVED // ${from} -> ${to}; the bus holds it as ${event}, the card is unchanged`,
   intakeMoveRecordedInPlace: (file: string, event: string) => `MOVE RECORDED // ${file} is already there; the bus holds it as ${event}, the file stays put`,
   intakeMoveNotFound: (id: number) => `INTAKE REFUSED // NO CARD: #${id} is in no parking directory under the root`,
@@ -1022,6 +1024,7 @@ export const PLAIN_LORE: Lore = {
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `Already admitted ${file}: ${card}. Its card.admitted is in the bus, so task:start and the shift take it.`
     : `Already admitted ${file}: ${card}. The journal holds its intake line; no bus is wired to this run, so nothing was written.`,
+  intakeAdmittedEvent: (event: number) => `card.admitted event ${event}`,
   intakeMoved: (from: string, to: string, event: string) => `Moved ${from} to ${to}. The bus holds the move as ${event}; the card is unchanged.`,
   intakeMoveRecordedInPlace: (file: string, event: string) => `${file} is already in that directory. The bus holds the move as ${event}; the file was not moved.`,
   intakeMoveNotFound: (id: number) => `Refused: #${id} is in no parking directory under the root. Nothing was written.`,

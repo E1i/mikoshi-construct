@@ -5,9 +5,13 @@ export const REFUSALS = {
   'mkdtemp under /tmp EPERM': /EPERM: operation not permitted, mkdtemp '\/tmp\//,
   'fs.watch EMFILE': /EMFILE: too many open files, watch/,
   'open under ~/.npm/_cacache EPERM': /npm error code EPERM\s+npm error syscall open\s+npm error path \S*\/\.npm\/_cacache\//,
+  'npm registry 403': /npm error 403 403 .* - GET https:\/\/registry\.npmjs\.org\//,
+  'mkdtemp under $TMPDIR EPERM': /mkdtemp failed on \S+: Operation not permitted/,
 } as const satisfies Record<string, RegExp>
 
 export type Refusal = keyof typeof REFUSALS
+
+export const REFUSED_LINE = /^.*(?:EPERM|operation not permitted|EMFILE: too many open files, watch|npm error 403 403 ).*$/gim
 
 export const SANDBOX_TRACE_VARIABLE = 'SANDBOX_TRACE'
 
