@@ -102,6 +102,29 @@ describe('taskConflicts', () => {
     ])
   })
 
+  it('declared shared append files do not conflict', () => {
+    const shared = ['apps/api/src/app.ts', 'contracts/api/**']
+    const a = task('01.md', 'a', ['apps/api/src/users/**', 'apps/api/src/app.ts', 'contracts/api/openapi.yaml'])
+    const b = task('02.md', 'b', ['apps/api/src/orders/**', 'apps/api/src/app.ts', 'contracts/api/**'])
+    expect(taskConflicts([a, b], shared)).toEqual([])
+    expect(taskConflicts([a, b])).toEqual([
+      '01.md × 02.md: apps/api/src/app.ts = apps/api/src/app.ts',
+      '01.md × 02.md: contracts/api/openapi.yaml ⊂ contracts/api/**',
+    ])
+  })
+
+  it('a file outside the declared class still conflicts, as does a mask that covers a declared file', () => {
+    const shared = ['apps/api/src/app.ts']
+    expect(taskConflicts([
+      task('01.md', 'a', ['apps/api/src/app.ts', 'apps/api/src/storage/schema.ts']),
+      task('02.md', 'b', ['apps/api/src/app.ts', 'apps/api/src/storage/schema.ts']),
+    ], shared)).toEqual(['01.md × 02.md: apps/api/src/storage/schema.ts = apps/api/src/storage/schema.ts'])
+    expect(taskConflicts([
+      task('01.md', 'a', ['apps/api/src/app.ts']),
+      task('02.md', 'b', ['apps/api/**']),
+    ], shared)).toEqual(['01.md × 02.md: apps/api/src/app.ts ⊂ apps/api/**'])
+  })
+
   it('is empty for disjoint tasks', () => {
     expect(taskConflicts([task('01.md', 'a', ['scripts/a/**']), task('02.md', 'b', ['scripts/ab/**'])])).toEqual([])
   })

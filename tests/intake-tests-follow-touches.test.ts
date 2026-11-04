@@ -89,6 +89,16 @@ describe('intake puts the tests that cover the touched files into runs, not touc
     expect(bus).toMatchObject([{ cardId: 13, payload: { confirmation: 'none' } }])
   })
 
+  it('a card that changes a module of an application runs the registry test of its app tests folder that imports it, and no other', () => {
+    const w = world({
+      'apps/api/src/storage/schema.ts': 'export const MIGRATIONS = []\n',
+      'apps/api/tests/storage/migrations.test.ts': 'import { MIGRATIONS } from \'../../src/storage/schema.js\'\n',
+      'apps/api/tests/storage/names-it.test.ts': 'export const about = \'schema.ts\'\n',
+    }, ['apps/api/src/storage/schema.ts'])
+    expect(intake(w).status).toBe('written')
+    expect(parked(w)).toEqual({ touches: ['apps/api/src/storage/schema.ts'], runs: ['apps/api/tests/storage/migrations.test.ts'] })
+  })
+
   it('covering tests do not count toward the touches signal of the complexity seam', () => {
     const tests = Object.fromEntries(Array.from({ length: 8 }, (_, at) => [`scripts/tests/shift/part-${at}/covering.test.ts`, 'import { runShift } from \'../../../ladder/ladder.js\'\n']))
     const w = world({ 'scripts/ladder/ladder.ts': 'export function runShift() {}\n', ...tests }, ['scripts/ladder/ladder.ts'])

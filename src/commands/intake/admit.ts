@@ -138,6 +138,7 @@ type AdmitSource = typeof ADMIT_SOURCE | typeof AMEND_SOURCE
 
 export interface AdmitOptions {
   file: string
+  body?: string
   dir: string
   dryRun: boolean
   confirm?: string
@@ -418,7 +419,13 @@ function admitConfirmation(card: SlicedCard, autoConfirm: boolean): Confirmation
   return confirmationOf(card, autoConfirm)
 }
 
+export function admittedCardFile(cardId: number, parkingRoot?: string): string {
+  return path.join(parkingRoot ?? defaultParking(), `${cardId}.md`)
+}
+
 function busBodyOf(options: AdmitOptions): string | null {
+  if (options.body !== undefined)
+    return options.body
   if (existsSync(options.file))
     return null
   return options.admissions?.(Number(path.basename(options.file, '.md')))?.text ?? null

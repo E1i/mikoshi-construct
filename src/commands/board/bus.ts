@@ -329,11 +329,10 @@ function lastPulse(db: BusDb): string | null {
 }
 
 const LAST_NODE_CAPACITY = `
-  SELECT json_extract(payload, '$.queue') AS queue, json_extract(payload, '$.slots') AS slots FROM events
-  WHERE id IN (
-    SELECT max(id) FROM events WHERE type = ? AND legacy = 0 AND json_valid(payload) AND json_type(payload, '$.queue') = 'text'
-    GROUP BY json_extract(payload, '$.queue')
-  )
+  SELECT queue, slots FROM (
+    SELECT json_extract(payload, '$.queue') AS queue, json_extract(payload, '$.slots') AS slots, row_number() OVER (PARTITION BY json_extract(payload, '$.queue') ORDER BY ts DESC) AS rank
+    FROM heartbeats WHERE type = ? AND json_valid(payload) AND json_type(payload, '$.queue') = 'text'
+  ) WHERE rank = 1
 `
 
 function nodeCapacity(db: BusDb): Map<string, number> {

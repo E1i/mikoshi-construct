@@ -1,3 +1,4 @@
+import type { ProcessBeat } from '../../supervisor/heartbeat.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -49,7 +50,7 @@ describe('netwatch', () => {
     const observed = events(db, 'pr.observed')
     expect(observed).toHaveLength(1)
     expect(observed[0]).toMatchObject({ pr: 900, card_id: 1000, head: sha('a') })
-    expect(observed[0]!.payload).toEqual({ card_id: 1000, base: 'main', head: sha('a'), mergeable: 'clean', ci: 'green', verdict_on_head: 'pass', auto_merge: false, draft: false, body_sha: prBodySha(cardBody(900)) })
+    expect(observed[0]!.payload).toEqual({ card_id: 1000, base: 'main', head: sha('a'), branch: 'feat/card-1000', mergeable: 'clean', ci: 'green', verdict_on_head: 'pass', auto_merge: false, draft: false, body_sha: prBodySha(cardBody(900)) })
     expect(observed[0]!.dedupe_key).toMatch(/^pr:900:[0-9a-f]{64}:-$/)
 
     gitHub.open({ number: 900, mergeable_state: 'behind', review: 'success' })
@@ -113,7 +114,7 @@ describe('netwatch', () => {
     gitHub.calls = []
     netWatch.poll()
     expect(gitHub.calls).toContain(`${REPO}/pulls/901`)
-    expect(events(db, 'pr.closed')).toEqual([{ pr: 901, card_id: 1001, head: null, dedupe_key: 'pr:901:closed', payload: { merged: true, commit: MAIN_2, merged_by: MERGER.login, merged_at: MERGER.at } }])
+    expect(events(db, 'pr.closed')).toEqual([{ pr: 901, card_id: 1001, head: null, dedupe_key: 'pr:901:closed', payload: { merged: true, branch: 'feat/card-1001', commit: MAIN_2, merged_by: MERGER.login, merged_at: MERGER.at } }])
 
     clock.advance(TICK_MS)
     gitHub.calls = []
@@ -189,28 +190,32 @@ describe('netwatch', () => {
     }
   })
 
-  it('every poll that runs writes process.heartbeat under its process name, the ticked, the rate-limited and the retry-after skipped alike', () => {
+  it('every poll that runs beats into the heartbeat table under its process name, the ticked, the rate-limited and the retry-after skipped alike', () => {
     const { db, gitHub, clock } = setUp()
     const netWatch = new NetWatch(db, gitHub.client, clock.now, NETWATCH_SCRIPT)
-    const beats = (): { ts: string, process: unknown }[] => db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(PROCESS_HEARTBEAT).map(row => ({ ts: String(row.ts), process: (JSON.parse(String(row.payload)) as { process?: unknown }).process }))
+    const beats = (): ProcessBeat[] => lastProcessBeats(db)
     const polled: string[] = []
+    const seen: ProcessBeat[][] = []
     gitHub.open({ number: 907 })
 
     gitHub.limited = { status: 429, headers: { 'retry-after': '150', 'x-ratelimit-remaining': '0' }, body: { message: 'rate limit' } }
     polled.push(clock.now().toISOString())
     expect(netWatch.poll()).toMatchObject({ kind: 'skipped', cause: 'rate-limited' })
+    seen.push(beats())
     gitHub.limited = null
     clock.advance(TICK_MS / 2)
     expect(netWatch.poll()).toBeNull()
     clock.advance(TICK_MS / 2)
     polled.push(clock.now().toISOString())
     expect(netWatch.poll()).toMatchObject({ kind: 'skipped', cause: 'retry-after' })
+    seen.push(beats())
     clock.advance(2 * TICK_MS)
     polled.push(clock.now().toISOString())
     expect(netWatch.poll()).toMatchObject({ kind: 'ticked' })
+    seen.push(beats())
 
-    expect(beats()).toEqual(polled.map(ts => ({ ts, process: NETWATCH_SCRIPT })))
-    expect(lastProcessBeats(db)).toEqual([{ process: NETWATCH_SCRIPT, ts: polled.at(-1) }])
+    expect(seen).toEqual(polled.map(ts => [{ process: NETWATCH_SCRIPT, ts }]))
+    expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PROCESS_HEARTBEAT)).toEqual({ n: 0 })
     db.close()
   })
 
@@ -235,7 +240,7 @@ describe('netwatch', () => {
     gitHub.main = MAIN_2
     clock.advance(WAKE_GAP_MS + TICK_MS)
     expect(netWatch.poll()).toMatchObject({ kind: 'ticked', reason: 'wake' })
-    expect(events(db, 'pr.closed').map(event => [event.pr, event.payload])).toEqual([[907, { merged: false }]])
+    expect(events(db, 'pr.closed').map(event => [event.pr, event.payload])).toEqual([[907, { merged: false, branch: 'feat/card-1007' }]])
     expect(events(db, 'pr.observed').map(event => [event.pr, event.head])).toEqual([[907, sha('a')], [908, sha('a')], [908, sha('c')], [909, sha('a')]])
     expect(events(db, 'main.advanced').map(event => event.payload.sha)).toEqual([MAIN_1, MAIN_2])
     expect(events(db, 'netwatch.tick').at(-1)!.payload).toMatchObject({ reason: 'wake', gap_s: (TICK_MS / 2 + WAKE_GAP_MS + TICK_MS) / 1000 })

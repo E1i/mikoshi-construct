@@ -9,6 +9,7 @@ CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, state TEXT, verdict_o
 CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL);
 CREATE TABLE roles (role TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL);
 CREATE TABLE decisions (decision_id INTEGER PRIMARY KEY, text TEXT NOT NULL, scope TEXT, event_id INTEGER);
+CREATE TABLE heartbeats (process TEXT NOT NULL, type TEXT NOT NULL, ts TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (process, type));
 CREATE TABLE owner_waits (id TEXT PRIMARY KEY, need TEXT NOT NULL, text TEXT NOT NULL, command TEXT, card_id INTEGER, pr INTEGER, state TEXT NOT NULL, answer TEXT, opened_at TEXT NOT NULL, event_id INTEGER NOT NULL);
 `
 
@@ -45,6 +46,13 @@ export interface SeedEvent {
   legacy?: boolean
 }
 
+export interface SeedBeat {
+  process: string
+  type: string
+  ts: string
+  payload: string
+}
+
 export interface SeedRole {
   role: string
   status: string
@@ -63,6 +71,7 @@ export interface BusSeed {
   prs?: SeedPr[]
   tasks?: SeedTask[]
   events?: SeedEvent[]
+  beats?: SeedBeat[]
   roles?: SeedRole[]
   decisions?: [number, string, number[]?][]
 }
@@ -92,6 +101,8 @@ export function writeBus(file: string, seed: BusSeed): string {
       db.prepare('INSERT INTO tasks (queue, card_id, pr, head, state) VALUES (?, ?, ?, ?, ?)').run(task.queue, task.card, task.pr, task.head, task.state)
     for (const event of seed.events ?? [])
       insertEvent(db, event)
+    for (const beat of seed.beats ?? [])
+      db.prepare('INSERT INTO heartbeats (process, type, ts, payload) VALUES (?, ?, ?, ?)').run(beat.process, beat.type, beat.ts, beat.payload)
     for (const role of seed.roles ?? [])
       db.prepare('INSERT INTO roles (role, status, state) VALUES (?, ?, ?)').run(role.role, role.status, role.state)
     for (const [decisionId, text, scope] of seed.decisions ?? []) {

@@ -6,7 +6,7 @@ import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
+import { appendEvent, defaultBusPath, HEARTBEATS, inTransaction, openBus, recordBeat } from '../core/db.js'
 import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
@@ -33,7 +33,7 @@ const LAST_HEARTBEAT = `
 
 const LAST_PROCESS_BEATS = `
   SELECT name, max(ts) AS ts FROM (
-    SELECT json_extract(payload, '$.process') AS name, ts FROM events WHERE type = '${PROCESS_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
+    SELECT process AS name, ts FROM ${HEARTBEATS} WHERE type = '${PROCESS_HEARTBEAT}'
     UNION ALL
     SELECT '${CARD_PROCESS}' || card_id AS name, ts FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL
     UNION ALL
@@ -59,7 +59,7 @@ export function ownStart(): HolderStart {
 }
 
 export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string, capacity?: QueueCapacity): boolean {
-  return appendEvent(db, { ts, type: PROCESS_HEARTBEAT, actor: `worker:process:${name.replaceAll(':', '-')}`, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_HEARTBEAT}:${name}:${ts}`, payload: { process: name, ...capacity }, legacy: false })
+  return recordBeat(db, { process: name, type: PROCESS_HEARTBEAT, ts, payload: { process: name, ...capacity } })
 }
 
 export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {
