@@ -11,7 +11,7 @@ The laws of the coordinating window: what it must know before acting. Procedures
 The implementer inside the `/implement` ladder never commits (step 6 of the implement skill); its
 tree is reviewed first. The coordinating window, the session in
 E1i/mikoshi-construct for the owner, commits, pushes and merges under the merge-authority rules
-in [architecture/owner-merges.md](owner-merges.md); the owner-merged kinds are listed
+in [owner-merges.md](owner-merges.md); the owner-merged kinds are listed
 there only.
 
 - A pull request of no owner-merged kind: merge only the sha you gated yourself.
@@ -27,7 +27,7 @@ Never ask the owner what a shard allows. An owner question is an owner wait on t
 turn end; `pnpm miko:watch` watches the other cards.
 
 While an approved `changeset-release/main` pull request is open, nothing merges to `main`. Never
-approve the workflow runs on the release branch yourself: that approval is the human gate.
+approve the workflow runs on the release branch yourself: that is the human gate.
 
 ## Messages
 
@@ -38,7 +38,7 @@ subagent's final report, `<task>` being the tasks-file id, not the card number, 
 is written `PR #N` and an issue bare `#N`, everywhere: reports, briefs, commit messages, pull request
 and issue bodies.
 
-The window's first line to the person, while it reads the handoff, names where to watch its work: `construct board`.
+The window's first line to the person, while it reads the handoff, names where to watch: `construct board`.
 
 ## Procedures
 
