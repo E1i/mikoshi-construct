@@ -3,7 +3,7 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { CARD_BODIES } from './card-bodies.js'
-import { CARD_BLOCKS, defaultBusPath, openBus, OWNER_WAITS } from './db.js'
+import { CARD_BLOCKS, CLOSED_WAIT, defaultBusPath, openBus, OWNER_WAITS } from './db.js'
 import { CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_OWNER, SHARD_DECIDED, WINDOW_REQUEST } from './events.js'
 
 export const RESTART_MISSED = 'supervisor.restart_missed'
@@ -71,13 +71,25 @@ function liftedByTheWindow(stop: string): string {
     )`
 }
 
+function waitOpenedForTheStop(stop: string): string {
+  return `(SELECT json_extract(opened.payload, '$.id') FROM events AS opened
+      WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0 AND opened.card_id = ${stop}.card_id
+        AND json_extract(opened.payload, '$.need') = 'decision' AND json_extract(opened.payload, '$.command') IS NOT NULL
+        AND json_extract(opened.payload, '$.request') IS NULL AND json_extract(opened.payload, '$.pr') IS ${stop}.pr
+        AND NOT EXISTS (
+          SELECT 1 FROM ${OWNER_WAITS} AS earlier
+          WHERE earlier.id = json_extract(opened.payload, '$.id') AND earlier.state = '${CLOSED_WAIT}' AND earlier.event_id < ${stop}.id
+        )
+      ORDER BY opened.id LIMIT 1)`
+}
+
 function answeredThroughTheOwnerChannel(stop: string): string {
   return `EXISTS (
       SELECT 1 FROM events AS closed
-      JOIN ${OWNER_WAITS} AS wait ON wait.id = json_extract(closed.payload, '$.id')
       JOIN events AS request ON request.id = json_extract(closed.payload, '$.request') AND request.type = '${WINDOW_REQUEST}'
       WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND closed.legacy = 0 AND closed.id > ${stop}.id
-        AND wait.card_id = ${stop}.card_id AND json_extract(request.payload, '$.from') = '${ANSWER_SOURCE}'
+        AND json_extract(request.payload, '$.from') = '${ANSWER_SOURCE}'
+        AND json_extract(closed.payload, '$.id') = ${waitOpenedForTheStop(stop)}
     )`
 }
 
@@ -102,8 +114,7 @@ function namedAsTheAnswerByAnAmend(stop: string): string {
           SELECT 1 FROM (
             SELECT CAST(${stop}.id AS TEXT) AS name
             UNION ALL
-            SELECT json_extract(opened.payload, '$.id') FROM events AS opened
-            WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0 AND opened.card_id = ${stop}.card_id
+            SELECT ${waitOpenedForTheStop(stop)}
           ) AS answered
           WHERE ${textNames(`coalesce(json_extract(amend.payload, '$.text'), '')`, 'answered.name')}
             AND NOT ${textNames(admissionBefore('amend'), 'answered.name')}

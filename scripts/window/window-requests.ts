@@ -303,7 +303,8 @@ export class WindowRequests {
     const refusal = this.refusalToClose(request, id, answer)
     if (refusal !== null)
       return { done: false, why: `${refusal}; owner word ${word.file} ${word.release() ? 'left unused' : unreleasedWord(word.file)}` }
-    return { done: true, why: stop === null ? `closed ${id} on the owner's word ${word.file}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop} on the owner's word ${word.file}: ${answer}` }
+    const stillOpen = this.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number } | undefined
+    return { done: true, why: stop === null || stillOpen?.id === stop ? `closed ${id} on the owner's word ${word.file}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop} on the owner's word ${word.file}: ${answer}` }
   }
 
   private refusalToClose(request: number, id: string, answer: string): string | null {

@@ -1,3 +1,4 @@
+import type { OwnerWaitAsk } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { Answerer } from '../../nodes/answer/answerer.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
@@ -8,7 +9,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { amendedText } from '../../../src/commands/intake/amend.js'
-import { appendEvent, openBusWait } from '../../core/db.js'
+import { appendEvent, openBusWait, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { leaseNext } from '../../core/lease.js'
@@ -22,6 +23,7 @@ import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD = 1492
+const CARD_PR = CARD - 100
 const RESERVED_QUESTION = 'may I change architecture/owner-merges.md?'
 const OWNER_WORDS = 'Q: yes, change it'
 
@@ -61,11 +63,17 @@ function stoppedRoom(question: string = RESERVED_QUESTION, underAShard = true, a
   const now = made.clock.now()
   if (underAShard)
     appendEvent(made.db, { ts: now.toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'owner', scope: DECISIONS_SCOPE, until: new Date(now.getTime() + 3_600_000).toISOString(), window: 1 }, legacy: false })
-  appendEvent(made.db, { ts: now.toISOString(), type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: QUESTION_OWNER, detail: question }, legacy: false })
-  const stop = lastEventId(made)
-  const wait = openBusWait(made.db, now.toISOString(), 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
-  reduce(made.db)
+  const { stop, wait } = stopWithItsWait(made, question, 'first')
   return { made, channel: path.join(root, 'owner-answers'), stop, wait, body }
+}
+
+function stopWithItsWait(made: MergeBench, question: string, generation: string): { stop: number, wait: string } {
+  const ts = made.clock.now().toISOString()
+  const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
+  appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:${generation}`, payload: { reason: QUESTION_OWNER, detail: question }, legacy: false })
+  const stop = lastEventId(made)
+  reduce(made.db)
+  return { stop, wait }
 }
 
 function openStop(room: Room): number | null {
@@ -218,6 +226,63 @@ describe('a question.owner stop has a named lift for each route', () => {
     expect(openStop(room)).toBe(lastEventId(room.made))
   })
 
+  it('an amend naming the card\'s older wait lifts only the stop of that wait', () => {
+    const room = stoppedRoom('first question', false)
+    expect(closes(room, 'yes').kind).toBe('done')
+    reduce(room.made.db)
+    const later = stopWithItsWait(room.made, 'second question', 'second')
+    expect(later.wait).not.toBe(room.wait)
+
+    amendsWithNote(room, 'names-older', `see ${room.wait}`)
+    expect(openStop(room)).toBe(later.stop)
+
+    amendsWithNote(room, 'names-later', `answers ${later.wait}`)
+    expect(openStop(room)).toBeNull()
+  })
+
+  it('an amend naming another wait of the card does not lift the stop', () => {
+    const room = stoppedRoom()
+    const other = openOwnerWait(room.made.db, room.made.clock.now().toISOString(), 'policy', { need: 'merge', text: 'merge it', card: CARD, pr: CARD_PR })
+    reduce(room.made.db)
+
+    amendsWithNote(room, 'names-other', `see ${other}`)
+
+    expect(openStop(room)).toBe(room.stop)
+  })
+
+  it('the owner\'s word on a second wait of the card closes that wait and lifts nothing', () => {
+    const asks: OwnerWaitAsk[] = [
+      { need: 'command', text: 'run it', command: 'pnpm bus:status', card: CARD },
+      { need: 'decision', text: 'another need', command: cardDecisionCommand(CARD), card: CARD, request: 7 },
+      { need: 'decision', text: 'another pull request', command: cardDecisionCommand(CARD), card: CARD, pr: CARD_PR },
+    ]
+    for (const ask of asks) {
+      const room = stoppedRoom()
+      const other = openOwnerWait(room.made.db, room.made.clock.now().toISOString(), 'policy', ask)
+      reduce(room.made.db)
+      sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+
+      const outcome = closes({ ...room, wait: other }, OWNER_WORDS, '--from', ANSWER_SOURCE)
+
+      expect(outcome.kind).toBe('done')
+      expect(outcome.detail).not.toContain('lifted')
+      expect(waitState({ ...room, wait: other })).toBe('closed')
+      expect(waitState(room)).toBe('open')
+      expect(openStop(room)).toBe(room.stop)
+    }
+  })
+
+  it('a stop that took a wait still open shares it, and the owner\'s word on it lifts both', () => {
+    const room = stoppedRoom('first question', false)
+    const later = stopWithItsWait(room.made, 'second question', 'second')
+    expect(later.wait).toBe(room.wait)
+    sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+
+    expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE).detail).toContain(`lifted the card #${CARD} stop ${later.stop}`)
+
+    expect(openStop(room)).toBeNull()
+  })
+
   it('a request with no valid form prints how the owner\'s word closes a wait', () => {
     const room = stoppedRoom()
     const lines: string[] = []
@@ -233,7 +298,6 @@ describe('a question.owner stop has a named lift for each route', () => {
   })
 })
 
-const CARD_PR = CARD - 100
 const OWNER_PATH = 'architecture/owner-merges.md'
 
 function bodyTouching(touches: string): string {
@@ -262,7 +326,7 @@ async function answerRefusedOutsideTouches(refused: readonly string[]) {
   const lease = (): Lease | null => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
   const outcome = await executor.answer(lease()!)
   made.tick()
-  return { made, executor, lease, outcome, answered, stop: lastEventOf(made, CARD_STOPPED) }
+  return { made, root, executor, lease, outcome, answered, stop: lastEventOf(made, CARD_STOPPED) }
 }
 
 function lastEventOf(made: MergeBench, type: string): { id: number, payload: { widen?: string[] } } {
@@ -293,6 +357,26 @@ describe('the outside-touches stop of the answer node', () => {
     expect(again).toMatchObject({ queue: 'answer', cardId: CARD, pr: CARD_PR })
     expect(await run.executor.answer(again!)).toMatchObject({ kind: 'answered', head: sha('e') })
     expect(run.answered).toHaveLength(2)
+  })
+
+  it('the owner\'s word on the wait the node opened with its stop lifts the stop', async () => {
+    const run = await answerRefusedOutsideTouches(['package.json'])
+    const wait = String(eventsOf(run.made.db, OWNER_WAIT_OPENED).at(-1)!.id)
+    const room: Room = { made: run.made, channel: path.join(run.root, 'owner-answers'), stop: run.stop.id, wait, body: '' }
+    sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+
+    expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE).kind).toBe('done')
+
+    expect(openStop(room)).toBeNull()
+  })
+
+  it('an amend naming the wait the node opened with its stop lifts the stop', async () => {
+    const run = await answerRefusedOutsideTouches(['package.json'])
+    const wait = String(eventsOf(run.made.db, OWNER_WAIT_OPENED).at(-1)!.id)
+
+    admit(run.made, `${bodyTouching('src/a.ts')}\nanswers ${wait}\n`, 'body-2')
+
+    expect(openStopOn(run.made)).toBeNull()
   })
 
   it('an amend covering only some of the refused paths does not lift it', async () => {
