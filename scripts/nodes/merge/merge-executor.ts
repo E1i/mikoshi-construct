@@ -297,7 +297,7 @@ export class MergeExecutor {
       return unclean
     if (unclean === null && upToDateRequired(meter))
       return null
-    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha)
+    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha, lease.head!)
     if (!rerun.rerun)
       return null
     return { kind: 'technical', reason: NEEDS_UPDATE, detail: `#${lease.pr} is updated onto ${MAIN_BRANCH} before it merges: ${rerun.why}` }
