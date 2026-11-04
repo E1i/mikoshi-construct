@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runCommand } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { BUS_DB_VARIABLE } from '../scripts/core/bus-path.js'
+import { agentLabel, BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE, LAUNCH_AGENTS } from '../scripts/core/bus-path.js'
 import { appendEvent, openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
@@ -245,6 +245,50 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
     expect(stalls.exit).toBe(DOCTOR_EXIT.notOk)
     expect(JSON.parse(stalls.output)).toEqual(factoryChecklistJson(check(fresh)))
     expect(JSON.parse(stalls.output).goes).toBe(false)
+  })
+
+  function withGhAccounts(factory: Factory, recorded: string | null, hosts: string): FactoryChecklist {
+    if (recorded !== null) {
+      const agents = path.join(factory.home, LAUNCH_AGENTS)
+      mkdirSync(agents, { recursive: true })
+      writeFileSync(path.join(agents, `${agentLabel(factory.dir)}.plist`), `<dict>\n\t\t<key>${GH_ACCOUNT_VARIABLE}</key>\n\t\t<string>${recorded}</string>\n</dict>\n`)
+    }
+    const config = scratch('construct-doctor-factory-gh-')
+    writeFileSync(path.join(config, 'hosts.yml'), hosts)
+    return factoryChecklist(factory.dir, { env: { CONSTRUCT_BUS_DB: factory.bus, [HANDOFF_DIR_VARIABLE]: factory.handoffs, GH_CONFIG_DIR: config }, home: factory.home, now: NOW })
+  }
+
+  function hostsYml(active: string): string {
+    return `github.example.com:\n    user: elsewhere\ngithub.com:\n    users:\n        repo-account:\n            user: nested\n        ${active}:\n    git_protocol: https\n    user: ${active}\n`
+  }
+
+  function ghItem(checklist: FactoryChecklist) {
+    return checklist.items.find(item => item.item === 'gh-account')!
+  }
+
+  it('warns when the active gh account differs from the recorded one, and the factory still goes', async () => {
+    const checklist = withGhAccounts(await readyFactory(), 'repo-account', hostsYml('work-account'))
+    expect(ghItem(checklist)).toEqual({ item: 'gh-account', slice: 'PARITY', goes: true, command: 'gh auth switch --user repo-account' })
+    expect(checklist.goes).toBe(true)
+    const { text, exit } = printed(checklist)
+    expect(exit).toBe(DOCTOR_EXIT.ok)
+    expect(text).toContain(PLAIN_LORE.factoryRun('gh auth switch --user repo-account'))
+    expect(text).toContain(PLAIN_LORE.factoryVerdict(true, 0))
+  })
+
+  it('does not warn when the active gh account differs only in case or equals the recorded one, nor when either is unknown', async () => {
+    const silent: [string | null, string][] = [
+      ['repo-account', hostsYml('repo-account')],
+      ['Repo-Account', hostsYml('repo-account')],
+      [null, hostsYml('work-account')],
+      ['repo-account', ''],
+      ['repo-account', 'github.com:\n    git_protocol: https\n'],
+    ]
+    for (const [recorded, hosts] of silent) {
+      const checklist = withGhAccounts(await readyFactory(), recorded, hosts)
+      expect(ghItem(checklist).command, `${recorded} over ${hosts}`).toBeNull()
+      expect(printed(checklist).text).not.toContain('gh auth switch')
+    }
   })
 
   it('every item has its line in the lore and in the plain lore', () => {

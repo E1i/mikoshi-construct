@@ -8,6 +8,9 @@ import { FACTORY_NAMED } from './factory-paths.js'
 export const OWNER_AGENT = 'dev.mikoshi.bus'
 export const OWNER_AGENT_FILE = path.join(FACTORY_NAMED.launchdDirectory, `${OWNER_AGENT}.plist`)
 export const BUS_DB_VARIABLE = 'CONSTRUCT_BUS_DB'
+export const GH_ACCOUNT_VARIABLE = 'CONSTRUCT_GH_ACCOUNT'
+export const AGENT_PREFIX = 'dev.mikoshi.factory.'
+export const LAUNCH_AGENTS = path.join('Library', 'LaunchAgents')
 export const CONSTRUCT_HOME_DIR = '.construct'
 export const BUS_FILE = 'bus.db'
 export const BUS_DIR = 'bus'
@@ -179,6 +182,11 @@ export function isMachineBus(home: string, busPath: string): boolean {
 
 export function isOwnerCheckout(dir: string): boolean {
   return existsSync(path.join(repositoryRoot(dir) ?? dir, OWNER_AGENT_FILE))
+}
+
+export function agentLabel(repository: string): string {
+  const name = path.basename(repository).toLowerCase().replaceAll(/[^a-z0-9-]+/g, '-')
+  return `${AGENT_PREFIX}${name}-${createHash('sha256').update(repository).digest('hex').slice(0, LOCAL_HASH_LENGTH)}`
 }
 
 export function defaultBusPath(): string {

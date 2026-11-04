@@ -11,6 +11,7 @@ import { readShiftGate } from '../../../src/manifest.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
+import { accountToken, recordedAccount } from '../../ports/gh.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { restoreReport, shellWord } from '../../ports/tree-publish.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
@@ -65,7 +66,14 @@ export function launchArgv(session: { command: string, treePr: string, cardId: n
 
 export function launchEnv(session: NodeJS.ProcessEnv, launching: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const bus = launching[BUS_DB_VARIABLE]
-  return bus === undefined || bus === '' ? session : { ...session, [BUS_DB_VARIABLE]: bus }
+  const onBus = bus === undefined || bus === '' ? session : { ...session, [BUS_DB_VARIABLE]: bus }
+  const account = recordedAccount(launching)
+  if (account === null)
+    return onBus
+  const token = accountToken(account)
+  if (token.kind === 'failed')
+    throw new Error(token.reason)
+  return { ...onBus, GH_TOKEN: token.token }
 }
 
 export function unreadableCard(cardId: number): string {

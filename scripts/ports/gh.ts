@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process'
+import process from 'node:process'
+import { GH_ACCOUNT_VARIABLE } from '../core/bus-path.js'
 
 export type GhRunner = (args: string[]) => string
 
@@ -36,6 +38,7 @@ export interface GhPortOptions {
   budget: GhBudgetWindow
   spawn: GhSpawn
   pause: (ms: number) => void
+  environment: NodeJS.ProcessEnv
 }
 
 export interface GhCallOptions {
@@ -72,6 +75,22 @@ function callOutcome(run: GhSpawned, args: string[], timeoutSeconds: number, att
   return failed(TRANSIENT_STDERR.test(run.stderr) ? 'transient' : 'failed', `gh ${args.join(' ')}: ${detail}`)
 }
 
+export function recordedAccount(env: NodeJS.ProcessEnv): string | null {
+  const account = env[GH_ACCOUNT_VARIABLE]
+  return account === undefined || account === '' ? null : account
+}
+
+export type GhAccountToken = { kind: 'token', token: string } | { kind: 'failed', reason: string, stderr: string }
+
+export function accountToken(account: string, options: { command?: string, spawn?: GhSpawn, timeoutMs?: number } = {}): GhAccountToken {
+  const run = (options.spawn ?? spawnGh)(options.command ?? 'gh', ['auth', 'token', '--user', account], { timeoutMs: options.timeoutMs ?? GH_TIMEOUT_SECONDS * 1000 })
+  const token = run.stdout.trim()
+  if (run.error === undefined && run.status === 0 && token !== '')
+    return { kind: 'token', token }
+  const detail = run.error?.message ?? (run.stderr.trim() || `exit ${run.status ?? 'signal'}`)
+  return { kind: 'failed', reason: `gh holds no token of the account ${account} this factory records: ${detail}; run gh auth login and sign in as ${account}`, stderr: run.stderr }
+}
+
 export type GhSpend = { kind: 'spent' } | { kind: 'spent-out', reason: string, retryAfterSeconds: number }
 
 export class GhBudgetWindow {
@@ -97,7 +116,21 @@ export const PROCESS_GH_BUDGET = new GhBudgetWindow(GH_HOURLY_BUDGET, Date.now)
 export class GhPort {
   constructor(private readonly options: GhPortOptions) {}
 
-  call(args: string[], call: GhCallOptions = {}): GhCall {
+  private asRecordedAccount(call: GhCallOptions): { call: GhCallOptions } | { refused: GhCall } {
+    const account = recordedAccount(this.options.environment)
+    if (account === null)
+      return { call }
+    const token = accountToken(account, { command: this.options.command, spawn: this.options.spawn, timeoutMs: this.options.timeoutSeconds * 1000 })
+    if (token.kind === 'failed')
+      return { refused: { kind: 'failed', cause: 'failed', reason: token.reason, stdout: '', stderr: token.stderr, attempts: 0 } }
+    return { call: { ...call, env: { ...(call.env ?? this.options.environment), GH_TOKEN: token.token } } }
+  }
+
+  call(args: string[], asked: GhCallOptions = {}): GhCall {
+    const resolved = this.asRecordedAccount(asked)
+    if ('refused' in resolved)
+      return resolved.refused
+    const { call } = resolved
     for (let attempt = 1; ; attempt += 1) {
       const spend = this.options.budget.spend()
       if (spend.kind === 'spent-out')
@@ -111,7 +144,7 @@ export class GhPort {
 }
 
 export function ghPort(overrides: Partial<GhPortOptions> = {}): GhPort {
-  return new GhPort({ command: 'gh', timeoutSeconds: GH_TIMEOUT_SECONDS, attempts: GH_ATTEMPTS, pauseMs: GH_PAUSE_MS, budget: PROCESS_GH_BUDGET, spawn: spawnGh, pause: blockFor, ...overrides })
+  return new GhPort({ command: 'gh', timeoutSeconds: GH_TIMEOUT_SECONDS, attempts: GH_ATTEMPTS, pauseMs: GH_PAUSE_MS, budget: PROCESS_GH_BUDGET, spawn: spawnGh, pause: blockFor, environment: process.env, ...overrides })
 }
 
 export const PROCESS_GH_PORT = ghPort()
