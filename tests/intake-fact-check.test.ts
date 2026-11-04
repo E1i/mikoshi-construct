@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { CONTOURS, decisionsOf, KINDS } from '../src/card/grammar.js'
 import { runAttach } from '../src/commands/attach/index.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
-import { checkDraft, COMPANION_REASON, COMPANION_TABLE, correctionText, DEFAULT_CONTOUR, invalidTestPatterns, publishedRootsOf } from '../src/commands/intake/check.js'
+import { checkDraft, COMPANION_REASON, COMPANION_TABLE, correctionText, DEFAULT_CONTOUR, invalidTestPatterns, nonPathTouchRefusals, publishedRootsOf } from '../src/commands/intake/check.js'
 import { DirectoryFacts } from '../src/commands/intake/facts.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -182,6 +182,46 @@ describe('intake fact check', () => {
     expect(second).toContain('unclear: touches — \'lib/util.ts\' does not exist and 2 paths: src/a/util.ts, tests/b/util.ts are named \'util.ts\'; list it under creates if the change makes it')
     expect(second).not.toMatch(/(un)?clear(ed)?: (touches|creates) — .*feature\.ts/)
     expect(second).toContain('touches: src/new/feature.ts, lib/util.ts, src/commands/intake/index.ts')
+  })
+
+  const nonPathTouches: Record<string, string> = {
+    '@types/express': 'a package name',
+    'registry.npmjs.org': 'a host',
+    'registry.npmjs.org/**': 'a host',
+    'localhost:3000/health': 'a host',
+    '/health': 'a route',
+    '/v1/health': 'a route',
+  }
+
+  function nonPathReason(entry: string, shape: string): string {
+    return `touches entry '${entry}' reads as ${shape}, not a repository path; touches hold only paths from the repository root, and a path the change makes is listed under creates`
+  }
+
+  it('a touch naming a package, a host or a route is refused at admission with the reason', () => {
+    for (const [entry, shape] of Object.entries(nonPathTouches)) {
+      const dir = repository(['src/a.ts', 'src/express/index.ts', 'src/health'])
+      const { result, parking } = intake([card({ touches: ['src/a.ts', entry] })], { dir })
+      expect(result).toEqual({ status: 'refused', refusal: 'invalid', detail: [`check-card: ${nonPathReason(entry, shape)}`] })
+      expect(printed(result)).toContain(nonPathReason(entry, shape))
+      expect(() => statSync(parking)).toThrow()
+    }
+    for (const [entry, shape] of Object.entries(nonPathTouches).filter(([entry]) => !entry.startsWith('/'))) {
+      const dir = repository(['src/a.ts'])
+      const before = `card: #80 admit-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-80\ntouches: src/a.ts, ${entry}\ncontinue: stop\nwho: shift\n\nDo the thing.\n`
+      put(dir, 'parking/80.md', before)
+      const refusal = runAdmit({ file: path.join(dir, 'parking/80.md'), dir, dryRun: false, autoConfirm: true, parkingRoot: path.join(dir, 'parking') })
+      expect(refusal).toEqual({ status: 'refused', why: `admit-card: ${nonPathReason(entry, shape)}` })
+      expect(readFileSync(path.join(dir, 'parking/80.md'), 'utf8')).toBe(before)
+    }
+    expect(admitParked(repository(['src/a.ts']), '/health').status).toBe('refused')
+  })
+
+  it('a touch shaped like a package or a host stays when it exists or is listed under creates, and a dotted file is no host', () => {
+    const dir = repository(['@scope/pkg/index.ts', 'example.org/page.md', 'src/a.ts'])
+    const touches = ['@scope/pkg/index.ts', 'example.org/**', '@scope/new/index.ts', 'docs.example.com/index.md', 'eslint.config.mjs', 'notes.md', 'Dockerfile.dev', '.claude/**']
+    const creates = ['@scope/new/index.ts', 'docs.example.com/index.md']
+    expect(nonPathTouchRefusals([draftCard({ touches, creates })], new DirectoryFacts(dir, ''))).toEqual([])
+    expect(nonPathTouchRefusals([draftCard({ touches: ['/health'], creates: ['/health'] })], new DirectoryFacts(repository(['health']), ''))).toEqual([`check-card: ${nonPathReason('/health', 'a route')}`])
   })
 
   it('flags a witness that names no command or a command that does not resolve', () => {
