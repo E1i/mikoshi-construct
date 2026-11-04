@@ -14,7 +14,7 @@ import { leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { realTimedShell, WitnessExecutor } from '../../nodes/witness/witness-executor.js'
-import { withWorktree } from '../../ports/worktree.js'
+import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 const CARD = 1501
 const PROBE = 1502
@@ -51,11 +51,12 @@ function world(onMain: string): World {
   return { repo, db, main: git(repo, 'rev-parse', 'HEAD') }
 }
 
-function witnessOnMain(w: World): void {
+async function witnessOnMain(w: World): Promise<void> {
   const task: QueuedTask = { queue: 'witness', cardId: CARD, head: w.main }
   queueTask(w.db, TS, task)
   const lease = leaseQueued(w.db, TS, keyOf(task), 'worker:witness:probedone')!
-  new WitnessExecutor({ db: w.db, clock: () => new Date(TS), shell: realTimedShell, log: () => {}, trees: { baseOf: () => w.main, withTree: (base, run) => withWorktree(w.repo, base, run) } }).run(lease)
+  const turns = new SetupTurns()
+  await new WitnessExecutor({ db: w.db, clock: () => new Date(TS), shell: realTimedShell, log: () => {}, trees: { baseOf: async () => w.main, withTree: (base, run) => withWorktreeAsync(w.repo, base, run, turns) } }).run(lease)
   reduce(w.db)
 }
 
@@ -64,9 +65,9 @@ function cardState(db: DatabaseSync, cardId: number): string | undefined {
 }
 
 describe('a card whose goal is already on main', () => {
-  it('a card whose witnesses pass on main closes without a PR', () => {
+  it('a card whose witnesses pass on main closes without a PR', async () => {
     const w = world('done.txt')
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     const closed = w.db.prepare('SELECT pr, head, payload FROM events WHERE type = ? AND card_id = ?').all(CARD_CLOSED, CARD) as { pr: number | null, head: string, payload: string }[]
     expect(closed.map(row => ({ pr: row.pr, head: row.head, payload: JSON.parse(row.payload) as unknown }))).toEqual([{ pr: null, head: w.main, payload: { verification: 'run', witnessedOnMain: w.main } }])
@@ -74,9 +75,9 @@ describe('a card whose goal is already on main', () => {
     expect(unsatisfiedDependencies(w.db)([CARD])).toEqual([])
   })
 
-  it('a card whose witness is red on main records the red and stays open', () => {
+  it('a card whose witness is red on main records the red and stays open', async () => {
     const w = world('other.txt')
-    witnessOnMain(w)
+    await witnessOnMain(w)
 
     const recorded = w.db.prepare('SELECT pr, payload FROM events WHERE type = ? AND card_id = ?').all(WITNESS_RECORDED, CARD) as { pr: number | null, payload: string }[]
     expect(recorded.map(row => [row.pr, (JSON.parse(row.payload) as { verdict: string }).verdict])).toEqual([[null, 'red']])

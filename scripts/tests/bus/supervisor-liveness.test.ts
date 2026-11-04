@@ -1341,6 +1341,12 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     const lines: string[] = []
     const enough = new Error('enough ticks')
     let ticks = 0
+    const beats = new Set<number>()
+    const sampleBeat = (): void => {
+      const beat = lastProcessBeats(db).find(each => each.process === SUPERVISOR_PROCESS)
+      if (beat !== undefined)
+        beats.add(Date.parse(beat.ts))
+    }
 
     await expect(superviseUntilReplaced({
       supervisor,
@@ -1349,6 +1355,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
       relaunch: () => ({ stdout: [], stderr: [], exitCode: 1 }),
       print: line => lines.push(line),
       pause: async () => {
+        sampleBeat()
         if (++ticks >= 60)
           throw enough
         clock.now += CHECK_MS
@@ -1357,7 +1364,6 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
 
     expect(starts.length).toBeGreaterThanOrEqual(3)
     expect(lines.join('\n')).toContain(`${launchName(review)} did not start, a technical failure: GitHub answered 599`)
-    const beats = (db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id').all('process.heartbeat') as { ts: string }[]).map(row => Date.parse(row.ts))
     const marks = [BEAT_AT, ...beats, clock.now]
     const gaps = marks.slice(1).map((at, index) => at - marks[index]!)
     expect(clock.now - BEAT_AT).toBeGreaterThan(5 * SUPERVISOR_SILENT_MS)

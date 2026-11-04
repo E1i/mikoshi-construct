@@ -758,5 +758,20 @@
     "target": "scripts/construct/browser-lab.mjs",
     "sha256": "b05f2922ceeda62dfb33db501acfb5394cb69b2f202976e85dad2176f9acffa5",
     "date": "2026-11-03"
+  },
+  {
+    "target": ".claude/skills/browser-lab/SKILL.md",
+    "sha256": "056b53cbd2a059bf4a207c6087697ac5f4966ade253c1e0e7587e6151ece7dc2",
+    "date": "2026-11-04"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "e27d1bade1898af98a5c4fc12ebf6d55000c42ce4db4b43bbea0d6fc5050b154",
+    "date": "2026-11-04"
+  },
+  {
+    "target": ".claude/skills/browser-lab/SKILL.md",
+    "sha256": "2d0c00c53c0a5f3cab7573b48066abc14712d21f54e48505d1d9214784cf0ede",
+    "date": "2026-11-04"
   }
 ]

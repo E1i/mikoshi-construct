@@ -64,7 +64,7 @@ export class WitnessNode extends Node<WitnessOutcome> {
     return witnessCandidates(this.db, ts)
   }
 
-  protected handle(lease: Lease): WitnessOutcome {
+  protected handle(lease: Lease): Promise<WitnessOutcome> {
     return this.executor.run(lease)
   }
 
