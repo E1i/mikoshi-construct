@@ -2,6 +2,7 @@ import path from 'node:path'
 import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, scopeOf } from '../../scripts/core/factory-paths.js'
 import { createdPaths } from './parking.js'
 import { PREFIX_SUFFIX } from './task-file.js'
+import { runsFieldOf } from './witness-fields.js'
 
 function scannedBy(groups: readonly (readonly [readonly string[], readonly string[]])[]): Record<string, readonly string[]> {
   const trees: Record<string, string[]> = {}
@@ -54,7 +55,7 @@ function coversByImport(file: string): boolean {
   return isTest(file) || (TEST_FILE.test(file) && WORKSPACE_TEST_ROOT.test(file))
 }
 
-function isTestScope(entry: string): boolean {
+export function isTestScope(entry: string): boolean {
   if (!entry.endsWith(PREFIX_SUFFIX))
     return coversByImport(entry)
   const scope = `${entry.slice(0, -PREFIX_SUFFIX.length)}/`
@@ -78,7 +79,7 @@ function runsOfLine(line: string): string[] {
 }
 
 export function runsOf(body: string): string[] {
-  return [...new Set(body.split('\n').flatMap(line => runsOfLine(line.trim())))].filter(isTestScope)
+  return [...new Set([...runsFieldOf(body), ...body.split('\n').flatMap(line => runsOfLine(line.trim()))])].filter(isTestScope)
 }
 
 export function runsCover(file: string, runs: readonly string[]): boolean {

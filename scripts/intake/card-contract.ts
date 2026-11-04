@@ -1,8 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
+import type { WitnessField } from '../../src/card/witness-fields.js'
 import type { LastHeartbeat } from '../supervisor/heartbeat.js'
+import { runsOf } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_PREFIX, SEAM_PREFIX, SLICE_PREFIX } from '../../src/card/risk.js'
+import { isWitnessFieldLine, witnessFieldsOf } from '../../src/card/witness-fields.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { CLOSED_CARD, DROPPED_CARD } from '../core/card-automaton.js'
@@ -53,6 +56,8 @@ export interface CardFields {
   creates: string[]
   prose: string
   witnesses: string[]
+  witnessFields: WitnessField[]
+  runs: string[]
   unclear: string[]
   risk: string | null
   seam: string[]
@@ -66,12 +71,12 @@ export interface CardFields {
   lastHeartbeat: LastHeartbeat | null
 }
 
-const CARD_FIELDS = ['id', 'name', 'kind', 'milestone', 'size', 'contour', 'decision', 'depends', 'blocks', 'cardLine', 'branch', 'touches', 'continue', 'who', 'priority', 'creates', 'prose', 'witnesses', 'unclear', 'risk', 'seam', 'slice', 'path', 'lane'] as const satisfies readonly (keyof CardFields)[]
+const CARD_FIELDS = ['id', 'name', 'kind', 'milestone', 'size', 'contour', 'decision', 'depends', 'blocks', 'cardLine', 'branch', 'touches', 'continue', 'who', 'priority', 'creates', 'prose', 'witnesses', 'witnessFields', 'runs', 'unclear', 'risk', 'seam', 'slice', 'path', 'lane'] as const satisfies readonly (keyof CardFields)[]
 
 export const CONTRACT_FIELDS: Record<Contract, readonly (keyof CardFields)[]> = {
   intake: [...CARD_FIELDS, 'text'],
   start: ['id', 'name', 'cardLine', 'branch', 'contour', 'path', 'touches', 'who', 'risk', 'lane', 'textSha', 'lastHeartbeat'],
-  review: ['id', 'cardLine', 'branch', 'continue', 'touches', 'risk', 'prose', 'witnesses', 'unclear', 'text', 'lastHeartbeat'],
+  review: ['id', 'cardLine', 'branch', 'continue', 'touches', 'risk', 'prose', 'witnesses', 'witnessFields', 'runs', 'unclear', 'text', 'lastHeartbeat'],
   close: ['id', 'cardLine', 'text'],
   board: ['id', 'name', 'contour', 'priority', 'who', 'depends', 'touches', 'creates', 'lane', 'state'],
 }
@@ -82,7 +87,7 @@ export function isContract(name: string): name is Contract {
 
 function proseOf(body: string): string {
   const lines = body.split('\n')
-  const witnesses = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
+  const witnesses = lines.findIndex(line => line.trim() === WITNESSES_HEADING || isWitnessFieldLine(line))
   return (witnesses === -1 ? lines : lines.slice(0, witnesses)).join('\n').trim()
 }
 
@@ -112,6 +117,8 @@ export function cardFields(parked: ParkedTask, body: CardBody): CardFields {
     creates: parked.creates,
     prose: proseOf(task.body),
     witnesses: witnessesOf(task.body),
+    witnessFields: witnessFieldsOf(task.body) ?? [],
+    runs: runsOf(task.body),
     unclear: prefixed(task.body, UNCLEAR_PREFIX),
     risk: prefixed(task.body, RISK_PREFIX)[0] ?? null,
     seam: prefixed(task.body, SEAM_PREFIX),

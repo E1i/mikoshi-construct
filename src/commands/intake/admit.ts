@@ -1,6 +1,7 @@
 import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
+import type { WitnessExpectation, WitnessField } from '../../card/witness-fields.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { CheckedCard } from './check.js'
@@ -19,6 +20,7 @@ import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
+import { fieldCommand, isAcceptanceField, judgedCommand, renderedWitness, runsFieldOf, statesAnExit, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
@@ -177,30 +179,52 @@ const DECISION_LINE = /^- D-[1-9]\d* · /
 const DECISION_CARDS = / · card (#[1-9]\d*(?: #[1-9]\d*)*)/
 const SUPERSEDED_BY = ' · superseded-by D-'
 const DROPPED_CARD = 'dropped'
+const WORD_CONTINUES = /^\w/
 
 export function defaultDecisions(): string {
   return decisionsFileOf(defaultBusPath())
 }
 
+function fieldAllowance(cardId: number, witnessId: string): string {
+  return `${DOWNGRADE_ALLOWANCE} #${cardId} ${witnessId}`
+}
+
 export function downgradeAction(cardId: number, witness: string): string {
-  return `${DOWNGRADE_ALLOWANCE} ${witness} у #${cardId}`
+  const field = renderedWitness(witness)
+  return field === null ? `${DOWNGRADE_ALLOWANCE} ${witness} у #${cardId}` : fieldAllowance(cardId, field.id)
 }
 
 function witnessCore(witness: string): string {
   return withoutWitnessKind(witness).replace(ANY_FORM_OF_FAILING_ON_MAIN, '').trim()
 }
 
-type Outcome = 'pass' | 'fail' | 'any'
+type Outcome = WitnessExpectation | 'any'
 
-interface WitnessFact { command: string, head: Outcome, base: Outcome }
+interface WitnessFact { command: string, head: Outcome, base: Outcome, fromField?: boolean }
 
 const BACKTICKED_COMMAND = /`([^`]+)`/g
 const NEGATED_COMMAND = /^!\s+/
 const FAILS_ON_HEAD = /\bexits 1\b(?! on (?:the )?(?:base|main)\b)|\b(?:fails|red) on (?:the )?head\b/i
 const PASSES_ON_BASE = /\b(?:exits )?0 on (?:the )?(?:base|main)\b/i
-const INVERTED: Record<Outcome, Outcome> = { pass: 'fail', fail: 'pass', any: 'any' }
+
+function inverted(outcome: Outcome): Outcome {
+  return outcome === 'pass' ? 'fail' : outcome === 'fail' ? 'pass' : outcome
+}
+
+function fieldFact(witness: string): WitnessFact | null {
+  const field = renderedWitness(witness)
+  if (field === null)
+    return null
+  const command = field.command.replace(NEGATED_COMMAND, '')
+  return command === field.command
+    ? { command, head: field.head, base: field.base, fromField: true }
+    : { command, head: inverted(field.head), base: inverted(field.base), fromField: true }
+}
 
 function witnessFact(witness: string): WitnessFact | null {
+  const field = fieldFact(witness)
+  if (field !== null)
+    return field
   const commands = [...witness.matchAll(BACKTICKED_COMMAND)].map(match => match[1]!.trim())
   if (commands.length !== 1)
     return null
@@ -208,7 +232,7 @@ function witnessFact(witness: string): WitnessFact | null {
   const head: Outcome = FAILS_ON_HEAD.test(wording) ? 'fail' : 'pass'
   const base: Outcome = isChangeWitness(witness) ? 'fail' : PASSES_ON_BASE.test(wording) ? 'pass' : 'any'
   const command = commands[0]!.replace(NEGATED_COMMAND, '')
-  return command === commands[0] ? { command, head, base } : { command, head: INVERTED[head], base: INVERTED[base] }
+  return command === commands[0] ? { command, head, base } : { command, head: inverted(head), base: inverted(base) }
 }
 
 function sameFact(left: WitnessFact, right: WitnessFact): boolean {
@@ -234,13 +258,69 @@ function equivalentReplacement(original: WitnessFact, replacement: WitnessFact):
     && (original.command === replacement.command || sameTestMoved(original.command, replacement.command))
 }
 
-export function unreplacedDowngrades(downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
+function testNamesOf(command: string): string[] {
+  return [...command.matchAll(TEST_NAME_ARGUMENT)].map(match => match[1] ?? match[2] ?? match[3]!)
+}
+
+function filterMatches(filter: string, name: string): boolean {
+  try {
+    return new RegExp(filter).test(name)
+  }
+  catch {
+    return false
+  }
+}
+
+function narrowsTheFilter(original: string, replacement: string): boolean {
+  const name = testNameOf(replacement)
+  if (name === null || original.replace(TEST_NAME_ARGUMENT, '') !== replacement.replace(TEST_NAME_ARGUMENT, ''))
+    return false
+  const filters = testNamesOf(original)
+  return filters.length === 0 || (filters.length === 1 && filterMatches(filters[0]!, name))
+}
+
+function equivalentFieldReplacement(original: WitnessFact, replacement: WitnessFact): boolean {
+  if (original.fromField !== true || replacement.fromField !== true || original.head !== replacement.head)
+    return false
+  const baseKept = original.base === replacement.base || (original.base === 'pass' && replacement.base === 'fail')
+  return baseKept && (original.command === replacement.command || sameTestMoved(original.command, replacement.command) || narrowsTheFilter(original.command, replacement.command))
+}
+
+type Equivalence = (original: WitnessFact, replacement: WitnessFact) => boolean
+
+function withoutReplaced(downgrades: readonly string[], previous: readonly string[], next: readonly string[], equivalent: Equivalence): string[] {
   const previousCores = new Set(previous.map(witnessCore))
   const replacements = next.filter(witness => !previousCores.has(witnessCore(witness))).flatMap(witness => witnessFact(witness) ?? [])
   return downgrades.filter((witness) => {
     const fact = witnessFact(witness)
-    return fact === null || !replacements.some(replacement => equivalentReplacement(fact, replacement))
+    return fact === null || !replacements.some(replacement => equivalent(fact, replacement))
   })
+}
+
+export interface JudgedWitness {
+  criterion: string
+  command: string
+  onBase?: { command: string, stated: string }
+}
+
+export function judgedFieldWitnessesOf(body: string): { acceptance: JudgedWitness[], invariants: JudgedWitness[] } | null {
+  const fields = witnessFieldsOf(body)
+  if (fields === null)
+    return null
+  const judged = (field: WitnessField): JudgedWitness => ({ criterion: witnessText(field), command: judgedCommand(field) })
+  const acceptance = (field: WitnessField): JudgedWitness => statesAnExit(field) ? { ...judged(field), onBase: { command: fieldCommand(field), stated: field.base } } : judged(field)
+  return {
+    acceptance: fields.filter(isAcceptanceField).map(acceptance),
+    invariants: fields.filter(field => !isAcceptanceField(field)).map(judged),
+  }
+}
+
+export function unreplacedDowngrades(downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
+  return withoutReplaced(downgrades, previous, next, equivalentReplacement)
+}
+
+export function unreplacedFieldDowngrades(downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
+  return withoutReplaced(downgrades, previous, next, equivalentFieldReplacement)
 }
 
 export function witnessDowngrades(previous: readonly string[], next: readonly string[]): string[] {
@@ -256,6 +336,9 @@ export function witnessDowngrades(previous: readonly string[], next: readonly st
 }
 
 export function witnessesOf(body: string): string[] {
+  const fields = witnessFieldsOf(body)
+  if (fields !== null)
+    return fields.map(witnessText)
   const lines = body.split('\n')
   const at = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
   if (at === -1)
@@ -285,6 +368,7 @@ function draftOf(parked: ParkedTask): DraftCard {
     creates: parked.creates,
     task: body,
     witnesses: witnessesOf(body),
+    runs: runsFieldOf(body),
     unclear: [],
   }
 }
@@ -325,7 +409,14 @@ function ownerAllowed(decisionsFile: string, cardId: number, downgrades: readonl
   if (!existsSync(decisionsFile))
     return false
   const allowing = readFileSync(decisionsFile, 'utf8').split('\n').filter(line => DECISION_LINE.test(line) && !line.includes(SUPERSEDED_BY) && (DECISION_CARDS.exec(line)?.[1]?.split(' ').includes(`#${cardId}`) ?? false))
-  return downgrades.every(witness => allowing.some(line => phraseNamesCard(line, `${DOWNGRADE_ALLOWANCE} ${witness} у `, cardId) || phraseNamesCard(line, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
+  return downgrades.every(witness => allowing.some(line => namesTheWitness(line, witness, cardId) || phraseNamesCard(line, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
+}
+
+function namesTheWitness(line: string, witness: string, cardId: number): boolean {
+  const field = renderedWitness(witness)
+  if (field === null)
+    return phraseNamesCard(line, `${DOWNGRADE_ALLOWANCE} ${witness} у `, cardId)
+  return line.split(fieldAllowance(cardId, field.id)).slice(1).some(rest => !WORD_CONTINUES.test(rest))
 }
 
 function standingReplacementAllowed(decisionsFile: string, now: Date): boolean {
@@ -532,7 +623,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   }
   const decisionsFile = options.decisions ?? defaultDecisions()
   const previous = recorded?.text === undefined ? [] : witnessesOf(recorded.text)
-  const lowered = recorded?.text === undefined ? [] : witnessDowngrades(previous, witnessesOf(admitted.text))
+  const lowered = recorded?.text === undefined ? [] : unreplacedFieldDowngrades(witnessDowngrades(previous, witnessesOf(admitted.text)), previous, witnessesOf(admitted.text))
   const downgrades = lowered.length > 0 && standingReplacementAllowed(decisionsFile, now()) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
   if (downgrades.length > 0 && !ownerAllowed(decisionsFile, card.id, downgrades)) {
     if (!options.dryRun)

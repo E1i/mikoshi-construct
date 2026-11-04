@@ -1,6 +1,8 @@
+import type { WitnessField } from '../../card/witness-fields.js'
 import type { AdmitOptions, AdmitResult } from './admit.js'
 import type { CardAdmissionsPort } from './index.js'
 import { SHIFT_WHO, WINDOW_WHO } from '../../card/parking.js'
+import { replaceWitnessFieldsLine, witnessFieldsOf } from '../../card/witness-fields.js'
 import { admittedCardFile, runAdmit, witnessesOf } from './admit.js'
 import { TOUCHES_HEADER } from './confirm.js'
 import { exportRefusalReason, runExport } from './export.js'
@@ -98,7 +100,25 @@ function witnessSplit(change: string, witnesses: readonly string[]): [string, st
   return null
 }
 
+function withWitnessField(lines: string[], fields: readonly WitnessField[], change: string): string[] | string {
+  const at = change.indexOf('=')
+  const id = change.slice(0, Math.max(at, 0)).trim()
+  if (!fields.some(field => field.id === id))
+    return `--witness ${change}: the card's witnesses are fields; give <id>=<the witness field as JSON>, the id one of ${fields.map(field => field.id).join(', ')}`
+  let next: unknown
+  try {
+    next = JSON.parse(change.slice(at + 1))
+  }
+  catch (error) {
+    return `--witness ${change}: the new witness field is not JSON: ${error instanceof Error ? error.message : String(error)}`
+  }
+  return replaceWitnessFieldsLine(lines, fields.map(field => field.id === id ? next : field))
+}
+
 function withWitness(lines: string[], change: string): string[] | string {
+  const fields = witnessFieldsOf(lines.join('\n'))
+  if (fields !== null)
+    return withWitnessField(lines, fields, change)
   const split = witnessSplit(change, witnessesOf(lines.join('\n')))
   if (split === null)
     return `--witness ${change}: no witness of the card stands left of an =; give <old witness>=<new witness>`
