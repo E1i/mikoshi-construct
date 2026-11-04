@@ -29,6 +29,8 @@ node scripts/construct/browser-lab.mjs page <url> --extension <dir> --prefix <te
 node scripts/construct/browser-lab.mjs page <url> --extension <dir> --profile-from <dir>
 node scripts/construct/browser-lab.mjs hands --extension <dir> --profile <dir> -- open <url>
 node scripts/construct/browser-lab.mjs hands --extension <dir> --profile <dir> -- close
+node scripts/construct/browser-lab.mjs page <url> --viewport <w[xh]> --color-scheme <light|dark> --press <keys>
+node scripts/construct/browser-lab.mjs hands --profile <dir> -- open <url>
 ```
 
 `page` prints `console`: every message of every level from the page and from the content-script world of the
@@ -36,10 +38,16 @@ extension, each with its `world` (`page` or `content-script`); `--prefix <text>`
 with it. `--route <url-glob> <file>` (repeatable) answers the page requests matching the glob with the file; requests
 of the service worker are not routed, they belong to the adapter. `--shot <file>` writes a screenshot.
 
+`--viewport <w[xh]>` opens the page at that size in pixels, height 800 when only the width is given. `--color-scheme
+<light|dark>` sets `prefers-color-scheme`. `--press <keys>` presses each space-separated key or chord in turn after the
+load and `--wait` (`--press 'Tab Enter Control+K'`); `--for <ms>` gives the page time to answer. The output repeats what
+was asked. These three belong to `page`, with or without `--extension`.
+
 `--profile-from <dir>` runs on a fresh copy of a base profile and deletes the copy at the end, so several runs can go
 in parallel; an extension whose manifest has no `key` gets another id in the copy.
 
-`hands` runs `@playwright/cli` (pinned) on the lab copy of the extension and the `--profile <dir>` given; its own
+`hands` runs `@playwright/cli` (pinned) on the `--profile <dir>` given, with the lab copy of the extension when
+`--extension <dir>` is given and on a plain site without it; its own
 arguments go after `--`, and `snapshot` with element refs, `click` and `fill` come from it. It runs its own bundled
 Playwright, so a second Chromium build is installed beside the lab's. The session stays open between calls: end it
 with `hands … -- close` before any other command uses the same profile.
