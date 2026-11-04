@@ -96,7 +96,7 @@
     "ghosts:watch": "node --import tsx scripts/ladder/watch.ts",
     "intake": "node --import tsx scripts/intake/intake.ts",
     "layers:check": "depcruise --config .dependency-cruiser.mjs --ignore-known .dependency-cruiser-known-violations.json scripts src",
-    "lint": "eslint .",
+    "lint": "node --import tsx scripts/quality/lock.ts eslint .",
     "model:check": "node --import tsx scripts/model/check.ts",
     "model:render": "node --import tsx scripts/model/sync-docs.ts",
     "lint:fix": "eslint --fix .",

@@ -7,6 +7,7 @@ import type { InForceDecision } from '../policy/decisions.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -71,8 +72,18 @@ export interface Handoff {
   text: string | null
 }
 
+export interface MachineLoad {
+  load: number
+  cores: number
+}
+
+export function machineLoad(): MachineLoad {
+  return { load: os.loadavg()[0]!, cores: os.availableParallelism() }
+}
+
 export interface BoardPage {
   version: string
+  machine: MachineLoad
   liveness: FactoryState
   modelVersion: number | null
   facts: BusFacts
@@ -448,6 +459,7 @@ function headerReadings(page: BoardPage): string {
     `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>`,
     `<span>written <b>${escaped(facts.at)}</b></span>`,
     `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b></span>`,
+    `<span>load <b>${page.machine.load.toFixed(1)} / ${page.machine.cores} cores</b></span>`,
     `<span class="live" id="${BUS_LIVE}"${page.liveness === FACTORY_LIVE ? '' : ' data-stale'}>${page.liveness === FACTORY_LIVE ? 'bus live' : OFFLINE_READING}</span>`,
   ].join('')
 }
@@ -1398,6 +1410,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
   const facts = busFacts(db, now)
   return {
     version: currentVersion(),
+    machine: machineLoad(),
     liveness: factoryLiveness(busPath, now.getTime()).state,
     modelVersion: readModelVersion(),
     facts,
