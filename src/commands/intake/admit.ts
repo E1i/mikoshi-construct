@@ -24,7 +24,7 @@ import { fieldCommand, isAcceptanceField, judgedCommand, renderedWitness, runsFi
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
-import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, TOUCHES_HEADER } from './confirm.js'
+import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedRecord, defaultParking, INTAKE_EXIT, knownCards, recordIntake } from './index.js'
@@ -164,7 +164,7 @@ export type AdmitResult
   = | { status: 'refused', why: string }
     | { status: 'invalidTestPattern', reasons: string[] }
     | { status: 'sharedCodeMask', reasons: string[] }
-    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean, event: number | null }
+    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean, event: number | null, windowShard: string | null }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
     | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
     | { status: 'ownerWait', file: string, card: SlicedCard, downgrades: string[], inBus: boolean, dryRun: boolean }
@@ -474,11 +474,9 @@ function sameCardLine(recorded: string, line: string): boolean {
   return recordedCard.kind === 'card' && cardLine(recordedCard.card) === wanted
 }
 
-const RECORDED_CONFIRMATION: Record<Confirmation, Confirmation> = { auto: 'auto', person: 'person', none: 'none' }
-
 function recordedConfirmation(recorded: RecordedIntake, card: SlicedCard, autoConfirm: boolean): Confirmation {
   const { confirmation } = recorded
-  return typeof confirmation === 'string' && Object.hasOwn(RECORDED_CONFIRMATION, confirmation) ? RECORDED_CONFIRMATION[confirmation as Confirmation] : confirmationOf(card, autoConfirm)
+  return isConfirmation(confirmation) ? confirmation : confirmationOf(card, autoConfirm)
 }
 
 function recordedSource(recorded: RecordedIntake): string | undefined {
@@ -506,7 +504,7 @@ function parkedAcrossLanes(file: string, root: string): string[] {
 
 function admitConfirmation(card: SlicedCard, autoConfirm: boolean): Confirmation {
   if (!autoConfirm && admitCorrectionsNeedPerson(card))
-    return 'person'
+    return tokenConfirmation()
   return confirmationOf(card, autoConfirm)
 }
 
@@ -599,7 +597,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   }
   const recorded = latestIntake(card, options.admissions)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
-  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined, event: null }
+  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined, event: null, windowShard: windowShard() }
   const inJournal = (status: 'admitted' | 'alreadyAdmitted'): AdmitResult => {
     if (options.events === undefined || options.admissions === undefined)
       return { ...base, status }
@@ -694,7 +692,7 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
       ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrected(correctionText(correction))}`))
   }
   if (card.corrections.length > 0 && result.status === 'admitted')
-    ui.line(ui.theme.dim(`  ${ui.lore.intakeConfirmed(card.corrections.length, result.autoConfirm, result.inBus)}`))
+    ui.line(ui.theme.dim(`  ${ui.lore.intakeConfirmed(card.corrections.length, result.autoConfirm, result.inBus, result.windowShard)}`))
   if (card.unclear.length > 0)
     ui.line(ui.theme.dim(`  ${ui.lore.intakeAdmitUnclear(card.unclear.length)}`))
   if (result.status === 'dryRun')
