@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { writeAttachRecord } from '../../../src/commands/attach/record.js'
 import { leaseNext } from '../../core/lease.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
+import { busHeldCards } from '../../intake/intake.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { treePr } from '../../nodes/launch/tree-pr.js'
 import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
@@ -172,7 +173,7 @@ describe('push policy none', () => {
         writes.push(endpoint)
         throw new Error('written')
       }
-      const recutter = new RoundLimitRecutter({ db: made.db, gitHub: made.gitHub.client, post: record, patch: record, clock: made.clock.now, parked: () => [], pushPolicy: () => policy })
+      const recutter = new RoundLimitRecutter({ db: made.db, gitHub: made.gitHub.client, post: record, patch: record, clock: made.clock.now, cardStates: () => busHeldCards(made.db), pushPolicy: () => policy })
       const outcome = recutter.recut({ cardId: 1080, pr: 980, head: sha('a'), findings: [] })
 
       expect(writes).toEqual([])

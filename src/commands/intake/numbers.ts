@@ -24,7 +24,7 @@ export function admittedNumbers(bus: BusCardStates | undefined): number[] {
   return [...(bus ?? new Map()).keys()].flatMap(task => TAKEN_TOKEN.test(task) ? [Number(task)] : [])
 }
 
-export function nextFreeNumbers(taken: readonly number[], count: number): number[] {
-  const first = Math.max(0, ...taken) + 1
+export function nextCardNumbers(bus: BusCardStates | undefined, outsideTheBus: readonly number[], count: number): number[] {
+  const first = Math.max(0, ...admittedNumbers(bus), ...outsideTheBus) + 1
   return Array.from({ length: count }, (_, index) => first + index)
 }

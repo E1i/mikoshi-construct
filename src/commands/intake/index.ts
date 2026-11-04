@@ -20,7 +20,7 @@ import { checkDraft, checkPlan, correctionText, invalidTestPatterns, nonPathTouc
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, tokenConfirmation, windowShard } from './confirm.js'
 import { parseDraft } from './draft.js'
 import { DirectoryFacts } from './facts.js'
-import { admittedNumbers, nextFreeNumbers, parkedNumbers, parseTaken } from './numbers.js'
+import { admittedNumbers, nextCardNumbers, parkedNumbers, parseTaken } from './numbers.js'
 import { isDirectory, isWithin, parkingTree } from './parking-tree.js'
 import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
 import { cutSlices, sliceCards } from './slice.js'
@@ -218,10 +218,10 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const taken = parseTaken(takenText)
   if (taken.kind === 'refused')
     return refused('invalid', [taken.reason])
-  const parked = parkingsSharingNumbers(options.parking, options.parkingRoot ?? defaultParking()).flatMap(dir => parkedNumbers(parkedFiles(dir)))
   const cards = options.cardStates?.()
-  const used = [...taken.numbers, ...parked, ...admittedNumbers(cards)]
-  const numbers = nextFreeNumbers(used, draft.cards.length)
+  const parked = cards === undefined ? parkingsSharingNumbers(options.parking, options.parkingRoot ?? defaultParking()).flatMap(dir => parkedNumbers(parkedFiles(dir))) : []
+  const outsideTheBus = [...taken.numbers, ...parked]
+  const numbers = nextCardNumbers(cards, outsideTheBus, draft.cards.length)
   const ended = endedCards(cards)
   const checked = checkDraft(draft.cards, numbers, {
     taken: new Set(taken.numbers),
@@ -246,7 +246,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     return { status: 'awaiting', parking: options.parking, cards: slice.cards, token, stale: options.confirm !== undefined }
   const cutBySlices = slice.cards.some(card => card.slices.length > 0)
   const cut = cutBySlices ? cutSlices(checked, slice.cards) : checked
-  const parkedSlice = cutBySlices ? sliceCards(cut, nextFreeNumbers(used, cut.length), repository) : slice
+  const parkedSlice = cutBySlices ? sliceCards(cut, nextCardNumbers(cards, outsideTheBus, cut.length), repository) : slice
   if (parkedSlice.kind === 'refused')
     return refused('invalid', parkedSlice.reasons)
   const at = new Date()
