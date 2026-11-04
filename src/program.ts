@@ -111,7 +111,7 @@ const attach = withKnownFlags(defineCommand({
     requiredCheck: { type: 'string', description: 'The name of the CI check run the bus waits for; recorded in .construct/attach.json' },
     ai: { type: 'enum', options: AI_TARGETS, description: 'AI target: claude (cursor and both are refused)' },
     lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in .construct/attach.json' },
-    serve: { type: 'string', description: 'The command that brings the server up for a browser witness; needs --serve-url' },
+    serve: { type: 'string', description: 'The command that brings the server up for a browser witness; needs --serveUrl' },
     serveUrl: { type: 'string', description: 'The URL that answers once the server is up; needs --serve' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
     entry: { type: 'boolean', description: 'Print the entry protocol the agent follows to propose one harness; reads and writes nothing', default: false },

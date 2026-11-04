@@ -11,7 +11,7 @@ OPTIONS
   --requiredCheck=<required_check>    The name of the CI check run the bus waits for; recorded in .construct/attach.json                          
          --ai=<claude|cursor|both>    AI target: claude (cursor and both are refused)                                                             
                    --lanes=<lanes>    How many parallel lanes the bus runs, recorded in .construct/attach.json                                    
-                   --serve=<serve>    The command that brings the server up for a browser witness; needs --serve-url                              
+                   --serve=<serve>    The command that brings the server up for a browser witness; needs --serveUrl                               
             --serveUrl=<serve_url>    The URL that answers once the server is up; needs --serve                                                   
                          -y, --yes    Non-interactive: skip the confirmation; needs --harness (Default: false)                                    
                            --entry    Print the entry protocol the agent follows to propose one harness; reads and writes nothing (Default: false)
