@@ -15,7 +15,7 @@ import { slotsOf } from '../supervisor/scheduler.js'
 import { lastEventId } from '../window/operator-work.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
-import { drainOpen, expireLeases, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask } from './lease.js'
+import { drainOpen, expireLeases, leasedByRetiring, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
 import { STORED_COLUMNS } from './stored.js'
 
@@ -282,7 +282,7 @@ export abstract class Node<S extends NodeStep> {
       checkWake = null
       return null
     }
-    while (ctx.signal?.aborted !== true) {
+    while (ctx.signal?.aborted !== true && !this.retiring()) {
       this.recordStart()
       this.retryWhenLocked('deliver', () => this.deliver())
       const now = this.parts.clock().getTime()
@@ -300,6 +300,16 @@ export abstract class Node<S extends NodeStep> {
         await Promise.race([ctx.pause(this.pauseAfter(step)), ...inFlight.values(), checkWake ??= nextCheckWake()])
     }
     await Promise.all(inFlight.values())
+  }
+
+  private retiring(): boolean {
+    let retiring = false
+    this.retryWhenLocked('retirement read', () => {
+      retiring = workerRetiring(this.db, this.actor)
+    })
+    if (retiring)
+      this.log(`${this.actor} is retiring: it takes no new lease, finishes the rounds it holds on the code it started with, and exits`)
+    return retiring
   }
 
   private recordStart(): void {
@@ -433,7 +443,8 @@ export abstract class Node<S extends NodeStep> {
   private fill(inFlight: Map<string, Promise<S | WaitStep>>): void {
     const taken: Lease[] = []
     this.retryWhenLocked('take', () => {
-      while (inFlight.size + taken.length < this.slots) {
+      const elsewhere = leasedByRetiring(this.db, this.kind)
+      while (elsewhere + inFlight.size + taken.length < this.slots) {
         const lease = this.take()
         if (lease === null)
           break
