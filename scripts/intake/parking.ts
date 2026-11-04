@@ -90,12 +90,12 @@ export function failedCards(stops: ReadonlyMap<string, Stop>, standing: Readonly
   return new Set([...standing.keys()].filter(task => standing.get(task) === FAILED_AT && stops.get(task)?.failed === true))
 }
 
-export function choose(parked: readonly ParkedTask[], done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt> = new Map(), created: Created = () => false, failed: ReadonlySet<string> = new Set()): Choice {
+export function choose(parked: readonly ParkedTask[], done: ReadonlySet<string>, merged: ReadonlySet<string>, waiting: ReadonlyMap<string, StopAt> = new Map(), created: Created = () => false, failed: ReadonlySet<string> = new Set(), shared: readonly string[] = []): Choice {
   const chosen: ShiftTask[] = []
   const left: LeftCard[] = []
   for (const card of [...parked].sort(byPriorityThenId)) {
     const reason = leftReason(card, done, merged, waiting, created, failed)
-    const overlapping = reason === null ? chosen.find(task => taskConflicts([task, card.task]).length > 0) : undefined
+    const overlapping = reason === null ? chosen.find(task => taskConflicts([task, card.task], shared).length > 0) : undefined
     if (reason !== null)
       left.push({ id: card.task.id, reason })
     else if (overlapping !== undefined)
