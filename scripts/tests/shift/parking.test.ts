@@ -50,6 +50,18 @@ describe('choose', () => {
     const overlapping = { ...second, task: { ...second.task, touches: ['scripts/1/x.ts'] } }
     expect(choose([overlapping, first], new Set(), new Set())).toEqual({ chosen: [first.task], left: [{ id: '2', reason: 'conflicts with #1' }] })
   })
+
+  it('choose does not hold two cards apart on a shared-append file', () => {
+    const file = 'scripts/core/schema.ts'
+    const touching = (id: number): ParkedTask => {
+      const card = parked(id, 'who: shift')
+      return { ...card, task: { ...card.task, touches: [`scripts/${id}/**`, file] } }
+    }
+    const cards = [touching(1), touching(2)]
+    const declaring = (shared: string[]) => choose(cards, new Set(), new Set(), new Map(), () => false, new Set(), shared)
+    expect(declaring([file])).toEqual({ chosen: cards.map(card => card.task), left: [] })
+    expect(declaring([]).left).toEqual([{ id: '2', reason: 'conflicts with #1' }])
+  })
 })
 
 describe('leftSummary', () => {

@@ -90,7 +90,7 @@ describe('push policy none', () => {
       pushPolicy: () => policy,
     })
     const lease = { taskKey: 'answer:1:2', queue: 'answer', cardId: 1, pr: 2, head: 'a'.repeat(40), leaseGen: 1, actor: 'worker:answer:w' } as const
-    const answered = await answerer({ lease, source: { kind: 'changes', findings: [], events: [] }, widened: null, card: { session: 's0', worktree, branch: 'feat/x' } })
+    const answered = await answerer({ lease, source: { kind: 'changes', findings: [], events: [], decisions: [] }, widened: null, card: { session: 's0', worktree, branch: 'feat/x' } })
 
     expect({ published: publishes.length === 1, owner: answered.owner }).toEqual({ published, owner: null })
   })

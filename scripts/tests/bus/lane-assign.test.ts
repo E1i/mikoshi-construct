@@ -633,3 +633,48 @@ describe('a card that cannot move by itself frees its lane', () => {
     expect(launched(bench, 1)).toEqual([3])
   })
 })
+
+describe('a shared-append file chains no two cards in any lane decision', () => {
+  const SHARED = 'src/shared.ts'
+
+  function declaringShared(): void {
+    const repo = tempRoot()
+    writeFileSync(path.join(repo, 'construct.json'), JSON.stringify({ sharedAppendFiles: [SHARED] }))
+    process.chdir(repo)
+  }
+
+  it('a queued card that shares only the file with the stalled card is re-laid behind the stall', () => {
+    declaringShared()
+    const bench = new Bench(2).admit(1, SHARED).admit(2, 'src/b.ts').start(1).start(2).admit(3, SHARED).admit(4, 'src/d.ts').admit(5, SHARED)
+    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-1', 'lane-2', 'lane-1'])
+    bench.drop(4).deniedMerge(1, NO_COUNT_LINE).deniedMerge(2, NO_COUNT_LINE)
+    layLanes(bench.db, 2, TS, 'policy')
+    expect([bench.lane(3), bench.lane(5)]).toEqual(['lane-2', 'lane-1'])
+  })
+
+  it('an amend that adds only the file keeps its lane', () => {
+    declaringShared()
+    const bench = new Bench(3).admit(1, SHARED).admit(2, 'src/b.ts')
+    expect(bench.lane(2)).toBe('lane-2')
+    bench.admit(2, SHARED)
+    expect(bench.lane(2)).toBe('lane-2')
+  })
+
+  it('a reflow moves one waiting card of two that share only the file', () => {
+    declaringShared()
+    const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2).admit(3, SHARED).admit(4, 'src/d.ts').admit(5, SHARED)
+    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-1', 'lane-2', 'lane-1'])
+    bench.drop(2).drop(4)
+    layLanes(bench.db, 2, TS, 'policy')
+    expect([bench.lane(3), bench.lane(5)]).toEqual(['lane-2', 'lane-1'])
+  })
+
+  it('a reflow moves a waiting card that shares only the file with a running card', () => {
+    declaringShared()
+    const bench = new Bench(2).admit(1, SHARED).admit(2, 'src/b.ts').start(1).start(2).admit(3, SHARED).admit(4, 'src/d.ts')
+    expect([bench.lane(3), bench.lane(4)]).toEqual(['lane-1', 'lane-2'])
+    bench.drop(2).drop(4)
+    layLanes(bench.db, 2, TS, 'policy')
+    expect(bench.lane(3)).toBe('lane-2')
+  })
+})
