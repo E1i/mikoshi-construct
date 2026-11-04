@@ -9,6 +9,7 @@ import { appendCardEvent, cardBodyText, WINDOW_LANE } from '../../core/card-bodi
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, OWNER_WAIT_OPENED, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SHARD_ISSUED } from '../../core/events.js'
 import { changesRoundsOf, closedByRounds, mergeDecidedPastRoundLimit, RECUT_GRACE_MS, REVIEW_ROUNDS } from '../../core/queue.js'
+import { busHeldCards } from '../../intake/intake.js'
 import { RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../nodes/review/review-worker.js'
@@ -72,7 +73,7 @@ function fixture(shard = true, text = cardText(CARD)): Fixture {
     return { status: 201, headers: {}, body: { number } }
   }
   const gitHub: GitHub = endpoint => endpoint.includes('/issues?') ? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
-  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, parked: () => [] })
+  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db) })
   const worker = new ReviewWorker({
     isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
     db: bench.db,
