@@ -12,7 +12,7 @@ import { defaultBusPath, openBus } from '../core/db.js'
 import { MERGE_DONE } from '../core/events.js'
 import { handoffDirOf } from '../core/handoff-dir.js'
 import { busParkedDepends } from '../intake/parking-reads.js'
-import { activeDecisionsShard, VERSION_PR_RESERVATION } from '../policy/shards.js'
+import { activeDecisionsShard, OWNERS_OF_A_STOP } from '../policy/shards.js'
 import { execGh, readGhJson } from '../ports/gh.js'
 import { CARD_VARIABLE } from '../ports/session.js'
 import { MERGE_PAST_THE_BUS, readBoard } from './board.js'
@@ -26,7 +26,8 @@ import { windowOf } from './window.js'
 export const PREFIX = '[handoff:write] '
 export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md>'
 export const ARCHIVE_DIR = 'archive'
-export const OWNER_BOUNDARIES = [VERSION_PR_RESERVATION, 'owner-merged-kind', 'missing-right', 'owner-question'] as const
+const BOUNDARIES_THE_BUS_KEEPS = Object.keys(OWNERS_OF_A_STOP)
+export const OWNER_BOUNDARIES = [...BOUNDARIES_THE_BUS_KEEPS, 'owner-merged-kind', 'missing-right', 'owner-question']
 
 const ARCHIVED = /^(\d{4,})\.md$/
 const STOP_HEADING = /^#{1,6} +STOP\b/
@@ -231,7 +232,7 @@ export function ownerStatusRefusal(text: string): string | null {
   if (statusLine === undefined || statusOf(statusLine) !== 'OWNER')
     return null
   const boundary = NAMED_BOUNDARY.exec(statusLine)?.[1]
-  if (boundary !== undefined && (OWNER_BOUNDARIES as readonly string[]).includes(boundary))
+  if (boundary !== undefined && OWNER_BOUNDARIES.includes(boundary))
     return null
   return `${PREFIX}STATUS: OWNER must end with \`— boundary: <name>\`, the name one of ${OWNER_BOUNDARIES.join(', ')}; review changes, red CI, a denied form with an allowed route and who: window cards are executor work`
 }
@@ -244,9 +245,9 @@ export function ownerWhileWorkIsFreeRefusal(text: string, reading: StateReading)
 
 export function ownerUnderDecisionsShardRefusal(text: string, shard: WindowShard | null): string | null {
   const statusLine = statusLineOf(text) ?? ''
-  if (shard === null || statusOf(statusLine) !== 'OWNER' || NAMED_BOUNDARY.exec(statusLine)?.[1] === VERSION_PR_RESERVATION)
+  if (shard === null || statusOf(statusLine) !== 'OWNER' || BOUNDARIES_THE_BUS_KEEPS.includes(NAMED_BOUNDARY.exec(statusLine)?.[1] ?? ''))
     return null
-  return `${PREFIX}STATUS: OWNER under the active ${shard.scope} shard ${shard.id} (by ${shard.by}, until ${shard.until}); the window decides the question under the shard, and only boundary: ${VERSION_PR_RESERVATION} stays the owner's`
+  return `${PREFIX}STATUS: OWNER under the active ${shard.scope} shard ${shard.id} (by ${shard.by}, until ${shard.until}); the window decides the question under the shard, and only a boundary the bus keeps stays the owner's: ${BOUNDARIES_THE_BUS_KEEPS.join(', ')}`
 }
 
 export function readingRefusals(draft: string): string[] {
