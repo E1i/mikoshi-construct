@@ -70,7 +70,8 @@ each card with the grammar `task:start` reads, and writes them to `~/.construct/
 repository — see [the reference](/cli#construct-intake). `pnpm task:start <branch> --card "<card>"`
 reads the card's `touches` back from there, or from the directory `--parking <dir>` names, into the
 contract it prints and records; a missing file is named in that contract, and a file holding another
-card line is refused.
+card line is refused. A card already in the bus is edited there with `construct-intake --amend <#N>`,
+never through a file.
 
 ## 4. `/implement <task>` — the ladder
 
