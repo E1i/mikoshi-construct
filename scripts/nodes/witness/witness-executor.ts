@@ -12,16 +12,16 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
-import { MANIFEST_FILE, upgradeManifest } from '../../../src/manifest.js'
 import { CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, WITNESS_RECORDED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
 import { baseOfKey, LEASE_MS } from '../../core/queue.js'
 import { GREEN, RED, witnessSubjectOf } from '../../policy/policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
+import { serveRecordAt } from '../../ports/serve-record.js'
 import { witnessEnv } from '../../ports/session.js'
 import { runOnTreeAsync } from '../../ports/witnesses.js'
-import { gitIn, gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
+import { gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 export const WITNESS_UNRUN = 'witness_unrun'
 export const WITNESS_NO_SERVE = 'witness_no_serve'
@@ -108,7 +108,7 @@ class ServeAddressTaken extends WitnessNotRun {
 
 class NoServeDeclared extends Error {
   constructor(command: string, head: string) {
-    super(`a browser witness on a URL needs the repository's server, and there is no serve in construct.json at ${head}: declare serve: { command, url, readyTimeoutMs } there; nothing ran: ${command}`)
+    super(`a browser witness on a URL needs the repository's server, and there is no serve in construct.json at ${head} or in .construct/attach.json: declare serve: { command, url, readyTimeoutMs } in construct.json, or attach with --serve and --serve-url; nothing ran: ${command}`)
   }
 }
 
@@ -123,15 +123,6 @@ const SERVE_STDERR_TAIL = 400
 function needsServer(command: string, serve: ServeRecord | null): boolean {
   const urls = (command.match(URL_IN_COMMAND) ?? []).filter(url => URL.canParse(url)).map(url => new URL(url))
   return urls.some(url => LOOPBACK_HOSTS.has(url.hostname) || (serve !== null && url.origin === new URL(serve.url).origin))
-}
-
-function serveDeclaredAt(tree: string, head: string): ServeRecord | null {
-  try {
-    return upgradeManifest(JSON.parse(gitIn(tree, ['show', `${head}:${MANIFEST_FILE}`]))).serve ?? null
-  }
-  catch {
-    return null
-  }
 }
 
 async function answers(url: string): Promise<boolean> {
@@ -370,7 +361,7 @@ export class WitnessExecutor {
     return async (command, cwd) => {
       if (!BROWSER_COMMAND.test(command))
         return run(command, cwd)
-      const serve = serveDeclaredAt(cwd, head)
+      const serve = serveRecordAt(cwd, head)
       if (!needsServer(command, serve))
         return run(command, cwd)
       if (serve === null)

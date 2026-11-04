@@ -184,6 +184,17 @@ describe('a browser witness and the serve field', () => {
     expect(vi.mocked(console.log).mock.calls.flat().join('\n')).toContain('no serve in construct.json')
   })
 
+  it('a browser witness in an attached repository is served from .construct/attach.json', async () => {
+    const port = await freePort()
+    const w = world({ port })
+    mkdirSync(path.join(w.repo, '.construct'), { recursive: true })
+    writeFileSync(path.join(w.repo, '.construct/attach.json'), serveOf(port))
+    await witnessRun(w)
+    expect(payloadsOf(w, WITNESS_RECORDED).map(payload => payload.verdict)).toEqual([GREEN])
+    expect(payloadsOf(w, POLICY_DENIED)).toEqual([])
+    expect(labRuns(w)).toBe(2)
+  })
+
   it('a serve declared only on the head counts for the base run too', async () => {
     const port = await freePort()
     const w = world({ port, onHead: { 'construct.json': serveOf(port) } })
